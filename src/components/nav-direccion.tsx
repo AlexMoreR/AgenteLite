@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { Bell, Bot, ChartNoAxesCombined, ChevronDown, Compass, Filter, GitCompareArrows, LifeBuoy, ListFilter, Megaphone, ServerCog, ShieldCheck, Target, type LucideIcon } from "lucide-react";
+import { Bell, Bot, ChartNoAxesCombined, ChevronDown, Compass, Filter, GitCompareArrows, LifeBuoy, ListFilter, MapIcon, Megaphone, ServerCog, ShieldCheck, Target, type LucideIcon } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -41,6 +41,8 @@ const direccionViews: Array<{
   { title: "Embudo por paso", view: "embudo-por-paso", icon: ListFilter },
   // Pauta: qué campaña y anuncio de Meta traen ventas y cuánto cuesta cada una (solo lectura).
   { title: "Pauta", view: "pauta", icon: Target },
+  // Mapa de Colombia: gasto de Meta, chats y ventas por departamento, por mes (solo lectura).
+  { title: "Mapa de Colombia", view: "mapa-colombia", icon: MapIcon },
   // Recuperación de leads: solo dueño / administrador.
   { title: "Recuperación", view: "recuperacion", icon: LifeBuoy },
   { title: "Informe", view: "informe", icon: ChartNoAxesCombined },
