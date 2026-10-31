@@ -32,7 +32,9 @@ const filaBotones = clasesDe(panel, "px-3 py-1.5 @min-[520px]/chathdr:hidden");
 assert.ok(filaBotones.has("min-w-0") && filaBotones.has("overflow-x-auto"), "la segunda fila de botones debe desplazarse en su fila");
 
 const pestanas = clasesDe(panel, "items-center gap-4");
-assert.ok(pestanas.has("min-w-0") && pestanas.has("overflow-x-auto"), "la fila de pestañas debe desplazarse en su fila");
+// overflow-x-clip y no auto: auto también recortaría en vertical el subrayado de la pestaña activa (-mb-px).
+assert.ok(pestanas.has("min-w-0") && pestanas.has("overflow-x-clip"), "la fila de pestañas no debe salirse del ancho del chat");
+assert.ok(!pestanas.has("overflow-x-auto"), "la fila de pestañas no debe recortar el subrayado de la pestaña activa");
 
 const compositor = clasesDe(panel, "chat-composer z-20");
 const mensajes = clasesDe(panel, "chat-messages-scroll");

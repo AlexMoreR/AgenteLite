@@ -1969,7 +1969,8 @@ export const ConversationPanel = memo(function ConversationPanel({
             Pestañas del chat. "Cotizaciones" tiene la ficha de datos del cliente: la que hoy se
             llena releyendo la conversacion hacia arriba para copiar la cedula y la direccion.
           */}
-          <div className="flex min-w-0 shrink-0 items-center gap-4 overflow-x-auto border-b border-border bg-card px-3 md:px-5">
+          {/* overflow-x-clip (no auto): recorta solo de lado y deja ver el -mb-px del subrayado activo. */}
+          <div className="flex min-w-0 shrink-0 items-center gap-4 overflow-x-clip border-b border-border bg-card px-3 md:px-5">
             {(["mensajes", "cotizaciones"] as const).map((pestana) => {
               const activa = pestanaChat === pestana;
               return (
