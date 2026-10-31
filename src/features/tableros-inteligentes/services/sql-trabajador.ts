@@ -21,6 +21,7 @@ import {
   REPO_DE_GESTION,
   VIAS_QUE_ARRANCAN_ZONAS_SOLAS,
   ZONAS_DE_VENTAS_Y_CHATS,
+  ZONAS_QUE_ARRANCAN_POR_VOZ,
   ZONAS_QUE_ARRANCAN_SOLAS,
 } from "./reglas-trabajador";
 
@@ -214,12 +215,17 @@ const VIA_DE_LA_ULTIMA_APROBACION = `COALESCE((
 /**
  * ¿La vía de la última aprobación deja tomar la tarjeta `c`? La misma regla que laAprobacionDejaArrancar
  * (reglas-trabajador.ts): sin zona, sí; en la pantalla, sí; con zonas SOLO CHATS y/o BOT_VENTAS
- * (ZONAS_QUE_ARRANCAN_SOLAS), también automática (25-oct) o por voz (28-oct); con LIBRO_V3 o META_ADS, solo pantalla.
+ * (ZONAS_QUE_ARRANCAN_SOLAS), también automática (25-oct) o por voz (28-oct); por voz también con LIBRO_V3
+ * (ZONAS_QUE_ARRANCAN_POR_VOZ, 31-oct-2026); con META_ADS, solo pantalla.
  * Nunca da NULL (para poder negarla en SQL_FUERA_POR_LA_VIA).
  */
 const CONDICION_DE_LA_VIA = `(
       cardinality(c."zonaProtegida") = 0
       OR ${VIA_DE_LA_ULTIMA_APROBACION} = 'pantalla'
+      OR (
+        c."zonaProtegida" <@ ARRAY[${listaSql(ZONAS_QUE_ARRANCAN_POR_VOZ)}]::text[]
+        AND ${VIA_DE_LA_ULTIMA_APROBACION} = 'voz'
+      )
       OR (
         c."zonaProtegida" <@ ARRAY[${listaSql(ZONAS_QUE_ARRANCAN_SOLAS)}]::text[]
         AND ${VIA_DE_LA_ULTIMA_APROBACION} IN (${listaSql(VIAS_QUE_ARRANCAN_ZONAS_SOLAS)})

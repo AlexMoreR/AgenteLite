@@ -367,20 +367,22 @@ await prueba("alertas: de lo que se calcula, todo queda en la página y por What
   assert.equal(estado.alertas.find((a) => a.prioridad === "URGENTE").salioPorWhatsApp, true);
 });
 
-await prueba("aprobada por voz con LIBRO_V3 / META_ADS (28-oct): una alerta Alta del Coordinador por tarjeta, con el link; CHATS por voz no", async () => {
+await prueba("aprobada por voz con META_ADS: una alerta Alta del Coordinador por tarjeta, con el link; CHATS y LIBRO_V3 por voz no (31-oct)", async () => {
   const base = { latidoEn: DIA.toISOString(), enCurso: [], enFila: 2, esperando: [] };
   const fuera = [
-    { id: "t1", titulo: "Arreglar el libro", estado: "APROBADO", zonaProtegida: ["LIBRO_V3"], via: "voz" },
+    { id: "t1", titulo: "Arreglar el libro", estado: "APROBADO", zonaProtegida: ["META_ADS"], via: "voz" },
     { id: "t2", titulo: "Campaña nueva", estado: "PLAN_APROBADO", zonaProtegida: ["CHATS", "META_ADS"], via: "voz" },
     // Ya no espera (voz + CHATS): no avisa aunque llegara.
     { id: "t3", titulo: "Chats", estado: "APROBADO", zonaProtegida: ["CHATS"], via: "voz" },
+    // Libro V3 por voz ya arranca (31-oct-2026): tampoco avisa.
+    { id: "t4", titulo: "Libro", estado: "APROBADO", zonaProtegida: ["LIBRO_V3"], via: "voz" },
   ];
   const calculados = avisos.calcularAvisos({ ...base, fueraPorLaVia: fuera }, DIA).filter((a) => a.tipo === "aprobar_en_pantalla");
   assert.deepEqual(calculados.map((a) => [a.clave, a.prioridad, a.link]), [
     ["auto:necesita:t1:VIA_PANTALLA", "ALTA", "https://app.aizenbot.com/cliente/tablero-ia?tarjeta=t1"],
     ["auto:necesita:t2:VIA_PANTALLA", "ALTA", "https://app.aizenbot.com/cliente/tablero-ia?tarjeta=t2"],
   ]);
-  assert.equal(calculados[0].titulo, "«Arreglar el libro» está aprobada por voz pero toca Libro V3: apruébala en pantalla para que arranque");
+  assert.equal(calculados[0].titulo, "«Arreglar el libro» está aprobada por voz pero toca Meta Ads: apruébala en pantalla para que arranque");
   assert.match(calculados[1].titulo, /toca Meta Ads: apruébala en pantalla/);
   assert.deepEqual(avisos.calcularAvisos(base, DIA), [], "sin la lista, nada");
 
@@ -400,16 +402,16 @@ await prueba("aprobada por voz con LIBRO_V3 / META_ADS (28-oct): una alerta Alta
   reiniciar();
 });
 
-await prueba("SUBIENDO pendiente por voz con LIBRO_V3 (31-oct): UN aviso aprobar_en_pantalla con su link; la misma clave que en PLAN_APROBADO", async () => {
+await prueba("SUBIENDO pendiente por voz con META_ADS (31-oct): UN aviso aprobar_en_pantalla con su link; la misma clave que en PLAN_APROBADO", async () => {
   const base = { latidoEn: DIA.toISOString(), enCurso: [], enFila: 0, esperando: [] };
-  const sube = { id: "s1", titulo: "Seguimientos que escuchan al cliente", estado: "SUBIENDO", zonaProtegida: ["LIBRO_V3"], via: "voz" };
+  const sube = { id: "s1", titulo: "Seguimientos que escuchan al cliente", estado: "SUBIENDO", zonaProtegida: ["META_ADS"], via: "voz" };
   const calculados = avisos.calcularAvisos({ ...base, fueraPorLaVia: [sube] }, DIA).filter((a) => a.tipo === "aprobar_en_pantalla");
   assert.equal(calculados.length, 1, "un solo aviso");
   assert.deepEqual(
     [calculados[0].clave, calculados[0].prioridad, calculados[0].link],
     ["auto:necesita:s1:VIA_PANTALLA", "ALTA", "https://app.aizenbot.com/cliente/tablero-ia?tarjeta=s1"],
   );
-  assert.match(calculados[0].titulo, /toca Libro V3: apruébala en pantalla para que arranque/);
+  assert.match(calculados[0].titulo, /toca Meta Ads: apruébala en pantalla para que arranque/);
   const antes = avisos.calcularAvisos({ ...base, fueraPorLaVia: [{ ...sube, estado: "PLAN_APROBADO" }] }, DIA).filter((a) => a.tipo === "aprobar_en_pantalla");
   assert.deepEqual(antes.map((a) => a.clave), [calculados[0].clave], "al pasar de PLAN_APROBADO a SUBIENDO no avisa dos veces");
 });

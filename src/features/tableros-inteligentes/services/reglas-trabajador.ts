@@ -32,9 +32,9 @@
   3. Por el MCP (via 'voz') se aprueba solo si la persona lo dijo explícitamente: el texto tiene que
      decir "sí" y "apruebo". Las tarjetas con zona protegida se aprueban solo por el dueño; las de bot de
      ventas, Meta Ads, libro V3 y chats también se aprueban por voz (ZONAS_QUE_SUBEN_SOLAS). Para que el
-     Coordinador TOME una tarjeta con zona (28-oct-2026, laAprobacionDejaArrancar = el filtro SQL de /tomar): la
-     voz cuenta igual que la pantalla si las zonas son solo CHATS y/o BOT_VENTAS; con LIBRO_V3 o META_ADS se
-     vuelve a aprobar en la pantalla (y queda una alerta del Coordinador hasta que se haga).
+     Coordinador TOME una tarjeta con zona (laAprobacionDejaArrancar = el filtro SQL de /tomar): la voz cuenta igual
+     que la pantalla si las zonas son CHATS, BOT_VENTAS y/o LIBRO_V3 (31-oct-2026, reemplaza la regla del 28-oct que
+     pedía la pantalla para LIBRO_V3); con META_ADS se vuelve a aprobar en la pantalla (y queda una alerta).
   4. El sí final ('subir') lo da solo el DUEÑO del negocio (SI_FINAL_SOLO_DUENO), y solo si el
      Coordinador dijo que todo pasó (resultado.paso = true). Hoy solo hace falta para las tarjetas sin zona de un
      repo con `subirSolo` apagado, las de Libro V3, el gasto en Meta Ads y las que ya estaban POR_REVISAR (las de
@@ -146,23 +146,37 @@ export function zonasQueNoArrancanSolas(zonas: readonly string[]): string[] {
 export const VIAS_QUE_ARRANCAN_ZONAS_SOLAS = ["automatica", "voz"] as const;
 
 /**
+ * Zonas en que la aprobación POR VOZ basta para que el Coordinador tome y suba la tarjeta (decisión del dueño, 31-oct-2026:
+ * "Libro V3 y bot de ventas se aprueban solo por voz", reemplaza la regla del 28-oct). LIBRO_V3 no arranca sola (sin
+ * aprobación automática): necesita la voz o la pantalla. META_ADS sigue pidiendo la pantalla.
+ */
+export const ZONAS_QUE_ARRANCAN_POR_VOZ: readonly ZonaProtegida[] = ["CHATS", "BOT_VENTAS", "LIBRO_V3"];
+
+/** De estas zonas, las que la voz NO destraba (vacío = la voz basta). */
+export function zonasQueNoArrancanPorVoz(zonas: readonly string[]): string[] {
+  return zonas.filter((zona) => !(ZONAS_QUE_ARRANCAN_POR_VOZ as readonly string[]).includes(zona));
+}
+
+/**
  * ¿La última aprobación deja que el Coordinador tome esta tarjeta? Es la MISMA regla que el filtro de /candidatas y
- * /tomar (condicionDeLaVia en sql-trabajador.ts): sin zona, siempre; en la pantalla, siempre; con zona SOLO CHATS y/o
- * BOT_VENTAS, también por voz o automática; con LIBRO_V3 o META_ADS, solo en la pantalla.
+ * /tomar (condicionDeLaVia en sql-trabajador.ts): sin zona, siempre; en la pantalla, siempre; por voz, si sus zonas son
+ * de ZONAS_QUE_ARRANCAN_POR_VOZ (CHATS, BOT_VENTAS, LIBRO_V3, 31-oct-2026); automática, solo CHATS y/o BOT_VENTAS;
+ * con META_ADS, solo en la pantalla.
  */
 export function laAprobacionDejaArrancar(zonas: readonly string[], via: string | null | undefined): boolean {
   if (!zonas.length || via === "pantalla") return true;
+  if (via === "voz") return zonasQueNoArrancanPorVoz(zonas).length === 0;
   if (zonasQueNoArrancanSolas(zonas).length) return false;
   return (VIAS_QUE_ARRANCAN_ZONAS_SOLAS as readonly string[]).includes(via ?? "");
 }
 
 /**
- * Las zonas por las que una tarjeta aprobada espera la pantalla ([] = la vía alcanza). Solo las que no arrancan solas
- * (LIBRO_V3, META_ADS); si la vía no es conocida y todas arrancan solas, todas las de la tarjeta.
+ * Las zonas por las que una tarjeta aprobada espera la pantalla ([] = la vía alcanza). Por voz, solo las que la voz no
+ * destraba (META_ADS); por otra vía, las que no arrancan solas; si no se sabe cuáles, todas las de la tarjeta.
  */
 export function zonasQueEsperanLaPantalla(zonas: readonly string[], via: string | null | undefined): string[] {
   if (laAprobacionDejaArrancar(zonas, via)) return [];
-  const faltan = zonasQueNoArrancanSolas(zonas);
+  const faltan = via === "voz" ? zonasQueNoArrancanPorVoz(zonas) : zonasQueNoArrancanSolas(zonas);
   return faltan.length ? faltan : [...zonas];
 }
 
