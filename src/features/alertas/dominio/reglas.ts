@@ -207,15 +207,81 @@ export function motivoCierraLaClave(motivo: MotivoDeCierre, clave: string, tarje
 
 const MESES_CORTOS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
 
-/** La línea que se agrega al detalle de una alerta que se cerró sola: "Resuelta sola: <motivo> (<d-mmm HH:mm>)", hora de Bogotá. */
-export function lineaDeCierre(motivo: MotivoDeCierre, ahora: Date): string {
+/** "d-mmm HH:mm" en hora de Bogotá (p. ej. "30-oct 14:05"). */
+function cuandoEnBogota(ahora: Date): string {
   const partes = Object.fromEntries(
     new Intl.DateTimeFormat("en-US", { timeZone: ZONA, day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
       .formatToParts(ahora)
       .map((parte) => [parte.type, parte.value]),
   );
-  const cuando = `${Number(partes.day)}-${MESES_CORTOS[Number(partes.month) - 1]} ${partes.hour}:${partes.minute}`;
-  return `Resuelta sola: ${ETIQUETA_DE_MOTIVO_DE_CIERRE[motivo]} (${cuando})`;
+  return `${Number(partes.day)}-${MESES_CORTOS[Number(partes.month) - 1]} ${partes.hour}:${partes.minute}`;
+}
+
+/** La línea que se agrega al detalle de una alerta que se cerró sola: "Resuelta sola: <motivo> (<d-mmm HH:mm>)", hora de Bogotá. */
+export function lineaDeCierre(motivo: MotivoDeCierre, ahora: Date): string {
+  return `Resuelta sola: ${ETIQUETA_DE_MOTIVO_DE_CIERRE[motivo]} (${cuandoEnBogota(ahora)})`;
+}
+
+/** La línea del barrido de cada minuto: "Resuelta sola: la tarjeta ya avanzó o se cerró (<d-mmm HH:mm>)". */
+export function lineaDeCierreDelBarrido(ahora: Date): string {
+  return `Resuelta sola: la tarjeta ya avanzó o se cerró (${cuandoEnBogota(ahora)})`;
+}
+
+/** La línea de la limpieza única de los avisos viejos del Coordinador (los que no traen el id de la tarjeta). */
+export function lineaDeCierreDeLaLimpieza(titulo: string, ahora: Date): string {
+  return `Resuelta sola: la tarjeta «${tituloCorto(titulo, 80)}» ya avanzó o se cerró; limpieza única de los avisos viejos (${cuandoEnBogota(ahora)})`;
+}
+
+/* ───────────── BARRIDO (cada minuto) Y LIMPIEZA ÚNICA (avisos viejos del Coordinador) ───────────── */
+
+/** Los estados de una tarjeta, tal como están en Prisma (EstadoTarjeta). */
+const ESTADOS_DE_TARJETA = new Set(["IDEA", "POR_APROBAR", "APROBADO", "EN_CURSO", "HECHO", "FALLIDO", "PLANEANDO", "PLAN_LISTO", "PLAN_APROBADO", "POR_REVISAR", "SUBIENDO", "ERROR"]);
+/** Cerrada: ninguna alerta suya sigue sirviendo. */
+const ESTADOS_CERRADOS = new Set(["HECHO", "FALLIDO"]);
+/** Ya aprobada y en manos del Coordinador: la pregunta del Coordinador ya no espera al dueño. */
+const ESTADOS_YA_APROBADOS = new Set(["APROBADO", "PLAN_APROBADO", "PLANEANDO", "EN_CURSO", "SUBIENDO"]);
+
+export type TarjetaDelBarrido = { estado: string; borradoEn: Date | string | null };
+
+/**
+ * ¿Esta alerta de tarjeta ya no aplica? (barrido de cada minuto). Sí cuando la tarjeta no existe o está borrada, está en
+ * HECHO o FALLIDO, la clave `auto:trabado|necesita:<id>:<ESTADO>` trae un estado distinto del de hoy, o es una
+ * `coord:necesita` y la tarjeta ya está aprobada o en curso. Una clave que no es de tarjeta (`terminada:<id>` y demás)
+ * nunca se cierra acá. Un sufijo que no es un estado (p. ej. `VIA_PANTALLA`, o el motivo de `auto:equipo`) no se compara.
+ */
+export function alertaYaNoAplica(clave: string, tarjeta: TarjetaDelBarrido | null): boolean {
+  const texto = String(clave ?? "");
+  if (texto.startsWith("terminada:") || !idDeTarjetaDeLaClave(texto)) return false;
+  if (!tarjeta || tarjeta.borradoEn) return true;
+  if (ESTADOS_CERRADOS.has(tarjeta.estado)) return true;
+  const partes = texto.split(":");
+  const tipo = tipoDeClaveDeTarjeta(partes);
+  if (tipo === "auto:trabado" || tipo === "auto:necesita") {
+    const estadoDeLaClave = partes[3] ?? "";
+    return ESTADOS_DE_TARJETA.has(estadoDeLaClave) && estadoDeLaClave !== tarjeta.estado;
+  }
+  if (tipo === "coord:necesita") return ESTADOS_YA_APROBADOS.has(tarjeta.estado);
+  return false;
+}
+
+/**
+ * Limpieza única: ¿las tarjetas con el título del aviso viejo ya no esperan nada? Solo si hay al menos una y TODAS están
+ * aprobadas o más adelante, HECHO, FALLIDO o borradas. Sin ninguna, o con una que todavía espera (por aprobar, plan listo,
+ * por revisar, error…), no: ante la duda la alerta queda abierta.
+ */
+export function tarjetasYaNoEsperan(tarjetas: readonly TarjetaDelBarrido[]): boolean {
+  return tarjetas.length > 0 && tarjetas.every((t) => !!t.borradoEn || ESTADOS_CERRADOS.has(t.estado) || ESTADOS_YA_APROBADOS.has(t.estado));
+}
+
+/**
+ * El título de un aviso viejo `coord:necesita:<texto>`: lo que va en `para "Título"` o entre `«Título»`. null si no está
+ * (la limpieza no adivina).
+ */
+export function tituloEntreComillasDelAviso(texto: string): string | null {
+  const valor = String(texto ?? "");
+  const encontrado = /\bpara\s+[“"]([^"”\n]+)[”"]/i.exec(valor) ?? /«([^»\n]+)»/.exec(valor);
+  const titulo = encontrado?.[1]?.trim() ?? "";
+  return titulo ? titulo : null;
 }
 
 /**

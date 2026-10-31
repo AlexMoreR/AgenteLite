@@ -1,15 +1,21 @@
 import { prisma } from "@/lib/prisma";
 
 import {
+  alertaYaNoAplica,
   areaDeLaRuta,
   claveResponsableDeSistemas,
+  idDeTarjetaDeLaClave,
   lineaDeCierre,
+  lineaDeCierreDeLaLimpieza,
+  lineaDeCierreDelBarrido,
   motivoCierraLaClave,
   ordenarAlertas,
   puedeVerAlerta,
   salePorWhatsApp,
+  tarjetasYaNoEsperan,
   textoDeUrgente,
   tituloCorto,
+  tituloEntreComillasDelAviso,
   type AreaDeAlerta,
   type EstadoDeAlerta,
   type MotivoDeCierre,
@@ -250,6 +256,9 @@ export async function marcarAlerta(workspaceId: string, id: string, nuevo: "VIST
   return true;
 }
 
+/** Las claves de alerta que hablan de una tarjeta (las que pueden llevar su id). */
+const PREFIJOS_DE_TARJETA = ["auto:necesita:", "auto:trabado:", "auto:equipo:", "coord:necesita:"];
+
 /**
  * Cierra solas las alertas abiertas de una tarjeta cuando el dueño la aprueba, responde la pregunta o la tarjeta se
  * cierra (HECHO, FALLIDO o borrada). Qué claves cierra cada motivo lo dice `motivoCierraLaClave`. Cada una queda
@@ -262,7 +271,7 @@ export async function cerrarAlertasDeTarjeta(workspaceId: string, tarjetaId: str
       where: {
         workspaceId,
         estado: { not: "RESUELTA" },
-        OR: ["auto:necesita", "auto:trabado", "auto:equipo", "coord:necesita"].map((tipo) => ({ clave: { startsWith: `${tipo}:${tarjetaId}:` } })),
+        OR: PREFIJOS_DE_TARJETA.map((prefijo) => ({ clave: { startsWith: `${prefijo}${tarjetaId}:` } })),
       },
       select: { id: true, clave: true, detalle: true },
     });
@@ -270,18 +279,98 @@ export async function cerrarAlertasDeTarjeta(workspaceId: string, tarjetaId: str
     let cerradas = 0;
     for (const alerta of abiertas) {
       if (!motivoCierraLaClave(motivo, alerta.clave, tarjetaId)) continue;
-      const detalle = alerta.detalle?.trim() ? `${alerta.detalle.trim()}\n\n${linea}` : linea;
       // Condicionada a que siga abierta: si alguien la resolvió un instante antes, no se le pisa la hora.
-      const hecho = await prisma.alertaInterna.updateMany({
-        where: { id: alerta.id, estado: { not: "RESUELTA" } },
-        data: { estado: "RESUELTA", resueltaEn: ahora, detalle },
-      });
-      cerradas += hecho.count;
+      cerradas += await cerrarConLinea(alerta, linea, ahora);
     }
     return cerradas;
   } catch (error) {
     console.warn("[alertas] no se pudieron cerrar las alertas de la tarjeta", { tarjetaId, motivo, error: error instanceof Error ? error.message : String(error) });
     return 0;
+  }
+}
+
+/** Cierra una alerta abierta con la línea al final del detalle. Condicionada a que siga abierta (no pisa una resuelta a mano). */
+async function cerrarConLinea(alerta: { id: string; detalle: string | null }, linea: string, ahora: Date): Promise<number> {
+  const detalle = alerta.detalle?.trim() ? `${alerta.detalle.trim()}\n\n${linea}` : linea;
+  const hecho = await prisma.alertaInterna.updateMany({ where: { id: alerta.id, estado: { not: "RESUELTA" } }, data: { estado: "RESUELTA", resueltaEn: ahora, detalle } });
+  return hecho.count;
+}
+
+/**
+ * BARRIDO de cada minuto (lo llama el reloj de los avisos al dueño): las alertas abiertas de una tarjeta que ya avanzó o se
+ * cerró quedan RESUELTAS con "Resuelta sola: la tarjeta ya avanzó o se cerró (…)". Qué cuenta como "ya no aplica" lo dice
+ * `alertaYaNoAplica`. Las tarjetas se leen en UNA consulta, borradas incluidas. Nunca lanza; devuelve cuántas cerró.
+ */
+export async function barrerAlertasDeTarjetas(workspaceId: string, ahora = new Date()): Promise<number> {
+  try {
+    const abiertas = await prisma.alertaInterna.findMany({
+      where: { workspaceId, estado: { not: "RESUELTA" }, OR: PREFIJOS_DE_TARJETA.map((prefijo) => ({ clave: { startsWith: prefijo } })) },
+      select: { id: true, clave: true, detalle: true },
+    });
+    const conTarjeta = abiertas.map((alerta) => ({ alerta, tarjetaId: idDeTarjetaDeLaClave(alerta.clave) })).filter((x): x is { alerta: (typeof abiertas)[number]; tarjetaId: string } => !!x.tarjetaId);
+    if (!conTarjeta.length) return 0;
+    const tarjetas = await prisma.tarjetaTablero.findMany({
+      where: { id: { in: [...new Set(conTarjeta.map((x) => x.tarjetaId))] }, tablero: { workspaceId } },
+      select: { id: true, estado: true, borradoEn: true },
+    });
+    const porId = new Map(tarjetas.map((t) => [t.id, t]));
+    const linea = lineaDeCierreDelBarrido(ahora);
+    let cerradas = 0;
+    for (const { alerta, tarjetaId } of conTarjeta) {
+      if (!alertaYaNoAplica(alerta.clave, porId.get(tarjetaId) ?? null)) continue;
+      cerradas += await cerrarConLinea(alerta, linea, ahora);
+    }
+    return cerradas;
+  } catch (error) {
+    console.warn("[alertas] no se pudo barrer las alertas de tarjetas", { workspaceId, error: error instanceof Error ? error.message : String(error) });
+    return 0;
+  }
+}
+
+/** La marca de la limpieza única de los avisos viejos del Coordinador: con la fila, no vuelve a correr. */
+export const claveLimpiezaDelCoordinador = (workspaceId: string) => `alertas:limpieza-coordinador-v1:${workspaceId}`;
+
+const PREFIJO_COORD_NECESITA = "coord:necesita:";
+
+/**
+ * LIMPIEZA ÚNICA (30-oct-2026) de los avisos viejos del Coordinador `coord:necesita:<texto>` (de antes de que llevaran el id
+ * de la tarjeta). De cada uno saca el título (`para "Título"` o `«Título»`) y busca las tarjetas del negocio con ese título
+ * exacto, borradas incluidas. La cierra SOLO si hay al menos una y ninguna espera (`tarjetasYaNoEsperan`); sin título, sin
+ * tarjetas o con duda, la deja abierta. Al terminar guarda la marca en AppSetting y deja en el registro cuántas cerró y
+ * cuántas dejó. Si no pudo leer las alertas no guarda la marca (lo intenta en la siguiente vuelta). Nunca lanza.
+ */
+export async function limpiezaUnicaDelCoordinador(workspaceId: string, ahora = new Date()): Promise<{ hecha: boolean; cerradas: number; dejadas: number }> {
+  const key = claveLimpiezaDelCoordinador(workspaceId);
+  try {
+    if (await prisma.appSetting.findUnique({ where: { key }, select: { value: true } })) return { hecha: false, cerradas: 0, dejadas: 0 };
+    const abiertas = await prisma.alertaInterna.findMany({
+      where: { workspaceId, estado: { not: "RESUELTA" }, clave: { startsWith: PREFIJO_COORD_NECESITA } },
+      select: { id: true, clave: true, detalle: true },
+    });
+    let cerradas = 0;
+    let dejadas = 0;
+    for (const alerta of abiertas) {
+      // Las nuevas (con id) las cuida el barrido; acá solo las viejas.
+      if (idDeTarjetaDeLaClave(alerta.clave)) continue;
+      try {
+        const titulo = tituloEntreComillasDelAviso(alerta.clave.slice(PREFIJO_COORD_NECESITA.length));
+        const tarjetas = titulo
+          ? await prisma.tarjetaTablero.findMany({ where: { titulo, tablero: { workspaceId } }, select: { estado: true, borradoEn: true } })
+          : [];
+        if (titulo && tarjetasYaNoEsperan(tarjetas)) cerradas += await cerrarConLinea(alerta, lineaDeCierreDeLaLimpieza(titulo, ahora), ahora);
+        else dejadas += 1;
+      } catch (error) {
+        dejadas += 1;
+        console.warn("[alertas] limpieza única: no se pudo revisar una alerta", { id: alerta.id, error: error instanceof Error ? error.message : String(error) });
+      }
+    }
+    const value = JSON.stringify({ cuando: ahora.toISOString(), cerradas, dejadas });
+    await prisma.appSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+    console.info("[alertas] limpieza única del Coordinador", { workspaceId, cerradas, dejadas });
+    return { hecha: true, cerradas, dejadas };
+  } catch (error) {
+    console.warn("[alertas] no se pudo hacer la limpieza única del Coordinador", { workspaceId, error: error instanceof Error ? error.message : String(error) });
+    return { hecha: false, cerradas: 0, dejadas: 0 };
   }
 }
 

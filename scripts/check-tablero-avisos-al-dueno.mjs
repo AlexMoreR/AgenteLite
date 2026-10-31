@@ -47,6 +47,12 @@ const coincideLinea = (l, where) =>
   (!where.evolutionInstanceName || l.evolutionInstanceName) &&
   (!where.name || l.name.toLowerCase() === where.name.equals.toLowerCase());
 
+// Como la base: las tarjetas sueltas y también las en curso y las que esperan al dueño (todas del negocio ws1).
+const todasLasTarjetas = () => [
+  ...estado.tarjetas,
+  ...[...estado.enCurso, ...estado.esperando].map((t) => ({ workspaceId: "ws1", borradoEn: null, ...t })),
+];
+
 const falso = {
   appSetting: {
     findUnique: async ({ where }) => (estado.ajustes.has(where.key) ? { value: estado.ajustes.get(where.key) } : null),
@@ -61,8 +67,11 @@ const falso = {
   workspaceMember: { findMany: async () => estado.miembros },
   tarjetaTablero: {
     // Como Prisma: con `repo: { not: null }` quedan fuera las tarjetas sin repo (tareas humanas). Sin decir repo, es de aizencrm.
+    // El barrido (por ids) y la limpieza única (por título) leen estado.tarjetas, borradas incluidas.
     findMany: async ({ where } = {}) =>
-      estado.enCurso
+      where?.id?.in || where?.titulo
+        ? todasLasTarjetas().filter((t) => t.workspaceId === where.tablero?.workspaceId && (where.id?.in ? where.id.in.includes(t.id) : t.titulo === where.titulo))
+        : estado.enCurso
         .map((t) => ({ repo: "aizencrm", ...t, trabajoIniciadoEn: null, creadoEn: new Date("2026-10-26T00:00:00Z") }))
         .filter((t) => !(where?.repo && "not" in where.repo && where.repo.not === null) || t.repo !== null),
     count: async () => estado.enFila,
@@ -87,8 +96,20 @@ const falso = {
       return fila;
     },
     updateMany: async ({ where, data }) => {
-      for (const a of estado.alertas.filter((x) => x.workspaceId === where.workspaceId && x.clave === where.clave)) Object.assign(a, data);
+      const filas = where.id
+        ? estado.alertas.filter((x) => x.id === where.id && x.estado !== where.estado?.not)
+        : estado.alertas.filter((x) => x.workspaceId === where.workspaceId && x.clave === where.clave);
+      for (const a of filas) Object.assign(a, data);
+      return { count: filas.length };
     },
+    // El barrido y la limpieza: las abiertas del negocio con alguno de los prefijos (OR) o con el prefijo de la clave.
+    findMany: async ({ where }) =>
+      estado.alertas.filter(
+        (a) =>
+          a.workspaceId === where.workspaceId &&
+          a.estado !== where.estado?.not &&
+          (where.OR ? where.OR.some((o) => a.clave.startsWith(o.clave.startsWith)) : !where.clave || a.clave.startsWith(where.clave.startsWith)),
+      ),
   },
   tableroInteligente: { findMany: async () => [{ workspaceId: "ws1" }] },
   // SQL_FUERA_POR_LA_VIA (28-oct-2026): las aprobadas que esperan la pantalla.
@@ -658,6 +679,163 @@ await prueba("tarjetaId: registrarAvisoDelCoordinador sin el parámetro guarda c
   assert.deepEqual(await avisos.registrarAvisoDelCoordinador("ws1", "necesita", PREGUNTA, NOCHE, "tarj1"), { silenciado: true });
   assert.equal(estado.alertas.at(-1).clave, `coord:necesita:tarj1:${PREGUNTA}`);
   assert.equal(estado.enviados.length, 1);
+});
+
+/* ------------------------------------------------------------------ cierre solo: barrido y limpieza única (31-oct-2026) */
+
+const alerta = (clave, extra = {}) => {
+  const fila = { id: `al${estado.alertas.length + 1}`, workspaceId: "ws1", clave, estado: "NUEVA", detalle: "Texto del aviso", veces: 1, ...extra };
+  estado.alertas.push(fila);
+  return fila;
+};
+const tarjeta = (id, estadoTarjeta, extra = {}) => estado.tarjetas.push({ id, workspaceId: "ws1", titulo: `Tarjeta ${id}`, estado: estadoTarjeta, borradoEn: null, ...extra });
+const servicio = cargar("src/features/alertas/servicios/alertas.ts", mocks);
+const reglasDeAlertas = cargar("src/features/alertas/dominio/reglas.ts");
+
+await prueba("barrido: cierra las de una tarjeta HECHO, borrada o FALLIDO y la auto:necesita POR_APROBAR ya APROBADO; deja la que sigue POR_APROBAR", async () => {
+  tarjeta("hecha", "HECHO");
+  tarjeta("borr", "EN_CURSO", { borradoEn: new Date("2026-10-30T00:00:00Z") });
+  tarjeta("fall", "FALLIDO");
+  tarjeta("aprob", "APROBADO");
+  tarjeta("espera", "POR_APROBAR");
+  tarjeta("err", "ERROR");
+  tarjeta("vota", "APROBADO");
+  const cerrar = [
+    alerta("coord:necesita:hecha:¿Sigo?"),
+    alerta("auto:trabado:borr:EN_CURSO"),
+    alerta("auto:trabado:fall:FALLIDO"),
+    alerta("auto:necesita:aprob:POR_APROBAR"),
+    alerta("auto:equipo:inexistente:vencida"),
+  ];
+  const dejar = [
+    alerta("auto:necesita:espera:POR_APROBAR"),
+    alerta("auto:trabado:err:ERROR"),
+    alerta("auto:necesita:vota:VIA_PANTALLA"), // el sufijo no es un estado: no se compara
+    alerta("coord:necesita:Necesito tu sí para \"Tarjeta hecha\""), // vieja sin id: la limpieza, no el barrido
+    alerta("terminada:hecha"),
+    alerta("auto:caido"),
+  ];
+  const ya = alerta("auto:necesita:aprob:PLAN_LISTO", { estado: "RESUELTA", detalle: "a mano" });
+  const AHORA = new Date("2026-10-31T15:05:00Z");
+  assert.equal(await servicio.barrerAlertasDeTarjetas("ws1", AHORA), cerrar.length);
+  for (const a of cerrar) {
+    assert.equal(a.estado, "RESUELTA", a.clave);
+    assert.equal(a.resueltaEn, AHORA);
+    assert.equal(a.detalle, "Texto del aviso\n\nResuelta sola: la tarjeta ya avanzó o se cerró (31-oct 10:05)", a.clave);
+  }
+  for (const a of dejar) assert.equal(a.estado, "NUEVA", a.clave);
+  assert.equal(ya.detalle, "a mano", "una resuelta a mano no se toca");
+  // Otra vuelta no cierra nada más; y si la base falla, no lanza.
+  assert.equal(await servicio.barrerAlertasDeTarjetas("ws1", AHORA), 0);
+  const findMany = falso.alertaInterna.findMany;
+  falso.alertaInterna.findMany = async () => {
+    throw new Error("base caída");
+  };
+  try {
+    assert.equal(await servicio.barrerAlertasDeTarjetas("ws1", AHORA), 0);
+  } finally {
+    falso.alertaInterna.findMany = findMany;
+  }
+});
+
+await prueba("barrido: alertaYaNoAplica, regla por regla", async () => {
+  const { alertaYaNoAplica } = reglasDeAlertas;
+  const t = (estadoTarjeta, borradoEn = null) => ({ estado: estadoTarjeta, borradoEn });
+  assert.equal(alertaYaNoAplica("auto:necesita:x:POR_APROBAR", null), true, "no existe");
+  assert.equal(alertaYaNoAplica("auto:necesita:x:POR_APROBAR", t("POR_APROBAR", new Date())), true, "borrada");
+  assert.equal(alertaYaNoAplica("auto:equipo:x:vencida", t("FALLIDO")), true);
+  assert.equal(alertaYaNoAplica("auto:equipo:x:vencida", t("EN_CURSO")), false, "el motivo no es un estado");
+  assert.equal(alertaYaNoAplica("auto:trabado:x:EN_CURSO", t("SUBIENDO")), true);
+  assert.equal(alertaYaNoAplica("auto:trabado:x:EN_CURSO", t("EN_CURSO")), false);
+  for (const e of ["APROBADO", "PLAN_APROBADO", "PLANEANDO", "EN_CURSO", "SUBIENDO"]) assert.equal(alertaYaNoAplica("coord:necesita:x:¿Sigo?", t(e)), true, e);
+  for (const e of ["POR_APROBAR", "PLAN_LISTO", "POR_REVISAR", "ERROR", "IDEA"]) assert.equal(alertaYaNoAplica("coord:necesita:x:¿Sigo?", t(e)), false, e);
+  assert.equal(alertaYaNoAplica("terminada:x", null), false, "terminada nunca se cierra");
+  assert.equal(alertaYaNoAplica("coord:necesita:¿Sigo con esto?", null), false, "la vieja sin id no es del barrido");
+});
+
+await prueba("FALLIDO: calcularAvisos no devuelve avisos para tarjetas FALLIDO (ni 'quedó en error' ni 'necesita'); ERROR sigue igual", async () => {
+  const base = { latidoEn: DIA.toISOString(), enCurso: [], enFila: 1 };
+  const fallidas = [
+    esperando({ id: "f1", titulo: "Una fallida", estado: "FALLIDO", error: "falló una prueba" }),
+    esperando({ id: "f2", titulo: "Otra fallida", estado: "FALLIDO", error: "Falta la clave de la API: 403" }),
+  ];
+  assert.deepEqual(avisos.calcularAvisos({ ...base, esperando: fallidas }, DIA), []);
+  assert.deepEqual(avisos.calcularAvisos({ ...base, enFila: 0, esperando: fallidas }, DIA), [], "tampoco 'sin trabajo'");
+  const error = avisos.calcularAvisos({ ...base, esperando: [esperando({ id: "e1", titulo: "Con error", estado: "ERROR", error: "falló una prueba" })] }, DIA);
+  assert.deepEqual(error.map((a) => [a.clave, a.titulo]), [["auto:trabado:e1:ERROR", '"Con error" quedó en error']]);
+  // leerSituacion no las trae (la lista de pendientes de la pantalla no se toca: viene de pendientesDelDueno).
+  estado.esperando = fallidas;
+  assert.deepEqual((await avisos.leerSituacion("ws1")).esperando, []);
+});
+
+await prueba("limpieza única: cierra la vieja si la única tarjeta 'Título X' está HECHO; deja las que no tienen tarjeta, esperan o no traen título; no corre dos veces", async () => {
+  tarjeta("x1", "HECHO", { titulo: "Título X" });
+  tarjeta("y1", "HECHO", { titulo: "Título Y" });
+  tarjeta("y2", "PLAN_LISTO", { titulo: "Título Y" });
+  tarjeta("z1", "FALLIDO", { titulo: "Título Z" });
+  tarjeta("z2", "PLANEANDO", { titulo: "Título Z", borradoEn: new Date("2026-10-30T00:00:00Z") });
+  tarjeta("z3", "EN_CURSO", { titulo: "Título Z" });
+  tarjeta("o1", "HECHO", { titulo: "Título X", workspaceId: "ws2" });
+  tarjeta("o2", "POR_APROBAR", { titulo: "Título O", workspaceId: "ws2" });
+  const conX = alerta('coord:necesita:👆 Necesito tu sí para "Título X": ¿sigo?');
+  const conZ = alerta("coord:necesita:¿Apruebas «Título Z»?");
+  const sinTarjeta = alerta('coord:necesita:Necesito tu sí para "Título que no existe"');
+  const esperaY = alerta('coord:necesita:Necesito tu sí para "Título Y"');
+  const deOtroNegocio = alerta('coord:necesita:Necesito tu sí para "Título O"');
+  const sinTitulo = alerta("coord:necesita:Necesito tu sí para seguir");
+  const conId = alerta("coord:necesita:x1:¿sigo?"); // la cuida el barrido
+  const AHORA = new Date("2026-10-31T15:05:00Z");
+  assert.deepEqual(await servicio.limpiezaUnicaDelCoordinador("ws1", AHORA), { hecha: true, cerradas: 2, dejadas: 4 });
+  assert.equal(conX.estado, "RESUELTA");
+  assert.equal(conX.resueltaEn, AHORA);
+  assert.match(conX.detalle, /\n\nResuelta sola: la tarjeta «Título X» ya avanzó o se cerró; limpieza única de los avisos viejos \(31-oct 10:05\)$/);
+  assert.equal(conZ.estado, "RESUELTA", "FALLIDO, borrada y EN_CURSO: ninguna espera");
+  for (const a of [sinTarjeta, esperaY, deOtroNegocio, sinTitulo, conId]) assert.equal(a.estado, "NUEVA", a.clave);
+  const marca = JSON.parse(estado.ajustes.get("alertas:limpieza-coordinador-v1:ws1"));
+  assert.deepEqual([marca.cerradas, marca.dejadas], [2, 4]);
+  // Segunda pasada: la marca ya está y no vuelve a correr, aunque la tarjeta Y ya terminó.
+  estado.tarjetas.find((t) => t.id === "y2").estado = "HECHO";
+  assert.deepEqual(await servicio.limpiezaUnicaDelCoordinador("ws1", AHORA), { hecha: false, cerradas: 0, dejadas: 0 });
+  assert.equal(esperaY.estado, "NUEVA");
+});
+
+await prueba("limpieza única y barrido: si la base falla no lanzan, no guardan la marca y la revisión de avisos sigue", async () => {
+  alerta('coord:necesita:Necesito tu sí para "Título X"');
+  const findMany = falso.alertaInterna.findMany;
+  falso.alertaInterna.findMany = async () => {
+    throw new Error("base caída");
+  };
+  try {
+    assert.deepEqual(await servicio.limpiezaUnicaDelCoordinador("ws1", DIA), { hecha: false, cerradas: 0, dejadas: 0 });
+    assert.equal(estado.ajustes.has("alertas:limpieza-coordinador-v1:ws1"), false, "sin marca: lo intenta en la siguiente vuelta");
+    guardarNumero();
+    estado.latido = hace(20 * 60_000).toISOString();
+    assert.deepEqual(await avisos.revisarAvisosAlDueno(DIA), { enviados: 1 }, "el aviso de caído sale igual");
+  } finally {
+    falso.alertaInterna.findMany = findMany;
+  }
+});
+
+await prueba("revisión: cada vuelta del reloj corre la limpieza única y el barrido (aunque los avisos estén apagados)", async () => {
+  tarjeta("hecha", "HECHO", { titulo: "Título X" });
+  const vieja = alerta('coord:necesita:Necesito tu sí para "Título X"');
+  const nueva = alerta("auto:necesita:hecha:POR_APROBAR");
+  await avisos.guardarConfigDeAvisos("ws1", { activo: false });
+  assert.deepEqual(await avisos.revisarAvisosAlDueno(DIA), { enviados: 0 });
+  assert.equal(vieja.estado, "RESUELTA");
+  assert.equal(nueva.estado, "RESUELTA");
+  assert.ok(estado.ajustes.has("alertas:limpieza-coordinador-v1:ws1"));
+  assert.equal(estado.enviados.length, 0);
+});
+
+await prueba("tituloEntreComillasDelAviso: para \"Título\" o «Título»; si no, null", async () => {
+  const { tituloEntreComillasDelAviso } = reglasDeAlertas;
+  assert.equal(tituloEntreComillasDelAviso('Necesito tu sí para "Mejorar chats": ¿sigo?'), "Mejorar chats");
+  assert.equal(tituloEntreComillasDelAviso("Necesito tu sí para “Mejorar chats”"), "Mejorar chats");
+  assert.equal(tituloEntreComillasDelAviso("¿Apruebas «Abonos en la ficha»?"), "Abonos en la ficha");
+  assert.equal(tituloEntreComillasDelAviso("Necesito tu sí para seguir"), null);
+  assert.equal(tituloEntreComillasDelAviso('Necesito tu sí para ""'), null);
+  assert.equal(tituloEntreComillasDelAviso(""), null);
 });
 
 console.log(`\n${pruebas} pruebas, todas bien`);
