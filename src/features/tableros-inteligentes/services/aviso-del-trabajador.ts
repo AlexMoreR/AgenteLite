@@ -70,7 +70,7 @@ export async function tarjetaDelNegocio(workspaceId: string, valor: unknown): Pr
 export async function enviarAvisoDelTrabajador(contexto: ContextoTrabajador, cuerpo: unknown, ahora: Date = new Date()) {
   const datos = cuerpo as { texto?: unknown; tipo?: unknown; tarjetaId?: unknown } | null;
   const texto = textoDeAvisoDeEntrada(datos?.texto);
-  // Sin tipo permitido ("limite" o "necesita") se descarta sin error: el Coordinador viejo sigue andando sin molestar al dueño.
+  // Sin tipo permitido ("limite", "necesita" o "cupos") se descarta sin error: el Coordinador viejo sigue andando sin molestar al dueño.
   if (!TIPOS_DEL_COORDINADOR.includes(datos?.tipo as never)) return { descartado: true as const };
   // De 9 p. m. a 7 a. m. no se manda nada: el Coordinador lo reintenta y sale a las 7 a. m. si sigue siendo cierto.
   if (enSilencio(ahora)) return { silenciado: true as const };

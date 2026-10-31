@@ -61,6 +61,11 @@ import { linkDeHoy, linkDeLaTarjeta, linkDelCoordinador, pendientesDelDueno, tod
   (necesita) y aprobar_en_pantalla siguen yendo a Alexander. RESPALDO: sin teléfono de Sistemas válido (o con su interruptor
   apagado) todo sale como antes, al dueño, y queda anotado en el historial.
 
+  CUPOS SIN USAR (31-oct-2026): el Coordinador manda el tipo "cupos" cuando lleva 10 min con tarjetas en fila y puestos
+  libres. Es técnico y va SOLO a Emanuel (aunque esté prendido "solo urgentes"), con prioridad ALTA y la clave fija
+  `coord:cupos` (el texto cambia cada minuto: "hace 12 min"). Sin el WhatsApp de Sistemas válido NO va al dueño: queda solo
+  en /cliente/alertas. Mismo silencio de 9 p. m. a 7 a. m., interruptor general y "uno cada 3 horas".
+
   Todo se guarda en AppSetting (sin tablas nuevas). El reloj del servidor (api/cron/follows) llama a
   revisarAvisosAlDueno cada minuto. Antes de este archivo el aviso del Coordinador devolvía 412 porque nadie
   guardaba el número en ninguna pantalla.
@@ -77,15 +82,15 @@ export const claveInterruptorDeSistemas = (workspaceId: string) => `tablero:avis
 /** El ajuste que usaba el aviso del Coordinador antes de que existiera la caja de Mi empresa. */
 const claveTelefonoViejo = (workspaceId: string) => `trabajador:aviso-telefono:${workspaceId}`;
 
-export const TIPOS_DE_AVISO = ["caido", "sin_trabajo", "trabado", "necesita", "limite", "aprobar_en_pantalla"] as const;
+export const TIPOS_DE_AVISO = ["caido", "sin_trabajo", "trabado", "necesita", "limite", "aprobar_en_pantalla", "cupos"] as const;
 export type TipoDeAviso = (typeof TIPOS_DE_AVISO)[number];
 
 /** Los avisos técnicos: los atiende Emanuel. Los que piden dinero, Meta Ads o una clave no están acá. */
-const TIPOS_TECNICOS: readonly TipoDeAviso[] = ["caido", "sin_trabajo", "trabado", "limite"];
+const TIPOS_TECNICOS: readonly TipoDeAviso[] = ["caido", "sin_trabajo", "trabado", "limite", "cupos"];
 export const esAvisoTecnico = (tipo: TipoDeAviso): boolean => TIPOS_TECNICOS.includes(tipo);
 
 /** Lo que puede mandar el Coordinador (los otros tres los calcula el servidor). */
-export const TIPOS_DEL_COORDINADOR: readonly TipoDeAviso[] = ["limite", "necesita"];
+export const TIPOS_DEL_COORDINADOR: readonly TipoDeAviso[] = ["limite", "necesita", "cupos"];
 
 const MS_MINUTO = 60_000;
 const MS_HORA = 3_600_000;
@@ -287,7 +292,7 @@ export async function lineaAdmin(workspaceId: string) {
   return porNombre?.evolutionInstanceName ? { name: porNombre.name, instancia: porNombre.evolutionInstanceName } : null;
 }
 
-/** El texto recortado a las primeras 3 líneas con contenido (el resumen diario pide 4). */
+/** El texto recortado a las primeras 3 líneas con contenido (el resumen diario pide 6). */
 export function aTresLineas(texto: string, maximo: number = MAXIMO_LINEAS): string {
   return texto
     .split("\n")
@@ -742,6 +747,8 @@ export async function revisarAvisosAlDueno(ahora = new Date()): Promise<{ enviad
  */
 export function claveDelAvisoDelCoordinador(tipo: string, texto: string, tarjetaId?: string | null): string {
   const id = idDeTarjetaValido(tarjetaId);
+  // Cupos sin usar (31-oct-2026): clave fija, porque el texto cambia cada minuto ("hace 12 min").
+  if (tipo === "cupos") return "coord:cupos";
   return tipo === "necesita" && id ? `coord:necesita:${id}:${texto}` : `coord:${tipo}:${texto}`;
 }
 
@@ -759,7 +766,7 @@ export function conVerDeLaTarjeta(texto: string, tarjetaId: string): string {
 }
 
 /**
- * Un aviso que manda el Coordinador (POST /api/trabajador/aviso): solo "limite" o "necesita"; otro tipo, o sin
+ * Un aviso que manda el Coordinador (POST /api/trabajador/aviso): solo "limite", "necesita" o "cupos"; otro tipo, o sin
  * tipo, se descarta sin error. Respeta interruptor, silencio y el "uno por problema cada 3 horas".
  * `tarjetaId` (opcional, 30-oct-2026): la tarjeta de la que habla, ya comprobada del negocio por quien llama.
  */
@@ -787,6 +794,18 @@ export async function registrarAvisoDelCoordinador(
   const estado = await leerEstadoDeAvisos(workspaceId);
   if (yaSeAvisoDe(estado, clave, ahora)) return { repetido: true };
   await registrarAlerta({ workspaceId, clave, prioridad, titulo, detalle: texto, origen: ORIGEN_COORDINADOR, refrescar: false, ...paraEmanuel });
+  // Cupos sin usar: solo a Emanuel, aunque esté prendido "solo urgentes"; sin su WhatsApp, queda solo en la página (nunca al dueño).
+  if (tipo === "cupos") {
+    const envio: ResultadoDelEnvio = sistemas
+      ? await enviarDesdeAdmin(workspaceId, sistemas.numero, texto)
+      : { salio: false, motivo: "Emanuel no tiene el WhatsApp de Sistemas: quedó solo en la página de alertas" };
+    if (envio.salio) await marcarSalioPorWhatsApp(workspaceId, clave);
+    // Si no salió por falta de destino, también se anota: no se reintenta cada minuto.
+    if (envio.salio || !sistemas) estado.avisados[clave] = ahora.toISOString();
+    anotarEnHistorial(estado, { cuando: ahora.toISOString(), tipo: `sistemas:${tipo}`, texto, salio: envio.salio, motivo: envio.salio ? null : `no salió a Emanuel: ${envio.motivo}` });
+    await guardarEstadoDeAvisos(workspaceId, estado);
+    return envio;
+  }
   if (soloUrgentes && prioridad !== "URGENTE") {
     // No sale por WhatsApp: se revisa en la página de alertas.
     estado.avisados[clave] = ahora.toISOString();

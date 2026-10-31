@@ -1,5 +1,5 @@
 // Pruebas del resumen diario del Tablero IA (resumen-diario.ts): el día de Bogotá, cómo se arma con el historial
-// de HOY (no el de ayer), el texto corto de 4 líneas (la línea Falló con los choques con main, 31-oct-2026), la vista "Hoy" y la caja "Resumen de hoy" con un prisma
+// de HOY (no el de ayer), el texto corto de 4 líneas (6 con los cupos, 31-oct-2026) (la línea Falló con los choques con main, 31-oct-2026), la vista "Hoy" y la caja "Resumen de hoy" con un prisma
 // FALSO. Desde el 26-oct-2026 el resumen YA NO se manda por WhatsApp (el silencio, las 3 líneas y los avisos al
 // dueño se prueban en check-tablero-avisos-al-dueno.mjs). No necesita base ni red.
 // Correr: npm run test:tablero-resumen-diario
@@ -77,7 +77,8 @@ const mocks = {
       estado.mensajes.push(datos);
     },
   },
-  "./coordinador-en-vivo": { ultimoLatido: async () => null },
+  // Los máximos del día (31-oct-2026): los guarda el latido; acá, a mano en estado.cuposDelDia.
+  "./coordinador-en-vivo": { ultimoLatido: async () => null, leerCuposDelDia: async (_ws, dia) => (estado.cuposDelDia?.dia === dia ? estado.cuposDelDia : null) },
 };
 
 const resumen = cargar("src/features/tableros-inteligentes/services/resumen-diario.ts", mocks);
@@ -88,6 +89,7 @@ async function prueba(nombre, fn) {
   estado.historial.length = 0;
   estado.intentos.length = 0;
   estado.ajustes.clear();
+  estado.cuposDelDia = null;
   estado.mensajes.length = 0;
   estado.esperando = [];
   estado.tarjetas = [];
@@ -327,6 +329,65 @@ await prueba("resumenDeHoyParaLaPantalla devuelve las cifras, el texto corto y e
   // Al día siguiente, sin movimiento, el texto queda vacío.
   const manana = await resumen.resumenDeHoyParaLaPantalla("ws1", new Date("2026-10-23T15:00:00Z"));
   assert.equal(manana.texto, "");
+});
+
+/* ------------------------------------------------------------------ cupos (31-oct-2026) */
+
+await prueba("textoDelResumen con los cupos: «Corriendo a la vez» y la línea para el dueño; sin datos, las 4 de siempre", () => {
+  const base = { listas: 12, conProblema: 1, esperando: 2, chocaronConMain: 0 };
+  const completo = resumen.textoDelResumen({ ...base, corriendoMax: 5, enFilaMax: 3, cupos: 6, basePorDia: 7, hoy: 12 });
+  const lineas = completo.split("\n");
+  assert.equal(lineas.length, 6, "6 líneas como mucho");
+  assert.equal(lineas[4], "🔁 Corriendo a la vez: 5 (máx.) / en fila: 3");
+  assert.equal(lineas[5], "📈 Ahora corren hasta 6 tareas a la vez; antes se terminaban 7 por día (promedio de los 7 días antes del 31-oct) y hoy 12");
+  assert.doesNotMatch(completo, /https?:\/\//);
+  // Sin los cupos guardados, la línea para el dueño usa el máximo corriendo; sin la base, no sale.
+  assert.match(resumen.textoDelResumen({ ...base, corriendoMax: 4, enFilaMax: 0, basePorDia: 7, hoy: 12 }), /Ahora corren hasta 4 tareas a la vez/);
+  assert.equal(resumen.textoDelResumen({ ...base, corriendoMax: 4, enFilaMax: 0 }).split("\n").length, 5);
+  assert.equal(resumen.textoDelResumen(base).split("\n").length, 4, "sin datos de cupos, como antes");
+  // Un día sin movimiento sigue sin texto, aunque haya datos de cupos.
+  assert.equal(resumen.textoDelResumen({ listas: 0, conProblema: 0, esperando: 0, chocaronConMain: 0, corriendoMax: 2, enFilaMax: 1, cupos: 6, basePorDia: 7, hoy: 0 }), "");
+});
+
+await prueba("cifrasDelDia con los extras: máximos del día, base y hoy (= listas); sin extras queda igual", () => {
+  const delDia = resumen.armarResumen("2026-10-22", [subida({ tarjetaId: "a" }), subida({ tarjetaId: "b" })]);
+  assert.deepEqual(resumen.cifrasDelDia(delDia, 1, 0), { listas: 2, conProblema: 0, esperando: 1, chocaronConMain: 0 });
+  assert.deepEqual(resumen.cifrasDelDia(delDia, 1, 0, { cuposDelDia: { dia: "2026-10-22", corriendoMax: 4, enFilaMax: 2, cupos: 6 }, basePorDia: 7 }), {
+    listas: 2, conProblema: 0, esperando: 1, chocaronConMain: 0, corriendoMax: 4, enFilaMax: 2, cupos: 6, basePorDia: 7, hoy: 2,
+  });
+  assert.equal(resumen.promedioPorDia([3, 4, 4, 5, 6, 8, 9]), 6);
+  assert.equal(resumen.promedioPorDia([]), null);
+});
+
+await prueba("la base de antes del 31-oct: promedio de las listas del 24 al 30, se guarda una vez; antes del 31 no hay", async () => {
+  // 14 listas en los 7 días (2 por día) y una del 31 que no cuenta.
+  for (const dia of resumen.DIAS_DE_LA_BASE) {
+    estado.historial.push(subida({ tarjetaId: `${dia}-a`, creadoEn: new Date(`${dia}T20:00:00Z`) }), subida({ tarjetaId: `${dia}-b`, creadoEn: new Date(`${dia}T21:00:00Z`) }));
+  }
+  estado.historial.push(subida({ tarjetaId: "hoy-1", creadoEn: new Date("2026-10-31T20:00:00Z") }));
+  assert.equal(await resumen.basePorDiaAntesDel31Oct("ws1", "2026-10-30"), null, "antes del 31-oct no hay base");
+  assert.equal(await resumen.basePorDiaAntesDel31Oct("ws1", "2026-10-31"), 2);
+  assert.equal(estado.ajustes.get("tablero:resumen-diario:base-antes-31oct:ws1"), "2");
+  estado.historial.length = 0;
+  assert.equal(await resumen.basePorDiaAntesDel31Oct("ws1", "2026-11-01"), 2, "queda guardada: no se vuelve a calcular");
+});
+
+await prueba("enviarResumenDiarioAlDueno el 31-oct: sale con las 6 líneas, en un solo WhatsApp", async () => {
+  const TARDE = new Date("2026-10-31T23:30:00Z"); // 6:30 p. m. de Bogotá
+  estado.ajustes.set("tablero:avisos-dueno:telefono:ws1", "573001112233");
+  estado.ajustes.set("tablero:resumen-diario:base-antes-31oct:ws1", "7");
+  estado.cuposDelDia = { dia: "2026-10-31", corriendoMax: 5, enFilaMax: 3, cupos: 6 };
+  estado.historial.push(subida({ tarjetaId: "h1", creadoEn: new Date("2026-10-31T20:00:00Z") }));
+  assert.deepEqual(await resumen.enviarResumenDiarioAlDueno(TARDE), { enviados: 1 });
+  assert.equal(estado.mensajes.length, 1, "un solo WhatsApp");
+  const lineas = estado.mensajes[0].text.split("\n");
+  assert.equal(lineas.length, 6);
+  assert.equal(lineas[4], "🔁 Corriendo a la vez: 5 (máx.) / en fila: 3");
+  assert.match(lineas[5], /antes se terminaban 7 por día .* y hoy 1$/);
+  const pantalla = await resumen.resumenDeHoyParaLaPantalla("ws1", TARDE);
+  assert.equal(pantalla.texto, estado.mensajes[0].text, "la caja «Resumen de hoy» dice lo mismo");
+  estado.mensajes.length = 0;
+  estado.esperando.length = 0;
 });
 
 assert.equal(resumen.enviarResumenDiarioSiToca, undefined, "el resumen ya no se manda por WhatsApp");

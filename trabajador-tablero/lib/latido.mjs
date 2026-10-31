@@ -37,6 +37,10 @@ export function armarLatido({ estado, medidor, carga, nombre = "aizen1" }) {
     // Pausa por uso de Claude: el porcentaje de la sesión y de la semana, el interruptor, el umbral y si está pausado.
     pausaUso: estado.pausaUso ?? null,
     esperas: estado.esperas ?? [],
+    // 31-oct-2026: puestos disponibles, en fila y corriendo (el CRM guarda los máximos del día para el resumen de las 9 p. m.).
+    cupos: Number.isInteger(estado.cupos) ? estado.cupos : null,
+    enFila: Number.isInteger(estado.enFila) ? estado.enFila : null,
+    corriendo: Number.isInteger(estado.corriendo) ? estado.corriendo : null,
   };
 }
 

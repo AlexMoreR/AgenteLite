@@ -715,6 +715,132 @@ await prueba("cupos (b): una sesión que llama alSoltarPuesto('subiendo') suelta
   r.planificador.parar();
 });
 
+/* ── Alarma de cupos sin usar (31-oct-2026): tarjetas en fila con puestos libres más de 10 min → UN aviso "cupos" ── */
+
+/** El reparto falso con reloj, pausa por uso y medidor a mano, y un CRM que guarda los avisos (o falla / calla). */
+function cuposSinUsarFalso({ config = configDeCupos(), medidor = sinMedirAqui } = {}) {
+  const lista = [];
+  const avisos = [];
+  const lineas = [];
+  let minuto = 0;
+  let pausado = false;
+  let respuestaDelAviso = async () => ({ ok: true });
+  const crm = {
+    candidatas: async () => ({ candidatas: lista.filter((c) => !c.tomada) }),
+    tomar: async (datos) => {
+      const c = lista.find((x) => !x.tomada && !datos.excluir.includes(x.id));
+      if (!c) return { tarjeta: null, motivo: "nada" };
+      c.tomada = true;
+      return { tarjeta: c, hacer: c.hacer };
+    },
+    soltar: async (id) => {
+      const c = lista.find((x) => x.id === id);
+      if (c) c.tomada = false;
+    },
+    aviso: async (texto, tipo) => {
+      avisos.push({ texto, tipo });
+      return respuestaDelAviso();
+    },
+  };
+  const pausaUso = { pausado: () => pausado, pendientes: () => [], avisado: () => undefined, resumen: () => null, ajustes: () => undefined };
+  const procesarTarjeta = (opciones) =>
+    new Promise(() => {
+      opciones.vivo.lugar = opciones.lugar;
+    });
+  const registroFalso = { info: (texto) => lineas.push(texto), aviso: (texto) => lineas.push(texto), error: (texto) => lineas.push(texto) };
+  const planificador = crearPlanificador({ crm, config, registro: registroFalso, medidor, motores: crearEstadoDeMotores(config), pausaUso, vigilante: null, colaPesada: null, procesarTarjeta, ahora: () => minuto * 60_000 });
+  const agregar = (id, repo, hacer) => lista.push({ id, titulo: id, repo, hacer, plan: hacer === "planear" ? null : planConArchivo(`src/features/${id}/a.ts`), zonaProtegida: [] });
+  /** Adelanta el reloj al minuto `m` y da una vuelta. */
+  const vueltaEn = async (m) => {
+    minuto = m;
+    await planificador.llenar();
+  };
+  return {
+    planificador,
+    agregar,
+    avisos,
+    lineas,
+    vueltaEn,
+    pausar: (valor) => (pausado = valor),
+    responderAviso: (fn) => (respuestaDelAviso = fn),
+  };
+}
+
+await prueba("cupos sin usar: con tarjetas en fila y puestos libres, el aviso «cupos» sale a los 10 min, con el motivo, y una sola vez", async () => {
+  const r = cuposSinUsarFalso();
+  r.agregar("crm-construir-1", "aizencrm", "construir");
+  r.agregar("crm-construir-2", "aizencrm", "construir");
+  await r.vueltaEn(0);
+  const estado = r.planificador.estado();
+  assert.equal(estado.corriendo, 1, "una construye en la nube");
+  assert.equal(estado.enFila, 1, "la otra espera en fila");
+  assert.equal(estado.cupos, 5, "aizen1 min(3, 2+1) + nube min(2, 1+1)");
+  const latido = armarLatido({ estado, medidor: sinMedirAqui, carga: null });
+  assert.deepEqual([latido.cupos, latido.enFila, latido.corriendo], [5, 1, 1], "el latido los lleva");
+  await r.vueltaEn(9);
+  assert.equal(r.avisos.length, 0, "a los 9 min todavía no");
+  await r.vueltaEn(12);
+  assert.equal(r.avisos.length, 1, "a los 10 min o más, sí");
+  assert.equal(r.avisos[0].tipo, "cupos");
+  assert.match(r.avisos[0].texto, /^⚠️ Cupos sin usar: 1 en fila y 1 de 5 corriendo hace 12 min\./);
+  assert.match(r.avisos[0].texto, /"crm-construir-2" espera: aizencrm ya usa su\(s\) 1 puesto\(s\) de la nube/);
+  assert.ok(r.avisos[0].texto.split("\n").length <= 3, "como mucho 3 líneas");
+  await r.vueltaEn(13);
+  await r.vueltaEn(40);
+  assert.equal(r.avisos.length, 1, "una sola vez por episodio");
+  r.planificador.parar();
+});
+
+await prueba("cupos sin usar: con la pausa por uso no sale, y al volver cuenta los 10 min desde cero", async () => {
+  const r = cuposSinUsarFalso();
+  r.agregar("crm-construir-1", "aizencrm", "construir");
+  r.agregar("crm-construir-2", "aizencrm", "construir");
+  await r.vueltaEn(0);
+  r.pausar(true);
+  await r.vueltaEn(5);
+  await r.vueltaEn(20);
+  assert.equal(r.avisos.length, 0, "en pausa por uso no avisa");
+  r.pausar(false);
+  await r.vueltaEn(21);
+  await r.vueltaEn(29);
+  assert.equal(r.avisos.length, 0, "el episodio empezó de nuevo en el minuto 21");
+  await r.vueltaEn(31);
+  assert.equal(r.avisos.length, 1);
+  r.planificador.parar();
+});
+
+await prueba("cupos sin usar: con el PC en rojo no sale", async () => {
+  const r = cuposSinUsarFalso({ medidor: { medir: () => ({ cpu: 99, memoria: 20 }), parar: () => undefined } });
+  r.agregar("crm-plan-1", "aizencrm", "planear");
+  r.agregar("gestion-plan-1", "gestion", "planear");
+  await r.vueltaEn(0);
+  assert.equal(r.planificador.estado().esperandoPc, true, "el PC está en rojo");
+  assert.equal(r.planificador.estado().enFila, 2);
+  await r.vueltaEn(15);
+  await r.vueltaEn(30);
+  assert.equal(r.avisos.length, 0);
+  r.planificador.parar();
+});
+
+await prueba("cupos sin usar: si el CRM lo calla o falla se reintenta en la próxima vuelta, sin tumbar al planificador", async () => {
+  const r = cuposSinUsarFalso();
+  r.agregar("crm-construir-1", "aizencrm", "construir");
+  r.agregar("crm-construir-2", "aizencrm", "construir");
+  await r.vueltaEn(0);
+  r.responderAviso(async () => ({ ok: true, silenciado: true }));
+  await r.vueltaEn(10);
+  r.responderAviso(async () => {
+    throw Object.assign(new Error("se cayó"), { status: 500 });
+  });
+  await r.vueltaEn(11);
+  assert.ok(r.lineas.some((l) => /no salió el aviso de cupos sin usar \(500\): se cayó/.test(l)), r.lineas.join("\n"));
+  r.responderAviso(async () => ({ ok: true }));
+  await r.vueltaEn(12);
+  await r.vueltaEn(13);
+  assert.equal(r.avisos.length, 3, "calló, falló y salió; después ya no");
+  r.planificador.parar();
+});
+
 await prueba("cupos (e): esperando la versión nueva solo se toman tarjetas para planear, y solo si queda una tarea larga corriendo", async () => {
   assert.deepEqual(queTomarEsperandoVersion({ pendiente: null, tareasLargas: 0 }), { tomar: true, soloPlanear: false }, "sin versión nueva: todo");
   assert.deepEqual(queTomarEsperandoVersion({ pendiente: { nueva: "abc" }, tareasLargas: 2 }), { tomar: true, soloPlanear: true });

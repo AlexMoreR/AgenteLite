@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { QUIEN_AUTOMATICO, aprobacionAutomaticaPrendida } from "./aprobacion-automatica";
 import { resumenCorto, tituloCorto } from "./resumen-corto";
 import { avisosPrendidos, enSilencioDeAvisos, enviarAlDueno } from "./avisos-al-dueno";
+import { leerCuposDelDia, type CuposDelDia } from "./coordinador-en-vivo";
 import { pendientesDelDueno, todoElNegocio } from "./tableros";
 
 /*
@@ -13,8 +14,14 @@ import { pendientesDelDueno, todoElNegocio } from "./tableros";
 
   30-oct-2026 (Sistemas pasa a Emanuel; Alexander solo recibe esto): el resumen vuelve a salir por WhatsApp, UNA vez al
   día (entre las 6 y las 9 p. m. de Bogotá, por la línea Admin, con el silencio de la noche y el interruptor de los
-  avisos), de MÁXIMO 4 líneas: qué se arregló, qué falló y qué está pendiente. Sin links ni listas para revisar.
+  avisos), de MÁXIMO 4 líneas (6 desde el 31-oct, ver abajo): qué se arregló, qué falló y qué está pendiente. Sin links ni listas para revisar.
   Lo manda enviarResumenDiarioAlDueno desde el reloj (api/cron/follows). Esto CAMBIA lo del 26-oct ("ya no se manda").
+
+  31-oct-2026 (cupos por sistema, parte 3): el resumen pasa de MÁXIMO 4 a MÁXIMO 6 líneas (lo pide la tarjeta: cambia la
+  regla del 30-oct). Las 2 nuevas salen solo cuando hay datos: "🔁 Corriendo a la vez: X (máx.) / en fila: Y" (los máximos
+  del día que guarda el latido, coordinador-en-vivo.ts) y la línea para el dueño "📈 Ahora corren hasta X tareas a la vez;
+  antes se terminaban N por día (promedio de los 7 días antes del 31-oct) y hoy M". N es el promedio de las listas del 24 al
+  30-oct, calculado una vez y guardado en AppSetting. Un día sin movimiento sigue sin mandar nada.
 
   26-oct-2026 (decisión del dueño: "WhatsApp solo cuando sea súper importante, lo demás lo miro en el tablero"):
   YA NO SE MANDA POR WHATSAPP. Los únicos avisos al dueño son los de avisos-al-dueno.ts (Sistemas detenido o
@@ -147,7 +154,22 @@ export function armarResumen(dia: string, filas: readonly FilaDelHistorial[]): R
  * Las cifras del mensaje. `chocaronConMain` (31-oct-2026, meta del dueño: cero por día) son las tarjetas distintas
  * que ese día chocaron con main (un IntentoTarjeta de categoría choca_con_main o choque_de_logica creado ese día).
  */
-export type CifrasDelDia = { listas: number; conProblema: number; esperando: number; chocaronConMain: number };
+export type CifrasDelDia = {
+  listas: number;
+  conProblema: number;
+  esperando: number;
+  chocaronConMain: number;
+  /** (31-oct-2026) El máximo del día de tareas corriendo a la vez y en fila, y los puestos disponibles (del latido). */
+  corriendoMax?: number;
+  enFilaMax?: number;
+  cupos?: number;
+  /** (31-oct-2026) Las HECHO por día antes del 31-oct (promedio del 24 al 30) y las de hoy (= listas). */
+  basePorDia?: number;
+  hoy?: number;
+};
+
+/** Lo de los cupos para el resumen (31-oct-2026): los máximos del día y la base de antes. Cada uno puede faltar. */
+export type ExtrasDelResumen = { cuposDelDia?: CuposDelDia | null; basePorDia?: number | null };
 
 /** Las categorías de IntentoTarjeta que cuentan como "choque con main" en el resumen. */
 export const CATEGORIAS_DE_CHOQUE_CON_MAIN = ["choca_con_main", "choque_de_logica"] as const;
@@ -156,10 +178,19 @@ export const CATEGORIAS_DE_CHOQUE_CON_MAIN = ["choca_con_main", "choque_de_logic
  * Cuenta por tarjeta (no por evento): una que falló y después subió el mismo día cuenta una sola vez, como
  * lista. "Esperando tu sí" son las que hoy esperan al dueño (la lista de "Te toca a ti").
  */
-export function cifrasDelDia(resumen: ResumenDelDia, esperando: number, chocaronConMain = 0): CifrasDelDia {
+export function cifrasDelDia(resumen: ResumenDelDia, esperando: number, chocaronConMain = 0, extras: ExtrasDelResumen = {}): CifrasDelDia {
   const listas = new Set(resumen.subidas.map((s) => s.tarjetaId));
   const conProblema = new Set(resumen.fallas.map((f) => f.tarjetaId).filter((id) => !listas.has(id)));
-  return { listas: listas.size, conProblema: conProblema.size, esperando, chocaronConMain };
+  const cupos = extras.cuposDelDia;
+  const base = extras.basePorDia;
+  return {
+    listas: listas.size,
+    conProblema: conProblema.size,
+    esperando,
+    chocaronConMain,
+    ...(cupos ? { corriendoMax: cupos.corriendoMax, enFilaMax: cupos.enFilaMax, ...(cupos.cupos !== null ? { cupos: cupos.cupos } : {}) } : {}),
+    ...(typeof base === "number" && Number.isFinite(base) ? { basePorDia: base, hoy: listas.size } : {}),
+  };
 }
 
 export const haySinMovimiento = (cifras: CifrasDelDia) =>
@@ -169,6 +200,7 @@ export const haySinMovimiento = (cifras: CifrasDelDia) =>
  * El texto que se manda por WhatsApp y se ve en la caja "Resumen de hoy": 4 líneas fijas (título, qué se arregló, qué
  * falló y qué está pendiente), sin links ni listas. Texto vacío si todas las cifras son 0 (entonces no se manda nada).
  * La línea "Falló" lleva siempre entre paréntesis cuántas tareas chocaron con main ese día, también cuando no falló nada.
+ * 31-oct-2026: hasta 2 líneas más, solo con datos: los máximos de "corriendo a la vez / en fila" y la de antes y hoy.
  */
 export function textoDelResumen(cifras: CifrasDelDia): string {
   if (haySinMovimiento(cifras)) return "";
@@ -178,7 +210,19 @@ export function textoDelResumen(cifras: CifrasDelDia): string {
     `✅ Se arregló: ${cifras.listas ? cuantas(cifras.listas, "tarea", "tareas") : "nada"}`,
     `⚠️ Falló: ${cifras.conProblema ? cuantas(cifras.conProblema, "tarea", "tareas") : "nada"} (${cifras.chocaronConMain} por choque con main)`,
     `👆 Pendiente: ${cifras.esperando ? cuantas(cifras.esperando, "tarea", "tareas") : "nada"}`,
+    ...lineasDeCupos(cifras),
   ].join("\n");
+}
+
+/** Las 2 líneas de los cupos (31-oct-2026): cada una sale solo si hay sus datos. */
+function lineasDeCupos(cifras: CifrasDelDia): string[] {
+  const lineas: string[] = [];
+  if (typeof cifras.corriendoMax === "number") lineas.push(`🔁 Corriendo a la vez: ${cifras.corriendoMax} (máx.) / en fila: ${cifras.enFilaMax ?? 0}`);
+  const aLaVez = cifras.cupos ?? cifras.corriendoMax;
+  if (typeof aLaVez === "number" && typeof cifras.basePorDia === "number") {
+    lineas.push(`📈 Ahora corren hasta ${aLaVez} tareas a la vez; antes se terminaban ${cifras.basePorDia} por día (promedio de los 7 días antes del 31-oct) y hoy ${cifras.hoy ?? cifras.listas}`);
+  }
+  return lineas;
 }
 
 /* ───────────────────────────────────────────────────────────────────── la base ── */
@@ -233,6 +277,47 @@ export async function cuantasChocaronConMain(workspaceId: string, dia: string): 
     select: { tarjetaId: true },
   });
   return new Set(filas.map((fila) => fila.tarjetaId)).size;
+}
+
+/* ───────────────────────────────────────────────────────────── la base de antes del 31-oct ── */
+
+export const claveBaseAntesDel31Oct = (workspaceId: string) => `tablero:resumen-diario:base-antes-31oct:${workspaceId}`;
+/** Los 7 días antes del 31-oct-2026 (cuando el Coordinador pasó a correr más tareas a la vez). */
+export const DIAS_DE_LA_BASE = ["2026-10-24", "2026-10-25", "2026-10-26", "2026-10-27", "2026-10-28", "2026-10-29", "2026-10-30"] as const;
+const DIA_DEL_CAMBIO = "2026-10-31";
+
+/** El promedio redondeado de las listas por día (pura). Sin días, null. */
+export function promedioPorDia(listasPorDia: readonly number[]): number | null {
+  return listasPorDia.length ? Math.round(listasPorDia.reduce((total, n) => total + n, 0) / listasPorDia.length) : null;
+}
+
+/**
+ * Las HECHO por día antes del 31-oct (promedio del 24 al 30), del mismo `resumenDelDia`. Son días pasados y no cambian: se
+ * calcula una vez y queda guardado. Antes del 31-oct no hay base (null). Nunca lanza: si falla, null y se intenta mañana.
+ */
+export async function basePorDiaAntesDel31Oct(workspaceId: string, hoy: string): Promise<number | null> {
+  if (hoy < DIA_DEL_CAMBIO) return null;
+  try {
+    const key = claveBaseAntesDel31Oct(workspaceId);
+    const guardada = await prisma.appSetting.findUnique({ where: { key }, select: { value: true } });
+    const numero = Number(guardada?.value);
+    if (guardada?.value && Number.isInteger(numero) && numero >= 0) return numero;
+    const listasPorDia: number[] = [];
+    for (const dia of DIAS_DE_LA_BASE) listasPorDia.push(cifrasDelDia(await resumenDelDia(workspaceId, dia), 0).listas);
+    const base = promedioPorDia(listasPorDia);
+    if (base === null) return null;
+    await prisma.appSetting.upsert({ where: { key }, create: { key, value: String(base) }, update: { value: String(base) } });
+    return base;
+  } catch (error) {
+    console.warn("[resumen-diario] no se pudo calcular la base de antes del 31-oct", error instanceof Error ? error.message : String(error));
+    return null;
+  }
+}
+
+/** Los máximos de hoy y la base de antes, para las líneas nuevas del resumen. Nunca lanza. */
+async function extrasDelResumen(workspaceId: string, dia: string): Promise<ExtrasDelResumen> {
+  const [cuposDelDia, basePorDia] = await Promise.all([leerCuposDelDia(workspaceId, dia), basePorDiaAntesDel31Oct(workspaceId, dia)]);
+  return { cuposDelDia, basePorDia };
 }
 
 /** Cuántas tarjetas esperan en este momento al dueño (la misma lista de "Te toca a ti"). */
@@ -299,13 +384,14 @@ export async function vistaDeHoy(workspaceId: string, ahora = new Date()): Promi
 /** La caja "Resumen de hoy" del tablero: lo de hoy hasta ahora y el interruptor de la aprobación automática. */
 export async function resumenDeHoyParaLaPantalla(workspaceId: string, ahora = new Date()) {
   const dia = diaDeBogota(ahora);
-  const [resumen, esperando, chocaron, prendida] = await Promise.all([
+  const [resumen, esperando, chocaron, prendida, extras] = await Promise.all([
     resumenDelDia(workspaceId, dia),
     cuantasEsperan(workspaceId),
     cuantasChocaronConMain(workspaceId, dia),
     aprobacionAutomaticaPrendida(workspaceId),
+    extrasDelResumen(workspaceId, dia),
   ]);
-  const cifras = cifrasDelDia(resumen, esperando, chocaron);
+  const cifras = cifrasDelDia(resumen, esperando, chocaron, extras);
   return {
     dia,
     cifras,
@@ -346,10 +432,12 @@ export async function enviarResumenDiarioAlDueno(ahora: Date = new Date()): Prom
         await resumenDelDia(workspaceId, dia),
         await cuantasEsperan(workspaceId),
         await cuantasChocaronConMain(workspaceId, dia),
+        await extrasDelResumen(workspaceId, dia),
       );
       const texto = textoDelResumen(cifras);
       if (texto) {
-        const envio = await enviarAlDueno(workspaceId, texto, 4);
+        // 31-oct-2026: hasta 6 líneas (las 4 de siempre y las 2 de los cupos).
+        const envio = await enviarAlDueno(workspaceId, texto, 6);
         if (!envio.salio) continue; // se vuelve a intentar en el próximo minuto, hasta las 9 p. m.
         enviados += 1;
       }

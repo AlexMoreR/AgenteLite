@@ -281,6 +281,49 @@ await prueba("5. Límite de Claude: lo manda el Coordinador con tipo 'limite' o 
   assert.equal(estado.enviados.length, 2);
 });
 
+await prueba("cupos sin usar (31-oct): el tipo 'cupos' pasa, clave fija, ALTA, sale SOLO a Emanuel aunque esté 'solo urgentes'; sin su WhatsApp no va al dueño", async () => {
+  guardarNumero();
+  const texto = '⚠️ Cupos sin usar: 3 en fila y 1 de 4 corriendo hace 12 min.\n"Arreglar X" espera un puesto en la nube.';
+  assert.equal(avisos.TIPOS_DEL_COORDINADOR.includes("cupos"), true);
+  assert.equal(avisos.esAvisoTecnico("cupos"), true);
+  assert.equal(avisos.prioridadDelAviso("cupos"), "ALTA");
+  assert.equal(avisos.claveDelAvisoDelCoordinador("cupos", texto), "coord:cupos");
+  assert.equal(avisos.claveDelAvisoDelCoordinador("cupos", "otro texto", "tarj1"), "coord:cupos", "el texto cambia cada minuto: la clave no");
+  // Sin el WhatsApp de Sistemas: queda solo en la página y no sale al dueño.
+  const sinEmanuel = await avisos.registrarAvisoDelCoordinador("ws1", "cupos", texto, DIA);
+  assert.equal(sinEmanuel.salio, false);
+  assert.match(sinEmanuel.motivo, /Emanuel no tiene el WhatsApp de Sistemas/);
+  assert.equal(estado.enviados.length, 0, "nunca al dueño");
+  assert.equal(estado.alertas.length, 1);
+  assert.equal(estado.alertas[0].clave, "coord:cupos");
+  assert.equal(estado.alertas[0].prioridad, "ALTA");
+  // Con el WhatsApp de Emanuel ("solo urgentes" prendido por defecto): sale a él, con el texto completo.
+  reiniciar();
+  guardarNumero();
+  assert.deepEqual(await avisos.guardarConfigDeSistemas("ws1", { telefono: "573114445566" }), { ok: true });
+  const contexto = { workspaceId: "ws1" };
+  const tarde = new Date(DIA.getTime() + 6 * HORA + 17 * 60_000);
+  const salio = await deltrabajador.enviarAvisoDelTrabajador(contexto, { texto, tipo: "cupos" }, tarde);
+  assert.equal(salio.salio, true);
+  assert.equal(estado.enviados.length, 1);
+  assert.equal(estado.enviados[0].phoneNumber, "573114445566", "a Emanuel, no al dueño");
+  assert.equal(estado.enviados[0].text, texto);
+  // Otro texto ("hace 13 min") no es otro aviso: no se repite antes de 3 horas.
+  const otro = texto.replace("12 min", "13 min");
+  assert.deepEqual(await avisos.registrarAvisoDelCoordinador("ws1", "cupos", otro, new Date(tarde.getTime() + 60_000)), { repetido: true });
+  // De noche, silencio.
+  assert.deepEqual(await avisos.registrarAvisoDelCoordinador("ws1", "cupos", texto, NOCHE), { silenciado: true });
+  // Con el interruptor de Sistemas apagado: tampoco va al dueño.
+  reiniciar();
+  guardarNumero();
+  await avisos.guardarConfigDeSistemas("ws1", { telefono: "573114445566", activo: false });
+  assert.equal((await avisos.registrarAvisoDelCoordinador("ws1", "cupos", texto, DIA)).salio, false);
+  assert.equal(estado.enviados.length, 0);
+  // Y con el interruptor general apagado, nada.
+  await avisos.guardarConfigDeAvisos("ws1", { activo: false });
+  assert.deepEqual(await avisos.registrarAvisoDelCoordinador("ws1", "cupos", texto, DIA), { apagado: true });
+});
+
 /* ------------------------------------------------------------------ las alertas: prioridad y página */
 
 await prueba("alertas: caído y límite son Urgente; trabado y sin trabajo, Alta; necesita es Urgente por dinero, Meta Ads, una clave o una duda de negocio", async () => {

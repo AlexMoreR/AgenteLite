@@ -895,6 +895,8 @@ export function crearPlanificador({
   colaPesada: colaDada = undefined,
   // Lo que hace cada sesión (procesar); las pruebas del reparto lo cambian por uno falso que no corre etapas.
   procesarTarjeta = procesar,
+  // El reloj (las pruebas de la alarma de cupos sin usar lo adelantan).
+  ahora = () => Date.now(),
 }) {
   const max = config.maxParalelo;
   const nubeConfig = config.nube ?? { activa: false, maxTareas: 0, maxArchivosChica: 8 };
@@ -925,6 +927,12 @@ export function crearPlanificador({
   let pcEspera = null;
   // id de la tarjeta que espera -> { motivo, contra }: `contra` es el id de la tarjeta con la que choca (null si espera por otra razón).
   let esperasDeFila = new Map();
+  // Alarma de cupos sin usar (31-oct-2026): las últimas candidatas que dio el CRM, desde cuándo hay tarjetas en fila con
+  // puestos libres (null = no pasa) y si ya se avisó en este episodio. `cuposVistos` es lo último medido, para el latido.
+  let ultimasCandidatas = [];
+  let cuposSinUsarDesde = null;
+  let cuposSinUsarAvisado = false;
+  let cuposVistos = { cupos: 0, enFila: 0, corriendo: 0 };
 
   /**
    * Bloqueos por choque que se sueltan solos (27-oct-2026): una espera que choca con una tarjeta que YA NO corre (terminó en HECHO,
@@ -1145,11 +1153,78 @@ export function crearPlanificador({
   }
 
   /**
+   * Cuántos puestos hay de verdad (31-oct-2026): en aizen1, el menor entre maxParalelo y la suma de cuposAizen1 (un proyecto
+   * sin cuposAizen1 cuenta maxParalelo); más, si la nube se puede usar, el menor entre nube.maxTareas y la suma de cuposNube
+   * (null = nube.maxTareas). Las que soltaron su puesto no cuentan.
+   */
+  function cuposDisponibles() {
+    const repos = Object.values(config.repos ?? {});
+    const sumaAizen = repos.reduce((total, repo) => total + (repo?.cuposAizen1 ?? max), 0);
+    let cupos = Math.min(max, repos.length ? sumaAizen : max);
+    if (nubeUtilizable()) {
+      const sumaNube = repos.reduce((total, repo) => total + (repo?.cuposNube ?? nubeConfig.maxTareas), 0);
+      cupos += Math.min(nubeConfig.maxTareas, repos.length ? sumaNube : nubeConfig.maxTareas);
+    }
+    return cupos;
+  }
+
+  /** "T-392" espera un puesto en la nube: el motivo de una tarjeta en fila, con lo que dice esperasDeFila (motivoDeEspera). */
+  function motivoEnFila(tarjeta) {
+    const motivo = esperasDeFila.get(tarjeta.id)?.motivo ?? "";
+    const titulo = `"${String(tarjeta.titulo ?? tarjeta.id).slice(0, 60)}"`;
+    if (!motivo) return `${titulo} sin motivo a la vista`;
+    return /^espera\b/.test(motivo) ? `${titulo} ${motivo}` : `${titulo} espera (${motivo})`;
+  }
+
+  /** El WhatsApp de la alarma: como mucho 3 líneas. */
+  function textoDeCuposSinUsar(enFila, corriendo, cupos, minutos) {
+    const muestra = enFila.slice(0, 3).map(motivoEnFila).join("; ");
+    const mas = enFila.length > 3 ? ` y ${enFila.length - 3} más` : "";
+    return [`⚠️ Cupos sin usar: ${enFila.length} en fila y ${corriendo} de ${cupos} corriendo hace ${minutos} min.`, `${muestra}${mas}.`].join("\n");
+  }
+
+  /**
+   * ALARMA DE CUPOS SIN USAR (31-oct-2026): hay tarjetas en la fila y corren menos que los puestos disponibles. No cuenta con
+   * la pausa por uso, con una etapa sin motor ni con el PC en rojo. Si dura 10 min o más, UN WhatsApp por episodio a Emanuel
+   * (crm.aviso(texto, "cupos")); si el CRM lo calla o falla, se reintenta en la próxima vuelta. Nunca tumba al planificador.
+   */
+  async function revisarCuposSinUsar() {
+    try {
+      const enManos = new Set([...sesiones.values(), ...enNube.values()].map((s) => s.tarjeta.id));
+      const enFila = ultimasCandidatas.filter((c) => c && !enManos.has(c.id));
+      const corriendo = ocupadas().length + ocupadasEnNube().length;
+      const cupos = cuposDisponibles();
+      cuposVistos = { cupos, enFila: enFila.length, corriendo };
+      const pasa = enFila.length > 0 && corriendo < cupos && !pausaUso.pausado() && etapasSinMotor().length === 0 && !pcEspera;
+      if (!pasa) {
+        cuposSinUsarDesde = null;
+        cuposSinUsarAvisado = false;
+        return;
+      }
+      cuposSinUsarDesde ??= ahora();
+      const minutos = Math.floor((ahora() - cuposSinUsarDesde) / 60_000);
+      if (cuposSinUsarAvisado || minutos < 10) return;
+      const respuesta = await crm.aviso(textoDeCuposSinUsar(enFila, corriendo, cupos, minutos), "cupos");
+      if (!respuesta?.silenciado) cuposSinUsarAvisado = true;
+    } catch (error) {
+      registro.aviso(`no salió el aviso de cupos sin usar (${error?.status ?? "sin respuesta"}): ${error?.message ?? error}`);
+    }
+  }
+
+  async function llenar(opciones = {}) {
+    try {
+      await llenarCupos(opciones);
+    } finally {
+      await revisarCuposSinUsar();
+    }
+  }
+
+  /**
    * soloPlanear (31-oct-2026, causa del 30-oct a las 11:50 p. m.): mientras el Coordinador espera para pasar a su versión
    * nueva, solo toma tarjetas para PLANEAR (unos minutos), y trabajador.mjs lo pide solo mientras quede alguna tarea larga
    * (sin puesto o en la nube). Construir y subir esperan a la versión nueva.
    */
-  async function llenar({ soloPlanear = false } = {}) {
+  async function llenarCupos({ soloPlanear = false } = {}) {
     soltarEsperasTerminadas();
     await vigilante?.vigilar();
     await avisarPausaPorUso();
@@ -1208,6 +1283,7 @@ export function crearPlanificador({
       // Siempre se miran las candidatas (25-oct-2026): también para ESCOGER cuál conviene (ordenarCandidatas).
       {
         const { candidatas = [] } = await crm.candidatas();
+        ultimasCandidatas = candidatas;
         const contraQuien = {};
         const chocan = corriendo.length ? candidatasQueChocan(candidatas, corriendo, config.repos, contraQuien) : {};
         for (const c of candidatas) if (!chocan[c.id] && sinMotor.includes(c.hacer)) chocan[c.id] = `(sin motor para ${c.hacer})`;
@@ -1335,6 +1411,10 @@ export function crearPlanificador({
         esperas: [...esperasDeFila.entries()].map(([tarjetaId, espera]) => ({ tarjetaId, motivo: espera.motivo, ...(espera.contra ? { contra: espera.contra } : {}) })),
         uso: motores.resumenDeUso(),
         pausaUso: pausaUso.resumen(),
+        // 31-oct-2026: los puestos disponibles, cuántas esperan en fila y cuántas ocupan puesto (los máximos del día salen de acá).
+        cupos: cuposVistos.cupos,
+        enFila: cuposVistos.enFila,
+        corriendo: cuposVistos.corriendo,
       };
     },
     /** Pausa por uso de Claude: ¿está pausado? (el trabajo de noche y el recogedor tampoco corren) y los ajustes del panel. */

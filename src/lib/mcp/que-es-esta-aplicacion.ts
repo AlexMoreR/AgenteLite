@@ -9,7 +9,7 @@ import { leerUltimosResumenes } from "@/features/agentes-de-area/servicios/resum
 import { prisma } from "@/lib/prisma";
 import { aprobacionAutomaticaPrendida, aprobarPlanesSoloPrendido, aprobarTareasSoloPrendido } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
 import { recogidaDelResultado } from "@/features/tableros-inteligentes/services/reglas-trabajador";
-import { avisosPrendidos, leerEstadoDeAvisos, telefonoGuardado } from "@/features/tableros-inteligentes/services/avisos-al-dueno";
+import { avisosPrendidos, leerEstadoDeAvisos, sistemasPrendido, telefonoDeSistemasGuardado, telefonoGuardado } from "@/features/tableros-inteligentes/services/avisos-al-dueno";
 import { resumenDeAvisosAlEquipo } from "@/features/tableros-inteligentes/services/avisos-al-equipo";
 import { MOTIVO_TERMINADA, terminadasPrendidas } from "@/features/tableros-inteligentes/services/avisos-de-terminadas";
 import { tieneAccesoAlDrive } from "@/features/cerebro/services/conexion";
@@ -444,6 +444,15 @@ async function estadoDeAvisosAlEquipo(workspaceId: string) {
 }
 
 /** Aviso al dueño de cada tarea terminada: interruptor propio + el general, último aviso enviado y cuántos quedaron FALLIDO. */
+/** La alarma de cupos sin usar (31-oct-2026): la manda el Coordinador y el CRM la pasa solo al WhatsApp de Emanuel. */
+async function estadoDeLaAlarmaDeCupos(workspaceId: string) {
+  const [general, sistemas, telefono] = await Promise.all([avisosPrendidos(workspaceId), sistemasPrendido(workspaceId), telefonoDeSistemasGuardado(workspaceId)]);
+  const que = "el Coordinador avisa una vez cuando lleva 10 min con tarjetas en fila y puestos libres sin usar (no cuenta la pausa por uso ni el PC en rojo)";
+  if (!general) return `APAGADA: el interruptor general de avisos (Mi empresa → Claude) está apagado; ${que}, pero no sale nada`;
+  if (!sistemas || !telefono) return `PRENDIDA, queda solo en alertas: ${que}; Emanuel no la recibe porque ${!sistemas ? "su interruptor está apagado" : "no tiene el WhatsApp de Sistemas guardado"} (nunca va al dueño)`;
+  return `PRENDIDA: ${que}; sale al WhatsApp de Emanuel (…${telefono.slice(-4)}) por la línea Admin, uno cada 3 horas como mucho y con el silencio de 9 p. m. a 7 a. m.`;
+}
+
 async function estadoDeAvisosDeTerminadas(workspaceId: string) {
   const donde = { workspaceId, motivo: MOTIVO_TERMINADA };
   const [general, propio, ultimo, fallidos] = await Promise.all([
@@ -594,6 +603,7 @@ async function automatizaciones(
     avisos_al_dueno_tablero: await estadoDeAvisosAlDueno(workspaceId).catch(() => "no se pudo leer"),
     avisos_al_equipo_tablero: await estadoDeAvisosAlEquipo(workspaceId).catch(() => "no se pudo leer"),
     avisos_de_terminadas_tablero: await estadoDeAvisosDeTerminadas(workspaceId).catch(() => "no se pudo leer"),
+    alarma_cupos_sin_usar_tablero: await estadoDeLaAlarmaDeCupos(workspaceId).catch(() => "no se pudo leer"),
     archivar_terminadas_tablero: await estadoDelArchivado().catch(() => "no se pudo leer"),
     cerebro_sincronizacion: await estadoDelCerebro(workspaceId).catch(() => "no se pudo leer"),
     origen_de_pauta: await estadoDeLaPauta(workspaceId).catch(() => "no se pudo leer"),

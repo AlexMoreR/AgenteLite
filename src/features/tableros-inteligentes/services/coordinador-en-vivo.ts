@@ -36,6 +36,7 @@ import {
   textoDelUsoDeClaude,
 } from "./reglas-coordinador-en-vivo";
 import { etiquetaEsperando, prioridadDeLaFila, recogidaDelResultado } from "./reglas-trabajador";
+import { diaDeBogota } from "./archivadas";
 import { leerPausaPorUso } from "./pausa-por-uso-de-claude";
 import { ErrorDelTrabajador, type ContextoTrabajador } from "./trabajador";
 import { linkDeLaTarjeta } from "./tableros";
@@ -47,6 +48,9 @@ import { linkDeLaTarjeta } from "./tableros";
   - guardarLatido (POST /api/trabajador/latido): el Coordinador manda su estado cada 15 s con su clave. Se
     guarda SOLO el último, como un ajuste del negocio (AppSetting `trabajador:latido:<negocio>:<clave>`):
     sin tabla nueva y sin nada que borrar a las 24 h.
+  - Máximos del día (31-oct-2026): con los `corriendo`, `enFila` y `cupos` del latido se guarda, por día de Bogotá, el
+    máximo de "corriendo a la vez" y el de "en fila" (AppSetting `trabajador:cupos-del-dia:<negocio>`). Los lee el resumen
+    de las 9 p. m. Solo se escribe cuando sube un máximo o cambian los cupos.
   - vistaDelCoordinador (GET /api/cliente/tableros-inteligentes/coordinador y la herramienta MCP
     ver_coordinador): junta el último latido con las tarjetas en marcha, la fila y lo de hoy.
 
@@ -62,6 +66,70 @@ const MAXIMO_DE_TRABAJOS_DE_HOY = 30;
 
 export const claveDelLatido = (workspaceId: string, claveId: string) => `${PREFIJO}${workspaceId}:${claveId}`;
 
+/* ───────────────────────────────────────────────────────────── los máximos del día ── */
+
+/** No empieza por `trabajador:latido:`: ultimoLatido no lo confunde con un latido. */
+export const claveDeCuposDelDia = (workspaceId: string) => `trabajador:cupos-del-dia:${workspaceId}`;
+
+export type CuposDelDia = { dia: string; corriendoMax: number; enFilaMax: number; cupos: number | null };
+type CuentasDelLatido = { corriendo?: unknown; enFila?: unknown; cupos?: unknown };
+
+/** Un entero de 0 a 100; lo demás no cuenta (null). */
+const cuentaValida = (valor: unknown): number | null => (typeof valor === "number" && Number.isInteger(valor) && valor >= 0 && valor <= 100 ? valor : null);
+
+/** Lo guardado, si tiene la forma de siempre; si no, null. */
+export function cuposDelDiaDeValor(valor: string | null | undefined): CuposDelDia | null {
+  try {
+    const leido = JSON.parse(valor ?? "") as Partial<CuposDelDia>;
+    if (!leido || typeof leido.dia !== "string") return null;
+    return { dia: leido.dia, corriendoMax: cuentaValida(leido.corriendoMax) ?? 0, enFilaMax: cuentaValida(leido.enFilaMax) ?? 0, cupos: cuentaValida(leido.cupos) };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Los máximos de hoy con lo que trae este latido (pura). Al cambiar de día vuelven a cero. Devuelve null si no cambia nada
+ * (no hay que escribir): solo se escribe cuando sube un máximo o cambian los cupos.
+ */
+export function maximosDelDia(anterior: CuposDelDia | null, entrada: CuentasDelLatido, dia: string): CuposDelDia | null {
+  const corriendo = cuentaValida(entrada.corriendo);
+  const enFila = cuentaValida(entrada.enFila);
+  const cupos = cuentaValida(entrada.cupos);
+  if (corriendo === null && enFila === null && cupos === null) return null;
+  const base: CuposDelDia = anterior && anterior.dia === dia ? anterior : { dia, corriendoMax: 0, enFilaMax: 0, cupos: null };
+  const nuevo: CuposDelDia = {
+    dia,
+    corriendoMax: Math.max(base.corriendoMax, corriendo ?? 0),
+    enFilaMax: Math.max(base.enFilaMax, enFila ?? 0),
+    cupos: cupos ?? base.cupos,
+  };
+  const igual = anterior && anterior.dia === dia && anterior.corriendoMax === nuevo.corriendoMax && anterior.enFilaMax === nuevo.enFilaMax && anterior.cupos === nuevo.cupos;
+  return igual ? null : nuevo;
+}
+
+/** Guarda los máximos del día con este latido (una lectura; casi nunca una escritura). */
+async function guardarCuposDelDia(workspaceId: string, cuerpo: unknown, ahora: Date) {
+  if (!cuerpo || typeof cuerpo !== "object") return;
+  const key = claveDeCuposDelDia(workspaceId);
+  const fila = await prisma.appSetting.findUnique({ where: { key }, select: { value: true } });
+  const nuevo = maximosDelDia(cuposDelDiaDeValor(fila?.value), cuerpo as CuentasDelLatido, diaDeBogota(ahora));
+  if (!nuevo) return;
+  const value = JSON.stringify(nuevo);
+  await prisma.appSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+}
+
+/** Los máximos del día `dia` (AAAA-MM-DD de Bogotá), o null si no hay de ese día o no se pueden leer. Nunca lanza. */
+export async function leerCuposDelDia(workspaceId: string, dia: string): Promise<CuposDelDia | null> {
+  try {
+    const fila = await prisma.appSetting.findUnique({ where: { key: claveDeCuposDelDia(workspaceId) }, select: { value: true } });
+    const leido = cuposDelDiaDeValor(fila?.value);
+    return leido && leido.dia === dia ? leido : null;
+  } catch {
+    return null;
+  }
+}
+
 /** POST /latido: guarda el último latido de esta clave. Un cuerpo que no es un objeto es un 400. */
 export async function guardarLatido(contexto: ContextoTrabajador, cuerpo: unknown, ahora = new Date()) {
   const latido = latidoDeEntrada(cuerpo, ahora, HOST_DEL_CRM);
@@ -69,6 +137,10 @@ export async function guardarLatido(contexto: ContextoTrabajador, cuerpo: unknow
   const key = claveDelLatido(contexto.workspaceId, contexto.claveId);
   const value = JSON.stringify(latido);
   await prisma.appSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+  // Los máximos del día para el resumen de las 9 p. m.: si fallan, el latido sigue.
+  await guardarCuposDelDia(contexto.workspaceId, cuerpo, ahora).catch((error) =>
+    console.warn("[coordinador-en-vivo] no se pudieron guardar los máximos del día", error instanceof Error ? error.message : String(error)),
+  );
   // El interruptor y el umbral de la pausa por uso viajan en la respuesta: así el Coordinador los recibe cada 15 s. Si no se
   // pueden leer, se omiten (el Coordinador sigue con lo suyo).
   const pausaUso = await leerPausaPorUso(contexto.workspaceId).catch(() => null);

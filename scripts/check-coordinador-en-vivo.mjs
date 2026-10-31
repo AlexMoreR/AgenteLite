@@ -257,6 +257,38 @@ await prueba("guardarLatido guarda solo el último por clave; un cuerpo que no e
   await assert.rejects(() => servicio.guardarLatido(contexto, null, AHORA), (error) => error.status === 400);
 });
 
+await prueba("máximos del día (31-oct): maximosDelDia sube solo, vuelve a cero al cambiar de día e ignora lo que no es número", async () => {
+  const { maximosDelDia } = servicio;
+  const primero = maximosDelDia(null, { corriendo: 2, enFila: 3, cupos: 5 }, "2026-10-31");
+  assert.deepEqual(primero, { dia: "2026-10-31", corriendoMax: 2, enFilaMax: 3, cupos: 5 });
+  assert.equal(maximosDelDia(primero, { corriendo: 1, enFila: 0, cupos: 5 }, "2026-10-31"), null, "nada sube: no se escribe");
+  assert.deepEqual(maximosDelDia(primero, { corriendo: 4, enFila: 1, cupos: 5 }, "2026-10-31"), { dia: "2026-10-31", corriendoMax: 4, enFilaMax: 3, cupos: 5 });
+  assert.deepEqual(maximosDelDia(primero, { corriendo: 1, enFila: 0, cupos: 6 }, "2026-10-31").cupos, 6, "cambian los cupos: se escribe");
+  assert.deepEqual(maximosDelDia(primero, { corriendo: 1, enFila: 0, cupos: 5 }, "2026-11-01"), { dia: "2026-11-01", corriendoMax: 1, enFilaMax: 0, cupos: 5 }, "día nuevo: desde cero");
+  assert.equal(maximosDelDia(primero, { corriendo: "9", enFila: -1, cupos: 101 }, "2026-10-31"), null, "lo que no es un entero de 0 a 100 no cuenta");
+  assert.equal(maximosDelDia(null, {}, "2026-10-31"), null, "un Coordinador viejo sin las cuentas no escribe nada");
+});
+
+await prueba("máximos del día: guardarLatido los guarda por día de Bogotá, ultimoLatido no los confunde y leerCuposDelDia los lee", async () => {
+  await servicio.guardarLatido(contexto, { tareas: [], corriendo: 2, enFila: 4, cupos: 5 }, hace(10));
+  await servicio.guardarLatido(contexto, { tareas: [], corriendo: 3, enFila: 1, cupos: 5 }, AHORA);
+  assert.deepEqual(JSON.parse(estado.ajustes.get("trabajador:cupos-del-dia:ws1")), { dia: "2026-10-24", corriendoMax: 3, enFilaMax: 4, cupos: 5 });
+  assert.equal((await servicio.ultimoLatido("ws1")).recibidoEn, AHORA.toISOString());
+  assert.deepEqual(await servicio.leerCuposDelDia("ws1", "2026-10-24"), { dia: "2026-10-24", corriendoMax: 3, enFilaMax: 4, cupos: 5 });
+  assert.equal(await servicio.leerCuposDelDia("ws1", "2026-10-25"), null, "de otro día no hay");
+  // Si guardar los máximos falla, el latido sigue.
+  const original = prismaFalso.appSetting.findUnique;
+  prismaFalso.appSetting.findUnique = async () => {
+    throw new Error("base caída");
+  };
+  try {
+    const respuesta = await servicio.guardarLatido(contexto, { tareas: [], corriendo: 9 }, AHORA);
+    assert.equal(respuesta.recibidoEn, AHORA.toISOString());
+  } finally {
+    prismaFalso.appSetting.findUnique = original;
+  }
+});
+
 await prueba("la vista junta el latido con las tarjetas en marcha: lugar, modelo, en qué va y los links", async () => {
   estado.tarjetas.push(tarjeta({ id: "t1", titulo: "Panel en vivo", estado: "EN_CURSO", intentos: 2 }));
   await servicio.guardarLatido(
