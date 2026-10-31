@@ -35,7 +35,14 @@ import {
   textoDelUso,
   textoDelUsoDeClaude,
 } from "./reglas-coordinador-en-vivo";
-import { etiquetaEsperando, prioridadDeLaFila, recogidaDelResultado } from "./reglas-trabajador";
+import {
+  NOMBRE_DE_LA_ZONA,
+  esZona,
+  etiquetaEsperando,
+  prioridadDeLaFila,
+  recogidaDelResultado,
+  zonasQueEsperanLaPantalla,
+} from "./reglas-trabajador";
 import { diaDeBogota } from "./archivadas";
 import { leerPausaPorUso } from "./pausa-por-uso-de-claude";
 import { ErrorDelTrabajador, type ContextoTrabajador } from "./trabajador";
@@ -244,6 +251,26 @@ async function tarjetasEnMarcha(workspaceId: string, ahora: Date) {
   });
 }
 
+/**
+ * La vía de la última aprobación vigente (la más nueva sin deshacer, `despues.via`): la misma que lee el filtro de /tomar
+ * (VIA_DE_LA_ULTIMA_APROBACION en sql-trabajador.ts). '' si no hay.
+ */
+function viaDelHistorial(historial: readonly { despues: unknown }[]): string {
+  const despues = historial[0]?.despues;
+  const via = despues && typeof despues === "object" && !Array.isArray(despues) ? (despues as { via?: unknown }).via : undefined;
+  return typeof via === "string" ? via : "";
+}
+
+/**
+ * "Espera que la apruebes en la pantalla (Libro V3)" si la vía de su aprobación no deja que el Coordinador la tome
+ * (zonasQueEsperanLaPantalla, la misma regla que /candidatas); null si la vía alcanza. Varias zonas: "(Libro V3, Meta Ads)".
+ */
+export function motivoDeLaPantalla(zonas: readonly string[], via: string | null | undefined): string | null {
+  const faltan = zonasQueEsperanLaPantalla(zonas, via);
+  if (!faltan.length) return null;
+  return `Espera que la apruebes en la pantalla (${faltan.map((zona) => (esZona(zona) ? NOMBRE_DE_LA_ZONA[zona] : zona)).join(", ")})`;
+}
+
 async function filaDelCoordinador(workspaceId: string, ahora: Date, esperas: Map<string, string>) {
   const dependencias = {
     where: { esDependencia: true, origen: { borradoEn: null, estado: { not: "HECHO" as const }, tipo: { usaEstados: true } } },
@@ -274,6 +301,8 @@ async function filaDelCoordinador(workspaceId: string, ahora: Date, esperas: Map
         zonaProtegida: true,
         tablero: { select: { nombre: true } },
         entrantes: dependencias,
+        // La vía de la última aprobación vigente (31-oct-2026): con LIBRO_V3 o META_ADS solo la pantalla deja tomarla.
+        historial: { where: { accion: "aprobar", deshechoEn: null }, orderBy: { creadoEn: "desc" }, take: 1, select: { despues: true } },
       },
     }),
     prisma.tarjetaTablero.findMany({
@@ -324,11 +353,15 @@ async function filaDelCoordinador(workspaceId: string, ahora: Date, esperas: Map
   for (const tarjeta of enOrden) {
     if (!(ESTADOS_DE_FILA as readonly string[]).includes(tarjeta.estado)) continue;
     const espera = tarjeta.entrantes[0]?.origen.titulo;
+    // Espera la pantalla (31-oct-2026): /candidatas nunca la da, así que no va en la fila sino en bloqueadas con su motivo.
+    const pantalla = motivoDeLaPantalla(tarjeta.zonaProtegida ?? [], viaDelHistorial(tarjeta.historial ?? []));
     if (espera && tarjeta.estado !== "SUBIENDO") {
       bloqueadas.push(item(tarjeta, `Espera a la tarjeta «${espera}»`));
       esperando.push(item(tarjeta, etiquetaEsperando(tarjeta.entrantes.map((entrante) => ({ titulo: entrante.origen.titulo, estado: entrante.origen.estado ?? "" })))));
     }
-    else if (esperas.has(tarjeta.id)) bloqueadas.push(item(tarjeta, esperas.get(tarjeta.id) || "Espera a que termine otra tarea"));
+    else if (pantalla) {
+      bloqueadas.push({ ...item(tarjeta, pantalla), pasos: pasosDeLaTarjeta({ estado: tarjeta.estado, necesitaHumano: true }) });
+    } else if (esperas.has(tarjeta.id)) bloqueadas.push(item(tarjeta, esperas.get(tarjeta.id) || "Espera a que termine otra tarea"));
     else siguientes.push(item(tarjeta, null));
   }
   for (const tarjeta of esperandoAlDueno) bloqueadas.push({ ...item(tarjeta, MOTIVO_DEL_DUENO[tarjeta.estado] ?? "Espera tu sí"), pasos: pasosDeLaTarjeta({ estado: tarjeta.estado }) });
@@ -448,6 +481,9 @@ export function textoDeLosPasos(pasos: PasosVista): string {
   return pasos.necesitaHumano ? `Necesita humano en ${actual}` : actual;
 }
 
+/** "Espera tu sí" -> "espera tu sí": solo la primera letra (los nombres, como «Libro V3» o un título, quedan como están). */
+const primeraEnMinuscula = (texto: string) => texto.charAt(0).toLowerCase() + texto.slice(1);
+
 /** La misma vista en texto sencillo, para que Claude la lea por voz (herramienta MCP ver_coordinador). */
 export function textoDelCoordinador(vista: VistaDelCoordinador): string {
   const ahora = new Date(vista.generadoEn).getTime();
@@ -477,11 +513,11 @@ export function textoDelCoordinador(vista: VistaDelCoordinador): string {
     lineas.push(`Carga de aizen1: ${luz}${partes.length ? ` — ${partes.join(", ")}` : ""}.${carga.esperandoPc ? ` Está esperando a que el PC se desocupe${carga.motivoEspera ? ` (${carga.motivoEspera})` : ""}.` : ""}`);
   }
 
-  if (vista.fila.siguientes.length) lineas.push(`Sigue en la fila: ${vista.fila.siguientes.map((item, i) => `${i + 1}. «${item.titulo}»`).join("; ")}.`);
+  if (vista.fila.siguientes.length) lineas.push(`Sigue en la fila: ${vista.fila.siguientes.map((item, i) => `${i + 1}. «${item.titulo}»${item.motivo ? ` (${item.motivo})` : ""}`).join("; ")}.`);
   else lineas.push("La fila está vacía.");
   lineas.push(`En error: ${vista.errores.cantidad}${vista.errores.cantidad ? ` — ${vista.errores.tarjetas.map((item) => `«${item.titulo}»${item.motivo ? ` (${item.motivo})` : ""}`).join("; ")}` : ""}.`);
   lineas.push(`Esperando a otra: ${vista.esperandoAOtra.cantidad}${vista.esperandoAOtra.cantidad ? ` — ${vista.esperandoAOtra.tarjetas.map((item) => `«${item.titulo}» (${item.motivo ?? "espera"})`).join("; ")}` : ""}.`);
-  if (vista.fila.bloqueadas.length) lineas.push(`Bloqueadas: ${vista.fila.bloqueadas.map((item) => `«${item.titulo}» (${item.motivo?.toLowerCase() ?? "espera"})`).join("; ")}.`);
+  if (vista.fila.bloqueadas.length) lineas.push(`Bloqueadas: ${vista.fila.bloqueadas.map((item) => `«${item.titulo}» (${item.motivo ? primeraEnMinuscula(item.motivo) : "espera"})`).join("; ")}.`);
 
   const { hoy } = vista;
   lineas.push(`Hoy: ${hoy.terminadas} terminadas, ${hoy.falladas} falladas, ${hoy.reparadas} reparadas.`);
