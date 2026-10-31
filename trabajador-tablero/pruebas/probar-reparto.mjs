@@ -70,6 +70,32 @@ await prueba("choques: la parte 5 se busca por su encabezado 'Archivos' (una lis
   assert.deepEqual(archivosDelPlan("## 5. Archivos que se tocan\nlos de siempre\n## 6. Pruebas\nsrc/x/a.ts"), ["src/x/a.ts"]);
 });
 
+await prueba("choques: una carpeta o un glob de la parte 5 choca con los archivos que contiene (y carpetas distintas no)", async () => {
+  const repo = { zonasProtegidas: {} };
+  const h = (id, plan) => huellaDeTarjeta({ id, titulo: id, repo: "aizencrm", plan }, "construir", repo);
+  // Los "*" ya no cortan la ruta; el markdown "**...**" sí se quita.
+  assert.deepEqual(archivosDelPlan(planCon("`src/lib/**`", "**src/features/coach/a.ts**", "src/features/*.ts", "**/*.json")).sort(), ["**/*.json", "src/features/*.ts", "src/features/coach/a.ts", "src/lib/**"]);
+  // Carpeta con "/" al final contra un archivo de adentro.
+  assert.ok(motivoDeChoque(h("a", planCon("src/features/coach/")), h("b", planCon("src/features/coach/x.ts"))));
+  assert.ok(motivoDeChoque(h("b", planCon("src/features/coach/x.ts")), h("a", planCon("src/features/coach/"))), "en los dos sentidos");
+  // "**" contra un archivo de adentro (antes: módulo "lib" contra "lib/a", no chocaban).
+  assert.match(motivoDeChoque(h("c", planCon("src/lib/**")), h("d", planCon("src/lib/a.ts"))) ?? "", /src\/lib\/\*\* y src\/lib\/a\.ts/);
+  assert.ok(motivoDeChoque(h("e", planCon("src/features/**")), h("f", planCon("src/features/coach/x.ts"))));
+  // Una carpeta común nombrada entera choca con un archivo de adentro (antes: módulo por archivo).
+  assert.ok(motivoDeChoque(h("g", planCon("src/app/actions/")), h("i", planCon("src/app/actions/guardar.ts"))));
+  // "*" no cruza carpetas.
+  assert.ok(motivoDeChoque(h("j", planCon("src/lib/*.ts")), h("k", planCon("src/lib/b.ts"))));
+  assert.equal(motivoDeChoque(h("j", planCon("src/lib/*.ts")), h("k", planCon("src/lib/mcp/b.ts"))), null);
+  // Dos globs: chocan si una carpeta está dentro de la otra.
+  assert.ok(motivoDeChoque(h("l", planCon("src/lib/**")), h("m", planCon("src/lib/mcp/*.ts"))));
+  // Carpetas distintas no chocan (ni como carpeta ni como glob).
+  assert.equal(motivoDeChoque(h("n", planCon("src/features/coach/")), h("o", planCon("src/features/ventas/"))), null);
+  assert.equal(motivoDeChoque(h("p", planCon("src/features/coach/**")), h("q", planCon("src/features/ventas/x.ts"))), null);
+  assert.equal(motivoDeChoque(h("r", planCon("src/features/coach/")), h("s", planCon("src/features/coachx/a.ts"))), null, "un prefijo de nombre no es la misma carpeta");
+  // Los .md siguen sin chocar aunque caigan dentro de una carpeta del plan.
+  assert.equal(motivoDeChoque(h("t", planCon("docs/guias/")), h("u", planCon("docs/guias/uno.md"))), null);
+});
+
 await prueba("cola de pasos pesados: de a uno, primero subir, después verificar, después preparar; se cancela con la señal", async () => {
   const cola = crearColaPesada({ maximo: 1 });
   const orden = [];
