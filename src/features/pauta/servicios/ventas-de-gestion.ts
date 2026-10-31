@@ -25,7 +25,8 @@ export type VentaPagada = {
 
 export type FuenteDeVentas = "gestion" | "crm";
 
-async function pedirAGestion(workspaceId: string, desde: string, hasta: string): Promise<VentaPagada[] | null> {
+/** Las ventas pagadas que manda Gestión en el rango. null = Gestión no está conectada, no respondió o no tiene la lista. */
+export async function pedirAGestion(workspaceId: string, desde: string, hasta: string): Promise<VentaPagada[] | null> {
   const conexion = await leerConexionConGestion(workspaceId);
   if (!conexion) return null;
   try {
