@@ -143,24 +143,32 @@ export function armarResumen(dia: string, filas: readonly FilaDelHistorial[]): R
   return resumen;
 }
 
-/** Las tres cifras del mensaje. */
-export type CifrasDelDia = { listas: number; conProblema: number; esperando: number };
+/**
+ * Las cifras del mensaje. `chocaronConMain` (31-oct-2026, meta del dueño: cero por día) son las tarjetas distintas
+ * que ese día chocaron con main (un IntentoTarjeta de categoría choca_con_main o choque_de_logica creado ese día).
+ */
+export type CifrasDelDia = { listas: number; conProblema: number; esperando: number; chocaronConMain: number };
+
+/** Las categorías de IntentoTarjeta que cuentan como "choque con main" en el resumen. */
+export const CATEGORIAS_DE_CHOQUE_CON_MAIN = ["choca_con_main", "choque_de_logica"] as const;
 
 /**
  * Cuenta por tarjeta (no por evento): una que falló y después subió el mismo día cuenta una sola vez, como
  * lista. "Esperando tu sí" son las que hoy esperan al dueño (la lista de "Te toca a ti").
  */
-export function cifrasDelDia(resumen: ResumenDelDia, esperando: number): CifrasDelDia {
+export function cifrasDelDia(resumen: ResumenDelDia, esperando: number, chocaronConMain = 0): CifrasDelDia {
   const listas = new Set(resumen.subidas.map((s) => s.tarjetaId));
   const conProblema = new Set(resumen.fallas.map((f) => f.tarjetaId).filter((id) => !listas.has(id)));
-  return { listas: listas.size, conProblema: conProblema.size, esperando };
+  return { listas: listas.size, conProblema: conProblema.size, esperando, chocaronConMain };
 }
 
-export const haySinMovimiento = (cifras: CifrasDelDia) => !cifras.listas && !cifras.conProblema && !cifras.esperando;
+export const haySinMovimiento = (cifras: CifrasDelDia) =>
+  !cifras.listas && !cifras.conProblema && !cifras.esperando && !cifras.chocaronConMain;
 
 /**
  * El texto que se manda por WhatsApp y se ve en la caja "Resumen de hoy": 4 líneas fijas (título, qué se arregló, qué
- * falló y qué está pendiente), sin links ni listas. Texto vacío si las tres cifras son 0 (entonces no se manda nada).
+ * falló y qué está pendiente), sin links ni listas. Texto vacío si todas las cifras son 0 (entonces no se manda nada).
+ * La línea "Falló" lleva siempre entre paréntesis cuántas tareas chocaron con main ese día, también cuando no falló nada.
  */
 export function textoDelResumen(cifras: CifrasDelDia): string {
   if (haySinMovimiento(cifras)) return "";
@@ -168,7 +176,7 @@ export function textoDelResumen(cifras: CifrasDelDia): string {
   return [
     "Resumen de Sistemas de hoy:",
     `✅ Se arregló: ${cifras.listas ? cuantas(cifras.listas, "tarea", "tareas") : "nada"}`,
-    `⚠️ Falló: ${cifras.conProblema ? cuantas(cifras.conProblema, "tarea", "tareas") : "nada"}`,
+    `⚠️ Falló: ${cifras.conProblema ? cuantas(cifras.conProblema, "tarea", "tareas") : "nada"} (${cifras.chocaronConMain} por choque con main)`,
     `👆 Pendiente: ${cifras.esperando ? cuantas(cifras.esperando, "tarea", "tareas") : "nada"}`,
   ].join("\n");
 }
@@ -207,6 +215,24 @@ export async function resumenDelDia(workspaceId: string, dia: string): Promise<R
       ultimaCausa: fila.tarjeta.intentosDeTrabajo?.[0]?.causa ?? null,
     })),
   );
+}
+
+/**
+ * Cuántas tarjetas distintas del negocio chocaron con main ese día de Bogotá: las que tienen un IntentoTarjeta de
+ * categoría choca_con_main o choque_de_logica creado ese día (las partes 1 a 3 del Coordinador los guardan así).
+ */
+export async function cuantasChocaronConMain(workspaceId: string, dia: string): Promise<number> {
+  const { desde, hasta } = rangoDelDia(dia);
+  const filas = await prisma.intentoTarjeta.findMany({
+    where: {
+      creadoEn: { gte: desde, lt: hasta },
+      categoria: { in: [...CATEGORIAS_DE_CHOQUE_CON_MAIN] },
+      tarjeta: { tablero: { workspaceId } },
+    },
+    distinct: ["tarjetaId"],
+    select: { tarjetaId: true },
+  });
+  return new Set(filas.map((fila) => fila.tarjetaId)).size;
 }
 
 /** Cuántas tarjetas esperan en este momento al dueño (la misma lista de "Te toca a ti"). */
@@ -273,12 +299,13 @@ export async function vistaDeHoy(workspaceId: string, ahora = new Date()): Promi
 /** La caja "Resumen de hoy" del tablero: lo de hoy hasta ahora y el interruptor de la aprobación automática. */
 export async function resumenDeHoyParaLaPantalla(workspaceId: string, ahora = new Date()) {
   const dia = diaDeBogota(ahora);
-  const [resumen, esperando, prendida] = await Promise.all([
+  const [resumen, esperando, chocaron, prendida] = await Promise.all([
     resumenDelDia(workspaceId, dia),
     cuantasEsperan(workspaceId),
+    cuantasChocaronConMain(workspaceId, dia),
     aprobacionAutomaticaPrendida(workspaceId),
   ]);
-  const cifras = cifrasDelDia(resumen, esperando);
+  const cifras = cifrasDelDia(resumen, esperando, chocaron);
   return {
     dia,
     cifras,
@@ -315,7 +342,11 @@ export async function enviarResumenDiarioAlDueno(ahora: Date = new Date()): Prom
         prisma.appSetting.findUnique({ where: { key: claveInterruptorDelResumen(workspaceId) }, select: { value: true } }),
       ]);
       if (ultimo?.value === dia || interruptor?.value === "false" || !(await avisosPrendidos(workspaceId))) continue;
-      const cifras = cifrasDelDia(await resumenDelDia(workspaceId, dia), await cuantasEsperan(workspaceId));
+      const cifras = cifrasDelDia(
+        await resumenDelDia(workspaceId, dia),
+        await cuantasEsperan(workspaceId),
+        await cuantasChocaronConMain(workspaceId, dia),
+      );
       const texto = textoDelResumen(cifras);
       if (texto) {
         const envio = await enviarAlDueno(workspaceId, texto, 4);
