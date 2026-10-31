@@ -94,6 +94,13 @@ await prueba("choques: una carpeta y los globs de la parte 5 chocan con los arch
   assert.equal(rutasChocan("src/lib/*.ts", "src/lib/mcp/a.ts"), false, "un * no baja de carpeta");
   assert.equal(rutasChocan("src/lib/**", "src/features/**"), false);
   assert.equal(rutasChocan("src/lib/**", "src/lib/mcp/"), true, "glob contra carpeta de adentro");
+  assert.equal(rutasChocan("src/**/page.tsx", "src/app/cliente/chats/page.tsx"), true);
+  assert.equal(rutasChocan("src/**/page.tsx", "src/page.tsx"), true, "** también calza con ninguna carpeta");
+  // Un glob raro del plan no cuelga al Coordinador (con regex, esto no terminaba).
+  const inicio = Date.now();
+  assert.equal(rutasChocan(`src/${"*a".repeat(20)}*b`, `src/${"a".repeat(60)}.ts`), false);
+  assert.equal(rutasChocan(`src/${"**/".repeat(30)}x.ts`, `src/${"a/".repeat(40)}y.ts`), false);
+  assert.ok(Date.now() - inicio < 1000, "comparar globs raros es rápido");
   // Carpetas distintas no chocan (ni las que solo empiezan igual).
   assert.equal(motivoDeChoque(h("a", planCon("src/features/coach/")), h("b", planCon("src/features/ventas/"))), null);
   assert.equal(motivoDeChoque(h("a", planCon("src/app/actions/uno/")), h("b", planCon("src/app/actions/uno-mas/x.ts"))), null);

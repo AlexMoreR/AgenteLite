@@ -172,6 +172,53 @@ const carpetaFija = (glob) => {
   return partes.slice(0, partes.findIndex(esGlob)).join("/");
 };
 
+/** ¿Un pedazo de ruta calza con un pedazo de glob ("*" y "?" sin cruzar "/")? Sin regex: lineal, no se cuelga con muchos "*". */
+function calzaSegmento(patron, texto) {
+  let p = 0;
+  let t = 0;
+  let estrella = -1;
+  let desde = 0;
+  while (t < texto.length) {
+    if (p < patron.length && (patron[p] === "?" || patron[p] === texto[t])) {
+      p += 1;
+      t += 1;
+    } else if (p < patron.length && patron[p] === "*") {
+      estrella = p;
+      desde = t;
+      p += 1;
+    } else if (estrella >= 0) {
+      p = estrella + 1;
+      desde += 1;
+      t = desde;
+    } else {
+      return false;
+    }
+  }
+  while (patron[p] === "*") p += 1;
+  return p === patron.length;
+}
+
+/**
+ * ¿La ruta calza con el glob? "**" (pedazo entero) = cero o más carpetas. Se compara pedazo por pedazo y no con
+ * globARegex: el glob viene del texto del plan y un "src/*a*a*a…" haría colgar la regex (y con ella el Coordinador).
+ */
+function calzaGlob(glob, ruta) {
+  const g = glob.split("/").filter(Boolean);
+  const r = ruta.split("/").filter(Boolean);
+  const vistos = new Map();
+  const calza = (i, j) => {
+    const clave = i * (r.length + 1) + j;
+    if (vistos.has(clave)) return vistos.get(clave);
+    let si;
+    if (i === g.length) si = j === r.length;
+    else if (/^\*\*+$/.test(g[i])) si = calza(i + 1, j) || (j < r.length && calza(i, j + 1));
+    else si = j < r.length && calzaSegmento(g[i], r[j]) && calza(i + 1, j + 1);
+    vistos.set(clave, si);
+    return si;
+  };
+  return calza(0, 0);
+}
+
 /** ¿`ruta` está dentro de `carpeta` (o es ella)? "" es la raíz: todo está dentro. */
 const dentroDe = (ruta, carpeta) => !carpeta || ruta === carpeta || ruta.startsWith(`${carpeta}/`);
 
@@ -191,7 +238,7 @@ export function rutasChocan(a, b) {
   if (globX && globY) return dentroDe(carpetaFija(x), carpetaFija(y)) || dentroDe(carpetaFija(y), carpetaFija(x));
   if (globX || globY) {
     const [glob, otra] = globX ? [x, y] : [y, x];
-    if (globARegex(glob).test(otra)) return true;
+    if (calzaGlob(glob, otra)) return true;
     // Contra una carpeta: chocan si una contiene a la otra.
     return !esArchivo(otra.split("/").at(-1)) && (dentroDe(carpetaFija(glob), otra) || dentroDe(otra, carpetaFija(glob)));
   }
