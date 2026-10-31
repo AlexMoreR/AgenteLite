@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { puedeAbrirChat, type QuienAbre } from "./chats-acceso-por-enlace";
+import { chatKeyDeConversacion, puedeAbrirChat, type QuienAbre } from "./chats-acceso-por-enlace";
 
 const ventas = "canal-ventas";
 const administrativa = "canal-admin";
@@ -59,4 +59,23 @@ test("quien monitorea abre los de su linea y no los de otra", () => {
 test("un chat sin linea solo lo abre quien ve todas las lineas", () => {
   assert.equal(puedeAbrirChat(chat(null, "maria"), asesora), false);
   assert.equal(puedeAbrirChat(chat(null, "ingrid"), dueno), true);
+});
+
+test("?conversacion=<id> se traduce a la clave del chat segun donde se encontro", () => {
+  assert.equal(chatKeyDeConversacion("cvd2d1f8851e4ce3962b00e090", "agent"), "agent:cvd2d1f8851e4ce3962b00e090");
+  assert.equal(chatKeyDeConversacion("cof123", "official"), "official:cof123");
+});
+
+test("un id inventado o raro no da clave: se abre la bandeja normal", () => {
+  assert.equal(chatKeyDeConversacion("noexiste123", null), null);
+  assert.equal(chatKeyDeConversacion("", "agent"), null);
+  assert.equal(chatKeyDeConversacion("agent:abc", "agent"), null);
+  assert.equal(chatKeyDeConversacion("abc' OR 1=1", "agent"), null);
+  assert.equal(chatKeyDeConversacion("a".repeat(65), "agent"), null);
+});
+
+test("con ?conversacion= una linea que no se ve sigue cerrada para la asesora", () => {
+  assert.equal(chatKeyDeConversacion("c1", "agent"), "agent:c1");
+  assert.equal(puedeAbrirChat(chat(administrativa, "maria"), asesora), false);
+  assert.equal(puedeAbrirChat(chat(ventas, "maria"), asesora), true);
 });

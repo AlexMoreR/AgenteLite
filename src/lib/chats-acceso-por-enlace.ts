@@ -94,3 +94,47 @@ export async function puedeAbrirChatPorClave(input: {
     canalesMonitoreados: input.canalesMonitoreados,
   });
 }
+
+/**
+ * Enlace directo /cliente/chats?conversacion=<id>: el id de la conversacion, sin decir de que fuente es.
+ *
+ * Se traduce a la clave que ya usa la pagina (`agent:<id>` u `official:<id>`) y despues pasa por
+ * `puedeAbrirChatPorClave`, la misma verificacion de ?chatKey=. Si el id no es valido o no se
+ * encontro en ninguna de las dos tablas, devuelve null y se abre la bandeja normal.
+ */
+export function chatKeyDeConversacion(
+  conversationId: string,
+  fuenteEncontrada: "agent" | "official" | null,
+): string | null {
+  if (!idDeConversacionValido(conversationId) || !fuenteEncontrada) return null;
+  return `${fuenteEncontrada}:${conversationId}`;
+}
+
+/** Los ids son cuid: letras y numeros. Cualquier otra cosa ni se busca. */
+export function idDeConversacionValido(conversationId: string): boolean {
+  return /^[a-z0-9]{1,64}$/i.test(conversationId);
+}
+
+/**
+ * Busca el id primero en Conversation (WhatsApp normal) y, si no esta, en la API oficial, siempre
+ * dentro de este negocio. Devuelve la clave del chat o null; el permiso se revisa aparte.
+ */
+export async function chatKeyPorConversacion(input: {
+  workspaceId: string;
+  conversationId: string;
+}): Promise<string | null> {
+  if (!idDeConversacionValido(input.conversationId)) return null;
+  const { prisma } = await import("@/lib/prisma");
+
+  const normal = await prisma.conversation.findFirst({
+    where: { id: input.conversationId, workspaceId: input.workspaceId },
+    select: { id: true },
+  });
+  if (normal) return chatKeyDeConversacion(input.conversationId, "agent");
+
+  const oficial = await prisma.officialApiConversation.findFirst({
+    where: { id: input.conversationId, config: { workspaceId: input.workspaceId } },
+    select: { id: true },
+  });
+  return chatKeyDeConversacion(input.conversationId, oficial ? "official" : null);
+}

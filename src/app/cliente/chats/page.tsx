@@ -35,7 +35,7 @@ import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { getVisibleChannelIds, resolverConexionElegida } from "@/lib/channel-visibility";
 import { canalesQueMonitorea, enmascararSiEsTelefono, enmascararTelefono } from "@/lib/modo-monitoreo";
 import { esSupervisora } from "@/lib/permisos-del-equipo";
-import { puedeAbrirChatPorClave } from "@/lib/chats-acceso-por-enlace";
+import { chatKeyPorConversacion, puedeAbrirChatPorClave } from "@/lib/chats-acceso-por-enlace";
 import {
   idsSinResponder,
   leerFiltrosDeBandeja,
@@ -245,7 +245,21 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       : "";
 
   const params = await searchParams;
-  const chatKeySolicitada = typeof params.chatKey === "string" ? params.chatKey : "";
+  const chatKeyDeLaUrl = typeof params.chatKey === "string" ? params.chatKey : "";
+  /*
+    Enlace directo /cliente/chats?conversacion=<id>: se busca el id (primero WhatsApp normal y
+    despues la API oficial, dentro de este negocio) y se arma la misma clave de ?chatKey=. El
+    permiso se revisa mas abajo con la MISMA regla; si el id no existe da "" y es la bandeja normal.
+  */
+  const conversacionDeLaUrl =
+    !chatKeyDeLaUrl && typeof params.conversacion === "string" ? params.conversacion.trim() : "";
+  const chatKeyPorEnlaceDirecto = conversacionDeLaUrl
+    ? ((await chatKeyPorConversacion({
+        workspaceId: membership.workspace.id,
+        conversationId: conversacionDeLaUrl,
+      })) ?? "")
+    : "";
+  const chatKeySolicitada = chatKeyDeLaUrl || chatKeyPorEnlaceDirecto;
   const selectedConnectionParam = typeof params.connection === "string" ? params.connection : "";
   const searchQuery = typeof params.q === "string" ? params.q.trim() : "";
 
@@ -330,21 +344,6 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       ? { channelId: { in: canalesMonitoreados }, ...filtroDeAsignacion }
       : filtroDeAsignacion;
 
-  // Filtro de estado de conversación. Por DEFECTO se ocultan las resueltas (solo abiertas):
-  // las resueltas solo aparecen al elegir "Resueltas" o "Todas".
-  const statusParam = typeof params.status === "string" ? params.status.trim() : "";
-  const statusFilter: "all" | "open" | "resolved" =
-    statusParam === "all" || statusParam === "resolved" ? statusParam : "open";
-  // Con texto en el buscador el estado no filtra, igual que /api/cliente/chats/list (ver
-  // estadoQueAplica en lib/busqueda-de-chats). La pestaña elegida (statusFilter) no cambia.
-  const estadoAplicado = estadoQueAplica(statusFilter, searchQuery);
-  const statusWhere: Prisma.ConversationWhereInput =
-    estadoAplicado === "resolved"
-      ? { status: { in: ["CLOSED", "ARCHIVED"] } }
-      : estadoAplicado === "all"
-        ? {}
-        : { status: { in: ["OPEN", "PENDING"] } };
-
   /**
    * Los filtros nuevos (etapa del embudo y "sin responder").
    *
@@ -394,6 +393,27 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const selectedChatRef = puedeAbrirSolicitado ? chatSolicitado : null;
   const selectedChatKeyParam = puedeAbrirSolicitado ? chatKeySolicitada : "";
   const conversationListTake = searchQuery || selectedChatRef ? 40 : 20;
+  const abrePorConversacion = puedeAbrirSolicitado && Boolean(chatKeyPorEnlaceDirecto);
+
+  // Filtro de estado de conversación. Por DEFECTO se ocultan las resueltas (solo abiertas):
+  // las resueltas solo aparecen al elegir "Resueltas" o "Todas".
+  const statusParam = typeof params.status === "string" ? params.status.trim() : "";
+  // Con ?conversacion= y permiso, "all": el chat se ve aunque este cerrado, y los enlaces de la
+  // pagina (selectedChatHref, la lista) llevan status=all para que no se cierre al refrescar.
+  const statusFilter: "all" | "open" | "resolved" = abrePorConversacion
+    ? "all"
+    : statusParam === "all" || statusParam === "resolved"
+      ? statusParam
+      : "open";
+  // Con texto en el buscador el estado no filtra, igual que /api/cliente/chats/list (ver
+  // estadoQueAplica en lib/busqueda-de-chats). La pestaña elegida (statusFilter) no cambia.
+  const estadoAplicado = estadoQueAplica(statusFilter, searchQuery);
+  const statusWhere: Prisma.ConversationWhereInput =
+    estadoAplicado === "resolved"
+      ? { status: { in: ["CLOSED", "ARCHIVED"] } }
+      : estadoAplicado === "all"
+        ? {}
+        : { status: { in: ["OPEN", "PENDING"] } };
 
 
   /**
