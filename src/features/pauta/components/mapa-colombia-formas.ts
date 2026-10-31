@@ -11,7 +11,7 @@ import type { ClaveDepartamento } from "../dominio/departamentos";
 export const VIEWBOX = "0 0 760 1030";
 
 /** El recuadro de San Andrés y Providencia (en el mar, donde no hay tierra del continente). */
-export const RECUADRO_SAN_ANDRES = { x: 10, y: 10, ancho: 120, alto: 120 } as const;
+export const RECUADRO_SAN_ANDRES = { x: 10, y: 10, ancho: 180, alto: 150 } as const;
 
 export const FORMAS_DE_DEPARTAMENTOS: Record<ClaveDepartamento, string> = {
   amazonas: "M591 828L561 1015L516 990L534 906L438 906L333 828L309 786L390 777L480 762L546 789Z",
