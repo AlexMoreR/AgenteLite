@@ -345,9 +345,10 @@ WHERE t."id" = elegida."id"
 RETURNING t."id", t."tableroId", elegida."antes", t."estado"::text AS "estado"`;
 
 /**
- * Las APROBADO / PLAN_APROBADO que el Coordinador tomaría si no fuera por la VÍA de su aprobación (28-oct-2026): tienen
- * una zona que exige la pantalla (LIBRO_V3, META_ADS) y su última aprobación fue por voz u otra vía. Con esto el CRM
- * deja una alerta del Coordinador por tarjeta (avisos-al-dueno.ts), para que no esperen en silencio.
+ * Las APROBADO / PLAN_APROBADO / SUBIENDO pendientes (sin candado, 31-oct) que el Coordinador tomaría si no fuera por la
+ * VÍA de su aprobación (28-oct-2026): tienen una zona que exige la pantalla (LIBRO_V3, META_ADS) y su última aprobación
+ * fue por voz u otra vía. Con esto el CRM deja una alerta del Coordinador por tarjeta (avisos-al-dueno.ts), para que no
+ * esperen en silencio. Qué se toma no cambia: esto solo lee.
  * Parámetros: $1 = workspaceId, $2 = repos (text[]). Devuelve id, titulo, estado, zonaProtegida y via ('' si no hay).
  */
 export const SQL_FUERA_POR_LA_VIA = `
@@ -356,7 +357,7 @@ FROM "TarjetaTablero" c
 JOIN "TableroInteligente" b ON b."id" = c."tableroId"
 JOIN "TipoTarjeta" k ON k."id" = c."tipoId"
 ${whereSinLaVia("$2")}
-  AND c."estado" IN ('APROBADO', 'PLAN_APROBADO')
+  AND c."estado" IN ('APROBADO', 'PLAN_APROBADO', 'SUBIENDO')
   AND NOT ${CONDICION_DE_LA_VIA}
 ORDER BY c."actualizadoEn" ASC, c."creadoEn" ASC
 LIMIT 50`;

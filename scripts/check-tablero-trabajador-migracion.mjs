@@ -306,6 +306,11 @@ await prueba("vía de la aprobación (28-oct): voz + CHATS o BOT_VENTAS entra; v
       ('voz-mezcla', 'tab1', 'Chats y libro por voz', 'APROBADO', 'u-dueno', '2026-10-20 03:40:00', 'tarea', 'aizencrm', NULL, ARRAY['CHATS', 'LIBRO_V3']),
       ('pant-libro', 'tab1', 'Libro en pantalla', 'APROBADO', 'u-dueno', '2026-10-20 03:50:00', 'tarea', 'aizencrm', NULL, ARRAY['LIBRO_V3']),
       ('sin-aprob', 'tab1', 'Chats sin aprobación', 'APROBADO', 'u-dueno', '2026-10-20 03:55:00', 'tarea', 'aizencrm', NULL, ARRAY['CHATS']);
+    -- 31-oct: SUBIENDO pendientes (trabajoVenceEn nulo) también avisan si la vía no alcanza; con candado ya se están subiendo.
+    INSERT INTO "TarjetaTablero" ("id", "tableroId", "titulo", "estado", "creadoPor", "actualizadoEn", "tipoId", "repo", "plan", "zonaProtegida", "trabajoVenceEn") VALUES
+      ('sube-libro', 'tab1', 'Subir libro por voz', 'SUBIENDO', 'u-dueno', '2026-10-20 02:00:00', 'tarea', 'aizencrm', 'El plan', ARRAY['LIBRO_V3'], NULL),
+      ('sube-libro-ya', 'tab1', 'Libro subiendo por voz', 'SUBIENDO', 'u-dueno', '2026-10-20 02:10:00', 'tarea', 'aizencrm', 'El plan', ARRAY['LIBRO_V3'], '2099-01-01'),
+      ('sube-chats', 'tab1', 'Subir chats por voz', 'SUBIENDO', 'u-dueno', '2026-10-20 02:20:00', 'tarea', 'aizencrm', 'El plan', ARRAY['CHATS'], NULL);
     INSERT INTO "HistorialTarjeta" ("id", "tarjetaId", "quien", "origen", "accion", "despues", "creadoEn") VALUES
       ('hv1', 'voz-chats', 'u-dueno', 'MCP', 'aprobar', '{"estado":"APROBADO","via":"voz"}', '2026-10-20 03:00:00'),
       ('hv2', 'voz-bot', 'u-dueno', 'MCP', 'aprobar', '{"estado":"PLAN_APROBADO","via":"voz"}', '2026-10-20 03:10:00'),
@@ -314,25 +319,33 @@ await prueba("vía de la aprobación (28-oct): voz + CHATS o BOT_VENTAS entra; v
       ('hv5', 'voz-mezcla', 'u-dueno', 'MCP', 'aprobar', '{"estado":"APROBADO","via":"voz"}', '2026-10-20 03:40:00'),
       -- la última manda: primero voz, después pantalla.
       ('hv6', 'pant-libro', 'u-dueno', 'MCP', 'aprobar', '{"estado":"APROBADO","via":"voz"}', '2026-10-20 03:45:00'),
-      ('hv7', 'pant-libro', 'u-dueno', 'PANTALLA', 'aprobar', '{"estado":"APROBADO","via":"pantalla"}', '2026-10-20 03:50:00');
+      ('hv7', 'pant-libro', 'u-dueno', 'PANTALLA', 'aprobar', '{"estado":"APROBADO","via":"pantalla"}', '2026-10-20 03:50:00'),
+      ('hv8', 'sube-libro', 'u-dueno', 'MCP', 'aprobar', '{"estado":"PLAN_APROBADO","via":"voz"}', '2026-10-20 02:00:00'),
+      ('hv9', 'sube-libro-ya', 'u-dueno', 'MCP', 'aprobar', '{"estado":"PLAN_APROBADO","via":"voz"}', '2026-10-20 02:10:00'),
+      ('hv10', 'sube-chats', 'u-dueno', 'MCP', 'aprobar', '{"estado":"PLAN_APROBADO","via":"voz"}', '2026-10-20 02:20:00');
   `);
   assert.deepEqual(
     (await candidatas()).map((f) => f.id),
-    ["voz-chats", "voz-bot", "voz-ambas", "pant-libro"],
-    "voz + CHATS, voz + BOT_VENTAS, voz + ambas y pantalla + LIBRO_V3 entran",
+    ["sube-chats", "voz-chats", "voz-bot", "voz-ambas", "pant-libro"],
+    "SUBIENDO + voz + CHATS (primero, por ser SUBIENDO), voz + CHATS, voz + BOT_VENTAS, voz + ambas y pantalla + LIBRO_V3 entran; SUBIENDO + voz + LIBRO_V3 no",
   );
   assert.deepEqual(
     (await fueraPorLaVia()).map((f) => [f.id, f.via]),
     [
+      ["sube-libro", "voz"],
       ["voz-meta", "voz"],
       ["voz-mezcla", "voz"],
       ["sin-aprob", ""],
       ["zona", "voz"],
     ],
-    "voz + META_ADS, voz + CHATS y LIBRO_V3, sin aprobación y voz + LIBRO_V3 quedan fuera y avisan",
+    "SUBIENDO pendiente + voz + LIBRO_V3, voz + META_ADS, voz + CHATS y LIBRO_V3, sin aprobación y voz + LIBRO_V3 quedan fuera y avisan; la SUBIENDO con candado y la SUBIENDO + CHATS no",
   );
+  const [sube] = (await fueraPorLaVia()).filter((f) => f.id === "sube-libro");
+  assert.deepEqual([sube.estado, sube.zonaProtegida], ["SUBIENDO", ["LIBRO_V3"]], "la SUBIENDO sale con su estado y su zona");
   const [tomada] = await tomar();
-  assert.equal(tomada.id, "voz-chats", "voz + CHATS se toma de verdad");
+  assert.equal(tomada.id, "sube-chats", "SUBIENDO + voz + CHATS se toma de verdad (primero, por ser SUBIENDO)");
+  const [siguiente] = await tomar();
+  assert.equal(siguiente.id, "voz-chats", "voz + CHATS se toma de verdad");
   await db.query("ROLLBACK");
 });
 

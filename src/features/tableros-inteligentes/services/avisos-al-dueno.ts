@@ -30,9 +30,9 @@ import { linkDeHoy, linkDeLaTarjeta, linkDelCoordinador, pendientesDelDueno, tod
     4. necesita    espera al dueño y toca Meta Ads, dinero o presupuesto, o su error pide una clave o un permiso.
                    También lo puede mandar el Coordinador por /api/trabajador/aviso con tipo "necesita".
     5. limite      Claude se agotó y todo quedó en pausa: lo manda el Coordinador (tipo "limite") con la hora de vuelta.
-    6. aprobar_en_pantalla (28-oct-2026) una APROBADO / PLAN_APROBADO que el Coordinador no toma SOLO por la vía de su
-                   aprobación (toca LIBRO_V3 o META_ADS y se aprobó por voz u otra vía; SQL_FUERA_POR_LA_VIA): una alerta
-                   ALTA por tarjeta, "«título» está aprobada por voz pero toca Libro V3: apruébala en pantalla para que arranque".
+    6. aprobar_en_pantalla (28-oct-2026) una APROBADO / PLAN_APROBADO, o una SUBIENDO pendiente (sin candado, 31-oct),
+                   que el Coordinador no toma SOLO por la vía de su aprobación (toca LIBRO_V3 o META_ADS y se aprobó por voz
+                   u otra vía; SQL_FUERA_POR_LA_VIA): una alerta ALTA por tarjeta (la misma clave aunque cambie de estado), "«título» está aprobada por voz pero toca Libro V3: apruébala en pantalla para que arranque".
 
   Reglas: sale SOLO desde la línea Admin (id fijo; si no existe, la llamada "Admin") y SOLO al número personal del
   dueño guardado en Mi empresa → Claude, validado acá (no puede ser el de una asesora ni el de una línea del
@@ -357,11 +357,11 @@ export type SituacionDeSistemas = {
   enFila: number;
   /** Las que esperan una decisión del dueño. */
   esperando: TarjetaEsperando[];
-  /** Aprobadas que el Coordinador no toma solo por la vía de su aprobación (28-oct-2026). */
+  /** Aprobadas (y SUBIENDO pendientes, 31-oct) que el Coordinador no toma solo por la vía de su aprobación (28-oct-2026). */
   fueraPorLaVia?: TarjetaFueraPorLaVia[];
 };
 
-/** Una APROBADO / PLAN_APROBADO con zona que pide la pantalla y aprobada por voz u otra vía (SQL_FUERA_POR_LA_VIA). */
+/** Una APROBADO / PLAN_APROBADO o SUBIENDO pendiente (sin candado) con zona que pide la pantalla y aprobada por voz u otra vía (SQL_FUERA_POR_LA_VIA). */
 export type TarjetaFueraPorLaVia = { id: string; titulo: string; estado: string; zonaProtegida: string[]; via: string };
 
 export type AvisoCalculado = { clave: string; tipo: TipoDeAviso; lineas: string[]; link: string; prioridad: Prioridad; titulo: string };
@@ -508,7 +508,8 @@ export function calcularAvisos(situacionCompleta: SituacionDeSistemas, ahora: Da
     }
   }
 
-  // 6. Aprobada pero fuera de la fila solo por la vía (voz con LIBRO_V3 / META_ADS): una alerta por tarjeta.
+  // 6. Aprobada (o SUBIENDO pendiente, sin candado) pero fuera de la fila solo por la vía (voz con LIBRO_V3 / META_ADS): una
+  // alerta por tarjeta. La clave no lleva el estado: la que pasa de PLAN_APROBADO a SUBIENDO no avisa dos veces.
   for (const tarjeta of situacion.fueraPorLaVia ?? []) {
     const zonas = zonasQueEsperanLaPantalla(tarjeta.zonaProtegida, tarjeta.via);
     if (!zonas.length) continue;
@@ -559,7 +560,7 @@ export function textoDelError(resultado: unknown): string | null {
   return null;
 }
 
-/** Las aprobadas que el Coordinador no toma solo por la vía de su aprobación (SQL_FUERA_POR_LA_VIA). Nunca lanza. */
+/** Las aprobadas y las SUBIENDO pendientes que el Coordinador no toma solo por la vía de su aprobación (SQL_FUERA_POR_LA_VIA). Nunca lanza. */
 async function aprobadasFueraPorLaVia(workspaceId: string): Promise<TarjetaFueraPorLaVia[]> {
   try {
     return await prisma.$queryRawUnsafe<TarjetaFueraPorLaVia[]>(SQL_FUERA_POR_LA_VIA, workspaceId, [...REPOS_DEL_TRABAJADOR]);

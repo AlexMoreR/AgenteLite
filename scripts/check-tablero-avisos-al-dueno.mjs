@@ -400,6 +400,20 @@ await prueba("aprobada por voz con LIBRO_V3 / META_ADS (28-oct): una alerta Alta
   reiniciar();
 });
 
+await prueba("SUBIENDO pendiente por voz con LIBRO_V3 (31-oct): UN aviso aprobar_en_pantalla con su link; la misma clave que en PLAN_APROBADO", async () => {
+  const base = { latidoEn: DIA.toISOString(), enCurso: [], enFila: 0, esperando: [] };
+  const sube = { id: "s1", titulo: "Seguimientos que escuchan al cliente", estado: "SUBIENDO", zonaProtegida: ["LIBRO_V3"], via: "voz" };
+  const calculados = avisos.calcularAvisos({ ...base, fueraPorLaVia: [sube] }, DIA).filter((a) => a.tipo === "aprobar_en_pantalla");
+  assert.equal(calculados.length, 1, "un solo aviso");
+  assert.deepEqual(
+    [calculados[0].clave, calculados[0].prioridad, calculados[0].link],
+    ["auto:necesita:s1:VIA_PANTALLA", "ALTA", "https://app.aizenbot.com/cliente/tablero-ia?tarjeta=s1"],
+  );
+  assert.match(calculados[0].titulo, /toca Libro V3: apruébala en pantalla para que arranque/);
+  const antes = avisos.calcularAvisos({ ...base, fueraPorLaVia: [{ ...sube, estado: "PLAN_APROBADO" }] }, DIA).filter((a) => a.tipo === "aprobar_en_pantalla");
+  assert.deepEqual(antes.map((a) => a.clave), [calculados[0].clave], "al pasar de PLAN_APROBADO a SUBIENDO no avisa dos veces");
+});
+
 /* ------------------------------------------------------------------ las reglas de todos los avisos */
 
 await prueba("revisión: un solo aviso por problema; vuelve a avisar solo si sigue igual después de 3 horas", async () => {
