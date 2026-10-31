@@ -537,20 +537,29 @@ async function automatizaciones(
   descritas: Map<string, string>,
   v3: { reglasSinRespuesta: number; hayLineasConV3: boolean },
 ) {
-  const [reglasProgramadas, campanasEnCurso, ultimoInforme, descarte, descarteTras, transcripcionApagada, etapaAuto] =
-    await Promise.all([
-      prisma.followRule.count({ where: { workspaceId, isActive: true } }),
-      prisma.campaign.count({ where: { workspaceId, status: "RUNNING" } }),
-      prisma.dailyReport.findFirst({
-        where: { workspaceId },
-        orderBy: { reportDate: "desc" },
-        select: { reportDate: true },
-      }),
-      bandera(`crm:descarte-automatico:${workspaceId}`),
-      bandera(`crm:descarte-tras-seguimientos:${workspaceId}`),
-      bandera("transcripcion-de-audios:apagada"),
-      bandera(`crm:etapa-automatica:${workspaceId}`),
-    ]);
+  const [
+    reglasProgramadas,
+    campanasEnCurso,
+    ultimoInforme,
+    descarte,
+    descarteTras,
+    transcripcionApagada,
+    etapaAuto,
+    seguimientosQueEscuchanApagado,
+  ] = await Promise.all([
+    prisma.followRule.count({ where: { workspaceId, isActive: true } }),
+    prisma.campaign.count({ where: { workspaceId, status: "RUNNING" } }),
+    prisma.dailyReport.findFirst({
+      where: { workspaceId },
+      orderBy: { reportDate: "desc" },
+      select: { reportDate: true },
+    }),
+    bandera(`crm:descarte-automatico:${workspaceId}`),
+    bandera(`crm:descarte-tras-seguimientos:${workspaceId}`),
+    bandera("transcripcion-de-audios:apagada"),
+    bandera(`crm:etapa-automatica:${workspaceId}`),
+    bandera("seguimientos-que-escuchan:apagado"),
+  ]);
 
   const sinInterruptor = "activa (no tiene interruptor: corre siempre)";
   const estados: Record<string, string> = {
@@ -590,6 +599,11 @@ async function automatizaciones(
       : transcripcionApagada === "si"
         ? "apagada (transcripcion-de-audios:apagada = si)"
         : "activa",
+    seguimientos_que_escuchan: !process.env.OPENAI_API_KEY?.trim()
+      ? "apagada: falta la clave de OpenAI (los seguimientos salen con su texto fijo)"
+      : seguimientosQueEscuchanApagado?.trim().toLowerCase() === "si"
+        ? "apagada (seguimientos-que-escuchan:apagado = si): los seguimientos salen con su texto fijo"
+        : "activa: la IA escribe el texto de los seguimientos automáticos leyendo el chat y los audios",
     purga_de_webhooks: sinInterruptor,
     informe_diario: ultimoInforme
       ? `activa: ultimo informe del ${ultimoInforme.reportDate.toISOString().slice(0, 10)}`
