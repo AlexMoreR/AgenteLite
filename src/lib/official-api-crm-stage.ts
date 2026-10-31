@@ -8,6 +8,7 @@ import {
 } from "@/lib/commercial-stage";
 import { syncCrmStageFromCommercialStage } from "@/lib/crm-stage-sync";
 import { CRM_STAGE_META } from "@/features/crm/domain/crm-config";
+import { etapaPorLectura } from "@/features/crm/services/etapa-por-lectura";
 
 /**
  * Clasificador automatico de etapa para el canal de API OFICIAL.
@@ -178,4 +179,13 @@ export async function syncOfficialApiCrmStage(input: {
       error,
     });
   }
+
+  // Después del puente del bot: lo que dijo el cliente (Caliente, Tibio o Descartado). Deja su propia
+  // nota "Etapa movida por el sistema: ..." en la tabla del canal oficial. Nunca lanza.
+  await etapaPorLectura({
+    workspaceId: input.workspaceId,
+    source: "official",
+    conversationId: input.conversationId,
+    texto: input.latestUserMessage,
+  });
 }
