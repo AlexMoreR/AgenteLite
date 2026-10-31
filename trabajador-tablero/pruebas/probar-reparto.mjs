@@ -100,6 +100,8 @@ await prueba("choques: una carpeta y los globs de la parte 5 chocan con los arch
   const inicio = Date.now();
   assert.equal(rutasChocan(`src/${"*a".repeat(20)}*b`, `src/${"a".repeat(60)}.ts`), false);
   assert.equal(rutasChocan(`src/${"**/".repeat(30)}x.ts`, `src/${"a/".repeat(40)}y.ts`), false);
+  assert.equal(rutasChocan(`src/${"**/".repeat(5000)}x.ts`, `src/${"a/".repeat(5000)}y.ts`), true, "una ruta absurda va a la fila, sin error");
+  assert.equal(rutasChocan(`src/${"**/".repeat(5000)}x.ts`, "src/lib/a.ts"), true);
   assert.ok(Date.now() - inicio < 1000, "comparar globs raros es rápido");
   // Carpetas distintas no chocan (ni las que solo empiezan igual).
   assert.equal(motivoDeChoque(h("a", planCon("src/features/coach/")), h("b", planCon("src/features/ventas/"))), null);

@@ -172,6 +172,10 @@ const carpetaFija = (glob) => {
   return partes.slice(0, partes.findIndex(esGlob)).join("/");
 };
 
+/** Tope para comparar rutas del plan (rutasChocan): así calzaGlob nunca se pasa de tiempo ni de pila. */
+const MAXIMO_DE_LARGO = 512;
+const MAXIMO_DE_PEDAZOS = 64;
+
 /** ¿Un pedazo de ruta calza con un pedazo de glob ("*" y "?" sin cruzar "/")? Sin regex: lineal, no se cuelga con muchos "*". */
 function calzaSegmento(patron, texto) {
   let p = 0;
@@ -233,6 +237,8 @@ export function rutasChocan(a, b) {
   const y = rutaComparable(b);
   if (!x || !y) return false;
   if (x === y) return true;
+  // Una ruta absurda (muy larga o con muchísimas carpetas) no se compara: se toma como choque y espera en fila.
+  if ([x, y].some((ruta) => ruta.length > MAXIMO_DE_LARGO || ruta.split("/").length > MAXIMO_DE_PEDAZOS)) return true;
   const globX = x.split("/").some(esGlob);
   const globY = y.split("/").some(esGlob);
   if (globX && globY) return dentroDe(carpetaFija(x), carpetaFija(y)) || dentroDe(carpetaFija(y), carpetaFija(x));
