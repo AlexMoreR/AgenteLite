@@ -98,11 +98,14 @@ const RESPETO_A_LA_PERSONA_MS = 24 * 60 * 60 * 1000;
  */
 export function causaCorta(falla: unknown): string {
   const codigo = (falla as { code?: unknown } | null)?.code;
-  if (typeof codigo === "string" && /^[A-Z0-9_]{2,12}$/i.test(codigo)) return `base-${codigo}`;
+  // Solo códigos de Prisma (P2024) o de Postgres (57P03): los de red (ECONNREFUSED) son palabras de
+  // falla para la vigilancia y van como "sin-conexion".
+  if (typeof codigo === "string" && /^(P\d{4}|[0-9][0-9A-Z]{4})$/.test(codigo)) return `base-${codigo}`;
   const nombre = falla instanceof Error ? falla.name : "";
   const mensaje = falla instanceof Error ? falla.message : String(falla ?? "");
   if (nombre === "AbortError" || nombre === "TimeoutError") return "tardo-demasiado";
-  if (/fetch failed|ECONNRESET|ENOTFOUND|ETIMEDOUT|socket/i.test(mensaje)) return "sin-conexion";
+  if (typeof codigo === "string" && /^E[A-Z]+$/.test(codigo)) return "sin-conexion";
+  if (/fetch failed|ECONN|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|socket/i.test(mensaje)) return "sin-conexion";
   if (/prisma/i.test(mensaje)) return "base";
   const http = mensaje.match(/\b(\d{3})\b/);
   return http ? `http-${http[1]}` : "otra";

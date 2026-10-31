@@ -362,6 +362,26 @@ await prueba("si la IA o la base no contestan, el registro queda en una línea y
   }
 });
 
+await prueba("la causa corta nunca trae una palabra de falla", async () => {
+  const { causaCorta } = cargar("src/lib/etapa-automatica-crm.ts", mocks);
+  const casos = [
+    [{ code: "ECONNREFUSED" }, "sin-conexion"],
+    [Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:5432"), { code: "ECONNREFUSED" }), "sin-conexion"],
+    [new Error("connect ECONNREFUSED 127.0.0.1:5432"), "sin-conexion"],
+    [new TypeError("fetch failed"), "sin-conexion"],
+    [Object.assign(new Error("x"), { code: "P2024" }), "base-P2024"],
+    [Object.assign(new Error("x"), { code: "57P03" }), "base-57P03"],
+    [Object.assign(new Error("tardó"), { name: "TimeoutError" }), "tardo-demasiado"],
+    [new Error("OpenAI respondió 500"), "http-500"],
+    [new Error("Unhandled exception: fatal panic"), "otra"],
+  ];
+  for (const [falla, esperada] of casos) {
+    const causa = causaCorta(falla);
+    assert.equal(causa, esperada, String(falla?.message ?? falla?.code));
+    assert.ok(!LINEA_DE_FALLA.test(`causa=${causa}`), causa);
+  }
+});
+
 await prueba("un mensaje sin frase ni IA no consulta la base", async () => {
   let consultas = 0;
   const findUnique = prisma.appSetting.findUnique;
