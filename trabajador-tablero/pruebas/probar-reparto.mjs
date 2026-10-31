@@ -75,6 +75,14 @@ await prueba("choques: una carpeta o un glob de la parte 5 choca con los archivo
   const h = (id, plan) => huellaDeTarjeta({ id, titulo: id, repo: "aizencrm", plan }, "construir", repo);
   // Los "*" ya no cortan la ruta; el markdown "**...**" sí se quita.
   assert.deepEqual(archivosDelPlan(planCon("`src/lib/**`", "**src/features/coach/a.ts**", "src/features/*.ts", "**/*.json")).sort(), ["**/*.json", "src/features/*.ts", "src/features/coach/a.ts", "src/lib/**"]);
+  // El markdown pegado a la puntuación no deja "*" de sobra.
+  assert.deepEqual(archivosDelPlan(planCon("**src/lib/x.ts**.", "**src/lib/y.ts**:", "**src/lib/z.ts.**", "**src/features/coach**")).sort(), ["src/features/coach", "src/lib/x.ts", "src/lib/y.ts", "src/lib/z.ts"]);
+  // Un "glob" con demasiados "*" se descarta (su regex podría colgar al Coordinador) y responde enseguida.
+  const inicio = Date.now();
+  const patologico = h("v", planCon(`src/${"*a".repeat(14)}*b.ts`, "src/features/uno/a.ts"));
+  assert.deepEqual(patologico.rutas, ["src/features/uno/a.ts"]);
+  assert.equal(motivoDeChoque(patologico, h("w", planCon(`src/${"a".repeat(40)}.ts`))), null);
+  assert.ok(Date.now() - inicio < 1000);
   // Carpeta con "/" al final contra un archivo de adentro.
   assert.ok(motivoDeChoque(h("a", planCon("src/features/coach/")), h("b", planCon("src/features/coach/x.ts"))));
   assert.ok(motivoDeChoque(h("b", planCon("src/features/coach/x.ts")), h("a", planCon("src/features/coach/"))), "en los dos sentidos");
