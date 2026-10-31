@@ -8,7 +8,7 @@
 //                     error de lint nuevo, [migracion] agrega una migración, [conflicto] escribe un archivo
 //                     que después choca con main, [migracion-drop] agrega una migración con DROP y UPDATE,
 //                     [nada] no cambia nada; si no, escribe cambio-<algo>.txt.
-//   la revisión ("Eres el REVISOR"): no cambia nada. `-p /usage`: el uso del plan (CLAUDE_FALSO_USO).
+//   la revisión ("Eres el REVISOR"): no cambia nada. El choque con main ("Eres el RESOLVEDOR DE CHOQUES"): ver más abajo. `-p /usage`: el uso del plan (CLAUDE_FALSO_USO).
 // Anota cada llamada (argumentos y carpeta) en el archivo de CLAUDE_FALSO_LOG.
 //   la NUBE (`-p --cloud`, 25-oct-2026): contesta con el link de la sesión y un proceso aparte (la "máquina de la
 //                     nube") trabaja en la rama: tras NUBE_FALSA_DEMORA_MS (2500) hace un commit con un archivo y deja el
@@ -179,6 +179,28 @@ if (argumentos.includes("--cloud")) {
   process.stdout.write(`\u001b[1mCloud session:\u001b[0m \u001b[36m${sesion}\u001b[0m\r\n`);
   setInterval(() => {}, 60_000);
   await new Promise(() => {});
+}
+
+// Resolver el choque con main (31-oct-2026, resolver-choque.mjs): "Eres el RESOLVEDOR DE CHOQUES…" con los archivos en conflicto.
+//   [choque-simple]  borra las marcas conservando las dos versiones y contesta CHOQUE_SIMPLE: OK.
+//   [choque-logica]  no toca nada y contesta CHOQUE_DE_LOGICA: <motivo>.
+//   [choque-sucio]   contesta CHOQUE_SIMPLE: OK pero deja las marcas (la comprobación lo tiene que ver).
+//   si no:           contesta sin ninguna de las dos palabras (no se pudo resolver).
+if (prompt.startsWith("Eres el RESOLVEDOR DE CHOQUES")) {
+  const lista = prompt.split("Archivos en conflicto (SOLO estos):\n")[1]?.split("\n\n")[0] ?? "";
+  const enConflicto = [...lista.matchAll(/^- (.+)$/gm)].map((una) => una[1].trim());
+  if (titulo.includes("[choque-logica]")) {
+    console.log("Miré los dos lados.\nCHOQUE_DE_LOGICA: main cambió el precio del envío y la tarea también, con otro valor");
+  } else if (titulo.includes("[choque-simple]")) {
+    for (const archivo of enConflicto) {
+      const texto = fs.readFileSync(archivo, "utf8");
+      fs.writeFileSync(archivo, texto.split(/\r?\n/).filter((linea) => !/^(?:<{7}|={7}|>{7})(?: |$)/.test(linea)).join("\n"));
+    }
+    console.log(`Junté ${enConflicto.join(", ")} con los dos cambios.\nCHOQUE_SIMPLE: OK`);
+  } else if (titulo.includes("[choque-sucio]")) {
+    console.log("CHOQUE_SIMPLE: OK");
+  } else console.log("No supe juntarlo.");
+  process.exit(0);
 }
 
 // Dividir una tarea (promptDePartir): contesta un JSON con 2 partes.

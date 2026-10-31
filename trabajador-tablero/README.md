@@ -93,8 +93,10 @@ no hace falta. En cada vuelta el Coordinador toma **a lo sumo UNA** de la lista 
 (pasó la construcción, rama `tablero/…`, zonas solo CHATS y/o BOT_VENTAS, sin gasto en Meta Ads) y la revisa él mismo
 (`revisarDeNuevo` en `lib/etapas.mjs`, el revisor en `lib/bucle.mjs`), sin creerle a lo que escribió quien la construyó:
 
-1. `git fetch`, worktree de la rama y `rebaseSobre(origin/main)` (el mismo de `subir()`). Si choca: ERROR
-   «choca con lo ya subido: <archivos>».
+1. `git fetch`, worktree de la rama y `rebaseSobre(origin/main)` (el mismo de `subir()`). Si choca, se intenta juntar solo
+   como al subir (ver «El choque con main al subir»): si es simple y compila, sigue; si es de lógica, ERROR «choque de lógica
+   con lo ya subido: <motivo> (<archivos>)»; si no se pudo, ERROR «choca con lo ya subido: <archivos> (no se pudo juntar
+   solo: <por qué>)».
 2. Si después del rebase no cambia nada o solo `.md`: ERROR «obsoleta: lo que hacía ya está en main».
 3. `instalar`, build y todas las pruebas (`verificar`). Si falla: ERROR con las líneas que fallaron.
 4. Revisión mecánica: `enviosNuevosDeMensajes` en lo que agregan los archivos de CHATS y BOT_VENTAS (`zonasTocadas`). Si
@@ -133,8 +135,35 @@ en **su propia sesión de Claude Code**, su worktree (`carpetaTrabajo/wt/<id>-<e
   Si el plan no dice archivos, también espera (no se sabe qué toca). Planear nunca choca (solo lee).
   Repos distintos nunca chocan.
 - **Cola de subida.** A main de cada repo se sube de a una: rebase sobre lo último de main y, si main
-  cambió, compila, prueba y ensaya otra vez antes del push. Si choca, la tarjeta queda ERROR con el
-  motivo y main no cambia.
+  cambió, compila, prueba y ensaya otra vez antes del push. Si choca, se intenta juntar solo (abajo); si no
+  se puede, main no cambia.
+
+### El choque con main al subir (31-oct-2026, `lib/resolver-choque.mjs`)
+
+Antes, si el rebase de la rama sobre main chocaba, se cancelaba y la tarjeta se construía otra vez desde cero. Ahora:
+
+1. `rebaseSobre(..., { dejarAbierto: true })` (`lib/git.mjs`) no cancela el rebase: lo deja a medias y devuelve los
+   archivos en conflicto. Los `.md` (y los globs de `sinChoque`) se siguen juntando solos, sin Claude.
+2. Si algún archivo en conflicto está en `prisma/migrations/**`, es **choque de lógica** sin llamar a Claude.
+3. Si no, una **sesión corta de Claude** (máximo 15 min, `MINUTOS_PARA_RESOLVER`) dentro de la carpeta de subida, con
+   orden de juntar **solo** los archivos en conflicto conservando los cambios de las dos tareas. Edita archivos
+   (`Read`, `Edit`, `Write`, `Grep`, `Glob`): sin Bash (no corre git) ni subagentes. Su última línea dice
+   `CHOQUE_SIMPLE: OK` o `CHOQUE_DE_LOGICA: <motivo>`.
+4. Si es simple, el Coordinador comprueba tres cosas: que no quede ninguna marca `<<<<<<<`, que solo cambiaron los
+   archivos en conflicto y que pasa el `verificar` de siempre (instalar, compila y todas las pruebas). Entre medio sigue
+   el rebase (`seguirRebase`: `git add` y `rebase --continue`); si el commit siguiente también choca, otra vuelta (hasta
+   5 commits). Si todo pasa, se sube como siempre (ensayo de la migración, push a main **sin --force**, CI y versión) y la
+   tarjeta termina en HECHO sin `/error` ni reparación. Las pruebas dicen «✔ choque con main resuelto solo por Claude
+   (<archivos>)…».
+5. `CHOQUE_DE_LOGICA` → ERROR con categoría `choque_de_logica` y el motivo en una línea («Choque de lógica con lo nuevo de
+   main: <motivo>»). No se repara sola: lo decide el dueño.
+6. Si no se pudo (no compila, quedan marcas, tocó otros archivos, no contestó, se pasó del tiempo): `rebase --abort` y
+   `choca_con_main`, que **no gasta intento**: se reconstruye desde el main más nuevo (`/reparar` con `cuenta: false`) hasta
+   **3 choques seguidos** (`TOPE_DE_CHOQUES_SEGUIDOS`, igual en el CRM); el 4.º escala al dueño.
+
+Lo construido en la nube (`confiarEnResultado`) no se compila en aizen1: si su rebase choca, sigue el camino de siempre
+(`verificarEnNube`: se manda a verificar otra vez a la nube). El límite de uso de Claude, una tarjeta vencida o una falla
+del PC al verificar no son del choque: se tratan como siempre (esperar o soltar).
 - **Cuida el PC.** Si la CPU (promedio del último minuto) o la memoria pasan de `limites`
   (`cpuPorciento`, `memoriaPorciento`, 85 % por defecto), no abre otra sesión; las que corren siguen.
 - **Límite de uso de Claude.** Si la suscripción llega a su límite, la tarjeta se **suelta sin ERROR**
@@ -474,7 +503,7 @@ etapa falla, el Coordinador (`lib/bucle.mjs`, `lib/diagnostico.mjs`):
 | `revision_no_paso` | los 4 revisores (ver "La revisión de los 4") siguieron pidiendo cambios tras 2 correcciones | ERROR con el revisor, lo que pide y el link de la sesión; **no se repara sola** |
 | `plan_con_preguntas` | el plan aprobado SOLO trae "PREGUNTAS ABIERTAS:" o frases como "hay que confirmar", "antes de construir hay que", "lo que no revisé" (`lib/preguntas-abiertas.mjs`, espejo en `reglas-riesgo.ts`) | no se construye: ERROR + aviso "necesita"; si el dueño aprobó el plan tal cual, sí se construye |
 | `choca_con_main` | main cambió los mismos archivos mientras se construía (conflicto en el rebase, push rechazado, o lo que verificó la nube cambió) | se reconstruye desde el main más nuevo **sin gastar reparación** (`/reparar` con `cuenta: false`: intento "esperar" que no cuenta); al 4.º choque seguido (`TOPE_DE_CHOQUES_SEGUIDOS` = 3, igual en el CRM) escala |
-| `choque_de_logica` | lo nuevo de main y la tarea no encajan aunque el rebase no tuvo conflicto | ERROR enseguida; **no se repara sola** |
+| `choque_de_logica` | lo nuevo de main y la tarea no encajan: la sesión que junta el choque contestó `CHOQUE_DE_LOGICA` o el conflicto está en una migración | ERROR enseguida; **no se repara sola** |
 | cualquier otra | la MISMA categoría ya falló 2 veces en la tarjeta (todos los intentos) | escala (salvo `limite_claude`, `pc_sobrecargado`, `carpeta_trabada`, `coordinador_cortado` y `choca_con_main`, que tienen su tope de esperas o de choques) |
 
 Además: un plan con preguntas abiertas no se aprueba solo (queda PLAN_LISTO con el motivo), y una tarea cuyo plan
@@ -674,7 +703,8 @@ npm run test:trabajador-tablero
 
 Usa un CRM falso (servidor local), un repo git temporal con su "remoto" local y `claude`, `codex`, `ssh` y
 `gh` falsos (`pruebas/*-falso.mjs`). No toca la base ni GitHub. Recorre el flujo completo y los casos de
-ERROR (tiempo, tsc, lint nuevo, conflicto, Claude sin cambios, vencimiento por latido), la zona
+ERROR (tiempo, tsc, lint nuevo, conflicto, Claude sin cambios, vencimiento por latido), el choque con main
+que Claude junta solo (`[choque-simple]` termina en HECHO) o que es de lógica (`[choque-logica]` queda en ERROR), la zona
 protegida (queda POR_REVISAR con la zona marcada), los motores (Codex construye y Claude revisa, Codex
 agotado se suelta sin usar Claude, el respaldo de Claude) y la alerta de uso de Claude.
 
@@ -696,6 +726,7 @@ agotado se suelta sin usar Claude, el respaldo de Claude) y la alerta de uso de 
 - `lib/diagnostico.mjs`: clasifica una falla, decide (reparar, partir, esperar, escalar) y escribe el resumen de 3 líneas.
 - `lib/medir.mjs`, `lib/candado-de-build.mjs`, `lib/recoger-errores.mjs`: medir el tamaño y las dependencias antes de planear, que los builds no choquen y recoger los errores viejos (ver arriba).
 - `lib/atasco.mjs`: detecta una sesión quieta (sin archivos ni procesador por 15 min).
+- `lib/resolver-choque.mjs`: la sesión corta de Claude que junta solo los archivos en conflicto del rebase y sus comprobaciones.
 - `lib/git.mjs`, `lib/procesos.mjs`, `lib/zonas.mjs`, `lib/crm.mjs`, `lib/config.mjs`, `lib/registro.mjs`.
 - La API del lado del CRM: `src/app/api/trabajador/tablero/*` y `src/features/tableros-inteligentes/services/trabajador.ts`;
   el aviso por WhatsApp, `src/app/api/trabajador/aviso` y `services/aviso-del-trabajador.ts`.

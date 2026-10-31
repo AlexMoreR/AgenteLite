@@ -128,15 +128,8 @@ export async function ramaExisteEnElRemoto(cwd, remoto, rama) {
   return resultado.codigo === 0 && resultado.salida.trim().length > 0;
 }
 
-/**
- * Rebase de la rama de la tarjeta sobre `base` (25-oct-2026). Los documentos .md se juntan con merge=union (las
- * líneas de los dos lados quedan): casi todas las tareas agregan una línea al manual (docs/que-es-esta-aplicacion.md)
- * y eso solo no puede tumbar una subida. Va con un archivo de atributos propio (core.attributesFile, solo para este
- * comando): no cambia el repo ni la configuración de git del PC. Si choca, deja el worktree como estaba (rebase --abort).
- * -> { ok, conflicto: [archivos], detalle }
- */
-export async function rebaseSobre(cwd, base, { identidad, carpetaTrabajo, sinChoque = ["**/*.md"], nombre = "repo" } = {}) {
-  // Los globs de repos.<x>.sinChoque (choques.mjs: noChoca) son los que se juntan solos. Un archivo por repo.
+/** El `-c core.attributesFile=...` del rebase: los globs de repos.<x>.sinChoque se juntan solos (merge=union). Un archivo por repo. */
+function atributosDeSubida({ carpetaTrabajo, sinChoque = ["**/*.md"], nombre = "repo" } = {}, cwd) {
   const atributos = path.join(carpetaTrabajo ?? path.dirname(cwd), "cache", `atributos-de-subida-${String(nombre).replace(/[^\w-]/g, "")}`);
   const globs = (sinChoque ?? []).filter((glob) => typeof glob === "string" && /^[^\s#]+$/.test(glob));
   try {
@@ -145,12 +138,75 @@ export async function rebaseSobre(cwd, base, { identidad, carpetaTrabajo, sinCho
   } catch {
     // Sin el archivo el rebase es el de siempre.
   }
-  const extra = globs.length && fs.existsSync(atributos) ? ["-c", `core.attributesFile=${atributos.replace(/\\/g, "/")}`] : [];
+  return globs.length && fs.existsSync(atributos) ? ["-c", `core.attributesFile=${atributos.replace(/\\/g, "/")}`] : [];
+}
+
+/** Los archivos en conflicto (sin juntar) del rebase en curso. */
+async function archivosEnConflicto(cwd) {
+  return lineas((await git(cwd, ["diff", "--name-only", "--diff-filter=U"], { permitirFallo: true })).salida);
+}
+
+/**
+ * Rebase de la rama de la tarjeta sobre `base` (25-oct-2026). Los documentos .md se juntan con merge=union (las
+ * líneas de los dos lados quedan): casi todas las tareas agregan una línea al manual (docs/que-es-esta-aplicacion.md)
+ * y eso solo no puede tumbar una subida. Va con un archivo de atributos propio (core.attributesFile, solo para este
+ * comando): no cambia el repo ni la configuración de git del PC. Si choca, deja el worktree como estaba (rebase --abort).
+ * `dejarAbierto` (31-oct-2026, resolver-choque.mjs): si choca NO cancela; el rebase queda a medias con los archivos en
+ * conflicto para resolverlos y seguir (seguirRebase) o cancelar (cancelarRebase).
+ * -> { ok, conflicto: [archivos], detalle, abierto }
+ */
+export async function rebaseSobre(cwd, base, { identidad, carpetaTrabajo, sinChoque = ["**/*.md"], nombre = "repo", dejarAbierto = false } = {}) {
+  const extra = atributosDeSubida({ carpetaTrabajo, sinChoque, nombre }, cwd);
   const rebase = await git(cwd, [...extra, "rebase", base], { identidad, permitirFallo: true });
-  if (rebase.codigo === 0) return { ok: true, conflicto: [], detalle: "" };
-  const conflicto = lineas((await git(cwd, ["diff", "--name-only", "--diff-filter=U"], { permitirFallo: true })).salida);
+  if (rebase.codigo === 0) return { ok: true, conflicto: [], detalle: "", abierto: false };
+  const conflicto = await archivosEnConflicto(cwd);
+  const detalle = ultimasLineas(`${rebase.errores}\n${rebase.salida}`, 15);
+  if (dejarAbierto && conflicto.length) return { ok: false, conflicto, detalle, abierto: true };
+  await cancelarRebase(cwd);
+  return { ok: false, conflicto, detalle, abierto: false };
+}
+
+/**
+ * Sigue el rebase a medias después de resolver `archivos`: git add de esos archivos y rebase --continue (sin abrir editor).
+ * Si el commit quedó vacío (lo de main ya lo traía) lo salta. Si el commit siguiente también choca, queda abierto otra vez.
+ * -> { ok, conflicto: [archivos], detalle, abierto } (como rebaseSobre con dejarAbierto). Nunca empuja nada.
+ */
+export async function seguirRebase(cwd, archivos, { identidad, carpetaTrabajo, sinChoque = ["**/*.md"], nombre = "repo" } = {}) {
+  if (archivos?.length) await git(cwd, ["add", "--", ...archivos]);
+  const extra = atributosDeSubida({ carpetaTrabajo, sinChoque, nombre }, cwd);
+  let paso = await git(cwd, [...extra, "-c", "core.editor=true", "rebase", "--continue"], { identidad, permitirFallo: true });
+  // Sin nada que agregar (la resolución dejó el commit igual que main): se salta ese commit.
+  if (paso.codigo !== 0 && !(await archivosEnConflicto(cwd)).length) {
+    const sinCambios = (await git(cwd, ["diff", "--cached", "--quiet"], { permitirFallo: true })).codigo === 0;
+    if (sinCambios && (await enRebase(cwd))) paso = await git(cwd, [...extra, "-c", "core.editor=true", "rebase", "--skip"], { identidad, permitirFallo: true });
+  }
+  if (paso.codigo === 0 && !(await enRebase(cwd))) return { ok: true, conflicto: [], detalle: "", abierto: false };
+  const conflicto = await archivosEnConflicto(cwd);
+  return { ok: false, conflicto, detalle: ultimasLineas(`${paso.errores}\n${paso.salida}`, 15), abierto: await enRebase(cwd) };
+}
+
+/** Cancela el rebase a medias (si hay uno): el worktree vuelve a como estaba antes del rebase. Nunca lanza. */
+export async function cancelarRebase(cwd) {
   await git(cwd, ["rebase", "--abort"], { permitirFallo: true });
-  return { ok: false, conflicto, detalle: ultimasLineas(`${rebase.errores}\n${rebase.salida}`, 15) };
+}
+
+/** ¿Hay un rebase a medias en `cwd`? (las carpetas rebase-merge / rebase-apply de git). */
+export async function enRebase(cwd) {
+  const resultado = await git(cwd, ["rev-parse", "--git-path", "rebase-merge", "--git-path", "rebase-apply"], { permitirFallo: true });
+  if (resultado.codigo !== 0) return false;
+  return lineas(resultado.salida).some((ruta) => fs.existsSync(path.resolve(cwd, ruta)));
+}
+
+/** Los archivos de `archivos` (rutas relativas a `cwd`) que todavía tienen marcas de conflicto ('<<<<<<<' o '>>>>>>>' al empezar la línea). */
+export function archivosConMarcas(cwd, archivos) {
+  return (archivos ?? []).filter((archivo) => {
+    try {
+      return /^(?:<{7}|>{7})(?: |$)/m.test(fs.readFileSync(path.join(cwd, archivo), "utf8"));
+    } catch {
+      // Borrado o ilegible: no tiene marcas.
+      return false;
+    }
+  });
 }
 
 /** El push a la rama base (main): SOLO desde la etapa de subir (sube sola o con el sí final). Sin --force. */
