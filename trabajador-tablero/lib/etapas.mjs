@@ -960,7 +960,7 @@ async function construirLaParteDeLaNube(contexto, tarjeta, { repo, rama, base, r
     const modelo = modeloDelPaso(config, "construir", tarjeta);
     registro.info(`construir en la nube: modelo ${nombreDelModelo(modelo)}`);
     const conRevision = revisionActiva(config);
-    const prompt = promptDeNube(tarjeta, repo, rama, { entorno, modelo, lecciones: leccionesDelAgente(contexto, repo), revision: conRevision, modeloRevisar: modeloDelPaso(config, "revisar", tarjeta), modeloRevisarSeguridad: modeloDelPaso(config, "revisarSeguridad", tarjeta), vueltasRevision: vueltasDeRevision(config), sesionFija: Boolean(sesionFijaDe(repo)) });
+    const prompt = promptDeNube(tarjeta, repo, rama, { entorno, modelo, lecciones: leccionesDelAgente(contexto, repo), revision: conRevision, modeloRevisar: modeloDelPaso(config, "revisar", tarjeta), modeloRevisarSeguridad: modeloDelPaso(config, "revisarSeguridad", tarjeta), vueltasRevision: vueltasDeRevision(config), sesionFija: Boolean(sesionFijaDe(repo)) && contexto.sesionNueva !== true });
     // 29-oct-2026: a la sesión fija del proyecto (repos.<repo>.nube.sesionFija) si la tiene; si no, `claude --cloud` con el
     // chequeo previo. La rama ya está en GitHub (pushDeRama de arriba) antes de lanzar: la sesión fija la baja con git fetch.
     const lanzado = await lanzarSesionDeLaNube(contexto, { repo, cwd: carpeta, prompt, modelo });

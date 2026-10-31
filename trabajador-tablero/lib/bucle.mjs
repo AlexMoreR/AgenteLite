@@ -27,6 +27,7 @@
 // ANTES de construirla; y los pasos pesados (npm ci, lint, tsc, build, pruebas) de todas las sesiones pasan por UNA
 // cola en aizen1 (config.colaPesada.maximo, 1 por defecto), así 3 sesiones no compilan a la vez en un i3 de 2 núcleos.
 import { agenteDelRepo, anotarLeccion, leccionDe, tresLineasDe } from "./agentes.mjs";
+import { crearAjusteDeCupos, motivoDelSemaforo, semaforoDeLaCarga } from "./ajuste-de-cupos.mjs";
 import { candidatasQueChocan, huellaDeTarjeta, motivoDeChoque } from "./choques.mjs";
 import { crearColaPesada } from "./cola.mjs";
 import { debePartirAntes, ordenarCandidatas, partesSinAlcanceNuevo } from "./reparto.mjs";
@@ -66,10 +67,10 @@ import { anotarAvisoAlCto } from "./notas-boveda.mjs";
 import { notaDeYaHecho } from "./revision-previa.mjs";
 import { modeloDelPaso, nombreDelModelo } from "./modelos.mjs";
 import { crearEstadoDeMotores, crearVigilanteDeUso, motorDeLaEtapa, nombreDelMotor, textoDelAvisoDeLimite } from "./motores.mjs";
-import { esTareaGrande, nombreDelProyecto, sesionFijaDe, sinAccesoALaNube } from "./nube.mjs";
+import { esTareaGrande, nombreDelProyecto, sesionFijaDe, sinAccesoALaNube, sinAccesoASesionesNuevas } from "./nube.mjs";
 import { crearPausaPorUso } from "./pausa-uso.mjs";
 import { primeraPreguntaAbierta } from "./preguntas-abiertas.mjs";
-import { crearMedidor, faltanRecursos } from "./recursos.mjs";
+import { crearMedidor, faltanRecursos, leerCarga } from "./recursos.mjs";
 
 const ETAPAS = { planear, construir, subir };
 
@@ -183,7 +184,7 @@ export async function procesar({ crm, config, registro: registroBase, motores = 
     linkSesion: null,
   });
   const fase = (etapa, extra = {}) => Object.assign(vivo, { etapa }, extra);
-  const contexto = { config, registro, senal: control.signal, motorDe: motores.motorDe, alLimite: pausar, medidor, otrasSesiones, fase, puestoParaVerificar, colaPesada, etiqueta, lugar: enNube ? "nube" : "aizen1", alSoltarPuesto };
+  const contexto = { config, registro, senal: control.signal, motorDe: motores.motorDe, alLimite: pausar, medidor, otrasSesiones, fase, puestoParaVerificar, colaPesada, etiqueta, lugar: enNube ? "nube" : "aizen1", alSoltarPuesto, sesionNueva: vivo.sesionNueva === true };
   try {
     const etapa = ETAPAS[hacer];
     if (!etapa) throw new ErrorDeEtapa(`El CRM pidió "${hacer}", que este Coordinador no sabe hacer (¿hay que actualizarlo?).`);
@@ -897,8 +898,16 @@ export function crearPlanificador({
   procesarTarjeta = procesar,
   // El reloj (las pruebas de la alarma de cupos sin usar lo adelantan).
   ahora = () => Date.now(),
+  // La memoria y el disco de aizen1 en GB (recursos.mjs: leerCarga), para el semáforo; las pruebas la cambian.
+  leerCargaDelPc = leerCarga,
+  // El ajuste automático del cupo de la nube (ajuste-de-cupos.mjs); undefined = el de la configuración.
+  ajusteCupos: ajusteDado = undefined,
 }) {
   const max = config.maxParalelo;
+  // 31-oct-2026 (parte 4): durante 3 días el cupo de la nube de un proyecto baja solo en 1 si con varias a la vez chocan más.
+  const ajusteCupos = ajusteDado ?? crearAjusteDeCupos({ config, registro, ahora, nombreDe: (clave) => nombreDelProyecto(config.repos[clave]) });
+  /** El cupo de la nube que vale ahora para el proyecto (el configurado, o el que bajó el ajuste). null = sin tope propio. */
+  const cupoNubeDe = (clave) => ajusteCupos.cupo(clave);
   const nubeConfig = config.nube ?? { activa: false, maxTareas: 0, maxArchivosChica: 8 };
   /** El agente del proyecto de una tarjeta (agentes.mjs); un proyecto que no esté en la configuración da null. */
   const agenteDe = (tarjeta) => {
@@ -976,9 +985,40 @@ export function crearPlanificador({
   };
   /** ¿El proyecto tiene puesto de la nube libre? repos.<repo>.cuposNube (1 por defecto; null = solo el tope de nube.maxTareas). */
   const repoConPuestoEnNube = (clave) => {
-    const cupos = config.repos[clave]?.cuposNube;
+    const cupos = cupoNubeDe(clave);
     return !cupos || ocupadasEnNube().filter((s) => s.tarjeta.repo === clave).length < cupos;
   };
+  /** Las tarjetas del proyecto que construyen en la nube ahora (con puesto o sin él). */
+  const construyendoEnNube = (clave) => [...enNube.values()].filter((s) => s.tarjeta.repo === clave && s.hacer === "construir");
+
+  /**
+   * EL SEMÁFORO DE AIZEN1 (31-oct-2026, la misma regla que CargaVista.semaforo del CRM): con amarillo (o rojo) no se abre una
+   * 2.ª ni una 3.ª tarea del mismo proyecto en la nube; la 1.ª sí. -> el motivo ("CPU 75 %") o null si está verde.
+   */
+  function semaforoNoVerde() {
+    let medida = null;
+    let carga = null;
+    try {
+      medida = medidor.medir();
+    } catch {
+      medida = null;
+    }
+    try {
+      carga = leerCargaDelPc(config.carpetaTrabajo);
+    } catch {
+      carga = null;
+    }
+    const datos = { cpu: medida?.cpu ?? null, memoriaPorciento: medida?.memoria ?? null, discoLibreGb: carga?.discoLibreGb ?? null, esperandoPc: Boolean(pcEspera) };
+    const luz = semaforoDeLaCarga(datos);
+    return luz === "amarillo" || luz === "rojo" ? `${luz}: ${motivoDelSemaforo(datos)}` : null;
+  }
+  /** Se mide una vez por vuelta de llenar (y solo si hace falta): `estadoDeCupos.semaforo()`. */
+  const semaforoPerezoso = () => {
+    let medido;
+    return () => (medido === undefined ? (medido = semaforoNoVerde()) : medido);
+  };
+  /** ¿Esta construcción del proyecto sería la 2.ª o más en la nube con aizen1 en amarillo? -> el motivo o null. */
+  const frenoDelSemaforo = (tarjeta, hacer, { semaforo }) => (hacer === "construir" && construyendoEnNube(tarjeta.repo).length > 0 && semaforo ? semaforo() : null);
 
   function contarCorriendo() {
     const lista = [
@@ -1002,13 +1042,19 @@ export function crearPlanificador({
    * pasos pesados (prioridad "preparar"). Si la cola ya tiene trabajo esperando, una tarjeta nueva NO se toma para
    * construir en aizen1: espera en la fila del tablero sin candado (el tope de 90 min del CRM corre desde que se toma).
    */
-  function dondeCorre(tarjeta, hacer, { aizenOk, nubeUsable, nubeLibre, colaEnFila = 0 }) {
+  function dondeCorre(tarjeta, hacer, { aizenOk, nubeUsable, nubeLibre, colaEnFila = 0, semaforo = null }) {
     const aizenParaEsta = aizenOk && repoConPuesto(tarjeta.repo) && !(hacer === "construir" && colaEnFila > 0);
     // 29-oct-2026: un proyecto marcado "la nube no tiene acceso al repo" (nube.mjs: sinAccesoALaNube) no se manda a la nube
     // hasta que venza la marca: sus tarjetas esperan en la fila sin gastar uso.
     // Con SESIÓN FIJA (repos.<repo>.nube.sesionFija) va una tarea a la vez: mientras otra del proyecto construye ahí, espera.
-    // 31-oct-2026: además del tope de todo el Coordinador (nubeLibre), el del proyecto (repos.<repo>.cuposNube).
-    const nubeParaEsta = nubeLibre && repoConPuestoEnNube(tarjeta.repo) && !(hacer === "construir" && (sinAccesoALaNube(tarjeta.repo) || sesionFijaOcupada(tarjeta.repo)));
+    // 31-oct-2026: además del tope de todo el Coordinador (nubeLibre), el del proyecto (repos.<repo>.cuposNube). Parte 4: con la
+    // sesión fija ocupada, la 2.ª y la 3.ª abren sesiones nuevas (si la nube tiene acceso); con aizen1 en amarillo no se abre
+    // una 2.ª del mismo proyecto.
+    const nubeParaEsta =
+      nubeLibre &&
+      repoConPuestoEnNube(tarjeta.repo) &&
+      !(hacer === "construir" && (sinAccesoALaNube(tarjeta.repo) || (sesionFijaOcupada(tarjeta.repo) && !puedeAbrirSesionNueva(tarjeta.repo)))) &&
+      !frenoDelSemaforo(tarjeta, hacer, { semaforo });
     // Todo el desarrollo en la nube (26-oct-2026, decisión del dueño): construir NUNCA va a aizen1; si la nube no está
     // libre (o está apagada), la tarjeta espera en la fila.
     // Un proyecto con construirEn "aizen1" no va a la nube (29-oct-2026, decisión del dueño para Gestión).
@@ -1022,21 +1068,28 @@ export function crearPlanificador({
     return nubeParaEsta ? { donde: "nube", motivo: `desborde: ${porque}` } : null;
   }
 
-  /** ¿El proyecto tiene sesión fija y ya hay una tarjeta suya construyendo en la nube (en esa sesión)? */
-  const sesionFijaOcupada = (clave) => Boolean(sesionFijaDe(config.repos[clave])) && [...enNube.values()].some((s) => s.tarjeta.repo === clave && s.hacer === "construir");
+  /** ¿El proyecto tiene sesión fija y ya hay una tarjeta suya construyendo EN ELLA (no en una sesión nueva)? */
+  const sesionFijaOcupada = (clave) => Boolean(sesionFijaDe(config.repos[clave])) && construyendoEnNube(clave).some((s) => !s.vivo.sesionNueva);
+  /** ¿Se puede abrir una sesión nueva de la nube para el proyecto? No, si la nube no tuvo acceso al repo hace poco. */
+  const puedeAbrirSesionNueva = (clave) => !sinAccesoASesionesNuevas(clave);
 
   /** Por qué una candidata no tiene dónde correr ahora (para el log y el panel "esperan en fila"). */
-  function motivoDeEspera(hacer, { aizenOk, nubeUsable, colaEnFila = 0 }, tarjeta = null) {
+  function motivoDeEspera(hacer, { aizenOk, nubeUsable, colaEnFila = 0, semaforo = null }, tarjeta = null) {
     const marca = hacer === "construir" && nubeUsable && tarjeta ? sinAccesoALaNube(tarjeta.repo) : null;
     if (marca) {
       const hora = new Date(marca.hasta).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", timeZone: "America/Bogota" });
       return `espera: la nube no tiene acceso al repo de "${tarjeta.repo}" (no se manda a la nube hasta las ${hora})`;
     }
-    if (hacer === "construir" && nubeUsable && tarjeta && sesionFijaOcupada(tarjeta.repo)) return `espera: la sesión de ${nombreDelProyecto(config.repos[tarjeta.repo])} está ocupada`;
+    if (hacer === "construir" && nubeUsable && tarjeta && sesionFijaOcupada(tarjeta.repo) && (!puedeAbrirSesionNueva(tarjeta.repo) || !repoConPuestoEnNube(tarjeta.repo))) {
+      const ocupada = `espera: la sesión de ${nombreDelProyecto(config.repos[tarjeta.repo])} está ocupada`;
+      return puedeAbrirSesionNueva(tarjeta.repo) ? `${ocupada} (y ${tarjeta.repo} ya usa su(s) ${cupoNubeDe(tarjeta.repo)} puesto(s) de la nube)` : `${ocupada} y la nube no tiene acceso al repo para abrir otra`;
+    }
     if (hacer === "construir" && aizenOk && colaEnFila > 0 && !nubeUsable) return `espera: la cola de pasos pesados de aizen1 tiene ${colaEnFila} en fila`;
     if (hacer === "construir" && nubeUsable && tarjeta && config.repos[tarjeta.repo]?.construirEn !== "aizen1" && !repoConPuestoEnNube(tarjeta.repo)) {
-      return `espera: ${tarjeta.repo} ya usa su(s) ${config.repos[tarjeta.repo].cuposNube} puesto(s) de la nube`;
+      return `espera: ${tarjeta.repo} ya usa su(s) ${cupoNubeDe(tarjeta.repo)} puesto(s) de la nube`;
     }
+    const freno = hacer === "construir" && nubeUsable && tarjeta ? frenoDelSemaforo(tarjeta, hacer, { semaforo }) : null;
+    if (freno) return `espera: aizen1 está en ${freno}; no se abre otra de ${tarjeta.repo} en la nube`;
     if (tarjeta && aizenOk && !repoConPuesto(tarjeta.repo) && !(hacer === "construir" && nubeUsable)) return `espera: ${tarjeta.repo} ya usa sus ${config.repos[tarjeta.repo].cuposAizen1} puesto(s) de aizen1`;
     return hacer === "construir" && nubeUsable ? "espera un puesto en la nube" : "espera un puesto en aizen1";
   }
@@ -1055,6 +1108,13 @@ export function crearPlanificador({
     const suRegistro = registroDeLaSesion(registro, nube ? `nube ${idCorto(tarjeta.id)}` : `s${n} ${idCorto(tarjeta.id)}`);
     suRegistro.info(`tomé "${tarjeta.titulo}" (${tarjeta.id}, ${tarjeta.repo}${nombreDeAgente(tarjeta)}) para ${hacer}${nube ? ` — se construye en la nube (${motivo})` : ""}`);
     const vivo = { inicioEn: Date.now() };
+    // 31-oct-2026 (parte 4): las otras del proyecto que ya construyen en la nube. Con la sesión fija ocupada, esta abre una
+    // sesión nueva; y el ajuste de cupos anota si corre sola o acompañada.
+    const companeras = nube && hacer === "construir" ? construyendoEnNube(tarjeta.repo) : [];
+    if (nube && hacer === "construir") {
+      if (sesionFijaOcupada(tarjeta.repo)) vivo.sesionNueva = true;
+      ajusteCupos.empezo(tarjeta.id, tarjeta.repo, companeras.length > 0, companeras.map((s) => s.tarjeta.id));
+    }
     const sesion = { tarjeta, hacer, huella, vivo };
     if (nube) enNube.set(tarjeta.id, sesion);
     else sesiones.set(n, sesion);
@@ -1093,6 +1153,7 @@ export function crearPlanificador({
       })
       .then((resultado) => {
         if (resultado?.estado === "SUBIENDO") suRegistro.info("construida y sube sola: pasa a la cola de subida");
+        ajusteCupos.termino(tarjeta.id, resultado, hacer);
         return resultado;
       })
       .finally(() => {
@@ -1162,7 +1223,7 @@ export function crearPlanificador({
     const sumaAizen = repos.reduce((total, repo) => total + (repo?.cuposAizen1 ?? max), 0);
     let cupos = Math.min(max, repos.length ? sumaAizen : max);
     if (nubeUtilizable()) {
-      const sumaNube = repos.reduce((total, repo) => total + (repo?.cuposNube ?? nubeConfig.maxTareas), 0);
+      const sumaNube = repos.reduce((total, repo) => total + (cupoNubeDe(repo?.clave) ?? nubeConfig.maxTareas), 0);
       cupos += Math.min(nubeConfig.maxTareas, repos.length ? sumaNube : nubeConfig.maxTareas);
     }
     return cupos;
@@ -1211,10 +1272,26 @@ export function crearPlanificador({
     }
   }
 
+  /**
+   * El WhatsApp a Emanuel cuando el ajuste bajó el cupo de un proyecto (crm.aviso(texto, "cupos")): UNA vez por bajada; si el
+   * CRM lo calla o falla, se reintenta en la próxima vuelta. Nunca tumba al planificador.
+   */
+  async function avisarAjusteDeCupos() {
+    for (const { clave, texto } of ajusteCupos.pendientes()) {
+      try {
+        const respuesta = await crm.aviso(texto, "cupos");
+        if (!respuesta?.silenciado) ajusteCupos.avisado(clave);
+      } catch (error) {
+        registro.aviso(`no salió el aviso de la bajada del cupo de ${clave} (${error?.status ?? "sin respuesta"}): ${error?.message ?? error}`);
+      }
+    }
+  }
+
   async function llenar(opciones = {}) {
     try {
       await llenarCupos(opciones);
     } finally {
+      await avisarAjusteDeCupos();
       await revisarCuposSinUsar();
     }
   }
@@ -1277,7 +1354,7 @@ export function crearPlanificador({
         }
       }
       if (!aizenOk && !nubeLibre) return;
-      const estadoDeCupos = { aizenOk, nubeUsable, nubeLibre, colaEnFila: colaEnFila() };
+      const estadoDeCupos = { aizenOk, nubeUsable, nubeLibre, colaEnFila: colaEnFila(), semaforo: semaforoPerezoso() };
       const corriendo = [...sesiones.values(), ...enNube.values()].map((s) => s.huella);
       let excluir = [...descartadas.keys()];
       // Siempre se miran las candidatas (25-oct-2026): también para ESCOGER cuál conviene (ordenarCandidatas).
@@ -1415,6 +1492,8 @@ export function crearPlanificador({
         cupos: cuposVistos.cupos,
         enFila: cuposVistos.enFila,
         corriendo: cuposVistos.corriendo,
+        // 31-oct-2026 (parte 4): el ajuste automático del cupo de la nube (prendido o terminado, días que quedan, cupo de cada proyecto).
+        ajusteCupos: ajusteCupos.resumen(),
       };
     },
     /** Pausa por uso de Claude: ¿está pausado? (el trabajo de noche y el recogedor tampoco corren) y los ajustes del panel. */

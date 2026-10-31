@@ -126,6 +126,9 @@ const CUPOS_NUBE_POR_DEFECTO = 1;
 /**
  * repos.<repo>.cuposNube (31-oct-2026): cuántas tarjetas de este proyecto construyen a la vez en la nube.
  * Un entero de 1 o más; null = sin tope propio (solo el de nube.maxTareas); sin la clave = 1.
+ * Parte 4 (31-oct-2026): config.example.json trae el CRM con 3 y Gestión con 2, los dos con construirEn "nube". Con más de 1,
+ * durante 3 días el cupo baja solo en 1 si con varias a la vez chocan más con main (ajuste-de-cupos.mjs); el bajado vale
+ * hasta que se cambia este número. Con sesión fija, la 1.ª va a esa sesión y las demás abren sesiones nuevas.
  */
 function cuposNubeDelRepo(repo, clave, errores) {
   if (repo.cuposNube === undefined) return CUPOS_NUBE_POR_DEFECTO;
@@ -138,7 +141,8 @@ function cuposNubeDelRepo(repo, clave, errores) {
 /**
  * repos.<repo>.nube (29-oct-2026): { sesionFija: "session_…" }. Con sesión fija, construir en la nube le manda la tarea a esa
  * sesión (creada a mano en claude.ai/code con el repo seleccionado: así puede subir su rama) en vez de crear otra con
- * `claude --cloud`. Una tarea a la vez. Sin sesión fija, todo como siempre.
+ * `claude --cloud`. Una tarea a la vez en esa sesión: con cuposNube de 2 o más, la 2.ª y la 3.ª abren sesiones nuevas
+ * (31-oct-2026). Sin sesión fija, todo como siempre.
  */
 function nubeDelRepo(valor, clave, errores) {
   if (valor === undefined || valor === null) return { sesionFija: null };
@@ -317,6 +321,7 @@ export function completarConfig(datos, base = process.cwd()) {
         cuposAizen1: Number.isInteger(repo.cuposAizen1) && repo.cuposAizen1 >= 1 ? repo.cuposAizen1 : null,
         // Puestos de la nube de este proyecto (31-oct-2026): el CRM nunca llena la nube y deja a Gestión esperando.
         // Sin la clave vale 1; null = sin tope propio (solo el de nube.maxTareas). La suma no pasa de nube.maxTareas.
+        // El ejemplo trae CRM 3 y Gestión 2 (parte 4); el ajuste de cupos puede bajarlo solo (ajuste-de-cupos.mjs).
         cuposNube: cuposNubeDelRepo(repo, clave, errores),
         // La sesión fija de la nube de este proyecto (29-oct-2026), o null.
         nube: nubeDelRepo(repo.nube, clave, errores),

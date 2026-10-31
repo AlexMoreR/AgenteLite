@@ -41,6 +41,8 @@ export function armarLatido({ estado, medidor, carga, nombre = "aizen1" }) {
     cupos: Number.isInteger(estado.cupos) ? estado.cupos : null,
     enFila: Number.isInteger(estado.enFila) ? estado.enFila : null,
     corriendo: Number.isInteger(estado.corriendo) ? estado.corriendo : null,
+    // 31-oct-2026 (parte 4): el ajuste automático del cupo de la nube: { estado, desde, hasta, diasQuedan, repos: { <repo>: { cupo, … } } }.
+    ajusteCupos: estado.ajusteCupos ?? null,
   };
 }
 

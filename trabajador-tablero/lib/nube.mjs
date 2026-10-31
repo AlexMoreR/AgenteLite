@@ -14,7 +14,8 @@
 //
 // 29-oct-2026 (Gestión: `claude --cloud` sube una copia sin el repo conectado y la sesión no puede subir su rama):
 //   lanzarSesionDeLaNube  con repos.<repo>.nube.sesionFija -> le manda la tarea a esa sesión (creada en la web con el repo
-//                         seleccionado): `/clear` y la instrucción, con `claude -p … --cloud <id>`. Una tarea a la vez.
+//                         seleccionado): `/clear` y la instrucción, con `claude -p … --cloud <id>`. Una tarea a la vez
+//                         en ella; 31-oct-2026: la 2.ª y la 3.ª del proyecto abren sesiones nuevas (contexto.sesionNueva).
 //                         Sin sesión fija -> `claude --cloud` como siempre, con --debug-file y el CHEQUEO PREVIO: si la CLI
 //                         dice que la app de GitHub no está en el repo (github_preflight_failed), ERROR enseguida.
 //                         Si falla (nube_sin_acceso_repo) deja una MARCA por repo (sinAccesoALaNube): durante
@@ -519,6 +520,15 @@ export function sinAccesoALaNube(clave, ahora = Date.now()) {
   return marca;
 }
 
+/**
+ * 31-oct-2026 (cupos por sistema, parte 4): un proyecto con sesión fija abre SESIONES NUEVAS (`claude --cloud`) para su 2.ª y
+ * 3.ª tarea. Si la nube no tiene acceso al repo para abrirlas, se marca solo eso (no el proyecto): la sesión fija sigue.
+ */
+const NUEVAS = "#sesiones-nuevas";
+export const sinAccesoASesionesNuevas = (clave, ahora = Date.now()) => (clave ? sinAccesoALaNube(`${clave}${NUEVAS}`, ahora) : null);
+/** Marca el proyecto `clave` sin acceso para abrir sesiones nuevas por `minutos` (la sesión fija sigue). */
+export const marcarSinAccesoASesionesNuevas = (clave, motivo, minutos, ahora = Date.now()) => marcarSinAcceso(clave ? `${clave}${NUEVAS}` : null, motivo, minutos, ahora);
+
 /** Borra la marca de un proyecto (o todas, sin clave). Para las pruebas y para cuando el dueño lo arregla y reinicia. */
 export function olvidarSinAcceso(clave = null) {
   if (clave) SIN_ACCESO.delete(clave);
@@ -620,10 +630,23 @@ export async function mandarASesionFija(contexto, { repo, cwd, prompt }) {
  * previo. Si la nube no tiene acceso al repo (nube_sin_acceso_repo), marca el proyecto por config.nube.sinAccesoMinutos.
  */
 export async function lanzarSesionDeLaNube(contexto, { repo, cwd, prompt, modelo = null }) {
+  // contexto.sesionNueva (31-oct-2026): la sesión fija ya está ocupada con otra tarea del proyecto; esta abre una nueva.
+  const nueva = Boolean(sesionFijaDe(repo)) && contexto.sesionNueva === true;
   try {
-    if (sesionFijaDe(repo)) return await mandarASesionFija(contexto, { repo, cwd, prompt });
+    if (sesionFijaDe(repo) && !nueva) return await mandarASesionFija(contexto, { repo, cwd, prompt });
     return await lanzarEnNube(contexto, { cwd, prompt, modelo, repo });
   } catch (error) {
+    if (error?.categoria === "nube_sin_acceso_repo" && nueva) {
+      // Solo se dejan de abrir sesiones nuevas de este proyecto; la tarjeta vuelve a la fila sin gastar intento (espera,
+      // como un corte del Coordinador) y la sesión fija sigue trabajando.
+      const minutos = contexto.config.nube.sinAccesoMinutos ?? 60;
+      marcarSinAccesoASesionesNuevas(repo?.clave, error.message, minutos);
+      contexto.registro?.aviso?.(`${String(error.message).split(/\r?\n/)[0]} — no abro sesiones nuevas de "${repo?.clave}" en ${minutos} min (la sesión fija sigue)`);
+      throw new ErrorDeEtapa(
+        `La nube no tiene acceso al repo para abrir otra sesión de ${nombreDelProyecto(repo)}: la tarjeta vuelve a la fila y el proyecto sigue con su sesión fija.\n${error.message}`,
+        { categoria: "coordinador_cortado" },
+      );
+    }
     if (error?.categoria === "nube_sin_acceso_repo") {
       const minutos = contexto.config.nube.sinAccesoMinutos ?? 60;
       marcarSinAcceso(repo?.clave, error.message, minutos);

@@ -114,14 +114,15 @@
   "repos": {
     "aizencrm": {
       "github": "AlexMoreR/AgenteLite",
-      "cuposNube": 1,
+      "construirEn": "nube",
+      "cuposNube": 3,
       "ruta": "D:/Proyectos/AgenteLite",
       "ramaBase": "main",
       "remoto": "origin",
       "agente": {
         "nombre": "Agente CRM",
         "lecciones": "",
-        "maxEnParalelo": 2
+        "maxEnParalelo": 5
       },
       "instalar": [
         "npm",
@@ -351,7 +352,8 @@
     },
     "gestion": {
       "github": "AlexMoreR/Gestion",
-      "cuposNube": 1,
+      "construirEn": "nube",
+      "cuposNube": 2,
       "ruta": "D:/Proyectos/Gestion",
       "ramaBase": "main",
       "remoto": "origin",
@@ -361,7 +363,7 @@
       "agente": {
         "nombre": "Agente Gestión",
         "lecciones": "",
-        "maxEnParalelo": 1
+        "maxEnParalelo": 3
       },
       "instalar": [
         "npm",

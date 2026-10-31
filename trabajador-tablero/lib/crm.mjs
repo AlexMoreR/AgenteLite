@@ -121,7 +121,8 @@ export function crearCrm({ urlCrm, claveTrabajador }, { fetch: miFetch = globalT
     subida: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/subida`, datos),
     /**
      * WhatsApp al dueño desde la línea Admin (POST /api/trabajador/aviso). `tipo` es "limite" (Claude se agotó y todo
-     * quedó en pausa) o "necesita" (algo que no se puede hacer solo); el CRM descarta los avisos sin tipo. `tarjetaId`
+     * quedó en pausa), "necesita" (algo que no se puede hacer solo) o "cupos" (a Emanuel: cupos sin usar, o el ajuste
+     * automático bajó el cupo de la nube de un proyecto); el CRM descarta los avisos sin tipo. `tarjetaId`
      * (31-oct-2026, opcional): la tarjeta del aviso "necesita", para que el CRM cierre sola la alerta cuando se responde.
      */
     aviso: (texto, tipo, tarjetaId) => pedir("/api/trabajador/aviso", { texto, ...(tipo ? { tipo } : {}), ...(tarjetaId ? { tarjetaId } : {}) }),
