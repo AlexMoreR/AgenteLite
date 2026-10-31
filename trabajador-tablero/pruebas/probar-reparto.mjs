@@ -88,6 +88,8 @@ await prueba("choques: una carpeta o un glob de la parte 5 choca con los archivo
   assert.equal(motivoDeChoque(cuatro, h("w2", planCon(`src/zz/${"a".repeat(500)}.ts`, "src/features/dos/b.ts"))), null);
   assert.deepEqual(h("v3", planCon(`src/zz/${"a".repeat(300)}.ts`)).rutas, [], "una ruta de más de 200 caracteres no cuenta");
   assert.deepEqual(h("v4", planCon("src/**/*.ts")).rutas, ["src/**/*.ts"], "un glob normal sigue valiendo");
+  // Una palabra enorme del plan se descarta sin limpiarla vuelta por vuelta.
+  assert.deepEqual(archivosDelPlan(planCon(`src/a${"*.".repeat(40_000)}`, "src/features/uno/a.ts")), ["src/features/uno/a.ts"]);
   assert.ok(Date.now() - inicio < 1000);
   // Carpeta con "/" al final contra un archivo de adentro.
   assert.ok(motivoDeChoque(h("a", planCon("src/features/coach/")), h("b", planCon("src/features/coach/x.ts"))));
