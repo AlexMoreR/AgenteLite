@@ -1175,7 +1175,14 @@ export async function ejecutarHerramientaMcpTableros(
         },
         esperando_a_otra: {
           cantidad: vista.esperandoAOtra.cantidad,
-          tarjetas: vista.esperandoAOtra.tarjetas.map((item) => ({ tarjeta_id: item.tarjetaId, titulo: item.titulo, esperando: item.motivo, link: item.link })),
+          esperan_tu_si_final: vista.esperandoAOtra.esperanTuSiFinal,
+          tarjetas: vista.esperandoAOtra.tarjetas.map((item) => ({
+            tarjeta_id: item.tarjetaId,
+            titulo: item.titulo,
+            esperando: item.motivo,
+            link: item.link,
+            espera_a: item.esperaA ? { tarjeta_id: item.esperaA.tarjetaId, titulo: item.esperaA.titulo, estado: item.esperaA.estado, link: item.esperaA.link } : null,
+          })),
         },
         hoy: {
           terminadas: vista.hoy.terminadas,

@@ -1601,6 +1601,7 @@ const ESTADOS_QUE_NO_AVANZAN = ["ERROR", "FALLIDO"] as const;
  * La etiqueta "Esperando a «X»" de una tarjeta que depende de otras que no están HECHO. `origenes` son las tarjetas de
  * las que depende (sin borrar y de un tipo con estados). null si no espera a nadie. Si alguna está en ERROR o FALLIDO
  * lo dice: "Esperando a «X», que está en error" (así no se queda trabada para siempre sin que nadie lo sepa).
+ * Si alguna está POR_REVISAR (31-oct-2026) también lo dice: espera el sí final del dueño, no al Coordinador.
  */
 export function etiquetaEsperando(origenes: readonly { titulo: string; estado: string }[]): string | null {
   const pendientes = origenes.filter((origen) => origen.estado !== "HECHO");
@@ -1608,11 +1609,16 @@ export function etiquetaEsperando(origenes: readonly { titulo: string; estado: s
   const nombres = pendientes.map((origen) => `«${origen.titulo}»`);
   const lista = nombres.length === 1 ? nombres[0] : `${nombres.slice(0, -1).join(", ")} y ${nombres[nombres.length - 1]}`;
   const trabadas = pendientes.filter((origen) => (ESTADOS_QUE_NO_AVANZAN as readonly string[]).includes(origen.estado));
-  if (!trabadas.length) return `Esperando a ${lista}`;
+  const porRevisar = pendientes.filter((origen) => origen.estado === "POR_REVISAR");
+  if (!trabadas.length && !porRevisar.length) return `Esperando a ${lista}`;
   if (trabadas.length === 1 && pendientes.length === 1) {
     return `Esperando a ${lista}, que está ${trabadas[0].estado === "ERROR" ? "en error" : "fallida"}`;
   }
-  return `Esperando a ${lista}; ${trabadas.map((origen) => `«${origen.titulo}»`).join(" y ")} ${trabadas.length === 1 ? "está" : "están"} en error o fallidas`;
+  if (porRevisar.length === 1 && pendientes.length === 1) return `Esperando a ${lista}: la parte 1 espera tu sí final (Por revisar)`;
+  const avisos: string[] = [];
+  if (trabadas.length) avisos.push(`${trabadas.map((origen) => `«${origen.titulo}»`).join(" y ")} ${trabadas.length === 1 ? "está" : "están"} en error o fallidas`);
+  if (porRevisar.length) avisos.push(`${porRevisar.map((origen) => `«${origen.titulo}»`).join(" y ")} ${porRevisar.length === 1 ? "espera" : "esperan"} tu sí final (Por revisar)`);
+  return `Esperando a ${lista}; ${avisos.join("; ")}`;
 }
 
 export type RecogidaDelResultado = { veces: number; ultima: string | null; linea: string | null };

@@ -908,6 +908,12 @@ prueba("reparar y partir: tope de 3 reparaciones, resumen de máximo 3 líneas, 
   assert.equal(trabajo.etiquetaEsperando([{ titulo: "El molde", estado: "ERROR" }]), "Esperando a «El molde», que está en error");
   assert.equal(trabajo.etiquetaEsperando([{ titulo: "El molde", estado: "FALLIDO" }]), "Esperando a «El molde», que está fallida");
   assert.match(trabajo.etiquetaEsperando([{ titulo: "A", estado: "EN_CURSO" }, { titulo: "B", estado: "ERROR" }]), /^Esperando a «A» y «B»; «B» está en error o fallidas$/);
+  // POR_REVISAR (31-oct-2026): espera el sí final del dueño, no al Coordinador.
+  assert.equal(trabajo.etiquetaEsperando([{ titulo: "La parte 1", estado: "POR_REVISAR" }]), "Esperando a «La parte 1»: la parte 1 espera tu sí final (Por revisar)");
+  assert.match(trabajo.etiquetaEsperando([{ titulo: "A", estado: "EN_CURSO" }, { titulo: "B", estado: "POR_REVISAR" }]), /espera tu sí final \(Por revisar\)/);
+  assert.equal(trabajo.etiquetaEsperando([{ titulo: "A", estado: "EN_CURSO" }, { titulo: "B", estado: "POR_REVISAR" }]), "Esperando a «A» y «B»; «B» espera tu sí final (Por revisar)");
+  assert.equal(trabajo.etiquetaEsperando([{ titulo: "B", estado: "POR_REVISAR" }, { titulo: "C", estado: "POR_REVISAR" }]), "Esperando a «B» y «C»; «B» y «C» esperan tu sí final (Por revisar)");
+  assert.equal(trabajo.etiquetaEsperando([{ titulo: "A", estado: "ERROR" }, { titulo: "B", estado: "POR_REVISAR" }]), "Esperando a «A» y «B»; «A» está en error o fallidas; «B» espera tu sí final (Por revisar)");
   assert.equal(trabajo.dependenciaHaceCiclo([{ origenId: "a", destinoId: "b" }], "b", "a"), true);
   // Recoger los errores viejos: máximo 2 veces por tarjeta; lo que hay que recordar va en resultado.recogida.
   assert.deepEqual(trabajo.recogidaDelResultado(null), { veces: 0, ultima: null, linea: null });

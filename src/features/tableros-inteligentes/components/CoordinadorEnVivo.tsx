@@ -157,6 +157,11 @@ function ListaDeFila({ items }: { items: ItemDeFila[] }) {
               {item.titulo}
             </Link>
             {item.motivo ? <span className="block text-xs text-muted-foreground">{item.motivo}</span> : null}
+            {item.esperaA ? (
+              <Link href={linkDeLaTarjetaEnPantalla(item.esperaA.tarjetaId)} className="block text-xs text-muted-foreground underline hover:text-foreground" title={item.esperaA.titulo}>
+                Abrir «{item.esperaA.titulo}»
+              </Link>
+            ) : null}
             {item.pasos ? (
               <div className="mt-1">
                 <LineaDePasos pasos={item.pasos} />
@@ -261,12 +266,20 @@ function Contenido({ vista, ahora }: { vista: VistaDelCoordinador; ahora: number
       <Bloque titulo="En error y esperando" id="cev-error">
         <div className="grid grid-cols-2 gap-2 text-center">
           {[
-            { nombre: "En error", valor: vista.errores.cantidad },
-            { nombre: "Esperando a otra", valor: vista.esperandoAOtra.cantidad },
-          ].map(({ nombre, valor }) => (
+            { nombre: "En error", valor: vista.errores.cantidad, nota: null },
+            {
+              nombre: "Esperando a otra",
+              valor: vista.esperandoAOtra.cantidad,
+              // Cuántas dependen de una POR_REVISAR (31-oct-2026): esperan tu sí final, no al Coordinador.
+              nota: vista.esperandoAOtra.esperanTuSiFinal
+                ? `${vista.esperandoAOtra.esperanTuSiFinal} ${vista.esperandoAOtra.esperanTuSiFinal === 1 ? "tarea espera" : "tareas esperan"} tu sí final`
+                : null,
+            },
+          ].map(({ nombre, valor, nota }) => (
             <div key={nombre} className="rounded-xl border bg-card px-2 py-2">
               <p className="text-xl font-semibold tabular-nums">{valor}</p>
               <p className="text-xs text-muted-foreground">{nombre}</p>
+              {nota ? <p className="text-xs font-medium">{nota}</p> : null}
             </div>
           ))}
         </div>

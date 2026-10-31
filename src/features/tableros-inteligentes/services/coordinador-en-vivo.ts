@@ -200,8 +200,14 @@ export function revisionVista(revision: RevisionDelLatido | null | undefined): R
 
 export type CargaVista = CargaDelLatido & { semaforo: Semaforo | null };
 
-/** `pasos` (29-oct-2026): en las que esperan al dueño y las de ERROR, la línea de pasos con "Necesita humano". */
-export type ItemDeFila = { tarjetaId: string; titulo: string; link: string; motivo: string | null; pasos?: PasosVista };
+/** La tarjeta de la que depende una "esperando a otra" (31-oct-2026): `estado` tal como está en la base ("POR_REVISAR"). */
+export type EsperaA = { tarjetaId: string; titulo: string; link: string; estado: string };
+
+/**
+ * `pasos` (29-oct-2026): en las que esperan al dueño y las de ERROR, la línea de pasos con "Necesita humano".
+ * `esperaA` (31-oct-2026): solo en las de "esperando a otra", la primera dependencia POR_REVISAR o, si no hay, la primera pendiente.
+ */
+export type ItemDeFila = { tarjetaId: string; titulo: string; link: string; motivo: string | null; pasos?: PasosVista; esperaA?: EsperaA };
 
 export type VistaDelCoordinador = {
   generadoEn: string;
@@ -215,8 +221,11 @@ export type VistaDelCoordinador = {
   fila: { siguientes: ItemDeFila[]; bloqueadas: ItemDeFila[] };
   /** Las tarjetas del Coordinador en ERROR (26-oct-2026): cuántas son y cuáles (con la línea para el dueño, si la dejó). */
   errores: { cantidad: number; tarjetas: ItemDeFila[] };
-  /** Las que esperan a otra tarjeta que no está HECHO: "Esperando a «X»" (o "…, que está en error"). Se calcula con las flechas, no es un estado. */
-  esperandoAOtra: { cantidad: number; tarjetas: ItemDeFila[] };
+  /**
+   * Las que esperan a otra tarjeta que no está HECHO: "Esperando a «X»" (o "…, que está en error"). Se calcula con las flechas, no es un estado.
+   * `esperanTuSiFinal` (31-oct-2026): cuántas de todas (no solo las que se muestran) dependen de alguna POR_REVISAR.
+   */
+  esperandoAOtra: { cantidad: number; esperanTuSiFinal: number; tarjetas: ItemDeFila[] };
   hoy: HoyVista;
   uso: UsoDelLatido & { texto: string };
   /**
@@ -274,7 +283,7 @@ export function motivoDeLaPantalla(zonas: readonly string[], via: string | null 
 async function filaDelCoordinador(workspaceId: string, ahora: Date, esperas: Map<string, string>) {
   const dependencias = {
     where: { esDependencia: true, origen: { borradoEn: null, estado: { not: "HECHO" as const }, tipo: { usaEstados: true } } },
-    select: { origen: { select: { titulo: true, estado: true } } },
+    select: { origen: { select: { id: true, titulo: true, estado: true } } },
   };
   const [paraTomar, esperandoAlDueno, enError] = await Promise.all([
     prisma.tarjetaTablero.findMany({
@@ -334,6 +343,7 @@ async function filaDelCoordinador(workspaceId: string, ahora: Date, esperas: Map
   const siguientes: ItemDeFila[] = [];
   const bloqueadas: ItemDeFila[] = [];
   const esperando: ItemDeFila[] = [];
+  let esperanTuSiFinal = 0;
   const item = (tarjeta: { id: string; titulo: string }, motivo: string | null): ItemDeFila => ({
     tarjetaId: tarjeta.id,
     titulo: tarjeta.titulo,
@@ -357,7 +367,14 @@ async function filaDelCoordinador(workspaceId: string, ahora: Date, esperas: Map
     const pantalla = motivoDeLaPantalla(tarjeta.zonaProtegida ?? [], viaDelHistorial(tarjeta.historial ?? []));
     if (espera && tarjeta.estado !== "SUBIENDO") {
       bloqueadas.push(item(tarjeta, `Espera a la tarjeta «${espera}»`));
-      esperando.push(item(tarjeta, etiquetaEsperando(tarjeta.entrantes.map((entrante) => ({ titulo: entrante.origen.titulo, estado: entrante.origen.estado ?? "" })))));
+      const origenes = tarjeta.entrantes.map((entrante) => entrante.origen);
+      const porRevisar = origenes.find((origen) => origen.estado === "POR_REVISAR");
+      if (porRevisar) esperanTuSiFinal += 1;
+      const aQuien = porRevisar ?? origenes[0];
+      esperando.push({
+        ...item(tarjeta, etiquetaEsperando(origenes.map((origen) => ({ titulo: origen.titulo, estado: origen.estado ?? "" })))),
+        esperaA: { tarjetaId: aQuien.id, titulo: aQuien.titulo, link: linkDeLaTarjeta(aQuien.id), estado: aQuien.estado ?? "" },
+      });
     }
     else if (pantalla) {
       bloqueadas.push({ ...item(tarjeta, pantalla), pasos: pasosDeLaTarjeta({ estado: tarjeta.estado, necesitaHumano: true }) });
@@ -375,7 +392,7 @@ async function filaDelCoordinador(workspaceId: string, ahora: Date, esperas: Map
     siguientes: siguientes.slice(0, MAXIMO_DE_FILA),
     bloqueadas: bloqueadas.slice(0, MAXIMO_DE_FILA),
     errores: { cantidad: errores.length, tarjetas: errores.slice(0, MAXIMO_DE_FILA) },
-    esperandoAOtra: { cantidad: esperando.length, tarjetas: esperando.slice(0, MAXIMO_DE_FILA) },
+    esperandoAOtra: { cantidad: esperando.length, esperanTuSiFinal, tarjetas: esperando.slice(0, MAXIMO_DE_FILA) },
   };
 }
 
@@ -516,7 +533,9 @@ export function textoDelCoordinador(vista: VistaDelCoordinador): string {
   if (vista.fila.siguientes.length) lineas.push(`Sigue en la fila: ${vista.fila.siguientes.map((item, i) => `${i + 1}. «${item.titulo}»${item.motivo ? ` (${item.motivo})` : ""}`).join("; ")}.`);
   else lineas.push("La fila está vacía.");
   lineas.push(`En error: ${vista.errores.cantidad}${vista.errores.cantidad ? ` — ${vista.errores.tarjetas.map((item) => `«${item.titulo}»${item.motivo ? ` (${item.motivo})` : ""}`).join("; ")}` : ""}.`);
-  lineas.push(`Esperando a otra: ${vista.esperandoAOtra.cantidad}${vista.esperandoAOtra.cantidad ? ` — ${vista.esperandoAOtra.tarjetas.map((item) => `«${item.titulo}» (${item.motivo ?? "espera"})`).join("; ")}` : ""}.`);
+  const { esperanTuSiFinal } = vista.esperandoAOtra;
+  const siFinal = esperanTuSiFinal ? ` (${esperanTuSiFinal} ${esperanTuSiFinal === 1 ? "tarea espera" : "tareas esperan"} tu sí final)` : "";
+  lineas.push(`Esperando a otra: ${vista.esperandoAOtra.cantidad}${siFinal}${vista.esperandoAOtra.cantidad ? ` — ${vista.esperandoAOtra.tarjetas.map((item) => `«${item.titulo}» (${item.motivo ?? "espera"}${item.esperaA ? `; parte 1: ${item.esperaA.link}` : ""})`).join("; ")}` : ""}.`);
   if (vista.fila.bloqueadas.length) lineas.push(`Bloqueadas: ${vista.fila.bloqueadas.map((item) => `«${item.titulo}» (${item.motivo ? primeraEnMinuscula(item.motivo) : "espera"})`).join("; ")}.`);
 
   const { hoy } = vista;
