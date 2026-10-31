@@ -15,6 +15,8 @@ import { globARegex, zonasTocadas } from "./zonas.mjs";
 /** Carpetas de arriba que cuentan como ruta aunque el archivo no tenga extensión. */
 const RAICES = new Set(["src", "prisma", "scripts", "trabajador-tablero", "public", "app", "lib", "components", "features", "tests", "docs", "pruebas"]);
 const EXTENSIONES = /\.(ts|tsx|js|jsx|mjs|cjs|json|prisma|sql|css|scss|md|yml|yaml|html|ps1|sh|env|txt)$/i;
+/** Tope de "*" en una ruta del plan ("src/**\/*.ts" tiene 3). */
+const MAX_COMODINES = 4;
 
 /** El encabezado de la parte 5 ("## 5. Archivos que se tocan", "**5. Archivos**", "5) Archivos…"). */
 const ENCABEZADO_DE_ARCHIVOS = /^[\s#*>-]*5\s*[.)-]\s*\**\s*Archivos/im;
@@ -83,12 +85,18 @@ function archivosDeTexto(texto) {
   // ("**src/a.ts**"): los de adelante si siguen con una letra, los de atrás si no vienen después de una "/".
   for (const crudo of texto.split(/[\s`'"“”‘’(),;<>|]+/)) {
     if (!crudo || /^[a-z]+:\/\//i.test(crudo) || crudo.includes("://")) continue;
-    // Sin puntuación al final ("src/a.ts." o "src/a/:") ni ":12" de línea.
-    const sinMarkdown = crudo.replace(/^\*+(?=[\w@[])/, "").replace(/([^/*])\*+$/, "$1");
-    const limpio = sinMarkdown.replace(/\\/g, "/").replace(/^\.\//, "").replace(/:\d+(:\d+)?$/, "").replace(/[.:!?]+$/, "");
+    // Sin puntuación al final ("src/a.ts." o "src/a/:") ni ":12" de línea; se repite porque puede venir pegada
+    // al markdown ("**src/a.ts**." o "**src/a.ts.**").
+    let limpio = crudo.replace(/^\*+(?=[\w@[])/, "").replace(/\\/g, "/").replace(/^\.\//, "");
+    for (let antes = null; antes !== limpio; ) {
+      antes = limpio;
+      limpio = limpio.replace(/:\d+(:\d+)?$/, "").replace(/[.:!?]+$/, "").replace(/([^/*])\*+$/, "$1");
+    }
     if (!limpio || limpio.startsWith("/") || limpio.includes("..")) continue;
     const partes = limpio.split("/").filter(Boolean);
     if (!partes.length || !/^[\w.@[\]*-]+$/.test(partes.join("")) || partes.every((parte) => /^\*+$/.test(parte))) continue;
+    // Más de MAX_COMODINES "*" no es un glob de verdad y su regex puede tardar muchísimo (se descarta).
+    if ((limpio.match(/\*/g)?.length ?? 0) > MAX_COMODINES) continue;
     const esRuta = partes.length > 1 ? EXTENSIONES.test(limpio) || RAICES.has(partes[0]) : EXTENSIONES.test(limpio) && /^[\w.-]+$/.test(limpio);
     if (esRuta) encontrados.add(partes.join("/"));
   }
