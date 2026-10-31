@@ -13,9 +13,11 @@ import {
   preguntaPorLaFoto,
   type FotoDelCliente,
 } from "./foto-y-precio";
+import { juntarVariasPreguntas } from "./varias-preguntas";
 
 /**
- * EL MOTOR: dado un mensaje y el estado de la conversación, elige UNA regla.
+ * EL MOTOR: dado un mensaje y el estado de la conversación, elige UNA regla (o, si la clienta hizo
+ * varias preguntas de tema juntas, las contesta todas en un solo mensaje: ver varias-preguntas.ts).
  *
  * Es una función pura y sin IA adentro. Eso no es un detalle: significa que la misma entrada da
  * siempre la misma salida, que se puede probar contra conversaciones viejas sin gastar un peso, y
@@ -60,6 +62,11 @@ export type Decision = {
   porque: string;
   /** Las que también encajaban y perdieron, para poder explicar un desempate. */
   tambienEncajaban: Array<{ id: string; nombre: string }>;
+  /**
+   * Cuando la clienta hizo varias preguntas juntas: las reglas que se contestaron en un solo mensaje
+   * (ver varias-preguntas.ts). No viene cuando ganó una sola regla, que es lo de siempre.
+   */
+  juntas?: Array<{ id: string; nombre: string }>;
 };
 
 /**
@@ -239,6 +246,29 @@ export function decidir(input: {
   const ganadora = ordenadas[0].regla;
 
   /*
+    VARIAS PREGUNTAS JUNTAS (caso del 26-10-2026, ver varias-preguntas.ts).
+
+    "Materiales garantía y envío es gratis??" disparaba tres reglas de tema y ganaba una sola: se
+    contestaba la garantía y lo demás se perdía. Si la que gana es de pregunta informativa y encajan
+    otras (o una que pasa a una asesora), se contestan todas en UN mensaje corto. Las reglas de tema
+    no mueven de paso, así que acá no hay encadenado: se respeta el límite de siempre.
+  */
+  const mezcla = juntarVariasPreguntas(ordenadas.map(({ regla }) => regla));
+  if (mezcla) {
+    const ids = new Set(mezcla.juntas.map((regla) => regla.id));
+    return {
+      regla: ganadora,
+      saludo,
+      acciones: mezcla.acciones,
+      porque: mezcla.porque,
+      tambienEncajaban: ordenadas
+        .filter(({ regla }) => !ids.has(regla.id))
+        .map(({ regla }) => ({ id: regla.id, nombre: regla.nombre })),
+      juntas: mezcla.juntas.map((regla) => ({ id: regla.id, nombre: regla.nombre })),
+    };
+  }
+
+  /*
     Si la regla mueve de paso, el mensaje de ESE paso sale en el mismo turno.
 
     Sin esto, "me interesa el combo de estetica" elegia el producto y lo dejaba en el paso 1... en
@@ -307,6 +337,30 @@ function decidirFotoYPrecio(input: {
   const delLibro = [...reglasDeFoto].sort((a, b) => puntaje(b) - puntaje(a))[0];
   const ganadora = delLibro ?? REGLA_FOTO_Y_PRECIO_POR_DEFECTO;
   const pie = input.fotoDelCliente.pie ? ` (con el texto "${input.fotoDelCliente.pie.slice(0, 80)}")` : "";
+
+  /*
+    Si junto a la foto pregunta otras cosas de tema ("¿y el envío es gratis?"), se le contestan esas
+    y solo la foto pasa a la asesora. La regla de foto va primero, así su pregunta cierra el mensaje.
+  */
+  const mezcla = juntarVariasPreguntas([
+    ganadora,
+    ...input.candidatas
+      .filter((regla) => regla.id !== ganadora.id)
+      .sort((a, b) => pesoDeLaRegla(a) - pesoDeLaRegla(b)),
+  ]);
+  if (mezcla) {
+    const ids = new Set(mezcla.juntas.map((regla) => regla.id));
+    return {
+      regla: ganadora,
+      saludo: input.saludo,
+      acciones: mezcla.acciones,
+      porque: `La clienta mandó una foto${pie} y pregunta por ella junto con otras cosas: ${mezcla.porque}`,
+      tambienEncajaban: input.candidatas
+        .filter((regla) => !ids.has(regla.id))
+        .map((regla) => ({ id: regla.id, nombre: regla.nombre })),
+      juntas: mezcla.juntas.map((regla) => ({ id: regla.id, nombre: regla.nombre })),
+    };
+  }
 
   return {
     regla: ganadora,
