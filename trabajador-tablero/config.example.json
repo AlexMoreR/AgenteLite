@@ -114,6 +114,7 @@
   "repos": {
     "aizencrm": {
       "github": "AlexMoreR/AgenteLite",
+      "cuposNube": 1,
       "ruta": "D:/Proyectos/AgenteLite",
       "ramaBase": "main",
       "remoto": "origin",
@@ -350,6 +351,7 @@
     },
     "gestion": {
       "github": "AlexMoreR/Gestion",
+      "cuposNube": 1,
       "ruta": "D:/Proyectos/Gestion",
       "ramaBase": "main",
       "remoto": "origin",

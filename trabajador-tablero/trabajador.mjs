@@ -16,7 +16,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { aplicarVersion, crearVigilanteDeVersion, marcarActualizacionOk, raizDelRepo } from "./lib/autoactualizar.mjs";
-import { crearPlanificador, crearRevisorDeNuevo, unaVuelta } from "./lib/bucle.mjs";
+import { crearPlanificador, crearRevisorDeNuevo, queTomarEsperandoVersion, unaVuelta } from "./lib/bucle.mjs";
 import { entornoSeguro, partirTarea } from "./lib/etapas.mjs";
 import { leerConfig } from "./lib/config.mjs";
 import { crearCrm } from "./lib/crm.mjs";
@@ -169,8 +169,11 @@ let pendienteDesde = 0;
 let ultimoAvisoDeEspera = 0;
 
 while (!parar) {
-  if (!pendiente && !trabajoLargoEnVuelo()) {
-    const r = await conTope("llenar", () => planificador.llenar());
+  // Esperando la versión nueva (31-oct-2026, causa del 30-oct a las 11:50 p. m.): mientras quede una tarea larga (sin puesto o
+  // en la nube) se siguen tomando tarjetas, pero solo para planear; sin tareas largas, no se toma nada y se actualiza.
+  const { tomar, soloPlanear } = queTomarEsperandoVersion({ pendiente, tareasLargas: planificador.tareasLargas() });
+  if (tomar && !trabajoLargoEnVuelo()) {
+    const r = await conTope("llenar", () => planificador.llenar({ soloPlanear }));
     if (r.error) avisarFallo(r.error);
     else if (r.estado === "hecha" && !primeraVueltaBien && versionActual) {
       primeraVueltaBien = true;
@@ -214,7 +217,7 @@ while (!parar) {
       pendiente = r.valor;
       pendienteDesde = Date.now();
       ultimoAvisoDeEspera = Date.now();
-      registro.info(`versión nueva ${String(pendiente.nueva).slice(0, 8)}: no tomo más tarjetas; espero a que terminen ${planificador.corriendo()} (la vuelta sigue)`);
+      registro.info(`versión nueva ${String(pendiente.nueva).slice(0, 8)}: espero a que terminen ${planificador.corriendo()}; mientras quede una tarea larga solo tomo tarjetas para planear (la vuelta sigue)`);
     }
   }
   if (pendiente) {
@@ -241,7 +244,7 @@ while (!parar) {
     } else if (Date.now() - ultimoAvisoDeEspera >= 5 * MINUTO) {
       ultimoAvisoDeEspera = Date.now();
       const minutos = Math.round((Date.now() - pendienteDesde) / MINUTO);
-      registro.info(`autoactualizar: sigo esperando ${planificador.corriendo()} tarjeta(s) para pasar a ${String(pendiente.nueva).slice(0, 8)} (llevo ${minutos} min; no tomo nuevas)`);
+      registro.info(`autoactualizar: sigo esperando ${planificador.corriendo()} tarjeta(s) para pasar a ${String(pendiente.nueva).slice(0, 8)} (llevo ${minutos} min; ${planificador.tareasLargas() ? "solo tomo para planear" : "no tomo nuevas"})`);
     }
   }
   marca.vueltaCompleta();

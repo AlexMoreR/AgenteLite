@@ -189,6 +189,21 @@ siguen en aizen1.
 | **desborde**: aizen1 ya tiene 2 y hay más aprobadas en fila | la siguiente va a la nube aunque sea pequeña |
 | espera su *plan* (APROBADO) | no va a la nube: espera puesto en aizen1 |
 
+- **Puestos por proyecto (31-oct-2026)**: cada proyecto tiene los suyos para que el CRM nunca deje a Gestión
+  esperando. En aizen1, `repos.<repo>.cuposAizen1` (sin la clave: comparte los de `maxParalelo`). En la nube,
+  `repos.<repo>.cuposNube`: un entero de 1 o más, o `null` para no poner tope propio; **sin la clave vale 1**. La
+  configuración no arranca si los `cuposNube` suman más que `nube.maxTareas`. Una tarjeta espera con «espera: aizencrm ya
+  usa su(s) N puesto(s) de la nube», y las candidatas de un proyecto sin puesto libre (ni en aizen1 ni en la nube) van en
+  `excluir` a `/tomar`, para que el CRM entregue una que sí se puede correr.
+- **Sin puesto (31-oct-2026)**: una tarea que solo espera suelta su puesto con `alSoltarPuesto(motivo)`: la etapa
+  `subir` desde que empieza (`subiendo`), la espera de GitHub Actions al construir (`esperando pruebas`) y la vigilancia
+  de 30 min (`vigilando`). Sigue en las sesiones y tomada en el CRM (se suma al `maxParalelo` que se manda a `/tomar`),
+  pero no cuenta en los puestos ocupados ni en los de su proyecto. El registro dice «+N sin puesto (subiendo/vigilando)»
+  y el latido marca la tarea con `sinPuesto: <motivo>`.
+- **Versión nueva del Coordinador (31-oct-2026)**: mientras espera para actualizarse, sigue tomando tarjetas **solo para
+  planear**, y solo mientras quede una tarea larga (sin puesto o en la nube). Sin tareas largas, no toma nada y se
+  actualiza. Construir y subir esperan a la versión nueva (causa del 30-oct a las 11:50 p. m.: la fila quedaba quieta 30
+  a 45 min esperando una vigilancia y una construcción en la nube).
 - **En la nube no hay tope fijo**, solo uno de seguridad: `nube.maxTareas` (8). Una tarea de la nube **no
   ocupa** un puesto de aizen1 (el CRM da 12 en total). Si Claude dice "límite de uso", la tarjeta se suelta sin
   error y sin gastar el intento, como hoy.

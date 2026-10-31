@@ -1513,6 +1513,8 @@ export async function construir(contexto, tarjeta) {
       await pushDeRama(carpeta, repo.remoto, rama, { forzar: !nube });
       yaSubida = true;
       const commitSubido = (await git(carpeta, ["rev-parse", "HEAD"])).salida.trim();
+      // 31-oct-2026: GitHub Actions compila y prueba; aquí solo se espera: la tarea suelta su puesto mientras tanto.
+      contexto.alSoltarPuesto?.("esperando pruebas");
       const ci = await esperarCiDeRama(contexto, repo, commitSubido, carpeta, reloj);
       if (ci.estado === "ok") {
         pruebas = [`✔ verificado en GitHub Actions (corrida ${ci.corrida})`];
@@ -2046,7 +2048,7 @@ async function vigilarElServidor(contexto, repo, foto) {
   let fallosSeguidos = 0;
   registro.info(`vigilancia de ${minutos} min del servidor después de subir`);
   // 31-oct-2026: vigilar solo lee logs; suelta su puesto de aizen1 para que otra tarjeta trabaje mientras tanto.
-  contexto.alVigilar?.();
+  contexto.alSoltarPuesto?.("vigilando");
   for (;;) {
     if (contexto.senal?.aborted) throw new ErrorDeEtapa("La tarjeta venció en el CRM mientras se vigilaba el servidor.");
     const logs = await leerDelServidor(config, config.ssh.logs, contexto.senal);
@@ -2090,6 +2092,9 @@ async function vigilarElServidor(contexto, repo, foto) {
  */
 export async function subir(contexto, tarjeta) {
   const { config, registro } = contexto;
+  // 31-oct-2026: subir casi todo el tiempo espera (el deploy, las pruebas, la vigilancia): suelta su puesto desde que empieza.
+  // Lo pesado que le quede (compilar) hace fila en la cola de pasos pesados y respeta el límite de CPU.
+  contexto.alSoltarPuesto?.("subiendo");
   const repo = configDelRepo(contexto, tarjeta);
   const reloj = relojDeEtapa(config.tiempos.subirMinutos, "subir", { topeMinutos: TOPE_DEL_CRM.subir });
   const rama = tarjeta.resultado?.rama;
