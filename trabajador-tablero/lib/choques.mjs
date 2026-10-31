@@ -6,6 +6,7 @@
 //   - las dos van a construir o subir (planear solo lee: nunca choca) y tocan la misma zona protegida
 //     (chats, bot de ventas, libro V3, Meta Ads) o el mismo módulo (src/features/<x>, src/app/<...>,
 //     src/lib/<x>, prisma, package.json...), según los archivos que dice el plan;
+//   - una carpeta o un glob del plan ("src/features/coach/", "src/lib/**") contiene un archivo de la otra (rutasChocan);
 //   - el plan de alguna no dice ningún archivo: no se sabe qué toca, mejor en fila.
 // Tarjetas de repos distintos nunca chocan.
 //   (Los archivos "sin choque" —por defecto los .md, como docs/que-es-esta-aplicacion.md— no cuentan: ver noChoca.)
@@ -76,15 +77,22 @@ export function archivosDelPlan(plan) {
   return parte.length ? parte : archivosDeTexto(String(plan ?? ""));
 }
 
+/**
+ * Los "*" de markdown (negrita, viñetas) se quitan; los de un glob se quedan (31-oct-2026): antes se cortaba la ruta en
+ * cada "*" y "src/lib/**" quedaba "src/lib". Un "*" pegado al principio sale si no sigue "/" ("**src/a.ts**", "*"); uno
+ * pegado al final sale si no viene justo después de "/" ("src/a.ts**" sí, "src/lib/**" no).
+ */
+const sinNegrita = (texto) => texto.replace(/^\*+(?![/*])/, "").replace(/([^/*])\*+$/, "$1");
+
 function archivosDeTexto(texto) {
   const encontrados = new Set();
-  for (const crudo of texto.split(/[\s`'"“”‘’(),;<>|*]+/)) {
+  for (const crudo of texto.split(/[\s`'"“”‘’(),;<>|]+/)) {
     if (!crudo || /^[a-z]+:\/\//i.test(crudo) || crudo.includes("://")) continue;
     // Sin puntuación al final ("src/a.ts." o "src/a/:") ni ":12" de línea.
-    const limpio = crudo.replace(/\\/g, "/").replace(/^\.\//, "").replace(/:\d+(:\d+)?$/, "").replace(/[.:!?]+$/, "");
+    const limpio = sinNegrita(sinNegrita(crudo.replace(/\\/g, "/")).replace(/^\.\//, "").replace(/:\d+(:\d+)?$/, "").replace(/[.:!?]+$/, ""));
     if (!limpio || limpio.startsWith("/") || limpio.includes("..")) continue;
     const partes = limpio.split("/").filter(Boolean);
-    if (!partes.length || !/^[\w.@[\]-]+$/.test(partes.join(""))) continue;
+    if (!partes.length || !/^[\w.@[\]*-]+$/.test(partes.join(""))) continue;
     const esRuta = partes.length > 1 ? EXTENSIONES.test(limpio) || RAICES.has(partes[0]) : EXTENSIONES.test(limpio) && /^[\w.-]+$/.test(limpio);
     if (esRuta) encontrados.add(partes.join("/"));
   }
@@ -124,9 +132,37 @@ export function moduloDe(ruta) {
   return `${partes[0]}/${esArchivo(partes[1]) ? sinExtension(partes[1]) : partes[1]}`;
 }
 
+/*
+ * Ruta contra ruta (31-oct-2026): el módulo no alcanza cuando el plan nombra una CARPETA o un GLOB. "src/features/**"
+ * da el módulo "features" y "src/features/coach/x.ts" da "features/coach": no chocaban, y las dos tocaban lo mismo.
+ * Una carpeta (sin extensión) choca con todo lo que tiene adentro; un glob, con lo que calza.
+ */
+const esGlob = (ruta) => ruta.includes("*");
+const esCarpeta = (ruta) => !esGlob(ruta) && !esArchivo(ruta.split("/").at(-1));
+/** Lo fijo de un glob, antes del primer "*" ("src/lib/**" -> "src/lib", "**\/*.ts" -> ""); una ruta sin "*" es ella misma. */
+export function baseFija(ruta) {
+  const partes = String(ruta).split("/");
+  const primera = partes.findIndex((parte) => parte.includes("*"));
+  return primera < 0 ? String(ruta) : partes.slice(0, primera).join("/");
+}
+/** ¿`ruta` está en `carpeta` (o es ella)? La carpeta "" es todo el repo. */
+const dentro = (ruta, carpeta) => carpeta === "" || ruta === carpeta || ruta.startsWith(`${carpeta}/`);
+
+/** ¿Dos rutas del plan (archivo, carpeta o glob) pueden tocar el mismo archivo? Ante la duda (glob contra carpeta), sí. */
+export function rutasChocan(a, b) {
+  if (a === b) return true;
+  // Un glob contra un archivo: el archivo calza o no.
+  if (esGlob(a) && !esGlob(b) && !esCarpeta(b)) return globARegex(a).test(b);
+  if (esGlob(b) && !esGlob(a) && !esCarpeta(a)) return globARegex(b).test(a);
+  // Dos archivos distintos no chocan (eso lo ve el módulo). Si hay una carpeta o un glob: una base dentro de la otra.
+  if (!esGlob(a) && !esCarpeta(a) && !esGlob(b) && !esCarpeta(b)) return false;
+  const [x, y] = [baseFija(a), baseFija(b)];
+  return dentro(x, y) || dentro(y, x);
+}
+
 /**
  * Lo que importa de una tarjeta para saber si choca: repo, etapa, zonas (las que ya tiene + las que
- * tocan los archivos del plan) y módulos (null = el plan no dice archivos).
+ * tocan los archivos del plan), módulos y rutas (null = el plan no dice archivos).
  */
 export function huellaDeTarjeta(tarjeta, hacer, repoConfig) {
   const archivos = archivosDelPlan(tarjeta.plan);
@@ -136,8 +172,10 @@ export function huellaDeTarjeta(tarjeta, hacer, repoConfig) {
   ]);
   // null = el plan no dice archivos (no se sabe qué toca: en fila). Si solo nombra archivos sin choque (.md), no choca con nadie.
   const sinChoque = repoConfig?.sinChoque ?? SIN_CHOQUE_POR_DEFECTO;
-  const modulos = archivos.length ? new Set(archivos.filter((archivo) => !noChoca(archivo, sinChoque)).map(moduloDe).filter(Boolean)) : null;
-  return { id: tarjeta.id, titulo: tarjeta.titulo, repo: tarjeta.repo, hacer, zonas, modulos };
+  const rutas = archivos.length ? archivos.filter((archivo) => !noChoca(archivo, sinChoque)) : null;
+  // El módulo de un glob es el de su parte fija ("src/lib/**" -> "lib"), como antes de guardar los "*".
+  const modulos = rutas ? new Set(rutas.map((ruta) => moduloDe(baseFija(ruta))).filter(Boolean)) : null;
+  return { id: tarjeta.id, titulo: tarjeta.titulo, repo: tarjeta.repo, hacer, zonas, modulos, rutas };
 }
 
 /** ¿Chocan? Devuelve el motivo en palabras sencillas, o null si pueden ir a la vez. */
@@ -150,6 +188,10 @@ export function motivoDeChoque(a, b) {
   if (!a.modulos || !b.modulos) return `el plan de "${(!a.modulos ? a : b).titulo}" no dice qué archivos toca`;
   const modulo = [...a.modulos].find((uno) => b.modulos.has(uno));
   if (modulo) return `las dos tocan el módulo ${modulo}`;
+  for (const ruta of a.rutas ?? []) {
+    const otra = (b.rutas ?? []).find((una) => rutasChocan(ruta, una));
+    if (otra) return ruta === otra ? `las dos tocan ${ruta}` : `"${ruta}" y "${otra}" se pisan (una está dentro de la otra)`;
+  }
   return null;
 }
 
