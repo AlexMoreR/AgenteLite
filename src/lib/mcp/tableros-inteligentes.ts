@@ -1166,7 +1166,8 @@ export async function ejecutarHerramientaMcpTableros(
               esperando_que_el_pc_se_desocupe: vista.carga.esperandoPc,
             }
           : null,
-        fila: vista.fila.siguientes.map((item) => ({ tarjeta_id: item.tarjetaId, titulo: item.titulo, link: item.link })),
+        // 31-oct-2026: el motivo, como en bloqueadas (null si no espera nada).
+        fila: vista.fila.siguientes.map((item) => ({ tarjeta_id: item.tarjetaId, titulo: item.titulo, motivo: item.motivo, link: item.link })),
         bloqueadas: vista.fila.bloqueadas.map((item) => ({ tarjeta_id: item.tarjetaId, titulo: item.titulo, motivo: item.motivo, link: item.link })),
         en_error: {
           cantidad: vista.errores.cantidad,

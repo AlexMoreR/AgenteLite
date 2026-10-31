@@ -96,10 +96,22 @@ export type PasosVista = {
  *   POR_REVISAR (espera tu sí final o necesita algo) -> Necesita humano en Aprobar.
  *   SUBIENDO -> Aprobar (la aprobación ya dada, el merge, el CI y la versión) y, con la etapa "vigilando", Subido.
  *   HECHO -> Subido (todo hecho).  ERROR / FALLIDO -> Necesita humano donde se paró (`pasoDelError`, si no Construir).
+ * Con `necesitaHumano: true` (31-oct-2026) el paso donde ya está sale con "Necesita humano": una tarjeta de la fila que espera
+ * que la apruebes en la pantalla (Libro V3, Meta Ads). Sin esa opción, todo sale igual.
  */
-export function pasosDeLaTarjeta({ estado, etapa = null, pasoDelError = null }: { estado: string; etapa?: string | null; pasoDelError?: PasoDeLaTarjeta | null }): PasosVista {
+export function pasosDeLaTarjeta({
+  estado,
+  etapa = null,
+  pasoDelError = null,
+  necesitaHumano: pideHumano = false,
+}: {
+  estado: string;
+  etapa?: string | null;
+  pasoDelError?: PasoDeLaTarjeta | null;
+  necesitaHumano?: boolean;
+}): PasosVista {
   let actual: PasoDeLaTarjeta = "construir";
-  let necesitaHumano = false;
+  let necesitaHumano = pideHumano;
   let todoHecho = false;
   switch (estado) {
     case "POR_APROBAR":

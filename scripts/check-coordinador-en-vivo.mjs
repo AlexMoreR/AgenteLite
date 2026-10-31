@@ -5,6 +5,8 @@
 // Usa un prisma FALSO: no necesita base ni red.
 // Correr: npm run test:coordinador-en-vivo
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import { cargar } from "./supervisor-cargar.mjs";
 
 /* ------------------------------------------------------------------ falsos */
@@ -41,7 +43,16 @@ const prismaFalso = {
         // Para tomar: APROBADO / PLAN_APROBADO, o SUBIENDO sin candado.
         return delNegocio
           .filter((t) => t.repo && (t.estado === "APROBADO" || t.estado === "PLAN_APROBADO" || (t.estado === "SUBIENDO" && (!t.trabajoVenceEn || t.trabajoVenceEn <= estado.ahora))))
-          .map((t) => ({ ...t, entrantes: t.entrantes ?? [] }));
+          .map((t) => ({
+            ...t,
+            entrantes: t.entrantes ?? [],
+            // La última aprobación vigente (accion 'aprobar', sin deshacer, la más nueva): `aprobaciones` de la tarjeta, o ninguna.
+            historial: (t.aprobaciones ?? [])
+              .filter((a) => !a.deshechoEn)
+              .sort((a, b) => b.creadoEn - a.creadoEn)
+              .slice(0, 1)
+              .map((a) => ({ despues: a.despues })),
+          }));
       }
       // Esperando al dueño.
       return delNegocio.filter((t) => t.repo && where.estado.in.includes(t.estado));
@@ -370,6 +381,59 @@ await prueba("la fila: lo que sigue en orden y lo bloqueado con su motivo (otra 
   assert.equal(bloqueadas.f4, "toca la misma zona que otra tarea");
   assert.equal(bloqueadas.f5, "Espera tu aprobación del plan");
   assert.ok(!("f6" in bloqueadas) && !fila.siguientes.some((i) => i.tarjetaId === "f6"), "sin repo no es del Coordinador");
+});
+
+await prueba("la fila: las que esperan que las apruebes en la pantalla (Libro V3, Meta Ads) van a bloqueadas con su motivo y «Necesita humano»", async () => {
+  const resumenDePasos = (pasos) => [pasos.actual, pasos.necesitaHumano, pasos.pasos.map((paso) => paso.estado).join(",")];
+  const aprobada = (via, minutos = 30, extra = {}) => ({ creadoEn: hace(minutos), despues: { momento: "tarea", via }, ...extra });
+  estado.tarjetas.push(
+    tarjeta({ id: "p1", titulo: "Libro por voz", estado: "PLAN_APROBADO", plan: "p", trabajoVenceEn: null, zonaProtegida: ["LIBRO_V3"], aprobaciones: [aprobada("voz")] }),
+    tarjeta({ id: "p2", titulo: "Subida del libro por voz", estado: "SUBIENDO", trabajoVenceEn: null, zonaProtegida: ["LIBRO_V3"], aprobaciones: [aprobada("voz")] }),
+    tarjeta({
+      id: "p3",
+      titulo: "Libro en pantalla",
+      estado: "APROBADO",
+      trabajoVenceEn: null,
+      zonaProtegida: ["LIBRO_V3"],
+      // La más nueva vigente manda: la de pantalla; la de voz posterior se deshizo.
+      aprobaciones: [aprobada("voz", 60), aprobada("pantalla", 20), aprobada("voz", 5, { deshechoEn: hace(4) })],
+    }),
+    tarjeta({ id: "p4", titulo: "Anuncios por voz", estado: "APROBADO", trabajoVenceEn: null, zonaProtegida: ["META_ADS"], aprobaciones: [aprobada("voz")] }),
+    tarjeta({ id: "p5", titulo: "Chats por voz", estado: "APROBADO", trabajoVenceEn: null, zonaProtegida: ["CHATS"], aprobaciones: [aprobada("voz")] }),
+    tarjeta({ id: "p6", titulo: "Las dos por voz", estado: "APROBADO", trabajoVenceEn: null, zonaProtegida: ["LIBRO_V3", "META_ADS", "CHATS"], aprobaciones: [aprobada("voz")] }),
+    tarjeta({ id: "p7", titulo: "Sin zona", estado: "APROBADO", trabajoVenceEn: null }),
+  );
+  const vista = await servicio.vistaDelCoordinador("ws1", AHORA);
+  const { fila } = vista;
+  assert.deepEqual(fila.siguientes.map((i) => i.tarjetaId), ["p5", "p3", "p7"], "solo CHATS por voz, la pantalla y sin zona siguen en la fila, en el orden de /tomar (chats primero)");
+  assert.ok(fila.siguientes.every((i) => i.motivo === null));
+  const bloqueadas = Object.fromEntries(fila.bloqueadas.map((i) => [i.tarjetaId, i]));
+  assert.equal(bloqueadas.p1.motivo, "Espera que la apruebes en la pantalla (Libro V3)");
+  assert.equal(bloqueadas.p1.pasos.necesitaHumano, true);
+  assert.deepEqual(resumenDePasos(bloqueadas.p1.pasos), ["construir", true, "hecho,necesita_humano,pendiente,pendiente,pendiente"]);
+  assert.equal(bloqueadas.p2.motivo, "Espera que la apruebes en la pantalla (Libro V3)", "la SUBIENDO sin candado también");
+  assert.equal(bloqueadas.p2.pasos.necesitaHumano, true);
+  assert.deepEqual(resumenDePasos(bloqueadas.p2.pasos), ["aprobar", true, "hecho,hecho,hecho,necesita_humano,pendiente"]);
+  assert.equal(bloqueadas.p4.motivo, "Espera que la apruebes en la pantalla (Meta Ads)");
+  assert.equal(bloqueadas.p6.motivo, "Espera que la apruebes en la pantalla (Libro V3, Meta Ads)");
+  for (const id of ["p1", "p2", "p4", "p6"]) assert.ok(!fila.siguientes.some((i) => i.tarjetaId === id), `${id} no está en la fila`);
+  // El orden de hoy: SUBIENDO primero y después prioridadDeLaFila (la que toca chats antes).
+  assert.deepEqual(fila.bloqueadas.map((i) => i.tarjetaId), ["p2", "p6", "p1", "p4"]);
+
+  const texto = servicio.textoDelCoordinador(vista);
+  const enLaFila = texto.split("\n").find((linea) => linea.startsWith("Sigue en la fila:"));
+  assert.equal(enLaFila, "Sigue en la fila: 1. «Chats por voz»; 2. «Libro en pantalla»; 3. «Sin zona».");
+  assert.match(texto, /Bloqueadas: [^\n]*«Libro por voz» \(espera que la apruebes en la pantalla \(Libro V3\)\)/);
+  assert.match(texto, /«Subida del libro por voz» \(espera que la apruebes en la pantalla \(Libro V3\)\)/);
+  assert.match(texto, /«Anuncios por voz» \(espera que la apruebes en la pantalla \(Meta Ads\)\)/);
+
+  // Si una tarjeta de la fila trae motivo, la línea lo muestra entre paréntesis.
+  const conMotivo = { ...vista, fila: { ...fila, siguientes: [{ ...fila.siguientes[0], motivo: "Un motivo" }] } };
+  assert.match(servicio.textoDelCoordinador(conMotivo), /Sigue en la fila: 1\. «Chats por voz» \(Un motivo\)\./);
+
+  // ver_coordinador: cada elemento de `fila` trae su motivo, como `bloqueadas`.
+  const mcp = fs.readFileSync(path.join(process.cwd(), "src/lib/mcp/tableros-inteligentes.ts"), "utf8");
+  assert.match(mcp, /fila: vista\.fila\.siguientes\.map\(\(item\) => \(\{[^}]*motivo: item\.motivo/);
 });
 
 await prueba("en error y esperando a otra: los números y la lista (con la línea para el dueño y «que está en error»)", async () => {
