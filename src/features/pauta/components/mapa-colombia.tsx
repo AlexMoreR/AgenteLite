@@ -1,12 +1,13 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
@@ -54,6 +55,12 @@ function Detalle({ d, mapa }: { d: DepartamentoDelMapa; mapa: MapaDelMes }) {
 export function MapaColombia({ mapa, error }: { mapa: MapaDelMes; error?: string | null }) {
   const router = useRouter();
   const [elegido, setElegido] = useState<ClaveDelMapa | null>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  // En el celular el panel queda debajo del mapa: al elegir, se lleva la vista hasta él.
+  const elegir = (clave: ClaveDelMapa) => {
+    setElegido(clave);
+    panel.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  };
   const gastoMaximo = Math.max(0, ...mapa.departamentos.map((d) => d.gasto ?? 0));
   const seleccion = [...mapa.departamentos, mapa.sinUbicar, mapa.otrasRegiones].find((d) => d.clave === elegido) ?? null;
   // Bogotá va de último para que quede encima de Cundinamarca.
@@ -124,11 +131,11 @@ export function MapaColombia({ mapa, error }: { mapa: MapaDelMes; error?: string
                   tabIndex={0}
                   aria-label={d.nombre}
                   aria-pressed={elegido === d.clave}
-                  onClick={() => setElegido(d.clave)}
+                  onClick={() => elegir(d.clave)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();
-                      setElegido(d.clave);
+                      elegir(d.clave);
                     }
                   }}
                   className={cn(
@@ -158,18 +165,36 @@ export function MapaColombia({ mapa, error }: { mapa: MapaDelMes; error?: string
           </CardContent>
         </Card>
 
-        <Card>
+        <Card ref={panel} className="scroll-mt-4">
           <CardHeader>
             <CardTitle className="text-base">{seleccion ? seleccion.nombre : "Toca un departamento"}</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
+            {/* Los departamentos chicos (Bogotá, Quindío, San Andrés...) cuestan con el dedo: también se eligen aquí. */}
+            <label className="flex flex-col gap-1 text-xs">
+              Departamento
+              <NativeSelect
+                className="w-full"
+                value={elegido ?? ""}
+                onChange={(e) => {
+                  if (e.target.value) setElegido(e.target.value as ClaveDelMapa);
+                }}
+              >
+                <NativeSelectOption value="">Elegir…</NativeSelectOption>
+                {[...mapa.departamentos, mapa.sinUbicar, mapa.otrasRegiones].map((d) => (
+                  <NativeSelectOption key={d.clave} value={d.clave}>
+                    {d.nombre}
+                  </NativeSelectOption>
+                ))}
+              </NativeSelect>
+            </label>
             {seleccion ? (
               <>
                 {seleccion.rojo ? <Badge variant="destructive">Gasta y no vende ({mapa.rojo.dias} días)</Badge> : null}
                 <Detalle d={seleccion} mapa={mapa} />
               </>
             ) : (
-              <p className="text-sm text-muted-foreground">Toca un departamento del mapa para ver su gasto, sus chats y sus ventas del mes.</p>
+              <p className="text-sm text-muted-foreground">Toca un departamento del mapa (o elígelo en la lista) para ver su gasto, sus chats y sus ventas del mes.</p>
             )}
             <div className="border-t pt-3 text-sm">
               <p className="font-medium">Total del mes</p>
@@ -201,7 +226,7 @@ export function MapaColombia({ mapa, error }: { mapa: MapaDelMes; error?: string
               {[mapa.sinUbicar, mapa.otrasRegiones].map((d) => (
                 <TableRow key={d.clave}>
                   <TableCell className="font-medium">
-                    <button type="button" className="underline-offset-4 hover:underline" onClick={() => setElegido(d.clave)}>
+                    <button type="button" className="underline-offset-4 hover:underline" onClick={() => elegir(d.clave)}>
                       {d.nombre}
                     </button>
                   </TableCell>
