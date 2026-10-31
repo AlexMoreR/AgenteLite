@@ -297,6 +297,9 @@ export function completarConfig(datos, base = process.cwd()) {
         agente: agente && typeof agente === "object" && !Array.isArray(agente) ? { nombre: agente.nombre, lecciones: agente.lecciones, maxEnParalelo: agente.maxEnParalelo } : undefined,
         subirSolo,
         construirEn: repo.construirEn === "aizen1" ? "aizen1" : "nube",
+        // Puestos de aizen1 de este proyecto (31-oct-2026, decisión del dueño: CRM 2 y Gestión 1, que nunca se frenen entre sí).
+        // null = sin tope propio (comparte los de config.maxParalelo, como antes).
+        cuposAizen1: Number.isInteger(repo.cuposAizen1) && repo.cuposAizen1 >= 1 ? repo.cuposAizen1 : null,
         // La sesión fija de la nube de este proyecto (29-oct-2026), o null.
         nube: nubeDelRepo(repo.nube, clave, errores),
         zonasQueSubenSolas,

@@ -2045,6 +2045,8 @@ async function vigilarElServidor(contexto, repo, foto) {
   const nuevos = new Map();
   let fallosSeguidos = 0;
   registro.info(`vigilancia de ${minutos} min del servidor después de subir`);
+  // 31-oct-2026: vigilar solo lee logs; suelta su puesto de aizen1 para que otra tarjeta trabaje mientras tanto.
+  contexto.alVigilar?.();
   for (;;) {
     if (contexto.senal?.aborted) throw new ErrorDeEtapa("La tarjeta venció en el CRM mientras se vigilaba el servidor.");
     const logs = await leerDelServidor(config, config.ssh.logs, contexto.senal);
