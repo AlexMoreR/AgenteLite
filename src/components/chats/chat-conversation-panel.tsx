@@ -1922,7 +1922,7 @@ export const ConversationPanel = memo(function ConversationPanel({
             esta arriba, en linea. Si no cabe, se desplaza dentro de su fila en vez de ensanchar el chat.
           */}
           {(hasSettledConversation || barraAnticipada) && seleccionados.length === 0 && barraVisible && (headerBar || mediaConfig) ? (
-            <div className="flex min-w-0 shrink-0 items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden border-b border-border bg-card px-3 py-1.5 @min-[520px]/chathdr:hidden">
+            <div className="flex min-w-0 shrink-0 items-center gap-1.5 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden border-b border-border bg-card px-3 py-1.5 @min-[520px]/chathdr:hidden">
               {headerBar}
               {!mediaConfig && barraAnticipada ? (
                 // Nota, seguimiento y etiquetas, en silueta hasta que el chat este cargado.
@@ -1969,8 +1969,10 @@ export const ConversationPanel = memo(function ConversationPanel({
           {/*
             Pestañas del chat. "Cotizaciones" tiene la ficha de datos del cliente: la que hoy se
             llena releyendo la conversacion hacia arriba para copiar la cedula y la direccion.
+            overflow-x-clip y no auto: el subrayado de la pestaña (-mb-px border-b-2) pisa el borde
+            de la fila, y una caja con desplazamiento lo recortaria a 1px.
           */}
-          <div className="flex min-w-0 shrink-0 items-center gap-4 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden border-b border-border bg-card px-3 md:px-5">
+          <div className="flex min-w-0 shrink-0 items-center gap-4 overflow-x-clip border-b border-border bg-card px-3 md:px-5">
             {(["mensajes", "cotizaciones"] as const).map((pestana) => {
               const activa = pestanaChat === pestana;
               return (

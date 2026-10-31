@@ -43,12 +43,17 @@ prueba("la columna del chat (@container/chathdr) no deja salir nada de su ancho"
   assert.ok(clases.includes("min-w-0"), "falta min-w-0 en la columna del chat");
 });
 
-prueba("la segunda fila de botones y las pestañas se desplazan dentro de su fila", () => {
-  for (const marca of ["gap-1.5 overflow-x-auto", "gap-4 overflow-x-auto"]) {
-    const clases = clasesDe(panel, marca, "chat-conversation-panel.tsx");
-    assert.ok(clases.includes("min-w-0"), `falta min-w-0 en la fila "${marca}"`);
-    assert.ok(clases.includes("overflow-x-auto"), `falta overflow-x-auto en la fila "${marca}"`);
-  }
+prueba("la segunda fila de botones se desplaza dentro de su fila, sin desplazamiento vertical", () => {
+  const clases = clasesDe(panel, "gap-1.5 overflow-x-auto", "chat-conversation-panel.tsx");
+  assert.ok(clases.includes("min-w-0"), "falta min-w-0 en la fila de botones");
+  assert.ok(clases.includes("overflow-y-hidden"), "falta overflow-y-hidden en la fila de botones");
+});
+
+prueba("la fila de pestañas no ensancha el chat y no recorta el subrayado", () => {
+  const clases = clasesDe(panel, "gap-4 overflow-x-clip", "chat-conversation-panel.tsx");
+  assert.ok(clases.includes("min-w-0"), "falta min-w-0 en la fila de pestañas");
+  // overflow-x-auto la volveria caja con desplazamiento y cortaria el -mb-px del subrayado.
+  assert.ok(!clases.includes("overflow-x-auto"), "la fila de pestañas no debe usar overflow-x-auto");
 });
 
 prueba("la barra de escribir y los mensajes tienen el mismo margen en escritorio (md:px-5)", () => {
