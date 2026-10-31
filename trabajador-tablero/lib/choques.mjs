@@ -17,6 +17,7 @@ const RAICES = new Set(["src", "prisma", "scripts", "trabajador-tablero", "publi
 const EXTENSIONES = /\.(ts|tsx|js|jsx|mjs|cjs|json|prisma|sql|css|scss|md|yml|yaml|html|ps1|sh|env|txt)$/i;
 /** Tope de "*" en una ruta del plan ("src/**\/*.ts" tiene 3). */
 const MAX_COMODINES = 4;
+const MAX_LARGO_DE_RUTA = 200;
 
 /** El encabezado de la parte 5 ("## 5. Archivos que se tocan", "**5. Archivos**", "5) Archivos…"). */
 const ENCABEZADO_DE_ARCHIVOS = /^[\s#*>-]*5\s*[.)-]\s*\**\s*Archivos/im;
@@ -95,8 +96,10 @@ function archivosDeTexto(texto) {
     if (!limpio || limpio.startsWith("/") || limpio.includes("..")) continue;
     const partes = limpio.split("/").filter(Boolean);
     if (!partes.length || !/^[\w.@[\]*-]+$/.test(partes.join("")) || partes.every((parte) => /^\*+$/.test(parte))) continue;
-    // Más de MAX_COMODINES "*" no es un glob de verdad y su regex puede tardar muchísimo (se descarta).
-    if ((limpio.match(/\*/g)?.length ?? 0) > MAX_COMODINES) continue;
+    // Un glob raro (más de MAX_COMODINES "*", más de un "*" en un segmento que no es "**", o muy largo) no es de
+    // verdad y su regex puede tardar muchísimo: se descarta.
+    if ((limpio.match(/\*/g)?.length ?? 0) > MAX_COMODINES || limpio.length > MAX_LARGO_DE_RUTA) continue;
+    if (partes.some((parte) => parte !== "**" && (parte.match(/\*/g)?.length ?? 0) > 1)) continue;
     const esRuta = partes.length > 1 ? EXTENSIONES.test(limpio) || RAICES.has(partes[0]) : EXTENSIONES.test(limpio) && /^[\w.-]+$/.test(limpio);
     if (esRuta) encontrados.add(partes.join("/"));
   }
