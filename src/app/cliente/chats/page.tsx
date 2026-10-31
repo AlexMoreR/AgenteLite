@@ -44,7 +44,7 @@ import {
   whereDeFiltros,
 } from "@/features/chats/services/filtros-de-bandeja";
 import { isSnoozed } from "@/lib/lead-snooze";
-import { whereDeBusquedaDeChats } from "@/lib/busqueda-de-chats";
+import { estadoQueAplica, hayBusqueda, whereDeBusquedaDeChats } from "@/lib/busqueda-de-chats";
 import { syncLeadLifecycleForContacts } from "@/lib/contact-default-tags";
 import { tieneCierrePendiente } from "@/lib/crm-stage-sync";
 
@@ -335,10 +335,13 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const statusParam = typeof params.status === "string" ? params.status.trim() : "";
   const statusFilter: "all" | "open" | "resolved" =
     statusParam === "all" || statusParam === "resolved" ? statusParam : "open";
+  // Con texto en el buscador el estado no filtra, igual que /api/cliente/chats/list (ver
+  // estadoQueAplica en lib/busqueda-de-chats). La pestaña elegida (statusFilter) no cambia.
+  const estadoAplicado = estadoQueAplica(statusFilter, searchQuery);
   const statusWhere: Prisma.ConversationWhereInput =
-    statusFilter === "resolved"
+    estadoAplicado === "resolved"
       ? { status: { in: ["CLOSED", "ARCHIVED"] } }
-      : statusFilter === "all"
+      : estadoAplicado === "all"
         ? {}
         : { status: { in: ["OPEN", "PENDING"] } };
 
@@ -553,9 +556,10 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   // scroll, con miles de chats abajo que nunca se podian ver.
   const agentConversationsConsumidas = agentConversationsRaw.slice(0, conversationListTake);
   const hasMoreConversationItems = agentConversationsRaw.length > conversationListTake;
-  const agentConversationsBase = agentConversationsConsumidas.filter(
-    (conversation) => !isSnoozed(conversation.contact?.metadata),
-  );
+  // Buscando, los pospuestos si salen (lo mismo que la ruta de la lista).
+  const agentConversationsBase = hayBusqueda(searchQuery)
+    ? agentConversationsConsumidas
+    : agentConversationsConsumidas.filter((conversation) => !isSnoozed(conversation.contact?.metadata));
   // Si el chat seleccionado (deep-link) no vino en el lote de la lista, lo agregamos para que el
   // panel lo abra. Va primero para que quede visible arriba al aterrizar desde Mi día.
   const agentConversations =
