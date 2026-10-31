@@ -36,6 +36,12 @@ import { PREFIJO_FOLLOW_TRAS_ASESORA } from "@/features/seguimiento-inteligente/
 import { tipoDeSeguimiento, type TipoDeSeguimiento } from "@/features/seguimientos/dominio/apagado";
 import { anotarSeguimientosApagados, revisarApagadoDelChat } from "@/features/seguimientos/services/apagado";
 import { revisarDiaSiguienteAlEnviar } from "@/features/seguimiento-inteligente/servicios/dia-siguiente-al-enviar";
+import {
+  marcaDelSeguimiento,
+  redactarSeguimientoQueEscucha,
+  type MotivoDelRedactor,
+  type SeguimientoRedactado,
+} from "@/features/seguimientos/services/seguimiento-que-escucha";
 
 export type FollowSourceType = "FLOW" | "PRODUCT" | "TAG" | "CRM_STAGE" | "MANUAL" | "AGENT_NODE";
 export type FollowTimeType = "MINUTES" | "HOURS" | "DAYS";
@@ -796,6 +802,8 @@ async function persistFollowMessage(input: {
   content: string | null;
   mediaUrl: string | null;
   result: FollowSendResult;
+  /** Seguimientos que escuchan: lo que se guarda si el texto no es el fijo (ver marcaDelSeguimiento). */
+  marca?: Record<string, unknown> | null;
 }) {
   const conversation = await resolveFollowConversation({
     workspaceId: input.workspaceId,
@@ -825,6 +833,7 @@ async function persistFollowMessage(input: {
     rawPayload: {
       source: "follow",
       evolution: input.result.raw,
+      ...(input.marca ?? {}),
     } as Prisma.InputJsonValue,
   };
 
@@ -1479,6 +1488,8 @@ async function enviarFlujoDelSeguimiento(input: {
   contactId: string;
   channelId: string | null;
   flowId: string;
+  /** Seguimientos que escuchan: el redactor de los textos (solo en los automáticos). */
+  redactar?: RedactorDelFollow | null;
 }) {
   const flujo = await getFlowReply({
     workspaceId: input.workspaceId,
@@ -1489,8 +1500,23 @@ async function enviarFlujoDelSeguimiento(input: {
   if (pasos.length === 0) {
     throw new Error("El flujo ya no existe o no tiene nada para enviar");
   }
-  for (const paso of pasos) {
-    const mensaje = pasoComoMensajeDeSeguimiento(paso);
+  const mensajes = pasos.map((paso) => pasoComoMensajeDeSeguimiento(paso));
+  /*
+    Seguimientos que escuchan: solo un flujo de PUROS textos (uno con fotos, audios o documentos
+    sale igual que siempre). Se redactan todos ANTES de mandar el primero: si alguno no puede salir,
+    no sale ninguno.
+  */
+  const redactados: Array<SeguimientoRedactado | null> = mensajes.map(() => null);
+  if (input.redactar && mensajes.every((mensaje) => mensaje.messageType === "TEXT" && mensaje.content?.trim())) {
+    for (const [indice, mensaje] of mensajes.entries()) {
+      const redactado = await input.redactar(mensaje.content!.trim(), "flujo");
+      if (redactado && !redactado.enviar) throw new FrenoDelRedactor(redactado);
+      redactados[indice] = redactado;
+    }
+  }
+  for (const [indice, original] of mensajes.entries()) {
+    const redactado = redactados[indice];
+    const mensaje = redactado?.enviar ? { ...original, content: redactado.texto } : original;
     const enviado = await sendFollowMessage({
       workspaceId: input.workspaceId,
       contactId: input.contactId,
@@ -1503,6 +1529,7 @@ async function enviarFlujoDelSeguimiento(input: {
         contactId: input.contactId,
         ...mensaje,
         result: enviado,
+        marca: marcaDelSeguimiento(redactado),
       });
     } catch (persistError) {
       // Igual que con un texto: el paso ya salio; no se marca como fallido para no reenviarlo.
@@ -1790,7 +1817,7 @@ async function revisarAntiBloqueoDelFollow(
   return resultado.enviar ? null : resultado;
 }
 
-async function cancelarFollowFrenado(follow: ClaimedFollowRow, motivo: MotivoDeFreno | MotivoAntiBloqueo) {
+async function cancelarFollowFrenado(follow: ClaimedFollowRow, motivo: MotivoDeFreno | MotivoAntiBloqueo | MotivoDelRedactor) {
   const now = new Date();
   const hasActionsColumn = await hasFollowActionsColumn("Follow");
   const actions = buildCancelledFollowActions({
@@ -1812,6 +1839,79 @@ async function cancelarFollowFrenado(follow: ClaimedFollowRow, motivo: MotivoDeF
       "updatedAt" = ${now}
     WHERE "id" = ${follow.id}
   `);
+}
+
+type RedactorDelFollow = (textoFijo: string, origen: string) => Promise<SeguimientoRedactado | null>;
+
+/** El redactor no dejó salir el texto: se cancela con el motivo o se corre a la vuelta siguiente. */
+class FrenoDelRedactor extends Error {
+  constructor(readonly redactado: Extract<SeguimientoRedactado, { enviar: false }>) {
+    super(redactado.motivo);
+  }
+}
+
+/**
+ * Seguimientos que escuchan al cliente (parte 2): el texto de un seguimiento AUTOMÁTICO lo escribe el
+ * redactor leyendo la conversación. Si el contacto no tiene chat, devuelve null y sale el texto agendado.
+ */
+function redactorDelFollow(follow: ClaimedFollowRow): RedactorDelFollow {
+  let conversationId: string | null | undefined;
+  return async (textoFijo, origen) => {
+    if (conversationId === undefined) {
+      const charla = await prisma.conversation
+        .findFirst({
+          where: { workspaceId: follow.workspaceId, contactId: follow.contactId, ...(follow.channelId ? { channelId: follow.channelId } : {}) },
+          orderBy: { lastMessageAt: "desc" },
+          select: { id: true },
+        })
+        .catch(() => null);
+      conversationId = charla?.id ?? null;
+    }
+    if (!conversationId) return null;
+    return redactarSeguimientoQueEscucha({
+      conversationId,
+      workspaceId: follow.workspaceId,
+      textoFijo,
+      paso: null,
+      origen,
+    });
+  };
+}
+
+/** Lo que pasa cuando el redactor frena: igual que los otros frenos (cancelar y anotar), o correrlo un minuto. */
+async function frenarPorElRedactor(
+  follow: ClaimedFollowRow,
+  actions: FollowActionRecord[],
+  action: FollowActionRecord,
+  freno: FrenoDelRedactor,
+  clase: ClaseDeFollow,
+) {
+  const { motivo, reprogramar } = freno.redactado;
+  action.lockedAt = null;
+  action.lockedBy = null;
+  const reprogramarPara = reprogramar ? new Date(Date.now() + 60_000) : null;
+  if (reprogramarPara) {
+    await persistFollowActionProgress(follow.id, actions);
+    await reprogramarFollow(follow, reprogramarPara);
+  } else {
+    await cancelarFollowFrenado(
+      { ...follow, actions: actions as unknown as Prisma.JsonValue },
+      motivo as MotivoDelRedactor,
+    );
+  }
+  anotarFrenado({
+    workspaceId: follow.workspaceId,
+    contactId: follow.contactId,
+    channelId: follow.channelId,
+    motor: "follow",
+    motivo,
+    claveUnica: `follow:${follow.id}:${motivo}`,
+    reglaId: follow.followRuleId,
+    reglaNombre: follow.name,
+    reprogramadoPara: reprogramarPara,
+    datos: { followId: follow.id, clase },
+  });
+  return { ok: true as const, executionError: null, frenado: motivo };
 }
 
 async function executeFollowRecord(follow: ClaimedFollowRow) {
@@ -1923,6 +2023,11 @@ async function executeFollowRecord(follow: ClaimedFollowRow) {
   const workerId = follow.lockedBy || randomUUID();
   const actionErrors: Array<{ order: number; message: string }> = [];
   let lineaUsada: string | null = follow.channelId;
+  /*
+    Seguimientos que escuchan al cliente: ya pasaron TODOS los frenos de arriba. Solo los automáticos;
+    los de una persona, las campañas y las automatizaciones salen con su texto de siempre.
+  */
+  const redactar = clase === "automatico" ? redactorDelFollow(follow) : null;
 
   for (const action of actions) {
     if (action.status !== "PENDING") {
@@ -1941,6 +2046,7 @@ async function executeFollowRecord(follow: ClaimedFollowRow) {
           contactId: follow.contactId,
           channelId: follow.channelId,
           flowId: action.flowId,
+          redactar,
         });
         action.status = "EXECUTED";
         action.executedAt = new Date().toISOString();
@@ -1951,12 +2057,20 @@ async function executeFollowRecord(follow: ClaimedFollowRow) {
         continue;
       }
 
+      // Solo los de puro texto: un seguimiento con foto, audio o documento sale igual que siempre.
+      const redactado =
+        redactar && action.messageType === "TEXT" && !action.mediaUrl?.trim() && action.content?.trim()
+          ? await redactar(action.content.trim(), "follow")
+          : null;
+      if (redactado && !redactado.enviar) throw new FrenoDelRedactor(redactado);
+      const contenido = redactado?.enviar ? redactado.texto : action.content;
+
       const sendResult = await sendFollowMessage({
         workspaceId: follow.workspaceId,
         contactId: follow.contactId,
         channelId: follow.channelId,
         messageType: action.messageType,
-        content: action.content,
+        content: contenido,
         mediaUrl: action.mediaUrl,
       });
       lineaUsada = sendResult.channel.id;
@@ -1969,9 +2083,10 @@ async function executeFollowRecord(follow: ClaimedFollowRow) {
           workspaceId: follow.workspaceId,
           contactId: follow.contactId,
           messageType: action.messageType,
-          content: action.content,
+          content: contenido,
           mediaUrl: action.mediaUrl,
           result: sendResult,
+          marca: marcaDelSeguimiento(redactado),
         });
       } catch (persistError) {
         console.error("[follows] No se pudo persistir el mensaje de seguimiento en chats", {
@@ -1987,6 +2102,9 @@ async function executeFollowRecord(follow: ClaimedFollowRow) {
       action.lockedAt = null;
       action.lockedBy = null;
     } catch (error) {
+      if (error instanceof FrenoDelRedactor) {
+        return frenarPorElRedactor(follow, actions, action, error, clase);
+      }
       const errorMessage = buildExecutionErrorMessage(error);
       action.status = "FAILED";
       action.executionError = errorMessage;
