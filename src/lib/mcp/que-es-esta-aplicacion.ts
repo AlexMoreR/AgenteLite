@@ -11,6 +11,7 @@ import { recogidaDelResultado } from "@/features/tableros-inteligentes/services/
 import { avisosPrendidos, leerEstadoDeAvisos, telefonoGuardado } from "@/features/tableros-inteligentes/services/avisos-al-dueno";
 import { resumenDeAvisosAlEquipo } from "@/features/tableros-inteligentes/services/avisos-al-equipo";
 import { MOTIVO_TERMINADA, terminadasPrendidas } from "@/features/tableros-inteligentes/services/avisos-de-terminadas";
+import { estadoDelArchivado } from "@/features/tableros-inteligentes/services/archivadas";
 import { tieneAccesoAlDrive } from "@/features/cerebro/services/conexion";
 
 /**
@@ -591,6 +592,7 @@ async function automatizaciones(
     avisos_al_dueno_tablero: await estadoDeAvisosAlDueno(workspaceId).catch(() => "no se pudo leer"),
     avisos_al_equipo_tablero: await estadoDeAvisosAlEquipo(workspaceId).catch(() => "no se pudo leer"),
     avisos_de_terminadas_tablero: await estadoDeAvisosDeTerminadas(workspaceId).catch(() => "no se pudo leer"),
+    archivar_terminadas_tablero: await estadoDelArchivado().catch(() => "no se pudo leer"),
     cerebro_sincronizacion: await estadoDelCerebro(workspaceId).catch(() => "no se pudo leer"),
     origen_de_pauta: await estadoDeLaPauta(workspaceId).catch(() => "no se pudo leer"),
     agente_de_ventas: await estadoDelAgenteDeVentas(workspaceId).catch(() => "no se pudo leer"),

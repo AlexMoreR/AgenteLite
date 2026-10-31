@@ -34,7 +34,8 @@ type PageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
-const vistaPedida = (valor: string | null) => (valor === "coordinador" || valor === "hoy" ? valor : "tableros");
+const vistaPedida = (valor: string | null) =>
+  valor === "coordinador" || valor === "hoy" || valor === "terminados" ? valor : "tableros";
 
 const uno = (valor: string | string[] | undefined) => (Array.isArray(valor) ? valor[0] : valor)?.trim() || null;
 
@@ -51,6 +52,7 @@ const uno = (valor: string | string[] | undefined) => (Array.isArray(valor) ? va
   ?vista=coordinador abre la página de inicio en la pestaña "Coordinador en vivo" (solo el dueño o el ADMIN;
   para los demás se ignora).
   ?vista=hoy abre la pestaña "Hoy" (lo que terminó, falló o espera al dueño): es el link de los WhatsApp.
+  ?vista=terminados abre "Trabajos terminados" (las tarjetas archivadas, con el buscador y Desarchivar).
 */
 export default async function TableroIAPage({ searchParams }: PageProps) {
   const access = await requireClientWorkspaceAccess("tableros_inteligentes");

@@ -25,6 +25,7 @@ import { revisarAvisosAlDueno } from "@/features/tableros-inteligentes/services/
 import { enviarResumenDiarioAlDueno } from "@/features/tableros-inteligentes/services/resumen-diario";
 import { revisarAvisosDeTerminadas } from "@/features/tableros-inteligentes/services/avisos-de-terminadas";
 import { revisarAvisosAlEquipo } from "@/features/tableros-inteligentes/services/avisos-al-equipo";
+import { archivarLasTerminadas } from "@/features/tableros-inteligentes/services/archivadas";
 
 function resolveCronSecret() {
   return process.env.FOLLOW_CRON_SECRET?.trim() || process.env.EVOLUTION_WEBHOOK_SECRET?.trim() || "";
@@ -220,7 +221,8 @@ async function handleCron(request: Request) {
     de riesgo bajo) y revisa si hay que avisarle al dueño por WhatsApp (línea Admin) que Sistemas se detuvo o lo
     necesita: Coordinador caído, sin trabajo, trabado, necesita al dueño (avisos-al-dueno.ts; los técnicos van a Emanuel). El resumen diario (4 líneas) sale una vez al día
     (resumen-diario.ts). También avisa cuando el Coordinador deja una tarjeta en HECHO ("✅ ¡Listo! Terminó la tarea
-    T-123", avisos-de-terminadas.ts). Sin nada pendiente son un par de lecturas; en segundo plano.
+    T-123", avisos-de-terminadas.ts). Una vez al día archiva las HECHO y FALLIDO de hace más de 3 días (archivadas.ts).
+    Sin nada pendiente son un par de lecturas; en segundo plano.
   */
   after(async () => {
     try {
@@ -256,6 +258,12 @@ async function handleCron(request: Request) {
       await revisarAvisosAlEquipo();
     } catch (error) {
       console.error("[cron/follows] avisos al equipo del tablero error", error);
+    }
+    try {
+      // Las terminadas salen solas del tablero a "Trabajos terminados" (una vez al día, por tandas de 200).
+      await archivarLasTerminadas();
+    } catch (error) {
+      console.error("[cron/follows] archivar terminadas del tablero error", error);
     }
   });
 

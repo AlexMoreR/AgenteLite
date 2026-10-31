@@ -52,6 +52,7 @@ import {
   ponerAvisosAlEquipo,
 } from "@/features/tableros-inteligentes/services/avisos-al-equipo";
 import { resumenDeHoyParaLaPantalla, vistaDeHoy, type VistaDeHoy } from "@/features/tableros-inteligentes/services/resumen-diario";
+import { desarchivarTarjeta, listarArchivadas, type ArchivadaVista } from "@/features/tableros-inteligentes/services/archivadas";
 import type { MomentoDeAprobacion } from "@/features/tableros-inteligentes/services/reglas-trabajador";
 
 /*
@@ -390,6 +391,31 @@ export async function vistaDeHoyAction(): Promise<{ ok: true; vista: VistaDeHoy 
     return { ok: true, vista: await vistaDeHoy(access.workspaceId) };
   } catch (fallo) {
     return { ok: false, error: mensaje(fallo, "No se pudo leer lo de hoy") };
+  }
+}
+
+/** "Trabajos terminados": las tarjetas archivadas del negocio, con el buscador. El dueño o el ADMIN. */
+export async function trabajosTerminadosAction(
+  buscar?: string,
+): Promise<{ ok: true; tarjetas: ArchivadaVista[]; hayMas: boolean } | { ok: false; error: string }> {
+  const access = await accesoDelDueno();
+  if (!access) return { ok: false, error: "Los trabajos terminados los ve solo el dueño del negocio." };
+  try {
+    return { ok: true, ...(await listarArchivadas(access.workspaceId, buscar)) };
+  } catch (fallo) {
+    return { ok: false, error: mensaje(fallo, "No se pudieron leer los trabajos terminados") };
+  }
+}
+
+/** Desarchivar: la tarjeta vuelve al tablero (queda en el historial con quién y "pantalla"). El dueño o el ADMIN. */
+export async function desarchivarTarjetaAction(tarjetaId: string): Promise<Resultado> {
+  const access = await accesoDelDueno();
+  if (!access) return { ok: false, error: "Desarchivar lo puede solo el dueño del negocio." };
+  try {
+    await desarchivarTarjeta({ ...alcanceDe(access), userId: access.userId, origen: "PANTALLA" }, tarjetaId);
+    return { ok: true };
+  } catch (fallo) {
+    return { ok: false, error: mensaje(fallo, "No se pudo desarchivar la tarjeta") };
   }
 }
 

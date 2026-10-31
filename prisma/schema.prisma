@@ -2137,6 +2137,10 @@ model TarjetaTablero {
   responsableId     String?
   /// Marca "urgente" (avisos al equipo por WhatsApp): la pone el botón de la ficha, el MCP o un título que empieza por URGENTE.
   urgente           Boolean            @default(false)
+  /// Archivada (30-oct-2026): una HECHO o FALLIDO de hace más de 3 días (AppSetting tablero:archivar-terminadas:dias) sale del mapa, de ver_tablero y del límite de 300, sin cambiar de estado ni perder nada. Se ve en "Trabajos terminados". null = en el tablero.
+  archivadaEn       DateTime?
+  /// Cuándo se terminó (el último cambio a HECHO o FALLIDO del historial); se guarda al archivarla.
+  terminadaEn       DateTime?
   responsable   User?              @relation("TarjetaResponsable", fields: [responsableId], references: [id], onDelete: SetNull)
   tablero       TableroInteligente @relation(fields: [tableroId], references: [id], onDelete: Cascade)
   tipo          TipoTarjeta        @relation(fields: [tipoId], references: [id], onDelete: Restrict)
@@ -2151,6 +2155,7 @@ model TarjetaTablero {
   @@index([tipoId])
   @@index([padreId])
   @@index([responsableId])
+  @@index([tableroId, archivadaEn])
 }
 
 /// Una flecha entre dos tarjetas del mismo tablero (sale de origen y llega a destino). Una sola por par.

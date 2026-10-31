@@ -163,6 +163,18 @@ export function linkDelTablero(tableroId: string) {
 
 const NO_BORRADA = { borradoEn: null } as const;
 
+/*
+  ARCHIVADAS (30-oct-2026, services/archivadas.ts): una HECHO o FALLIDO de hace más de 3 días se archiva sola
+  (archivadaEn). Sigue en su estado y no pierde nada, pero sale de lo de todos los días: el mapa y el refresco
+  (contenidoDelTablero), ver_tablero, los contadores del selector (listarTableros), el límite de 300 (crearTarjeta)
+  y "Te toca a ti" (pendientesDelDueno). La lógica del Coordinador NO usa este filtro: para él una parte archivada
+  sigue siendo HECHO (madre partida, "espera a esta").
+*/
+export const VISIBLE = { borradoEn: null, archivadaEn: null } as const;
+
+/** HECHO o FALLIDO; los demás estados son abiertos y pasar a uno de ellos desarchiva la tarjeta. */
+const esTerminado = (estado: string) => estado === "HECHO" || estado === "FALLIDO";
+
 /** Lo que la pantalla necesita de cada tarjeta (también es lo que viaja en el refresco). */
 export type TarjetaVista = {
   id: string;
@@ -555,12 +567,12 @@ export async function listarTableros(alcance: Alcance) {
     prisma.tarjetaTablero.groupBy({
       by: ["tableroId", "estado", "tipoId"],
       // Las carpetas (tipos sin estados, como Área) no cuentan en los estados.
-      where: { tableroId: { in: ids }, ...NO_BORRADA, tipo: { usaEstados: true } },
+      where: { tableroId: { in: ids }, ...VISIBLE, tipo: { usaEstados: true } },
       _count: { _all: true },
     }),
     prisma.tarjetaTablero.groupBy({
       by: ["tableroId"],
-      where: { tableroId: { in: ids }, ...NO_BORRADA },
+      where: { tableroId: { in: ids }, ...VISIBLE },
       _count: { _all: true },
     }),
     // Para los contadores: un POR_APROBAR solo "te toca" si su tipo pide aprobación.
@@ -628,11 +640,14 @@ export async function firmaDeLosTableros(alcance: Alcance) {
   return armarFirma(fila._max.actualizadoEn, fila._count._all);
 }
 
-/** Tarjetas (vivas), conexiones y tipos de un tablero que ya se sabe que es del negocio. */
-export async function contenidoDelTablero(tableroId: string) {
+/**
+ * Tarjetas (vivas y sin archivar), conexiones y tipos de un tablero que ya se sabe que es del negocio. Con
+ * `archivadas`, en cambio, solo las archivadas (ver_tablero con estado ARCHIVADA).
+ */
+export async function contenidoDelTablero(tableroId: string, { archivadas = false } = {}) {
   const [tarjetas, conexiones, tipos] = await Promise.all([
     prisma.tarjetaTablero.findMany({
-      where: { tableroId, ...NO_BORRADA },
+      where: archivadas ? { tableroId, ...NO_BORRADA, archivadaEn: { not: null } } : { tableroId, ...VISIBLE },
       orderBy: [{ orden: "asc" }, { creadoEn: "asc" }],
       select: SELECT_TARJETA,
     }),
@@ -643,7 +658,8 @@ export async function contenidoDelTablero(tableroId: string) {
     }),
     tiposDelTablero(prisma, tableroId),
   ]);
-  // Las flechas de una borrada se quitan al borrar; este filtro es por si acaso.
+  // Las flechas de una borrada se quitan al borrar; las de una archivada siguen en la base (la regla de "espera a
+  // esta" las usa) pero no se dibujan porque falta su punta.
   const vivas = new Set(tarjetas.map((tarjeta) => tarjeta.id));
   return {
     tarjetas: tarjetas.map(aVista),
@@ -652,9 +668,9 @@ export async function contenidoDelTablero(tableroId: string) {
   };
 }
 
-export async function verTablero(alcance: Alcance, tableroId: unknown) {
+export async function verTablero(alcance: Alcance, tableroId: unknown, opciones: { archivadas?: boolean } = {}) {
   const tablero = await tableroDelNegocio(alcance, tableroId);
-  return { tablero, ...(await contenidoDelTablero(tablero.id)) };
+  return { tablero, ...(await contenidoDelTablero(tablero.id, opciones)) };
 }
 
 export async function listarTipos(alcance: Alcance, tableroId: unknown) {
@@ -939,7 +955,7 @@ export type PendienteVista = TarjetaVista & {
 export async function pendientesDelDueno(alcance: Alcance): Promise<PendienteVista[]> {
   const filas = await prisma.tarjetaTablero.findMany({
     where: {
-      ...NO_BORRADA,
+      ...VISIBLE,
       tablero: dondeTablero(alcance),
       OR: [
         { estado: { in: ["POR_APROBAR", "PLAN_LISTO", "POR_REVISAR", "ERROR"] }, tipo: { requiereAprobacion: true, usaEstados: true } },
@@ -1427,7 +1443,8 @@ export async function crearTarjeta(
     ? [...new Set(datos.conectarCon.filter((id): id is string => typeof id === "string" && id.trim() !== ""))]
     : [];
 
-  const cuantas = await prisma.tarjetaTablero.count({ where: { tableroId: tablero.id, ...NO_BORRADA } });
+  // Las archivadas no cuentan para el límite (30-oct-2026).
+  const cuantas = await prisma.tarjetaTablero.count({ where: { tableroId: tablero.id, ...VISIBLE } });
   if (cuantas >= LIMITE_TARJETAS) {
     throw new Error(`El tablero ya tiene ${LIMITE_TARJETAS} tarjetas, que es el máximo. Conviene crear otro tablero.`);
   }
@@ -1884,7 +1901,8 @@ export async function cambiarEstadoTarjeta(
     const hecho = await tx.tarjetaTablero.updateMany({
       // Condicionado también al repo: si se lo pusieron un instante antes, valen las reglas del Coordinador.
       where: { id: actual.id, estado: actual.estado, tipoId: actual.tipoId, repo: actual.repo, ...NO_BORRADA },
-      data: { estado },
+      // Una archivada que vuelve a un estado abierto vuelve sola al tablero.
+      data: esTerminado(estado) ? { estado } : { estado, archivadaEn: null },
     });
     if (hecho.count !== 1) throw new Error(CAMBIO_EN_EL_MEDIO);
     const cambio = await anotar(tx, contexto, actual.id, "estado", { estado: actual.estado }, { estado });

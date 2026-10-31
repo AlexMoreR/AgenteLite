@@ -42,6 +42,7 @@ import { textoDelCoordinador, vistaDelCoordinador } from "@/features/tableros-in
 import { contarHijas } from "@/features/tableros-inteligentes/services/niveles";
 import { dondeSeConstruyo } from "@/features/tableros-inteligentes/services/modelos-del-coordinador";
 import { RIESGOS } from "@/features/tableros-inteligentes/services/reglas-riesgo";
+import { diaDeBogota, diaValido, terminadasDeLaSemana } from "@/features/tableros-inteligentes/services/archivadas";
 import {
   MOMENTOS_DE_APROBACION,
   NOMBRE_DEL_MOMENTO,
@@ -240,18 +241,38 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     name: "ver_tablero",
     title: "Ver un tablero",
     description:
-      "Muestra las tarjetas de un tablero (título, detalle, tipo, de qué tarjeta cuelga, área, estado, responsable, fecha, link) con qué flechas las unen, y los tipos del tablero. Hay que llamarla antes de editar o conectar: devuelve los ids.",
+      "Muestra las tarjetas de un tablero (título, detalle, tipo, de qué tarjeta cuelga, área, estado, responsable, fecha, link) con qué flechas las unen, y los tipos del tablero. Hay que llamarla antes de editar o conectar: devuelve los ids. " +
+      "Las tarjetas ARCHIVADAS (HECHO o FALLIDO de hace más de 3 días; salen solas del tablero y no cuentan para el límite de 300) no salen: para verlas, estado ARCHIVADA. Lo terminado por semana: listar_terminadas.",
     inputSchema: {
       type: "object",
       properties: {
         tablero_id: { type: "string", description: "Id del tablero (ver listar_tableros)" },
-        estado: { type: "string", enum: [...ESTADOS_TARJETA], description: "Solo las tarjetas en este estado. Opcional." },
+        estado: {
+          type: "string",
+          enum: [...ESTADOS_TARJETA, "ARCHIVADA"],
+          description: "Solo las tarjetas en este estado. ARCHIVADA = solo las archivadas (siguen en HECHO o FALLIDO). Opcional.",
+        },
         responsable: {
           type: "string",
           description: "Solo las tarjetas asignadas a esta persona: su nombre o email (de una persona activa del negocio). Opcional.",
         },
       },
       required: ["tablero_id"],
+      additionalProperties: false,
+    },
+    annotations: SOLO_LECTURA,
+  },
+  {
+    name: "listar_terminadas",
+    title: "Ver lo terminado en una semana",
+    description:
+      "SOLO LECTURA. Lo terminado (HECHO o FALLIDO, archivado o no) en una semana, de lunes a domingo en hora de Bogotá: código, título, tablero, repo, fecha en que se terminó y link al commit. Úsala para '¿qué se terminó esta semana?' o la semana pasada.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        semana: { type: "string", description: "Cualquier día de la semana, AAAA-MM-DD. Sin semana: la de hoy." },
+        tablero_id: { type: "string", description: "Solo las de este tablero (ver listar_tableros). Opcional: sin él, todos." },
+      },
       additionalProperties: false,
     },
     annotations: SOLO_LECTURA,
@@ -669,8 +690,10 @@ export async function ejecutarHerramientaMcpTableros(
       };
     }
     case "ver_tablero": {
-      const { tablero, tarjetas, conexiones, tipos } = await verTablero(contexto,args.tablero_id);
-      const filtro = typeof args.estado === "string" ? args.estado : null;
+      // ARCHIVADA no es un estado: trae solo las archivadas (que siguen en HECHO o FALLIDO), sin filtrar por estado.
+      const soloArchivadas = args.estado === "ARCHIVADA";
+      const { tablero, tarjetas, conexiones, tipos } = await verTablero(contexto, args.tablero_id, { archivadas: soloArchivadas });
+      const filtro = typeof args.estado === "string" && !soloArchivadas ? args.estado : null;
       const titulo = new Map(tarjetas.map((tarjeta) => [tarjeta.id, tarjeta.titulo]));
       const tipoDe = new Map(tipos.map((tipo) => [tipo.id, tipo]));
       const nombres = new Map(tipos.map((tipo) => [tipo.id, tipo.nombre]));
@@ -696,6 +719,7 @@ export async function ejecutarHerramientaMcpTableros(
         tablero_id: tablero.id,
         nombre: tablero.nombre,
         total_tarjetas: tarjetas.length,
+        ...(soloArchivadas ? { aviso: "Son las archivadas: siguen en HECHO o FALLIDO y no salen en el mapa. Se desarchivan en Tablero IA → Trabajos terminados." } : {}),
         tipos: tipos.map((tipo) => tipoParaClaude(tipo, nombres)),
         tarjetas: visibles.map((tarjeta) => {
           const tipo = tipoDe.get(tarjeta.tipoId);
@@ -737,7 +761,7 @@ export async function ejecutarHerramientaMcpTableros(
           };
         }),
         conexiones: conexiones
-          .filter((conexion) => (!filtro && !idDelFiltro) || ids.has(conexion.origenId) || ids.has(conexion.destinoId))
+          .filter((conexion) => (!filtro && !idDelFiltro && !soloArchivadas) || ids.has(conexion.origenId) || ids.has(conexion.destinoId))
           .map((conexion) => ({
             de: conexion.origenId,
             de_titulo: titulo.get(conexion.origenId) ?? null,
@@ -745,6 +769,31 @@ export async function ejecutarHerramientaMcpTableros(
             a_titulo: titulo.get(conexion.destinoId) ?? null,
           })),
         link: linkDelTablero(tablero.id),
+      };
+    }
+    case "listar_terminadas": {
+      const pedida = args.semana === undefined || args.semana === "" ? diaDeBogota(new Date()) : diaValido(args.semana);
+      if (!pedida) throw new Error("La semana va como un día AAAA-MM-DD, por ejemplo 2026-10-30.");
+      const tablero = args.tablero_id === undefined || args.tablero_id === "" ? null : (await listarTipos(contexto, args.tablero_id)).tablero;
+      const semana = await terminadasDeLaSemana(contexto.workspaceId, pedida, tablero?.id ?? null);
+      return {
+        ...(tablero ? { tablero: referencia(tablero) } : {}),
+        semana: { lunes: semana.lunes, domingo: semana.domingo },
+        cantidad: semana.tarjetas.length,
+        hechas: semana.tarjetas.filter((tarjeta) => tarjeta.estado === "HECHO").length,
+        fallidas: semana.tarjetas.filter((tarjeta) => tarjeta.estado === "FALLIDO").length,
+        tarjetas: semana.tarjetas.map((tarjeta) => ({
+          tarjeta_id: tarjeta.id,
+          ...(tarjeta.codigo ? { codigo: tarjeta.codigo } : {}),
+          titulo: tarjeta.titulo,
+          estado: tarjeta.estado,
+          tablero: tarjeta.tableroNombre,
+          repo: tarjeta.repo,
+          terminada: hora(new Date(tarjeta.terminadaEn)),
+          archivada: tarjeta.archivada,
+          link_commit: tarjeta.linkCommit,
+        })),
+        pantalla: "/cliente/tablero-ia?vista=terminados",
       };
     }
     case "listar_tipos": {
