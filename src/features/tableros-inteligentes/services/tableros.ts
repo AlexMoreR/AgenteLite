@@ -39,6 +39,7 @@ import {
   type MiembroDelNegocio,
   type OrigenCambio,
 } from "./reglas";
+import { estaTerminada } from "./archivadas";
 import {
   dependenciaHaceCiclo,
   esDuenoDelNegocio,
@@ -162,6 +163,16 @@ export function linkDelTablero(tableroId: string) {
 }
 
 const NO_BORRADA = { borradoEn: null } as const;
+
+/*
+  Lo de todos los días (mapa, refresco, ver_tablero, contadores, el límite de 300 y "Te toca a ti"): ni borradas ni
+  archivadas (services/archivadas.ts, 30-oct-2026). Las demás lecturas (una tarjeta por su id, el historial, las
+  madres, el Coordinador) siguen con NO_BORRADA: una archivada sigue siendo una tarjeta HECHO o FALLIDO.
+*/
+const VISIBLE = { borradoEn: null, archivadaEn: null } as const;
+
+/** Lo que se agrega al guardar un estado: si queda abierto (ni HECHO ni FALLIDO), la tarjeta se desarchiva sola. */
+const alReabrir = (estado: string) => (estaTerminada(estado) ? {} : { archivadaEn: null, terminadaEn: null });
 
 /** Lo que la pantalla necesita de cada tarjeta (también es lo que viaja en el refresco). */
 export type TarjetaVista = {
@@ -555,12 +566,12 @@ export async function listarTableros(alcance: Alcance) {
     prisma.tarjetaTablero.groupBy({
       by: ["tableroId", "estado", "tipoId"],
       // Las carpetas (tipos sin estados, como Área) no cuentan en los estados.
-      where: { tableroId: { in: ids }, ...NO_BORRADA, tipo: { usaEstados: true } },
+      where: { tableroId: { in: ids }, ...VISIBLE, tipo: { usaEstados: true } },
       _count: { _all: true },
     }),
     prisma.tarjetaTablero.groupBy({
       by: ["tableroId"],
-      where: { tableroId: { in: ids }, ...NO_BORRADA },
+      where: { tableroId: { in: ids }, ...VISIBLE },
       _count: { _all: true },
     }),
     // Para los contadores: un POR_APROBAR solo "te toca" si su tipo pide aprobación.
@@ -628,11 +639,14 @@ export async function firmaDeLosTableros(alcance: Alcance) {
   return armarFirma(fila._max.actualizadoEn, fila._count._all);
 }
 
-/** Tarjetas (vivas), conexiones y tipos de un tablero que ya se sabe que es del negocio. */
-export async function contenidoDelTablero(tableroId: string) {
+/**
+ * Tarjetas (vivas y sin archivar), conexiones y tipos de un tablero que ya se sabe que es del negocio. Con
+ * `archivadas`, en vez de las del tablero trae SOLO las archivadas (ver_tablero con estado ARCHIVADA).
+ */
+export async function contenidoDelTablero(tableroId: string, { archivadas = false } = {}) {
   const [tarjetas, conexiones, tipos] = await Promise.all([
     prisma.tarjetaTablero.findMany({
-      where: { tableroId, ...NO_BORRADA },
+      where: { tableroId, ...(archivadas ? { ...NO_BORRADA, archivadaEn: { not: null } } : VISIBLE) },
       orderBy: [{ orden: "asc" }, { creadoEn: "asc" }],
       select: SELECT_TARJETA,
     }),
@@ -652,9 +666,9 @@ export async function contenidoDelTablero(tableroId: string) {
   };
 }
 
-export async function verTablero(alcance: Alcance, tableroId: unknown) {
+export async function verTablero(alcance: Alcance, tableroId: unknown, { archivadas = false } = {}) {
   const tablero = await tableroDelNegocio(alcance, tableroId);
-  return { tablero, ...(await contenidoDelTablero(tablero.id)) };
+  return { tablero, ...(await contenidoDelTablero(tablero.id, { archivadas })) };
 }
 
 export async function listarTipos(alcance: Alcance, tableroId: unknown) {
@@ -939,7 +953,8 @@ export type PendienteVista = TarjetaVista & {
 export async function pendientesDelDueno(alcance: Alcance): Promise<PendienteVista[]> {
   const filas = await prisma.tarjetaTablero.findMany({
     where: {
-      ...NO_BORRADA,
+      // Las FALLIDO archivadas ya no esperan nada del dueño.
+      ...VISIBLE,
       tablero: dondeTablero(alcance),
       OR: [
         { estado: { in: ["POR_APROBAR", "PLAN_LISTO", "POR_REVISAR", "ERROR"] }, tipo: { requiereAprobacion: true, usaEstados: true } },
@@ -1427,7 +1442,8 @@ export async function crearTarjeta(
     ? [...new Set(datos.conectarCon.filter((id): id is string => typeof id === "string" && id.trim() !== ""))]
     : [];
 
-  const cuantas = await prisma.tarjetaTablero.count({ where: { tableroId: tablero.id, ...NO_BORRADA } });
+  // Las archivadas no cuentan para el límite (services/archivadas.ts).
+  const cuantas = await prisma.tarjetaTablero.count({ where: { tableroId: tablero.id, ...VISIBLE } });
   if (cuantas >= LIMITE_TARJETAS) {
     throw new Error(`El tablero ya tiene ${LIMITE_TARJETAS} tarjetas, que es el máximo. Conviene crear otro tablero.`);
   }
@@ -1717,7 +1733,7 @@ export async function editarTarjeta(
   const editada = await prisma.$transaction(async (tx) => {
     const hecho = await tx.tarjetaTablero.updateMany({
       where: { id: actual.id, estado: actual.estado, ...NO_BORRADA },
-      data: { ...nuevo, estado },
+      data: { ...nuevo, estado, ...alReabrir(estado) },
     });
     if (hecho.count !== 1) throw new Error(CAMBIO_EN_EL_MEDIO);
     const cambio = await anotar(tx, contexto, actual.id, "editar", antes, despues);
@@ -1884,7 +1900,8 @@ export async function cambiarEstadoTarjeta(
     const hecho = await tx.tarjetaTablero.updateMany({
       // Condicionado también al repo: si se lo pusieron un instante antes, valen las reglas del Coordinador.
       where: { id: actual.id, estado: actual.estado, tipoId: actual.tipoId, repo: actual.repo, ...NO_BORRADA },
-      data: { estado },
+      // Una archivada que vuelve a un estado abierto se desarchiva sola.
+      data: { estado, ...alReabrir(estado) },
     });
     if (hecho.count !== 1) throw new Error(CAMBIO_EN_EL_MEDIO);
     const cambio = await anotar(tx, contexto, actual.id, "estado", { estado: actual.estado }, { estado });
@@ -2220,7 +2237,8 @@ export async function aprobarTarjeta(contexto: ContextoTablero, tarjetaId: unkno
       },
       // SUBIENDO queda "pendiente" (sin candado) hasta que el Coordinador la tome; reintentar suelta el candado.
       // Reintentar (desde ERROR) también devuelve las reparaciones a 0: empiezan otras 3.
-      data: { estado: veredicto.a, trabajoVenceEn: null, ...(actual.estado === "ERROR" ? { reparaciones: 0 } : {}) },
+      // Reintentar una FALLIDO archivada (por voz con su código) la devuelve al tablero.
+      data: { estado: veredicto.a, trabajoVenceEn: null, ...(actual.estado === "ERROR" ? { reparaciones: 0 } : {}), ...alReabrir(veredicto.a) },
     });
     if (hecho.count !== 1) {
       throw new Error(CAMBIO_MIENTRAS_MIRABAS);

@@ -38,6 +38,7 @@ import {
   sePuedeMarcarHechoAMano,
 } from "@/features/tableros-inteligentes/services/reglas";
 import { marcarUrgente } from "@/features/tableros-inteligentes/services/avisos-al-equipo";
+import { terminadasDeLaSemana } from "@/features/tableros-inteligentes/services/archivadas";
 import { textoDelCoordinador, vistaDelCoordinador } from "@/features/tableros-inteligentes/services/coordinador-en-vivo";
 import { contarHijas } from "@/features/tableros-inteligentes/services/niveles";
 import { dondeSeConstruyo } from "@/features/tableros-inteligentes/services/modelos-del-coordinador";
@@ -121,6 +122,9 @@ type Argumentos = Record<string, unknown>;
 const ESCRIBE = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false } as const;
 const BORRA = { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false } as const;
 const SOLO_LECTURA = { readOnlyHint: true, destructiveHint: false, openWorldHint: false } as const;
+
+/** El filtro de ver_tablero para las archivadas (services/archivadas.ts). No es un estado de la tarjeta. */
+const ESTADO_ARCHIVADA = "ARCHIVADA";
 
 /*
   Alexander y Emanuel le hablan a Claude por VOZ y cada uno tiene su tablero ('Magilus General' y
@@ -240,18 +244,38 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     name: "ver_tablero",
     title: "Ver un tablero",
     description:
-      "Muestra las tarjetas de un tablero (título, detalle, tipo, de qué tarjeta cuelga, área, estado, responsable, fecha, link) con qué flechas las unen, y los tipos del tablero. Hay que llamarla antes de editar o conectar: devuelve los ids.",
+      "Muestra las tarjetas de un tablero (título, detalle, tipo, de qué tarjeta cuelga, área, estado, responsable, fecha, link) con qué flechas las unen, y los tipos del tablero. Hay que llamarla antes de editar o conectar: devuelve los ids. " +
+      "No trae las ARCHIVADAS: las HECHO y FALLIDO salen solas del tablero a los 3 días de terminar (siguen HECHO o FALLIDO, no cuentan para el límite de 300 y se ven en la pestaña 'Trabajos terminados'). Para verlas, estado 'ARCHIVADA'. Para lo terminado en una semana, listar_terminadas.",
     inputSchema: {
       type: "object",
       properties: {
         tablero_id: { type: "string", description: "Id del tablero (ver listar_tableros)" },
-        estado: { type: "string", enum: [...ESTADOS_TARJETA], description: "Solo las tarjetas en este estado. Opcional." },
+        estado: {
+          type: "string",
+          enum: [...ESTADOS_TARJETA, ESTADO_ARCHIVADA],
+          description: "Solo las tarjetas en este estado. 'ARCHIVADA' trae solo las archivadas (las terminadas que ya salieron del tablero). Opcional.",
+        },
         responsable: {
           type: "string",
           description: "Solo las tarjetas asignadas a esta persona: su nombre o email (de una persona activa del negocio). Opcional.",
         },
       },
       required: ["tablero_id"],
+      additionalProperties: false,
+    },
+    annotations: SOLO_LECTURA,
+  },
+  {
+    name: "listar_terminadas",
+    title: "Ver lo terminado en una semana",
+    description:
+      "SOLO LECTURA. Lo que se terminó (HECHO o FALLIDO, archivado o no) en la semana de la fecha que se pasa, de lunes a domingo en hora de Bogotá: código T-123, título, tablero, estado, cuándo terminó, repo y link al commit. Sirve para preguntas como '¿qué se terminó esta semana?'. Sin tablero_id trae todos los tableros del negocio. Máximo 500.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        semana: { type: "string", description: "Cualquier fecha de la semana, AAAA-MM-DD (por ejemplo 2026-10-30 trae del lunes 26-oct al domingo 1-nov). Sin ella, la semana de hoy." },
+        tablero_id: { type: "string", description: "Id del tablero (ver listar_tableros). Opcional." },
+      },
       additionalProperties: false,
     },
     annotations: SOLO_LECTURA,
@@ -669,8 +693,10 @@ export async function ejecutarHerramientaMcpTableros(
       };
     }
     case "ver_tablero": {
-      const { tablero, tarjetas, conexiones, tipos } = await verTablero(contexto,args.tablero_id);
-      const filtro = typeof args.estado === "string" ? args.estado : null;
+      // ARCHIVADA no es un estado: trae solo las archivadas (siguen HECHO o FALLIDO) y no filtra más por estado.
+      const soloArchivadas = args.estado === ESTADO_ARCHIVADA;
+      const { tablero, tarjetas, conexiones, tipos } = await verTablero(contexto, args.tablero_id, { archivadas: soloArchivadas });
+      const filtro = typeof args.estado === "string" && !soloArchivadas ? args.estado : null;
       const titulo = new Map(tarjetas.map((tarjeta) => [tarjeta.id, tarjeta.titulo]));
       const tipoDe = new Map(tipos.map((tipo) => [tipo.id, tipo]));
       const nombres = new Map(tipos.map((tipo) => [tipo.id, tipo.nombre]));
@@ -696,6 +722,9 @@ export async function ejecutarHerramientaMcpTableros(
         tablero_id: tablero.id,
         nombre: tablero.nombre,
         total_tarjetas: tarjetas.length,
+        ...(soloArchivadas
+          ? { aviso: "Son las ARCHIVADAS: terminadas que ya salieron del tablero. Siguen HECHO o FALLIDO y no cuentan para el límite. Se devuelven al tablero con el botón Desarchivar de 'Trabajos terminados'." }
+          : {}),
         tipos: tipos.map((tipo) => tipoParaClaude(tipo, nombres)),
         tarjetas: visibles.map((tarjeta) => {
           const tipo = tipoDe.get(tarjeta.tipoId);
@@ -745,6 +774,33 @@ export async function ejecutarHerramientaMcpTableros(
             a_titulo: titulo.get(conexion.destinoId) ?? null,
           })),
         link: linkDelTablero(tablero.id),
+      };
+    }
+    case "listar_terminadas": {
+      const semanaPedida = typeof args.semana === "string" && args.semana.trim() ? args.semana.trim() : DIA_BOGOTA.format(new Date());
+      const tableroPedido = typeof args.tablero_id === "string" && args.tablero_id.trim() ? args.tablero_id.trim() : null;
+      // El tablero pedido tiene que ser de este negocio (si no, "no existe").
+      const tablero = tableroPedido ? (await verTablero(contexto, tableroPedido)).tablero : null;
+      const { semana, tarjetas } = await terminadasDeLaSemana(contexto, semanaPedida, tablero?.id ?? null);
+      return {
+        semana: `del lunes ${semana.lunes} al domingo ${semana.domingo} (hora de Bogotá)`,
+        ...(tablero ? { tablero: referencia(tablero) } : {}),
+        total: tarjetas.length,
+        hechas: tarjetas.filter((tarjeta) => tarjeta.estado === "HECHO").length,
+        fallidas: tarjetas.filter((tarjeta) => tarjeta.estado === "FALLIDO").length,
+        tarjetas: tarjetas.map((tarjeta) => ({
+          tarjeta_id: tarjeta.id,
+          ...(tarjeta.codigo ? { codigo: tarjeta.codigo } : {}),
+          titulo: tarjeta.titulo,
+          tablero: tarjeta.tableroNombre,
+          estado: tarjeta.estado,
+          terminada: hora(new Date(tarjeta.terminadaEn)),
+          archivada: Boolean(tarjeta.archivadaEn),
+          ...(tarjeta.repo ? { repo: tarjeta.repo } : {}),
+          ...(tarjeta.commit ? { commit: tarjeta.commit } : {}),
+          ...(tarjeta.linkCommit ? { link_commit: tarjeta.linkCommit } : {}),
+        })),
+        pantalla: "/cliente/tablero-ia?vista=terminados",
       };
     }
     case "listar_tipos": {

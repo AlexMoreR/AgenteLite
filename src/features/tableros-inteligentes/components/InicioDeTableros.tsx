@@ -22,6 +22,7 @@ import {
 } from "./DialogoDeTablero";
 import { ResumenDelDia } from "./ResumenDelDia";
 import { VistaDeHoy } from "./VistaDeHoy";
+import { TrabajosTerminados } from "./TrabajosTerminados";
 import { SeccionTrabajador } from "./SeccionTrabajador";
 import { useListaDeTableros } from "../hooks/useRefrescoDelTablero";
 
@@ -52,11 +53,13 @@ const CUANDO = new Intl.DateTimeFormat("es-CO", {
 });
 
 /** Las pestañas de arriba (solo las ve el dueño o el ADMIN): "Tableros" es lo de siempre. */
-export type VistaDelInicio = "tableros" | "hoy" | "coordinador";
-const PESTANAS: { vista: VistaDelInicio; nombre: string }[] = [
+export type VistaDelInicio = "tableros" | "hoy" | "coordinador" | "terminados";
+// `corto` es el nombre en el celular: las cuatro pestañas caben en una fila.
+const PESTANAS: { vista: VistaDelInicio; nombre: string; corto?: string }[] = [
   { vista: "tableros", nombre: "Tableros" },
   { vista: "hoy", nombre: "Hoy" },
-  { vista: "coordinador", nombre: "Coordinador en vivo" },
+  { vista: "coordinador", nombre: "Coordinador en vivo", corto: "Coordinador" },
+  { vista: "terminados", nombre: "Trabajos terminados", corto: "Terminados" },
 ];
 
 const tarjetasEnTexto = (cuantas: number) => (cuantas === 1 ? "1 tarjeta" : `${cuantas} tarjetas`);
@@ -71,7 +74,7 @@ type Props = {
   cuentas: CuentasDeTableros;
   /** Las tarjetas que le asignaron a quien mira, en cualquier tablero del negocio ("Asignadas a mí"). */
   asignadas: AsignadaVista[];
-  /** Con qué pestaña abre (?vista=hoy o ?vista=coordinador). Sin permiso de administrar siempre es "tableros". */
+  /** Con qué pestaña abre (?vista=hoy, ?vista=coordinador o ?vista=terminados). Sin permiso de administrar siempre es "tableros". */
   vistaInicial?: VistaDelInicio;
 };
 
@@ -85,12 +88,13 @@ export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar,
     [lista],
   );
   const [edicion, setEdicion] = useState<EdicionDeTablero | null>(null);
-  // Las pestañas "Tableros" y "Coordinador en vivo" (solo el dueño o el ADMIN las ven).
+  // Las pestañas "Tableros", "Hoy", "Coordinador en vivo" y "Trabajos terminados" (solo el dueño o el ADMIN las ven).
   const [vista, setVista] = useState<VistaDelInicio>(puedeAdministrar ? vistaInicial : "tableros");
   const enHoy = puedeAdministrar && vista === "hoy";
-  // Las vistas que reemplazan al listado de tableros ("Hoy" y "Coordinador en vivo").
+  // Las vistas que reemplazan al listado de tableros ("Hoy", "Coordinador en vivo" y "Trabajos terminados").
   const enCoordinador = puedeAdministrar && vista === "coordinador";
-  const aparte = enHoy || enCoordinador;
+  const enTerminados = puedeAdministrar && vista === "terminados";
+  const aparte = enHoy || enCoordinador || enTerminados;
   const elegirVista = (nueva: VistaDelInicio) => {
     setVista(nueva);
     // El link se queda con la pestaña (recargar o compartir vuelve a ella) sin recargar la página.
@@ -101,18 +105,25 @@ export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar,
     <div className="tablero-ia mx-auto w-full max-w-6xl space-y-8 px-4 py-6 md:px-6">
       {puedeAdministrar ? (
         <div role="tablist" aria-label="Vistas de Tablero IA" className="flex gap-1 rounded-xl border bg-muted/40 p-1">
-          {PESTANAS.map(({ vista: clave, nombre }) => (
+          {PESTANAS.map(({ vista: clave, nombre, corto }) => (
             <button
               key={clave}
               type="button"
               role="tab"
               aria-selected={vista === clave}
               onClick={() => elegirVista(clave)}
-              className={`h-11 flex-1 rounded-lg px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:h-9 ${
+              className={`h-11 min-w-0 flex-1 rounded-lg px-1.5 text-sm font-medium sm:px-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:h-9 ${
                 vista === clave ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              {nombre}
+              {corto ? (
+                <>
+                  <span className="sm:hidden">{corto}</span>
+                  <span className="hidden sm:inline">{nombre}</span>
+                </>
+              ) : (
+                nombre
+              )}
             </button>
           ))}
         </div>
@@ -121,6 +132,8 @@ export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar,
       {enHoy ? <VistaDeHoy /> : null}
 
       {enCoordinador ? <CoordinadorEnVivo /> : null}
+
+      {enTerminados ? <TrabajosTerminados /> : null}
 
       {!aparte && asignadas.length > 0 ? (
         <section aria-labelledby="titulo-asignadas" className="space-y-3">

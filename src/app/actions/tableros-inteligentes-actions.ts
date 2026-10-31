@@ -52,6 +52,11 @@ import {
   ponerAvisosAlEquipo,
 } from "@/features/tableros-inteligentes/services/avisos-al-equipo";
 import { resumenDeHoyParaLaPantalla, vistaDeHoy, type VistaDeHoy } from "@/features/tableros-inteligentes/services/resumen-diario";
+import {
+  desarchivarTarjeta,
+  listarArchivadas,
+  type ArchivadaVista,
+} from "@/features/tableros-inteligentes/services/archivadas";
 import type { MomentoDeAprobacion } from "@/features/tableros-inteligentes/services/reglas-trabajador";
 
 /*
@@ -390,6 +395,31 @@ export async function vistaDeHoyAction(): Promise<{ ok: true; vista: VistaDeHoy 
     return { ok: true, vista: await vistaDeHoy(access.workspaceId) };
   } catch (fallo) {
     return { ok: false, error: mensaje(fallo, "No se pudo leer lo de hoy") };
+  }
+}
+
+/** "Trabajos terminados": las archivadas de todos los tableros, con buscador. Solo el dueño o el ADMIN. */
+export async function trabajosTerminadosAction(
+  buscar?: string,
+): Promise<{ ok: true; tarjetas: ArchivadaVista[] } | { ok: false; error: string }> {
+  const access = await accesoDelDueno();
+  if (!access) return { ok: false, error: "Los trabajos terminados los ve solo el dueño del negocio." };
+  try {
+    return { ok: true, tarjetas: await listarArchivadas(alcanceDe(access), { buscar: typeof buscar === "string" ? buscar : null }) };
+  } catch (fallo) {
+    return { ok: false, error: mensaje(fallo, "No se pudieron leer los trabajos terminados") };
+  }
+}
+
+/** Devuelve una tarjeta archivada a su tablero (queda anotado en el historial). Solo el dueño o el ADMIN. */
+export async function desarchivarTarjetaAction(tarjetaId: string): Promise<Resultado> {
+  const access = await accesoDelDueno();
+  if (!access) return { ok: false, error: "Desarchivar lo hace solo el dueño del negocio." };
+  try {
+    await desarchivarTarjeta({ ...alcanceDe(access), userId: access.userId, origen: "PANTALLA" }, tarjetaId);
+    return { ok: true };
+  } catch (fallo) {
+    return { ok: false, error: mensaje(fallo, "No se pudo desarchivar") };
   }
 }
 
