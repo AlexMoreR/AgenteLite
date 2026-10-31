@@ -313,6 +313,9 @@ function tarjeta(id, extra = {}) {
     trabajoVenceEn: null,
     responsableId: null,
     borradoEn: null,
+    // Tarjetas archivadas (30-oct-2026): en la base nacen vacías.
+    archivadaEn: null,
+    terminadaEn: null,
     creadoEn: ahora(),
     actualizadoEn: ahora(),
     ...resto,
