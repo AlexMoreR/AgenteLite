@@ -5,7 +5,8 @@
 //   - las dos van a SUBIR (la cola de subida a main: de a una por repo, con rebase y compilación de nuevo);
 //   - las dos van a construir o subir (planear solo lee: nunca choca) y tocan la misma zona protegida
 //     (chats, bot de ventas, libro V3, Meta Ads) o el mismo módulo (src/features/<x>, src/app/<...>,
-//     src/lib/<x>, prisma, package.json...), según los archivos que dice el plan;
+//     src/lib/<x>, prisma, package.json...), según los archivos que dice el plan; o una carpeta o glob del plan
+//     ("src/features/coach/", "src/lib/**") contiene un archivo de la otra (ver rutasChocan);
 //   - el plan de alguna no dice ningún archivo: no se sabe qué toca, mejor en fila.
 // Tarjetas de repos distintos nunca chocan.
 //   (Los archivos "sin choque" —por defecto los .md, como docs/que-es-esta-aplicacion.md— no cuentan: ver noChoca.)
@@ -78,13 +79,16 @@ export function archivosDelPlan(plan) {
 
 function archivosDeTexto(texto) {
   const encontrados = new Set();
-  for (const crudo of texto.split(/[\s`'"“”‘’(),;<>|*]+/)) {
+  // 31-oct-2026: los "*" ya no cortan la ruta ("src/lib/**" queda entero). Solo se quitan los del markdown
+  // ("**src/a.ts**"): los de adelante si siguen con una letra, los de atrás si no vienen después de una "/".
+  for (const crudo of texto.split(/[\s`'"“”‘’(),;<>|]+/)) {
     if (!crudo || /^[a-z]+:\/\//i.test(crudo) || crudo.includes("://")) continue;
     // Sin puntuación al final ("src/a.ts." o "src/a/:") ni ":12" de línea.
-    const limpio = crudo.replace(/\\/g, "/").replace(/^\.\//, "").replace(/:\d+(:\d+)?$/, "").replace(/[.:!?]+$/, "");
+    const sinMarkdown = crudo.replace(/^\*+(?=[\w@[])/, "").replace(/([^/*])\*+$/, "$1");
+    const limpio = sinMarkdown.replace(/\\/g, "/").replace(/^\.\//, "").replace(/:\d+(:\d+)?$/, "").replace(/[.:!?]+$/, "");
     if (!limpio || limpio.startsWith("/") || limpio.includes("..")) continue;
     const partes = limpio.split("/").filter(Boolean);
-    if (!partes.length || !/^[\w.@[\]-]+$/.test(partes.join(""))) continue;
+    if (!partes.length || !/^[\w.@[\]*-]+$/.test(partes.join("")) || partes.every((parte) => /^\*+$/.test(parte))) continue;
     const esRuta = partes.length > 1 ? EXTENSIONES.test(limpio) || RAICES.has(partes[0]) : EXTENSIONES.test(limpio) && /^[\w.-]+$/.test(limpio);
     if (esRuta) encontrados.add(partes.join("/"));
   }
@@ -104,9 +108,11 @@ const segmentoUtil = (parte) => !/^\(.*\)$/.test(parte) && !/^\[.*\]$/.test(part
  */
 export const CARPETAS_COMUNES = ["app/actions", "lib/mcp", "app/api/mcp", "app/api/cron", "components", "hooks", "types"];
 
-/** El módulo de una ruta: dos archivos del mismo módulo no se construyen a la vez. */
+/** El módulo de una ruta: dos archivos del mismo módulo no se construyen a la vez. En un glob cuenta lo de antes del primer "*". */
 export function moduloDe(ruta) {
-  const partes = String(ruta).replace(/\\/g, "/").split("/").filter(Boolean);
+  const todas = String(ruta).replace(/\\/g, "/").split("/").filter(Boolean);
+  const comodin = todas.findIndex((parte) => parte.includes("*"));
+  const partes = comodin < 0 ? todas : todas.slice(0, comodin);
   if (partes[0] === "src") partes.shift();
   if (!partes.length) return null;
   if (partes[0] === "prisma") return "prisma";
@@ -125,8 +131,40 @@ export function moduloDe(ruta) {
 }
 
 /**
+ * Ruta contra ruta (31-oct-2026): el módulo no alcanza cuando el plan nombra una CARPETA ("src/features/coach/",
+ * "src/app/actions") o un glob ("src/lib/**", "src/features/*.ts"): esa ruta choca con cualquier archivo que caiga
+ * dentro. Una ruta sin extensión al final se toma como carpeta (= "<carpeta>/**").
+ */
+const comoGlob = (ruta) => {
+  const limpia = String(ruta).replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+$/, "");
+  if (limpia.includes("*") || esArchivo(limpia.split("/").at(-1))) return limpia;
+  return `${limpia}/**`;
+};
+/** Las carpetas fijas de un glob (lo de antes del primer segmento con "*"). */
+const prefijoFijo = (glob) => {
+  const partes = glob.split("/");
+  const comodin = partes.findIndex((parte) => parte.includes("*"));
+  return comodin < 0 ? partes : partes.slice(0, comodin);
+};
+
+/** ¿Dos rutas del plan (archivo, carpeta o glob) pueden caer en el mismo archivo? */
+export function rutasChocan(a, b) {
+  const globA = comoGlob(a);
+  const globB = comoGlob(b);
+  if (globA === globB) return true;
+  const fijaA = !globA.includes("*");
+  const fijaB = !globB.includes("*");
+  if (fijaA && fijaB) return false;
+  if (fijaA) return globARegex(globB).test(globA);
+  if (fijaB) return globARegex(globA).test(globB);
+  // Dos globs: chocan si las carpetas fijas de una están dentro de las de la otra (a lo seguro: "src/lib/**" y "src/lib/x/*.ts").
+  const [corta, larga] = [prefijoFijo(globA), prefijoFijo(globB)].sort((x, y) => x.length - y.length);
+  return corta.every((parte, i) => parte === larga[i]);
+}
+
+/**
  * Lo que importa de una tarjeta para saber si choca: repo, etapa, zonas (las que ya tiene + las que
- * tocan los archivos del plan) y módulos (null = el plan no dice archivos).
+ * tocan los archivos del plan), módulos (null = el plan no dice archivos) y rutas (las del plan que cuentan, con sus globs).
  */
 export function huellaDeTarjeta(tarjeta, hacer, repoConfig) {
   const archivos = archivosDelPlan(tarjeta.plan);
@@ -136,8 +174,9 @@ export function huellaDeTarjeta(tarjeta, hacer, repoConfig) {
   ]);
   // null = el plan no dice archivos (no se sabe qué toca: en fila). Si solo nombra archivos sin choque (.md), no choca con nadie.
   const sinChoque = repoConfig?.sinChoque ?? SIN_CHOQUE_POR_DEFECTO;
-  const modulos = archivos.length ? new Set(archivos.filter((archivo) => !noChoca(archivo, sinChoque)).map(moduloDe).filter(Boolean)) : null;
-  return { id: tarjeta.id, titulo: tarjeta.titulo, repo: tarjeta.repo, hacer, zonas, modulos };
+  const rutas = archivos.filter((archivo) => !noChoca(archivo, sinChoque));
+  const modulos = archivos.length ? new Set(rutas.map(moduloDe).filter(Boolean)) : null;
+  return { id: tarjeta.id, titulo: tarjeta.titulo, repo: tarjeta.repo, hacer, zonas, modulos, rutas };
 }
 
 /** ¿Chocan? Devuelve el motivo en palabras sencillas, o null si pueden ir a la vez. */
@@ -150,6 +189,10 @@ export function motivoDeChoque(a, b) {
   if (!a.modulos || !b.modulos) return `el plan de "${(!a.modulos ? a : b).titulo}" no dice qué archivos toca`;
   const modulo = [...a.modulos].find((uno) => b.modulos.has(uno));
   if (modulo) return `las dos tocan el módulo ${modulo}`;
+  for (const rutaA of a.rutas ?? []) {
+    const rutaB = (b.rutas ?? []).find((otra) => rutasChocan(rutaA, otra));
+    if (rutaB) return rutaA === rutaB ? `las dos tocan ${rutaA}` : `las dos tocan ${rutaA} y ${rutaB} (una está dentro de la otra)`;
+  }
   return null;
 }
 

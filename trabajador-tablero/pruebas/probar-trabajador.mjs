@@ -4286,6 +4286,29 @@ try {
     sinRestos();
   });
 
+  await prueba("caso 4 — una carpeta o un glob del plan choca con el archivo de la otra: no se toma mientras corre la primera, espera con 'contra' = la primera y se toma sola al terminar", async () => {
+    cerrarLoDeAntes();
+    // Antes (módulo "ventas" contra "ventas/cambio") no chocaban: las dos tocaban src/ventas/cambio.ts a la vez.
+    const primera = nueva("Ventas: cambia el archivo de ventas [mod:ventas]", "PLAN_APROBADO", { plan: "PLAN\n5. Archivos: src/ventas/cambio.ts" });
+    const segunda = nueva("Ventas: ordena toda la carpeta [mod:ventas]", "PLAN_APROBADO", { plan: "PLAN\n5. Archivos: `src/ventas/**`", moderno: true });
+    const planificador = planificar({ ...enParalelo, maxParalelo: 3 });
+    await planificador.llenar(); // toma la primera; la segunda choca y queda en espera
+    assert.equal(planificador.corriendo(), 1);
+    assert.equal(tarjetas.get(segunda).estado, "PLAN_APROBADO", "la segunda no se tomó");
+    const espera = planificador.estado().esperas.find((e) => e.tarjetaId === segunda);
+    assert.equal(espera?.contra, primera);
+    assert.match(espera?.motivo ?? "", /src\/ventas/);
+    await planificador.esperarTodas();
+    assert.ok(!planificador.estado().esperas.some((e) => e.tarjetaId === segunda), "la espera se soltó");
+    await correrHasta(planificador, () => tarjetas.get(segunda).estado !== "PLAN_APROBADO", 120_000);
+    assert.notEqual(tarjetas.get(segunda).estado, "PLAN_APROBADO", "se tomó sola cuando terminó la primera");
+    sinFinal(segunda);
+    await planificador.esperarTodas();
+    planificador.parar();
+    soltarTodas(primera, segunda);
+    sinRestos();
+  });
+
   // ── REVISAR DE NUEVO lo que quedó en Por revisar (30-oct-2026): tarjetas de CHATS en POR_REVISAR, rebase, build, pruebas y envíos ──
   {
     const configRevisar = () => crearConfig({}, { subirSolo: true, zonasQueSubenSolas: ["BOT_VENTAS", "META_ADS", "LIBRO_V3", "CHATS"], vigilancia: { minutos: 0.02, cadaSegundos: 0.3, maxErroresNuevos: 2 } });
