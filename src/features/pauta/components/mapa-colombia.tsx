@@ -176,9 +176,9 @@ export function MapaColombia({ mapa, meses, error }: { mapa: MapaDelMes; meses: 
               {forma("san-andres", FORMAS_DE_DEPARTAMENTOS["san-andres"])}
               <text
                 x={RECUADRO_SAN_ANDRES.x + RECUADRO_SAN_ANDRES.ancho / 2}
-                y={RECUADRO_SAN_ANDRES.y + RECUADRO_SAN_ANDRES.alto + 22}
+                y={RECUADRO_SAN_ANDRES.y + RECUADRO_SAN_ANDRES.alto - 12}
                 textAnchor="middle"
-                className="fill-muted-foreground text-[20px]"
+                className="pointer-events-none fill-muted-foreground text-[30px]"
               >
                 San Andrés
               </text>
