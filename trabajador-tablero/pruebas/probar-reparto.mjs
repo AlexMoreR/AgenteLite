@@ -163,6 +163,24 @@ await prueba("reparto: subir > construir > planear; la que desbloquea; la más c
   assert.equal(candidatas[0].id, "grande", "no cambia la lista que recibe");
 });
 
+await prueba("reparto: respeta la prioridad del CRM (0 PRIORIDAD, 1 CHATS/BOT_VENTAS, 2 las demás) y subir sigue primero", async () => {
+  const candidatas = [
+    { id: "p2", hacer: "planear", prioridad: 2 },
+    { id: "p1", hacer: "planear", prioridad: 1 },
+    { id: "p0", hacer: "planear", prioridad: 0 },
+    { id: "subir", hacer: "subir", prioridad: 2 },
+  ];
+  assert.deepEqual(
+    ordenarCandidatas(candidatas).map((c) => c.id),
+    ["subir", "p0", "p1", "p2"],
+  );
+  // Sin el dato (un CRM viejo) o con uno raro, cuenta como 2 (sin prioridad): queda el orden de siempre.
+  assert.deepEqual(
+    ordenarCandidatas([{ id: "a", hacer: "planear" }, { id: "b", hacer: "planear", prioridad: "x" }, { id: "c", hacer: "planear", prioridad: 2 }]).map((c) => c.id),
+    ["a", "b", "c"],
+  );
+});
+
 await prueba("reparto: se parte ANTES de construir solo una tarea muy grande que no es parte, ni está partida, ni viene de una reparación", async () => {
   const muchos = planCon(...Array.from({ length: 26 }, (_, i) => `src/features/m${i % 4}/${i}.ts`), "docs/que-es-esta-aplicacion.md");
   assert.equal(debePartirAntes({ plan: muchos }).partir, true);

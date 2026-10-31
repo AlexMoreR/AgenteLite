@@ -250,8 +250,24 @@ const whereSinLaVia = (repos: string) => `
 const wherePara = (repos: string) => `${whereSinLaVia(repos)}
     AND ${CONDICION_DE_LA_VIA}`;
 
-/** Primero una SUBIENDO pendiente (la que sube sola no espera detrás de otras); después la que más espera. */
-const ORDEN_PARA_TOMAR = `ORDER BY (c."estado" = 'SUBIENDO') DESC, c."actualizadoEn" ASC, c."creadoEn" ASC`;
+/** Zonas que van antes en la fila (31-oct-2026): ventas y los chats de las asesoras. */
+const ZONAS_CON_PRIORIDAD = ["CHATS", "BOT_VENTAS"] as const;
+
+/**
+ * La prioridad de la tarjeta `c` (31-oct-2026): 0 si dice PRIORIDAD (en MAYÚSCULAS, para que la palabra suelta en un
+ * detalle no la adelante sin querer) en el título o el detalle; 1 si tiene zona CHATS o BOT_VENTAS; 2 las demás.
+ */
+const PRIORIDAD_DE_LA_TARJETA = `(CASE
+    WHEN strpos(c."titulo", 'PRIORIDAD') > 0 OR strpos(COALESCE(c."detalle", ''), 'PRIORIDAD') > 0 THEN 0
+    WHEN c."zonaProtegida" && ARRAY[${listaSql(ZONAS_CON_PRIORIDAD)}]::text[] THEN 1
+    ELSE 2
+  END)`;
+
+/**
+ * Primero una SUBIENDO pendiente (la que sube sola no espera detrás de otras); después la prioridad
+ * (PRIORIDAD_DE_LA_TARJETA) y al final la que más espera. Solo cambia el ORDEN: qué se puede tomar lo dice wherePara.
+ */
+const ORDEN_PARA_TOMAR = `ORDER BY (c."estado" = 'SUBIENDO') DESC, ${PRIORIDAD_DE_LA_TARJETA} ASC, c."actualizadoEn" ASC, c."creadoEn" ASC`;
 
 /**
  * Las que podría tomar, SIN tomarlas, en el orden en que las tomaría. El trabajador las mira para no
@@ -259,11 +275,13 @@ const ORDEN_PARA_TOMAR = `ORDER BY (c."estado" = 'SUBIENDO') DESC, c."actualizad
  * mismo repo: esas las manda en `excluir` a /tomar y esperan en fila.
  * "desbloquea" (25-oct-2026): cuántas tarjetas esperan a que esta esté HECHO (flechas esDependencia que salen de
  * ella): el Coordinador toma primero las que desbloquean a otras (trabajador-tablero/lib/reparto.mjs).
+ * "prioridad" (31-oct-2026): PRIORIDAD_DE_LA_TARJETA (0, 1 o 2), para que el reparto respete el mismo orden.
  * Parámetros: $1 = workspaceId, $2 = repos (text[]).
  */
 export const SQL_CANDIDATAS = `
 SELECT c."id", c."titulo", c."estado"::text AS "estado", c."repo", c."zonaProtegida", c."plan",
-  (SELECT count(*)::int FROM "ConexionTarjeta" d WHERE d."origenId" = c."id" AND d."esDependencia") AS "desbloquea"
+  (SELECT count(*)::int FROM "ConexionTarjeta" d WHERE d."origenId" = c."id" AND d."esDependencia") AS "desbloquea",
+  ${PRIORIDAD_DE_LA_TARJETA}::int AS "prioridad"
 FROM "TarjetaTablero" c
 JOIN "TableroInteligente" b ON b."id" = c."tableroId"
 JOIN "TipoTarjeta" k ON k."id" = c."tipoId"
