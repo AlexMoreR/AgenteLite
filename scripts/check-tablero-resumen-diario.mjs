@@ -1,5 +1,5 @@
 // Pruebas del resumen diario del Tablero IA (resumen-diario.ts): el día de Bogotá, cómo se arma con el historial
-// de HOY (no el de ayer), el texto corto de 2 líneas, la vista "Hoy" y la caja "Resumen de hoy" con un prisma
+// de HOY (no el de ayer), el texto corto de 4 líneas (la línea Falló con los choques con main, 31-oct-2026), la vista "Hoy" y la caja "Resumen de hoy" con un prisma
 // FALSO. Desde el 26-oct-2026 el resumen YA NO se manda por WhatsApp (el silencio, las 3 líneas y los avisos al
 // dueño se prueban en check-tablero-avisos-al-dueno.mjs). No necesita base ni red.
 // Correr: npm run test:tablero-resumen-diario
@@ -8,7 +8,7 @@ import { cargar } from "./supervisor-cargar.mjs";
 
 /* ------------------------------------------------------------------ falsos */
 
-const estado = { esperando: [], tarjetas: [], historial: [], ajustes: new Map(), negocios: ["ws1"], salidas: [], mensajes: [], whatsappSale: true, activo: true, destino: "573001112233" };
+const estado = { esperando: [], tarjetas: [], historial: [], intentos: [], ajustes: new Map(), negocios: ["ws1"], salidas: [], mensajes: [], whatsappSale: true, activo: true, destino: "573001112233" };
 
 const falso = {
   historialTarjeta: {
@@ -19,6 +19,17 @@ const falso = {
         .filter((f) => where.OR.some((o) => Object.entries(o).every(([k, v]) => f[k] === v)))
         .sort((a, b) => a.creadoEn - b.creadoEn)
         .map((f) => ({ ...f, tarjeta: { titulo: f.titulo } })),
+  },
+  // Los intentos de las tarjetas (31-oct-2026): para contar las que chocaron con main ese día.
+  intentoTarjeta: {
+    findMany: async ({ where, distinct }) => {
+      const filas = estado.intentos
+        .filter((i) => i.workspaceId === where.tarjeta.tablero.workspaceId)
+        .filter((i) => i.creadoEn >= where.creadoEn.gte && i.creadoEn < where.creadoEn.lt)
+        .filter((i) => where.categoria.in.includes(i.categoria));
+      const unicas = distinct?.includes("tarjetaId") ? filas.filter((i, n) => filas.findIndex((o) => o.tarjetaId === i.tarjetaId) === n) : filas;
+      return unicas.map((i) => ({ tarjetaId: i.tarjetaId }));
+    },
   },
   appSetting: {
     findUnique: async ({ where }) => (estado.ajustes.has(where.key) ? { value: estado.ajustes.get(where.key) } : null),
@@ -75,6 +86,7 @@ const { QUIEN_AUTOMATICO } = cargar("src/features/tableros-inteligentes/services
 let pruebas = 0;
 async function prueba(nombre, fn) {
   estado.historial.length = 0;
+  estado.intentos.length = 0;
   estado.ajustes.clear();
   estado.mensajes.length = 0;
   estado.esperando = [];
@@ -132,7 +144,7 @@ await prueba("armarResumen lista solo lo de hoy (no lo de ayer)", () => {
   assert.equal(r.subidas.find((x) => x.tarjetaId === "b").commit, "abcdef1234567890");
   assert.equal(r.fallas.length, 1);
   assert.equal(r.fallas[0].motivo, "las pruebas fallaron");
-  assert.deepEqual(resumen.cifrasDelDia(resumen.armarResumen("2026-10-22", [aprobada({ creadoEn: AYER })]), 0), { listas: 0, conProblema: 0, esperando: 0 });
+  assert.deepEqual(resumen.cifrasDelDia(resumen.armarResumen("2026-10-22", [aprobada({ creadoEn: AYER })]), 0), { listas: 0, conProblema: 0, esperando: 0, chocaronConMain: 0 });
 });
 
 await prueba("una falla sin motivo en la fila (30-oct-2026) lee la nota, el error de la tarjeta y la última causa antes de decir 'sin motivo'", () => {
@@ -150,7 +162,7 @@ await prueba("las que ya estaban hechas (27-oct-2026) salen aparte, con su commi
   ]);
   assert.equal(r.subidas.length, 1, "solo la construida");
   assert.deepEqual(r.yaHechas.map((x) => [x.tarjetaId, x.titulo, x.commit]), [["ya", "Registro de retroactivos", "f4759b0"]]);
-  assert.deepEqual(resumen.cifrasDelDia(r, 0), { listas: 1, conProblema: 0, esperando: 0 });
+  assert.deepEqual(resumen.cifrasDelDia(r, 0), { listas: 1, conProblema: 0, esperando: 0, chocaronConMain: 0 });
 });
 
 await prueba("el resumen de ayer: 4 listas, 1 con problema y 2 esperando -> 2 líneas y un solo link", () => {
@@ -160,9 +172,9 @@ await prueba("el resumen de ayer: 4 listas, 1 con problema y 2 esperando -> 2 l�
   ];
   const r = resumen.armarResumen("2026-10-22", filas);
   const cifras = resumen.cifrasDelDia(r, 2);
-  assert.deepEqual(cifras, { listas: 4, conProblema: 1, esperando: 2 });
+  assert.deepEqual(cifras, { listas: 4, conProblema: 1, esperando: 2, chocaronConMain: 0 });
   const texto = resumen.textoDelResumen(cifras);
-  assert.equal(texto, "Resumen de Sistemas de hoy:\n✅ Se arregló: 4 tareas\n⚠️ Falló: 1 tarea\n👆 Pendiente: 2 tareas");
+  assert.equal(texto, "Resumen de Sistemas de hoy:\n✅ Se arregló: 4 tareas\n⚠️ Falló: 1 tarea (0 por choque con main)\n👆 Pendiente: 2 tareas");
   const lineas = texto.split("\n");
   assert.ok(lineas.length <= 4, "4 líneas o menos");
   assert.doesNotMatch(texto, /commit|rama|http|tablero\/|abcdef|Tarjeta larguísima/i, "sin links ni detalles para revisar");
@@ -176,25 +188,53 @@ await prueba("cifras: una tarjeta que falló y luego subió cuenta una sola vez,
     falla({ tarjetaId: "y" }),
     falla({ tarjetaId: "y", creadoEn: HOY_TARDE }),
   ]);
-  assert.deepEqual(resumen.cifrasDelDia(r, 0), { listas: 1, conProblema: 1, esperando: 0 });
+  assert.deepEqual(resumen.cifrasDelDia(r, 0), { listas: 1, conProblema: 1, esperando: 0, chocaronConMain: 0 });
 });
 
-await prueba("textoDelResumen: máximo 4 líneas, sin links, y con las tres en 0 no hay texto", () => {
+await prueba("textoDelResumen: máximo 4 líneas, sin links, y con todas en 0 no hay texto", () => {
   assert.equal(
-    resumen.textoDelResumen({ listas: 1, conProblema: 0, esperando: 0 }),
-    "Resumen de Sistemas de hoy:\n✅ Se arregló: 1 tarea\n⚠️ Falló: nada\n👆 Pendiente: nada",
+    resumen.textoDelResumen({ listas: 1, conProblema: 0, esperando: 0, chocaronConMain: 0 }),
+    "Resumen de Sistemas de hoy:\n✅ Se arregló: 1 tarea\n⚠️ Falló: nada (0 por choque con main)\n👆 Pendiente: nada",
   );
   assert.equal(
-    resumen.textoDelResumen({ listas: 0, conProblema: 0, esperando: 3 }),
-    "Resumen de Sistemas de hoy:\n✅ Se arregló: nada\n⚠️ Falló: nada\n👆 Pendiente: 3 tareas",
+    resumen.textoDelResumen({ listas: 0, conProblema: 0, esperando: 3, chocaronConMain: 0 }),
+    "Resumen de Sistemas de hoy:\n✅ Se arregló: nada\n⚠️ Falló: nada (0 por choque con main)\n👆 Pendiente: 3 tareas",
   );
-  assert.equal(resumen.textoDelResumen({ listas: 0, conProblema: 0, esperando: 0 }), "");
-  assert.equal(resumen.haySinMovimiento({ listas: 0, conProblema: 0, esperando: 0 }), true);
-  for (const cifras of [{ listas: 9, conProblema: 9, esperando: 9 }, { listas: 0, conProblema: 2, esperando: 0 }]) {
+  assert.equal(resumen.textoDelResumen({ listas: 0, conProblema: 0, esperando: 0, chocaronConMain: 0 }), "");
+  assert.equal(resumen.haySinMovimiento({ listas: 0, conProblema: 0, esperando: 0, chocaronConMain: 0 }), true);
+  for (const cifras of [{ listas: 9, conProblema: 9, esperando: 9, chocaronConMain: 9 }, { listas: 0, conProblema: 2, esperando: 0, chocaronConMain: 0 }]) {
     const texto = resumen.textoDelResumen(cifras);
     assert.ok(texto.split("\n").length <= 4);
     assert.doesNotMatch(texto, /https?:\/\//);
   }
+});
+
+await prueba("textoDelResumen: la línea Falló dice cuántas chocaron con main (1 y 0) y siguen siendo 4 líneas", () => {
+  const con = resumen.textoDelResumen({ listas: 2, conProblema: 2, esperando: 0, chocaronConMain: 1 });
+  assert.equal(con, "Resumen de Sistemas de hoy:\n✅ Se arregló: 2 tareas\n⚠️ Falló: 2 tareas (1 por choque con main)\n👆 Pendiente: nada");
+  assert.equal(con.split("\n").length, 4);
+  const sin = resumen.textoDelResumen({ listas: 0, conProblema: 1, esperando: 1, chocaronConMain: 0 });
+  assert.equal(sin, "Resumen de Sistemas de hoy:\n✅ Se arregló: nada\n⚠️ Falló: 1 tarea (0 por choque con main)\n👆 Pendiente: 1 tarea");
+  assert.equal(sin.split("\n").length, 4);
+  // Un día con solo un choque (que se resolvió solo y la tarea sigue en curso) también se cuenta.
+  const soloChoque = resumen.textoDelResumen({ listas: 0, conProblema: 0, esperando: 0, chocaronConMain: 1 });
+  assert.equal(soloChoque, "Resumen de Sistemas de hoy:\n✅ Se arregló: nada\n⚠️ Falló: nada (1 por choque con main)\n👆 Pendiente: nada");
+  assert.equal(soloChoque.split("\n").length, 4);
+});
+
+await prueba("cuantasChocaronConMain: tarjetas distintas con choca_con_main o choque_de_logica de ese día, solo del negocio", async () => {
+  const intento = (extra) => ({ workspaceId: "ws1", tarjetaId: "k1", categoria: "choca_con_main", creadoEn: HOY_MANANA, ...extra });
+  estado.intentos.push(
+    intento({}),
+    intento({ creadoEn: HOY_TARDE }), // la misma tarjeta dos veces: cuenta una
+    intento({ tarjetaId: "k2", categoria: "choque_de_logica" }),
+    intento({ tarjetaId: "k3", categoria: "no_compila" }), // otra categoría: no cuenta
+    intento({ tarjetaId: "k4", creadoEn: AYER }), // de ayer: no cuenta
+    intento({ tarjetaId: "k5", workspaceId: "otro" }), // de otro negocio: no cuenta
+  );
+  assert.equal(await resumen.cuantasChocaronConMain("ws1", "2026-10-22"), 2);
+  assert.equal(await resumen.cuantasChocaronConMain("ws1", "2026-10-21"), 1);
+  assert.deepEqual([...resumen.CATEGORIAS_DE_CHOQUE_CON_MAIN], ["choca_con_main", "choque_de_logica"]);
 });
 
 await prueba("enviarResumenDiarioAlDueno: una vez al día, a la hora, sin silencio ni movimiento vacío", async () => {
@@ -209,6 +249,7 @@ await prueba("enviarResumenDiarioAlDueno: una vez al día, a la hora, sin silenc
   assert.deepEqual(await resumen.enviarResumenDiarioAlDueno(TARDE), { enviados: 1 });
   assert.equal(estado.mensajes.length, 1);
   assert.equal(estado.mensajes[0].text.split("\n").length, 4);
+  assert.match(estado.mensajes[0].text, /⚠️ Falló: nada \(0 por choque con main\)/);
   assert.doesNotMatch(estado.mensajes[0].text, /https?:\/\//);
   assert.deepEqual(await resumen.enviarResumenDiarioAlDueno(new Date(TARDE.getTime() + 60_000)), { enviados: 0 }, "no se repite el mismo día");
   assert.equal(estado.mensajes.length, 1);
@@ -273,11 +314,14 @@ await prueba("vistaDeHoy muestra las 3 líneas de la subida y, sin ellas, se ve 
 
 await prueba("resumenDeHoyParaLaPantalla devuelve las cifras, el texto corto y el interruptor (sin envío por WhatsApp)", async () => {
   estado.historial.push(subida({ tarjetaId: "h1", titulo: "Hoy 1" }), subida({ tarjetaId: "v1", titulo: "De ayer", creadoEn: AYER }));
+  // La tarjeta chocó con main por la mañana (se resolvió solo) y subió por la tarde: cuenta en las dos cifras.
+  estado.intentos.push({ workspaceId: "ws1", tarjetaId: "h1", categoria: "choca_con_main", creadoEn: HOY_MANANA });
   const ahora = new Date("2026-10-23T02:30:00Z");
   const antes = await resumen.resumenDeHoyParaLaPantalla("ws1", ahora);
   assert.equal(antes.dia, "2026-10-22");
-  assert.deepEqual(antes.cifras, { listas: 1, conProblema: 0, esperando: 0 });
-  assert.equal(antes.texto, "Resumen de Sistemas de hoy:\n✅ Se arregló: 1 tarea\n⚠️ Falló: nada\n👆 Pendiente: nada");
+  assert.deepEqual(antes.cifras, { listas: 1, conProblema: 0, esperando: 0, chocaronConMain: 1 });
+  assert.equal(antes.texto, "Resumen de Sistemas de hoy:\n✅ Se arregló: 1 tarea\n⚠️ Falló: nada (1 por choque con main)\n👆 Pendiente: nada");
+  assert.equal(antes.texto.split("\n").length, 4);
   assert.equal(antes.aprobacionAutomatica, true);
   assert.ok(!("envioDeHoy" in antes) && !("ultimoEnvio" in antes), "ya no hay envío por WhatsApp");
   // Al día siguiente, sin movimiento, el texto queda vacío.
