@@ -454,6 +454,51 @@ await prueba("dependencias: una tarjeta no se toma hasta que de la que depende e
   assert.equal((await tomar("ws3"))[0]?.id, "marketing", "si Ventas se borró, no frena");
 });
 
+await prueba("prioridad (31-oct): primero SUBIENDO, después PRIORIDAD, después CHATS o BOT_VENTAS y al final la más vieja", async () => {
+  // Un negocio aparte (y todo dentro de BEGIN/ROLLBACK) para no mover las demás pruebas.
+  await db.query("BEGIN");
+  await db.exec(`
+    INSERT INTO "Workspace" ("id", "name", "slug", "updatedAt", "ownerId") VALUES ('ws5', 'Quinto', 'quinto', now(), NULL);
+    INSERT INTO "TableroInteligente" ("id", "workspaceId", "nombre") VALUES ('tab5', 'ws5', 'Prioridad');
+    INSERT INTO "TipoTarjeta" ("id", "tableroId", "nombre", "requiereAprobacion", "usaEstados", "orden") VALUES ('tarea5', 'tab5', 'Tarea', true, true, 0);
+    INSERT INTO "TarjetaTablero" ("id", "tableroId", "titulo", "detalle", "estado", "creadoPor", "actualizadoEn", "tipoId", "repo", "zonaProtegida") VALUES
+      ('pr-vieja', 'tab5', 'Vieja sin zona', '', 'APROBADO', 'u-dueno', '2026-10-20 01:00:00', 'tarea5', 'aizencrm', ARRAY[]::text[]),
+      ('pr-chats', 'tab5', 'Toca los chats', '', 'APROBADO', 'u-dueno', '2026-10-20 02:00:00', 'tarea5', 'aizencrm', ARRAY['CHATS']),
+      ('pr-prio', 'tab5', 'PRIORIDAD: arreglar el reparto', '', 'APROBADO', 'u-dueno', '2026-10-20 03:00:00', 'tarea5', 'aizencrm', ARRAY[]::text[]),
+      ('pr-minuscula', 'tab5', 'Otra', 'la prioridad es baja', 'APROBADO', 'u-dueno', '2026-10-20 04:00:00', 'tarea5', 'aizencrm', ARRAY[]::text[]);
+    INSERT INTO "HistorialTarjeta" ("id", "tarjetaId", "quien", "origen", "accion", "despues", "creadoEn") VALUES
+      ('hpr1', 'pr-chats', 'u-dueno', 'PANTALLA', 'aprobar', '{"estado":"APROBADO","via":"pantalla"}', '2026-10-20 02:00:00');
+  `);
+  assert.deepEqual(
+    (await candidatas("ws5")).map((f) => [f.id, f.prioridad]),
+    [
+      ["pr-prio", 0],
+      ["pr-chats", 1],
+      ["pr-vieja", 2],
+      ["pr-minuscula", 2],
+    ],
+    "PRIORIDAD, CHATS, la vieja (y «prioridad» en minúsculas no adelanta)",
+  );
+  // Una SUBIENDO pendiente, la más nueva de todas, sigue primero.
+  await db.exec(`
+    INSERT INTO "TarjetaTablero" ("id", "tableroId", "titulo", "estado", "creadoPor", "actualizadoEn", "tipoId", "repo", "trabajoVenceEn") VALUES
+      ('pr-sube', 'tab5', 'Subir', 'SUBIENDO', 'u-dueno', '2026-10-20 09:00:00', 'tarea5', 'aizencrm', NULL)`);
+  assert.deepEqual(
+    (await candidatas("ws5")).map((f) => f.id),
+    ["pr-sube", "pr-prio", "pr-chats", "pr-vieja", "pr-minuscula"],
+  );
+  // Al tomar, una por una, sale el mismo orden.
+  const tomadas = [];
+  for (let vuelta = 0; vuelta < 6; vuelta += 1) {
+    const [tomada] = await tomar("ws5");
+    if (!tomada) break;
+    tomadas.push(tomada.id);
+  }
+  assert.deepEqual(tomadas, ["pr-sube", "pr-prio", "pr-chats", "pr-vieja", "pr-minuscula"]);
+  await db.query("ROLLBACK");
+  assert.deepEqual(await filas(`SELECT "id" FROM "TarjetaTablero" WHERE "id" LIKE 'pr-%'`), [], "el ROLLBACK no deja nada");
+});
+
 await prueba("tomar en otro negocio no ve las de este", async () => {
   const [tomada] = await tomar("ws2");
   assert.equal(tomada.id, "ajena");

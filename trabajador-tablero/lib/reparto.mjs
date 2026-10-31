@@ -3,10 +3,13 @@
 //
 // ESCOGER (ordenarCandidatas). De las que se pueden tomar ahora (las que no chocan con lo que corre, choques.mjs),
 // primero la que está más cerca de HECHO y la que menos se puede caer:
-//   1. subir antes que construir, y construir antes que planear (una tarea construida que no sube no cuenta);
-//   2. la que desbloquea a otras (la parte 1 de una tarea partida, una tarjeta de la que dependen otras);
-//   3. la más chica (menos archivos en el plan: tarda menos y choca menos); un plan que no dice archivos va al final;
-//   4. el orden del CRM (la que más espera).
+//   1. subir antes que todo lo demás (una tarea construida que no sube no cuenta);
+//   2. la prioridad que da el CRM (31-oct-2026, `prioridad` de /candidatas: 0 = dice PRIORIDAD, 1 = zona CHATS o
+//      BOT_VENTAS, 2 = las demás; sin el dato cuenta como 2), el mismo orden con que /tomar las toma;
+//   3. construir antes que planear;
+//   4. la que desbloquea a otras (la parte 1 de una tarea partida, una tarjeta de la que dependen otras);
+//   5. la más chica (menos archivos en el plan: tarda menos y choca menos); un plan que no dice archivos va al final;
+//   6. el orden del CRM (la que más espera).
 //
 // PARTIR ANTES (debePartirAntes). Una tarea muy grande que se va a construir en aizen1 se parte ANTES de gastar
 // 90 min en ella: con más de `partir.archivosAntes` archivos (sin contar documentos) o con migración y pantalla
@@ -20,6 +23,12 @@ import { CARPETAS_COMUNES, SIN_CHOQUE_POR_DEFECTO, archivosDelPlan, noChoca } fr
 
 const ORDEN_DE_ETAPA = { subir: 0, construir: 1, planear: 2 };
 
+/** La prioridad que da el CRM (0, 1 o 2); si falta o no es uno de esos, 2 (sin prioridad). */
+const prioridadDe = (candidata) => {
+  const prioridad = Number(candidata?.prioridad);
+  return prioridad === 0 || prioridad === 1 ? prioridad : 2;
+};
+
 /** Cuántos archivos de código (sin los "sin choque": documentos .md) nombra el plan; null si no nombra ninguno. */
 export function tamanoDelPlan(plan, sinChoque = SIN_CHOQUE_POR_DEFECTO) {
   const archivos = archivosDelPlan(plan);
@@ -29,15 +38,16 @@ export function tamanoDelPlan(plan, sinChoque = SIN_CHOQUE_POR_DEFECTO) {
 
 /**
  * Las candidatas en el orden en que conviene tomarlas (ver arriba). No cambia la lista que recibe.
- * Cada candidata: { id, hacer, plan?, desbloquea? } (como las da /candidatas del CRM).
+ * Cada candidata: { id, hacer, plan?, desbloquea?, prioridad? } (como las da /candidatas del CRM).
  */
 export function ordenarCandidatas(candidatas) {
   return (candidatas ?? [])
     .map((candidata, indice) => {
       const tamano = candidata?.hacer === "planear" ? 0 : tamanoDelPlan(candidata?.plan);
-      return { candidata, indice, etapa: ORDEN_DE_ETAPA[candidata?.hacer] ?? 3, desbloquea: Number(candidata?.desbloquea) || 0, tamano: tamano ?? Number.MAX_SAFE_INTEGER };
+      const etapa = ORDEN_DE_ETAPA[candidata?.hacer] ?? 3;
+      return { candidata, indice, sube: etapa === 0 ? 0 : 1, prioridad: prioridadDe(candidata), etapa, desbloquea: Number(candidata?.desbloquea) || 0, tamano: tamano ?? Number.MAX_SAFE_INTEGER };
     })
-    .sort((a, b) => a.etapa - b.etapa || b.desbloquea - a.desbloquea || a.tamano - b.tamano || a.indice - b.indice)
+    .sort((a, b) => a.sube - b.sube || a.prioridad - b.prioridad || a.etapa - b.etapa || b.desbloquea - a.desbloquea || a.tamano - b.tamano || a.indice - b.indice)
     .map(({ candidata }) => candidata);
 }
 
