@@ -93,8 +93,10 @@ no hace falta. En cada vuelta el Coordinador toma **a lo sumo UNA** de la lista 
 (pasó la construcción, rama `tablero/…`, zonas solo CHATS y/o BOT_VENTAS, sin gasto en Meta Ads) y la revisa él mismo
 (`revisarDeNuevo` en `lib/etapas.mjs`, el revisor en `lib/bucle.mjs`), sin creerle a lo que escribió quien la construyó:
 
-1. `git fetch`, worktree de la rama y `rebaseSobre(origin/main)` (el mismo de `subir()`). Si choca: ERROR
-   «choca con lo ya subido: <archivos>».
+1. `git fetch`, worktree de la rama y `rebaseSobre(origin/main)` (el mismo de `subir()`). Si choca, la sesión corta de
+   «El choque con main al subir» (abajo) resuelve solo esos archivos y, si sale bien, sigue sin volver a compilar (ya
+   verificó). Choque de lógica: ERROR «choque de lógica con lo ya subido: <motivo>»; si no se pudo resolver: ERROR
+   «choca con lo ya subido: <archivos> (<por qué>)».
 2. Si después del rebase no cambia nada o solo `.md`: ERROR «obsoleta: lo que hacía ya está en main».
 3. `instalar`, build y todas las pruebas (`verificar`). Si falla: ERROR con las líneas que fallaron.
 4. Revisión mecánica: `enviosNuevosDeMensajes` en lo que agregan los archivos de CHATS y BOT_VENTAS (`zonasTocadas`). Si
@@ -133,8 +135,33 @@ en **su propia sesión de Claude Code**, su worktree (`carpetaTrabajo/wt/<id>-<e
   Si el plan no dice archivos, también espera (no se sabe qué toca). Planear nunca choca (solo lee).
   Repos distintos nunca chocan.
 - **Cola de subida.** A main de cada repo se sube de a una: rebase sobre lo último de main y, si main
-  cambió, compila, prueba y ensaya otra vez antes del push. Si choca, la tarjeta queda ERROR con el
-  motivo y main no cambia.
+  cambió, compila, prueba y ensaya otra vez antes del push. Si choca, se resuelve solo el choque (ver
+  «El choque con main al subir»); si no se puede, main no cambia.
+
+### El choque con main al subir (31-oct-2026, `lib/resolver-choque.mjs`)
+
+Si el rebase de la rama sobre main choca (otra tarea ya subió cambios a los mismos archivos), ya no se cancela y se
+construye todo otra vez:
+
+1. `rebaseSobre(..., { dejarConflicto: true })` deja el rebase a medias y devuelve los archivos en conflicto (los `.md`
+   se siguen juntando solos con `merge=union`).
+2. Si alguno está en `prisma/migrations/**` (`carpetaMigraciones`): **choque de lógica** enseguida, sin llamar a Claude
+   (las migraciones no se juntan solas).
+3. Si no, una **sesión corta de Claude** (máximo 15 min, `MINUTOS_PARA_RESOLVER`, con las herramientas acotadas de
+   construir) en la carpeta de subida, con la orden de editar SOLO esos archivos y conservar los cambios de las dos
+   tareas. Su última línea dice `CHOQUE_SIMPLE: OK` o `CHOQUE_DE_LOGICA: <motivo>`.
+4. Con `CHOQUE_SIMPLE` el Coordinador no le cree a ciegas: comprueba que no quede ninguna marca `<<<<<<<`, que solo
+   cambiaron los archivos en conflicto y sigue el rebase (`git add` + `rebase --continue`; si el commit siguiente de la
+   rama choca también, otra vuelta, hasta 5). Al terminar, `instalar` y el `verificar` de siempre (compila y pasan todas
+   las pruebas). Si todo pasa, sube como siempre (ensayo de la migración, push sin `--force`, CI, versión).
+5. Lo que no se pudo resolver (no compila, la sesión tocó otros archivos, quedaron marcas, no dijo ninguna de las dos
+   líneas): se cancela el rebase (la rama vuelve a como estaba) y la falla es `choca_con_main`, que **no gasta intento**:
+   se reconstruye desde el main más nuevo, hasta 3 choques seguidos (`TOPE_DE_CHOQUES_SEGUIDOS`); el 4.º escala al dueño.
+6. `CHOQUE_DE_LOGICA`: se cancela el rebase y la tarjeta queda ERROR con la categoría `choque_de_logica` y el motivo en
+   una línea (no se repara sola: lo decide el dueño).
+
+Lo construido en la **nube** sigue el camino de antes: aizen1 no lo compila, así que el choque se manda a verificar otra
+vez a la nube (`verificarEnNube`). Nunca hay `--force` ni push a otra rama: todo pasa en el worktree temporal de subida.
 - **Cuida el PC.** Si la CPU (promedio del último minuto) o la memoria pasan de `limites`
   (`cpuPorciento`, `memoriaPorciento`, 85 % por defecto), no abre otra sesión; las que corren siguen.
 - **Límite de uso de Claude.** Si la suscripción llega a su límite, la tarjeta se **suelta sin ERROR**
@@ -473,8 +500,8 @@ etapa falla, el Coordinador (`lib/bucle.mjs`, `lib/diagnostico.mjs`):
 | `nube_sin_acceso_repo` | `claude --cloud` no conectó el repo (log: "GitHub app is not installed" / `github_preflight_failed`) o la sesión fija no responde | ERROR enseguida ("la nube no tiene acceso al repo"); el proyecto no va a la nube en `nube.sinAccesoMinutos` (60); **no se repara sola** |
 | `revision_no_paso` | los 4 revisores (ver "La revisión de los 4") siguieron pidiendo cambios tras 2 correcciones | ERROR con el revisor, lo que pide y el link de la sesión; **no se repara sola** |
 | `plan_con_preguntas` | el plan aprobado SOLO trae "PREGUNTAS ABIERTAS:" o frases como "hay que confirmar", "antes de construir hay que", "lo que no revisé" (`lib/preguntas-abiertas.mjs`, espejo en `reglas-riesgo.ts`) | no se construye: ERROR + aviso "necesita"; si el dueño aprobó el plan tal cual, sí se construye |
-| `choca_con_main` | main cambió los mismos archivos mientras se construía (conflicto en el rebase, push rechazado, o lo que verificó la nube cambió) | se reconstruye desde el main más nuevo **sin gastar reparación** (`/reparar` con `cuenta: false`: intento "esperar" que no cuenta); al 4.º choque seguido (`TOPE_DE_CHOQUES_SEGUIDOS` = 3, igual en el CRM) escala |
-| `choque_de_logica` | lo nuevo de main y la tarea no encajan aunque el rebase no tuvo conflicto | ERROR enseguida; **no se repara sola** |
+| `choca_con_main` | main cambió los mismos archivos mientras se construía y la sesión corta no pudo resolver el choque (ver «El choque con main al subir»), el push fue rechazado, o lo que verificó la nube cambió | se reconstruye desde el main más nuevo **sin gastar reparación** (`/reparar` con `cuenta: false`: intento "esperar" que no cuenta); al 4.º choque seguido (`TOPE_DE_CHOQUES_SEGUIDOS` = 3, igual en el CRM) escala |
+| `choque_de_logica` | lo nuevo de main y la tarea no encajan: la sesión corta contestó `CHOQUE_DE_LOGICA: <motivo>` o el conflicto es en una migración | ERROR enseguida con el motivo en una línea; **no se repara sola** |
 | cualquier otra | la MISMA categoría ya falló 2 veces en la tarjeta (todos los intentos) | escala (salvo `limite_claude`, `pc_sobrecargado`, `carpeta_trabada`, `coordinador_cortado` y `choca_con_main`, que tienen su tope de esperas o de choques) |
 
 Además: un plan con preguntas abiertas no se aprueba solo (queda PLAN_LISTO con el motivo), y una tarea cuyo plan
@@ -687,6 +714,7 @@ agotado se suelta sin usar Claude, el respaldo de Claude) y la alerta de uso de 
 - `lib/manual-nocturno.mjs`: el manual de la noche (juntar `docs/cambios-pendientes/` en el manual y subirlo a main una vez al día).
 - `lib/bucle.mjs`: el planificador (varias a la vez) y una vuelta (tomar, la etapa con latido, avisar el resultado o el error).
 - `lib/choques.mjs`: qué tarjetas no pueden ir a la vez (zona, módulo, cola de subida).
+- `lib/resolver-choque.mjs`: la sesión corta de Claude que resuelve solo el choque con main al subir y sus comprobaciones.
 - `lib/recursos.mjs`: CPU y memoria del PC (y memoria en GB y disco libre para el latido).
 - `lib/latido.mjs`: el latido de cada 15 s al CRM para el panel "Coordinador en vivo".
 - `lib/nube.mjs`: la regla de reparto (grande o chica), el lanzamiento de `claude --cloud` (con o sin terminal real), el link de la sesión y la vigilancia de la rama en GitHub.

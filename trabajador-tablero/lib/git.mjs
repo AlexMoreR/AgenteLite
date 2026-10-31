@@ -133,9 +133,11 @@ export async function ramaExisteEnElRemoto(cwd, remoto, rama) {
  * líneas de los dos lados quedan): casi todas las tareas agregan una línea al manual (docs/que-es-esta-aplicacion.md)
  * y eso solo no puede tumbar una subida. Va con un archivo de atributos propio (core.attributesFile, solo para este
  * comando): no cambia el repo ni la configuración de git del PC. Si choca, deja el worktree como estaba (rebase --abort).
- * -> { ok, conflicto: [archivos], detalle }
+ * `dejarConflicto` (31-oct-2026, resolver-choque.mjs): si choca NO cancela; el rebase queda a medias con las marcas en
+ * los archivos para resolverlos, seguirlo (seguirRebase) o cancelarlo (cancelarRebase).
+ * -> { ok, conflicto: [archivos], detalle, cabeza (el commit de antes del rebase), atributos (para seguirRebase) }
  */
-export async function rebaseSobre(cwd, base, { identidad, carpetaTrabajo, sinChoque = ["**/*.md"], nombre = "repo" } = {}) {
+export async function rebaseSobre(cwd, base, { identidad, carpetaTrabajo, sinChoque = ["**/*.md"], nombre = "repo", dejarConflicto = false } = {}) {
   // Los globs de repos.<x>.sinChoque (choques.mjs: noChoca) son los que se juntan solos. Un archivo por repo.
   const atributos = path.join(carpetaTrabajo ?? path.dirname(cwd), "cache", `atributos-de-subida-${String(nombre).replace(/[^\w-]/g, "")}`);
   const globs = (sinChoque ?? []).filter((glob) => typeof glob === "string" && /^[^\s#]+$/.test(glob));
@@ -146,11 +148,56 @@ export async function rebaseSobre(cwd, base, { identidad, carpetaTrabajo, sinCho
     // Sin el archivo el rebase es el de siempre.
   }
   const extra = globs.length && fs.existsSync(atributos) ? ["-c", `core.attributesFile=${atributos.replace(/\\/g, "/")}`] : [];
+  const cabeza = (await git(cwd, ["rev-parse", "HEAD"])).salida.trim();
   const rebase = await git(cwd, [...extra, "rebase", base], { identidad, permitirFallo: true });
-  if (rebase.codigo === 0) return { ok: true, conflicto: [], detalle: "" };
-  const conflicto = lineas((await git(cwd, ["diff", "--name-only", "--diff-filter=U"], { permitirFallo: true })).salida);
+  if (rebase.codigo === 0) return { ok: true, conflicto: [], detalle: "", cabeza, atributos: extra };
+  const conflicto = await archivosEnConflicto(cwd);
+  if (!dejarConflicto) await git(cwd, ["rebase", "--abort"], { permitirFallo: true });
+  return { ok: false, conflicto, detalle: ultimasLineas(`${rebase.errores}\n${rebase.salida}`, 15), cabeza, atributos: extra };
+}
+
+/** Los archivos que quedaron en conflicto (sin juntar) en el rebase a medias. */
+export async function archivosEnConflicto(cwd) {
+  return lineas((await git(cwd, ["diff", "--name-only", "--diff-filter=U"], { permitirFallo: true })).salida);
+}
+
+/**
+ * Sigue el rebase a medias (31-oct-2026): `git add` de los archivos ya resueltos y `rebase --continue` (sin abrir editor).
+ * Si el commit siguiente de la rama choca otra vez, el rebase vuelve a quedar a medias.
+ * -> { ok: true } (terminó) | { ok: false, conflicto: [archivos], detalle }
+ */
+export async function seguirRebase(cwd, archivos, { identidad, atributos = [] } = {}) {
+  if (archivos?.length) await git(cwd, ["add", "-A", "--", ...archivos]);
+  const seguir = await git(cwd, [...atributos, "-c", "core.editor=true", "rebase", "--continue"], { identidad, permitirFallo: true });
+  if (seguir.codigo === 0) return { ok: true, conflicto: [], detalle: "" };
+  return { ok: false, conflicto: await archivosEnConflicto(cwd), detalle: ultimasLineas(`${seguir.errores}\n${seguir.salida}`, 15) };
+}
+
+/**
+ * Cancela el rebase (si quedó a medias) y, con `cabeza`, deja la rama en ese commit aunque el rebase ya hubiera terminado.
+ * Solo toca el worktree temporal: nunca empuja nada. Nunca lanza.
+ */
+export async function cancelarRebase(cwd, cabeza = null) {
   await git(cwd, ["rebase", "--abort"], { permitirFallo: true });
-  return { ok: false, conflicto, detalle: ultimasLineas(`${rebase.errores}\n${rebase.salida}`, 15) };
+  if (cabeza) await git(cwd, ["reset", "--hard", cabeza], { permitirFallo: true });
+}
+
+/** De `archivos`, los que todavía tienen una marca de conflicto (<<<<<<< al comienzo de una línea). */
+export function archivosConMarcas(cwd, archivos) {
+  return (archivos ?? []).filter((archivo) => {
+    try {
+      return /^<{7}(?: |$)/m.test(fs.readFileSync(path.join(cwd, archivo), "utf8"));
+    } catch {
+      return false; // borrado: no tiene marcas
+    }
+  });
+}
+
+/** Lo que cambió en el worktree respecto del índice, más los archivos nuevos sin seguir (para ver qué tocó una sesión). */
+export async function archivosTocados(cwd) {
+  const cambiados = lineas((await git(cwd, ["diff", "--name-only"], { permitirFallo: true })).salida);
+  const nuevos = lineas((await git(cwd, ["ls-files", "--others", "--exclude-standard"], { permitirFallo: true })).salida);
+  return [...new Set([...cambiados, ...nuevos])];
 }
 
 /** El push a la rama base (main): SOLO desde la etapa de subir (sube sola o con el sí final). Sin --force. */

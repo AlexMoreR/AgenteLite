@@ -27,7 +27,8 @@ import { MAX_LECCIONES, agenteDelRepo, anotarLeccion, leccionDe, leccionesParaEl
 import { crearCrm } from "../lib/crm.mjs";
 import { CARPETA_DE_NOTAS, MANUAL, crearManualNocturno, horaEnBogota, leerEstadoDelManual } from "../lib/manual-nocturno.mjs";
 import { guionDeEnsayo, sqlParaEnsayo } from "../lib/ensayo.mjs";
-import { esRamaDelTrabajador, idCorto, nombreDeRama, pushDeRama, webDeGithub } from "../lib/git.mjs";
+import { esRamaDelTrabajador, idCorto, nombreDeRama, pushDeRama, rebaseSobre, webDeGithub } from "../lib/git.mjs";
+import { esDeMigraciones, promptDeResolverChoque, resolverChoque, respuestaDelChoque } from "../lib/resolver-choque.mjs";
 import { LARGO_MAXIMO_DEL_AVISO, decidir, diagnosticar, recortarAviso, resumenDeEscalada, textoDelAvisoDeReversion } from "../lib/diagnostico.mjs";
 import {
   CONFIRMACION_REVISION_DE_NUEVO,
@@ -944,6 +945,109 @@ await prueba("31-oct: el bucle reconstruye un choque con main con /reparar cuent
   const otra = await procesar({ crm: crmFalso, config, registro: registroFalso }, base, "Choca con lo nuevo de main: conflicto en el rebase");
   assert.equal(otra.accion, "escalar");
   assert.equal(llamadas.filter(([que]) => que === "error").length, 1, "con el 409 del CRM se escala");
+});
+
+await prueba("31-oct: resolver-choque lee la última línea (CHOQUE_SIMPLE / CHOQUE_DE_LOGICA) y reconoce las migraciones", () => {
+  assert.deepEqual(respuestaDelChoque("Junté las dos.\nCHOQUE_SIMPLE: OK\n"), { tipo: "simple" });
+  assert.deepEqual(respuestaDelChoque("Miré.\n**CHOQUE_DE_LOGICA: las dos cambian el precio**\n"), { tipo: "logica", motivo: "las dos cambian el precio" }, "sin el formato de markdown");
+  assert.deepEqual(respuestaDelChoque("CHOQUE_DE_LOGICA: las dos cambian el precio"), { tipo: "logica", motivo: "las dos cambian el precio" });
+  assert.equal(respuestaDelChoque("CHOQUE_SIMPLE: OK\nY algo más al final"), null, "solo cuenta la última línea");
+  assert.equal(respuestaDelChoque(""), null);
+  assert.equal(esDeMigraciones("prisma/migrations/2026_x/migration.sql"), true);
+  assert.equal(esDeMigraciones("prisma/schema.prisma"), false);
+  assert.equal(esDeMigraciones("db/mig/a.sql", "db/mig/"), true);
+  const orden = promptDeResolverChoque({ tarjeta: { titulo: "Una tarea" }, ramaBase: "main", conflicto: ["src/a.ts"] });
+  assert.match(orden, /^RESOLVER EL CHOQUE CON MAIN/);
+  assert.match(orden, /^Tarea: Una tarea$/m);
+  assert.match(orden, /^- src\/a\.ts$/m);
+  assert.match(orden, /CHOQUE_SIMPLE: OK\nCHOQUE_DE_LOGICA: /);
+});
+
+await prueba("31-oct: resolver-choque: migración sin llamar a Claude, archivos de más, marcas que quedan y verificar que falla cancelan el rebase", async () => {
+  const D = fs.mkdtempSync(path.join(os.tmpdir(), "resolver-choque-"));
+  const gr = (...args) => execFileSync("git", ["-c", "user.name=P", "-c", "user.email=p@x.co", ...args], { cwd: D, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  const escribir = (relativo, texto) => {
+    fs.mkdirSync(path.dirname(path.join(D, relativo)), { recursive: true });
+    fs.writeFileSync(path.join(D, relativo), texto);
+  };
+  try {
+    gr("init", "-b", "main");
+    escribir("a.txt", "base\n");
+    escribir("otro.txt", "otro\n");
+    escribir("prisma/migrations/1_x/migration.sql", "SELECT 1;\n");
+    gr("add", "-A");
+    gr("commit", "-m", "base");
+    // La rama cambia a.txt y la migración; main cambia lo mismo después.
+    gr("checkout", "-b", "tarea");
+    escribir("a.txt", "de la tarea\n");
+    gr("commit", "-am", "tarea a");
+    escribir("prisma/migrations/1_x/migration.sql", "SELECT 2;\n");
+    gr("commit", "-am", "tarea migración");
+    gr("checkout", "main");
+    escribir("a.txt", "de main\n");
+    escribir("prisma/migrations/1_x/migration.sql", "SELECT 3;\n");
+    gr("commit", "-am", "main");
+    gr("checkout", "tarea");
+    const cabeza = gr("rev-parse", "HEAD");
+    const identidad = { nombre: "P", correo: "p@x.co" };
+    const enRebase = () => fs.existsSync(path.join(D, ".git", "rebase-merge")) || fs.existsSync(path.join(D, ".git", "rebase-apply"));
+    const comun = { carpeta: D, tarjeta: { titulo: "T" }, ramaBase: "main", carpetaMigraciones: "prisma/migrations", identidad };
+    const juntar = (archivo) => {
+      const texto = fs.readFileSync(path.join(D, archivo), "utf8");
+      fs.writeFileSync(path.join(D, archivo), texto.split("\n").filter((linea) => !/^(<{7}|={7}|>{7})/.test(linea)).join("\n"));
+    };
+    let llamadas = 0;
+
+    // 1. Choque simple en a.txt y después la migración: la 2ª vuelta va directo a choque de lógica, sin llamar a Claude.
+    let rebase = await rebaseSobre(D, "main", { identidad, carpetaTrabajo: `${D}-trabajo`, nombre: "prueba", dejarConflicto: true });
+    assert.deepEqual([rebase.ok, rebase.conflicto, rebase.cabeza], [false, ["a.txt"], cabeza]);
+    assert.ok(enRebase(), "el rebase quedó a medias");
+    let salida = await resolverChoque({ ...comun, rebase, verificar: async () => ["✔ verificado"], correrClaude: async () => (llamadas += 1, juntar("a.txt"), "CHOQUE_SIMPLE: OK") });
+    assert.equal(salida.resultado, "logica", salida.motivo);
+    assert.match(salida.motivo, /migración \(prisma\/migrations\/1_x\/migration\.sql\)/);
+    assert.equal(llamadas, 1, "Claude solo resolvió a.txt; la migración no la toca");
+    assert.deepEqual([enRebase(), gr("rev-parse", "HEAD")], [false, cabeza], "rebase cancelado y la rama como estaba");
+
+    // 2. La sesión cambia un archivo que no estaba en conflicto: no se le cree.
+    rebase = await rebaseSobre(D, "main", { identidad, carpetaTrabajo: `${D}-trabajo`, nombre: "prueba", dejarConflicto: true });
+    salida = await resolverChoque({ ...comun, rebase, verificar: async () => [], correrClaude: async () => (juntar("a.txt"), fs.appendFileSync(path.join(D, "otro.txt"), "de más\n"), "CHOQUE_SIMPLE: OK") });
+    assert.equal(salida.resultado, "no_se_pudo");
+    assert.match(salida.motivo, /no estaban en conflicto \(otro\.txt\)/);
+    assert.deepEqual([enRebase(), gr("rev-parse", "HEAD"), gr("status", "--porcelain")], [false, cabeza, ""]);
+
+    // 3. Dice CHOQUE_SIMPLE pero deja las marcas.
+    rebase = await rebaseSobre(D, "main", { identidad, carpetaTrabajo: `${D}-trabajo`, nombre: "prueba", dejarConflicto: true });
+    salida = await resolverChoque({ ...comun, rebase, verificar: async () => [], correrClaude: async () => "CHOQUE_SIMPLE: OK" });
+    assert.deepEqual([salida.resultado, /marcas <<<<<<< en a\.txt/.test(salida.motivo)], ["no_se_pudo", true]);
+    assert.equal(gr("rev-parse", "HEAD"), cabeza);
+
+    // 4. Sin la migración en la rama: se junta, el rebase termina y, si verificar falla, se cancela igual (la rama vuelve a la cabeza).
+    gr("reset", "--hard", "HEAD~1");
+    const sinMigracion = gr("rev-parse", "HEAD");
+    rebase = await rebaseSobre(D, "main", { identidad, carpetaTrabajo: `${D}-trabajo`, nombre: "prueba", dejarConflicto: true });
+    salida = await resolverChoque({ ...comun, rebase, verificar: async () => { throw new Error("No compiló: falló el build\ndetalle"); }, correrClaude: async () => (juntar("a.txt"), "CHOQUE_SIMPLE: OK") });
+    assert.deepEqual([salida.resultado, salida.motivo], ["no_se_pudo", "lo juntado no pasa build o pruebas: No compiló: falló el build"]);
+    assert.deepEqual([enRebase(), gr("rev-parse", "HEAD")], [false, sinMigracion]);
+
+    // 5. Y si verifica: el rebase terminó encima de main con las dos versiones.
+    rebase = await rebaseSobre(D, "main", { identidad, carpetaTrabajo: `${D}-trabajo`, nombre: "prueba", dejarConflicto: true });
+    salida = await resolverChoque({ ...comun, rebase, verificar: async () => ["✔ verificado"], correrClaude: async () => (juntar("a.txt"), "CHOQUE_SIMPLE: OK") });
+    assert.equal(salida.resultado, "simple");
+    assert.match(salida.pruebas[0], /choque con main resuelto solo \(a\.txt\)/);
+    assert.equal(salida.pruebas[1], "✔ verificado");
+    assert.equal(enRebase(), false);
+    assert.equal(gr("merge-base", "HEAD", "main"), gr("rev-parse", "main"), "quedó encima de main");
+    assert.equal(fs.readFileSync(path.join(D, "a.txt"), "utf8"), "de main\nde la tarea\n");
+
+    // 6. Una falla del entorno (límite de uso) se relanza con el rebase cancelado.
+    gr("reset", "--hard", sinMigracion);
+    rebase = await rebaseSobre(D, "main", { identidad, carpetaTrabajo: `${D}-trabajo`, nombre: "prueba", dejarConflicto: true });
+    await assert.rejects(resolverChoque({ ...comun, rebase, verificar: async () => [], correrClaude: async () => { throw Object.assign(new Error("límite"), { limiteDeUso: true }); } }), /límite/);
+    assert.deepEqual([enRebase(), gr("rev-parse", "HEAD")], [false, sinMigracion]);
+  } finally {
+    fs.rmSync(D, { recursive: true, force: true, maxRetries: 3 });
+    fs.rmSync(`${D}-trabajo`, { recursive: true, force: true, maxRetries: 3 });
+  }
 });
 
 await prueba("30-oct: crm.error y crm.reparar nunca salen con el motivo o la causa vacíos", async () => {
@@ -2611,6 +2715,62 @@ try {
     assert.equal(resultado.ok, false);
     assert.equal(tarjetas.get(id).estado, "ERROR");
     assert.match(tarjetas.get(id).resultado.error.motivo, /conflicto en el rebase/);
+    assert.equal(shaDe("main"), mainAhora, "no subió nada");
+    sinRestos();
+  });
+
+  // 31-oct-2026: el choque con main al subir lo resuelve una sesión corta de Claude (resolver-choque.mjs).
+  const atrasDeMain = async (titulo, textoDeMain) => {
+    const id = nueva(titulo, "PLAN_APROBADO", { plan: "El plan", moderno: true });
+    assert.equal((await vuelta()).ok, true);
+    assert.equal(tarjetas.get(id).estado, "POR_REVISAR");
+    // La rama queda atrás de main: alguien cambió el mismo archivo y además otro archivo.
+    g(REPO, "pull", "--ff-only", "origin", "main");
+    archivo("conflicto.txt", textoDeMain);
+    archivo(`otro-de-main-${id}.txt`, "otro cambio de main\n");
+    g(REPO, "add", "-A");
+    g(REPO, "commit", "-m", `main cambia lo mismo que ${id}`);
+    g(REPO, "push", "origin", "main");
+    Object.assign(tarjetas.get(id), { estado: "SUBIENDO", venceEn: null });
+    return id;
+  };
+
+  await prueba("choque simple con main al subir: Claude junta las dos versiones, se verifica y sube (HECHO, sin crm.error y sin sumar reparaciones)", async () => {
+    const id = await atrasDeMain("Juntar sola con main [conflicto] [choque-simple]", "main cambió esto\n");
+    const mainAntes = shaDe("main");
+    const llamadasAntes = llamadas.length;
+    const resultado = await vuelta();
+    assert.equal(resultado.ok, true, resultado.motivo);
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "HECHO");
+    assert.equal(t.resultado.error, undefined);
+    assert.equal(llamadas.slice(llamadasAntes).some((l) => l.id === id && ["error", "reparar"].includes(l.accion)), false, "ni crm.error ni reparar");
+    assert.equal(t.reparaciones ?? 0, 0, "no suma reparaciones");
+    // main tiene las dos versiones, encima de lo que ya estaba.
+    assert.equal(g(REPO, "--git-dir", REMOTO, "show", "main:conflicto.txt"), "main cambió esto\nlo de la rama");
+    assert.equal(g(REPO, "--git-dir", REMOTO, "merge-base", "--is-ancestor", mainAntes, "main"), "");
+    // La sesión corta corrió en la carpeta de subida, con la orden de resolver solo lo que chocó.
+    const sesion = leerLog(LOGS.claude).findLast((l) => l.prompt.startsWith("RESOLVER EL CHOQUE CON MAIN"));
+    assert.ok(sesion, "se llamó a la sesión que resuelve el choque");
+    assert.match(sesion.cwd, /-subir$/);
+    assert.match(sesion.prompt, /^- conflicto\.txt$/m);
+    assert.equal(t.resultado.subida.commit, shaDe("main"), "lo que subió es lo juntado");
+    sinRestos();
+  });
+
+  await prueba("choque de lógica con main al subir: ERROR con el motivo en una línea y la categoría choque_de_logica; main no cambia", async () => {
+    const id = await atrasDeMain("No encajan con main [conflicto] [choque-logica]", "main cambió esto de otra forma\n");
+    const mainAhora = shaDe("main");
+    const resultado = await vuelta();
+    assert.equal(resultado.ok, false);
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "ERROR");
+    assert.equal(t.resultado.error.categoria, "choque_de_logica");
+    const [queFallo] = t.resultado.error.motivo.split("\n");
+    assert.match(queFallo, /^Qué falló: Choque de lógica con lo nuevo de main: main cambió el texto del archivo compartido y la tarea también, de forma distinta/);
+    assert.equal(t.intentosLista.at(-1).categoria, "choque_de_logica");
+    assert.equal(t.intentosLista.at(-1).causa.includes("\n"), false, "el motivo en una línea");
+    assert.equal(t.reparaciones ?? 0, 0, "no se repara sola");
     assert.equal(shaDe("main"), mainAhora, "no subió nada");
     sinRestos();
   });
@@ -4526,7 +4686,7 @@ try {
       sinRestos();
     });
 
-    await prueba("revisar de nuevo: si choca con main en el rebase queda en ERROR «choca con lo ya subido: <archivos>» y no se empuja nada", async () => {
+    await prueba("revisar de nuevo: si choca con main y no se resuelve solo, queda en ERROR «choca con lo ya subido: <archivos> (motivo)» y no se empuja nada", async () => {
       cerrarLasDemas();
       const { id, rama, commit } = porRevisarDeChats("Chats: arreglo viejo que choca", "choca", { "src/chats/rn-choca.ts": "export const lado = 'tarea';\n" });
       await cambiarMainRevisar("src/chats/rn-choca.ts", "export const lado = 'main';\n");
@@ -4534,7 +4694,20 @@ try {
       const t = tarjetas.get(id);
       assert.equal(salida.accion, "error");
       assert.equal(t.estado, "ERROR");
-      assert.equal(t.resultado.error.motivo, "construido, no sube: choca con lo ya subido: src/chats/rn-choca.ts");
+      assert.equal(t.resultado.error.motivo, "construido, no sube: choca con lo ya subido: src/chats/rn-choca.ts (la sesión no terminó con CHOQUE_SIMPLE: OK ni CHOQUE_DE_LOGICA)");
+      assert.equal(shaDe(rama), commit, "la rama queda como estaba");
+      sinRestos();
+    });
+
+    await prueba("revisar de nuevo: un choque de lógica con main queda en ERROR «choque de lógica con lo ya subido: <motivo>» y no se empuja nada", async () => {
+      cerrarLasDemas();
+      const { id, rama, commit } = porRevisarDeChats("Chats: arreglo viejo que no encaja [choque-logica]", "logica", { "src/chats/rn-logica.ts": "export const lado = 'tarea';\n" });
+      await cambiarMainRevisar("src/chats/rn-logica.ts", "export const lado = 'main';\n");
+      const salida = await revisorDe(id, configRevisar()).revisar();
+      const t = tarjetas.get(id);
+      assert.equal(salida.accion, "error");
+      assert.equal(t.estado, "ERROR");
+      assert.equal(t.resultado.error.motivo, "construido, no sube: choque de lógica con lo ya subido: main cambió el texto del archivo compartido y la tarea también, de forma distinta");
       assert.equal(shaDe(rama), commit, "la rama queda como estaba");
       sinRestos();
     });

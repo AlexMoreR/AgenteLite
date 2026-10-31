@@ -10,7 +10,8 @@
 //              del repo y sin zonas: el CRM la pasa a SUBIENDO) o espera el sí del dueño (POR_REVISAR).
 //              En la nube (25-oct-2026, nube.mjs): las tareas GRANDES y las de desborde las escribe una sesión de
 //              `claude --cloud` en la rama tablero/<id> (sin --force); al volver, el Coordinador hace aquí lo mismo.
-// - subir:     rebase de la rama sobre origin/main; si main no cambió desde que se construyó no vuelve
+// - subir:     rebase de la rama sobre origin/main (si choca, una sesión corta de Claude resuelve solo esos archivos:
+//              resolver-choque.mjs); si main no cambió desde que se construyó no vuelve
 //              a compilar, si cambió verifica y ensaya de nuevo; push a main, espera el CI y comprueba
 //              la versión. Si el despliegue falla, revert del commit en main (sin --force). -> /subida
 // Si algo falla se lanza ErrorDeEtapa con el motivo en palabras sencillas y el detalle técnico debajo
@@ -70,6 +71,7 @@ import { tamanoDeLaRespuesta } from "./medir.mjs";
 import { carpetaDeIntentos } from "./registro.mjs";
 import { migracionDestructiva } from "./riesgo.mjs";
 import { primeraPreguntaAbierta } from "./preguntas-abiertas.mjs";
+import { resolverChoque } from "./resolver-choque.mjs";
 import {
   CONFIRMACION_BOT_VENTAS,
   CONFIRMACION_CHATS,
@@ -1691,6 +1693,48 @@ async function archivosQueChocanConMain(carpeta, commitVerificado, refMain) {
   return (await nombres(baseVerificada, commitVerificado)).filter((archivo) => !SOLO_TEXTO.test(archivo) && deMain.has(archivo));
 }
 
+/* ── Resolver solo el choque con main al subir (31-oct-2026, resolver-choque.mjs) ── */
+
+/**
+ * El rebase quedó a medias con conflicto (rebaseSobre con dejarConflicto): una sesión corta de Claude resuelve solo esos
+ * archivos y, si dice CHOQUE_SIMPLE, se comprueba (sin marcas, solo esos archivos, instalar + verificar). Devuelve lo de
+ * resolverChoque ({ resultado: "simple" | "logica" | "no_se_pudo", motivo?, pruebas?, archivos }); con "simple" el rebase
+ * ya terminó y está verificado. Lanza solo las fallas del entorno (con el rebase ya cancelado).
+ */
+async function resolverElChoque(contexto, { tarjeta, repo, carpeta, rebase, reloj, antes }) {
+  const { config, registro } = contexto;
+  const modelo = modeloDelPaso(config, "construir", tarjeta);
+  return resolverChoque({
+    carpeta,
+    rebase,
+    tarjeta,
+    ramaBase: repo.ramaBase,
+    carpetaMigraciones: repo.carpetaMigraciones,
+    identidad: config.git,
+    registro,
+    restaMs: () => reloj.resta(),
+    correrClaude: (prompt, { timeoutMs }) => claude(contexto, argumentosDeClaude(config, "construir", tarjeta, modelo), prompt, { cwd: carpeta, timeoutMs, que: "resolver el choque con main" }),
+    verificar: async () => {
+      if (repo.instalar) await paso(contexto, repo.instalar, { cwd: carpeta, reloj, que: "instalar dependencias", motivo: "No se pudieron instalar las dependencias", prioridad: PRIORIDAD.subir });
+      const viejas = { sha: antes, viejos: [] };
+      const pruebas = await verificar(contexto, repo, carpeta, reloj, PRIORIDAD.subir, viejas);
+      if (viejas.viejos.length) registro.info(`choque resuelto: ${viejas.viejos.length} falla(s) vieja(s) de ${repo.ramaBase}; no son de esta tarea`);
+      return pruebas;
+    },
+  });
+}
+
+/** El choque que no se resolvió solo: choque de lógica (lo decide el dueño) o choca_con_main (se construye otra vez sin gastar intento). */
+function errorDelChoque(repo, rama, resuelto) {
+  if (resuelto.resultado === "logica") {
+    return new ErrorDeEtapa(`Choque de lógica con lo nuevo de ${repo.ramaBase}: ${resuelto.motivo}. No se subió nada.\nArchivos en conflicto: ${resuelto.archivos.join(", ")}`, { categoria: "choque_de_logica" });
+  }
+  return new ErrorDeEtapa(
+    `Choca con lo nuevo de ${repo.ramaBase}: alguien cambió los mismos archivos mientras se construía (conflicto en el rebase de ${rama}${resuelto.archivos.length ? `: ${resuelto.archivos.join(", ")}` : ""}) y no se pudo resolver solo (${resuelto.motivo}). No se subió nada; hay que reintentar (construir de nuevo).`,
+    { categoria: "choca_con_main" },
+  );
+}
+
 
 /* ── El trabajo a medias entre intentos: <carpetaTrabajo>/intentos/<idCorto>/trabajo.patch ── */
 
@@ -2122,12 +2166,17 @@ export async function subir(contexto, tarjeta) {
       antes = (await git(carpeta, ["rev-parse", base])).salida.trim();
       // Si main sigue donde estaba al construir y la rama es la que se probó, ya está todo verificado.
       const mainIgual = vuelta === 1 && Boolean(tarjeta.resultado?.base) && tarjeta.resultado.base === antes && tarjeta.resultado?.commit === cabeza;
-      const rebase = await rebaseSobre(carpeta, base, { identidad: config.git, carpetaTrabajo: config.carpetaTrabajo, sinChoque: repo.sinChoque, nombre: repo.clave });
+      // 31-oct-2026: si choca, el rebase queda a medias y una sesión corta de Claude resuelve solo esos archivos (resolver-choque.mjs).
+      // Lo construido en la nube no se compila en aizen1: sigue el camino de siempre (verificar otra vez en la nube).
+      const rebase = await rebaseSobre(carpeta, base, { identidad: config.git, carpetaTrabajo: config.carpetaTrabajo, sinChoque: repo.sinChoque, nombre: repo.clave, dejarConflicto: !confiarEnLaNube });
+      let resuelto = null;
       if (!rebase.ok) {
-        throw new ErrorDeEtapa(
-          `Choca con lo nuevo de ${repo.ramaBase}: alguien cambió los mismos archivos mientras se construía (conflicto en el rebase de ${rama}${rebase.conflicto.length ? `: ${rebase.conflicto.join(", ")}` : ""}). No se subió nada; hay que reintentar (construir de nuevo).`,
-          { categoria: "choca_con_main" },
-        );
+        if (confiarEnLaNube) {
+          throw errorDeVerificarEnNube(`Choca con lo nuevo de ${repo.ramaBase} (conflicto en el rebase de ${rama})`, rebase.conflicto.length ? rebase.conflicto : ["sin archivos"], tarjeta.resultado?.linkSesion);
+        }
+        resuelto = await resolverElChoque(contexto, { tarjeta, repo, carpeta, rebase, reloj, antes });
+        if (resuelto.resultado !== "simple") throw errorDelChoque(repo, rama, resuelto);
+        registro.info(`choque con ${repo.ramaBase} resuelto solo (${resuelto.archivos.join(", ")}): sigue la subida`);
       }
       if (confiarEnLaNube) {
         const chocan = await archivosQueChocanConMain(carpeta, tarjeta.resultado.commit, base);
@@ -2138,7 +2187,10 @@ export async function subir(contexto, tarjeta) {
       if (mainIgual) {
         pruebas = [`✔ ${repo.ramaBase} no cambió desde que se construyó: no se vuelve a compilar`];
       } else {
-        if (confiarEnLaNube) {
+        if (resuelto) {
+          // resolverElChoque ya instaló, compiló y probó lo juntado.
+          pruebas = resuelto.pruebas;
+        } else if (confiarEnLaNube) {
           pruebas = [`✔ la nube verificó build y pruebas (commit ${tarjeta.resultado.commit.slice(0, 10)}); ${repo.ramaBase} no cambió los archivos de la tarea (salvo .md): aizen1 no compila ni prueba (el CI de ${repo.ramaBase} cubre el resto)`];
         } else {
           if (repo.instalar) await paso(contexto, repo.instalar, { cwd: carpeta, reloj, que: "instalar dependencias", motivo: "No se pudieron instalar las dependencias", prioridad: PRIORIDAD.subir });
@@ -2263,7 +2315,7 @@ function motivoDeVerificacionFallida(error) {
 /**
  * POR_REVISAR -> SUBIENDO o ERROR. `contexto.crm` es el cliente del CRM (crm.mjs). Devuelve { accion: "subir", commit, base } o
  * { accion: "error", motivo }. Lanza solo si la falla es del PC, de la red o del Coordinador (la tarjeta queda como estaba).
- * Pasos: fetch; worktree de la rama; rebase sobre main (rebaseSobre, el mismo de subir); vacía o solo .md = obsoleta; npm ci,
+ * Pasos: fetch; worktree de la rama; rebase sobre main (rebaseSobre, el mismo de subir; si choca, resolverElChoque); vacía o solo .md = obsoleta; npm ci,
  * build y pruebas (verificar); envíos nuevos en los archivos de CHATS y BOT_VENTAS; push de la rama (solo la tablero/..., con
  * --force porque el rebase la reescribe; a main nunca) y /revisar_de_nuevo con subeSolo, las pruebas, el commit y la base.
  */
@@ -2289,27 +2341,37 @@ export async function revisarDeNuevo(contexto, tarjeta) {
   try {
     await crearWorktree(repo, carpeta, `${repo.remoto}/${tarjeta.rama}`, ramaLocal);
     const antes = (await git(carpeta, ["rev-parse", base])).salida.trim();
-    const rebase = await rebaseSobre(carpeta, base, { identidad: config.git, carpetaTrabajo: config.carpetaTrabajo, sinChoque: repo.sinChoque, nombre: repo.clave });
-    if (!rebase.ok) return frenar(`choca con lo ya subido: ${rebase.conflicto.length ? rebase.conflicto.join(", ") : "conflicto en el rebase"}`);
+    // 31-oct-2026: si choca, la misma sesión corta de subir resuelve solo los archivos en conflicto (resolver-choque.mjs).
+    const rebase = await rebaseSobre(carpeta, base, { identidad: config.git, carpetaTrabajo: config.carpetaTrabajo, sinChoque: repo.sinChoque, nombre: repo.clave, dejarConflicto: true });
+    let resuelto = null;
+    if (!rebase.ok) {
+      // Solo lanza las fallas del entorno (con el rebase cancelado): la tarjeta sigue en Por revisar y se reintenta.
+      resuelto = await resolverElChoque(contexto, { tarjeta, repo, carpeta, rebase, reloj, antes });
+      if (resuelto.resultado === "logica") return frenar(`choque de lógica con lo ya subido: ${resuelto.motivo}`);
+      if (resuelto.resultado !== "simple") return frenar(`choca con lo ya subido: ${resuelto.archivos.length ? resuelto.archivos.join(", ") : "conflicto en el rebase"} (${resuelto.motivo})`);
+    }
     const cambios = await archivosCambiados(carpeta, base);
     if (!cambios.some(({ archivo }) => !SOLO_TEXTO.test(archivo))) return frenar("obsoleta: lo que hacía ya está en main");
 
-    let pruebas;
-    try {
-      if (repo.instalar) {
-        try {
-          await paso(contexto, repo.instalar, { cwd: carpeta, reloj, que: "instalar dependencias", motivo: "No se pudieron instalar las dependencias", prioridad: PRIORIDAD.subir });
-        } catch (error) {
-          if (esFallaDelEntorno(error, { deRed: true })) throw error;
-          return frenar(motivoDeVerificacionFallida(error));
+    // Con el choque resuelto ya se instaló, compiló y probó lo juntado (resolverElChoque): no se repite.
+    let pruebas = resuelto?.pruebas;
+    if (!resuelto) {
+      try {
+        if (repo.instalar) {
+          try {
+            await paso(contexto, repo.instalar, { cwd: carpeta, reloj, que: "instalar dependencias", motivo: "No se pudieron instalar las dependencias", prioridad: PRIORIDAD.subir });
+          } catch (error) {
+            if (esFallaDelEntorno(error, { deRed: true })) throw error;
+            return frenar(motivoDeVerificacionFallida(error));
+          }
         }
+        const viejas = { sha: antes, viejos: [] };
+        pruebas = await verificar(contexto, repo, carpeta, reloj, PRIORIDAD.subir, viejas);
+        if (viejas.viejos.length) registro.info(`revisar de nuevo: ${viejas.viejos.length} falla(s) vieja(s) de ${repo.ramaBase}; no son de esta tarea`);
+      } catch (error) {
+        if (esFallaDelEntorno(error)) throw error;
+        return frenar(motivoDeVerificacionFallida(error));
       }
-      const viejas = { sha: antes, viejos: [] };
-      pruebas = await verificar(contexto, repo, carpeta, reloj, PRIORIDAD.subir, viejas);
-      if (viejas.viejos.length) registro.info(`revisar de nuevo: ${viejas.viejos.length} falla(s) vieja(s) de ${repo.ramaBase}; no son de esta tarea`);
-    } catch (error) {
-      if (esFallaDelEntorno(error)) throw error;
-      return frenar(motivoDeVerificacionFallida(error));
     }
 
     // La revisión mecánica, con el diff real después del rebase: solo lo que agregan los archivos de CHATS y BOT_VENTAS.

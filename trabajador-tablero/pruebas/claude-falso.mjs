@@ -9,6 +9,7 @@
 //                     que después choca con main, [migracion-drop] agrega una migración con DROP y UPDATE,
 //                     [nada] no cambia nada; si no, escribe cambio-<algo>.txt.
 //   la revisión ("Eres el REVISOR"): no cambia nada. `-p /usage`: el uso del plan (CLAUDE_FALSO_USO).
+//   resolver el choque con main ("RESOLVER EL CHOQUE CON MAIN"): [choque-simple] y [choque-logica] (ver abajo).
 // Anota cada llamada (argumentos y carpeta) en el archivo de CLAUDE_FALSO_LOG.
 //   la NUBE (`-p --cloud`, 25-oct-2026): contesta con el link de la sesión y un proceso aparte (la "máquina de la
 //                     nube") trabaja en la rama: tras NUBE_FALSA_DEMORA_MS (2500) hace un commit con un archivo y deja el
@@ -238,6 +239,24 @@ if (prompt.includes("CORRECCIÓN DE LA REVISIÓN")) {
   const vuelta = prompt.match(/CORRECCIÓN DE LA REVISIÓN (\d+)/)[1];
   fs.writeFileSync(`correccion-${vuelta}.txt`, `${titulo}\n`);
   console.log(`RESUMEN: corregí lo que pidió la revisión (${vuelta}).`);
+  process.exit(0);
+}
+
+// Resolver el choque con main al subir (31-oct-2026, resolver-choque.mjs): la sesión corta en la carpeta de subida.
+//   [choque-simple]  borra las marcas de los archivos en conflicto conservando las dos versiones y contesta CHOQUE_SIMPLE: OK
+//   [choque-logica]  no toca nada y contesta CHOQUE_DE_LOGICA: <motivo>
+//   si no, contesta sin ninguna de las dos líneas (no se pudo resolver).
+if (prompt.startsWith("RESOLVER EL CHOQUE CON MAIN")) {
+  if (titulo.includes("[choque-logica]")) {
+    console.log("Miré los dos cambios.\nCHOQUE_DE_LOGICA: main cambió el texto del archivo compartido y la tarea también, de forma distinta");
+  } else if (titulo.includes("[choque-simple]")) {
+    const enConflicto = [...prompt.matchAll(/^- (\S.*)$/gm)].map((una) => una[1].trim());
+    for (const archivo of enConflicto) {
+      const texto = fs.readFileSync(archivo, "utf8");
+      fs.writeFileSync(archivo, texto.split(/\r?\n/).filter((linea) => !/^(<{7}|={7}|>{7})( |$)/.test(linea)).join("\n"));
+    }
+    console.log(`Junté las dos versiones de ${enConflicto.join(", ")}.\nCHOQUE_SIMPLE: OK`);
+  } else console.log("No pude juntarlos.");
   process.exit(0);
 }
 
