@@ -1,4 +1,5 @@
-// Pruebas del REVISOR DE SEGUIMIENTOS (seguimientos que escuchan al cliente, parte 1). Sin base ni red.
+// Pruebas de SEGUIMIENTOS QUE ESCUCHAN AL CLIENTE: el revisor (parte 1) y el redactor con la IA y la base
+// simuladas (parte 2). Sin base ni red.
 // Correr: npm run test:seguimiento-que-escucha
 import assert from "node:assert/strict";
 
@@ -10,8 +11,8 @@ const cf = cargar("src/features/seguimiento-inteligente/dominio/config.ts");
 const ta = cargar("src/features/seguimiento-inteligente/dominio/tras-asesora.ts");
 
 let pruebas = 0;
-function prueba(nombre, fn) {
-  fn();
+async function prueba(nombre, fn) {
+  await fn();
   pruebas += 1;
   console.log(`ok - ${nombre}`);
 }
@@ -29,12 +30,12 @@ const BASE = { conversacion: CHARLA, yaEnviados: [], textoDelLibro: LIBRO };
 
 /* ---------------------------------------------------------------------------------------------- */
 
-prueba("acepta un texto que menciona la beige y termina en pregunta", () => {
+await prueba("acepta un texto que menciona la beige y termina en pregunta", () => {
   const texto = "Laura, la camilla beige para Pereira te llega en 2 a 4 días hábiles 🙌 ¿Te la separo?";
   assert.deepEqual(sq.revisarSeguimiento(texto, BASE), []);
 });
 
-prueba("rechaza las frases prohibidas (con y sin tilde, y sus variantes)", () => {
+await prueba("rechaza las frases prohibidas (con y sin tilde, y sus variantes)", () => {
   const malas = [
     "¿Pudiste ver lo que te envié?",
     "¿Pudiste ver lo que te envie?",
@@ -55,12 +56,12 @@ prueba("rechaza las frases prohibidas (con y sin tilde, y sus variantes)", () =>
   assert.deepEqual(redaccion.frasesProhibidas("¿Pudiste medir el espacio para la camilla?"), []);
 });
 
-prueba("rechaza el texto que no termina en pregunta", () => {
+await prueba("rechaza el texto que no termina en pregunta", () => {
   const problemas = sq.revisarSeguimiento("Laura, la camilla beige te llega a Pereira 🙌", BASE);
   assert.ok(problemas.some((p) => /pregunta/.test(p)), problemas.join(" | "));
 });
 
-prueba("rechaza los textos de más de 2 líneas", () => {
+await prueba("rechaza los textos de más de 2 líneas", () => {
   const texto = "Laura, la beige\nte llega a Pereira\n¿Te la separo?";
   const problemas = sq.revisarSeguimiento(texto, BASE);
   assert.ok(problemas.some((p) => /3 líneas/.test(p)), problemas.join(" | "));
@@ -68,7 +69,7 @@ prueba("rechaza los textos de más de 2 líneas", () => {
   assert.deepEqual(sq.revisarSeguimiento("Laura, la beige te llega a Pereira\n¿Te la separo?", BASE), []);
 });
 
-prueba("rechaza un precio, cifra o fecha que no está ni en el libro ni en el chat", () => {
+await prueba("rechaza un precio, cifra o fecha que no está ni en el libro ni en el chat", () => {
   const inventado = sq.revisarSeguimiento("Laura, hoy la beige te queda en $299.000 ¿Te la separo?", BASE);
   assert.ok(inventado.some((p) => /299\.000/.test(p)), inventado.join(" | "));
   const enMiles = sq.revisarSeguimiento("Laura, hoy la beige te queda en 280 mil ¿Te la separo?", BASE);
@@ -81,7 +82,7 @@ prueba("rechaza un precio, cifra o fecha que no está ni en el libro ni en el ch
   assert.deepEqual(sq.revisarSeguimiento("Laura, la beige sigue en $350.000 ¿Te la separo?", soloEnElChat), []);
 });
 
-prueba("rechaza la repetición de un seguimiento ya enviado (aunque cambie el saludo, tildes o emojis)", () => {
+await prueba("rechaza la repetición de un seguimiento ya enviado (aunque cambie el saludo, tildes o emojis)", () => {
   const ya = ["¡Hola, Laura! ¿Te ayudo con el envío a tu ciudad o con la forma de pago? 😊"];
   const problemas = sq.revisarSeguimiento("¡Hola! Te ayudo con el envio a tu ciudad o con la forma de pago?", {
     ...BASE,
@@ -96,7 +97,7 @@ prueba("rechaza la repetición de un seguimiento ya enviado (aunque cambie el sa
   assert.ok(sq.parecido("a b c", "a b c") === 1 && sq.parecido("a b c", "x y z") === 0);
 });
 
-prueba("el cliente que solo mandó el anuncio recibe la pregunta del producto", () => {
+await prueba("el cliente que solo mandó el anuncio recibe la pregunta del producto", () => {
   const texto = sq.seguimientoDelAnuncio("Camilla plegable");
   assert.equal(texto, "¿Te comparto fotos y medidas de Camilla plegable?");
   assert.deepEqual(sq.revisarSeguimiento(texto, { conversacion: [linea("cliente", "Hola, vi el anuncio")], yaEnviados: [], textoDelLibro: null }), []);
@@ -115,7 +116,7 @@ prueba("el cliente que solo mandó el anuncio recibe la pregunta del producto", 
   assert.match(pedido.contexto, /PRODUCTO QUE LE INTERESA: Camilla plegable/);
 });
 
-prueba("el pedido para la IA lleva la conversación, lo ya enviado, el libro y las reglas", () => {
+await prueba("el pedido para la IA lleva la conversación, lo ya enviado, el libro y las reglas", () => {
   const pedido = sq.armarPedidoDeSeguimiento({
     lineas: CHARLA,
     producto: "Camilla plegable",
@@ -137,7 +138,7 @@ prueba("el pedido para la IA lleva la conversación, lo ya enviado, el libro y l
   assert.match(pedido.contexto, /\$350\.000\. Envío a toda Colombia/);
 });
 
-prueba("elegirTexto: la cadena de respaldo IA → texto fijo → pregunta del producto → no se manda", () => {
+await prueba("elegirTexto: la cadena de respaldo IA → texto fijo → pregunta del producto → no se manda", () => {
   const buena = "Laura, la beige para Pereira te llega en 2 a 4 días hábiles 🙌 ¿Te la separo?";
   const mala1 = "¿Pudiste ver lo que te envié?";
   const mala2 = "Laura, hoy te queda en $199.000 ¿Te la separo?";
@@ -175,7 +176,7 @@ prueba("elegirTexto: la cadena de respaldo IA → texto fijo → pregunta del pr
   assert.equal(r.descartados.length, 2);
 });
 
-prueba("los textos fijos de 'Tras asesora' ya no son robóticos y pasan la revisión", () => {
+await prueba("los textos fijos de 'Tras asesora' ya no son robóticos y pasan la revisión", () => {
   const textos = cf.CONFIG_POR_DEFECTO.trasAsesora.textos;
   assert.equal(textos.length, 2);
   for (const plantilla of textos) {
@@ -190,5 +191,257 @@ prueba("los textos fijos de 'Tras asesora' ya no son robóticos y pasan la revis
   const [uno, dos] = textos.map((t) => ta.textoDelToque(t, "laura"));
   assert.deepEqual(sq.revisarSeguimiento(dos, { conversacion: [], yaEnviados: [uno], textoDelLibro: null }), []);
 });
+
+/* ----------------------------------------------------------------------------------------------
+   Parte 2: el redactor, con la base y la IA simuladas
+---------------------------------------------------------------------------------------------- */
+
+const TF = new Date("2026-10-28T15:00:00Z");
+const msg = (id, direction, type, content, min, extra = {}) => ({
+  id,
+  direction,
+  type,
+  content,
+  mediaUrl: null,
+  transcripcion: null,
+  transcritoEn: null,
+  createdAt: new Date(TF.getTime() + min * 60_000),
+  ...extra,
+});
+
+// La base de mentira: lo que el redactor lee y lo que escribe.
+const base = {
+  apagado: null,
+  mensajes: [],
+  transcritos: [],
+  enviados: [],
+};
+function reiniciarBase() {
+  base.apagado = null;
+  base.transcritos = [];
+  base.enviados = [{ content: "¡Hola, Laura! ¿Te ayudo con el envío a tu ciudad o con la forma de pago? 😊", createdAt: new Date(TF.getTime() + 60 * 60_000) }];
+  // De la más nueva a la más vieja, como los pide el redactor (orderBy createdAt desc).
+  base.mensajes = [
+    msg("m1", "INBOUND", "TEXT", "Hola, vi el anuncio de la silla", 0),
+    msg("m2", "OUTBOUND", "IMAGE", "Silla Isabela", 1, { mediaUrl: "https://x/foto.jpg" }),
+    msg("m3", "OUTBOUND", "DOCUMENT", "CATALOGO SILLAS.pdf", 2, { mediaUrl: "https://x/cat.pdf" }),
+    msg("m4", "INBOUND", "AUDIO", null, 10, { mediaUrl: "https://x/audio-cliente.ogg" }),
+    msg("m5", "OUTBOUND", "AUDIO", null, 12, { mediaUrl: "https://x/audio-asesora.ogg", transcripcion: "Claro, la silla Isabela vale 450.000 con envío", transcritoEn: new Date() }),
+    msg("m6", "SYSTEM", "SYSTEM", "aviso del sistema", 13),
+  ].reverse();
+}
+
+const prismaFalso = {
+  appSetting: {
+    findUnique: async ({ where }) => (where.key === "seguimientos-que-escuchan:apagado" && base.apagado ? { value: base.apagado } : null),
+  },
+  conversation: {
+    findFirst: async ({ where }) =>
+      where.id === "conv-1" && where.workspaceId === "ws-1"
+        ? { activeProductContext: { productId: "prod-1" }, messages: base.mensajes.map((m) => ({ ...m })) }
+        : null,
+  },
+  message: {
+    updateMany: async ({ where, data }) => {
+      base.transcritos.push({ id: where.id, ...data });
+      return { count: 1 };
+    },
+    findMany: async () => base.enviados,
+  },
+  product: {
+    findFirst: async () => ({ name: "Silla Isabela", price: 450000, description: "Silla tapizada en varios colores", activo: true }),
+  },
+};
+
+const audiosFalsos = {
+  transcribirAudioAhora: async (url) => (url.includes("audio-cliente") ? "La quiero en palo rosa para Montería" : null),
+};
+const libroFalso = {
+  leerLibro: async () => ({ comoHablamos: "Envío gratis a ciudades principales con anticipo del 50%. Contraentrega pagando solo el envío." }),
+};
+
+const redactor = cargar("src/features/seguimientos/services/seguimiento-que-escucha.ts", {
+  "@/lib/prisma": { prisma: prismaFalso },
+  "@/lib/transcripcion-de-audios": audiosFalsos,
+  "@/features/agente-v3/servicios/almacen": libroFalso,
+});
+
+// La IA de mentira: guarda lo que se le pidió y contesta lo que diga `ia.respuestas` (en orden).
+const ia = { pedidos: [], respuestas: [], falla: false };
+globalThis.fetch = async (url, opciones) => {
+  assert.equal(url, "https://api.openai.com/v1/chat/completions");
+  const cuerpo = JSON.parse(opciones.body);
+  ia.pedidos.push(cuerpo);
+  assert.equal(cuerpo.model, "gpt-4.1-mini");
+  assert.ok(opciones.signal, "la llamada lleva tiempo límite");
+  if (ia.falla) throw new Error("timeout");
+  const texto = ia.respuestas.shift() ?? "";
+  return { ok: true, json: async () => ({ choices: [{ message: { content: texto } }] }) };
+};
+function reiniciarIa(respuestas = []) {
+  ia.pedidos = [];
+  ia.respuestas = [...respuestas];
+  ia.falla = false;
+}
+
+const FIJO = "¡Hola, Laura! ¿Pudiste ver lo que te envié? 😊";
+const FIJO_BUENO = "¡Hola, Laura! ¿Te muestro otros colores de la silla? 😊";
+const BUENA = "Laura, la silla Isabela en palo rosa te llega a Montería con envío gratis pagando el anticipo 🙌 ¿Te la separo?";
+const ENTRADA = { conversationId: "conv-1", workspaceId: "ws-1", textoFijo: FIJO, paso: null, origen: "follow" };
+const consolaOriginal = { info: console.info, warn: console.warn };
+console.info = () => {};
+console.warn = () => {};
+
+async function redactar(entrada = ENTRADA) {
+  redactor.reiniciarTopeDeLaVuelta();
+  return redactor.redactarSeguimientoQueEscucha(entrada);
+}
+
+process.env.OPENAI_API_KEY = "clave-de-prueba";
+
+await prueba("el audio transcrito del cliente ('palo rosa, Montería') llega a la IA y sale su texto, con la marca", async () => {
+  reiniciarBase();
+  reiniciarIa([BUENA]);
+  const r = await redactar();
+  assert.equal(r.enviar, true);
+  assert.equal(r.deIA, true);
+  assert.equal(r.texto, BUENA);
+  assert.equal(r.textoReemplazado, FIJO);
+  // El audio sin texto se transcribió en el momento y se guardó en el mensaje.
+  assert.deepEqual(base.transcritos.map((t) => [t.id, t.transcripcion]), [["m4", "La quiero en palo rosa para Montería"]]);
+  // Lo que vio la IA: el audio del cliente, el de la asesora, la foto, el catálogo, lo ya enviado y el libro.
+  const contexto = ia.pedidos[0].messages.find((m) => m.role === "user").content;
+  assert.match(contexto, /Cliente: \[nota de voz\] La quiero en palo rosa para Montería/);
+  assert.match(contexto, /Nosotros: \[nota de voz\] Claro, la silla Isabela vale 450\.000/);
+  assert.match(contexto, /Nosotros: \[foto\] Silla Isabela/);
+  assert.match(contexto, /Nosotros: \[documento\] CATALOGO SILLAS\.pdf/);
+  assert.match(contexto, /- ¡Hola, Laura! ¿Te ayudo con el envío/);
+  assert.match(contexto, /PRODUCTO QUE LE INTERESA: Silla Isabela/);
+  assert.match(contexto, /Envío gratis a ciudades principales/);
+  assert.match(contexto, /SEGUIMIENTO NÚMERO: 2/);
+  assert.doesNotMatch(contexto, /aviso del sistema/);
+  // El cliente escribió después del anuncio: no se le pide la pregunta del anuncio.
+  assert.doesNotMatch(ia.pedidos[0].messages[0].content, /solo mandó el texto del anuncio/);
+  // La marca que va al rawPayload del mensaje enviado.
+  assert.deepEqual(redactor.marcaDelSeguimiento(r), { seguimientoQueEscucha: { deIA: true, textoReemplazado: FIJO } });
+});
+
+await prueba("si la IA propone algo que no pasa la revisión, se le pide otra (hasta 3)", async () => {
+  reiniciarBase();
+  reiniciarIa(["¿Pudiste ver lo que te envié?", "Laura, hoy te queda en $199.000 ¿Te la separo?", BUENA]);
+  const r = await redactar();
+  assert.equal(ia.pedidos.length, 3);
+  assert.equal(r.texto, BUENA);
+  assert.match(ia.pedidos[1].messages.at(-1).content, /no cumple/);
+});
+
+await prueba("si la IA falla, sale el respaldo: el texto fijo si pasa la revisión, si no la pregunta del producto", async () => {
+  reiniciarBase();
+  reiniciarIa();
+  ia.falla = true;
+  let r = await redactar({ ...ENTRADA, textoFijo: FIJO_BUENO });
+  assert.equal(r.enviar, true);
+  assert.equal(r.deIA, false);
+  assert.equal(r.texto, FIJO_BUENO);
+  assert.equal(r.textoReemplazado, null);
+  assert.equal(redactor.marcaDelSeguimiento(r), null);
+
+  // El fijo trae una frase prohibida: sale la pregunta del producto (y se marca lo reemplazado).
+  r = await redactar();
+  assert.equal(r.texto, "¿Te comparto fotos y medidas de Silla Isabela?");
+  assert.equal(r.deIA, false);
+  assert.deepEqual(redactor.marcaDelSeguimiento(r), { seguimientoQueEscucha: { deIA: false, textoReemplazado: FIJO } });
+});
+
+await prueba("sin la clave de OpenAI sale el texto fijo tal cual, sin leer nada ni llamar a la IA", async () => {
+  reiniciarBase();
+  reiniciarIa([BUENA]);
+  delete process.env.OPENAI_API_KEY;
+  const r = await redactar();
+  process.env.OPENAI_API_KEY = "clave-de-prueba";
+  assert.deepEqual(
+    { enviar: r.enviar, texto: r.texto, deIA: r.deIA, textoReemplazado: r.textoReemplazado },
+    { enviar: true, texto: FIJO, deIA: false, textoReemplazado: null },
+  );
+  assert.equal(ia.pedidos.length, 0);
+  assert.equal(base.transcritos.length, 0);
+});
+
+await prueba("con el interruptor apagado sale el texto de antes", async () => {
+  reiniciarBase();
+  reiniciarIa([BUENA]);
+  base.apagado = "si";
+  const r = await redactar();
+  assert.equal(r.texto, FIJO);
+  assert.equal(r.deIA, false);
+  assert.equal(ia.pedidos.length, 0);
+  assert.equal(redactor.marcaDelSeguimiento(r), null);
+});
+
+await prueba("cliente que solo mandó el anuncio: se le pide a la IA la pregunta del producto", async () => {
+  reiniciarBase();
+  base.mensajes = [msg("m1", "INBOUND", "TEXT", "Hola, vi el anuncio de la silla", 0)];
+  reiniciarIa(["¿Te comparto los colores de la Silla Isabela?"]);
+  const r = await redactar();
+  assert.match(ia.pedidos[0].messages[0].content, /solo mandó el texto del anuncio/);
+  assert.equal(r.deIA, true);
+});
+
+await prueba("ningún texto pasa y no se sabe el producto: no se manda (con el motivo)", async () => {
+  reiniciarBase();
+  reiniciarIa(["¿Pudiste ver lo que te envié?", "¿Pudiste ver lo que te envié?", "¿Pudiste ver lo que te envié?"]);
+  const original = prismaFalso.product.findFirst;
+  prismaFalso.product.findFirst = async () => null;
+  const r = await redactar();
+  prismaFalso.product.findFirst = original;
+  assert.equal(r.enviar, false);
+  assert.equal(r.reprogramar, false);
+  assert.equal(r.motivo, redactor.MOTIVO_SIN_TEXTO);
+});
+
+await prueba("tope por vuelta del reloj: los que no alcanzan van a la vuelta siguiente", async () => {
+  reiniciarBase();
+  redactor.reiniciarTopeDeLaVuelta();
+  const resultados = [];
+  for (let i = 0; i < redactor.REDACCIONES_POR_VUELTA + 1; i += 1) {
+    reiniciarIa([BUENA]);
+    resultados.push(await redactor.redactarSeguimientoQueEscucha(ENTRADA));
+  }
+  assert.ok(resultados.slice(0, -1).every((r) => r.enviar && r.deIA));
+  const ultimo = resultados.at(-1);
+  assert.equal(ultimo.enviar, false);
+  assert.equal(ultimo.reprogramar, true);
+  assert.equal(ultimo.motivo, redactor.MOTIVO_TOPE_DE_LA_VUELTA);
+});
+
+await prueba("si la base falla, sale el texto fijo (el redactor nunca frena un envío por un error suyo)", async () => {
+  reiniciarBase();
+  reiniciarIa([BUENA]);
+  const original = prismaFalso.conversation.findFirst;
+  prismaFalso.conversation.findFirst = async () => {
+    throw new Error("base caída");
+  };
+  const r = await redactar();
+  prismaFalso.conversation.findFirst = original;
+  assert.equal(r.enviar, true);
+  assert.equal(r.texto, FIJO);
+});
+
+await prueba("follows.ts: pide el texto al redactor antes de los 2 envíos de texto y guarda la marca en el rawPayload", async () => {
+  const fs = await import("node:fs");
+  const codigo = fs.readFileSync(new URL("../src/features/seguimientos/services/follows.ts", import.meta.url), "utf8");
+  // Solo los automáticos, y después de todos los frenos (el redactor se arma tras el freno de 3 seguidos).
+  assert.match(codigo, /const redactar = clase === "automatico" \? redactorDelFollow\(follow\) : null;/);
+  assert.ok(codigo.indexOf("const redactar = clase") > codigo.indexOf("revisarFrenoDeAutomatico({"));
+  // Los dos envíos (el flujo y el texto) guardan la marca, y el rawPayload la lleva.
+  assert.equal(codigo.match(/marca: marcaDelSeguimiento\(redactado\)/g)?.length, 2);
+  assert.match(codigo, /source: "follow",\s*evolution: input\.result\.raw,\s*\.\.\.\(input\.marca \?\? \{\}\)/);
+  // enviar:false no se manda: se cancela o se corre a la vuelta siguiente, y se anota.
+  assert.match(codigo, /if \(redactado && !redactado\.enviar\) throw new FrenoDelRedactor\(redactado\);/);
+  assert.match(codigo, /error instanceof FrenoDelRedactor/);
+});
+
+console.info = consolaOriginal.info;
+console.warn = consolaOriginal.warn;
 
 console.log(`\n${pruebas} pruebas OK`);
