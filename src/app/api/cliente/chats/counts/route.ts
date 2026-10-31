@@ -16,7 +16,12 @@ import {
   type FiltrosDeBandeja,
 } from "@/features/chats/services/filtros-de-bandeja";
 import { conServerTiming, type MedidorServerTiming } from "@/lib/server-timing";
-import { whereDeBusquedaDeChats, whereDeBusquedaDeChatsOficiales } from "@/lib/busqueda-de-chats";
+import {
+  estadoQueAplica,
+  hayBusqueda,
+  whereDeBusquedaDeChats,
+  whereDeBusquedaDeChatsOficiales,
+} from "@/lib/busqueda-de-chats";
 
 export const dynamic = "force-dynamic";
 
@@ -46,17 +51,20 @@ function buildBaseWhere(input: {
   sinResponder: string[] | null;
 }): Prisma.ConversationWhereInput {
   const normalizedSearchQuery = input.searchQuery.trim();
+  // Con texto en el buscador el estado no filtra y los pospuestos tambien cuentan, igual que la
+  // lista (ver estadoQueAplica en lib/busqueda-de-chats). Sin texto, todo como siempre.
+  const buscando = hayBusqueda(normalizedSearchQuery);
 
   return {
     workspaceId: input.workspaceId,
     AND: [
-      buildStatusWhere(input.statusFilter),
+      buildStatusWhere(estadoQueAplica(input.statusFilter, normalizedSearchQuery)),
       // El numero de la pastilla tiene que contar LO MISMO que muestra la lista: si no, la asesora
       // filtra, ve 20 chats y al lado un "Todas 1956" que no le dice nada de lo que esta mirando.
       whereDeFiltros(input.filtros, input.sinResponder),
       // Los contactos bloqueados no aparecen en la bandeja (ver lib/bloqueo-de-contactos).
       { contact: { bloqueadoEn: null } },
-      input.snoozedContactIds.length ? { contactId: { notIn: input.snoozedContactIds } } : {},
+      !buscando && input.snoozedContactIds.length ? { contactId: { notIn: input.snoozedContactIds } } : {},
       input.visibleChannelIds ? { channelId: { in: input.visibleChannelIds } } : {},
       input.selectedConnectionKey.startsWith("channel:")
         ? { channelId: input.selectedConnectionKey.slice("channel:".length) }
@@ -110,6 +118,8 @@ async function countOfficialConversations(input: {
   }
 
   const normalizedSearchQuery = input.searchQuery.trim();
+  // Buscando, el estado no filtra: lo mismo que hace la lista oficial (getOfficialApiChatsData).
+  const estadoAplicado = estadoQueAplica(input.statusFilter, normalizedSearchQuery);
 
   /**
    * Con los filtros nuevos puestos el conteo va por SQL.
@@ -121,9 +131,9 @@ async function countOfficialConversations(input: {
   if (hayFiltrosPuestos(input.filtros)) {
     const { etapa, sinResponder } = await fragmentosDeFiltrosOficiales(input.filtros, input.workspaceId);
     const estado =
-      input.statusFilter === "resolved"
+      estadoAplicado === "resolved"
         ? Prisma.sql`AND c."status"::text IN ('CLOSED', 'ARCHIVED')`
-        : input.statusFilter === "all"
+        : estadoAplicado === "all"
           ? Prisma.empty
           : Prisma.sql`AND c."status"::text IN ('OPEN', 'PENDING')`;
     const asignacion =
@@ -148,9 +158,9 @@ async function countOfficialConversations(input: {
   return prisma.officialApiConversation.count({
     where: {
       configId: config.id,
-      ...(input.statusFilter === "resolved"
+      ...(estadoAplicado === "resolved"
         ? { status: { in: ["CLOSED", "ARCHIVED"] } }
-        : input.statusFilter === "all"
+        : estadoAplicado === "all"
           ? {}
           : { status: { in: ["OPEN", "PENDING"] } }),
       ...(input.assignedTo === "mine"
