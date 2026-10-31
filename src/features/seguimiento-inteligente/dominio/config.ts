@@ -284,8 +284,9 @@ export const CONFIG_POR_DEFECTO: ConfigSeguimientoInteligente = {
     respetarCierre: true,
     compromisoATarea: true,
     textos: [
-      "{nombre} ¿Pudiste ver lo que te envié? 😊 Si te queda alguna duda, aquí estoy para ayudarte.",
-      "{nombre} Te escribo para saber si pudiste revisar la información 😊 ¿Te ayudo con el envío a tu ciudad o con la forma de pago?",
+      // Sin frases roboticas y con una pregunta concreta al final (31-10-2026). Sin precios ni fechas.
+      "{nombre} Te ayudo a separarlo 🙌 ¿A qué ciudad te lo enviamos?",
+      "{nombre} ¿Te ayudo con el envío a tu ciudad o con la forma de pago? 😊",
     ],
   },
   recuperacion72h: {

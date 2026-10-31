@@ -38,6 +38,12 @@ export function frasesProhibidas(texto: string): string[] {
   if (/\bpero\b/i.test(texto)) problemas.push('usa "pero" (va "sin embargo")');
   if (/sigues interesad[ao]/i.test(texto)) problemas.push('dice "¿sigues interesada?"');
   if (/cuando puedas me avisas/i.test(texto)) problemas.push('dice "cuando puedas me avisas"');
+  // Las del seguimiento robotico (31-10-2026): el cliente no las contesta y suenan a bot.
+  if (/pudiste (ver|revisar) (lo que te (envi[eé]|mand[eé])|la informaci[oó]n)/i.test(texto)) {
+    problemas.push('pregunta "¿pudiste ver lo que te envié?"');
+  }
+  if (/aqu[ií] estoy para ayudarte/i.test(texto)) problemas.push('dice "aquí estoy para ayudarte"');
+  if (/si te queda(n)? alguna(s)? duda/i.test(texto)) problemas.push('dice "si te queda alguna duda"');
   if (/\busted(es)?\b|\bdesea\b|\ble (gustar[ií]a|interesa|puedo|podemos)\b|\bsu (pedido|combo|ciudad|compra|direcci[oó]n)\b/i.test(texto)) {
     problemas.push("trata de usted (hay que tutear)");
   }
