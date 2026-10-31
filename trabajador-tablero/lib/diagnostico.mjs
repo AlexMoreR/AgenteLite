@@ -366,6 +366,113 @@ export function esLaMismaCausa(diagnostico, anterior) {
   return corta.length >= LARGO_PARA_PREFIJO && larga.startsWith(corta);
 }
 
+/*
+  Causa externa (31-oct-2026, parte 3 de «si algo falla, encontrar la causa»). Cuando la falla NO es de la tarea (la vigilancia
+  revirtió la subida, main ya trae lint o pruebas rotas, choca con otra tarjeta, el servidor / SSH / base no responde), no se
+  gastan reparaciones en ella: el Coordinador pide UNA tarjeta pequeña que arregla esa causa (título fijo por causa y repo: tope de
+  1 abierta por causa) y la original espera a esa con la flecha de dependencia, sin ERROR ni intento. Ante la duda: null (el camino
+  de siempre). Puro: no toca disco ni red.
+*/
+
+/** El comienzo del título de cada tarjeta de causa: una tarjeta que ya es de causa nunca crea otra (no se forma una cadena). */
+export const PREFIJOS_DE_CAUSA = { vigilancia: "Vigilancia:", main_roto: "Main roto:", servidor: "Servidor:" };
+
+/** ¿La tarjeta ya es una tarjeta de causa? (su título empieza con "Vigilancia:", "Main roto:" o "Servidor:") */
+export function esTarjetaDeCausa(tarjeta) {
+  const titulo = String(tarjeta?.titulo ?? "").trim();
+  return Object.values(PREFIJOS_DE_CAUSA).some((prefijo) => titulo.startsWith(prefijo));
+}
+
+/** Lo que dice el texto cuando lint o pruebas ya fallaban en main sin el cambio. */
+const YA_FALLA_EN_MAIN = /ya fallaba[n]? en main|tambi[eé]n falla[n]? en main|main ya trae/i;
+/** "choca con la tarjeta «X»": el nombre de la otra tarjeta. */
+const CHOCA_CON_TARJETA = /choca con la tarjeta [«"]([^»"\n]{1,200})[»"]/i;
+/** El servidor, el SSH o la base no responden (lo que dicen Node, Prisma y ssh). */
+const SERVIDOR_CAIDO = /ECONNREFUSED|Can't reach database server|\bP1001\b|ssh: connect to host|ssh:[^\n]*Connection (?:refused|timed out)|No se pudieron leer los logs del servidor \(ssh\)/i;
+
+/** Las líneas del texto que dicen la causa (para el detalle de la tarjeta de causa), máximo 8. */
+function lineasDeLaCausa(texto, regla) {
+  return String(texto ?? "")
+    .split(/\r?\n/)
+    .map((linea) => linea.trim())
+    .filter((linea) => linea && regla.test(linea))
+    .slice(0, 8)
+    .map((linea) => `- ${recortar(linea, 300)}`);
+}
+
+/**
+ * ¿La falla es de una causa externa a la tarea? -> { tipo, titulo, detalle, referencia? } o null (el camino de siempre).
+ *   diagnostico  el de diagnosticar() ({ categoria, causa, error })
+ *   reversion    { ok, commit, revert } si la etapa subió y se revirtió (o null)
+ *   repo         la clave del repo de la tarjeta ("aizencrm", "gestion")
+ *   tarjeta      la tarjeta que falló ({ titulo })
+ * tipo: "vigilancia" | "main_roto" | "choque" | "servidor". En "choque" no hay tarjeta nueva: `referencia` es la otra tarjeta.
+ * null si la reversión no se pudo hacer (sigue siendo URGENTE) o si la tarjeta ya es de causa.
+ */
+export function causaExterna(diagnostico, { reversion = null, repo = "", tarjeta = null } = {}) {
+  if (!diagnostico) return null;
+  if (reversion && reversion.ok !== true) return null;
+  if (esTarjetaDeCausa(tarjeta)) return null;
+  const texto = String(diagnostico.error ?? "");
+  const todo = `${diagnostico.causa ?? ""}\n${texto}`;
+  const deLa = repo ? ` (${repo})` : "";
+  const nombre = enUnaLinea(tarjeta?.titulo ?? "otra tarjeta", 120);
+
+  if (reversion?.ok && (/^\s*Revertida:/.test(texto) || /vigilancia de 30 min/i.test(texto))) {
+    const lineas = String(texto)
+      .split(/\r?\n/)
+      .map((linea) => linea.trim())
+      .filter((linea) => /\[minuto \d+\]|error|fall/i.test(linea))
+      .slice(0, 8)
+      .map((linea) => `- ${recortar(linea, 300)}`);
+    return {
+      tipo: "vigilancia",
+      titulo: `${PREFIJOS_DE_CAUSA.vigilancia} la vigilancia de 30 min revirtió una subida${deLa}`,
+      detalle: [`La vigilancia de 30 min revirtió la subida de «${nombre}». Causa: ${enUnaLinea(causaDeLaReversion(texto) || diagnostico.causa, 300)}`, "Líneas del log:", ...lineas].join("\n"),
+    };
+  }
+
+  if (["lint", "fallan_pruebas"].includes(diagnostico.categoria) && YA_FALLA_EN_MAIN.test(todo)) {
+    return {
+      tipo: "main_roto",
+      titulo: `${PREFIJOS_DE_CAUSA.main_roto} lint o pruebas fallan sin el cambio${deLa}`,
+      detalle: [`Al verificar «${nombre}», ${diagnostico.categoria === "lint" ? "el lint" : "las pruebas"} ya fallaban en main sin el cambio. Arréglalo sin cambiar lo que hace el sistema. Causa: ${enUnaLinea(diagnostico.causa, 300)}`, ...lineasDeLaCausa(texto, /error|fail|not ok|✖/i)].join("\n"),
+    };
+  }
+
+  const otra = todo.match(CHOCA_CON_TARJETA)?.[1]?.trim();
+  if (otra && otra !== String(tarjeta?.titulo ?? "").trim()) {
+    return { tipo: "choque", titulo: otra, referencia: otra, detalle: `«${nombre}» choca con la tarjeta «${otra}»: espera a que esa llegue a HECHO.` };
+  }
+
+  if (SERVIDOR_CAIDO.test(todo)) {
+    return {
+      tipo: "servidor",
+      titulo: `${PREFIJOS_DE_CAUSA.servidor} el servidor, el SSH o la base no responde${deLa}`,
+      detalle: [`Al trabajar «${nombre}», el servidor, el SSH o la base no respondieron. Revisa que estén arriba (si no tiene arreglo en código, dilo con NECESITO). Causa: ${enUnaLinea(diagnostico.causa, 300)}`, ...lineasDeLaCausa(texto, SERVIDOR_CAIDO)].join("\n"),
+    };
+  }
+  return null;
+}
+
+/**
+ * Las causas distintas que ya probó la tarjeta: sus intentos (sin las esperas) más la falla de ahora, sin repetir. Dos causas
+ * son la misma si tienen la misma categoría y la misma causa (esLaMismaCausa, con causaParaComparar). Puro.
+ * -> [{ categoria, causa }] (en el orden en que pasaron)
+ */
+export function causasDistintas(intentos, diagnostico) {
+  const lista = [...(intentos ?? []).filter((intento) => intento && intento.accion !== "esperar"), ...(diagnostico ? [diagnostico] : [])];
+  const distintas = [];
+  for (const falla of lista) {
+    const causa = { categoria: falla.categoria ?? "otra", causa: enUnaLinea(sinMarcaDeEstrategia(falla.causa), 120) };
+    if (!distintas.some((ya) => ya.categoria === causa.categoria && (causaParaComparar(ya.causa) === causaParaComparar(causa.causa) || esLaMismaCausa(causa, ya)))) distintas.push(causa);
+  }
+  return distintas;
+}
+
+/** Con cuántas causas distintas sin resolverlo queda la línea "AVISO AL CTO" en el registro del Coordinador. */
+export const CAUSAS_PARA_AVISAR_AL_CTO = 3;
+
 /** La causa cuando no se supo (nunca se manda vacía al CRM). */
 export function sinCausa(etapa, intento) {
   return `El Coordinador no supo la causa (etapa ${etapa ?? "?"}, intento ${intento ?? "?"}).`;

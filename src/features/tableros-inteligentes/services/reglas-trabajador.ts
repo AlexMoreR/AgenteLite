@@ -331,7 +331,8 @@ export type AccionDelTrabajador =
   | "revisar_de_nuevo"
   | "ya-hecha"
   | "limpieza"
-  | "rescatar";
+  | "rescatar"
+  | "causa-externa";
 export const ACCIONES_DEL_TRABAJADOR: readonly AccionDelTrabajador[] = [
   "latido",
   "plan",
@@ -347,6 +348,7 @@ export const ACCIONES_DEL_TRABAJADOR: readonly AccionDelTrabajador[] = [
   "ya-hecha",
   "limpieza",
   "rescatar",
+  "causa-externa",
 ];
 
 /**
@@ -396,6 +398,10 @@ export const TRANSICIONES_DEL_TRABAJADOR: Record<
   // Revisar de nuevo (30-oct-2026): saca de POR_REVISAR a una tarjeta de CHATS / BOT_VENTAS que ya estaba esperando: a SUBIENDO
   // pendiente (subeSolo) o a ERROR con el motivo. La usa el Coordinador, no la pantalla. a = null: depende de `subeSolo`.
   revisar_de_nuevo: { desde: ["POR_REVISAR"], a: null },
+  // Causa externa (31-oct-2026): la falla no es de la tarea (la vigilancia revirtió la subida, main ya trae lint o pruebas rotas, choca
+  // con otra tarjeta, el servidor no responde). Crea la tarjeta de la causa (o reusa la abierta con el mismo título), pone la flecha de
+  // dependencia y suelta la original sin ERROR ni intento: PLANEANDO -> APROBADO, EN_CURSO y SUBIENDO -> PLAN_APROBADO. a = null.
+  "causa-externa": { desde: ["PLANEANDO", "EN_CURSO", "SUBIENDO"], a: null },
 };
 
 /** La nota de una tarjeta que ya estaba hecha (27-oct-2026): "ya estaba hecho (commit X)". */
@@ -406,6 +412,34 @@ export function notaDeYaHecha(commit: string): string {
 /** El título de la tarjeta única de limpieza de un repo. Las tareas de limpieza se buscan por este título exacto. */
 export function tituloDeLimpieza(repo: string): string {
   return `Limpieza: main trae errores viejos (${repo})`;
+}
+
+/** Los tipos de causa externa (31-oct-2026) y el comienzo fijo del título de su tarjeta. "choque" no crea tarjeta: espera a la otra. */
+export const PREFIJOS_DE_CAUSA_EXTERNA = { vigilancia: "Vigilancia:", main_roto: "Main roto:", servidor: "Servidor:" } as const;
+export type TipoDeCausaExterna = keyof typeof PREFIJOS_DE_CAUSA_EXTERNA | "choque";
+
+/**
+ * Lo que manda el Coordinador en /causa-externa, validado: { tipo, titulo, detalle, referencia } o un texto con el problema.
+ * El título de una tarjeta de causa empieza con su prefijo fijo (así el Coordinador no puede crear tarjetas con cualquier título) y
+ * tiene máximo 200 letras; "choque" trae `referencia` (id o título de la otra tarjeta) y no crea nada.
+ */
+export function causaExternaDeEntrada(
+  cuerpo: Record<string, unknown>,
+): { tipo: TipoDeCausaExterna; titulo: string; detalle: string; referencia: string | null } | string {
+  const tipo = cuerpo.tipo;
+  const texto = (valor: unknown, n: number) => (typeof valor === "string" ? valor.trim().slice(0, n) : "");
+  if (tipo === "choque") {
+    const referencia = texto(cuerpo.referencia, 200);
+    if (!referencia) return "Falta la referencia: el id o el título de la tarjeta con la que choca.";
+    return { tipo, titulo: referencia, detalle: texto(cuerpo.detalle, 4000), referencia };
+  }
+  if (typeof tipo !== "string" || !(tipo in PREFIJOS_DE_CAUSA_EXTERNA)) return "El tipo de causa externa no existe (vigilancia, main_roto, servidor o choque).";
+  const prefijo = PREFIJOS_DE_CAUSA_EXTERNA[tipo as keyof typeof PREFIJOS_DE_CAUSA_EXTERNA];
+  const titulo = typeof cuerpo.titulo === "string" ? cuerpo.titulo.replace(/\s+/g, " ").trim() : "";
+  if (!titulo.startsWith(prefijo) || titulo.length <= prefijo.length || titulo.length > 200) return `El título de la tarjeta de causa tiene que empezar con "${prefijo}" (máximo 200 letras).`;
+  const detalle = texto(cuerpo.detalle, 4000);
+  if (!detalle) return "Falta el detalle de la causa.";
+  return { tipo: tipo as TipoDeCausaExterna, titulo, detalle, referencia: null };
 }
 
 /** ¿Puede el Coordinador hacer `accion` con una tarjeta en `estado`? */

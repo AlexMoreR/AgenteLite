@@ -8,7 +8,7 @@ import path from "node:path";
 
 import { completarConfig } from "../lib/config.mjs";
 import { crearCrm } from "../lib/crm.mjs";
-import { crearNotasDeBoveda, destinoEnLaBoveda, escribirNotaEnLaBoveda, problemaDeRuta, rutaDelEstadoDeNotas } from "../lib/notas-boveda.mjs";
+import { REGISTRO_DEL_COORDINADOR, anotarAvisoAlCto, crearNotasDeBoveda, destinoEnLaBoveda, escribirNotaEnLaBoveda, fechaDelRegistro, problemaDeRuta, rutaDelEstadoDeNotas } from "../lib/notas-boveda.mjs";
 
 let pruebas = 0;
 async function prueba(nombre, fn) {
@@ -189,6 +189,30 @@ try {
     assert.equal(llamadas[0].init.headers.Authorization, "Bearer aizen_trab_x");
     assert.equal(llamadas[1].init.method, "POST");
     assert.deepEqual(JSON.parse(llamadas[1].init.body), { id: "n1", estado: "ERROR", motivo: "ruta mala" });
+  });
+  await prueba("aviso al CTO: agrega UNA fila fechada al final del registro del Coordinador, sin sobrescribir ni repetir", () => {
+    const boveda = fs.mkdtempSync(path.join(T, "cto-"));
+    const archivo = path.join(boveda, ...REGISTRO_DEL_COORDINADOR.split("/"));
+    fs.mkdirSync(path.dirname(archivo), { recursive: true });
+    const antes = "# Coordinador — registro horario\n\n| Hora | Tarjeta | Quién | Qué |\n|---|---|---|---|\n| 30-oct 13:00 | abcd1234 | coordinador | revisé |";
+    fs.writeFileSync(archivo, antes);
+    const ahora = new Date("2026-10-30T19:05:00Z"); // 14:05 en Bogotá
+    assert.equal(fechaDelRegistro(ahora), "30-oct 14:05");
+    const tarjeta = { id: "cmvt24l7900hz2wmnykpl83z3", titulo: "Tarea | con barra" };
+    const primera = anotarAvisoAlCto(boveda, { tarjeta, causas: ["no_compila (error TS2322)", "lint (regla x)", "fallan_pruebas (not ok 3)"], ahora });
+    assert.equal(primera.accion, "agregada");
+    const texto = fs.readFileSync(archivo, "utf8");
+    assert.ok(texto.startsWith(antes), "lo de antes queda intacto");
+    assert.equal(texto.split("\n").filter(Boolean).at(-1), "| 30-oct 14:05 | ykpl83z3 | coordinador | AVISO AL CTO: «Tarea / con barra» — causas: no_compila (error TS2322), lint (regla x), fallan_pruebas (not ok 3) |");
+    // La misma tarjeta otra vez: no se repite.
+    assert.equal(anotarAvisoAlCto(boveda, { tarjeta, causas: ["a", "b", "c"], ahora }).accion, "repetida");
+    assert.equal(fs.readFileSync(archivo, "utf8"), texto);
+    // Otra tarjeta: otra fila. Si el registro no existe, se crea con su carpeta.
+    const vacia = fs.mkdtempSync(path.join(T, "cto-vacia-"));
+    assert.equal(anotarAvisoAlCto(vacia, { tarjeta, causas: ["a", "b", "c"], ahora }).accion, "agregada");
+    assert.match(fs.readFileSync(path.join(vacia, ...REGISTRO_DEL_COORDINADOR.split("/")), "utf8"), /^\| 30-oct 14:05 \| ykpl83z3 \| coordinador \| AVISO AL CTO/);
+    // Sin bóveda: lanza (el bucle lo deja en el log).
+    assert.throws(() => anotarAvisoAlCto(path.join(T, "no-existe"), { tarjeta, causas: [] }), /no existe la carpeta de la bóveda/);
   });
 } finally {
   fs.rmSync(T, { recursive: true, force: true });
