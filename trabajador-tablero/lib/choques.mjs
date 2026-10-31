@@ -94,10 +94,21 @@ function archivosDeTexto(texto) {
     const partes = limpio.split("/").filter(Boolean);
     if (!partes.length || !/^[\w.@[\]*-]+$/.test(partes.join(""))) continue;
     const esRuta = partes.length > 1 ? EXTENSIONES.test(limpio) || RAICES.has(partes[0]) : EXTENSIONES.test(limpio) && /^[\w.-]+$/.test(limpio);
-    if (esRuta) encontrados.add(partes.join("/"));
+    if (!esRuta) continue;
+    const ruta = partes.join("/");
+    // Tope (31-oct-2026): el glob viene del texto del plan y se vuelve regex (rutasChocan). Con muchos "*" la regex
+    // puede tardar minutos y colgar la vuelta; ahí vale su parte fija, que choca con todo lo de adentro (en fila, seguro).
+    if (ruta.length > LARGO_MAXIMO) continue;
+    const comodines = ruta.match(/\*+/g)?.length ?? 0;
+    const segura = comodines > COMODINES_MAXIMOS ? baseFija(ruta) : ruta;
+    if (segura) encontrados.add(segura);
   }
   return [...encontrados];
 }
+
+/** Una ruta más larga no es de verdad (y no se compara); un glob con más grupos de "*" se toma por su parte fija. */
+const LARGO_MAXIMO = 200;
+const COMODINES_MAXIMOS = 3;
 
 const sinExtension = (texto) => texto.replace(/\.[^.]+$/, "");
 const esArchivo = (parte) => EXTENSIONES.test(parte);

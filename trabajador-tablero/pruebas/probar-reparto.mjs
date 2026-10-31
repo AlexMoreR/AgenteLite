@@ -92,6 +92,12 @@ await prueba("choques: una carpeta o un glob de la parte 5 choca con los archivo
   assert.equal(motivoDeChoque(h("a", "src/features/coach/"), h("b", "src/features/ventas/")), null);
   assert.equal(motivoDeChoque(h("a", "src/features/coach/**"), h("b", "src/features/ventas/x.ts")), null);
   assert.equal(motivoDeChoque(h("a", "src/lib/*.ts"), h("b", "src/lib/mcp/x.ts")), null, "un '*' no baja de carpeta");
+  // Un glob con muchos "*" (regex que tardaría minutos) se toma por su parte fija: responde enseguida y choca.
+  const malicioso = `src/${"*a".repeat(12)}*b.ts`;
+  assert.deepEqual(archivosDelPlan(planCon(malicioso)), ["src"]);
+  const inicio = Date.now();
+  assert.ok(motivoDeChoque(h("a", malicioso), h("b", `src/${"a".repeat(40)}.ts`)));
+  assert.ok(Date.now() - inicio < 1000, "no se cuelga");
   // Los .md siguen sin chocar aunque estén dentro de la carpeta.
   assert.equal(motivoDeChoque(h("a", "docs/guias/"), h("b", "docs/guias/uso.md")), null);
 });
