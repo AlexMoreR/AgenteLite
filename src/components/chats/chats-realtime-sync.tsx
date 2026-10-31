@@ -11,7 +11,6 @@ import {
   extractEvolutionFromMe,
   extractEvolutionMessageId,
   extractEvolutionMediaUrl,
-  extractEvolutionPushName,
   extractEvolutionRemoteJid,
   extractEvolutionInstanceName,
   hasEvolutionDeletedMessagePayload,
@@ -325,8 +324,6 @@ export function ChatsRealtimeSync({
     : null;
   const activeInstanceNameRef = useRef(activeInstanceName);
   activeInstanceNameRef.current = activeInstanceName;
-  // Dedup de notificaciones: un mismo mensaje puede llegar por varios sockets (global + instancia).
-  const notifiedMessageIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const normalizedBaseUrl = normalizeBaseUrl(apiBaseUrl);
@@ -779,10 +776,6 @@ export function ChatsRealtimeSync({
         phoneNumber,
         payload,
       });
-      const hasMessageContent =
-        Boolean(extractEvolutionMessageText(payload)?.trim()) ||
-        Boolean(extractEvolutionMediaUrl(payload)?.trim()) ||
-        Boolean(extractEvolutionMessageType(payload)?.trim());
       // El reintento diferido es para mensajes SALIENTES (fromMe): el webhook puede tardar en
       // guardarlos y el primer summary llega antes. Evolution GO marca el saliente en
       // data.Info.IsFromMe (extractEvolutionFromMe, hecho para Evolution API, no lo detecta ahí).
@@ -796,37 +789,12 @@ export function ChatsRealtimeSync({
         !normalizedActiveInstanceName ||
         !effectiveInstanceName ||
         effectiveInstanceName === normalizedActiveInstanceName;
-      const isInboundMessage =
-        !extractEvolutionFromMe(payload) &&
-        !isEditedOrDeletedPayload &&
-        Boolean(phoneNumber) &&
-        hasMessageContent &&
-        /MESSAGE/.test(normalizedEventName);
-      if (isInboundMessage) {
-        const messageId = extractEvolutionMessageId(payload)?.trim() || "";
-        const isDuplicate = messageId ? notifiedMessageIdsRef.current.has(messageId) : false;
-        if (!isDuplicate) {
-          if (messageId) {
-            notifiedMessageIdsRef.current.add(messageId);
-            if (notifiedMessageIdsRef.current.size > 200) {
-              const oldest = notifiedMessageIdsRef.current.values().next().value;
-              if (oldest) notifiedMessageIdsRef.current.delete(oldest);
-            }
-          }
-          window.dispatchEvent(
-            new CustomEvent("chat-incoming-message", {
-              detail: {
-                phoneNumber,
-                senderName: extractEvolutionPushName(payload)?.trim() || null,
-                text: extractEvolutionMessageText(payload)?.trim() || "",
-                type: extractEvolutionMessageType(payload) || null,
-                chatKey: isSelectedAgentConversation ? currentConversationKey ?? null : null,
-                isActiveConversation: isSelectedAgentConversation,
-              },
-            }),
-          );
-        }
-      }
+      /*
+        Este socket ya NO hace sonar nada. No sabe a quien esta asignado el chat y sonaba para todos,
+        tambien para quien no tiene el chat (le pitaba a Emanuel sin chats asignados). La regla del
+        dueño es que solo le suena a quien tiene el chat asignado: el sonido sale del altavoz
+        (ChatsOfficialRealtime), que trae la lista `noSeEnteran` (ver quien-se-entera-del-mensaje).
+      */
 
       debugRealtimeSync("realtime event", {
         eventName: normalizedEventName,
