@@ -13,9 +13,11 @@ import {
   preguntaPorLaFoto,
   type FotoDelCliente,
 } from "./foto-y-precio";
+import { juntarPreguntas } from "./varias-preguntas";
 
 /**
- * EL MOTOR: dado un mensaje y el estado de la conversación, elige UNA regla.
+ * EL MOTOR: dado un mensaje y el estado de la conversación, elige UNA regla (o, si el mensaje trae
+ * varias preguntas de tema, junta sus respuestas en un solo mensaje corto: ver varias-preguntas.ts).
  *
  * Es una función pura y sin IA adentro. Eso no es un detalle: significa que la misma entrada da
  * siempre la misma salida, que se puede probar contra conversaciones viejas sin gastar un peso, y
@@ -193,12 +195,12 @@ export function decidir(input: {
       .map((regla) => regla.id),
   );
 
-  const candidatas = input.libro.reglas
+  const queAplican = input.libro.reglas
     .filter((regla) => !esDelSaludo.has(regla.id))
     .map((regla, orden) => ({ regla, orden }))
     .filter(({ regla }) => regla.activa)
-    .filter(({ regla }) => cumpleLasCondiciones(regla, input.estado))
-    .filter(({ regla }) => seDispara(regla, input.mensaje, input.estado, intenciones));
+    .filter(({ regla }) => cumpleLasCondiciones(regla, input.estado));
+  const candidatas = queAplican.filter(({ regla }) => seDispara(regla, input.mensaje, input.estado, intenciones));
 
   /*
     FOTO + PRECIO, antes que las frases (caso del 08-10-2026, ver foto-y-precio.ts).
@@ -235,6 +237,28 @@ export function decidir(input: {
     const peso = pesoDeLaRegla(a.regla) - pesoDeLaRegla(b.regla);
     return peso !== 0 ? peso : a.orden - b.orden;
   });
+
+  /*
+    VARIAS PREGUNTAS, UN SOLO MENSAJE (caso del 26-10-2026, ver varias-preguntas.ts).
+
+    "Materiales garantía y envío los costos es gratis??" dejaba ganar solo a la garantía. Si el
+    mensaje trae varias preguntas de tema (o una de tema y otra que necesita asesora), se contestan
+    todas en un mensaje corto con los textos de sus reglas. Si gana una regla que mueve la charla
+    (producto, paso, catálogo) o un seguimiento, esto no aplica y todo sigue como siempre.
+  */
+  const juntas = juntarPreguntas({ mensaje: input.mensaje, candidatas: ordenadas, reglasQueAplican: queAplican });
+  if (juntas) {
+    const ids = new Set(juntas.juntadas.map((regla) => regla.id));
+    return {
+      regla: juntas.ganadora,
+      saludo,
+      acciones: juntas.acciones,
+      porque: juntas.porque,
+      tambienEncajaban: ordenadas
+        .filter(({ regla }) => !ids.has(regla.id))
+        .map(({ regla }) => ({ id: regla.id, nombre: regla.nombre })),
+    };
+  }
 
   const ganadora = ordenadas[0].regla;
 
