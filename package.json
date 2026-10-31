@@ -109,6 +109,7 @@
     "test:uso-del-sistema-migracion": "node scripts/check-uso-del-sistema-migracion.mjs",
     "test:como-quedo": "node scripts/check-como-quedo.mjs",
     "test:chats-acceso-por-enlace": "npx tsx --test src/lib/chats-acceso-por-enlace.test.ts",
+    "test:busqueda-de-chats": "npx tsx --test src/lib/busqueda-de-chats.test.ts",
     "test:resuelto": "node scripts/check-resuelto.mjs",
     "test:respaldo": "node scripts/check-respaldo.mjs",
     "test:etapa-automatica": "node scripts/check-etapa-automatica.mjs",

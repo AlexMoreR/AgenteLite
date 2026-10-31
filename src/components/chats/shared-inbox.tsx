@@ -64,7 +64,7 @@ export type {
   StatusFilter,
 } from "./chat-inbox-types";
 import { normalizeChatSearchText, getMediaPreviewLabel } from "./chat-inbox-format";
-import { cifrasDeLaBusqueda } from "@/lib/busqueda-de-chats";
+import { cifrasParaBuscarElTelefono, estadoQueAplica } from "@/lib/busqueda-de-chats";
 import {
   normalizeLiveConversationSnapshot,
   normalizeLiveConversationListSnapshot,
@@ -691,6 +691,9 @@ export function SharedInbox({
   const selectedConversationRef = useRef(selectedConversation);
   const router = useRouter();
   const [searchInputValue, setSearchInputValue] = useState(searchQuery);
+  // Lo escrito en el buscador, para los listeners que no se vuelven a registrar en cada letra.
+  const searchInputValueRef = useRef(searchInputValue);
+  searchInputValueRef.current = searchInputValue;
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Ids de chats que coinciden con la búsqueda por CONTENIDO de mensaje (no por nombre/
@@ -736,8 +739,10 @@ export function SharedInbox({
         return siguiente;
       });
 
+      // Buscando, el estado no filtra: el chat sigue a la vista (ver estadoQueAplica).
+      const estado = estadoQueAplica(statusFilter, searchInputValueRef.current);
       const yaNoCorresponde =
-        statusFilter === "open" ? detail.resolved : statusFilter === "resolved" ? !detail.resolved : false;
+        estado === "open" ? detail.resolved : estado === "resolved" ? !detail.resolved : false;
       if (!yaNoCorresponde) {
         return;
       }
@@ -1330,8 +1335,13 @@ export function SharedInbox({
       problema. Los items sin estado conocido se dejan pasar: no se puede decidir sobre lo que no
       se sabe.
     */
+    /*
+      Con texto en el buscador el estado no filtra: el chat buscado sale aunque este cerrado (Alex,
+      30-10-2026). Al borrar la busqueda vuelve el filtro de siempre y los cerrados se van solos.
+    */
+    const estado = estadoQueAplica(statusFilter, searchInputValue);
     const porEstado = conversationItems.filter((item) => {
-      const resueltaAca = statusFilter === "open" ? resueltasAca.get(item.id) : undefined;
+      const resueltaAca = estado === "open" ? resueltasAca.get(item.id) : undefined;
       if (resueltaAca !== undefined) {
         const ultimo = item.lastMessageAt ? new Date(item.lastMessageAt).getTime() : 0;
         if (ultimo <= resueltaAca) {
@@ -1342,7 +1352,7 @@ export function SharedInbox({
         return true;
       }
       const cerrada = item.status === "CLOSED" || item.status === "ARCHIVED";
-      return statusFilter === "open" ? !cerrada : statusFilter === "resolved" ? cerrada : true;
+      return estado === "open" ? !cerrada : estado === "resolved" ? cerrada : true;
     });
 
     const normalizedQuery = normalizeChatSearchText(searchInputValue.trim());
@@ -1350,8 +1360,9 @@ export function SharedInbox({
       return porEstado;
     }
 
-    // "300 123 4567" tambien encuentra el numero guardado sin espacios (igual que el servidor).
-    const cifras = cifrasDeLaBusqueda(searchInputValue);
+    // "300 123 4567" tambien encuentra el numero guardado sin espacios, y "573012175617" el
+    // guardado sin el 57 (igual que el servidor).
+    const variantes = cifrasParaBuscarElTelefono(searchInputValue);
 
     /*
       Como en WhatsApp: en "Chats" van los que coinciden por NOMBRE o NUMERO; los que tienen la
@@ -1365,8 +1376,10 @@ export function SharedInbox({
       return (
         normalizeChatSearchText(item.label).includes(normalizedQuery) ||
         normalizeChatSearchText(item.secondaryLabel).includes(normalizedQuery) ||
-        (cifras !== null &&
-          (item.secondaryLabel.replace(/\D/g, "").includes(cifras) || item.label.replace(/\D/g, "").includes(cifras)))
+        variantes.some(
+          (cifras) =>
+            item.secondaryLabel.replace(/\D/g, "").includes(cifras) || item.label.replace(/\D/g, "").includes(cifras),
+        )
       );
     });
   }, [conversationItems, resueltasAca, searchInputValue, statusFilter]);

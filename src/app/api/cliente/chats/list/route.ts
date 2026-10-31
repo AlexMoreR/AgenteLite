@@ -7,7 +7,7 @@ import { scheduleContactAvatarRefresh, type ContactAvatarTarget } from "@/lib/co
 import { extractEvolutionMessageText, extractEvolutionPushName } from "@/lib/evolution-webhook";
 import { getVisibleChannelIds, resolverConexionElegida } from "@/lib/channel-visibility";
 import { canalesDelNegocio } from "@/lib/canales-del-negocio";
-import { whereDeBusquedaDeChats } from "@/lib/busqueda-de-chats";
+import { estadoQueAplica, hayBusqueda, whereDeBusquedaDeChats } from "@/lib/busqueda-de-chats";
 import {
   ORDEN_DE_BANDEJA,
   cortarPagina,
@@ -205,10 +205,13 @@ async function getAgentConversationList(input: {
   const assignedWhere: Prisma.ConversationWhereInput = input.monitoredChannelIds.length
     ? { channelId: { in: input.monitoredChannelIds }, ...filtroDeAsignacion }
     : filtroDeAsignacion;
+  // Con texto en el buscador el estado no filtra: el chat buscado sale aunque este cerrado
+  // (ver estadoQueAplica en lib/busqueda-de-chats).
+  const estado = estadoQueAplica(input.statusFilter, normalizedSearchQuery);
   const statusWhere: Prisma.ConversationWhereInput =
-    input.statusFilter === "resolved"
+    estado === "resolved"
       ? { status: { in: ["CLOSED", "ARCHIVED"] } }
-      : input.statusFilter === "all"
+      : estado === "all"
         ? {}
         : { status: { in: ["OPEN", "PENDING"] } };
   /**
@@ -315,10 +318,13 @@ async function getAgentConversationList(input: {
    * Un lead pospuesto no aparece en la bandeja hasta que se cumpla el plazo, o hasta que el
    * cliente escriba (ahi el webhook lo despierta solo). Si posponer lo sacaba de "Mi dia" pero
    * lo dejaba aca, no servia de nada: la asesora lo veia igual en la lista que mira todo el dia.
+   *
+   * Buscando si sale: quien escribe el numero quiere encontrar ese chat. Solo cambia que filas se
+   * muestran; "hay mas" y el offset siguen saliendo de las filas leidas (arriba).
    */
-  const activeAgentConversations = consumedConversationRows.filter(
-    (conversation) => !isSnoozed(conversation.contact?.metadata),
-  );
+  const activeAgentConversations = hayBusqueda(normalizedSearchQuery)
+    ? consumedConversationRows
+    : consumedConversationRows.filter((conversation) => !isSnoozed(conversation.contact?.metadata));
 
   const activeAgentConversationIds = activeAgentConversations.map((conversation) => conversation.id);
   const contactIds = Array.from(new Set(activeAgentConversations.map((conversation) => conversation.contact.id)));
