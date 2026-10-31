@@ -209,13 +209,69 @@ const MESES_CORTOS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "s
 
 /** La línea que se agrega al detalle de una alerta que se cerró sola: "Resuelta sola: <motivo> (<d-mmm HH:mm>)", hora de Bogotá. */
 export function lineaDeCierre(motivo: MotivoDeCierre, ahora: Date): string {
+  return `Resuelta sola: ${ETIQUETA_DE_MOTIVO_DE_CIERRE[motivo]} (${cuandoEnBogota(ahora)})`;
+}
+
+/** "d-mmm HH:mm" en hora de Bogotá (la hora de la línea "Resuelta sola: …"). */
+function cuandoEnBogota(ahora: Date): string {
   const partes = Object.fromEntries(
     new Intl.DateTimeFormat("en-US", { timeZone: ZONA, day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
       .formatToParts(ahora)
       .map((parte) => [parte.type, parte.value]),
   );
-  const cuando = `${Number(partes.day)}-${MESES_CORTOS[Number(partes.month) - 1]} ${partes.hour}:${partes.minute}`;
-  return `Resuelta sola: ${ETIQUETA_DE_MOTIVO_DE_CIERRE[motivo]} (${cuando})`;
+  return `${Number(partes.day)}-${MESES_CORTOS[Number(partes.month) - 1]} ${partes.hour}:${partes.minute}`;
+}
+
+/* ───────────── BARRIDO DE CADA MINUTO Y LIMPIEZA ÚNICA (cierran lo que la tarjeta ya dejó atrás) ───────────── */
+
+/** La línea del barrido y de la limpieza única: "Resuelta sola: la tarjeta ya avanzó o se cerró (<d-mmm HH:mm>)". */
+export function lineaDelBarrido(ahora: Date): string {
+  return `Resuelta sola: la tarjeta ya avanzó o se cerró (${cuandoEnBogota(ahora)})`;
+}
+
+/** Los estados de una tarjeta (los del enum EstadoTarjeta de Prisma). */
+const ESTADOS_DE_TARJETA = new Set(["IDEA", "POR_APROBAR", "APROBADO", "EN_CURSO", "HECHO", "FALLIDO", "PLANEANDO", "PLAN_LISTO", "PLAN_APROBADO", "POR_REVISAR", "SUBIENDO", "ERROR"]);
+/** Ya aprobada y en manos del Coordinador: la pregunta del Coordinador ya no espera al dueño. */
+const ESTADOS_YA_APROBADOS = new Set(["APROBADO", "PLAN_APROBADO", "PLANEANDO", "EN_CURSO", "SUBIENDO"]);
+const ESTADOS_CERRADOS = new Set(["HECHO", "FALLIDO"]);
+
+export type TarjetaDeLaAlerta = { estado: string; borradoEn: Date | string | null };
+
+/**
+ * ¿La alerta de una tarjeta ya no aplica? Sí cuando la tarjeta no existe o está borrada, está en HECHO o FALLIDO, la clave
+ * `auto:trabado|necesita:<id>:<ESTADO>` trae otro estado que el de hoy, o es una pregunta del Coordinador (`coord:necesita`)
+ * y la tarjeta ya está aprobada o en curso. `terminada:` y las claves que no son de tarjeta nunca se cierran acá.
+ */
+export function alertaYaNoAplica(clave: string, tarjeta: TarjetaDeLaAlerta | null): boolean {
+  const texto = String(clave ?? "");
+  if (texto.startsWith("terminada:")) return false;
+  const partes = texto.split(":");
+  const tipo = tipoDeClaveDeTarjeta(partes);
+  if (!tipo || !idDeTarjetaDeLaClave(texto)) return false;
+  if (!tarjeta || tarjeta.borradoEn) return true;
+  if (ESTADOS_CERRADOS.has(tarjeta.estado)) return true;
+  if (tipo === "auto:trabado" || tipo === "auto:necesita") {
+    // Solo si el último tramo es un estado: `auto:necesita:<id>:VIA_PANTALLA` no lo es y sigue mientras la tarjeta esté abierta.
+    const estadoDeLaClave = partes[3] ?? "";
+    return ESTADOS_DE_TARJETA.has(estadoDeLaClave) && estadoDeLaClave !== tarjeta.estado;
+  }
+  if (tipo === "coord:necesita") return ESTADOS_YA_APROBADOS.has(tarjeta.estado);
+  return false;
+}
+
+/**
+ * Limpieza única: ¿con estas tarjetas (todas las del negocio con el título del aviso) se puede cerrar el aviso viejo?
+ * Solo si hay al menos una y TODAS ya están aprobadas o en curso, en HECHO o FALLIDO, o borradas. Ante la duda, no.
+ */
+export function avisoViejoYaNoAplica(tarjetas: readonly TarjetaDeLaAlerta[]): boolean {
+  return tarjetas.length > 0 && tarjetas.every((t) => !!t.borradoEn || ESTADOS_YA_APROBADOS.has(t.estado) || ESTADOS_CERRADOS.has(t.estado));
+}
+
+/** El título de un aviso viejo del Coordinador (`coord:necesita:<texto>`): el de `para "Título"` o `«Título»`; null si no está. */
+export function tituloEntreComillasDelAviso(texto: string): string | null {
+  const valor = String(texto ?? "");
+  const encontrado = /\bpara\s+["“]([^"”\n]+)["”]/i.exec(valor)?.[1] ?? /«([^»\n]+)»/.exec(valor)?.[1] ?? "";
+  return encontrado.trim() || null;
 }
 
 /**

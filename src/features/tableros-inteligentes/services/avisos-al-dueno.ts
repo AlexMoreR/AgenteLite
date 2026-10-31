@@ -1,5 +1,12 @@
 import { ORIGEN_COORDINADOR, esDeDineroMetaOClave, idDeTarjetaDeLaClave, textoDeVariasUrgentes, tituloDelTexto, type Prioridad } from "@/features/alertas/dominio/reglas";
-import { leerResponsableDeSistemas, marcarSalioPorWhatsApp, registrarAlerta, soloUrgentesPrendido } from "@/features/alertas/servicios/alertas";
+import {
+  barrerAlertasDeTarjetas,
+  leerResponsableDeSistemas,
+  limpiezaUnicaDelCoordinador,
+  marcarSalioPorWhatsApp,
+  registrarAlerta,
+  soloUrgentesPrendido,
+} from "@/features/alertas/servicios/alertas";
 import { sendEvolutionTextMessageWithReconnect } from "@/lib/evolution";
 import { prisma } from "@/lib/prisma";
 
@@ -414,8 +421,12 @@ const lista = (tarjetas: { titulo: string; estado: string }[]) => {
   return resto > 0 ? `${dichas.join(", ")} y ${resto} más` : dichas.join(", ");
 };
 
-/** Los avisos que hoy corresponden (sin mirar lo ya avisado, el silencio ni el interruptor). */
-export function calcularAvisos(situacion: SituacionDeSistemas, ahora: Date): AvisoCalculado[] {
+/**
+ * Los avisos que hoy corresponden (sin mirar lo ya avisado, el silencio ni el interruptor). Una tarjeta FALLIDO ya está
+ * cerrada (31-oct-2026): no avisa, para que el reloj no le vuelva a abrir la alerta cada 3 horas.
+ */
+export function calcularAvisos(situacionCompleta: SituacionDeSistemas, ahora: Date): AvisoCalculado[] {
+  const situacion = { ...situacionCompleta, esperando: situacionCompleta.esperando.filter((tarjeta) => tarjeta.estado !== "FALLIDO") };
   const avisos: AvisoCalculado[] = [];
 
   // 1. Coordinador caído: sin señales hace más de 10 minutos. Si nunca dio señales, no hay Coordinador que vigilar.
@@ -454,7 +465,7 @@ export function calcularAvisos(situacion: SituacionDeSistemas, ahora: Date): Avi
   const conCausaPropia = new Set(necesitan.map((x) => x.tarjeta.id));
 
   for (const tarjeta of situacion.esperando) {
-    if ((tarjeta.estado !== "ERROR" && tarjeta.estado !== "FALLIDO") || conCausaPropia.has(tarjeta.id)) continue;
+    if (tarjeta.estado !== "ERROR" || conCausaPropia.has(tarjeta.id)) continue;
     avisos.push({
       clave: `auto:trabado:${tarjeta.id}:${tarjeta.estado}`,
       tipo: "trabado",
@@ -573,7 +584,8 @@ export async function leerSituacion(workspaceId: string): Promise<SituacionDeSis
     ? await prisma.historialTarjeta.groupBy({ by: ["tarjetaId"], where: { tarjetaId: { in: enCursoFilas.map((fila) => fila.id) } }, _max: { creadoEn: true } })
     : [];
   const porTarjeta = new Map(ultimos.map((fila) => [fila.tarjetaId, fila._max.creadoEn]));
-  const pendientesFilas = pendientes.filter((p) => ["POR_APROBAR", "PLAN_LISTO", "POR_REVISAR", "ERROR", "FALLIDO"].includes(p.estado));
+  // FALLIDO ya no avisa (31-oct-2026): la tarjeta está cerrada. La lista de pendientes de la pantalla no cambia.
+  const pendientesFilas = pendientes.filter((p) => ["POR_APROBAR", "PLAN_LISTO", "POR_REVISAR", "ERROR"].includes(p.estado));
   // Un solo sí (30-oct-2026): para cada plan listo, ¿el dueño aprobó la tarea? Las mismas reglas que usa el Coordinador al
   // aprobar el plan (la última aprobación de la tarea, con tareaAprobadaPorElDuenoEnElHistorial y de la cuenta dueña), para
   // no callar un aviso de un plan que en verdad sigue esperando. Si falla la lectura, se avisa como antes.
@@ -635,6 +647,18 @@ async function avisarASistemas(workspaceId: string, numero: string, avisos: read
 
 /** La revisión de un negocio. Devuelve lo que mandó. */
 export async function revisarNegocio(workspaceId: string, ahora: Date): Promise<{ enviados: number }> {
+  // Alertas que la tarjeta ya dejó atrás (31-oct-2026): la limpieza única de los avisos viejos y el barrido de cada minuto.
+  // Cada una por su lado: si falla, los avisos siguen.
+  try {
+    await limpiezaUnicaDelCoordinador(workspaceId, ahora);
+  } catch (error) {
+    console.warn("[avisos-al-dueno] falló la limpieza única de alertas", error instanceof Error ? error.message : String(error));
+  }
+  try {
+    await barrerAlertasDeTarjetas(workspaceId, ahora);
+  } catch (error) {
+    console.warn("[avisos-al-dueno] falló el barrido de alertas", error instanceof Error ? error.message : String(error));
+  }
   if (!(await avisosPrendidos(workspaceId))) return { enviados: 0 };
   const [situacion, estado] = await Promise.all([leerSituacion(workspaceId), leerEstadoDeAvisos(workspaceId)]);
   const calculados = calcularAvisos(situacion, ahora);
