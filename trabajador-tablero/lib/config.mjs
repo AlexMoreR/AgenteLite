@@ -482,7 +482,7 @@ export function completarConfig(datos, base = process.cwd()) {
   }
   // Los puestos de la nube de cada proyecto (repos.<repo>.cuposNube) caben en el tope de todo el Coordinador.
   const sumaCuposNube = Object.values(repos).reduce((suma, repo) => suma + (Number.isInteger(repo.cuposNube) ? repo.cuposNube : 0), 0);
-  if (Number.isFinite(nube.maxTareas) && sumaCuposNube > nube.maxTareas) {
+  if (nube.activa === true && Number.isFinite(nube.maxTareas) && sumaCuposNube > nube.maxTareas) {
     errores.push(`repos.<repo>.cuposNube suman ${sumaCuposNube} y no pueden pasar de nube.maxTareas (${nube.maxTareas}).`);
   }
   if (!["auto", "sin-terminal", "pty"].includes(nube.terminal)) errores.push('nube.terminal: "auto", "sin-terminal" o "pty".');

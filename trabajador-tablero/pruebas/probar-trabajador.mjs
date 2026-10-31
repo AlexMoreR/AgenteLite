@@ -34,6 +34,7 @@ import {
   CONFIRMACION_REVISION_DE_NUEVO,
   buscarCorridaDelDespliegue,
   esLimiteDeUso,
+  esperarCiDeRama,
   planParaLaNube,
   promptDeConstruir,
   promptDeNube,
@@ -2640,6 +2641,21 @@ try {
     ciDeRama: { activo: true, buscar: [node, falso("gh-falso.mjs"), buscar, "{commit}"], esperar: [node, falso("gh-falso.mjs"), esperar, "{run}"], log: [node, falso("gh-falso.mjs"), "log", "{run}", "build"], minutos: 0.05, ...extra },
   });
 
+  await prueba("ciDeRama (31-oct): mientras espera la corrida de Actions la sesión va sin puesto y al terminar lo retoma", async () => {
+    const repo = crearConfig({}, delCi("buscar-rama", "esperar")).repos.aizencrm;
+    const pasos = [];
+    const contexto = {
+      config,
+      registro,
+      fase: (etapa) => pasos.push(`fase ${etapa}`),
+      alSoltarPuesto: (motivo) => pasos.push(`suelta ${motivo}`),
+      alRetomarPuesto: () => pasos.push("retoma"),
+    };
+    const ci = await esperarCiDeRama(contexto, repo, shaDe("main"), REPO, { resta: () => 60_000 });
+    assert.equal(ci.estado, "ok");
+    assert.deepEqual(pasos, ["fase probando", "suelta esperando pruebas", "retoma", "fase probando"]);
+  });
+
   await prueba("ciDeRama: Actions pasa -> no se compila ni se prueba en aizen1, el ensayo de la migración SÍ corre y la rama ya está subida", async () => {
     fs.rmSync(MARCA_LOCAL, { force: true });
     const ghAntes = leerLog(LOGS.gh).length;
@@ -3982,6 +3998,9 @@ try {
     await planificador.esperar(5_000);
     await planificador.llenar();
     assert.equal(lugarDe(planificador, "nube-2"), "nube", "la que solo espera a GitHub soltó su puesto de la nube");
+    // Terminó de esperar: retoma su puesto (lo que sigue vuelve a contar) y el CRM ya no tiene puesto libre en la nube.
+    proceso.vivas.get("nube-1").opciones.alRetomarPuesto();
+    assert.equal(planificador.estado().tareas.find((t) => t.tarjetaId === "nube-1").sinPuesto, null, "retomó su puesto");
     for (const { terminar } of proceso.vivas.values()) terminar();
     await planificador.esperarTodas();
     planificador.parar();
@@ -3996,6 +4015,7 @@ try {
     assert.throws(() => configDeCupos({ gestion: { cuposNube: 0 } }), /repos\.gestion\.cuposNube: .*entero de 1 o más/);
     assert.throws(() => configDeCupos({ gestion: { cuposNube: "2" } }), /repos\.gestion\.cuposNube/);
     assert.equal(configDeCupos({ nube: { maxTareas: 3 }, aizencrm: { cuposNube: 2 } }).repos.aizencrm.cuposNube, 2, "2 + 1 caben en 3");
+    assert.equal(configDeCupos({ nube: { activa: false, maxTareas: 1 } }).repos.aizencrm.cuposNube, 1, "con la nube apagada la suma no se valida");
     // El ejemplo de la configuración trae la clave en los dos proyectos.
     const ejemplo = JSON.parse(fs.readFileSync(path.join(AQUI, "..", "config.example.json"), "utf8"));
     assert.equal(ejemplo.repos.aizencrm.cuposNube, 1);

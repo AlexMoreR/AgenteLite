@@ -294,7 +294,8 @@ seleccionado:
 - **Sin puesto**: una sesión que sube (`subir`), vigila los 30 min o espera las pruebas de GitHub Actions al construir
   llama `alSoltarPuesto(motivo)`. Sigue corriendo y sigue tomada en el CRM (se suma al `maxParalelo` que se manda a
   `/tomar`), pero no cuenta en los puestos de aizen1 ni de la nube ni en los del proyecto. El registro dice
-  «+N sin puesto (subiendo/vigilando/esperando pruebas)» y el latido marca la tarea con `sinPuesto: <motivo>`. Lo pesado
+  «+N sin puesto (subiendo/vigilando/esperando pruebas)» y el latido marca la tarea con `sinPuesto: <motivo>`. Al terminar la
+  espera de Actions la sesión llama `alRetomarPuesto()` y lo que sigue de construir vuelve a contar. Lo pesado
   de una subida (npm ci, build) sigue pasando por la cola de pasos pesados y el límite de CPU.
 - **Versión nueva del Coordinador**: mientras espera para pasar a ella, sigue tomando tarjetas **solo para planear**, y
   solo mientras quede una tarea larga (sin puesto o en la nube). Cuando no queda ninguna, deja de tomar y se actualiza.

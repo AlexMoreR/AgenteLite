@@ -126,7 +126,7 @@ export async function unaVuelta({ crm, config, registro }) {
   return { hizo: hacer, tarjetaId: tarjeta.id, ...resultado };
 }
 
-export async function procesar({ crm, config, registro: registroBase, motores = crearEstadoDeMotores(config), medidor = null, otrasSesiones = null, vivo = {}, lugar = "aizen1", puestoParaVerificar = null, colaPesada = null, etiqueta = "", alSoltarPuesto = null }, tarjeta, hacer) {
+export async function procesar({ crm, config, registro: registroBase, motores = crearEstadoDeMotores(config), medidor = null, otrasSesiones = null, vivo = {}, lugar = "aizen1", puestoParaVerificar = null, colaPesada = null, etiqueta = "", alSoltarPuesto = null, alRetomarPuesto = null }, tarjeta, hacer) {
   const control = new AbortController();
   // Pausa por uso de Claude (pausa-uso.mjs): el planificador pide detener esta sesión con `vivo.detenerPorPausa()`.
   let pausadaPorUso = false;
@@ -179,7 +179,7 @@ export async function procesar({ crm, config, registro: registroBase, motores = 
     linkSesion: null,
   });
   const fase = (etapa, extra = {}) => Object.assign(vivo, { etapa }, extra);
-  const contexto = { config, registro, senal: control.signal, motorDe: motores.motorDe, alLimite: pausar, medidor, otrasSesiones, fase, puestoParaVerificar, colaPesada, etiqueta, lugar: enNube ? "nube" : "aizen1", alSoltarPuesto };
+  const contexto = { config, registro, senal: control.signal, motorDe: motores.motorDe, alLimite: pausar, medidor, otrasSesiones, fase, puestoParaVerificar, colaPesada, etiqueta, lugar: enNube ? "nube" : "aizen1", alSoltarPuesto, alRetomarPuesto };
   try {
     const etapa = ETAPAS[hacer];
     if (!etapa) throw new ErrorDeEtapa(`El CRM pidió "${hacer}", que este Coordinador no sabe hacer (¿hay que actualizarlo?).`);
@@ -1017,6 +1017,12 @@ export function crearPlanificador({
           if (yaSuelta) return;
           if (despertar) despertar();
           else cupoNuevo = true;
+        },
+        // Terminó de esperar y sigue trabajando (p. ej. construir después de las pruebas de Actions): vuelve a contar en los puestos.
+        alRetomarPuesto: () => {
+          if (!vivo.sinPuesto) return;
+          vivo.sinPuesto = null;
+          contarCorriendo();
         },
       },
       tarjeta,

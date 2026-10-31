@@ -1907,12 +1907,14 @@ export async function esperarCiDeRama(contexto, repo, commit, cwd, reloj) {
   const link = web ? `${web}/actions/runs/${corrida}` : null;
   // Panel "Coordinador en vivo": mientras GitHub prueba, la tarea figura "en GitHub".
   contexto.fase?.("probando", { lugar: "github", linkWorkflow: link });
-  // 31-oct-2026: desde aquí solo espera a GitHub: suelta su puesto para que otra tarjeta trabaje mientras tanto.
+  // 31-oct-2026: mientras solo espera a GitHub suelta su puesto para que otra tarjeta trabaje; al terminar lo retoma
+  // (lo que sigue, compilar en aizen1 si Actions no respondió o cerrar construir, vuelve a contar).
   contexto.alSoltarPuesto?.("esperando pruebas");
   let resultado;
   try {
     resultado = await correr(conValores(esperar, { commit, run: corrida }), { cwd, timeoutMs: Math.max(1, limite - Date.now()), senal: contexto.senal });
   } finally {
+    contexto.alRetomarPuesto?.();
     contexto.fase?.("probando", { lugar: "aizen1", linkWorkflow: null });
   }
   if (resultado.cancelado) throw new ErrorDeEtapa("Se canceló la espera de Actions: la tarjeta venció en el CRM.", { categoria: "coordinador_cortado" });
