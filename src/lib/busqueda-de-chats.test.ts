@@ -37,6 +37,15 @@ for (const escrito of escritos) {
   });
 }
 
+// La lista de la linea oficial busca el waId con lo escrito y con estas mismas variantes (SQL en
+// getOfficialApiChatsData): el chat 573012175617 tiene que salir con o sin el 57 y con espacios.
+test("la lista oficial encuentra el waId 573012175617", () => {
+  for (const escrito of ["3012175617", "+57 301 217 5617"]) {
+    const cadenas = [escrito.trim(), ...cifrasParaBuscarElTelefono(escrito)];
+    assert.ok(encuentra(cadenas, "573012175617"), `${escrito}: ${cadenas.join(" | ")}`);
+  }
+});
+
 test("las variantes no repiten lo escrito tal cual", () => {
   assert.deepEqual(cifrasParaBuscarElTelefono("3012175617"), []);
   assert.deepEqual(cifrasParaBuscarElTelefono("573012175617"), ["3012175617"]);

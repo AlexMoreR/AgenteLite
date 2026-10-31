@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getOfficialApiConfigByWorkspaceId, hasOfficialApiBaseCredentials } from "@/lib/official-api-config";
 import { downloadOfficialApiMedia, extractMediaRefFromRawPayload } from "@/lib/official-api-media";
+import { cifrasParaBuscarElTelefono, estadoQueAplica } from "@/lib/busqueda-de-chats";
 import type { OfficialApiChatsData } from "@/features/official-api/types/official-api";
 import {
   SIN_ASIGNAR,
@@ -326,12 +327,23 @@ async function loadOfficialApiChatsData(input: {
   const includeSelectedConversation = input.includeSelectedConversation ?? true;
   const requestedConversationId = input.conversationId?.trim() || "";
   const conversationListLimit = !requestedConversationId && !searchQuery ? 50 : 80;
+  // "+57 301 217 5617" o "573012175617" tambien buscan las cifras solas y sin el 57, igual que el
+  // contador y el canal viejo (ver cifrasParaBuscarElTelefono). Son solo cifras: no traen % ni _.
+  const variantesDelTelefono = cifrasParaBuscarElTelefono(searchQuery);
   const officialSearchFilter = searchQuery
     ? Prisma.sql`
       AND (
         ct."name" ILIKE ${`%${searchQuery}%`}
         OR ct."phoneNumber" ILIKE ${`%${searchQuery}%`}
         OR ct."waId" ILIKE ${`%${searchQuery}%`}
+        ${
+          variantesDelTelefono.length
+            ? Prisma.sql`OR ${Prisma.join(
+                variantesDelTelefono.map((variante) => Prisma.sql`ct."waId" LIKE ${`%${variante}%`}`),
+                " OR ",
+              )}`
+            : Prisma.empty
+        }
         OR lm."content" ILIKE ${`%${searchQuery}%`}
       )
     `
@@ -340,10 +352,13 @@ async function loadOfficialApiChatsData(input: {
   // Mismo criterio que el canal viejo: por defecto la bandeja muestra SOLO las abiertas.
   // Sin esto, darle "Resolver" a un chat oficial no lo sacaba de la lista: se resolvia de
   // verdad (la cabecera pasaba a "Reabrir") pero seguia ahi, asi que la bandeja nunca bajaba.
+  // Con texto en el buscador el estado no filtra: el numero de un chat cerrado tambien sale
+  // (ver estadoQueAplica en lib/busqueda-de-chats).
+  const estadoAplicado = estadoQueAplica(input.statusFilter ?? "open", searchQuery);
   const officialStatusFilter =
-    input.statusFilter === "resolved"
+    estadoAplicado === "resolved"
       ? Prisma.sql`AND c."status"::text IN ('CLOSED', 'ARCHIVED')`
-      : input.statusFilter === "all"
+      : estadoAplicado === "all"
         ? Prisma.empty
         : Prisma.sql`AND c."status"::text IN ('OPEN', 'PENDING')`;
 
