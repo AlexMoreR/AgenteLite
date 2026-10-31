@@ -57,6 +57,55 @@ export function puedeAbrirChat(chat: ChatParaAcceso, quien: QuienAbre): boolean 
 }
 
 /**
+ * Enlace directo /cliente/chats?conversacion=<id>: traduce el id a la clave que usa la bandeja
+ * (`agent:<id>` u `official:<id>`), pero SOLO si esta persona puede abrir ese chat.
+ *
+ * Se busca primero en Conversation (WhatsApp normal) y, si no esta, en la API oficial. Devuelve
+ * null si el id no existe o si no lo puede ver: la pantalla abre la bandeja normal y no se sabe si
+ * el id existia (por eso el permiso va aca y no despues: un chat ajeno no debe cambiar ni la URL).
+ */
+export function chatKeyDeConversacion(input: {
+  conversationId: string;
+  /** La fila de Conversation con ese id, o null si no hay. */
+  agent: Omit<ChatParaAcceso, "fuente"> | null;
+  /** La fila de la API oficial con ese id, o null si no hay. */
+  official: Pick<ChatParaAcceso, "assignedToUserId"> | null;
+  quien: QuienAbre;
+}): string | null {
+  const chat: ChatParaAcceso | null = input.agent
+    ? { fuente: "agent", ...input.agent }
+    : input.official
+      ? { fuente: "official", channelId: null, assignedToUserId: input.official.assignedToUserId }
+      : null;
+  if (!chat || !puedeAbrirChat(chat, input.quien)) return null;
+  return `${chat.fuente}:${input.conversationId}`;
+}
+
+/** Lee la conversacion (de este negocio) y aplica `chatKeyDeConversacion`. */
+export async function chatKeyPorConversacion(input: {
+  workspaceId: string;
+  conversationId: string;
+  quien: QuienAbre;
+}): Promise<string | null> {
+  // Los ids son cuid: cualquier otra cosa no existe y no vale una consulta.
+  if (!/^[a-z0-9]{1,64}$/i.test(input.conversationId)) return null;
+  const { prisma } = await import("@/lib/prisma");
+
+  const agent = await prisma.conversation.findFirst({
+    where: { id: input.conversationId, workspaceId: input.workspaceId },
+    select: { channelId: true, assignedToUserId: true },
+  });
+  const official = agent
+    ? null
+    : await prisma.officialApiConversation.findFirst({
+        where: { id: input.conversationId, config: { workspaceId: input.workspaceId } },
+        select: { assignedToUserId: true },
+      });
+
+  return chatKeyDeConversacion({ conversationId: input.conversationId, agent, official, quien: input.quien });
+}
+
+/**
  * Lee el chat y aplica `puedeAbrirChat`. Devuelve false si la clave no existe o es de otro negocio.
  * Los modulos pesados se cargan aca adentro para que la regla pura se pruebe sin base ni auth.
  */

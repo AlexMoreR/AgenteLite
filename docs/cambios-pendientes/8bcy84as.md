@@ -1,0 +1,2 @@
+## Módulos
+- `chats`: el buscador de la bandeja busca en todos los estados (abiertos, pendientes, cerrados, archivados y pospuestos), sin importar la pestaña de estado elegida, y encuentra el número con o sin el 57. El enlace `/cliente/chats?conversacion=<id>` abre ese chat aunque esté cerrado (pasa a `?chatKey=…&status=all`, así no se pierde al refrescar), con las mismas reglas de acceso que `?chatKey=`; si el id no existe o la persona no puede ver esa línea o ese chat, se abre la bandeja normal, sin error.

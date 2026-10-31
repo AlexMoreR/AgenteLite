@@ -35,7 +35,7 @@ import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { getVisibleChannelIds, resolverConexionElegida } from "@/lib/channel-visibility";
 import { canalesQueMonitorea, enmascararSiEsTelefono, enmascararTelefono } from "@/lib/modo-monitoreo";
 import { esSupervisora } from "@/lib/permisos-del-equipo";
-import { puedeAbrirChatPorClave } from "@/lib/chats-acceso-por-enlace";
+import { chatKeyPorConversacion, puedeAbrirChatPorClave } from "@/lib/chats-acceso-por-enlace";
 import {
   idsSinResponder,
   leerFiltrosDeBandeja,
@@ -245,7 +245,9 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       : "";
 
   const params = await searchParams;
-  const chatKeySolicitada = typeof params.chatKey === "string" ? params.chatKey : "";
+  const chatKeyDeLaUrl = typeof params.chatKey === "string" ? params.chatKey : "";
+  // Enlace directo /cliente/chats?conversacion=<id> (se traduce a chatKey mas abajo).
+  const conversacionDeLaUrl = typeof params.conversacion === "string" ? params.conversacion.trim() : "";
   const selectedConnectionParam = typeof params.connection === "string" ? params.connection : "";
   const searchQuery = typeof params.q === "string" ? params.q.trim() : "";
 
@@ -281,6 +283,46 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     userId: access.userId,
   });
   const modoMonitoreo = canalesMonitoreados.length > 0;
+
+  /**
+   * Canales que esta persona puede ver (ver channel-visibility).
+   *
+   * La linea administrativa no la tiene que ver ninguna asesora: ni la conexion en la lista, ni
+   * sus chats mezclados en "Todas".
+   */
+  const canalesVisibles = await getVisibleChannelIds({
+    workspaceId: membership.workspace.id,
+    userId: access.userId,
+    esJefe: access.isOwner || access.role === "ADMIN",
+  });
+
+  /*
+    ?conversacion=<id> abre ese chat aunque este cerrado: se traduce a la misma clave que usa
+    ?chatKey= (agent:<id> u official:<id>) con las MISMAS reglas de acceso (ver
+    lib/chats-acceso-por-enlace) y se redirige a ?chatKey=<clave>&status=all. Se redirige (y no se
+    carga aca mismo) porque la bandeja del navegador lee el estado de la URL: sin status=all en la
+    URL, al refrescar volvia a "Abiertas" y el chat cerrado se iba. Si el id no existe o no lo puede
+    ver, no se redirige: bandeja normal, sin error. Si la URL ya trae chatKey, manda esa.
+  */
+  if (!chatKeyDeLaUrl && conversacionDeLaUrl) {
+    const chatKeyDeConversacion = await chatKeyPorConversacion({
+      workspaceId: membership.workspace.id,
+      conversationId: conversacionDeLaUrl,
+      quien: { userId: access.userId, esJefe: isManager, canalesVisibles, canalesMonitoreados },
+    });
+    if (chatKeyDeConversacion) {
+      const destino = new URLSearchParams();
+      for (const [clave, valor] of Object.entries(params)) {
+        if (typeof valor === "string" && !["conversacion", "chatKey", "status"].includes(clave)) {
+          destino.set(clave, valor);
+        }
+      }
+      destino.set("chatKey", chatKeyDeConversacion);
+      destino.set("status", "all");
+      redirect(`/cliente/chats?${destino.toString()}`);
+    }
+  }
+  const chatKeySolicitada = chatKeyDeLaUrl;
 
   /*
     Por defecto, TODAS (Alex, 15-sep-2026).
@@ -361,18 +403,6 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const scrollMode = typeof params.scroll === "string" ? params.scroll : "";
 
   const chatSolicitado = parseChatKey(chatKeySolicitada);
-
-  /**
-   * Canales que esta persona puede ver (ver channel-visibility).
-   *
-   * La linea administrativa no la tiene que ver ninguna asesora: ni la conexion en la lista, ni
-   * sus chats mezclados en "Todas".
-   */
-  const canalesVisibles = await getVisibleChannelIds({
-    workspaceId: membership.workspace.id,
-    userId: access.userId,
-    esJefe: access.isOwner || access.role === "ADMIN",
-  });
 
   /*
     Abrir por enlace (?chatKey=) aplica las MISMAS reglas que la lista: linea visible, asesora
