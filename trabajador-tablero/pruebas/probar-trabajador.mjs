@@ -3257,10 +3257,20 @@ try {
     for (const id of [a, b]) tarjetas.get(id).estado = "PLAN_APROBADO"; // el dueño aprobó los planes
     await correrHasta(planificador, () => [a, b].every((id) => tarjetas.get(id).estado === "HECHO"), 120_000);
     assert.equal(aLaVez.EN_CURSO, 2, "construyó las dos a la vez");
-    assert.equal(aLaVez.SUBIENDO, 1, "la cola de subida: de a una");
-    // 31-oct-2026: la etapa subir de verdad suelta su puesto (alSoltarPuesto("subiendo")) y el registro lo dice.
+    // La cola de subida: de a una. Se mide con las sesiones que de verdad subieron (de "tomé … para subir" a "listo … (subir)"):
+    // si una termina de construir justo entre /candidatas y /tomar, el CRM la da y el Coordinador la suelta en el acto
+    // ("choca … la suelto"); ese candado de un instante no es una subida (el contador del CRM falso sí lo veía).
     const carpetaLogs = path.join(T, "trabajo", "logs");
     const delDia = fs.readdirSync(carpetaLogs).filter((nombre) => nombre.startsWith("trabajador-")).map((nombre) => fs.readFileSync(path.join(carpetaLogs, nombre), "utf8")).join("\n");
+    const subidas = [a, b].map((id) => {
+      const lineas = delDia.split("\n").filter((linea) => linea.includes(idCorto(id)));
+      const hora = (patron) => Date.parse(lineas.find((linea) => patron.test(linea))?.slice(0, 24) ?? "");
+      return { desde: hora(/tomé .* para subir/), hasta: hora(/listo .*\(subir\)/) };
+    });
+    assert.ok(subidas.every((s) => s.desde && s.hasta), `las dos subieron: ${JSON.stringify(subidas)}`);
+    const [primera, segunda] = subidas.sort((x, y) => x.desde - y.desde);
+    assert.ok(segunda.desde >= primera.hasta, `la cola de subida: de a una ${JSON.stringify(subidas)}`);
+    // 31-oct-2026: la etapa subir de verdad suelta su puesto (alSoltarPuesto("subiendo")) y el registro lo dice.
     assert.match(delDia, /\+1 sin puesto \(subiendo\)/, "subir no ocupa puesto");
     const enMain = g(REPO, "log", "--format=%s", `${mainAntes}..origin/main`);
     assert.match(enMain, /Cambio en ventas/);
