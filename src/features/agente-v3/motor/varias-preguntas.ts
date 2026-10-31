@@ -230,7 +230,8 @@ export function juntarVariasPreguntas(ordenadas: ReglaV3[]): Mezcla | null {
         .flatMap((accion) =>
           accion.tipo === "mensaje" ? [accion.texto] : accion.tipo === "responder_con_ia" ? [accion.guia] : [],
         )
-        .filter((texto) => texto?.trim())
+        // La frase que ofrece contraentrega tampoco le llega a la IA (política temporal del 9-oct).
+        .flatMap((texto) => frasesDe(texto ?? "").filter((frase) => !ofreceContraentrega(frase)))
         .join(" ");
       return `- ${tema.emoji} ${regla.nombre}: ${lo}`;
     });
@@ -239,6 +240,7 @@ export function juntarVariasPreguntas(ordenadas: ReglaV3[]): Mezcla | null {
       "La clienta hizo varias preguntas en un solo mensaje. Contéstalas TODAS en UN solo mensaje corto:",
       "una línea por tema, empezando con su emoji, sin párrafos. Usa SOLO estos datos, sin inventar nada:",
       ...datos,
+      "No ofrezcas pago contraentrega.",
       pregunta ? `Termina con esta única pregunta: ${pregunta}` : "Termina con una sola pregunta que avance la venta.",
     ].join("\n");
     return {

@@ -379,6 +379,23 @@ await prueba("si una regla de tema contesta con IA, la IA recibe todo junto con 
   assert.match(accion.guia, /Termina con esta única pregunta: ¿En qué \*ciudad\* estás\?/);
 });
 
+await prueba("con IA: la frase que ofrece contraentrega no le llega a la IA y la guía la prohíbe", () => {
+  const libro = libroDeEjemplo();
+  libro.reglas = libro.reglas.map((r) =>
+    r.id === "r-materiales"
+      ? { ...r, entonces: [{ tipo: "responder_con_ia", guia: "Puedes pagar contraentrega. Explica que es cuero tex." }] }
+      : r.id === "r-garantia"
+        ? { ...r, entonces: [{ tipo: "mensaje", texto: "Puedes pagar contra entrega. La garantía es de 1 año. ¿En qué ciudad estás?" }] }
+        : r,
+  );
+  const [accion] = decidir({ libro, mensaje: "materiales garantía y envío es gratis?", estado: estadoCombo() }).acciones;
+  assert.equal(accion.tipo, "responder_con_ia");
+  assert.ok(!/pagar contra ?entrega/i.test(accion.guia), accion.guia);
+  assert.match(accion.guia, /Explica que es cuero tex\./);
+  assert.match(accion.guia, /La garantía es de 1 año\./);
+  assert.match(accion.guia, /No ofrezcas pago contraentrega\./);
+});
+
 await prueba("de punta a punta (ejecutar): sale UN WhatsApp con las tres respuestas", async () => {
   mundo.libro = libroDeEjemplo();
   mundo.estado = estadoCombo();
