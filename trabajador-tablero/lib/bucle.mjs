@@ -338,7 +338,7 @@ async function avisarQueNecesita(crm, registro, config, tarjeta, hacer, necesita
   const donde = hacer === "planear" ? "El plan quedó listo esperando tu sí." : "La tarjeta quedó en «Por revisar» esperando tu respuesta.";
   const texto = `${quien} necesita ${{ clave: "una clave", acceso: "un acceso", decisión: "una decisión" }[necesita.tipo] ?? necesita.tipo} para "${tarjeta.titulo}": ${enUnaLinea(necesita.detalle, 400)} ${donde}`;
   try {
-    await crm.aviso(recortarAviso(texto), "necesita");
+    await crm.aviso(recortarAviso(texto), "necesita", tarjeta.id);
   } catch (error) {
     registro.aviso(`no salió el aviso de lo que necesita el agente (${error.status ?? "sin respuesta"}): ${error.message}`);
   }
@@ -352,7 +352,7 @@ async function avisarReversion(crm, registro, tarjeta, motivo, reversion) {
   // Máximo 3 líneas y 500 caracteres (el CRM rechaza los más largos); el detalle completo queda en el tablero.
   const texto = textoDelAvisoDeReversion(tarjeta.titulo, motivo, reversion);
   try {
-    await crm.aviso(texto, "necesita");
+    await crm.aviso(texto, "necesita", tarjeta.id);
   } catch (error) {
     registro.aviso(`no salió el aviso de la reversión al dueño (${error.status ?? "sin respuesta"}): ${error.message}`);
   }
@@ -370,7 +370,7 @@ async function frenarPlanConPreguntas({ crm, registro }, tarjeta) {
   if (!pregunta) return;
   registro.aviso(`el plan tiene preguntas abiertas y se aprobó solo: no lo construyo (${pregunta})`);
   try {
-    await crm.aviso(recortarAviso(`"${enUnaLinea(tarjeta.titulo, 120)}" no se construye: el plan tiene preguntas abiertas.\n${enUnaLinea(pregunta, 250)}\nRespóndela en la tarjeta y apruébala de nuevo (o aprueba el plan tal cual).`), "necesita");
+    await crm.aviso(recortarAviso(`"${enUnaLinea(tarjeta.titulo, 120)}" no se construye: el plan tiene preguntas abiertas.\n${enUnaLinea(pregunta, 250)}\nRespóndela en la tarjeta y apruébala de nuevo (o aprueba el plan tal cual).`), "necesita", tarjeta.id);
   } catch (error) {
     registro.aviso(`no salió el aviso del plan con preguntas (${error.status ?? "sin respuesta"}): ${error.message}`);
   }

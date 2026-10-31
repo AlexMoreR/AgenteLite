@@ -908,6 +908,24 @@ await prueba("30-oct: crm.error y crm.reparar nunca salen con el motivo o la cau
   assert.deepEqual([cuerpos[3][1].motivo, cuerpos[3][1].causa], ["No compila", "error TS2322"]);
 });
 
+await prueba("31-oct: crm.aviso manda tarjetaId en el cuerpo solo cuando viene", async () => {
+  const cuerpos = [];
+  const fetchFalso = async (url, opciones) => {
+    cuerpos.push([url, JSON.parse(opciones.body)]);
+    return { ok: true, status: 200, json: async () => ({ ok: true }) };
+  };
+  const crm = crearCrm({ urlCrm: "https://crm.test", claveTrabajador: "k" }, { fetch: fetchFalso });
+  await crm.aviso("hola", "necesita", "tar_1");
+  await crm.aviso("se agotó", "limite");
+  await crm.aviso("solo texto");
+  assert.ok(cuerpos.every(([url]) => url === "https://crm.test/api/trabajador/aviso"));
+  assert.deepEqual(cuerpos.map(([, cuerpo]) => cuerpo), [
+    { texto: "hola", tipo: "necesita", tarjetaId: "tar_1" },
+    { texto: "se agotó", tipo: "limite" },
+    { texto: "solo texto" },
+  ]);
+});
+
 await prueba("29-oct: preguntas abiertas del plan (la sección PREGUNTAS ABIERTAS y las frases de duda); el plan de ykpl83z3 las tiene", async () => {
   const ykpl = [
     "Al terminar: espera tu sí",
@@ -2329,6 +2347,7 @@ try {
     const nuevos = llamadas.filter((l) => l.accion === "aviso").slice(avisos);
     assert.equal(nuevos.length, 1, "un solo aviso por reversión");
     assert.equal(nuevos[0].cuerpo.tipo, "necesita");
+    assert.equal(nuevos[0].cuerpo.tarjetaId, id, "lleva el id de la tarjeta");
     assert.match(nuevos[0].cuerpo.texto, patron);
     assert.match(nuevos[0].cuerpo.texto, new RegExp(`Commit deshecho: [0-9a-f]{10}`));
     assert.match(nuevos[0].cuerpo.texto, /commit de la reversión: [0-9a-f]{10}/);
@@ -2621,6 +2640,7 @@ try {
     const avisos = llamadas.filter((l) => l.accion === "aviso").slice(avisosAntes);
     assert.equal(avisos.length, 1);
     assert.equal(avisos[0].cuerpo.tipo, "necesita");
+    assert.equal(avisos[0].cuerpo.tarjetaId, id, "lleva el id de la tarjeta");
     assert.match(avisos[0].cuerpo.texto, /no se construye: el plan tiene preguntas abiertas/);
     // El dueño aprobó el plan tal cual (pantalla o voz): se construye.
     const id2 = nuevaModerna("Plan con dudas aprobado [preguntas]", "PLAN_APROBADO", { plan, planAprobadoPorElDueno: true });
@@ -2825,6 +2845,7 @@ try {
     const nuevos = avisosDeNecesita().slice(antes);
     assert.equal(nuevos.length, 1, "un solo aviso");
     assert.match(nuevos[0].cuerpo.texto, /Agente CRM necesita una clave para "Cobrar con la pasarela \[necesito\]": de la API de pagos/);
+    assert.equal(nuevos[0].cuerpo.tarjetaId, id, "lleva el id de la tarjeta");
     const delId = llamadas.filter((l) => l.id === id).map((l) => l.accion);
     assert.ok(!delId.includes("reparar") && !delId.includes("error") && !delId.includes("soltar"), `no se reintenta: ${delId.join(",")}`);
     assert.equal(delId.filter((a) => a === "resultado").length, 1);
@@ -2846,6 +2867,7 @@ try {
     assert.equal(nuevos.length, 1);
     assert.match(nuevos[0].cuerpo.texto, /Agente CRM necesita un acceso para "Leer el píxel \[necesito\]": al panel de Meta/);
     assert.match(nuevos[0].cuerpo.texto, /El plan quedó listo esperando tu sí/);
+    assert.equal(nuevos[0].cuerpo.tarjetaId, id, "lleva el id de la tarjeta");
     sinRestos();
   });
 

@@ -111,9 +111,10 @@ export function crearCrm({ urlCrm, claveTrabajador }, { fetch: miFetch = globalT
     subida: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/subida`, datos),
     /**
      * WhatsApp al dueño desde la línea Admin (POST /api/trabajador/aviso). `tipo` es "limite" (Claude se agotó y todo
-     * quedó en pausa) o "necesita" (algo que no se puede hacer solo); el CRM descarta los avisos sin tipo.
+     * quedó en pausa) o "necesita" (algo que no se puede hacer solo); el CRM descarta los avisos sin tipo. `tarjetaId`
+     * (31-oct-2026, opcional): la tarjeta del aviso "necesita", para que el CRM cierre sola la alerta cuando se responde.
      */
-    aviso: (texto, tipo) => pedir("/api/trabajador/aviso", { texto, ...(tipo ? { tipo } : {}) }),
+    aviso: (texto, tipo, tarjetaId) => pedir("/api/trabajador/aviso", { texto, ...(tipo ? { tipo } : {}), ...(tarjetaId ? { tarjetaId } : {}) }),
     /** Cerebro (26-oct-2026): las notas NUEVAS que crea aizen1 en la bóveda. -> { notas: [{ id, ruta, contenido, creadoEn }] } */
     notasPorCrear: () => pedir("/api/trabajador/cerebro/notas-por-crear", null, "GET"),
     /** Marca una nota: estado "CREADA" o "ERROR" (con motivo). Repetir la misma marca no falla. */
