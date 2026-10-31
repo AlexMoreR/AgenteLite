@@ -1,0 +1,2 @@
+## Advertencias de operación
+- `sonido_mensaje_nuevo`: el sonido y el aviso (notificación al celular) de mensaje nuevo solo le llegan a quien tiene el chat asignado; jefes y monitoras ya no oyen los chats ajenos, y un chat sin asignar no le suena a nadie. El primer mensaje de un chat repartido por turno puede no sonar (se asigna un instante después); la asesora recibe igual el aviso "Nuevo chat asignado".
