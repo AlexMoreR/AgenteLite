@@ -275,6 +275,9 @@ export function completarConfig(datos, base = process.cwd()) {
     if (repo.vigilancia?.maxSubidaDeEnvios !== undefined && !(Number(repo.vigilancia.maxSubidaDeEnvios) >= 1)) {
       errores.push(`repos.${clave}.vigilancia.maxSubidaDeEnvios: 1 o más (1.5 = hasta 50 % más envíos que antes de subir).`);
     }
+    if (repo.cuposNube !== undefined && repo.cuposNube !== null && !(Number.isInteger(repo.cuposNube) && repo.cuposNube >= 1)) {
+      errores.push(`repos.${clave}.cuposNube: cuántas tarjetas de este proyecto a la vez en la nube, un entero de 1 o más (o null, sin tope propio).`);
+    }
     if (vigilancia.minutos > 40) errores.push(`repos.${clave}.vigilancia.minutos: de 1 a 40 (el candado de subir en el CRM es de 80 min).`);
     // El agente del proyecto (agentes.mjs): nombre, archivo de lecciones y cuántas tarjetas suyas a la vez.
     const agente = repo.agente;
@@ -300,6 +303,9 @@ export function completarConfig(datos, base = process.cwd()) {
         // Puestos de aizen1 de este proyecto (31-oct-2026, decisión del dueño: CRM 2 y Gestión 1, que nunca se frenen entre sí).
         // null = sin tope propio (comparte los de config.maxParalelo, como antes).
         cuposAizen1: Number.isInteger(repo.cuposAizen1) && repo.cuposAizen1 >= 1 ? repo.cuposAizen1 : null,
+        // Puestos de la nube de este proyecto (31-oct-2026, parte 1 de «cupos por sistema»): sin la clave, 1; null = sin tope propio
+        // (solo el de nube.maxTareas). Así el CRM nunca llena la nube y deja a Gestión esperando.
+        cuposNube: repo.cuposNube === undefined ? 1 : repo.cuposNube,
         // La sesión fija de la nube de este proyecto (29-oct-2026), o null.
         nube: nubeDelRepo(repo.nube, clave, errores),
         zonasQueSubenSolas,
@@ -473,6 +479,11 @@ export function completarConfig(datos, base = process.cwd()) {
   // El CRM da 12 tarjetas a la vez entre aizen1 y la nube: más que eso lo recorta en silencio y contesta "ocupado".
   if (nube.activa === true && Number.isFinite(maxParalelo) && maxParalelo + nube.maxTareas > 12) {
     errores.push(`maxParalelo (${maxParalelo}) + nube.maxTareas (${nube.maxTareas}) no pueden pasar de 12: es lo que da el CRM a la vez entre aizen1 y la nube.`);
+  }
+  // Los puestos de la nube de cada proyecto (repos.<repo>.cuposNube) caben en el tope de todo el Coordinador.
+  const sumaCuposNube = Object.values(repos).reduce((suma, repo) => suma + (Number.isInteger(repo.cuposNube) ? repo.cuposNube : 0), 0);
+  if (Number.isFinite(nube.maxTareas) && sumaCuposNube > nube.maxTareas) {
+    errores.push(`repos.<repo>.cuposNube suman ${sumaCuposNube} y no pueden pasar de nube.maxTareas (${nube.maxTareas}).`);
   }
   if (!["auto", "sin-terminal", "pty"].includes(nube.terminal)) errores.push('nube.terminal: "auto", "sin-terminal" o "pty".');
   if (typeof nube.confiarEnResultado !== "boolean") errores.push("nube.confiarEnResultado: true o false.");

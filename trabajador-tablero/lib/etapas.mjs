@@ -1907,6 +1907,8 @@ export async function esperarCiDeRama(contexto, repo, commit, cwd, reloj) {
   const link = web ? `${web}/actions/runs/${corrida}` : null;
   // Panel "Coordinador en vivo": mientras GitHub prueba, la tarea figura "en GitHub".
   contexto.fase?.("probando", { lugar: "github", linkWorkflow: link });
+  // 31-oct-2026: desde aquí solo espera a GitHub: suelta su puesto para que otra tarjeta trabaje mientras tanto.
+  contexto.alSoltarPuesto?.("esperando pruebas");
   let resultado;
   try {
     resultado = await correr(conValores(esperar, { commit, run: corrida }), { cwd, timeoutMs: Math.max(1, limite - Date.now()), senal: contexto.senal });
@@ -2046,7 +2048,7 @@ async function vigilarElServidor(contexto, repo, foto) {
   let fallosSeguidos = 0;
   registro.info(`vigilancia de ${minutos} min del servidor después de subir`);
   // 31-oct-2026: vigilar solo lee logs; suelta su puesto de aizen1 para que otra tarjeta trabaje mientras tanto.
-  contexto.alVigilar?.();
+  contexto.alSoltarPuesto?.("vigilando");
   for (;;) {
     if (contexto.senal?.aborted) throw new ErrorDeEtapa("La tarjeta venció en el CRM mientras se vigilaba el servidor.");
     const logs = await leerDelServidor(config, config.ssh.logs, contexto.senal);
@@ -2098,6 +2100,8 @@ export async function subir(contexto, tarjeta) {
   const base = `${repo.remoto}/${repo.ramaBase}`;
   const carpeta = carpetaDe(contexto, tarjeta, "subir");
   const ramaLocal = `subida/${idCorto(tarjeta.id)}`;
+  // 31-oct-2026: subir espera el deploy y las pruebas: no ocupa puesto (lo pesado va por la cola de pasos pesados).
+  contexto.alSoltarPuesto?.("subiendo");
   // Zonas que suben solas (bot de ventas, Meta Ads, libro V3): después de subir se vigilan los logs 30 minutos y, si algo
   // se rompe, se deshace con un commit nuevo. Mientras se vigila, no sube otra tarjeta.
   const zonasAVigilar = (tarjeta.zonasAprobadas ?? []).filter((zona) => (repo.zonasQueSubenSolas ?? []).includes(zona));

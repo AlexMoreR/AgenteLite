@@ -282,6 +282,23 @@ seleccionado:
 - `repos.<repo>.construirEn: "aizen1"` manda sobre todo esto (ese proyecto no va a la nube). Hoy Gestión lo tiene como
   solución temporal; cuando la sesión fija esté probada se quita `construirEn` y se pone `nube.sesionFija`.
 
+### Puestos por proyecto y tareas «sin puesto» (desde el 31-oct-2026)
+
+- `repos.<repo>.cuposAizen1`: cuántas tarjetas de ese proyecto a la vez en aizen1 (null = sin tope propio).
+- `repos.<repo>.cuposNube`: cuántas tarjetas de ese proyecto a la vez en la nube. Un entero de 1 o más, o `null` para no
+  poner tope propio (solo vale `nube.maxTareas`). **Sin la clave vale 1** (CRM 1 y Gestión 1). La suma no puede pasar de
+  `nube.maxTareas`: si pasa, la configuración no arranca. Así el CRM nunca llena la nube y Gestión no queda esperando; la
+  fila lo dice: «espera: aizencrm ya usa su(s) 1 puesto(s) de la nube».
+- Si un proyecto no tiene puesto libre ni en aizen1 ni en la nube, sus candidatas van en `excluir` al pedir `/tomar`: el
+  CRM no le da al Coordinador una tarjeta que no puede correr mientras otra de otro proyecto sí podría.
+- **Sin puesto**: una sesión que sube (`subir`), vigila los 30 min o espera las pruebas de GitHub Actions al construir
+  llama `alSoltarPuesto(motivo)`. Sigue corriendo y sigue tomada en el CRM (se suma al `maxParalelo` que se manda a
+  `/tomar`), pero no cuenta en los puestos de aizen1 ni de la nube ni en los del proyecto. El registro dice
+  «+N sin puesto (subiendo/vigilando/esperando pruebas)» y el latido marca la tarea con `sinPuesto: <motivo>`. Lo pesado
+  de una subida (npm ci, build) sigue pasando por la cola de pasos pesados y el límite de CPU.
+- **Versión nueva del Coordinador**: mientras espera para pasar a ella, sigue tomando tarjetas **solo para planear**, y
+  solo mientras quede una tarea larga (sin puesto o en la nube). Cuando no queda ninguna, deja de tomar y se actualiza.
+
 ### Motores (Codex y Claude) (desde el 23-oct-2026)
 
 El trabajador usa dos "motores" de IA que ya están logueados en aizen1:

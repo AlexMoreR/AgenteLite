@@ -176,6 +176,12 @@ while (!parar) {
       primeraVueltaBien = true;
       marcarActualizacionOk({ carpetaTrabajo: config.carpetaTrabajo, versionActual, registro });
     }
+  } else if (pendiente && !trabajoLargoEnVuelo() && planificador.quedanLargas()) {
+    // Causa del 30-oct (11:50 p. m.): esperando la versión nueva la fila quedó quieta 34 min detrás de una vigilancia y una
+    // construcción en la nube. Mientras quede una tarea larga (sin puesto o en la nube) se siguen tomando tarjetas, solo
+    // para PLANEAR (pocos minutos); construir y subir esperan a la versión nueva. Sin tareas largas no se toma nada.
+    const r = await conTope("llenar", () => planificador.llenar({ soloPlanear: true }));
+    if (r.error) avisarFallo(r.error);
   }
   if (parar) break;
   // Pausado por uso de Claude (26-oct-2026): el trabajo de noche usa Claude, así que no corre mientras dure la pausa.
@@ -214,7 +220,7 @@ while (!parar) {
       pendiente = r.valor;
       pendienteDesde = Date.now();
       ultimoAvisoDeEspera = Date.now();
-      registro.info(`versión nueva ${String(pendiente.nueva).slice(0, 8)}: no tomo más tarjetas; espero a que terminen ${planificador.corriendo()} (la vuelta sigue)`);
+      registro.info(`versión nueva ${String(pendiente.nueva).slice(0, 8)}: no tomo más tarjetas (solo para planear mientras quede una tarea larga); espero a que terminen ${planificador.corriendo()} (la vuelta sigue)`);
     }
   }
   if (pendiente) {
@@ -241,7 +247,7 @@ while (!parar) {
     } else if (Date.now() - ultimoAvisoDeEspera >= 5 * MINUTO) {
       ultimoAvisoDeEspera = Date.now();
       const minutos = Math.round((Date.now() - pendienteDesde) / MINUTO);
-      registro.info(`autoactualizar: sigo esperando ${planificador.corriendo()} tarjeta(s) para pasar a ${String(pendiente.nueva).slice(0, 8)} (llevo ${minutos} min; no tomo nuevas)`);
+      registro.info(`autoactualizar: sigo esperando ${planificador.corriendo()} tarjeta(s) para pasar a ${String(pendiente.nueva).slice(0, 8)} (llevo ${minutos} min; solo tomo para planear mientras quede una tarea larga)`);
     }
   }
   marca.vueltaCompleta();

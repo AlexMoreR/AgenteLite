@@ -117,6 +117,7 @@
       "ruta": "D:/Proyectos/AgenteLite",
       "ramaBase": "main",
       "remoto": "origin",
+      "cuposNube": 1,
       "agente": {
         "nombre": "Agente CRM",
         "lecciones": "",
@@ -353,6 +354,7 @@
       "ruta": "D:/Proyectos/Gestion",
       "ramaBase": "main",
       "remoto": "origin",
+      "cuposNube": 1,
       "nube": {
         "sesionFija": ""
       },
