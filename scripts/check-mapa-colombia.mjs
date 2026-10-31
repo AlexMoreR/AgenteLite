@@ -330,4 +330,36 @@ await prueba("leerMapa: si la base falla, esa fuente sale 'no disponible' y el r
   db.falla = new Set();
 });
 
+await prueba("pantalla: contornos de los 33 departamentos con las mismas claves, en un viewBox común", () => {
+  const f = cargar("src/features/pauta/components/mapa-colombia-formas.ts");
+  assert.match(f.VIEWBOX_MAPA, /^0 0 \d+ \d+$/);
+  const [, , ancho, alto] = f.VIEWBOX_MAPA.split(" ").map(Number);
+  assert.deepEqual(Object.keys(f.FORMAS_DEPARTAMENTOS).sort(), d.DEPARTAMENTOS.map((x) => x.clave).sort());
+  for (const [clave, trazo] of Object.entries(f.FORMAS_DEPARTAMENTOS)) {
+    assert.match(trazo, /^M[\d. LMZ]+Z$/, clave);
+    const numeros = trazo.match(/[\d.]+/g).map(Number);
+    for (let i = 0; i < numeros.length; i += 2) {
+      assert.ok(numeros[i] >= 0 && numeros[i] <= ancho && numeros[i + 1] >= 0 && numeros[i + 1] <= alto, `${clave} se sale del mapa`);
+    }
+  }
+  // San Andrés va en su recuadro aparte.
+  const r = f.RECUADRO_SAN_ANDRES;
+  const sa = f.FORMAS_DEPARTAMENTOS["san-andres"].match(/[\d.]+/g).map(Number);
+  for (let i = 0; i < sa.length; i += 2) assert.ok(sa[i] >= r.x && sa[i] <= r.x + r.ancho && sa[i + 1] >= r.y && sa[i + 1] <= r.y + r.alto);
+});
+
+await prueba("pantalla: Dirección → Mapa de Colombia, solo jefes, con ?mes= y en el menú después de Pauta", () => {
+  const pagina = fs.readFileSync(`${RAIZ}/src/app/cliente/direccion/mapa-colombia/page.tsx`, "utf8");
+  assert.ok(pagina.includes("esJefeDelNegocio(access)") && pagina.includes('redirect("/cliente/crm/mi-dia")'));
+  assert.ok(pagina.includes("leerMapa(access.workspaceId, { mes: texto(params.mes) })"));
+  const componente = fs.readFileSync(`${RAIZ}/src/features/pauta/components/mapa-colombia.tsx`, "utf8");
+  assert.ok(componente.startsWith('"use client"'));
+  assert.ok(componente.includes('type="month"') && componente.includes("?mes="));
+  assert.ok(componente.includes("El rojo puede no ser exacto") && componente.includes("Gasto: no disponible"));
+  const nav = fs.readFileSync(`${RAIZ}/src/components/nav-direccion.tsx`, "utf8");
+  assert.ok(nav.includes('{ title: "Mapa de Colombia", view: "mapa-colombia", icon: MapIcon }'));
+  assert.ok(nav.indexOf('view: "pauta"') < nav.indexOf('view: "mapa-colombia"'));
+  assert.ok(nav.indexOf('view: "mapa-colombia"') < nav.indexOf('view: "recuperacion"'));
+});
+
 console.log(`\n${pruebas} pruebas del mapa de Colombia OK`);
