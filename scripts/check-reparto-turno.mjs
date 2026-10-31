@@ -170,4 +170,22 @@ prueba("respondioLaBienvenida: ordena por fecha aunque lleguen al revés", () =>
   assert.equal(t.respondioLaBienvenida([...viejoAlNuevo(IN(ANUNCIO), BOT(BIENVENIDA))].reverse()), false);
 });
 
+/* La forma en que el rescate de chats huérfanos trae los mensajes (src/lib/rescate-de-chats-huerfanos.ts):
+   filas de Prisma con type, direction, createdAt (Date) y deletedAt, pasadas a { …, borrado }. */
+const fila = (direction, minuto, deletedAt = null) => ({
+  type: "TEXT",
+  direction,
+  createdAt: new Date(Date.UTC(2026, 9, 29, 15, minuto)),
+  deletedAt,
+});
+const comoRescate = (filas) =>
+  filas.map((m) => ({ type: m.type, direction: m.direction, createdAt: m.createdAt, borrado: m.deletedAt != null }));
+prueba("respondioLaBienvenida con filas del rescate: el bot habló último pero ella respondió = true", () => {
+  assert.equal(t.respondioLaBienvenida(comoRescate([fila("INBOUND", 0), fila("OUTBOUND", 1), fila("INBOUND", 2), fila("OUTBOUND", 3)])), true);
+});
+prueba("respondioLaBienvenida con filas del rescate: solo bienvenida, o respuesta borrada = false", () => {
+  assert.equal(t.respondioLaBienvenida(comoRescate([fila("INBOUND", 0), fila("OUTBOUND", 1)])), false);
+  assert.equal(t.respondioLaBienvenida(comoRescate([fila("INBOUND", 0), fila("OUTBOUND", 1), fila("INBOUND", 2, new Date())])), false);
+});
+
 console.log(`\n${pruebas} pruebas ok`);
