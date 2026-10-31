@@ -8,7 +8,7 @@ import path from "node:path";
 
 import { completarConfig } from "../lib/config.mjs";
 import { crearCrm } from "../lib/crm.mjs";
-import { crearNotasDeBoveda, destinoEnLaBoveda, escribirNotaEnLaBoveda, problemaDeRuta, rutaDelEstadoDeNotas } from "../lib/notas-boveda.mjs";
+import { REGISTRO_DEL_COORDINADOR, anotarAvisoAlCto, crearNotasDeBoveda, destinoEnLaBoveda, escribirNotaEnLaBoveda, fechaDelRegistro, filaDeAvisoAlCto, problemaDeRuta, rutaDelEstadoDeNotas } from "../lib/notas-boveda.mjs";
 
 let pruebas = 0;
 async function prueba(nombre, fn) {
@@ -172,6 +172,45 @@ try {
     reloj = 61_000;
     await notas.revisar();
     assert.equal(pedidos, 2);
+  });
+
+  await prueba("aviso al CTO: una fila fechada al final del registro del Coordinador, sin sobrescribir, sin repetir y sin salir de la bóveda", async () => {
+    const boveda = path.join(T, "boveda-cto");
+    fs.mkdirSync(path.join(boveda, "CRM-Gestion"), { recursive: true });
+    const archivo = path.join(boveda, ...REGISTRO_DEL_COORDINADOR.split("/"));
+    const antes = "# Coordinador — registro horario (desde 25-oct-2026)\n\n## Registro horario\n| Hora | Tarjeta | Quién | Qué |\n|---|---|---|---|\n| 30-oct 13:00 | abcd1234 | coordinador | revisé |";
+    fs.writeFileSync(archivo, antes);
+    // 30-oct-2026 19:05 UTC = 14:05 en Bogotá.
+    const ahora = new Date("2026-10-30T19:05:00Z");
+    assert.equal(fechaDelRegistro(ahora), "30-oct 14:05");
+    const tarjeta = { id: "cmvt24l7900hz2wmnykpl83z3", titulo: "Coordinador | parte 3" };
+    const causas = [{ categoria: "no_compila", causa: "error TS2322" }, { categoria: "lint", causa: "x" }, { categoria: "otra", causa: "y" }];
+    assert.equal(anotarAvisoAlCto(boveda, { tarjeta, causas, ahora }).accion, "agregada");
+    const texto = fs.readFileSync(archivo, "utf8");
+    assert.ok(texto.startsWith(antes), "lo de antes queda igual");
+    assert.equal(texto.trimEnd().split("\n").at(-1), "| 30-oct 14:05 | ykpl83z3 | coordinador | AVISO AL CTO: «Coordinador / parte 3» — causas: no_compila: error TS2322, lint: x, otra: y |");
+    assert.equal(filaDeAvisoAlCto({ tarjeta, causas: ["a", "b", "c"], ahora }), "| 30-oct 14:05 | ykpl83z3 | coordinador | AVISO AL CTO: «Coordinador / parte 3» — causas: a, b, c |");
+    // La misma tarjeta no repite la fila; otra sí la agrega.
+    assert.equal(anotarAvisoAlCto(boveda, { tarjeta, causas, ahora }).accion, "repetida");
+    assert.equal(anotarAvisoAlCto(boveda, { tarjeta: { id: "otra00001", titulo: "Otra" }, causas, ahora }).accion, "agregada");
+    assert.equal(fs.readFileSync(archivo, "utf8").split("\n").filter((linea) => linea.includes("AVISO AL CTO")).length, 2);
+    // Sin el archivo, se crea solo con la fila.
+    const nueva = path.join(T, "boveda-cto-nueva");
+    fs.mkdirSync(nueva);
+    anotarAvisoAlCto(nueva, { tarjeta, causas, ahora });
+    assert.match(fs.readFileSync(path.join(nueva, "CRM-Gestion", "2026-10-25-coordinador-registro.md"), "utf8"), /^\| 30-oct 14:05 \| ykpl83z3 \|/);
+    // Un enlace que saca la carpeta CRM-Gestion de la bóveda no deja escribir.
+    const fuera = path.join(T, "fuera-cto");
+    const conEnlace = path.join(T, "boveda-cto-enlace");
+    fs.mkdirSync(fuera);
+    fs.mkdirSync(conEnlace);
+    let enlazado = true;
+    try {
+      fs.symlinkSync(fuera, path.join(conEnlace, "CRM-Gestion"), "junction");
+    } catch {
+      enlazado = false;
+    }
+    if (enlazado) assert.throws(() => anotarAvisoAlCto(conEnlace, { tarjeta, causas, ahora }), /se sale de la bóveda/);
   });
 
   await prueba("cliente HTTP: GET para pedir las pendientes y POST para marcar, con la clave en Bearer", async () => {

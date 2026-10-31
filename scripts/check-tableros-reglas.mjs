@@ -843,6 +843,7 @@ prueba("transiciones del trabajador: cada acción solo desde su estado", () => {
     recoger: ["ERROR"],
     "ya-hecha": ["PLANEANDO", "EN_CURSO"],
     limpieza: ["EN_CURSO", "SUBIENDO", "POR_REVISAR", "HECHO"],
+    "causa-externa": ["PLANEANDO", "EN_CURSO", "SUBIENDO"],
   };
   for (const [accion, validos] of Object.entries(esperado)) {
     for (const estado of reglas.ESTADOS_TARJETA) {
@@ -852,11 +853,19 @@ prueba("transiciones del trabajador: cada acción solo desde su estado", () => {
   }
   assert.deepEqual(
     Object.fromEntries(Object.entries(trabajo.TRANSICIONES_DEL_TRABAJADOR).map(([accion, regla]) => [accion, regla.a])),
-    { latido: null, plan: "PLAN_LISTO", resultado: "POR_REVISAR", subida: "HECHO", error: "ERROR", soltar: null, reparar: null, partir: null, depender: null, recoger: null, "ya-hecha": "HECHO", limpieza: null, rescatar: null, revisar_de_nuevo: null },
+    { latido: null, plan: "PLAN_LISTO", resultado: "POR_REVISAR", subida: "HECHO", error: "ERROR", soltar: null, reparar: null, partir: null, depender: null, recoger: null, "ya-hecha": "HECHO", limpieza: null, "causa-externa": null, rescatar: null, revisar_de_nuevo: null },
   );
   // Revisión previa (27-oct-2026): la nota de "ya estaba hecha" y el título único de la tarjeta de limpieza.
   assert.equal(trabajo.notaDeYaHecha("f4759b0"), "ya estaba hecho (commit f4759b0)");
   assert.equal(trabajo.tituloDeLimpieza("aizencrm"), "Limpieza: main trae errores viejos (aizencrm)");
+  // Causa externa (31-oct-2026): un título fijo por causa y repo; una tarjeta de causa no crea otra.
+  assert.equal(trabajo.tituloDeCausaExterna("vigilancia", "aizencrm"), "Vigilancia: la vigilancia de 30 min revirtió una subida (aizencrm)");
+  assert.equal(trabajo.tituloDeCausaExterna("main_roto", "gestion"), "Main roto: lint o pruebas fallan sin el cambio (gestion)");
+  assert.equal(trabajo.tituloDeCausaExterna("servidor", "aizencrm"), "Servidor: el servidor, el SSH o la base no responde (aizencrm)");
+  assert.equal(trabajo.esTarjetaDeCausaExterna("Vigilancia: la vigilancia de 30 min revirtió una subida (aizencrm)"), true);
+  assert.equal(trabajo.esTarjetaDeCausaExterna("Arreglar la vigilancia"), false);
+  assert.equal(trabajo.tipoDeCausaExternaDeEntrada("main_roto"), "main_roto");
+  assert.equal(trabajo.tipoDeCausaExternaDeEntrada("choque"), null);
   assert.deepEqual(
     Object.fromEntries(Object.entries(trabajo.AL_TOMAR).map(([de, regla]) => [de, [regla.a, regla.etapa]])),
     { APROBADO: ["PLANEANDO", "planear"], PLAN_APROBADO: ["EN_CURSO", "construir"], SUBIENDO: ["SUBIENDO", "subir"] },

@@ -538,6 +538,129 @@ function decidirSinCausa({ diagnostico, tarjeta = {}, etapa, config = {}, archiv
   return { accion: "reparar", cuenta: true, motivo: `${categoria}: se repara (${reparaciones + 1} de ${tope})` };
 }
 
+/*
+  CAUSA EXTERNA (31-oct-2026, parte 3 de «si algo falla, encontrar la causa»). Cuando la falla no es de la tarea (la vigilancia de
+  30 min revirtió la subida, main ya trae lint o pruebas rotas, choca con otra tarjeta, el servidor / SSH / la base no responden),
+  no se gastan más intentos en la tarjeta: el Coordinador crea UNA tarjeta pequeña que arregla esa causa (o reusa la abierta con el
+  mismo título: el tope es 1 abierta por causa y repo) y deja la original "Esperando a «X»" (bucle.mjs, /causa-externa del CRM).
+  Las reglas son estrictas: ante la duda, null y la tarjeta sigue el camino de siempre.
+*/
+
+/** El principio del título de cada tarjeta de causa. Es el mismo del CRM (reglas-trabajador.ts: tituloDeCausaExterna). */
+export const PREFIJOS_DE_CAUSA = { vigilancia: "Vigilancia:", main_roto: "Main roto:", servidor: "Servidor:" };
+
+const TITULOS_DE_CAUSA = {
+  vigilancia: "la vigilancia de 30 min revirtió una subida",
+  main_roto: "lint o pruebas fallan sin el cambio",
+  servidor: "el servidor, el SSH o la base no responde",
+};
+
+/** El título fijo de la tarjeta de causa (uno por causa y repo): con él se busca la abierta. */
+export function tituloDeCausaExterna(tipo, repo) {
+  return `${PREFIJOS_DE_CAUSA[tipo]} ${TITULOS_DE_CAUSA[tipo]} (${repo})`;
+}
+
+/** ¿La tarjeta ya es una tarjeta de causa? Esas nunca crean otra (así no se forma una cadena). */
+export function esTarjetaDeCausa(titulo) {
+  const limpio = String(titulo ?? "").trim();
+  return Object.values(PREFIJOS_DE_CAUSA).some((prefijo) => limpio.startsWith(prefijo));
+}
+
+/** Las que ya tienen su propio camino de espera (límite, PC, carpeta, Coordinador cortado): no son una causa externa. */
+const CON_SU_PROPIA_ESPERA = ["limite_claude", "pc_sobrecargado", "carpeta_trabada", "coordinador_cortado"];
+
+const ES_DE_LA_VIGILANCIA = /^Revertida:|la vigilancia de 30 ?min/i;
+const YA_FALLABA_EN_MAIN = /ya fallaba en main|tambi[eé]n falla en main|main ya trae/i;
+const CHOCA_CON_LA_TARJETA = /choca con la tarjeta «([^»\n]{1,200})»/i;
+const SERVIDOR_CAIDO = /ECONNREFUSED|Can't reach database server|\bP1001\b|ssh: connect to host|\bssh\b[^\n]{0,120}Connection (?:refused|timed out)|No se pudieron leer los logs del servidor \(ssh\)/i;
+/** La dirección falsa a propósito de la base en la nube y en las pruebas: no responde nunca, y eso no es un servidor caído. */
+const BASE_FALSA = /127\.0\.0\.1:1\b|localhost:1\b/;
+
+/** Las líneas del error que cuentan la falla (las de la vigilancia "[minuto N] …", las de error), máximo 12. */
+function lineasDeLaFalla(texto) {
+  const lineas = String(texto ?? "")
+    .split(/\r?\n/)
+    .map((linea) => linea.trim())
+    .filter(Boolean);
+  const conFalla = lineas.filter((linea) => /\[minuto \d+\]|error|fall|not ok|✖|ECONNREFUSED|P1001|Connection (?:refused|timed out)/i.test(linea));
+  return (conFalla.length ? conFalla : lineas).slice(0, 12).map((linea) => `- ${enUnaLinea(linea, 300)}`);
+}
+
+/**
+ * ¿La falla es de algo externo a la tarea? No toca disco ni red.
+ *   diagnostico  { categoria, causa, error } (diagnosticar)
+ *   reversion    la de la etapa ({ commit, revert, ok }) o null
+ *   repo         la clave del repo de la tarjeta (va en el título)
+ *   tarjeta      { titulo } la que falló
+ * -> { tipo: "vigilancia" | "main_roto" | "choque" | "servidor", titulo, detalle } o null (el camino de siempre).
+ * En "choque" el título es el de la OTRA tarjeta (la que se espera): no se crea ninguna.
+ */
+export function causaExterna(diagnostico, { reversion = null, repo = null, tarjeta = null } = {}) {
+  if (!diagnostico) return null;
+  // La reversión que no se pudo hacer sigue siendo URGENTE (escala como siempre); una tarjeta de causa no crea otra.
+  if (reversion && reversion.ok !== true) return null;
+  if (esTarjetaDeCausa(tarjeta?.titulo)) return null;
+  if (CON_SU_PROPIA_ESPERA.includes(diagnostico.categoria)) return null;
+  const texto = `${diagnostico.causa ?? ""}\n${diagnostico.error ?? ""}`;
+  const nombre = enUnaLinea(tarjeta?.titulo ?? "una tarjeta", 150);
+  const donde = String(repo ?? "").trim();
+  const causa = enUnaLinea(diagnostico.causa, 300);
+  const arma = (tipo, encabezado, pide) => ({
+    tipo,
+    titulo: tituloDeCausaExterna(tipo, donde),
+    detalle: [encabezado, pide, `Causa: ${causa}`, "Líneas del log:", ...lineasDeLaFalla(diagnostico.error || diagnostico.causa)].join("\n"),
+  });
+
+  if (!donde) return null;
+
+  if (reversion?.ok === true && ES_DE_LA_VIGILANCIA.test(String(diagnostico.error ?? diagnostico.causa ?? ""))) {
+    return arma(
+      "vigilancia",
+      `La vigilancia de 30 min revirtió la subida de «${nombre}» en ${donde}: después de subir aparecieron fallas en los logs de producción.`,
+      "Encuentra la causa de esas fallas y arréglala sin rehacer la tarea (la tarea espera a esta tarjeta y se vuelve a construir sola cuando esta quede HECHO).",
+    );
+  }
+  if ((diagnostico.categoria === "lint" || diagnostico.categoria === "fallan_pruebas") && YA_FALLABA_EN_MAIN.test(texto)) {
+    return arma(
+      "main_roto",
+      `Al verificar «${nombre}» en ${donde}, el lint o las pruebas ya fallaban en main sin el cambio.`,
+      "Arréglalos en main sin cambiar lo que hace el sistema (solo lint o pruebas).",
+    );
+  }
+  const otra = texto.match(CHOCA_CON_LA_TARJETA)?.[1]?.trim();
+  if (otra) {
+    if (otra.toLowerCase() === String(tarjeta?.titulo ?? "").trim().toLowerCase()) return null;
+    return { tipo: "choque", titulo: otra, detalle: `«${nombre}» choca con la tarjeta «${otra}»: espera a que esa quede HECHO. Causa: ${causa}` };
+  }
+  if (SERVIDOR_CAIDO.test(texto) && !BASE_FALSA.test(texto)) {
+    return arma(
+      "servidor",
+      `Al trabajar «${nombre}» en ${donde}, el servidor, el SSH o la base de datos no respondió.`,
+      "Revisa que el servidor, el SSH y la base estén arriba y respondan. Si no hay nada que arreglar en el código, dilo en el plan (NECESITO) o ciérrala.",
+    );
+  }
+  return null;
+}
+
+/**
+ * Las causas distintas de la tarjeta: los intentos que probaron algo (sin las esperas) más la falla de ahora (si no es una
+ * espera). Dos son la misma si esLaMismaCausa (misma categoría y la misma causa comparada con causaParaComparar). No toca disco
+ * ni red. -> [{ categoria, causa }] (en orden, la primera vez que apareció cada una)
+ */
+export function causasDistintas(intentos, diagnostico) {
+  const lista = (intentos ?? []).filter((intento) => intento && intento.accion !== "esperar");
+  if (diagnostico && !CON_SU_PROPIA_ESPERA.includes(diagnostico.categoria) && diagnostico.categoria !== "choca_con_main") lista.push(diagnostico);
+  const distintas = [];
+  for (const falla of lista) {
+    const una = { categoria: falla.categoria ?? "otra", causa: sinMarcaDeEstrategia(falla.causa) };
+    if (!distintas.some((otra) => esLaMismaCausa(una, otra))) distintas.push(una);
+  }
+  return distintas;
+}
+
+/** Con cuántas causas distintas sin resolverlo queda la línea "AVISO AL CTO" en el registro del Coordinador. */
+export const CAUSAS_PARA_AVISAR_AL_CTO = 3;
+
 /** Una frase de qué necesita el dueño, según la causa. */
 const NECESITA = {
   limite_claude: "Esperar a que Claude vuelva a tener cupo y tocar Reintentar.",

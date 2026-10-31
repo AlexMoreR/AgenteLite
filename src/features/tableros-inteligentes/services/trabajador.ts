@@ -67,6 +67,9 @@ import {
   latidoDeEntrada,
   notaDeYaHecha,
   tituloDeLimpieza,
+  esTarjetaDeCausaExterna,
+  tipoDeCausaExternaDeEntrada,
+  tituloDeCausaExterna,
   zonasDeEntrada,
   zonasQueNoArrancanSolas,
   zonasQuePidenTuSi,
@@ -994,6 +997,7 @@ export async function accionDelTrabajador(
   if (accion === "partir") return partirTarjeta(contexto, actual, cuerpo, ahora);
   if (accion === "depender") return ponerDependencias(contexto, actual, cuerpo, ahora);
   if (accion === "limpieza") return pedirLimpieza(contexto, actual, cuerpo, ahora);
+  if (accion === "causa-externa") return pedirCausaExterna(contexto, actual, cuerpo, ahora);
   if (accion === "recoger") return recogerTarjeta(contexto, actual, cuerpo, ahora);
   if (accion === "rescatar") return rescatarTarjeta(contexto, actual, cuerpo, ahora);
   if (accion === "revisar_de_nuevo") return revisarDeNuevo(contexto, actual, cuerpo, ahora);
@@ -1555,6 +1559,121 @@ async function pedirLimpieza(contexto: ContextoTrabajador, actual: FilaParaTraba
     });
     await tocarTableros(tx, [actual.tableroId], ahora);
     return { ok: true, creada: true, agregados: errores.length, tarjetaId: nueva.id, link: linkDeLaTarjeta(nueva.id) };
+  });
+}
+
+/**
+ * POST /:id/causa-externa (31-oct-2026): la falla no es de la tarea (la vigilancia de 30 min revirtió la subida, main ya trae lint
+ * o pruebas rotas, el servidor / SSH / la base no responden, o choca con otra tarjeta). En UNA transacción:
+ *  1. Busca la tarjeta abierta (ni HECHO ni FALLIDO) con el título fijo de esa causa y repo (tituloDeCausaExterna) en el mismo tablero:
+ *     si existe, la reusa y le agrega el detalle nuevo (tope: 1 abierta por causa y repo); si no, la crea en APROBADO con la
+ *     aprobación heredada, como la de limpieza. Con `referencia` (el choque) no crea nada: espera a esa tarjeta (por id o título).
+ *  2. Pone la flecha de dependencia (causa -> esta) si no hace un ciclo.
+ *  3. Suelta esta sin ERROR ni intento gastado (PLANEANDO -> APROBADO, EN_CURSO y SUBIENDO -> PLAN_APROBADO, con un intento
+ *     "esperar" que no cuenta y la nota "Esperando a «X»"). Vuelve sola cuando la otra queda HECHO.
+ * Una tarjeta de causa no crea otra (409). Si no hay a quién esperar (no existe, ya está HECHO o haría un ciclo), no la suelta.
+ * -> { creada, tarjetaId, esperando, soltada, estado, link }
+ */
+async function pedirCausaExterna(contexto: ContextoTrabajador, actual: FilaParaTrabajar, cuerpo: Record<string, unknown>, ahora: Date) {
+  if (esTarjetaDeCausaExterna(actual.titulo)) throw new ErrorDelTrabajador("Esta ya es una tarjeta de causa: no crea otra.", 409);
+  const referencia = typeof cuerpo.referencia === "string" && cuerpo.referencia.trim() ? cuerpo.referencia.trim().slice(0, 300) : null;
+  const tipo = referencia ? null : tipoDeCausaExternaDeEntrada(cuerpo.tipo);
+  if (!referencia && !tipo) throw new ErrorDelTrabajador("Falta el tipo de la causa (vigilancia, main_roto o servidor) o la tarjeta con la que choca.", 400);
+  const repo = actual.repo ?? "";
+  if (tipo && !(REPOS_DEL_TRABAJADOR as readonly string[]).includes(repo)) throw new ErrorDelTrabajador("La tarjeta no tiene un repo del Coordinador (gestion o aizencrm).", 400);
+  const detalleNuevo = typeof cuerpo.detalle === "string" ? cuerpo.detalle.trim().slice(0, 5_000) : "";
+  const estado = actual.estado as EstadoTarjetaTablero;
+  const etapa = etapaDeEntrada(cuerpo.etapa, estado);
+  const causa = causaDeEntrada(cuerpo.causa, sinMotivoDelCoordinador(etapa, actual.intentos, "causa"));
+
+  return prisma.$transaction(async (tx) => {
+    let creada = false;
+    let causaTarjeta: { id: string; titulo: string; estado: string } | null = null;
+    if (referencia) {
+      const buscada = referencia.toLowerCase();
+      const candidatas = await tx.tarjetaTablero.findMany({
+        where: { tableroId: actual.tableroId, borradoEn: null, id: { not: actual.id }, tipo: { usaEstados: true } },
+        select: { id: true, titulo: true, estado: true },
+      });
+      causaTarjeta = candidatas.find((tarjeta) => tarjeta.id === referencia) ?? candidatas.find((tarjeta) => tarjeta.titulo.trim().toLowerCase() === buscada) ?? null;
+    } else if (tipo) {
+      const titulo = tituloDeCausaExterna(tipo, repo);
+      const abierta = await tx.tarjetaTablero.findFirst({
+        where: { tableroId: actual.tableroId, borradoEn: null, titulo, estado: { notIn: ["HECHO", "FALLIDO"] } },
+        orderBy: { creadoEn: "asc" },
+        select: { id: true, titulo: true, estado: true, detalle: true },
+      });
+      if (abierta) {
+        causaTarjeta = abierta;
+        if (detalleNuevo && !abierta.detalle.includes(detalleNuevo)) {
+          const detalle = `${abierta.detalle.trimEnd()}\n\n---\n${detalleNuevo}`.slice(0, 20_000);
+          await tx.tarjetaTablero.update({ where: { id: abierta.id }, data: { detalle } });
+          await anotarTrabajador(tx, contexto, abierta.id, {}, { nota: `se agregó lo que encontró «${actual.titulo}» (la misma causa)` });
+        }
+      } else {
+        const origen = await tx.tarjetaTablero.findFirst({ where: { id: actual.id }, select: { tipoId: true, area: true, creadoPor: true, orden: true } });
+        if (!origen) throw new ErrorDelTrabajador("La tarjeta cambió mientras tanto.", 409);
+        const detalle = (detalleNuevo || `El Coordinador encontró esta causa al trabajar «${actual.titulo}»: ${causa}`).slice(0, 20_000);
+        const nueva = await tx.tarjetaTablero.create({
+          data: { tableroId: actual.tableroId, titulo, detalle, area: origen.area, estado: "APROBADO", orden: origen.orden + 1, tipoId: origen.tipoId, repo, creadoPor: origen.creadoPor },
+          select: { id: true, titulo: true, estado: true },
+        });
+        await tx.historialTarjeta.create({
+          data: {
+            tarjetaId: nueva.id,
+            quien: quienEs(contexto),
+            origen: "TRABAJADOR",
+            accion: "crear",
+            despues: { titulo, estado: "APROBADO", nota: `causa externa que encontró el Coordinador al trabajar «${actual.titulo}»` } as Prisma.InputJsonValue,
+          },
+        });
+        await tx.historialTarjeta.create({
+          data: {
+            tarjetaId: nueva.id,
+            quien: quienEs(contexto),
+            origen: "TRABAJADOR",
+            accion: "aprobar",
+            antes: { estado: "APROBADO" } as Prisma.InputJsonValue,
+            despues: { estado: "APROBADO", momento: "tarea", como: "heredada", heredadaDe: actual.id } as Prisma.InputJsonValue,
+          },
+        });
+        causaTarjeta = nueva;
+        creada = true;
+      }
+    }
+
+    // Sin tarjeta a la que esperar (o ya HECHO): no se suelta; el Coordinador sigue el camino de siempre.
+    if (!causaTarjeta || causaTarjeta.estado === "HECHO") {
+      if (creada) await tocarTableros(tx, [actual.tableroId], ahora);
+      return { ok: true, creada, tarjetaId: causaTarjeta?.id ?? null, esperando: null, soltada: false, estado, link: linkDeLaTarjeta(actual.id) };
+    }
+    const esperada = causaTarjeta;
+    const dependencias = await tx.conexionTarjeta.findMany({ where: { tableroId: actual.tableroId, esDependencia: true }, select: { origenId: true, destinoId: true } });
+    const yaEsta = dependencias.some((flecha) => flecha.origenId === esperada.id && flecha.destinoId === actual.id);
+    if (!yaEsta) {
+      // Con un ciclo ninguna de las dos se podría tomar nunca: no se pone la flecha ni se suelta.
+      if (dependenciaHaceCiclo(dependencias, esperada.id, actual.id)) {
+        if (creada) await tocarTableros(tx, [actual.tableroId], ahora);
+        return { ok: true, creada, tarjetaId: esperada.id, esperando: null, soltada: false, estado, link: linkDeLaTarjeta(actual.id) };
+      }
+      await tx.conexionTarjeta.create({ data: { tableroId: actual.tableroId, origenId: esperada.id, destinoId: actual.id, esDependencia: true } });
+    }
+    const etiqueta = etiquetaEsperando([esperada]) ?? `Esperando a «${esperada.titulo}»`;
+    const vuelve: EstadoTarjetaTablero = estado === "PLANEANDO" ? "APROBADO" : "PLAN_APROBADO";
+    const hecho = await tx.tarjetaTablero.updateMany({
+      where: { id: actual.id, estado: actual.estado, borradoEn: null },
+      data: { estado: vuelve, trabajoVenceEn: null, intentos: Math.max(0, actual.intentos - 1) },
+    });
+    if (hecho.count !== 1) throw new ErrorDelTrabajador("La tarjeta cambió mientras tanto.", 409);
+    await anotarTrabajador(tx, contexto, actual.id, { estado }, { estado: vuelve, nota: `causa externa (no es de la tarea): ${etiqueta}`, categoria: categoriaDeEntrada(cuerpo.categoria) ?? "otra" });
+    await anotarIntento(
+      tx,
+      actual.id,
+      { etapa, categoria: categoriaDeEntrada(cuerpo.categoria) ?? "otra", causa: causaDeEntrada(`${etiqueta}: ${causa}`), error: errorDeIntentoDeEntrada(cuerpo.error), accion: "esperar", cuentaComoIntento: false },
+      ahora,
+    );
+    await tocarTableros(tx, [actual.tableroId], ahora);
+    return { ok: true, creada, tarjetaId: esperada.id, esperando: etiqueta, soltada: true, estado: vuelve, link: linkDeLaTarjeta(esperada.id) };
   });
 }
 

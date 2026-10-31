@@ -331,6 +331,7 @@ export type AccionDelTrabajador =
   | "revisar_de_nuevo"
   | "ya-hecha"
   | "limpieza"
+  | "causa-externa"
   | "rescatar";
 export const ACCIONES_DEL_TRABAJADOR: readonly AccionDelTrabajador[] = [
   "latido",
@@ -346,6 +347,7 @@ export const ACCIONES_DEL_TRABAJADOR: readonly AccionDelTrabajador[] = [
   "revisar_de_nuevo",
   "ya-hecha",
   "limpieza",
+  "causa-externa",
   "rescatar",
 ];
 
@@ -390,6 +392,10 @@ export const TRANSICIONES_DEL_TRABAJADOR: Record<
   // Limpieza (27-oct-2026): main trae errores viejos. Crea UNA tarjeta de limpieza por repo (o le agrega los errores a la abierta). Se llama
   // con la tarjeta que los encontró, ya en el estado en que la dejó su resultado; no la mueve.
   limpieza: { desde: ["EN_CURSO", "SUBIENDO", "POR_REVISAR", "HECHO"], a: null },
+  // Causa externa (31-oct-2026): la falla no es de la tarea (la vigilancia revirtió la subida, main ya trae lint o pruebas rotas, choca
+  // con otra tarjeta, el servidor no responde). Crea (o reusa) UNA tarjeta que arregla la causa, pone la flecha de dependencia y suelta
+  // esta sin ERROR ni intento: PLANEANDO -> APROBADO, EN_CURSO y SUBIENDO -> PLAN_APROBADO. a = null: depende de dónde estaba.
+  "causa-externa": { desde: ["PLANEANDO", "EN_CURSO", "SUBIENDO"], a: null },
   // Rescatar (27-oct-2026): el Coordinador vuelve a revisar una tarjeta POR_REVISAR que pasó todo y solo esperaba su prueba extra (o
   // ya traía el sí del dueño): si la comprobó él mismo con el diff real, pasa a SUBIENDO; si no, sigue POR_REVISAR con el motivo.
   rescatar: { desde: ["POR_REVISAR"], a: null },
@@ -406,6 +412,35 @@ export function notaDeYaHecha(commit: string): string {
 /** El título de la tarjeta única de limpieza de un repo. Las tareas de limpieza se buscan por este título exacto. */
 export function tituloDeLimpieza(repo: string): string {
   return `Limpieza: main trae errores viejos (${repo})`;
+}
+
+/** Las causas externas que crean su propia tarjeta (el choque con otra tarjeta no crea: espera a esa). */
+export const TIPOS_DE_CAUSA_EXTERNA = ["vigilancia", "main_roto", "servidor"] as const;
+export type TipoDeCausaExterna = (typeof TIPOS_DE_CAUSA_EXTERNA)[number];
+
+/** El principio del título de cada tarjeta de causa (igual que PREFIJOS_DE_CAUSA de trabajador-tablero/lib/diagnostico.mjs). */
+export const PREFIJOS_DE_CAUSA_EXTERNA: Record<TipoDeCausaExterna, string> = { vigilancia: "Vigilancia:", main_roto: "Main roto:", servidor: "Servidor:" };
+
+const TITULOS_DE_CAUSA_EXTERNA: Record<TipoDeCausaExterna, string> = {
+  vigilancia: "la vigilancia de 30 min revirtió una subida",
+  main_roto: "lint o pruebas fallan sin el cambio",
+  servidor: "el servidor, el SSH o la base no responde",
+};
+
+/** El título fijo de la tarjeta de causa (UNA abierta por causa y repo: se busca por este título exacto). */
+export function tituloDeCausaExterna(tipo: TipoDeCausaExterna, repo: string): string {
+  return `${PREFIJOS_DE_CAUSA_EXTERNA[tipo]} ${TITULOS_DE_CAUSA_EXTERNA[tipo]} (${repo})`;
+}
+
+/** ¿El título es el de una tarjeta de causa? Esas nunca crean otra (así no se forma una cadena). */
+export function esTarjetaDeCausaExterna(titulo: string): boolean {
+  const limpio = titulo.trim();
+  return Object.values(PREFIJOS_DE_CAUSA_EXTERNA).some((prefijo) => limpio.startsWith(prefijo));
+}
+
+/** El tipo de causa externa que mandó el Coordinador, o null si no es uno que crea tarjeta. */
+export function tipoDeCausaExternaDeEntrada(valor: unknown): TipoDeCausaExterna | null {
+  return typeof valor === "string" && (TIPOS_DE_CAUSA_EXTERNA as readonly string[]).includes(valor) ? (valor as TipoDeCausaExterna) : null;
 }
 
 /** ¿Puede el Coordinador hacer `accion` con una tarjeta en `estado`? */

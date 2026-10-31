@@ -86,6 +86,12 @@ export function crearCrm({ urlCrm, claveTrabajador }, { fetch: miFetch = globalT
     yaHecha: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/ya-hecha`, limpio(datos)),
     /** Código limpio (27-oct-2026): main trae errores viejos. { repo, errores } -> { creada } crea UNA tarjeta de limpieza por repo, o le agrega los errores a la abierta. */
     limpieza: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/limpieza`, limpio(datos)),
+    /**
+     * Causa externa (31-oct-2026): la falla no es de la tarea. { tipo, titulo, detalle, referencia?, etapa, categoria, causa, error }
+     * -> { creada, tarjetaId, esperando, soltada, estado }. Crea la tarjeta de la causa (o reusa la abierta con el mismo título; con
+     * `referencia`, la del choque, no crea nada), pone la flecha de dependencia y suelta esta sin ERROR ni intento: "Esperando a «X»".
+     */
+    causaExterna: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/causa-externa`, limpio(datos)),
     /** Las tarjetas en ERROR (las más viejas primero) con lo necesario para recogerlas. -> { tarjetas } */
     errores: () => pedir("/api/trabajador/tablero/errores"),
     /**
