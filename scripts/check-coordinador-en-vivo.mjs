@@ -368,7 +368,7 @@ await prueba("la fila: lo que sigue en orden y lo bloqueado con su motivo (otra 
   estado.tarjetas.push(
     tarjeta({ id: "f1", titulo: "Primera", estado: "APROBADO", trabajoVenceEn: null }),
     tarjeta({ id: "f2", titulo: "Segunda", estado: "PLAN_APROBADO", trabajoVenceEn: null }),
-    tarjeta({ id: "f3", titulo: "Depende", estado: "APROBADO", trabajoVenceEn: null, entrantes: [{ origen: { titulo: "La base" } }] }),
+    tarjeta({ id: "f3", titulo: "Depende", estado: "APROBADO", trabajoVenceEn: null, entrantes: [{ origen: { id: "o-base", titulo: "La base" } }] }),
     tarjeta({ id: "f4", titulo: "Choca", estado: "APROBADO", trabajoVenceEn: null }),
     tarjeta({ id: "f5", titulo: "Espera tu sí", estado: "PLAN_LISTO", trabajoVenceEn: null }),
     tarjeta({ id: "f6", titulo: "Sin repo", estado: "APROBADO", repo: null, trabajoVenceEn: null }),
@@ -383,7 +383,7 @@ await prueba("la fila: lo que sigue en orden y lo bloqueado con su motivo (otra 
   assert.ok(!("f6" in bloqueadas) && !fila.siguientes.some((i) => i.tarjetaId === "f6"), "sin repo no es del Coordinador");
 });
 
-await prueba("la fila: las que esperan que las apruebes en la pantalla (Libro V3, Meta Ads) van a bloqueadas con su motivo y «Necesita humano»", async () => {
+await prueba("la fila: las que esperan que las apruebes en la pantalla (Meta Ads) van a bloqueadas con su motivo y «Necesita humano»; Libro V3 por voz sigue en la fila", async () => {
   const resumenDePasos = (pasos) => [pasos.actual, pasos.necesitaHumano, pasos.pasos.map((paso) => paso.estado).join(",")];
   const aprobada = (via, minutos = 30, extra = {}) => ({ creadoEn: hace(minutos), despues: { momento: "tarea", via }, ...extra });
   estado.tarjetas.push(
@@ -403,33 +403,29 @@ await prueba("la fila: las que esperan que las apruebes en la pantalla (Libro V3
     tarjeta({ id: "p6", titulo: "Las dos por voz", estado: "APROBADO", trabajoVenceEn: null, zonaProtegida: ["LIBRO_V3", "META_ADS", "CHATS"], aprobaciones: [aprobada("voz")] }),
     tarjeta({ id: "p7", titulo: "Sin zona", estado: "APROBADO", trabajoVenceEn: null }),
   );
+  // Desde 05d6fbe (decisión del dueño, 31-oct-2026) Libro V3 y chats arrancan con la voz; solo Meta Ads espera la pantalla.
   const vista = await servicio.vistaDelCoordinador("ws1", AHORA);
   const { fila } = vista;
-  assert.deepEqual(fila.siguientes.map((i) => i.tarjetaId), ["p5", "p3", "p7"], "solo CHATS por voz, la pantalla y sin zona siguen en la fila, en el orden de /tomar (chats primero)");
+  assert.deepEqual(fila.siguientes.map((i) => i.tarjetaId), ["p2", "p5", "p1", "p3", "p7"], "Libro V3 y chats por voz, la pantalla y sin zona siguen en la fila, en el orden de /tomar (SUBIENDO primero)");
   assert.ok(fila.siguientes.every((i) => i.motivo === null));
   const bloqueadas = Object.fromEntries(fila.bloqueadas.map((i) => [i.tarjetaId, i]));
-  assert.equal(bloqueadas.p1.motivo, "Espera que la apruebes en la pantalla (Libro V3)");
-  assert.equal(bloqueadas.p1.pasos.necesitaHumano, true);
-  assert.deepEqual(resumenDePasos(bloqueadas.p1.pasos), ["construir", true, "hecho,necesita_humano,pendiente,pendiente,pendiente"]);
-  assert.equal(bloqueadas.p2.motivo, "Espera que la apruebes en la pantalla (Libro V3)", "la SUBIENDO sin candado también");
-  assert.equal(bloqueadas.p2.pasos.necesitaHumano, true);
-  assert.deepEqual(resumenDePasos(bloqueadas.p2.pasos), ["aprobar", true, "hecho,hecho,hecho,necesita_humano,pendiente"]);
   assert.equal(bloqueadas.p4.motivo, "Espera que la apruebes en la pantalla (Meta Ads)");
-  assert.equal(bloqueadas.p6.motivo, "Espera que la apruebes en la pantalla (Libro V3, Meta Ads)");
-  for (const id of ["p1", "p2", "p4", "p6"]) assert.ok(!fila.siguientes.some((i) => i.tarjetaId === id), `${id} no está en la fila`);
-  // El orden de hoy: SUBIENDO primero y después prioridadDeLaFila (la que toca chats antes).
-  assert.deepEqual(fila.bloqueadas.map((i) => i.tarjetaId), ["p2", "p6", "p1", "p4"]);
+  assert.equal(bloqueadas.p4.pasos.necesitaHumano, true);
+  assert.deepEqual(resumenDePasos(bloqueadas.p4.pasos), ["plan", true, "necesita_humano,pendiente,pendiente,pendiente,pendiente"]);
+  assert.equal(bloqueadas.p6.motivo, "Espera que la apruebes en la pantalla (Meta Ads)");
+  for (const id of ["p4", "p6"]) assert.ok(!fila.siguientes.some((i) => i.tarjetaId === id), `${id} no está en la fila`);
+  // El orden de hoy: prioridadDeLaFila (la que toca chats antes).
+  assert.deepEqual(fila.bloqueadas.map((i) => i.tarjetaId), ["p6", "p4"]);
 
   const texto = servicio.textoDelCoordinador(vista);
   const enLaFila = texto.split("\n").find((linea) => linea.startsWith("Sigue en la fila:"));
-  assert.equal(enLaFila, "Sigue en la fila: 1. «Chats por voz»; 2. «Libro en pantalla»; 3. «Sin zona».");
-  assert.match(texto, /Bloqueadas: [^\n]*«Libro por voz» \(espera que la apruebes en la pantalla \(Libro V3\)\)/);
-  assert.match(texto, /«Subida del libro por voz» \(espera que la apruebes en la pantalla \(Libro V3\)\)/);
+  assert.equal(enLaFila, "Sigue en la fila: 1. «Subida del libro por voz»; 2. «Chats por voz»; 3. «Libro por voz»; 4. «Libro en pantalla»; 5. «Sin zona».");
+  assert.match(texto, /Bloqueadas: [^\n]*«Las dos por voz» \(espera que la apruebes en la pantalla \(Meta Ads\)\)/);
   assert.match(texto, /«Anuncios por voz» \(espera que la apruebes en la pantalla \(Meta Ads\)\)/);
 
   // Si una tarjeta de la fila trae motivo, la línea lo muestra entre paréntesis.
   const conMotivo = { ...vista, fila: { ...fila, siguientes: [{ ...fila.siguientes[0], motivo: "Un motivo" }] } };
-  assert.match(servicio.textoDelCoordinador(conMotivo), /Sigue en la fila: 1\. «Chats por voz» \(Un motivo\)\./);
+  assert.match(servicio.textoDelCoordinador(conMotivo), /Sigue en la fila: 1\. «Subida del libro por voz» \(Un motivo\)\./);
 
   // ver_coordinador: cada elemento de `fila` trae su motivo, como `bloqueadas`.
   const mcp = fs.readFileSync(path.join(process.cwd(), "src/lib/mcp/tableros-inteligentes.ts"), "utf8");
@@ -441,8 +437,8 @@ await prueba("en error y esperando a otra: los números y la lista (con la líne
     tarjeta({ id: "e1", titulo: "Rota", estado: "ERROR", trabajoVenceEn: null, resultado: { recogida: { veces: 1, linea: "Falta que decidas A o B" } } }),
     tarjeta({ id: "e2", titulo: "Otra rota", estado: "ERROR", trabajoVenceEn: null }),
     tarjeta({ id: "e3", titulo: "Sin repo en error", estado: "ERROR", repo: null, trabajoVenceEn: null }),
-    tarjeta({ id: "w1", titulo: "Espera al molde", estado: "APROBADO", trabajoVenceEn: null, entrantes: [{ origen: { titulo: "El molde", estado: "ERROR" } }] }),
-    tarjeta({ id: "w2", titulo: "Espera en curso", estado: "APROBADO", trabajoVenceEn: null, entrantes: [{ origen: { titulo: "La base", estado: "EN_CURSO" } }] }),
+    tarjeta({ id: "w1", titulo: "Espera al molde", estado: "APROBADO", trabajoVenceEn: null, entrantes: [{ origen: { id: "o-molde", titulo: "El molde", estado: "ERROR" } }] }),
+    tarjeta({ id: "w2", titulo: "Espera en curso", estado: "APROBADO", trabajoVenceEn: null, entrantes: [{ origen: { id: "o-base", titulo: "La base", estado: "EN_CURSO" } }] }),
   );
   const vista = await servicio.vistaDelCoordinador("ws1", AHORA);
   assert.equal(vista.errores.cantidad, 2);
@@ -454,6 +450,40 @@ await prueba("en error y esperando a otra: los números y la lista (con la líne
   const texto = servicio.textoDelCoordinador(vista);
   assert.match(texto, /En error: 2 — «Rota» \(Falta que decidas A o B\); «Otra rota»\./);
   assert.match(texto, /Esperando a otra: 2 — /);
+  assert.equal(vista.esperandoAOtra.esperanTuSiFinal, 0);
+  assert.doesNotMatch(texto, /esperan? tu sí final/);
+});
+
+await prueba("esperando a otra: las que dependen de una POR_REVISAR esperan tu sí final, con el link a la parte 1", async () => {
+  const parte1 = { id: "pr1", titulo: "La parte 1", estado: "POR_REVISAR" };
+  estado.tarjetas.push(
+    tarjeta({ id: "s1", titulo: "Parte 2", estado: "APROBADO", trabajoVenceEn: null, entrantes: [{ origen: parte1 }] }),
+    tarjeta({ id: "s2", titulo: "Parte 3", estado: "APROBADO", trabajoVenceEn: null, entrantes: [{ origen: parte1 }] }),
+    tarjeta({ id: "s3", titulo: "Espera en curso", estado: "APROBADO", trabajoVenceEn: null, entrantes: [{ origen: { id: "ec1", titulo: "La base", estado: "EN_CURSO" } }] }),
+  );
+  const vista = await servicio.vistaDelCoordinador("ws1", AHORA);
+  assert.equal(vista.esperandoAOtra.cantidad, 3);
+  assert.equal(vista.esperandoAOtra.esperanTuSiFinal, 2);
+  const porId = Object.fromEntries(vista.esperandoAOtra.tarjetas.map((i) => [i.tarjetaId, i]));
+  for (const id of ["s1", "s2"]) {
+    assert.equal(porId[id].esperaA.link, "https://app.aizenbot.com/cliente/tablero-ia?tarjeta=pr1");
+    assert.equal(porId[id].esperaA.estado, "POR_REVISAR");
+    assert.equal(porId[id].esperaA.tarjetaId, "pr1");
+    assert.equal(porId[id].motivo, "Esperando a «La parte 1»: la parte 1 espera tu sí final (Por revisar)");
+  }
+  assert.equal(porId.s3.esperaA.estado, "EN_CURSO");
+  assert.equal(porId.s3.esperaA.link, "https://app.aizenbot.com/cliente/tablero-ia?tarjeta=ec1");
+  const texto = servicio.textoDelCoordinador(vista);
+  assert.match(texto, /Esperando a otra: 3 \(2 tareas esperan tu sí final\) — /);
+  assert.match(texto, /«Parte 2» \(Esperando a «La parte 1»: la parte 1 espera tu sí final \(Por revisar\); parte 1: https:\/\/app\.aizenbot\.com\/cliente\/tablero-ia\?tarjeta=pr1\)/);
+  // Con una sola: "1 tarea espera tu sí final".
+  const una = { ...vista, esperandoAOtra: { ...vista.esperandoAOtra, esperanTuSiFinal: 1 } };
+  assert.match(servicio.textoDelCoordinador(una), /Esperando a otra: 3 \(1 tarea espera tu sí final\)/);
+
+  // ver_coordinador: el número y, por tarjeta, de cuál depende.
+  const mcp = fs.readFileSync(path.join(process.cwd(), "src/lib/mcp/tableros-inteligentes.ts"), "utf8");
+  assert.match(mcp, /esperan_tu_si_final: vista\.esperandoAOtra\.esperanTuSiFinal/);
+  assert.match(mcp, /espera_a: item\.esperaA \? \{ tarjeta_id: item\.esperaA\.tarjetaId, titulo: item\.esperaA\.titulo, estado: item\.esperaA\.estado, link: item\.esperaA\.link \}/);
 });
 
 /* ------------------------------------------------------------------ lo de hoy */

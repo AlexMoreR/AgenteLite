@@ -1608,11 +1608,21 @@ export function etiquetaEsperando(origenes: readonly { titulo: string; estado: s
   const nombres = pendientes.map((origen) => `«${origen.titulo}»`);
   const lista = nombres.length === 1 ? nombres[0] : `${nombres.slice(0, -1).join(", ")} y ${nombres[nombres.length - 1]}`;
   const trabadas = pendientes.filter((origen) => (ESTADOS_QUE_NO_AVANZAN as readonly string[]).includes(origen.estado));
-  if (!trabadas.length) return `Esperando a ${lista}`;
+  // POR_REVISAR no está trabada: espera el sí final del dueño (solo cambia el texto, no quién aprueba).
+  const porRevisar = pendientes.filter((origen) => origen.estado === "POR_REVISAR");
+  if (pendientes.length === 1 && porRevisar.length === 1) return `Esperando a ${lista}: la parte 1 espera tu sí final (Por revisar)`;
+  if (!trabadas.length && !porRevisar.length) return `Esperando a ${lista}`;
   if (trabadas.length === 1 && pendientes.length === 1) {
     return `Esperando a ${lista}, que está ${trabadas[0].estado === "ERROR" ? "en error" : "fallida"}`;
   }
-  return `Esperando a ${lista}; ${trabadas.map((origen) => `«${origen.titulo}»`).join(" y ")} ${trabadas.length === 1 ? "está" : "están"} en error o fallidas`;
+  const avisos: string[] = [];
+  if (trabadas.length) {
+    avisos.push(`${trabadas.map((origen) => `«${origen.titulo}»`).join(" y ")} ${trabadas.length === 1 ? "está" : "están"} en error o fallidas`);
+  }
+  if (porRevisar.length) {
+    avisos.push(`${porRevisar.map((origen) => `«${origen.titulo}»`).join(" y ")} ${porRevisar.length === 1 ? "espera" : "esperan"} tu sí final (Por revisar)`);
+  }
+  return `Esperando a ${lista}; ${avisos.join("; ")}`;
 }
 
 export type RecogidaDelResultado = { veces: number; ultima: string | null; linea: string | null };

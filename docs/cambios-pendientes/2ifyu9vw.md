@@ -1,0 +1,2 @@
+## Advertencias de operación
+- `esperan_tu_si_final`: en el panel «Coordinador en vivo» y en `ver_coordinador`, «Esperando a otra» dice cuántas tarjetas dependen de una que está Por revisar (esperan tu sí final, no que el Coordinador avance) y cada una trae el link (`espera_a`) a la tarjeta de la que depende. La cuenta sale de las primeras 40 tarjetas de la fila: si algún día hay más de 40 aprobadas, se queda corta.

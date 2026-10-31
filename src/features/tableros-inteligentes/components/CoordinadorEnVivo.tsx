@@ -157,6 +157,11 @@ function ListaDeFila({ items }: { items: ItemDeFila[] }) {
               {item.titulo}
             </Link>
             {item.motivo ? <span className="block text-xs text-muted-foreground">{item.motivo}</span> : null}
+            {item.esperaA ? (
+              <Link href={linkDeLaTarjetaEnPantalla(item.esperaA.tarjetaId)} className="line-clamp-1 text-xs hover:underline" title={item.esperaA.titulo}>
+                Ver «{item.esperaA.titulo}»
+              </Link>
+            ) : null}
             {item.pasos ? (
               <div className="mt-1">
                 <LineaDePasos pasos={item.pasos} />
@@ -270,6 +275,11 @@ function Contenido({ vista, ahora }: { vista: VistaDelCoordinador; ahora: number
             </div>
           ))}
         </div>
+        {vista.esperandoAOtra.esperanTuSiFinal > 0 ? (
+          <p className="text-xs text-muted-foreground">
+            {vista.esperandoAOtra.esperanTuSiFinal} {vista.esperandoAOtra.esperanTuSiFinal === 1 ? "tarea espera" : "tareas esperan"} tu sí final
+          </p>
+        ) : null}
         {vista.errores.tarjetas.length ? (
           <div className="space-y-1.5 pt-1">
             <h3 className="text-xs font-medium text-muted-foreground">En error</h3>
