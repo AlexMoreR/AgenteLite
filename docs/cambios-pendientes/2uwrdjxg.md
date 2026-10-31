@@ -1,5 +1,0 @@
-## Módulos
-- `automatizaciones`: acciones masivas de jefes (asignar leads en cantidad). Desde el 30-oct-2026 tiene la condición "Paso del embudo" ("es" / "ya pasó": Bienvenida, Respondió, Identificación, Presentación del producto, Dudas y objeciones, Cierre). El descarte automático tiene código pero no aparece en pantalla.
-
-## Automatizaciones
-- `automatizaciones`: las que arman los jefes en /cliente/automatizaciones (a mano o cada 30 min con el reloj). Desde el 30-oct-2026 tienen la condición "Paso del embudo": "es" mira el paso de hoy (`EmbudoLead.pasoActual`; en Bienvenida o sin paso cuenta como "Respondió" si la clienta escribió después de nuestro primer mensaje) y "ya pasó X" exige que haya respondido y que su paso más alto (`EmbudoLead.pasoMaximo`) vaya después de X (con varios, vale el más bajo). Regla fija: una automatización con la acción Asignar nunca toma chats que no respondieron la bienvenida, aunque no tenga el filtro (igual en el conteo "Hoy cumplen N", la vista previa y la ejecución). "Respondió" es la misma regla de `respondioLaBienvenida` (`src/lib/turno-con-contenido.ts`), repetida en SQL en `src/features/automatizaciones/servicio.ts`.

@@ -1,2 +1,0 @@
-## Advertencias de operación
-- `un_solo_si_del_dueno`: Un solo sí (30-oct-2026): si el dueño aprueba la tarea en pantalla o por voz, el plan de Gestión pasa solo a construir; Meta Ads sigue pidiendo su sí; las dudas de negocio (preguntas abiertas del plan o "el agente necesita decisión") llegan por WhatsApp como aviso URGENTE "necesita", uno por tarjeta; las tarjetas viejas sin via en el historial siguen esperando.

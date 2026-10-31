@@ -1,2 +1,0 @@
-## Advertencias de operación
-- `pausa-lectura-segura`: si la base no responde al leer si un chat está pausado, el bot (V2, respuestas rápidas y V3) trata el chat como pausado: no contesta ese mensaje y tampoco manda el aviso "En un momento una de nuestras asesoras…". Queda en el log `[conversation-automation] no se pudo leer la pausa`; si sale seguido, la base tiene problemas. Guardar la pausa también deja su error en el log (`no se pudo guardar la pausa`).

@@ -1,2 +1,0 @@
-## Advertencias de operación
-- `tasa_respuesta_bienvenida`: ahora separa "respondieron la bienvenida" (antes de cualquier seguimiento), "recuperados" por seguimiento (15 min, 1 hora, 1 día) y "nunca respondieron"; se lee de EmbudoEvento SEGUIMIENTO_ENVIADO. Los seguimientos del motor viejo no guardan sus minutos y se clasifican por franjas (hasta 30 min = 15 min, hasta 3 h = 1 hora, más = 1 día); los chats sin eventos no pueden salir como recuperados.
