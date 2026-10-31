@@ -15,6 +15,7 @@ import {
   textoDelError,
   validarTelefonoDelDueno,
 } from "./avisos-al-dueno";
+import { EMPIEZA_URGENTE, esUrgente } from "./reglas-trabajador";
 import { linkDeLaTarjeta } from "./tableros";
 
 /*
@@ -67,7 +68,6 @@ const ESTADOS_TERMINADOS = ["HECHO", "FALLIDO"] as const;
 const ESTADOS_DEL_COORDINADOR = ["PLANEANDO", "EN_CURSO", "SUBIENDO", "APROBADO", "PLAN_APROBADO"];
 
 const PIDE_INFRAESTRUCTURA = /\b(vps|portainer|docker|servidor|dns|dominio)\b/i;
-const EMPIEZA_URGENTE = /^\s*urgente\b/i;
 
 /* ───────────────────────────────────────────────────────────────────── las reglas (puras) ── */
 
@@ -102,7 +102,8 @@ export type AvisoAlEquipo = {
   cubierta?: boolean;
 };
 
-export const esUrgente = (tarjeta: Pick<TarjetaParaAvisar, "urgente" | "titulo">) => tarjeta.urgente || EMPIEZA_URGENTE.test(tarjeta.titulo);
+// esUrgente y EMPIEZA_URGENTE viven en reglas-trabajador.ts (31-oct-2026: también ordenan la fila); se siguen exportando de acá.
+export { esUrgente };
 
 const unaLinea = (valor: string, maximo: number) => {
   const limpio = valor.replace(/\s+/g, " ").trim();

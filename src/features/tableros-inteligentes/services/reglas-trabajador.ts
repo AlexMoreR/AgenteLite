@@ -217,6 +217,79 @@ export function puedeCambiarZonas(
   return null;
 }
 
+/* ───────────────────────────────────────────────────────────────────── orden de la fila ── */
+
+/** El título empieza con URGENTE (sin importar mayúsculas). Lo usan esta regla y los avisos al equipo (avisos-al-equipo.ts). */
+export const EMPIEZA_URGENTE = /^\s*urgente\b/i;
+
+/** ¿La tarjeta es urgente? El campo `urgente` (botón, MCP) o el título que empieza con URGENTE. */
+export const esUrgente = (tarjeta: { urgente?: boolean | null; titulo: string }) => Boolean(tarjeta.urgente) || EMPIEZA_URGENTE.test(tarjeta.titulo);
+
+/** Lo que adelanta una tarjeta al nivel 0 además de URGENTE (31-oct-2026, otra tarjeta): PRIORIDAD en MAYÚSCULAS en el título o el detalle. */
+export const PALABRA_DE_PRIORIDAD = "PRIORIDAD";
+
+/** Zonas que cuentan como ventas y chats de las asesoras (nivel 1). */
+export const ZONAS_DE_VENTAS_Y_CHATS = ["CHATS", "BOT_VENTAS"] as const;
+
+/**
+ * Las palabras de la fila, en un solo lugar: de aquí salen prioridadDeLaFila y su CASE de SQL (PRIORIDAD_DE_LA_FILA en
+ * sql-trabajador.ts). En minúsculas y sin tildes; se comparan como palabras enteras, con o sin tilde.
+ */
+export const PALABRAS_DE_LA_FILA = {
+  /** El nombre del tablero (nivel 1). */
+  tableroDeVentas: ["venta", "ventas"],
+  /** El título: chats de las asesoras (nivel 1). */
+  chats: ["chat", "chats", "conversacion", "conversaciones", "asesora", "asesoras"],
+  /** El título de una tarjeta del repo gestion: dinero (nivel 2). */
+  dineroDeGestion: ["venta", "ventas", "abono", "abonos", "gasto", "gastos", "nomina", "nominas", "comision", "comisiones", "cuenta", "cuentas"],
+} as const;
+
+/** El repo de Gestión (nivel 2). */
+export const REPO_DE_GESTION: RepoDelTrabajador = "gestion";
+
+/** Minúsculas y sin tildes. */
+const sinTildes = (texto: string) => texto.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+
+/** ¿El texto trae alguna de las palabras, entera? ("venta" no coincide con "ventana"; "NÓMINA" y "nomina" sí). */
+export function tieneAlgunaPalabra(texto: string | null | undefined, palabras: readonly string[]): boolean {
+  if (!texto || !palabras.length) return false;
+  return new RegExp(`(^|[^a-z0-9])(${palabras.join("|")})($|[^a-z0-9])`).test(sinTildes(texto));
+}
+
+/** Lo que se mira de una tarjeta para su lugar en la fila. */
+export type TarjetaParaLaFila = {
+  titulo: string;
+  detalle?: string | null;
+  urgente?: boolean | null;
+  repo?: string | null;
+  zonaProtegida?: readonly string[] | null;
+  /** El nombre del tablero de la tarjeta. */
+  tablero?: string | null;
+};
+
+/**
+ * El lugar de la tarjeta en la fila del Coordinador (31-oct-2026), de menor a mayor:
+ *   0 = URGENTE (campo `urgente` o título que empieza con URGENTE) o dice PRIORIDAD en MAYÚSCULAS;
+ *   1 = ventas y chats de las asesoras: el tablero se llama Ventas, el título dice chat, conversación o asesora, o la zona es
+ *       CHATS o BOT_VENTAS;
+ *   2 = dinero de Gestión: repo gestion y el título dice venta, abono, gasto, nómina, comisión o cuenta;
+ *   3 = lo demás.
+ * Es la MISMA regla que PRIORIDAD_DE_LA_FILA (sql-trabajador.ts), con que /tomar escoge. Antes van las SUBIENDO.
+ */
+export function prioridadDeLaFila(tarjeta: TarjetaParaLaFila): 0 | 1 | 2 | 3 {
+  if (esUrgente(tarjeta) || tarjeta.titulo.includes(PALABRA_DE_PRIORIDAD) || (tarjeta.detalle ?? "").includes(PALABRA_DE_PRIORIDAD)) return 0;
+  const zonas = tarjeta.zonaProtegida ?? [];
+  if (
+    tieneAlgunaPalabra(tarjeta.tablero, PALABRAS_DE_LA_FILA.tableroDeVentas) ||
+    tieneAlgunaPalabra(tarjeta.titulo, PALABRAS_DE_LA_FILA.chats) ||
+    zonas.some((zona) => (ZONAS_DE_VENTAS_Y_CHATS as readonly string[]).includes(zona))
+  ) {
+    return 1;
+  }
+  if (tarjeta.repo === REPO_DE_GESTION && tieneAlgunaPalabra(tarjeta.titulo, PALABRAS_DE_LA_FILA.dineroDeGestion)) return 2;
+  return 3;
+}
+
 /* ───────────────────────────────────────────────────────────────────── tiempos y candado ── */
 
 export type EtapaDelTrabajador = "planear" | "construir" | "subir";

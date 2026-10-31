@@ -35,7 +35,7 @@ import {
   textoDelUso,
   textoDelUsoDeClaude,
 } from "./reglas-coordinador-en-vivo";
-import { etiquetaEsperando, recogidaDelResultado } from "./reglas-trabajador";
+import { etiquetaEsperando, prioridadDeLaFila, recogidaDelResultado } from "./reglas-trabajador";
 import { leerPausaPorUso } from "./pausa-por-uso-de-claude";
 import { ErrorDelTrabajador, type ContextoTrabajador } from "./trabajador";
 import { linkDeLaTarjeta } from "./tableros";
@@ -192,7 +192,17 @@ async function filaDelCoordinador(workspaceId: string, ahora: Date, esperas: Map
       },
       orderBy: { actualizadoEn: "asc" },
       take: 40,
-      select: { id: true, titulo: true, estado: true, entrantes: dependencias },
+      select: {
+        id: true,
+        titulo: true,
+        detalle: true,
+        estado: true,
+        urgente: true,
+        repo: true,
+        zonaProtegida: true,
+        tablero: { select: { nombre: true } },
+        entrantes: dependencias,
+      },
     }),
     prisma.tarjetaTablero.findMany({
       where: {
@@ -229,7 +239,17 @@ async function filaDelCoordinador(workspaceId: string, ahora: Date, esperas: Map
     link: linkDeLaTarjeta(tarjeta.id),
     motivo,
   });
-  for (const tarjeta of paraTomar) {
+  // El mismo orden con que /tomar escoge (31-oct-2026): SUBIENDO primero, después prioridadDeLaFila y, en empate, la más vieja
+  // (sort es estable y paraTomar viene por actualizadoEn).
+  const enOrden = paraTomar
+    .map((tarjeta) => ({
+      tarjeta,
+      sube: tarjeta.estado === "SUBIENDO" ? 0 : 1,
+      prioridad: prioridadDeLaFila({ ...tarjeta, tablero: tarjeta.tablero?.nombre ?? null }),
+    }))
+    .sort((a, b) => a.sube - b.sube || a.prioridad - b.prioridad)
+    .map(({ tarjeta }) => tarjeta);
+  for (const tarjeta of enOrden) {
     if (!(ESTADOS_DE_FILA as readonly string[]).includes(tarjeta.estado)) continue;
     const espera = tarjeta.entrantes[0]?.origen.titulo;
     if (espera && tarjeta.estado !== "SUBIENDO") {

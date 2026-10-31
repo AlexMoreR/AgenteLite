@@ -163,7 +163,7 @@ await prueba("reparto: subir > construir > planear; la que desbloquea; la más c
   assert.equal(candidatas[0].id, "grande", "no cambia la lista que recibe");
 });
 
-await prueba("reparto: respeta la prioridad del CRM (0 PRIORIDAD, 1 CHATS/BOT_VENTAS, 2 las demás) y subir sigue primero", async () => {
+await prueba("reparto: respeta la prioridad del CRM (0 urgente o PRIORIDAD, 1 ventas y chats, 2 dinero de Gestión, 3 lo demás) y subir sigue primero", async () => {
   const candidatas = [
     { id: "p2", hacer: "planear", prioridad: 2 },
     { id: "p1", hacer: "planear", prioridad: 1 },
@@ -174,10 +174,33 @@ await prueba("reparto: respeta la prioridad del CRM (0 PRIORIDAD, 1 CHATS/BOT_VE
     ordenarCandidatas(candidatas).map((c) => c.id),
     ["subir", "p0", "p1", "p2"],
   );
-  // Sin el dato (un CRM viejo) o con uno raro, cuenta como 2 (sin prioridad): queda el orden de siempre.
+  // Sin el dato (un CRM viejo) o con uno raro, cuenta como 3 (lo demás): queda el orden de siempre.
   assert.deepEqual(
-    ordenarCandidatas([{ id: "a", hacer: "planear" }, { id: "b", hacer: "planear", prioridad: "x" }, { id: "c", hacer: "planear", prioridad: 2 }]).map((c) => c.id),
-    ["a", "b", "c"],
+    ordenarCandidatas([{ id: "a", hacer: "planear" }, { id: "b", hacer: "planear", prioridad: "x" }, { id: "c", hacer: "planear", prioridad: 3 }, { id: "d", hacer: "planear", prioridad: 7 }]).map((c) => c.id),
+    ["a", "b", "c", "d"],
+  );
+});
+
+await prueba("reparto (fila por niveles): una urgente de Gestión le gana a una vieja del CRM; la prioridad va antes que desbloquear", async () => {
+  // El CRM las manda en su orden (la vieja del CRM primero por antigüedad) y con su prioridad (prioridadDeLaFila).
+  const candidatas = [
+    { id: "crm-vieja", repo: "aizencrm", hacer: "construir", prioridad: 3, desbloquea: 0, plan: planCon("src/a.ts") },
+    { id: "gestion-urgente", repo: "gestion", hacer: "construir", prioridad: 0, desbloquea: 0, plan: planCon("src/a.ts", "src/b.ts", "src/c.ts") },
+  ];
+  assert.deepEqual(ordenarCandidatas(candidatas).map((c) => c.id), ["gestion-urgente", "crm-vieja"]);
+  // Una de ventas y chats (1) que no desbloquea le gana a una de lo demás (3) que desbloquea a 2.
+  assert.deepEqual(
+    ordenarCandidatas([
+      { id: "desbloquea", hacer: "planear", prioridad: 3, desbloquea: 2 },
+      { id: "chats", hacer: "planear", prioridad: 1, desbloquea: 0 },
+      { id: "dinero", hacer: "planear", prioridad: 2, desbloquea: 0 },
+    ]).map((c) => c.id),
+    ["chats", "dinero", "desbloquea"],
+  );
+  // Con la misma prioridad vuelve a mandar desbloquear.
+  assert.deepEqual(
+    ordenarCandidatas([{ id: "sola", hacer: "planear", prioridad: 1 }, { id: "madre", hacer: "planear", prioridad: 1, desbloquea: 1 }]).map((c) => c.id),
+    ["madre", "sola"],
   );
 });
 

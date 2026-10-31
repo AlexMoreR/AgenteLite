@@ -4,8 +4,9 @@
 // ESCOGER (ordenarCandidatas). De las que se pueden tomar ahora (las que no chocan con lo que corre, choques.mjs),
 // primero la que está más cerca de HECHO y la que menos se puede caer:
 //   1. subir antes que todo lo demás (una tarea construida que no sube no cuenta);
-//   2. la prioridad que da el CRM (31-oct-2026, `prioridad` de /candidatas: 0 = dice PRIORIDAD, 1 = zona CHATS o
-//      BOT_VENTAS, 2 = las demás; sin el dato cuenta como 2), el mismo orden con que /tomar las toma;
+//   2. la prioridad que da el CRM (31-oct-2026, `prioridad` de /candidatas, prioridadDeLaFila del CRM: 0 = URGENTE o dice
+//      PRIORIDAD, 1 = ventas y chats de las asesoras, 2 = dinero de Gestión, 3 = lo demás; sin el dato cuenta como 3),
+//      el mismo orden con que /tomar las toma;
 //   3. construir antes que planear;
 //   4. la que desbloquea a otras (la parte 1 de una tarea partida, una tarjeta de la que dependen otras);
 //   5. la más chica (menos archivos en el plan: tarda menos y choca menos); un plan que no dice archivos va al final;
@@ -23,10 +24,11 @@ import { CARPETAS_COMUNES, SIN_CHOQUE_POR_DEFECTO, archivosDelPlan, noChoca } fr
 
 const ORDEN_DE_ETAPA = { subir: 0, construir: 1, planear: 2 };
 
-/** La prioridad que da el CRM (0, 1 o 2); si falta o no es uno de esos, 2 (sin prioridad). */
+/** La prioridad que da el CRM (0 a 3); si falta o no es uno de esos, 3 (lo demás): con un CRM viejo el orden queda igual. */
+const SIN_PRIORIDAD = 3;
 const prioridadDe = (candidata) => {
-  const prioridad = Number(candidata?.prioridad);
-  return prioridad === 0 || prioridad === 1 ? prioridad : 2;
+  const prioridad = candidata?.prioridad;
+  return Number.isInteger(prioridad) && prioridad >= 0 && prioridad < SIN_PRIORIDAD ? prioridad : SIN_PRIORIDAD;
 };
 
 /** Cuántos archivos de código (sin los "sin choque": documentos .md) nombra el plan; null si no nombra ninguno. */

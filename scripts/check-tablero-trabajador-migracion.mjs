@@ -474,10 +474,10 @@ await prueba("prioridad (31-oct): primero SUBIENDO, después PRIORIDAD, después
     [
       ["pr-prio", 0],
       ["pr-chats", 1],
-      ["pr-vieja", 2],
-      ["pr-minuscula", 2],
+      ["pr-vieja", 3],
+      ["pr-minuscula", 3],
     ],
-    "PRIORIDAD, CHATS, la vieja (y «prioridad» en minúsculas no adelanta)",
+    "PRIORIDAD, CHATS, la vieja (y «prioridad» en minúsculas no adelanta; lo demás es 3 desde la fila por niveles)",
   );
   // Una SUBIENDO pendiente, la más nueva de todas, sigue primero.
   await db.exec(`
@@ -497,6 +497,62 @@ await prueba("prioridad (31-oct): primero SUBIENDO, después PRIORIDAD, después
   assert.deepEqual(tomadas, ["pr-sube", "pr-prio", "pr-chats", "pr-vieja", "pr-minuscula"]);
   await db.query("ROLLBACK");
   assert.deepEqual(await filas(`SELECT "id" FROM "TarjetaTablero" WHERE "id" LIKE 'pr-%'`), [], "el ROLLBACK no deja nada");
+});
+
+await prueba("fila por niveles (31-oct): SUBIENDO, urgente, ventas y chats, dinero de Gestión, lo demás; igual a prioridadDeLaFila", async () => {
+  const { prioridadDeLaFila } = cargar("src/features/tableros-inteligentes/services/reglas-trabajador.ts");
+  await db.query("BEGIN");
+  await db.exec(`
+    INSERT INTO "Workspace" ("id", "name", "slug", "updatedAt", "ownerId") VALUES ('ws6', 'Sexto', 'sexto', now(), NULL);
+    INSERT INTO "TableroInteligente" ("id", "workspaceId", "nombre") VALUES ('tab6', 'ws6', 'Sistemas'), ('tab6v', 'ws6', 'CRM Ventas');
+    INSERT INTO "TipoTarjeta" ("id", "tableroId", "nombre", "requiereAprobacion", "usaEstados", "orden") VALUES
+      ('tarea6', 'tab6', 'Tarea', true, true, 0), ('tarea6v', 'tab6v', 'Tarea', true, true, 0);
+    INSERT INTO "TarjetaTablero" ("id", "tableroId", "titulo", "detalle", "estado", "creadoPor", "actualizadoEn", "tipoId", "repo", "urgente") VALUES
+      ('fn-crm-vieja', 'tab6', 'Cambiar el logo', '', 'APROBADO', 'u-dueno', '2026-10-01 01:00:00', 'tarea6', 'aizencrm', false),
+      ('fn-abonos-crm', 'tab6', 'Registrar abonos', '', 'APROBADO', 'u-dueno', '2026-10-01 02:00:00', 'tarea6', 'aizencrm', false),
+      ('fn-ventana', 'tab6', 'Cambiar la ventana', '', 'APROBADO', 'u-dueno', '2026-10-01 03:00:00', 'tarea6', 'gestion', false),
+      ('fn-nomina', 'tab6', 'Arreglar la NÓMINA', '', 'APROBADO', 'u-dueno', '2026-10-02 01:00:00', 'tarea6', 'gestion', false),
+      ('fn-gastos', 'tab6', 'gastos del mes', '', 'APROBADO', 'u-dueno', '2026-10-02 02:00:00', 'tarea6', 'gestion', false),
+      ('fn-tablero-ventas', 'tab6v', 'Botón nuevo', '', 'APROBADO', 'u-dueno', '2026-10-03 01:00:00', 'tarea6v', 'aizencrm', false),
+      ('fn-conversacion', 'tab6', 'Abrir una conversación', '', 'APROBADO', 'u-dueno', '2026-10-03 02:00:00', 'tarea6', 'aizencrm', false),
+      ('fn-asesoras', 'tab6', 'Firma de las ASESORAS', '', 'APROBADO', 'u-dueno', '2026-10-03 03:00:00', 'tarea6', 'gestion', false),
+      ('fn-urgente-gestion', 'tab6', 'URGENTE: cuadre de caja', '', 'APROBADO', 'u-dueno', '2026-10-09 01:00:00', 'tarea6', 'gestion', false),
+      ('fn-urgente-campo', 'tab6', 'Cambiar el menú', '', 'APROBADO', 'u-dueno', '2026-10-09 02:00:00', 'tarea6', 'aizencrm', true);
+  `);
+  const lista = await candidatas("ws6");
+  assert.deepEqual(
+    lista.map((f) => [f.id, f.prioridad]),
+    [
+      ["fn-urgente-gestion", 0],
+      ["fn-urgente-campo", 0],
+      ["fn-tablero-ventas", 1],
+      ["fn-conversacion", 1],
+      ["fn-asesoras", 1],
+      ["fn-nomina", 2],
+      ["fn-gastos", 2],
+      ["fn-crm-vieja", 3],
+      ["fn-abonos-crm", 3],
+      ["fn-ventana", 3],
+    ],
+    "0 → 1 → 2 → 3 y, dentro de cada nivel, la más vieja primero",
+  );
+  // La regla de TypeScript (la pantalla en vivo) da lo mismo que el CASE de SQL, fila por fila.
+  const datos = await filas(
+    `SELECT c."id", c."titulo", c."detalle", c."urgente", c."repo", c."zonaProtegida", b."nombre" AS "tablero"
+     FROM "TarjetaTablero" c JOIN "TableroInteligente" b ON b."id" = c."tableroId" WHERE b."workspaceId" IN ('ws5', 'ws6')`,
+  );
+  const deTs = new Map(datos.map((d) => [d.id, prioridadDeLaFila(d)]));
+  for (const fila of lista) assert.equal(fila.prioridad, deTs.get(fila.id), `${fila.id}: SQL y TypeScript dan lo mismo`);
+  // Una urgente de gestion sale antes que una de aizencrm más vieja, y una SUBIENDO va antes que la urgente.
+  await db.exec(`
+    INSERT INTO "TarjetaTablero" ("id", "tableroId", "titulo", "estado", "creadoPor", "actualizadoEn", "tipoId", "repo", "trabajoVenceEn") VALUES
+      ('fn-sube', 'tab6', 'Subir el logo', 'SUBIENDO', 'u-dueno', '2026-10-20 09:00:00', 'tarea6', 'aizencrm', NULL)`);
+  const [primera] = await tomar("ws6");
+  assert.equal(primera?.id, "fn-sube", "SUBIENDO primero");
+  const [segunda] = await tomar("ws6");
+  assert.equal(segunda?.id, "fn-urgente-gestion", "SQL_TOMAR_UNA toma la urgente de Gestión antes que la vieja del CRM");
+  await db.query("ROLLBACK");
+  assert.deepEqual(await filas(`SELECT "id" FROM "TarjetaTablero" WHERE "id" LIKE 'fn-%'`), [], "el ROLLBACK no deja nada");
 });
 
 await prueba("tomar en otro negocio no ve las de este", async () => {

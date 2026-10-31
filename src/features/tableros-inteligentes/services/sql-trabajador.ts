@@ -13,7 +13,16 @@
   (SQL_PASAR_VENCIDAS_A_ERROR y SQL_ARRANQUE también escriben filas de IntentoTarjeta: 20261024120000_tablero_intentos.)
 */
 
-import { MINUTOS_PARA_CONSTRUIR_EN_LA_NUBE, MINUTOS_POR_ETAPA, VIAS_QUE_ARRANCAN_ZONAS_SOLAS, ZONAS_QUE_ARRANCAN_SOLAS } from "./reglas-trabajador";
+import {
+  MINUTOS_PARA_CONSTRUIR_EN_LA_NUBE,
+  MINUTOS_POR_ETAPA,
+  PALABRA_DE_PRIORIDAD,
+  PALABRAS_DE_LA_FILA,
+  REPO_DE_GESTION,
+  VIAS_QUE_ARRANCAN_ZONAS_SOLAS,
+  ZONAS_DE_VENTAS_Y_CHATS,
+  ZONAS_QUE_ARRANCAN_SOLAS,
+} from "./reglas-trabajador";
 
 const AHORA = `($2::timestamptz AT TIME ZONE 'UTC')`;
 
@@ -250,24 +259,39 @@ const whereSinLaVia = (repos: string) => `
 const wherePara = (repos: string) => `${whereSinLaVia(repos)}
     AND ${CONDICION_DE_LA_VIA}`;
 
-/** Zonas que van antes en la fila (31-oct-2026): ventas y los chats de las asesoras. */
-const ZONAS_CON_PRIORIDAD = ["CHATS", "BOT_VENTAS"] as const;
+/**
+ * Las palabras enteras de `palabras` (PALABRAS_DE_LA_FILA, en minúsculas y sin tildes) como expresión de SQL sobre `columna`,
+ * con o sin tilde y sin importar mayúsculas: la misma comparación que tieneAlgunaPalabra (reglas-trabajador.ts).
+ */
+const CON_TILDE: Record<string, string> = { a: "[aáAÁ]", e: "[eéEÉ]", i: "[iíIÍ]", o: "[oóOÓ]", u: "[uúüUÚÜ]", n: "[nñNÑ]" };
+const FUERA_DE_PALABRA = "[^a-zA-Z0-9áéíóúüñÁÉÍÓÚÜÑ]";
+const tienePalabraSql = (columna: string, palabras: readonly string[]) => {
+  const opciones = palabras.map((palabra) => [...palabra.replace(/[^a-z]/g, "")].map((letra) => CON_TILDE[letra] ?? letra).join(""));
+  return `(COALESCE(${columna}, '') ~* '(^|${FUERA_DE_PALABRA})(${opciones.join("|")})($|${FUERA_DE_PALABRA})')`;
+};
 
 /**
- * La prioridad de la tarjeta `c` (31-oct-2026): 0 si dice PRIORIDAD (en MAYÚSCULAS, para que la palabra suelta en un
- * detalle no la adelante sin querer) en el título o el detalle; 1 si tiene zona CHATS o BOT_VENTAS; 2 las demás.
+ * El lugar de la tarjeta `c` en la fila (31-oct-2026): la MISMA regla que prioridadDeLaFila (reglas-trabajador.ts), con las
+ * mismas listas. 0 = URGENTE (campo o título que empieza con URGENTE) o PRIORIDAD en MAYÚSCULAS en el título o el detalle;
+ * 1 = ventas y chats (tablero Ventas, título con chat / conversación / asesora, zona CHATS o BOT_VENTAS); 2 = dinero de
+ * Gestión (repo gestion y título con venta / abono / gasto / nómina / comisión / cuenta); 3 = lo demás. Usa el JOIN `b`.
  */
-const PRIORIDAD_DE_LA_TARJETA = `(CASE
-    WHEN strpos(c."titulo", 'PRIORIDAD') > 0 OR strpos(COALESCE(c."detalle", ''), 'PRIORIDAD') > 0 THEN 0
-    WHEN c."zonaProtegida" && ARRAY[${listaSql(ZONAS_CON_PRIORIDAD)}]::text[] THEN 1
-    ELSE 2
+const PRIORIDAD_DE_LA_FILA = `(CASE
+    WHEN c."urgente" OR c."titulo" ~* '^[[:space:]]*urgente($|[^a-zA-Z0-9_])'
+      OR strpos(c."titulo", '${PALABRA_DE_PRIORIDAD}') > 0 OR strpos(COALESCE(c."detalle", ''), '${PALABRA_DE_PRIORIDAD}') > 0 THEN 0
+    WHEN ${tienePalabraSql('b."nombre"', PALABRAS_DE_LA_FILA.tableroDeVentas)}
+      OR ${tienePalabraSql('c."titulo"', PALABRAS_DE_LA_FILA.chats)}
+      OR c."zonaProtegida" && ARRAY[${listaSql(ZONAS_DE_VENTAS_Y_CHATS)}]::text[] THEN 1
+    WHEN c."repo" = '${REPO_DE_GESTION}' AND ${tienePalabraSql('c."titulo"', PALABRAS_DE_LA_FILA.dineroDeGestion)} THEN 2
+    ELSE 3
   END)`;
 
 /**
- * Primero una SUBIENDO pendiente (la que sube sola no espera detrás de otras); después la prioridad
- * (PRIORIDAD_DE_LA_TARJETA) y al final la que más espera. Solo cambia el ORDEN: qué se puede tomar lo dice wherePara.
+ * Primero una SUBIENDO pendiente (la que sube sola no espera detrás de otras); después la prioridad (PRIORIDAD_DE_LA_FILA:
+ * urgente, ventas y chats, dinero de Gestión, lo demás) y al final la que más espera. Solo cambia el ORDEN: qué se puede
+ * tomar lo dice wherePara.
  */
-const ORDEN_PARA_TOMAR = `ORDER BY (c."estado" = 'SUBIENDO') DESC, ${PRIORIDAD_DE_LA_TARJETA} ASC, c."actualizadoEn" ASC, c."creadoEn" ASC`;
+const ORDEN_PARA_TOMAR = `ORDER BY (c."estado" = 'SUBIENDO') DESC, ${PRIORIDAD_DE_LA_FILA} ASC, c."actualizadoEn" ASC, c."creadoEn" ASC`;
 
 /**
  * Las que podría tomar, SIN tomarlas, en el orden en que las tomaría. El trabajador las mira para no
@@ -275,13 +299,13 @@ const ORDEN_PARA_TOMAR = `ORDER BY (c."estado" = 'SUBIENDO') DESC, ${PRIORIDAD_D
  * mismo repo: esas las manda en `excluir` a /tomar y esperan en fila.
  * "desbloquea" (25-oct-2026): cuántas tarjetas esperan a que esta esté HECHO (flechas esDependencia que salen de
  * ella): el Coordinador toma primero las que desbloquean a otras (trabajador-tablero/lib/reparto.mjs).
- * "prioridad" (31-oct-2026): PRIORIDAD_DE_LA_TARJETA (0, 1 o 2), para que el reparto respete el mismo orden.
+ * "prioridad" (31-oct-2026): PRIORIDAD_DE_LA_FILA (0 a 3), para que el reparto respete el mismo orden.
  * Parámetros: $1 = workspaceId, $2 = repos (text[]).
  */
 export const SQL_CANDIDATAS = `
 SELECT c."id", c."titulo", c."estado"::text AS "estado", c."repo", c."zonaProtegida", c."plan",
   (SELECT count(*)::int FROM "ConexionTarjeta" d WHERE d."origenId" = c."id" AND d."esDependencia") AS "desbloquea",
-  ${PRIORIDAD_DE_LA_TARJETA}::int AS "prioridad"
+  ${PRIORIDAD_DE_LA_FILA}::int AS "prioridad"
 FROM "TarjetaTablero" c
 JOIN "TableroInteligente" b ON b."id" = c."tableroId"
 JOIN "TipoTarjeta" k ON k."id" = c."tipoId"
