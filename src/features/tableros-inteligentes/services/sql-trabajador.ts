@@ -32,9 +32,12 @@ const AHORA = `($2::timestamptz AT TIME ZONE 'UTC')`;
 // (En el FROM y con una columna: Prisma no sabe leer una columna de tipo void.)
 export const SQL_CANDADO_DEL_NEGOCIO = `SELECT 1 AS "ok" FROM pg_advisory_xact_lock(hashtext('tablero-trabajador:' || $1::text))`;
 
-/** A qué estado de la fila vuelve una tarjeta que el Coordinador tenía (la CTE se llama `v`, con la columna "antes"). */
+/**
+ * A qué estado de la fila vuelve una tarjeta que el Coordinador tenía (la CTE se llama `v`, con la columna "antes"): la misma
+ * regla que estadoAlSoltarSinError (reglas-trabajador.ts). SUBIENDO vuelve a SUBIENDO pendiente (1-nov-2026).
+ */
 const estadoDeLaFila = (v: string) =>
-  `CASE ${v}."antes" WHEN 'PLANEANDO' THEN 'APROBADO'::"EstadoTarjeta" ELSE 'PLAN_APROBADO'::"EstadoTarjeta" END`;
+  `CASE ${v}."antes" WHEN 'PLANEANDO' THEN 'APROBADO'::"EstadoTarjeta" WHEN 'SUBIENDO' THEN 'SUBIENDO'::"EstadoTarjeta" ELSE 'PLAN_APROBADO'::"EstadoTarjeta" END`;
 const etapaDelAntes = (v: string) =>
   `CASE ${v}."antes" WHEN 'PLANEANDO' THEN 'planear' WHEN 'EN_CURSO' THEN 'construir' ELSE 'subir' END`;
 
@@ -54,11 +57,13 @@ const idDelIntento = (v: string) => `'int' || md5(random()::text || clock_timest
 
 /**
  * Las que el Coordinador tenía (PLANEANDO, EN_CURSO, SUBIENDO) y se le vencieron (protocolo de reparación):
- *  - PLANEANDO o EN_CURSO que vencieron por FALTA DE LATIDO (el candado vencía antes del tope de su etapa:
- *    20 / 90 min) y con menos de $5 esperas seguidas: vuelven a la fila (APROBADO / PLAN_APROBADO), sin
- *    ERROR y sin gastar el intento, con una fila de IntentoTarjeta (coordinador_cortado, esperar, no cuenta).
- *  - El resto (vencieron por el tope de la etapa, ya llevan $5 esperas seguidas o estaban SUBIENDO, que pudo
- *    haber empujado a main) pasan a ERROR con el motivo ($3) en resultado.error ($4 = ahora como texto
+ *  - PLANEANDO, EN_CURSO o SUBIENDO que vencieron por FALTA DE LATIDO (el candado vencía antes del tope de su
+ *    etapa: 20 / 90 / 80 min) y con menos de $5 esperas seguidas: vuelven a la fila (APROBADO / PLAN_APROBADO /
+ *    SUBIENDO pendiente, con el candado vacío), sin ERROR y sin gastar el intento, con una fila de IntentoTarjeta
+ *    (coordinador_cortado, esperar, no cuenta). Desde el 1-nov-2026 también SUBIENDO: la subida es repetible (si
+ *    la rama ya está en main no se vuelve a empujar), así que otra vuelta la retoma (espejo: vencidaVuelveALaFila).
+ *  - El resto (vencieron por el tope de la etapa o ya llevan $5 esperas seguidas) pasan a ERROR con el motivo
+ *    ($3) en resultado.error ($4 = ahora como texto
  *    ISO: $2 no sirve como texto porque Postgres ya lo tipó timestamptz) y una fila de IntentoTarjeta
  *    (escalar, cuenta; categoria tiempo_agotado si fue por el tope, coordinador_cortado si no).
  * "Esperas seguidas" = filas de IntentoTarjeta con cuentaComoIntento = false después de la última con true.
@@ -94,7 +99,7 @@ WITH v AS (
 x AS (
   SELECT v.*,
          (v."ini" IS NULL OR v."vence" >= v."ini" + make_interval(mins => v."tope")) AS "portope",
-         (v."antes" <> 'SUBIENDO' AND v."ini" IS NOT NULL AND v."vence" < v."ini" + make_interval(mins => v."tope") AND v."esperas" < $5::int) AS "vuelve"
+         (v."ini" IS NOT NULL AND v."vence" < v."ini" + make_interval(mins => v."tope") AND v."esperas" < $5::int) AS "vuelve"
   FROM v
 ),
 sueltas AS (
@@ -139,10 +144,11 @@ UNION ALL
 SELECT "id", "tableroId", "antes", "estado", "motivo" FROM fallidas`;
 
 /**
- * /arranque: el Coordinador acaba de arrancar, así que lo que el negocio tenía en PLANEANDO o EN_CURSO con
- * candado (trabajoVenceEn) lo tenía el proceso anterior, que murió. Vuelve a la fila (APROBADO /
- * PLAN_APROBADO) sin ERROR y sin gastar el intento, con una fila de IntentoTarjeta (coordinador_cortado,
- * esperar, no cuenta). SUBIENDO no se toca: pudo haber empujado a main (sigue como hoy y vence).
+ * /arranque: el Coordinador acaba de arrancar, así que lo que el negocio tenía en PLANEANDO, EN_CURSO o SUBIENDO
+ * con candado (trabajoVenceEn) lo tenía el proceso anterior, que murió. Vuelve a la fila (APROBADO /
+ * PLAN_APROBADO / SUBIENDO pendiente, sin candado) sin ERROR y sin gastar el intento, con una fila de
+ * IntentoTarjeta (coordinador_cortado, esperar, no cuenta). SUBIENDO también (1-nov-2026): la subida es
+ * repetible, si la rama ya está en main no se vuelve a empujar.
  * Parámetros: $1 = workspaceId, $2 = ahora (ISO). Devuelve id, tableroId y el estado que tenían ("antes").
  */
 export const SQL_ARRANQUE = `
@@ -152,7 +158,7 @@ WITH v AS (
   JOIN "TableroInteligente" b ON b."id" = c."tableroId"
   WHERE b."workspaceId" = $1
     AND c."borradoEn" IS NULL
-    AND c."estado" IN ('PLANEANDO', 'EN_CURSO')
+    AND c."estado" IN ('PLANEANDO', 'EN_CURSO', 'SUBIENDO')
     AND c."trabajoVenceEn" IS NOT NULL
   FOR UPDATE OF c
 ),

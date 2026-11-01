@@ -5,6 +5,11 @@
 //   - sin envíos nuevos de mensajes: el Coordinador escribe la confirmación y la tarjeta pasa a SUBIENDO (con la vigilancia de 30 min);
 //   - con un envío nuevo en chats o en el bot: sigue esperando el sí del dueño, y el motivo queda en la tarjeta.
 // El CRM vuelve a comprobar lo suyo (dinero, Meta Ads, migración destructiva) al recibir /:id/rescatar.
+// Un solo sí de verdad (1-nov-2026): al arrancar (la primera vuelta no espera los 3 minutos) se revisa con las reglas nuevas
+// toda tarjeta POR_REVISAR que ya pasó build y pruebas. El CRM ya manda también las que esperaban por dinero de Gestión o por
+// un supuesto de negocio con el sí humano de la tarea (esperaQueFrena): sin una zona que lo impida, pasan a SUBIENDO por el
+// mismo /:id/rescatar. El gasto en Meta Ads y un envío nuevo a clientes siguen esperando. Cada repositorio sube solo salvo
+// `subirSolo: false` explícito (la misma regla que etapas.mjs).
 import { git } from "./git.mjs";
 import { pruebaExtraDeLasZonas, zonasTocadas } from "./zonas.mjs";
 
@@ -42,7 +47,11 @@ export async function decidirRescate(tarjeta, repo, diff) {
     if (/^falta (la simulaci[oó]n V3|el n[uú]mero de la versi[oó]n)/i.test(prueba.esperaPor)) return { accion: "saltar", motivo: prueba.esperaPor };
     return { accion: "esperar", motivo: prueba.esperaPor };
   }
-  const confirmacion = prueba.confirmaciones.join(" · ") || "✔ revisado de nuevo por el Coordinador: sin pruebas extra pendientes y con el sí del dueño ya dado";
+  const confirmacion =
+    prueba.confirmaciones.join(" · ") ||
+    (tarjeta.tareaAprobadaPorElDueno && tarjeta.esperaPor
+      ? `✔ revisado de nuevo por el Coordinador: la tarea tiene el sí del dueño y ya no espera por "${String(tarjeta.esperaPor).slice(0, 120)}"`
+      : "✔ revisado de nuevo por el Coordinador: sin pruebas extra pendientes y con el sí del dueño ya dado");
   return { accion: "subir", confirmacion };
 }
 
@@ -64,7 +73,7 @@ export function crearRescatador({ crm, config, registro, diffDeLaRama = diffDeLa
         const clave = `${tarjeta.id}:${tarjeta.commit ?? ""}:${tarjeta.esperaPor ?? ""}`;
         if (vistas.has(clave)) continue;
         const repo = config.repos?.[tarjeta.repo];
-        if (!repo || repo.subirSolo !== true) {
+        if (!repo || repo.subirSolo === false) {
           vistas.add(clave);
           continue;
         }

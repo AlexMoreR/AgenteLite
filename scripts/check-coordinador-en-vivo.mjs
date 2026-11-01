@@ -495,13 +495,13 @@ await prueba("esperando a otra: las que dependen de una POR_REVISAR esperan tu s
     assert.equal(porId[id].esperaA.link, "https://app.aizenbot.com/cliente/tablero-ia?tarjeta=pr1");
     assert.equal(porId[id].esperaA.estado, "POR_REVISAR");
     assert.equal(porId[id].esperaA.tarjetaId, "pr1");
-    assert.equal(porId[id].motivo, "Esperando a «La parte 1»: la parte 1 espera tu sí final (Por revisar)");
+    assert.equal(porId[id].motivo, "Esperando a «La parte 1»: la parte 1 está en Por revisar");
   }
   assert.equal(porId.s3.esperaA.estado, "EN_CURSO");
   assert.equal(porId.s3.esperaA.link, "https://app.aizenbot.com/cliente/tablero-ia?tarjeta=ec1");
   const texto = servicio.textoDelCoordinador(vista);
   assert.match(texto, /Esperando a otra: 3 \(2 tareas esperan tu sí final\) — /);
-  assert.match(texto, /«Parte 2» \(Esperando a «La parte 1»: la parte 1 espera tu sí final \(Por revisar\); parte 1: https:\/\/app\.aizenbot\.com\/cliente\/tablero-ia\?tarjeta=pr1\)/);
+  assert.match(texto, /«Parte 2» \(Esperando a «La parte 1»: la parte 1 está en Por revisar; parte 1: https:\/\/app\.aizenbot\.com\/cliente\/tablero-ia\?tarjeta=pr1\)/);
   // Con una sola: "1 tarea espera tu sí final".
   const una = { ...vista, esperandoAOtra: { ...vista.esperandoAOtra, esperanTuSiFinal: 1 } };
   assert.match(servicio.textoDelCoordinador(una), /Esperando a otra: 3 \(1 tarea espera tu sí final\)/);

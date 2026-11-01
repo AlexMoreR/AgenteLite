@@ -2627,6 +2627,27 @@ const candidatasDelFalso = () => {
   );
   return [...lista.filter((t) => t.estado === "SUBIENDO"), ...lista.filter((t) => t.estado !== "SUBIENDO")];
 };
+/**
+ * Como SQL_PASAR_VENCIDAS_A_ERROR, solo para las tarjetas `ids` (las demás pruebas no se tocan): la que venció sin señal (antes
+ * del tope de su etapa, reglas.vencidaVuelveALaFila) vuelve a la fila sin ERROR ni intento; una SUBIENDO vuelve a SUBIENDO
+ * pendiente (1-nov-2026). Las demás pasan a ERROR. La consulta real se prueba con PGlite (scripts/check-tablero-trabajador-migracion.mjs).
+ */
+const vencerEnElFalso = (ahora, ids) => {
+  const topes = { PLANEANDO: reglas.MINUTOS_POR_ETAPA.planear, EN_CURSO: reglas.MINUTOS_POR_ETAPA.construir, SUBIENDO: reglas.MINUTOS_POR_ETAPA.subir };
+  const vencidas = ids.map((id) => tarjetas.get(id)).filter((t) => t && t.estado in topes && t.venceEn && t.venceEn <= ahora);
+  for (const t of vencidas) {
+    const vuelve = reglas.vencidaVuelveALaFila({ iniciadoEn: t.iniciadoEn ? new Date(t.iniciadoEn) : null, venceEn: new Date(t.venceEn), topeMinutos: topes[t.estado], esperas: esperasSeguidasDe(t) });
+    const etapa = { PLANEANDO: "planear", EN_CURSO: "construir", SUBIENDO: "subir" }[t.estado];
+    if (vuelve) {
+      anotarIntento(t, { etapa, categoria: "coordinador_cortado", causa: "El Coordinador dejó de dar señales" }, "esperar", false);
+      Object.assign(t, { estado: reglas.estadoAlSoltarSinError(t.estado), venceEn: null, intentos: Math.max(0, t.intentos - 1) });
+    } else {
+      anotarIntento(t, { etapa, categoria: "tiempo_agotado", causa: "venció el candado" }, "escalar", true);
+      Object.assign(t, { estado: "ERROR", venceEn: null, resultado: { ...(t.resultado ?? {}), error: { motivo: `venció el candado en ${t.estado} sin respuesta del Coordinador` } } });
+    }
+  }
+  return vencidas.map((t) => t.id);
+};
 // Reparar solo (24-oct-2026): una tarjeta con `moderno: true` trae lo que manda el CRM nuevo en /tomar
 // (reparaciones, topeReparaciones, esperasSeguidas, esParte, ultimosIntentos, ultimoError); sin eso el
 // Coordinador se porta como con un CRM viejo (a la primera falla, /error), que es lo que prueban las de arriba.
@@ -2673,7 +2694,7 @@ const servidor = http.createServer(async (pedido, respuesta) => {
     const elegida = candidatasDelFalso().find((t) => !excluir.includes(t.id));
     if (!elegida) return contestar(200, { ok: true, tarjeta: null, motivo: "nada" });
     const regla = reglas.AL_TOMAR[elegida.estado];
-    Object.assign(elegida, { estado: regla.a, venceEn: ahora + 5 * 60_000, intentos: elegida.intentos + 1 });
+    Object.assign(elegida, { estado: regla.a, iniciadoEn: ahora, venceEn: ahora + 5 * 60_000, intentos: elegida.intentos + 1 });
     anotarALaVez();
     return contestar(200, { ok: true, tarjeta: paraElTrabajador(elegida), hacer: regla.etapa });
   }
@@ -2689,13 +2710,31 @@ const servidor = http.createServer(async (pedido, respuesta) => {
       candidatas: candidatasDelFalso().map((t) => ({ ...t, hacer: reglas.AL_TOMAR[t.estado].etapa })),
     });
   }
+  if (pedido.url === "/api/trabajador/tablero/arranque") {
+    // Como SQL_ARRANQUE: lo que tenía candado vuelve a la fila sin ERROR y sin gastar el intento; una SUBIENDO queda SUBIENDO
+    // pendiente (1-nov-2026, estadoAlSoltarSinError).
+    llamadas.push({ accion: "arranque" });
+    const sueltas = [...tarjetas.values()].filter((t) => ["PLANEANDO", "EN_CURSO", "SUBIENDO"].includes(t.estado) && t.venceEn);
+    for (const t of sueltas) {
+      const etapa = { PLANEANDO: "planear", EN_CURSO: "construir", SUBIENDO: "subir" }[t.estado];
+      anotarIntento(t, { etapa, categoria: "coordinador_cortado", causa: "El Coordinador se reinició" }, "esperar", false);
+      Object.assign(t, { estado: reglas.estadoAlSoltarSinError(t.estado), venceEn: null, intentos: Math.max(0, t.intentos - 1) });
+    }
+    return contestar(200, { ok: true, sueltas: sueltas.map((t) => t.id) });
+  }
   if (pedido.url === "/api/trabajador/tablero/por-revisar") {
-    // Como porRevisarDelTrabajador (30-oct-2026): solo la lista nueva `paraRevisarDeNuevo` (la de rescatar no se prueba acá).
+    // Como porRevisarDelTrabajador: `tarjetas` (las que el rescate revisa con el diff real; 1-nov-2026 con esperaQueFrena: el dinero
+    // de Gestión con el sí humano de la tarea ya no frena) y `paraRevisarDeNuevo` (30-oct-2026, CHATS / BOT_VENTAS).
     llamadas.push({ accion: "por-revisar" });
+    const paraRescatar = [...tarjetas.values()]
+      .filter((t) => t.estado === "POR_REVISAR" && t.resultado?.paso === true && !reglas.zonasQuePidenTuSi(t.zonaProtegida).length)
+      .filter((t) => !reglas.esperaQueFrena(t.resultado?.esperaPor ?? null, t.tareaAprobadaPorElDueno === true))
+      .filter((t) => t.resultado?.esperaPor || t.tareaAprobadaPorElDueno === true)
+      .map((t) => ({ id: t.id, titulo: t.titulo, repo: t.repo, plan: t.plan, zonaProtegida: t.zonaProtegida, rama: t.resultado.rama ?? null, base: t.resultado.base ?? null, commit: t.resultado.commit ?? null, esperaPor: t.resultado.esperaPor ?? null, aprobadaPorElDueno: t.tareaAprobadaPorElDueno === true, tareaAprobadaPorElDueno: t.tareaAprobadaPorElDueno === true }));
     const paraRevisarDeNuevo = [...tarjetas.values()]
       .filter((t) => t.estado === "POR_REVISAR" && t.resultado?.paso === true && reglas.soloChatsOBot(t.zonaProtegida) && !reglas.esGastoEnMetaAds(t.resultado?.esperaPor))
       .map((t) => ({ id: t.id, titulo: t.titulo, repo: t.repo, zonaProtegida: t.zonaProtegida, paso: true, rama: t.resultado.rama ?? null, base: t.resultado.base ?? null, commit: t.resultado.commit ?? null, esperaPor: t.resultado.esperaPor ?? null }));
-    return contestar(200, { ok: true, tarjetas: [], paraRevisarDeNuevo });
+    return contestar(200, { ok: true, tarjetas: paraRescatar, paraRevisarDeNuevo });
   }
   const [, id, accion] = pedido.url.match(/^\/api\/trabajador\/tablero\/([^/]+)\/([a-z_-]+)$/) ?? [];
   const tarjeta = tarjetas.get(id);
@@ -2798,6 +2837,23 @@ const servidor = http.createServer(async (pedido, respuesta) => {
     Object.assign(tarjeta, { estado: reglas.estadoTrasReparar(tarjeta.estado), venceEn: null, intentos: Math.max(0, tarjeta.intentos - 1), esperando });
     return contestar(200, { ok: true, creada, tarjetaId: origen.id, esperando, soltada: true, estado: tarjeta.estado });
   }
+  if (accion === "rescatar") {
+    // Como rescatarTarjeta de services/trabajador.ts (1-nov-2026): con el sí humano de la tarea, el dinero de Gestión ya no frena.
+    const previo = tarjeta.resultado ?? {};
+    const conSi = tarjeta.tareaAprobadaPorElDueno === true;
+    if (previo.paso !== true || reglas.zonasQuePidenTuSi(tarjeta.zonaProtegida).length || reglas.esperaQueFrena(previo.esperaPor ?? null, conSi)) {
+      return contestar(409, { ok: false, error: `Espera el sí del dueño: ${previo.esperaPor ?? "zona"}.` });
+    }
+    if (cuerpo.sube !== true) {
+      tarjeta.resultado = { ...previo, esperaPor: reglas.motivoDeEntrada(cuerpo.motivo) };
+      return contestar(200, { ok: true, estado: "POR_REVISAR", sube: false });
+    }
+    const { esperaPor: _quitada, ...sinEspera } = previo;
+    void _quitada;
+    tarjeta.resultado = { ...sinEspera, subeSolo: true, pruebas: [sinEspera.pruebas ?? "", cuerpo.confirmacion].filter(Boolean).join("\n") };
+    Object.assign(tarjeta, { estado: "SUBIENDO", venceEn: null });
+    return contestar(200, { ok: true, estado: "SUBIENDO", sube: true });
+  }
   if (accion === "revisar_de_nuevo") {
     // Como revisarDeNuevo de services/trabajador.ts: subeSolo -> SUBIENDO pendiente con commit, base y pruebas; si no, ERROR con el motivo.
     if (cuerpo.subeSolo) {
@@ -2824,7 +2880,9 @@ const servidor = http.createServer(async (pedido, respuesta) => {
   if (accion === "resultado") {
     tarjeta.resultado = reglas.resultadoDeEntrada(cuerpo);
     if (cuerpo.zonaProtegida) tarjeta.zonaProtegida = reglas.unirZonas(tarjeta.zonaProtegida, reglas.zonasDeEntrada(cuerpo.zonaProtegida));
-    tarjeta.estado = reglas.destinoDelResultado({ ...tarjeta.resultado, zonaProtegida: tarjeta.zonaProtegida });
+    // Como el CRM real: siempre dice si la tarea tiene el sí humano del dueño (1-nov-2026); una que sube ya no espera.
+    tarjeta.estado = reglas.destinoDelResultado({ ...tarjeta.resultado, zonaProtegida: tarjeta.zonaProtegida, tareaAprobadaPorElDueno: tarjeta.tareaAprobadaPorElDueno === true });
+    if (tarjeta.estado === "SUBIENDO") delete tarjeta.resultado.esperaPor;
   }
   if (accion === "subida") tarjeta.resultado = { ...tarjeta.resultado, subida: { commit: cuerpo.commit, version: cuerpo.version, linkCommit: cuerpo.linkCommit, ...(cuerpo.vigilancia ? { vigilancia: reglas.vigilanciaDeEntrada(cuerpo.vigilancia) } : {}), ...(cuerpo.resumenTres ? { resumenTres: reglas.resumenDeTresLineasDeEntrada(cuerpo.resumenTres) } : {}) } };
   if (accion === "error") {
@@ -5825,6 +5883,82 @@ try {
       assert.equal(tarjetas.get(otra).estado, "POR_REVISAR");
       Object.assign(tarjetas.get(otra), { estado: "HECHO" });
       sinRestos();
+    });
+  }
+
+
+  /* ── Un solo sí de verdad (1-nov-2026): sin "sí final", la subida vencida vuelve a la fila y el rescate saca lo de Por revisar ── */
+  {
+    const cerrarTodas = () => {
+      for (const t of tarjetas.values()) if (!["HECHO", "ERROR"].includes(t.estado)) Object.assign(t, { estado: "HECHO", venceEn: null });
+    };
+    const resultadoDeGestion = { resumen: "Saldos en la ficha", paso: true, subeSolo: true, pruebas: "✔ build\n✔ pruebas", esperaPor: "Toca dinero en Gestión: saldos", rama: "tablero/saldos", base: "abc1234", commit: "def5678" };
+
+    await prueba("un solo sí: una tarjeta de Gestión que toca dinero, aprobada por el dueño, queda en SUBIENDO; sin su sí, en Por revisar", async () => {
+      cerrarTodas();
+      const aprobada = nueva("Saldos en la ficha [un-solo-si]", "EN_CURSO", { repo: "gestion", plan: "El plan", tareaAprobadaPorElDueno: true, venceEn: Date.now() + 60_000 });
+      await crm.resultado(aprobada, resultadoDeGestion);
+      assert.equal(tarjetas.get(aprobada).estado, "SUBIENDO");
+      assert.equal(tarjetas.get(aprobada).resultado.esperaPor, undefined, "ya no espera");
+      const sinSi = nueva("Saldos sin el sí [un-solo-si]", "EN_CURSO", { repo: "gestion", plan: "El plan", venceEn: Date.now() + 60_000 });
+      await crm.resultado(sinSi, resultadoDeGestion);
+      assert.equal(tarjetas.get(sinSi).estado, "POR_REVISAR");
+      const meta = nueva("Prende la campaña [un-solo-si]", "EN_CURSO", { plan: "El plan", tareaAprobadaPorElDueno: true, venceEn: Date.now() + 60_000 });
+      await crm.resultado(meta, { ...resultadoDeGestion, esperaPor: "gasto en Meta Ads (daily_budget)", zonaProtegida: ["META_ADS"] });
+      assert.equal(tarjetas.get(meta).estado, "POR_REVISAR", "el gasto en Meta Ads sigue esperando al dueño");
+      cerrarTodas();
+    });
+
+    await prueba("un solo sí: una SUBIENDO con el candado vencido (sin señal) vuelve a SUBIENDO sin candado, sin ERROR y sin gastar intento", async () => {
+      cerrarTodas();
+      const ahora = Date.now();
+      const id = nueva("Subida cortada [un-solo-si]", "SUBIENDO", { plan: "El plan", moderno: true, intentos: 1, iniciadoEn: ahora - 10 * 60_000, venceEn: ahora - 5 * 60_000, resultado: { paso: true, subeSolo: true } });
+      const porTope = nueva("Subida eterna [un-solo-si]", "SUBIENDO", { plan: "El plan", moderno: true, intentos: 1, iniciadoEn: ahora - 200 * 60_000, venceEn: ahora - 100 * 60_000, resultado: { paso: true, subeSolo: true } });
+      assert.deepEqual(vencerEnElFalso(ahora, [id, porTope]).sort(), [id, porTope].sort());
+      const t = tarjetas.get(id);
+      assert.deepEqual([t.estado, t.venceEn, t.intentos, t.resultado.error], ["SUBIENDO", null, 0, undefined]);
+      assert.deepEqual(t.intentosLista.map((i) => [i.accion, i.cuentaComoIntento, i.categoria]), [["esperar", false, "coordinador_cortado"]]);
+      assert.ok((await crm.candidatas()).candidatas.some((c) => c.id === id && c.hacer === "subir"), "otra vuelta la retoma");
+      assert.equal(tarjetas.get(porTope).estado, "ERROR", "la que se pasó del tope de la etapa sí va a ERROR");
+      cerrarTodas();
+    });
+
+    await prueba("un solo sí: /arranque libera una SUBIENDO con candado (queda SUBIENDO pendiente, sin ERROR)", async () => {
+      cerrarTodas();
+      const id = nueva("Subía cuando se reinició [un-solo-si]", "SUBIENDO", { plan: "El plan", intentos: 1, iniciadoEn: Date.now(), venceEn: Date.now() + 5 * 60_000, resultado: { paso: true, subeSolo: true } });
+      const sueltas = await planificar(config).iniciar();
+      assert.deepEqual(sueltas, [id]);
+      const t = tarjetas.get(id);
+      assert.deepEqual([t.estado, t.venceEn, t.intentos], ["SUBIENDO", null, 0]);
+      cerrarTodas();
+    });
+
+    await prueba("un solo sí: el rescate pasa a SUBIENDO una POR_REVISAR que ya no tiene motivo para esperar; Meta Ads y un envío nuevo se quedan", async () => {
+      cerrarTodas();
+      const porRevisar = (titulo, extra = {}, resultado = {}) => nueva(titulo, "POR_REVISAR", { repo: "aizencrm", plan: "El plan", ...extra, resultado: { ...resultadoDeGestion, subeSolo: false, ...resultado } });
+      const sinMotivo = porRevisar("Saldos que esperaban [rescate]", { tareaAprobadaPorElDueno: true });
+      const sinSi = porRevisar("Saldos sin el sí [rescate]");
+      const meta = porRevisar("Gasto en Meta Ads [rescate]", { tareaAprobadaPorElDueno: true }, { esperaPor: "gasto en Meta Ads (daily_budget)" });
+      const envio = porRevisar("Envío nuevo [rescate]", { tareaAprobadaPorElDueno: true, zonaProtegida: ["CHATS"] }, { esperaPor: "agrega un envío nuevo de mensaje a clientes en chats" });
+      const leidas = [];
+      const rescatador = crearRescatador({
+        crm,
+        config,
+        registro,
+        diffDeLaRama: async (_repo, tarjeta) => {
+          leidas.push(tarjeta.id);
+          return { archivos: ["src/gestion/saldos.ts"], diffDe: async () => "+export const saldo = 1;\n" };
+        },
+      });
+      const salida = await rescatador.revisar({ forzar: true });
+      assert.deepEqual(salida.rescatadas.map((r) => [r.id, r.accion]), [[sinMotivo, "subir"]]);
+      assert.deepEqual(leidas, [sinMotivo], "solo se revisa la que ya no tiene motivo para esperar");
+      const t = tarjetas.get(sinMotivo);
+      assert.equal(t.estado, "SUBIENDO");
+      assert.equal(t.resultado.esperaPor, undefined);
+      assert.match(t.resultado.pruebas, /la tarea tiene el sí del dueño/);
+      for (const otra of [sinSi, meta, envio]) assert.equal(tarjetas.get(otra).estado, "POR_REVISAR", tarjetas.get(otra).titulo);
+      cerrarTodas();
     });
   }
 
