@@ -18,9 +18,10 @@ import { esDuenoDelNegocio, tareaAprobadaPorElDuenoEnElHistorial, zonasQueNoArra
 
   REGLA DEL DUEÑO (24-oct-2026, por voz: "si ya construyó un plan, ¿por qué tiene que esperarme?"): aprobada la
   TAREA, el plan también pasa solo a construir, con cualquier riesgo. Las tarjetas con zona protegida no
-  entran: su plan se aprueba en la pantalla (así lo exige /tomar) y siguen pidiendo el sí final. Queda PLAN_LISTO con
-  su motivo (porQueElPlanNuevoEsperaTuSi, en reglas-riesgo.ts) el plan que tiene preguntas abiertas, trae "NECESITO:",
-  puede subir presupuesto, activar campañas o crear gasto en Meta Ads, o le faltan criterios de aceptación. El plan que
+  entran: su plan se aprueba en la pantalla (así lo exige /tomar). Queda PLAN_LISTO con su motivo
+  (porQueElPlanNuevoEsperaTuSi, en reglas-riesgo.ts) el plan que trae "NECESITO:", puede subir presupuesto, activar
+  campañas o crear gasto en Meta Ads, o le faltan criterios de aceptación. Las preguntas abiertas y los supuestos de
+  negocio ya no lo frenan (un solo sí de verdad, 1-nov-2026): el agente sigue con su respuesta recomendada. El plan que
   toca dinero de Gestión también espera, salvo que el dueño ya haya aprobado la TAREA en la pantalla o por voz (UN SOLO
   SÍ, 30-oct-2026): ese sí vale también para el plan (MOTIVO_UN_SOLO_SI). La aprobación automática de la tarea (25-oct)
   y la de alguien que no es la cuenta dueña no cuentan (tareaAprobadaPorElDueno). Tiene su propio interruptor
@@ -146,6 +147,8 @@ export function siDelPlanPorLaRegla(
   plan: string,
   tareaAprobadaPorElDueno: boolean,
 ): { espera: string; motivo?: undefined } | { espera: null; motivo: string } {
+  // Las preguntas abiertas y los supuestos de negocio ya no frenan (1-nov-2026): solo el dinero de Gestión cambia entre
+  // con y sin el sí de la tarea, y esa diferencia es la que anota MOTIVO_UN_SOLO_SI.
   const espera = porQueElPlanNuevoEsperaTuSi(plan, { tareaAprobadaPorElDueno });
   if (espera) return { espera };
   if (tareaAprobadaPorElDueno && porQueElPlanNuevoEsperaTuSi(plan)) return { espera: null, motivo: MOTIVO_UN_SOLO_SI };

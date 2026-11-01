@@ -93,7 +93,7 @@ export type PasosVista = {
  * El mapeo de estados a pasos, en UNA sola función (la usan el panel y la herramienta MCP ver_coordinador):
  *   APROBADO, PLANEANDO -> Plan.  POR_APROBAR (antes del plan) y PLAN_LISTO (el plan espera tu sí) -> Necesita humano en Plan.
  *   PLAN_APROBADO, EN_CURSO -> Construir (con la etapa "revisando" del latido -> Revisar).
- *   POR_REVISAR (espera tu sí final o necesita algo) -> Necesita humano en Aprobar.
+ *   POR_REVISAR (está en Por revisar o necesita algo) -> Necesita humano en Aprobar.
  *   SUBIENDO -> Aprobar (la aprobación ya dada, el merge, el CI y la versión) y, con la etapa "vigilando", Subido.
  *   HECHO -> Subido (todo hecho).  ERROR / FALLIDO -> Necesita humano donde se paró (`pasoDelError`, si no Construir).
  * Con `necesitaHumano: true` (31-oct-2026) el paso donde ya está sale con "Necesita humano": una tarjeta de la fila que espera

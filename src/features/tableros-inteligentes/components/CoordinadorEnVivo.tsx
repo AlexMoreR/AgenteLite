@@ -277,7 +277,7 @@ function Contenido({ vista, ahora }: { vista: VistaDelCoordinador; ahora: number
         </div>
         {vista.esperandoAOtra.esperanTuSiFinal > 0 ? (
           <p className="text-xs text-muted-foreground">
-            {vista.esperandoAOtra.esperanTuSiFinal} {vista.esperandoAOtra.esperanTuSiFinal === 1 ? "tarea espera" : "tareas esperan"} tu sí final
+            {vista.esperandoAOtra.esperanTuSiFinal} en Por revisar
           </p>
         ) : null}
         {vista.errores.tarjetas.length ? (

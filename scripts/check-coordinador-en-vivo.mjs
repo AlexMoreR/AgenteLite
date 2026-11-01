@@ -477,10 +477,11 @@ await prueba("en error y esperando a otra: los números y la lista (con la líne
   assert.match(texto, /En error: 2 — «Rota» \(Falta que decidas A o B\); «Otra rota»\./);
   assert.match(texto, /Esperando a otra: 2 — /);
   assert.equal(vista.esperandoAOtra.esperanTuSiFinal, 0);
-  assert.doesNotMatch(texto, /esperan? tu sí final/);
+  assert.doesNotMatch(texto, /en Por revisar\)/);
+  assert.doesNotMatch(texto, /sí final/);
 });
 
-await prueba("esperando a otra: las que dependen de una POR_REVISAR esperan tu sí final, con el link a la parte 1", async () => {
+await prueba("esperando a otra: las que dependen de una POR_REVISAR salen «en Por revisar» (sin «sí final»), con el link a la parte 1", async () => {
   const parte1 = { id: "pr1", titulo: "La parte 1", estado: "POR_REVISAR" };
   estado.tarjetas.push(
     tarjeta({ id: "s1", titulo: "Parte 2", estado: "APROBADO", trabajoVenceEn: null, entrantes: [{ origen: parte1 }] }),
@@ -495,16 +496,17 @@ await prueba("esperando a otra: las que dependen de una POR_REVISAR esperan tu s
     assert.equal(porId[id].esperaA.link, "https://app.aizenbot.com/cliente/tablero-ia?tarjeta=pr1");
     assert.equal(porId[id].esperaA.estado, "POR_REVISAR");
     assert.equal(porId[id].esperaA.tarjetaId, "pr1");
-    assert.equal(porId[id].motivo, "Esperando a «La parte 1»: la parte 1 espera tu sí final (Por revisar)");
+    assert.equal(porId[id].motivo, "Esperando a «La parte 1»: la parte 1 está en Por revisar");
   }
   assert.equal(porId.s3.esperaA.estado, "EN_CURSO");
   assert.equal(porId.s3.esperaA.link, "https://app.aizenbot.com/cliente/tablero-ia?tarjeta=ec1");
   const texto = servicio.textoDelCoordinador(vista);
-  assert.match(texto, /Esperando a otra: 3 \(2 tareas esperan tu sí final\) — /);
-  assert.match(texto, /«Parte 2» \(Esperando a «La parte 1»: la parte 1 espera tu sí final \(Por revisar\); parte 1: https:\/\/app\.aizenbot\.com\/cliente\/tablero-ia\?tarjeta=pr1\)/);
-  // Con una sola: "1 tarea espera tu sí final".
+  assert.match(texto, /Esperando a otra: 3 \(2 en Por revisar\) — /);
+  assert.doesNotMatch(texto, /sí final/);
+  assert.match(texto, /«Parte 2» \(Esperando a «La parte 1»: la parte 1 está en Por revisar; parte 1: https:\/\/app\.aizenbot\.com\/cliente\/tablero-ia\?tarjeta=pr1\)/);
+  // Con una sola: "1 en Por revisar".
   const una = { ...vista, esperandoAOtra: { ...vista.esperandoAOtra, esperanTuSiFinal: 1 } };
-  assert.match(servicio.textoDelCoordinador(una), /Esperando a otra: 3 \(1 tarea espera tu sí final\)/);
+  assert.match(servicio.textoDelCoordinador(una), /Esperando a otra: 3 \(1 en Por revisar\)/);
 
   // ver_coordinador: el número y, por tarjeta, de cuál depende.
   const mcp = fs.readFileSync(path.join(process.cwd(), "src/lib/mcp/tableros-inteligentes.ts"), "utf8");

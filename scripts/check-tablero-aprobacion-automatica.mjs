@@ -313,15 +313,14 @@ await prueba("plan: BAJO con zona protegida ya puesta no se aprueba solo (regla 
   assert.equal((await trabajador.accionDelTrabajador(contexto, "t1", "plan", { plan: planDe() })).estado, "PLAN_LISTO");
 });
 
-await prueba("plan (29-oct): un plan con preguntas abiertas no se aprueba solo, ni BAJO ni con la regla del dueño 24-oct", async () => {
+await prueba("plan (1-nov): con la regla del dueño 24-oct, un plan con preguntas abiertas pasa solo; BAJO con la regla apagada sigue esperando", async () => {
   const conDudas = `${planDe()}\nAPROBAR PLAN: SOLO\n\nLo que no revisé y queda pendiente:\n- El contrato exacto de envío de WhatsApp del CRM.`;
-  // Con la regla del dueño prendida (cualquier riesgo).
+  // Con la regla del dueño prendida (cualquier riesgo): un solo sí de verdad, las preguntas ya no frenan.
   planeando({ riesgo: "ALTO" });
   let r = await trabajador.accionDelTrabajador(contexto, "t1", "plan", { plan: conDudas });
-  assert.equal(r.estado, "PLAN_LISTO");
-  assert.match(estado.tarjetas.get("t1").riesgoMotivo, /preguntas abiertas: Lo que no revisé y queda pendiente: El contrato exacto/);
-  assert.ok(!estado.historial.some((fila) => fila.accion === "aprobar"), "no hay aprobación automática");
-  // BAJO con la regla del dueño apagada (la aprobación por bajo riesgo).
+  assert.equal(r.estado, "PLAN_APROBADO");
+  assert.ok(estado.historial.some((fila) => fila.accion === "aprobar"), "hay aprobación automática");
+  // BAJO con la regla del dueño apagada (la aprobación por bajo riesgo, en trabajador.ts): sigue igual que antes.
   estado.tarjetas.clear();
   estado.historial.length = 0;
   apagarPlanes();
@@ -329,11 +328,12 @@ await prueba("plan (29-oct): un plan con preguntas abiertas no se aprueba solo, 
   r = await trabajador.accionDelTrabajador(contexto, "t1", "plan", { plan: `${planDe()}\n\nPREGUNTAS ABIERTAS:\n- ¿Qué línea manda el aviso?` });
   assert.equal(r.estado, "PLAN_LISTO");
   assert.ok(!estado.historial.some((fila) => fila.accion === "aprobar"));
-  // La vuelta del reloj tampoco lo pasa a construir.
+  // La vuelta del reloj (regla del dueño prendida) sí pasa a construir el que esperaba solo por preguntas.
   estado.tarjetas.clear();
   estado.historial.length = 0;
+  estado.ajustes.clear();
   tarjeta({ estado: "PLAN_LISTO", plan: conDudas });
-  assert.equal(await auto.aprobarPlanesListosQueEsperan(), 0);
+  assert.equal(await auto.aprobarPlanesListosQueEsperan(), 1);
   // "PREGUNTAS ABIERTAS: ninguna" sí pasa.
   estado.tarjetas.clear();
   estado.historial.length = 0;
@@ -341,7 +341,7 @@ await prueba("plan (29-oct): un plan con preguntas abiertas no se aprueba solo, 
   assert.equal((await trabajador.accionDelTrabajador(contexto, "t1", "plan", { plan: `${planDe()}\n\nPREGUNTAS ABIERTAS: ninguna` })).estado, "PLAN_APROBADO");
 });
 
-await prueba("plan (29-oct, criterios de aceptación): con criterios pasa; sin criterios o con un supuesto de negocio espera tu sí; uno viejo ya aprobado sigue", async () => {
+await prueba("plan (29-oct, criterios de aceptación): con criterios pasa; sin criterios espera tu sí; un supuesto de negocio ya no (1-nov); uno viejo ya aprobado sigue", async () => {
   const riesgo = cargar("src/features/tableros-inteligentes/services/reglas-riesgo.ts", mocks);
   // Con criterios (planDe los trae): pasa solo, BAJO y con la regla del dueño.
   planeando();
@@ -360,7 +360,7 @@ await prueba("plan (29-oct, criterios de aceptación): con criterios pasa; sin c
     assert.ok(!estado.historial.some((fila) => fila.accion === "aprobar"), "no hay aprobación automática");
   }
   assert.match(riesgo.porQueElPlanNuevoEsperaTuSi(sinCriterios), /no trae CRITERIOS DE ACEPTACIÓN/);
-  // Un supuesto que es una decisión de negocio (precio, gratis o pagado, texto público…) espera tu sí.
+  // Un supuesto que es una decisión de negocio (precio, gratis o pagado, texto público…) ya no espera (un solo sí, 1-nov).
   const conSupuesto = planDe({
     finales: "CRITERIOS DE ACEPTACIÓN:\n1. La página /cliente/reportes muestra el total.\n\nSUPUESTOS:\n- El envío a Bogotá queda gratis porque el pedido no dice el precio.",
   });
@@ -368,8 +368,8 @@ await prueba("plan (29-oct, criterios de aceptación): con criterios pasa; sin c
   estado.historial.length = 0;
   estado.ajustes.clear();
   planeando({ riesgo: "ALTO" });
-  assert.equal((await trabajador.accionDelTrabajador(contexto, "t1", "plan", { plan: conSupuesto })).estado, "PLAN_LISTO");
-  assert.match(estado.tarjetas.get("t1").riesgoMotivo, /supone una decisión de negocio: El envío a Bogotá queda gratis/);
+  assert.equal((await trabajador.accionDelTrabajador(contexto, "t1", "plan", { plan: conSupuesto })).estado, "PLAN_APROBADO");
+  assert.match(riesgo.porQueUnSupuestoEsDeNegocio(conSupuesto), /supone una decisión de negocio: El envío a Bogotá queda gratis/);
   // La vuelta del reloj tampoco pasa a construir un plan nuevo sin criterios que espera en PLAN_LISTO.
   estado.tarjetas.clear();
   estado.historial.length = 0;
@@ -865,5 +865,20 @@ await prueba("regla 25-oct: la vuelta del reloj de planes pasa a construir los d
   assert.equal(estado.tarjetas.get("m").estado, "PLAN_LISTO");
 });
 
+
+await prueba("un solo sí de verdad (1-nov-2026): siDelPlanPorLaRegla no espera por preguntas abiertas; MOTIVO_UN_SOLO_SI sigue siendo solo de Gestión", async () => {
+  const CRITERIOS = "CRITERIOS DE ACEPTACIÓN:\n- la lista se ve en el celular (se comprueba abriéndola)";
+  const conPreguntas = `Cambia una pantalla.\n${CRITERIOS}\nPREGUNTAS ABIERTAS:\n- ¿A o B? Recomendada: A\nAPROBAR PLAN: SOLO`;
+  const general = { espera: null, motivo: "el plan no toca dinero de Gestión ni gasto en Meta Ads" };
+  assert.deepEqual(auto.siDelPlanPorLaRegla(conPreguntas, true), general);
+  assert.deepEqual(auto.siDelPlanPorLaRegla(conPreguntas, false), general);
+  const abonos = `Archivos:\n- src/features/abonos/tabla.tsx\n${CRITERIOS}\nPREGUNTAS ABIERTAS:\n- ¿A o B? Recomendada: A\nAPROBAR PLAN: SOLO`;
+  assert.deepEqual(auto.siDelPlanPorLaRegla(abonos, true), { espera: null, motivo: MOTIVO_UN_SOLO_SI });
+  assert.match(auto.siDelPlanPorLaRegla(abonos, false).espera, /toca dinero/);
+  // Meta Ads y NECESITO siguen esperando aunque el dueño haya aprobado la tarea; sin criterios también.
+  assert.match(auto.siDelPlanPorLaRegla(`${CRITERIOS}\nGASTO EN META ADS: sube el tope diario\nAPROBAR PLAN: SOLO`, true).espera, /Meta Ads/);
+  assert.match(auto.siDelPlanPorLaRegla(`${CRITERIOS}\nNECESITO: una clave\nAPROBAR PLAN: SOLO`, true).espera, /necesita algo del dueño/);
+  assert.match(auto.siDelPlanPorLaRegla("Cambia una pantalla.\nAPROBAR PLAN: SOLO", true).espera, /CRITERIOS DE ACEPTACIÓN/);
+});
 
 console.log(`\n${pruebas} pruebas, todas bien`);

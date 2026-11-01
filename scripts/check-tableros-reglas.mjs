@@ -2083,7 +2083,31 @@ prueba("porQueElPlanEsperaTuSi: con la tarea aprobada por el dueño, el dinero d
   assert.match(riesgo.porQueElPlanEsperaTuSi(espera), /espera tu sí/);
 });
 
-prueba("porQueElPlanEsperaTuSi: con la tarea aprobada por el dueño, Meta Ads, preguntas, NECESITO y el agente necesita siguen esperando", () => {
+prueba("un solo sí de verdad (1-nov-2026): las PREGUNTAS ABIERTAS y los supuestos de negocio ya no frenan el plan; criterios, Meta Ads sin sí humano y NECESITO sí", () => {
+  const CRITERIOS = "CRITERIOS DE ACEPTACIÓN:\n- la lista se ve en el celular (se comprueba abriéndola)";
+  const conPreguntas = `Cambia una pantalla.\n${CRITERIOS}\nPREGUNTAS ABIERTAS:\n- ¿A o B? Recomendada: A\nAPROBAR PLAN: SOLO`;
+  assert.equal(riesgo.porQueElPlanEsperaTuSi(conPreguntas), null);
+  assert.equal(riesgo.porQueElPlanEsperaTuSi(conPreguntas, { tareaAprobadaPorElDueno: false }), null);
+  assert.equal(riesgo.porQueElPlanNuevoEsperaTuSi(conPreguntas), null);
+  assert.equal(riesgo.porQueElPlanNuevoEsperaTuSi(conPreguntas, { tareaAprobadaPorElDueno: true }), null);
+  // La pregunta se sigue pudiendo informar.
+  assert.match(riesgo.porQueElPlanTienePreguntas(conPreguntas), /¿A o B\? Recomendada: A/);
+  // Un supuesto de negocio tampoco frena (se sigue pudiendo informar).
+  const conSupuesto = `Cambia una pantalla.\n${CRITERIOS}\nSUPUESTOS:\n- el precio baja 10 %\nAPROBAR PLAN: SOLO`;
+  assert.equal(riesgo.porQueElPlanNuevoEsperaTuSi(conSupuesto), null);
+  assert.match(riesgo.porQueUnSupuestoEsDeNegocio(conSupuesto), /decisión de negocio/);
+  // Sin criterios sigue frenando.
+  assert.match(riesgo.porQueElPlanNuevoEsperaTuSi("Cambia una pantalla.\nPREGUNTAS ABIERTAS:\n- ¿A o B? Recomendada: A\nAPROBAR PLAN: SOLO"), /CRITERIOS DE ACEPTACIÓN/);
+  // Meta Ads sin sí humano sigue frenando.
+  assert.match(riesgo.porQueElPlanEsperaTuSi(`Sube el tope.\n${CRITERIOS}\nAPROBAR PLAN: ESPERA TU SÍ — sube el gasto en Meta Ads`, { tareaAprobadaPorElDueno: false }), /Meta Ads/);
+  assert.match(riesgo.porQueElPlanNuevoEsperaTuSi(`${CRITERIOS}\nGASTO EN META ADS: sube el tope diario\nAPROBAR PLAN: SOLO`), /gasto en Meta Ads/);
+  // El dinero de Gestión con "ESPERA TU SÍ" sin sí humano sigue frenando.
+  assert.match(riesgo.porQueElPlanEsperaTuSi(`Cambia abonos.\n${CRITERIOS}\nAPROBAR PLAN: ESPERA TU SÍ — toca abonos`, { tareaAprobadaPorElDueno: false }), /espera tu sí/);
+  // NECESITO sigue frenando.
+  assert.match(riesgo.porQueElPlanEsperaTuSi(`Cambia una pantalla.\n${CRITERIOS}\nNECESITO: acceso a la pasarela\nAPROBAR PLAN: SOLO`, { tareaAprobadaPorElDueno: true }), /necesita algo del dueño/);
+});
+
+prueba("porQueElPlanEsperaTuSi: con la tarea aprobada por el dueño, Meta Ads, NECESITO y el agente necesita siguen esperando", () => {
   const si = { tareaAprobadaPorElDueno: true };
   assert.match(riesgo.porQueElPlanEsperaTuSi("APROBAR PLAN: SOLO\nGASTO EN META ADS: sube el tope diario", si), /gasto en Meta Ads/);
   assert.ok(riesgo.porQueElPlanEsperaTuSi("Activar las campañas nuevas de Meta.\nAPROBAR PLAN: SOLO", si));
@@ -2092,15 +2116,16 @@ prueba("porQueElPlanEsperaTuSi: con la tarea aprobada por el dueño, Meta Ads, p
   assert.match(riesgo.porQueElPlanEsperaTuSi("Cambia abonos.\nAPROBAR PLAN: ESPERA TU SÍ — el agente necesita la clave de pagos", si), /el agente necesita/);
   // Sin motivo no se sabe que sea solo Gestión: sigue esperando.
   assert.ok(riesgo.porQueElPlanEsperaTuSi("Cambia algo.\nAPROBAR PLAN: ESPERA TU SÍ.", si));
-  assert.match(riesgo.porQueElPlanEsperaTuSi("Cambia abonos.\nPREGUNTAS ABIERTAS:\n- ¿el abono mínimo es 35 % o 50 %?\nAPROBAR PLAN: SOLO", si), /preguntas abiertas/);
+  // Un solo sí de verdad (1-nov-2026): las preguntas abiertas ya no esperan.
+  assert.equal(riesgo.porQueElPlanEsperaTuSi("Cambia abonos.\nPREGUNTAS ABIERTAS:\n- ¿el abono mínimo es 35 % o 50 %?\nAPROBAR PLAN: SOLO", si), null);
   assert.match(riesgo.porQueElPlanEsperaTuSi("Cambia abonos.\nNECESITO: acceso a la pasarela de pagos\nAPROBAR PLAN: SOLO", si), /necesita algo del dueño: acceso a la pasarela/);
   // Sin la opción, NECESITO no se mira acá (como hoy).
   assert.equal(riesgo.porQueElPlanEsperaTuSi("Cambia una pantalla.\nNECESITO: una clave\nAPROBAR PLAN: SOLO"), null);
-  // Plan nuevo: criterios y supuestos de negocio siguen esperando.
+  // Plan nuevo: la falta de criterios sigue esperando; un supuesto de negocio ya no (1-nov-2026).
   assert.match(riesgo.porQueElPlanNuevoEsperaTuSi("Cambia abonos.\nAPROBAR PLAN: SOLO", si), /CRITERIOS DE ACEPTACIÓN/);
-  assert.match(
+  assert.equal(
     riesgo.porQueElPlanNuevoEsperaTuSi("Cambia abonos.\nCRITERIOS DE ACEPTACIÓN:\n- se ve\nSUPUESTOS:\n- el precio baja 10 %\nAPROBAR PLAN: SOLO", si),
-    /decisión de negocio/,
+    null,
   );
   // La tarea con zona META_ADS sigue esperando (esa regla no cambia).
   assert.ok(riesgo.porQueLaTareaEsperaTuSi({ titulo: "x", detalle: "y", zonaProtegida: ["META_ADS"], zonasQueEsperan: ["META_ADS"] }));

@@ -363,7 +363,7 @@ export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDu
         ? espera(
             conZona
               ? `Espera tu sí porque toca ${tarjeta.zonaProtegida.map((zona) => (esZona(zona) ? NOMBRE_DE_LA_ZONA[zona] : zona)).join(", ")}: no sube sola.`
-              : "Espera tu sí: el Coordinador no la subió solo (todavía no sube solo en este repositorio, o es de antes).",
+              : "Espera tu sí: el Coordinador no la subió solo (es de antes).",
           )
         : null}
       {estado === "POR_REVISAR" ? (

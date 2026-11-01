@@ -639,15 +639,13 @@ await prueba("un solo sí: un plan de abonos con el sí del dueño a la tarea no
   assert.equal(avisos.calcularAvisos({ ...base, esperando: [plan()] }, DIA).filter((a) => a.tipo === "necesita").length, 1);
 });
 
-await prueba("un solo sí: un plan de Gestión con preguntas abiertas y el sí del dueño sigue avisando, Urgente y con la pregunta en el Motivo", async () => {
+await prueba("un solo sí de verdad (1-nov): un plan de Gestión con preguntas abiertas y el sí del dueño ya no avisa; sin ese sí avisa por el dinero, no por la pregunta", async () => {
   const tarjeta = esperando({ id: "g2", titulo: "Abonos en la ficha", estado: "PLAN_LISTO", plan: PLAN_DE_ABONOS_CON_PREGUNTAS, error: null, tareaAprobadaPorElDueno: true });
-  assert.match(avisos.porQueNecesitaAlDueno(tarjeta), /preguntas abiertas: ¿Los abonos se muestran con IVA/);
-  const necesita = avisos.calcularAvisos({ latidoEn: DIA.toISOString(), enCurso: [], enFila: 1, esperando: [tarjeta] }, DIA).filter((a) => a.tipo === "necesita");
-  assert.equal(necesita.length, 1);
-  assert.equal(necesita[0].prioridad, "URGENTE");
-  // La misma clave anti-repetición del aviso "necesita": un aviso por tarjeta.
-  assert.equal(necesita[0].clave, "auto:necesita:g2:PLAN_LISTO");
-  assert.match(necesita[0].lineas[1], /^Motivo: el plan tiene preguntas abiertas: ¿Los abonos/);
+  assert.equal(avisos.porQueNecesitaAlDueno(tarjeta), null);
+  assert.equal(avisos.calcularAvisos({ latidoEn: DIA.toISOString(), enCurso: [], enFila: 1, esperando: [tarjeta] }, DIA).filter((a) => a.tipo === "necesita").length, 0);
+  const sinSi = { ...tarjeta, tareaAprobadaPorElDueno: false };
+  assert.match(avisos.porQueNecesitaAlDueno(sinSi), /abonos/);
+  assert.doesNotMatch(avisos.porQueNecesitaAlDueno(sinSi), /preguntas abiertas/);
 });
 
 await prueba("un solo sí: leerSituacion marca el sí del dueño en los planes listos y la revisión no avisa del plan de Gestión que ya no espera", async () => {
@@ -662,19 +660,13 @@ await prueba("un solo sí: leerSituacion marca el sí del dueño en los planes l
   assert.deepEqual(necesita.map((a) => a.clave), ["auto:necesita:g3:PLAN_LISTO"]);
 });
 
-await prueba("un solo sí: con 'solo urgentes', la pregunta abierta de un plan llega por WhatsApp una sola vez", async () => {
+await prueba("un solo sí de verdad (1-nov): con 'solo urgentes', la pregunta abierta de un plan ya aprobado por el dueño no manda WhatsApp", async () => {
   guardarNumero();
   estado.esperando = [esperando({ id: "g2", titulo: "Abonos en la ficha", estado: "PLAN_LISTO", plan: PLAN_DE_ABONOS_CON_PREGUNTAS })];
   estado.tareasDelDueno = new Set(["g2"]);
   estado.enFila = 1;
-  assert.deepEqual(await avisos.revisarAvisosAlDueno(DIA), { enviados: 1 });
-  assert.deepEqual(estado.alertas.map((a) => a.prioridad), ["URGENTE"]);
-  assert.equal(estado.alertas[0].salioPorWhatsApp, true);
-  assert.equal(estado.enviados.length, 1);
-  const luego = new Date(DIA.getTime() + 10 * 60_000);
-  estado.latido = luego.toISOString();
-  assert.deepEqual(await avisos.revisarAvisosAlDueno(luego), { enviados: 0 });
-  assert.equal(estado.enviados.length, 1, "no se repite");
+  assert.deepEqual(await avisos.revisarAvisosAlDueno(DIA), { enviados: 0 });
+  assert.equal(estado.enviados.length, 0);
 });
 
 /* ------------------------------------------------------------------ el aviso habla de una tarjeta (30-oct-2026) */

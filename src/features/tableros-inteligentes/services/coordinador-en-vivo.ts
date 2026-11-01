@@ -229,7 +229,10 @@ export type VistaDelCoordinador = {
   /** Las que esperan a otra tarjeta que no está HECHO: "Esperando a «X»" (o "…, que está en error"). Se calcula con las flechas, no es un estado. */
   esperandoAOtra: {
     cantidad: number;
-    /** Cuántas dependen de alguna tarjeta POR_REVISAR (esperan el sí final del dueño). Se cuentan todas, no solo las que se muestran. */
+    /**
+     * Cuántas dependen de alguna tarjeta POR_REVISAR. Se cuentan todas, no solo las que se muestran. Ya no hay "sí final"
+     * (1-nov-2026), pero el nombre y la clave del MCP (esperan_tu_si_final) se quedan: con ellos se mide el resultado.
+     */
     esperanTuSiFinal: number;
     tarjetas: ItemDeFila[];
   };
@@ -250,7 +253,7 @@ const ESTADOS_ESPERANDO_AL_DUENO = ["POR_APROBAR", "PLAN_LISTO", "POR_REVISAR"] 
 const MOTIVO_DEL_DUENO: Record<string, string> = {
   POR_APROBAR: "Espera tu aprobación",
   PLAN_LISTO: "Espera tu aprobación del plan",
-  POR_REVISAR: "Espera tu sí final",
+  POR_REVISAR: "En Por revisar",
 };
 
 async function tarjetasEnMarcha(workspaceId: string, ahora: Date) {
@@ -370,6 +373,7 @@ async function filaDelCoordinador(workspaceId: string, ahora: Date, esperas: Map
   const siguientes: ItemDeFila[] = [];
   const bloqueadas: ItemDeFila[] = [];
   const esperando: ItemDeFila[] = [];
+  // Las que dependen de una POR_REVISAR (se muestra como "N en Por revisar"; el nombre se queda por la medición).
   let esperanTuSiFinal = 0;
   const item = (tarjeta: { id: string; titulo: string }, motivo: string | null): ItemDeFila => ({
     tarjetaId: tarjeta.id,
@@ -561,9 +565,9 @@ export function textoDelCoordinador(vista: VistaDelCoordinador): string {
   else lineas.push("La fila está vacía.");
   lineas.push(`En error: ${vista.errores.cantidad}${vista.errores.cantidad ? ` — ${vista.errores.tarjetas.map((item) => `«${item.titulo}»${item.motivo ? ` (${item.motivo})` : ""}`).join("; ")}` : ""}.`);
   const { esperanTuSiFinal } = vista.esperandoAOtra;
-  const siFinal = esperanTuSiFinal > 0 ? ` (${esperanTuSiFinal} ${esperanTuSiFinal === 1 ? "tarea espera" : "tareas esperan"} tu sí final)` : "";
+  const enPorRevisar = esperanTuSiFinal > 0 ? ` (${esperanTuSiFinal} en Por revisar)` : "";
   lineas.push(
-    `Esperando a otra: ${vista.esperandoAOtra.cantidad}${siFinal}${vista.esperandoAOtra.cantidad ? ` — ${vista.esperandoAOtra.tarjetas.map((item) => `«${item.titulo}» (${item.motivo ?? "espera"}${item.esperaA ? `; parte 1: ${item.esperaA.link}` : ""})`).join("; ")}` : ""}.`,
+    `Esperando a otra: ${vista.esperandoAOtra.cantidad}${enPorRevisar}${vista.esperandoAOtra.cantidad ? ` — ${vista.esperandoAOtra.tarjetas.map((item) => `«${item.titulo}» (${item.motivo ?? "espera"}${item.esperaA ? `; parte 1: ${item.esperaA.link}` : ""})`).join("; ")}` : ""}.`,
   );
   if (vista.fila.bloqueadas.length) lineas.push(`Bloqueadas: ${vista.fila.bloqueadas.map((item) => `«${item.titulo}» (${item.motivo ? primeraEnMinuscula(item.motivo) : "espera"})`).join("; ")}.`);
 

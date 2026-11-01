@@ -328,6 +328,7 @@ export function gastoDeclaradoEnElPlan(plan: string): string | null {
   Un plan con preguntas abiertas no se aprueba solo (tarjeta ykpl83z3: el plan decía "hay que confirmarlo" y "Antes de
   construir hay que revisar con el CRM…", se aprobó solo y se construyó 4 veces en la nube sin resultado). La instrucción
   de planear pide una sección final "PREGUNTAS ABIERTAS:" (o "ninguna"); además se buscan las frases que delatan una duda.
+  Un solo sí de verdad (1-nov-2026): desde ahora las preguntas abiertas solo se INFORMAN; ya no frenan el plan.
   ESPEJO de trabajador-tablero/lib/preguntas-abiertas.mjs: si cambia una regla acá, cambiarla allá igual.
 */
 
@@ -384,7 +385,10 @@ export function preguntasAbiertasDelPlan(plan: string): string[] {
   return preguntas;
 }
 
-/** El motivo para no aprobar solo un plan con preguntas abiertas ("el plan tiene preguntas abiertas: <la primera>"), o null. */
+/**
+ * La primera pregunta abierta del plan, como texto para informar ("el plan tiene preguntas abiertas: <la primera>"), o null.
+ * Desde el 1-nov-2026 NO frena el plan (porQueElPlanEsperaTuSi ya no la usa): el agente sigue con la respuesta recomendada.
+ */
 export function porQueElPlanTienePreguntas(plan: string): string | null {
   const [primera] = preguntasAbiertasDelPlan(plan);
   return primera ? `el plan tiene preguntas abiertas: ${primera}`.slice(0, 300) : null;
@@ -395,7 +399,8 @@ export type OpcionesDelSiDelPlan = {
   /**
    * Un solo sí del dueño (30-oct-2026): si el dueño ya aprobó la tarea (pantalla o voz), el dinero de Gestión no pide
    * un segundo sí al plan. Se saltan los archivos de dinero, las palabras de Gestión y la línea "APROBAR PLAN: ESPERA
-   * TU SÍ" cuando su único motivo es Gestión. Lo demás (preguntas, Meta Ads, criterios, supuestos) sigue igual.
+   * TU SÍ" cuando su único motivo es Gestión. Meta Ads, NECESITO y la falta de criterios siguen esperando. Las
+   * preguntas abiertas y los supuestos de negocio ya no frenan con o sin esta opción (1-nov-2026).
    */
   tareaAprobadaPorElDueno?: boolean;
 };
@@ -414,9 +419,8 @@ function esperaSoloPorGestion(motivo: string | null): boolean {
  */
 export function porQueElPlanEsperaTuSi(plan: string, opciones: OpcionesDelSiDelPlan = {}): string | null {
   const unSoloSi = opciones.tareaAprobadaPorElDueno === true;
-  // 29-oct-2026: un plan con preguntas abiertas espera al dueño (lo que sea que diga su línea APROBAR PLAN).
-  const preguntas = porQueElPlanTienePreguntas(plan);
-  if (preguntas) return preguntas;
+  // Un solo sí de verdad (1-nov-2026): las PREGUNTAS ABIERTAS ya no frenan el plan. El agente las deja con su respuesta
+  // recomendada y sigue con ella; porQueElPlanTienePreguntas queda solo para informarlas.
   // Con un solo sí, un plan que trae "NECESITO:" (el agente pide algo que solo el dueño da) sigue esperando. Sin la
   // opción no se mira acá: lo ve el Coordinador.
   const necesito = unSoloSi ? plan.replace(/\r\n/g, "\n").split("\n").find((linea) => /^[\s>*_#-]*\**necesito\**\s*:/i.test(linea)) : undefined;
@@ -443,8 +447,9 @@ export function porQueElPlanEsperaTuSi(plan: string, opciones: OpcionesDelSiDelP
 /*
   Como el spec-writer de la Software Factory (zazencodes): el plan termina con "CRITERIOS DE ACEPTACIÓN:" (comportamientos
   observables con cómo se comprueban), "FUERA DE ALCANCE:" y "SUPUESTOS:" (las decisiones donde el pedido era ambiguo).
-  Un plan NUEVO sin criterios no se aprueba solo, y un supuesto que en realidad es una decisión de negocio (precios, texto
-  público, qué es gratis o pagado, dinero, gasto en Meta Ads) tampoco: los dos esperan el sí del dueño. Los planes ya
+  Un plan NUEVO sin criterios no se aprueba solo: espera el sí del dueño. Un supuesto que en realidad es una decisión de
+  negocio (precios, texto público, qué es gratis o pagado, dinero, gasto en Meta Ads) ya no frena (un solo sí, 1-nov-2026):
+  porQueUnSupuestoEsDeNegocio queda para informarlo; el gasto en Meta Ads lo sigue frenando porQueElPlanEsperaTuSi. Los planes ya
   aprobados sin estas secciones (los viejos) se siguen construyendo: esto solo mira el plan al aprobarlo.
   ESPEJO de trabajador-tablero/lib/criterios.mjs: si cambia una regla acá, cambiarla allá igual.
 */
@@ -485,7 +490,10 @@ export function porQueFaltanCriterios(plan: string): string | null {
   return seccionFinalDelPlan(plan, "criterios de aceptacion").length ? null : "el plan no trae CRITERIOS DE ACEPTACIÓN (cómo se comprueba que quedó bien)";
 }
 
-/** El primer supuesto del plan que es una decisión de negocio, como motivo ("el plan supone una decisión de negocio: …"), o null. */
+/**
+ * El primer supuesto del plan que es una decisión de negocio, como texto para informar ("el plan supone una decisión de
+ * negocio: …"), o null. Desde el 1-nov-2026 NO frena el plan (porQueElPlanNuevoEsperaTuSi ya no la usa).
+ */
 export function porQueUnSupuestoEsDeNegocio(plan: string): string | null {
   const supuesto = seccionFinalDelPlan(plan, "supuestos").find((linea) => {
     const normal = normalizar(linea);
@@ -496,11 +504,12 @@ export function porQueUnSupuestoEsDeNegocio(plan: string): string | null {
 
 /**
  * ¿Un plan NUEVO (al llegar del Coordinador o mientras espera en PLAN_LISTO) espera el sí del dueño? Lo de siempre
- * (porQueElPlanEsperaTuSi) más los criterios de aceptación y los supuestos de negocio. NO se usa para heredar una
- * aprobación ya dada (porQueNoHeredaLaAprobacion): un plan viejo ya aprobado sin estas secciones sigue construyéndose.
+ * (porQueElPlanEsperaTuSi) más los criterios de aceptación. Los supuestos de negocio ya no frenan (1-nov-2026). NO se
+ * usa para heredar una aprobación ya dada (porQueNoHeredaLaAprobacion): un plan viejo ya aprobado sin estas secciones
+ * sigue construyéndose.
  */
 export function porQueElPlanNuevoEsperaTuSi(plan: string, opciones: OpcionesDelSiDelPlan = {}): string | null {
-  return porQueElPlanEsperaTuSi(plan, opciones) ?? porQueFaltanCriterios(plan) ?? porQueUnSupuestoEsDeNegocio(plan);
+  return porQueElPlanEsperaTuSi(plan, opciones) ?? porQueFaltanCriterios(plan);
 }
 
 /* ─────────────────────────────────────────────────────── el sí de la tarea (regla 25-oct) ── */
