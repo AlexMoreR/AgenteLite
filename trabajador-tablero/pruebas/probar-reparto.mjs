@@ -13,6 +13,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { crearPlanificador } from "../lib/bucle.mjs";
 import { archivosDelPlan, huellaDeTarjeta, motivoDeChoque, noChoca } from "../lib/choques.mjs";
@@ -20,6 +21,9 @@ import { COLA_LIBRE, PRIORIDAD, crearColaPesada } from "../lib/cola.mjs";
 import { completarConfig } from "../lib/config.mjs";
 import { agenteDelRepo, textoDeIdentidad } from "../lib/agentes.mjs";
 import { crearEstadoDeMotores } from "../lib/motores.mjs";
+import { promptDeNube } from "../lib/etapas.mjs";
+import { datosDelLatidoDeConstruir } from "../lib/latido.mjs";
+import { esOrquestador, lanzarSesionDeLaNube, olvidarSinAcceso, sinAccesoALaNube } from "../lib/nube.mjs";
 import { rebaseSobre } from "../lib/git.mjs";
 import { debePartirAntes, ordenarCandidatas, partesSinAlcanceNuevo, tamanoDelPlan } from "../lib/reparto.mjs";
 
@@ -403,6 +407,136 @@ await prueba("configuración: cola de pasos pesados de 1, CPU promedio de 3 min,
   assert.throws(() => completarConfig({ ...base, colaPesada: { maximo: 9 } }), /colaPesada/);
   assert.throws(() => completarConfig({ ...base, colaPesada: { maximo: 1, esperaMaximaMinutos: 95 } }), /colaPesada.esperaMaximaMinutos/);
   assert.throws(() => completarConfig({ ...base, limites: { cpuPromedioMinutos: 0 } }), /cpuPromedioMinutos/);
+});
+
+// MODO ORQUESTADOR (1-nov-2026): Gestión con sesión fija y orquestador; 3 tarjetas aprobadas tocan el mismo archivo.
+const FIJA_ORQUESTADOR = "session_01FijaDeGestion";
+const planDelMismoArchivo = planCon("src/features/gestion/compartido.ts");
+/** Un planificador con 3 tarjetas de Gestión para construir. Las sesiones se quedan colgadas: el CRM no contesta nada más. */
+function montarOrquestador({ orquestador }) {
+  const carpeta = fs.mkdtempSync(path.join(os.tmpdir(), "orquestador-"));
+  const config = completarConfig({
+    urlCrm: "https://app.aizenbot.com",
+    claveTrabajador: "aizen_trab_x",
+    maxParalelo: 3,
+    carpetaTrabajo: carpeta,
+    nube: { activa: true, maxTareas: 1 },
+    repos: { gestion: { ruta: carpeta, agente: { nombre: "Agente Gestión", maxEnParalelo: 1 }, nube: { sesionFija: FIJA_ORQUESTADOR, orquestador } } },
+  });
+  const tarjetas = ["uno", "dos", "tres"].map((n) => ({ id: `o-${n}`, titulo: `Gestión ${n}`, repo: "gestion", hacer: "construir", plan: planDelMismoArchivo }));
+  const tomadas = [];
+  const soltadas = [];
+  const pedidos = [];
+  const crm = new Proxy(
+    {
+      candidatas: async () => ({ candidatas: tarjetas.filter((t) => !tomadas.includes(t.id)) }),
+      tomar: async (datos) => {
+        pedidos.push(datos);
+        const tarjeta = tarjetas.find((t) => !tomadas.includes(t.id) && !datos.excluir.includes(t.id));
+        if (!tarjeta) return { tarjeta: null, motivo: "prueba" };
+        tomadas.push(tarjeta.id);
+        return { tarjeta, hacer: tarjeta.hacer };
+      },
+      soltar: async (id, motivo) => {
+        soltadas.push({ id, motivo });
+        return { ok: true };
+      },
+    },
+    { get: (propias, nombre) => propias[nombre] ?? (() => new Promise(() => undefined)) },
+  );
+  const planificador = crearPlanificador({
+    crm,
+    config,
+    registro: { info: () => undefined, aviso: () => undefined, error: () => undefined },
+    medidor: { medir: () => ({ cpu: 10, memoria: 20 }), parar: () => undefined },
+    motores: crearEstadoDeMotores(config),
+    vigilante: null,
+  });
+  return { planificador, tomadas, soltadas, pedidos, config, carpeta, tarjetas };
+}
+
+await prueba("orquestador: con el modo prendido, las 3 tarjetas que tocan el mismo archivo se entregan en la misma vuelta (sin 'Espera en fila', sin máximo por agente ni puestos)", async () => {
+  const { planificador, tomadas, soltadas, pedidos, config } = montarOrquestador({ orquestador: true });
+  assert.equal(esOrquestador(config.repos.gestion), true);
+  await planificador.llenar();
+  assert.deepEqual(tomadas.slice().sort(), ["o-dos", "o-tres", "o-uno"], "las 3 en la misma vuelta");
+  assert.equal(planificador.cupos().nube, 3, "las 3 van a la nube (a la sesión fija)");
+  assert.deepEqual(planificador.estado().esperas, [], "ninguna espera en fila");
+  assert.deepEqual(soltadas, [], "ninguna se soltó con 'Espera en fila'");
+  assert.ok(pedidos.every((p) => p.maxParalelo >= 3 + 1 && p.maxParalelo <= 12), "el tope al CRM suma las del orquestador");
+  planificador.parar();
+});
+
+await prueba("orquestador: sin el modo, el mismo caso sigue chocando como hoy (una construye y las otras esperan en fila)", async () => {
+  const { planificador, tomadas, config } = montarOrquestador({ orquestador: false });
+  assert.equal(esOrquestador(config.repos.gestion), false);
+  await planificador.llenar();
+  assert.equal(tomadas.length, 1, "solo una");
+  const esperas = planificador.estado().esperas;
+  assert.equal(esperas.length, 2);
+  for (const espera of esperas) assert.match(espera.motivo, /choca con "Gestión uno": las dos tocan/);
+  planificador.parar();
+});
+
+await prueba("orquestador: los mensajes a la sesión fija no traen /clear y cada uno trae el id de su tarjeta y su rama; ocupada -> se reintenta", async () => {
+  const carpeta = fs.mkdtempSync(path.join(os.tmpdir(), "orquestador-mensajes-"));
+  const log = path.join(carpeta, "claude.log");
+  const antes = process.env.CLAUDE_FALSO_LOG;
+  process.env.CLAUDE_FALSO_LOG = log;
+  try {
+    const base = { urlCrm: "https://app.aizenbot.com", claveTrabajador: "aizen_trab_x", carpetaTrabajo: carpeta, nube: { activa: true, comandoClaude: [process.execPath, path.join(path.dirname(fileURLToPath(import.meta.url)), "claude-falso.mjs")] } };
+    const config = completarConfig({ ...base, repos: { gestion: { ruta: carpeta, agente: { nombre: "Agente Gestión" }, nube: { sesionFija: FIJA_ORQUESTADOR, orquestador: true } } } });
+    const repo = config.repos.gestion;
+    const contexto = { config, registro: { info: () => undefined, aviso: () => undefined, error: () => undefined }, senal: null, orquestador: true };
+    const tarjetas = ["uno", "dos", "tres"].map((n) => ({ id: `o-${n}`, titulo: `Gestión ${n}`, tablero: "Sistemas", plan: planDelMismoArchivo }));
+    for (const tarjeta of tarjetas) {
+      const rama = `tablero/${tarjeta.id}-gestion`;
+      const prompt = promptDeNube(tarjeta, repo, rama, { orquestador: true, sesionFija: true });
+      const lanzado = await lanzarSesionDeLaNube({ ...contexto, sesionNueva: true }, { repo, cwd: carpeta, prompt });
+      assert.equal(lanzado.via, "sesion-fija", "nunca abre una sesión nueva en el modo orquestador");
+      assert.equal(lanzado.link, `https://claude.ai/code/${FIJA_ORQUESTADOR}`);
+    }
+    const mensajes = fs.readFileSync(`${log}.sesion-fija`, "utf8").trim().split("\n").map((linea) => JSON.parse(linea));
+    assert.equal(mensajes.length, 3, "un mensaje por tarjeta");
+    assert.ok(mensajes.every((m) => m.sesion === FIJA_ORQUESTADOR));
+    assert.ok(mensajes.every((m) => !/^\/clear/m.test(m.mensaje)), "ningún /clear");
+    tarjetas.forEach((tarjeta, i) => {
+      const rama = `tablero/${tarjeta.id}-gestion`;
+      assert.ok(mensajes[i].mensaje.includes(`id ${tarjeta.id}`), `trae el id de ${tarjeta.id}`);
+      assert.ok(mensajes[i].mensaje.includes(`Su rama: ${rama}`), `trae la rama de ${tarjeta.id}`);
+      assert.ok(mensajes[i].mensaje.includes(`git checkout -B ${rama} origin/${rama}`));
+      assert.match(mensajes[i].mensaje, /tú decides el orden, qué va al mismo tiempo \(puedes usar subagentes\) y qué se junta/);
+      assert.match(mensajes[i].mensaje, /deja en SU rama el commit "resultado:"/);
+      assert.ok(mensajes[i].mensaje.includes(`PLAN APROBADO:\n${planDelMismoArchivo}`), "trae el plan aprobado");
+    });
+    // Sin el modo, la sesión fija sigue con /clear antes de cada tarea.
+    const sinModo = completarConfig({ ...base, repos: { gestion: { ruta: carpeta, nube: { sesionFija: FIJA_ORQUESTADOR } } } });
+    await lanzarSesionDeLaNube({ ...contexto, config: sinModo, orquestador: false }, { repo: sinModo.repos.gestion, cwd: carpeta, prompt: promptDeNube(tarjetas[0], sinModo.repos.gestion, "tablero/x", { sesionFija: true }) });
+    const todos = fs.readFileSync(`${log}.sesion-fija`, "utf8").trim().split("\n").map((linea) => JSON.parse(linea));
+    assert.deepEqual(todos.slice(3).map((m) => (m.mensaje === "/clear" ? "/clear" : "tarea")), ["/clear", "tarea"]);
+    // Ocupada: vuelve a la fila sin gastar intento (coordinador_cortado), no pasa a ERROR ni marca el proyecto sin acceso.
+    const ocupada = completarConfig({ ...base, repos: { gestion: { ruta: carpeta, nube: { sesionFija: "session_OCUPADA01", orquestador: true } } } });
+    await assert.rejects(
+      lanzarSesionDeLaNube({ ...contexto, config: ocupada }, { repo: ocupada.repos.gestion, cwd: carpeta, prompt: "TARJETA" }),
+      (error) => error.categoria === "coordinador_cortado" && /está ocupada o no contestó/.test(error.message),
+    );
+    assert.equal(sinAccesoALaNube("gestion"), null, "no marca el proyecto");
+    // Una sesión que ya no existe sigue siendo el error de siempre (sin acceso al repo).
+    const muerta = completarConfig({ ...base, repos: { gestion: { ruta: carpeta, nube: { sesionFija: "session_MUERTA01", orquestador: true } } } });
+    await assert.rejects(lanzarSesionDeLaNube({ ...contexto, config: muerta }, { repo: muerta.repos.gestion, cwd: carpeta, prompt: "TARJETA" }), (error) => error.categoria === "nube_sin_acceso_repo");
+    olvidarSinAcceso();
+  } finally {
+    if (antes === undefined) delete process.env.CLAUDE_FALSO_LOG;
+    else process.env.CLAUDE_FALSO_LOG = antes;
+    fs.rmSync(carpeta, { recursive: true, force: true });
+  }
+});
+
+await prueba("orquestador: el latido de construir dice lugar 'orquestador' y el link de la sesión fija (el CRM da 24 h)", async () => {
+  assert.deepEqual(datosDelLatidoDeConstruir({ lugar: "nube", linkSesion: null, orquestador: FIJA_ORQUESTADOR }), { lugar: "orquestador", sesion: `https://claude.ai/code/${FIJA_ORQUESTADOR}` });
+  assert.deepEqual(datosDelLatidoDeConstruir({ lugar: "nube", linkSesion: "https://claude.ai/code/session_x", orquestador: FIJA_ORQUESTADOR }), { lugar: "orquestador", sesion: "https://claude.ai/code/session_x" });
+  assert.deepEqual(datosDelLatidoDeConstruir({ lugar: "nube", linkSesion: "https://claude.ai/code/session_x" }), { lugar: "nube", sesion: "https://claude.ai/code/session_x" }, "sin el modo, como hoy");
+  assert.deepEqual(datosDelLatidoDeConstruir({ lugar: "aizen1", orquestador: FIJA_ORQUESTADOR }), { lugar: "aizen1" });
 });
 
 console.log(`\n${pruebas} pruebas de reparto, todas bien`);

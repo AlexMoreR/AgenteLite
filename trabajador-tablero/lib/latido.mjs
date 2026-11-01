@@ -10,6 +10,17 @@ import { leerCarga } from "./recursos.mjs";
 export const CADA_SEGUNDOS_DEL_LATIDO = 15;
 
 /**
+ * Lo que dice el latido de UNA tarjeta mientras construye (POST /api/trabajador/tablero/<id>/latido): { lugar, sesion? }.
+ * En la nube el CRM le da 180 min; con el modo orquestador (1-nov-2026, `orquestador` = el id de la sesión fija) dice lugar
+ * "orquestador" y el link de la sesión fija, y el CRM le da 24 h (MINUTOS_PARA_CONSTRUIR_EN_ORQUESTADOR).
+ * El panel "Coordinador en vivo" (armarLatido) sigue diciendo "nube": ese lugar no existe allá.
+ */
+export function datosDelLatidoDeConstruir({ lugar, linkSesion = null, orquestador = null }) {
+  if (lugar === "nube" && orquestador) return { lugar: "orquestador", sesion: linkSesion || `https://claude.ai/code/${orquestador}` };
+  return { lugar: lugar === "nube" ? "nube" : "aizen1", ...(linkSesion ? { sesion: linkSesion } : {}) };
+}
+
+/**
  * El cuerpo del latido: lo que da el planificador (`estado()`) más la carga del PC. `medidor` da CPU y memoria
  * en %, `carga` (leerCarga) memoria y disco en GB. Todo lo que no se pueda leer va en null.
  */

@@ -67,7 +67,8 @@ import { anotarAvisoAlCto } from "./notas-boveda.mjs";
 import { notaDeYaHecho } from "./revision-previa.mjs";
 import { modeloDelPaso, nombreDelModelo } from "./modelos.mjs";
 import { crearEstadoDeMotores, crearVigilanteDeUso, motorDeLaEtapa, nombreDelMotor, textoDelAvisoDeLimite } from "./motores.mjs";
-import { esTareaGrande, nombreDelProyecto, sesionFijaDe, sinAccesoALaNube, sinAccesoASesionesNuevas } from "./nube.mjs";
+import { esOrquestador, esTareaGrande, nombreDelProyecto, sesionFijaDe, sinAccesoALaNube, sinAccesoASesionesNuevas } from "./nube.mjs";
+import { datosDelLatidoDeConstruir } from "./latido.mjs";
 import { crearPausaPorUso } from "./pausa-uso.mjs";
 import { primeraPreguntaAbierta } from "./preguntas-abiertas.mjs";
 import { crearMedidor, faltanRecursos, leerCarga } from "./recursos.mjs";
@@ -154,7 +155,9 @@ export async function procesar({ crm, config, registro: registroBase, motores = 
   // El latido que va en camino: se espera al terminar, para que no llegue al CRM después del resultado.
   let latidoEnVuelo = null;
   // Construyendo, el latido le dice al CRM dónde (aizen1 o nube) y el link de la sesión: en la nube el tope es de 180 min.
-  const datosDelLatido = () => (hacer === "construir" ? { lugar: lugar === "nube" ? "nube" : "aizen1", ...(vivo.linkSesion ? { sesion: vivo.linkSesion } : {}) } : undefined);
+  // 1-nov-2026: en el modo orquestador dice lugar "orquestador" y el link de la sesión fija (el CRM le da 24 h).
+  const datosDelLatido = () =>
+    hacer === "construir" ? datosDelLatidoDeConstruir({ lugar, linkSesion: vivo.linkSesion, orquestador: vivo.orquestador === true ? sesionFijaDe(config.repos[tarjeta.repo]) : null }) : undefined;
   const latir = async () => {
     try {
       await crm.latido(tarjeta.id, datosDelLatido());
@@ -184,7 +187,7 @@ export async function procesar({ crm, config, registro: registroBase, motores = 
     linkSesion: null,
   });
   const fase = (etapa, extra = {}) => Object.assign(vivo, { etapa }, extra);
-  const contexto = { config, registro, senal: control.signal, motorDe: motores.motorDe, alLimite: pausar, medidor, otrasSesiones, fase, puestoParaVerificar, colaPesada, etiqueta, lugar: enNube ? "nube" : "aizen1", alSoltarPuesto, sesionNueva: vivo.sesionNueva === true };
+  const contexto = { config, registro, senal: control.signal, motorDe: motores.motorDe, alLimite: pausar, medidor, otrasSesiones, fase, puestoParaVerificar, colaPesada, etiqueta, lugar: enNube ? "nube" : "aizen1", alSoltarPuesto, sesionNueva: vivo.sesionNueva === true, orquestador: enNube && vivo.orquestador === true };
   try {
     const etapa = ETAPAS[hacer];
     if (!etapa) throw new ErrorDeEtapa(`El CRM pidió "${hacer}", que este Coordinador no sabe hacer (¿hay que actualizarlo?).`);
@@ -965,8 +968,17 @@ export function crearPlanificador({
     return agente ? `, ${agente.nombre}` : "";
   };
 
-  /** Cuántas tarjetas de este agente (proyecto) corren ahora, en aizen1 y en la nube. */
-  const corriendoDelAgente = (clave) => [...sesiones.values(), ...enNube.values()].filter((s) => s.tarjeta.repo === clave).length;
+  /**
+   * MODO ORQUESTADOR (1-nov-2026, repos.<repo>.nube.orquestador con sesión fija): construir se entrega a la sesión del proyecto
+   * apenas se aprueba, y ella organiza. Esas tarjetas no miran choques, ni el máximo por agente, ni los puestos de la nube,
+   * ni si la sesión fija está ocupada; tampoco cuentan para el tope de la nube ni el del agente. DEPENDE_DE: las sigue frenando.
+   */
+  const vaAlOrquestador = (tarjeta, hacer) => hacer === "construir" && esOrquestador(config.repos[tarjeta?.repo]);
+  /** Las que la sesión del proyecto organiza ahora (siguen tomadas en el CRM). */
+  const orquestando = () => [...enNube.values()].filter((s) => s.vivo.orquestador === true);
+
+  /** Cuántas tarjetas de este agente (proyecto) corren ahora, en aizen1 y en la nube (las del orquestador no cuentan). */
+  const corriendoDelAgente = (clave) => [...sesiones.values(), ...enNube.values()].filter((s) => s.tarjeta.repo === clave && s.vivo.orquestador !== true).length;
 
   // 31-oct-2026: una sesión que solo espera (vigilancia de 30 min, subir con su deploy y sus pruebas, las pruebas de GitHub
   // Actions al construir) suelta su puesto con alSoltarPuesto(motivo): sigue en `sesiones` / `enNube` y tomada en el CRM,
@@ -974,8 +986,8 @@ export function crearPlanificador({
   const ocupa = (sesion) => !sesion.vivo.sinPuesto;
   /** Las sesiones de aizen1 que ocupan puesto (todas menos las que soltaron el suyo). */
   const ocupadas = () => [...sesiones.values()].filter(ocupa);
-  /** Las de la nube que ocupan puesto. */
-  const ocupadasEnNube = () => [...enNube.values()].filter(ocupa);
+  /** Las de la nube que ocupan puesto (las del orquestador no: las organiza la sesión del proyecto). */
+  const ocupadasEnNube = () => [...enNube.values()].filter((sesion) => ocupa(sesion) && sesion.vivo.orquestador !== true);
   /** Las que soltaron su puesto (en aizen1 y en la nube): siguen tomadas en el CRM. */
   const sinPuesto = () => [...sesiones.values(), ...enNube.values()].filter((sesion) => !ocupa(sesion));
   /** ¿El proyecto tiene puesto de aizen1 libre? Con repos.<repo>.cuposAizen1 cada proyecto tiene los suyos y no le quita al otro. */
@@ -1043,6 +1055,10 @@ export function crearPlanificador({
    * construir en aizen1: espera en la fila del tablero sin candado (el tope de 90 min del CRM corre desde que se toma).
    */
   function dondeCorre(tarjeta, hacer, { aizenOk, nubeUsable, nubeLibre, colaEnFila = 0, semaforo = null }) {
+    // Modo orquestador: a la sesión del proyecto, sin mirar puestos ni si está ocupada (solo que la nube sirva y tenga acceso).
+    if (vaAlOrquestador(tarjeta, hacer)) {
+      return nubeUsable && !sinAccesoALaNube(tarjeta.repo) ? { donde: "nube", motivo: `la organiza la sesión de ${nombreDelProyecto(config.repos[tarjeta.repo])} (modo orquestador)`, orquestador: true } : null;
+    }
     const aizenParaEsta = aizenOk && repoConPuesto(tarjeta.repo) && !(hacer === "construir" && colaEnFila > 0);
     // 29-oct-2026: un proyecto marcado "la nube no tiene acceso al repo" (nube.mjs: sinAccesoALaNube) no se manda a la nube
     // hasta que venza la marca: sus tarjetas esperan en la fila sin gastar uso.
@@ -1075,6 +1091,7 @@ export function crearPlanificador({
 
   /** Por qué una candidata no tiene dónde correr ahora (para el log y el panel "esperan en fila"). */
   function motivoDeEspera(hacer, { aizenOk, nubeUsable, colaEnFila = 0, semaforo = null }, tarjeta = null) {
+    if (tarjeta && !nubeUsable && vaAlOrquestador(tarjeta, hacer)) return `espera: la nube está apagada o Claude en pausa; se entrega a la sesión de ${nombreDelProyecto(config.repos[tarjeta.repo])} cuando vuelva`;
     const marca = hacer === "construir" && nubeUsable && tarjeta ? sinAccesoALaNube(tarjeta.repo) : null;
     if (marca) {
       const hora = new Date(marca.hasta).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", timeZone: "America/Bogota" });
@@ -1102,16 +1119,17 @@ export function crearPlanificador({
     for (let n = 1; ; n += 1) if (!sesiones.has(n)) return n;
   };
 
-  function arrancar(tarjeta, hacer, huella, { donde = "aizen1", motivo = null } = {}) {
+  function arrancar(tarjeta, hacer, huella, { donde = "aizen1", motivo = null, orquestador = false } = {}) {
     const nube = donde === "nube";
     const n = nube ? null : cupoLibre();
     const suRegistro = registroDeLaSesion(registro, nube ? `nube ${idCorto(tarjeta.id)}` : `s${n} ${idCorto(tarjeta.id)}`);
     suRegistro.info(`tomé "${tarjeta.titulo}" (${tarjeta.id}, ${tarjeta.repo}${nombreDeAgente(tarjeta)}) para ${hacer}${nube ? ` — se construye en la nube (${motivo})` : ""}`);
-    const vivo = { inicioEn: Date.now() };
+    const vivo = { inicioEn: Date.now(), ...(nube && orquestador ? { orquestador: true } : {}) };
     // 31-oct-2026 (parte 4): las otras del proyecto que ya construyen en la nube. Con la sesión fija ocupada, esta abre una
     // sesión nueva; y el ajuste de cupos anota si corre sola o acompañada.
     const companeras = nube && hacer === "construir" ? construyendoEnNube(tarjeta.repo) : [];
-    if (nube && hacer === "construir") {
+    // En el modo orquestador nunca se abre una sesión nueva ni cuenta para el ajuste de cupos: va a la sesión fija.
+    if (nube && hacer === "construir" && !vivo.orquestador) {
       if (sesionFijaOcupada(tarjeta.repo)) vivo.sesionNueva = true;
       ajusteCupos.empezo(tarjeta.id, tarjeta.repo, companeras.length > 0, companeras.map((s) => s.tarjeta.id));
     }
@@ -1317,7 +1335,9 @@ export function crearPlanificador({
     for (;;) {
       const nubeUsable = nubeUtilizable();
       const nubeLibre = nubeUsable && ocupadasEnNube().length < nubeConfig.maxTareas;
-      if (ocupadas().length >= max && !nubeLibre) return;
+      // Con un proyecto en modo orquestador, sus tarjetas de construir se toman aunque no quede ningún puesto.
+      const conOrquestador = nubeUsable && Object.values(config.repos).some(esOrquestador);
+      if (ocupadas().length >= max && !nubeLibre && !conOrquestador) return;
       const sinMotor = etapasSinMotor();
       if (sinMotor.length) {
         const pausas = ["claude", "codex"]
@@ -1353,21 +1373,24 @@ export function crearPlanificador({
           aizenOk = false;
         }
       }
-      if (!aizenOk && !nubeLibre) return;
+      if (!aizenOk && !nubeLibre && !conOrquestador) return;
       const estadoDeCupos = { aizenOk, nubeUsable, nubeLibre, colaEnFila: colaEnFila(), semaforo: semaforoPerezoso() };
-      const corriendo = [...sesiones.values(), ...enNube.values()].map((s) => s.huella);
+      // Las del orquestador no hacen chocar a nadie: la sesión del proyecto resuelve los choques con main.
+      const corriendo = [...sesiones.values(), ...enNube.values()].filter((s) => s.vivo.orquestador !== true).map((s) => s.huella);
       let excluir = [...descartadas.keys()];
+      let elegidaParaOrquestador = false;
       // Siempre se miran las candidatas (25-oct-2026): también para ESCOGER cuál conviene (ordenarCandidatas).
       {
         const { candidatas = [] } = await crm.candidatas();
         ultimasCandidatas = candidatas;
         const contraQuien = {};
-        const chocan = corriendo.length ? candidatasQueChocan(candidatas, corriendo, config.repos, contraQuien) : {};
+        const paraChoques = candidatas.filter((c) => !vaAlOrquestador(c, c.hacer));
+        const chocan = corriendo.length ? candidatasQueChocan(paraChoques, corriendo, config.repos, contraQuien) : {};
         for (const c of candidatas) if (!chocan[c.id] && sinMotor.includes(c.hacer)) chocan[c.id] = `(sin motor para ${c.hacer})`;
         if (soloPlanear) for (const c of candidatas) if (!chocan[c.id] && c.hacer !== "planear") chocan[c.id] = `(espera la versión nueva del Coordinador para ${c.hacer})`;
         // La cola de cada proyecto: un agente no pasa de su `maxEnParalelo` (sesiones de aizen1 y de la nube juntas).
         for (const c of candidatas) {
-          if (chocan[c.id]) continue;
+          if (chocan[c.id] || vaAlOrquestador(c, c.hacer)) continue;
           const agente = agenteDe(c);
           if (!agente) continue;
           const trabajando = corriendoDelAgente(c.repo);
@@ -1393,10 +1416,12 @@ export function crearPlanificador({
         const libres = candidatas.filter((c) => !excluir.includes(c.id));
         const elegida = ordenarCandidatas(libres)[0];
         if (elegida && libres.length > 1) excluir = [...excluir, ...libres.filter((c) => c.id !== elegida.id).map((c) => c.id)];
+        elegidaParaOrquestador = Boolean(elegida) && vaAlOrquestador(elegida, elegida.hacer);
       }
       // El CRM cuenta las de aizen1 y las de la nube juntas: el tope que se le da es la suma.
       // Las que soltaron su puesto (subiendo, vigilando, esperando pruebas) siguen tomadas en el CRM: se suman al tope.
-      const respuesta = await crm.tomar({ maxParalelo: max + sinPuesto().length + (nubeConfig.activa ? nubeConfig.maxTareas : 0), excluir });
+      // Las del orquestador no ocupan puesto: se suman al tope (más 1 si la elegida es para él, aunque no quede ningún puesto).
+      const respuesta = await crm.tomar({ maxParalelo: max + sinPuesto().length + (nubeConfig.activa ? nubeConfig.maxTareas : 0) + orquestando().length + (elegidaParaOrquestador ? 1 : 0), excluir });
       if (respuesta.vencidas?.length) registro.aviso(`el CRM pasó a ERROR por vencidas: ${respuesta.vencidas.join(", ")}`);
       if (!respuesta.tarjeta) {
         avisarUnaVez(`sin-${respuesta.motivo}-${sesiones.size}`, null);
@@ -1412,7 +1437,7 @@ export function crearPlanificador({
       }
       const huella = huellaDeTarjeta(tarjeta, hacer, config.repos[tarjeta.repo]);
       // Entre /candidatas y /tomar pudo aparecer otra que choca: se suelta (sin error) y espera en fila.
-      const choque = corriendo.map((otra) => [otra, motivoDeChoque(huella, otra)]).find(([, motivo]) => motivo);
+      const choque = vaAlOrquestador(tarjeta, hacer) ? null : corriendo.map((otra) => [otra, motivoDeChoque(huella, otra)]).find(([, motivo]) => motivo);
       if (choque) {
         registro.info(`"${tarjeta.titulo}" choca con "${choque[0].titulo}" (${choque[1]}): la suelto y espera en fila`);
         if (await soltar(crm, registro, tarjeta, `Espera en fila: ${choque[1]}.`)) continue;

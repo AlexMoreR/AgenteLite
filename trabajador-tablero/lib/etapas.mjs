@@ -60,7 +60,7 @@ import {
   textoParaLaNube,
 } from "./revisores.mjs";
 import { esLimiteDeCodex, nombreDelMotor } from "./motores.mjs";
-import { esperarResultado, lanzarSesionDeLaNube, sesionFijaDe } from "./nube.mjs";
+import { esOrquestador, esperarResultado, lanzarSesionDeLaNube, sesionFijaDe } from "./nube.mjs";
 import { vigilarSesion } from "./atasco.mjs";
 import { cerrarProcesosEn, comoTexto, correr, detalleDeFalla, lineasQueFallaron, ultimasLineas } from "./procesos.mjs";
 import { esperarRecursos, faltanRecursos, medirUnaVez } from "./recursos.mjs";
@@ -797,13 +797,24 @@ export function planParaLaNube(plan) {
   );
 }
 
-export function promptDeNube(tarjeta, repo, rama, { entorno = {}, modelo = null, lecciones = "", revision = true, modeloRevisar = "sonnet", modeloRevisarSeguridad = "opus", vueltasRevision = 2, sesionFija = false } = {}) {
+export function promptDeNube(tarjeta, repo, rama, { entorno = {}, modelo = null, lecciones = "", revision = true, modeloRevisar = "sonnet", modeloRevisarSeguridad = "opus", vueltasRevision = 2, sesionFija = false, orquestador = false } = {}) {
   const aprobadas = tarjeta.zonasAprobadas?.length ? tarjeta.zonasAprobadas.join(", ") : "ninguna";
   const pasos = [repo.instalar, ...(repo.verificar ?? []), ...(repo.pruebas ?? [])].filter(Boolean).map((comando) => `\`${comoTexto(comando)}\``);
   const variables = Object.entries(entorno).map(([nombre, valor]) => `export ${nombre}="${valor}"`);
   // 29-oct-2026: la SESIÓN FIJA del proyecto ya hizo otras tareas y está en otra rama. Lo primero (en el primer bloque, el
   // que nunca se recorta): la tarea es nueva y se cambia a la rama de esta tarjeta (el Coordinador ya la subió).
-  const nuevaEnSesionFija = sesionFija
+  // 1-nov-2026 (modo orquestador): la sesión del proyecto recibe varias tarjetas sin /clear y las organiza ella. El primer
+  // bloque dice cuál es esta (id, título y rama) y que cada una deja su resultado en SU rama (el Coordinador sigue subiendo).
+  const tarjetaParaOrquestador = orquestador
+    ? [
+        `TARJETA NUEVA PARA LA SESIÓN DEL PROYECTO: id ${tarjeta.id} — «${tarjeta.titulo}». Su rama: ${rama} (ya existe en GitHub).`,
+        "Llegan varias tarjetas a esta sesión; tú decides el orden, qué va al mismo tiempo (puedes usar subagentes) y qué se junta. Resuelves los choques con main.",
+        `Para trabajar ESTA tarjeta: git fetch origin && git checkout -B ${rama} origin/${rama}. Todo lo de esta tarjeta va en esa rama; nunca hagas push a main ni a la rama de otra tarjeta. Al terminarla deja en SU rama el commit "resultado:" de siempre (o "pregunta: …"). No subas nada a main: el Coordinador verifica y sube. No uses ningún conector ni herramienta MCP de esta sesión.`,
+      ].join("\n") + "\n"
+    : "";
+  const nuevaEnSesionFija = orquestador
+    ? tarjetaParaOrquestador
+    : sesionFija
     ? `TAREA NUEVA E INDEPENDIENTE de las anteriores de esta sesión: no sigas nada de lo que hiciste antes. ANTES DE TODO: git fetch origin && git checkout -B ${rama} origin/${rama}. Todo tu trabajo va en esa rama; nunca hagas push a main ni a otra rama. No uses ningún conector ni herramienta MCP de esta sesión.\n`
     : "";
   return [
@@ -823,7 +834,7 @@ export function promptDeNube(tarjeta, repo, rama, { entorno = {}, modelo = null,
       variables.length
         ? `   Antes de compilar o probar, exporta estas variables (NO son secretas, son direcciones falsas a propósito):\n${variables.map((linea) => `   ${linea}`).join("\n")}`
         : "",
-      `2. TODO EN PRIMER PLANO: nada en segundo plano ni subagentes esperando. No digas "reviso más tarde": la sesión no termina hasta tener el resultado (OK o error).${revision ? " Los ÚNICOS subagentes permitidos son los 4 de la REVISIÓN de abajo, en primer plano y esperando su respuesta." : ""}`,
+      `2. TODO EN PRIMER PLANO: nada en segundo plano ni subagentes esperando. No digas "reviso más tarde": la sesión no termina hasta tener el resultado (OK o error).${orquestador ? " Los subagentes que uses para llevar varias tarjetas a la vez, también en primer plano y esperando su respuesta." : revision ? " Los ÚNICOS subagentes permitidos son los 4 de la REVISIÓN de abajo, en primer plano y esperando su respuesta." : ""}`,
       `3. DEJA TODO EN LA RAMA ${rama}: haz commit y \`git push origin ${rama}\` (sin --force). No uses otra rama ni abras pull requests. Como ÚLTIMO paso deja un commit VACÍO y súbelo:`,
       `   git commit --allow-empty -m "resultado: build=OK tests=OK segundos=<N>${revision ? " revision=OK" : ""}"`,
       `   (build=FALLO o tests=FALLO si algo falló; <N> = los segundos que tardó todo${revision ? "; revision= como dice la REVISIÓN de abajo" : ""}).`,
@@ -939,6 +950,9 @@ async function revisarEnAizen1(contexto, { tarjeta, repo, rama, carpeta, baseSha
   return revision;
 }
 
+/** Modo orquestador (1-nov-2026): cuánto espera el Coordinador a la sesión del proyecto (el CRM da 1440 min; 2 de margen). */
+const MINUTOS_EN_ORQUESTADOR = 1438;
+
 /** Cada vuelta de los revisores (corren a la vez) no pasa de esto. */
 const REVISORES_MAXIMO_MINUTOS = 10;
 
@@ -960,7 +974,7 @@ async function construirLaParteDeLaNube(contexto, tarjeta, { repo, rama, base, r
     const modelo = modeloDelPaso(config, "construir", tarjeta);
     registro.info(`construir en la nube: modelo ${nombreDelModelo(modelo)}`);
     const conRevision = revisionActiva(config);
-    const prompt = promptDeNube(tarjeta, repo, rama, { entorno, modelo, lecciones: leccionesDelAgente(contexto, repo), revision: conRevision, modeloRevisar: modeloDelPaso(config, "revisar", tarjeta), modeloRevisarSeguridad: modeloDelPaso(config, "revisarSeguridad", tarjeta), vueltasRevision: vueltasDeRevision(config), sesionFija: Boolean(sesionFijaDe(repo)) && contexto.sesionNueva !== true });
+    const prompt = promptDeNube(tarjeta, repo, rama, { entorno, modelo, lecciones: leccionesDelAgente(contexto, repo), revision: conRevision, modeloRevisar: modeloDelPaso(config, "revisar", tarjeta), modeloRevisarSeguridad: modeloDelPaso(config, "revisarSeguridad", tarjeta), vueltasRevision: vueltasDeRevision(config), sesionFija: Boolean(sesionFijaDe(repo)) && contexto.sesionNueva !== true, orquestador: contexto.orquestador === true && esOrquestador(repo) });
     // 29-oct-2026: a la sesión fija del proyecto (repos.<repo>.nube.sesionFija) si la tiene; si no, `claude --cloud` con el
     // chequeo previo. La rama ya está en GitHub (pushDeRama de arriba) antes de lanzar: la sesión fija la baja con git fetch.
     const lanzado = await lanzarSesionDeLaNube(contexto, { repo, cwd: carpeta, prompt, modelo });
@@ -968,7 +982,7 @@ async function construirLaParteDeLaNube(contexto, tarjeta, { repo, rama, base, r
     registro.info(`construyo en la nube: sesión ${lanzado.link}, rama ${rama} (${lanzado.via})`);
     let resultado;
     try {
-      resultado = await esperarResultado(contexto, { repo, rama, vistos, reloj, link: lanzado.link });
+      resultado = await esperarResultado(contexto, { repo, rama, vistos, reloj, link: lanzado.link, ...(contexto.orquestador === true ? { esperaMinutos: MINUTOS_EN_ORQUESTADOR, sinSenal: MINUTOS_EN_ORQUESTADOR } : {}) });
     } catch (error) {
       if (error instanceof ErrorDeEtapa && !error.message.includes(lanzado.link)) error.message += `\nSesión de la nube: ${lanzado.link}`;
       throw error;
@@ -1316,7 +1330,9 @@ export async function construir(contexto, tarjeta) {
   const repo = configDelRepo(contexto, tarjeta);
   const enNube = contexto.lugar === "nube";
   // En la nube el reloj de la espera es el de construirNubeMinutos; al volver, la verificación en aizen1 tiene el suyo.
-  let reloj = relojDeEtapa(enNube ? config.tiempos.construirNubeMinutos : config.tiempos.construirMinutos, enNube ? "construir en la nube" : "construir", {
+  // Modo orquestador (1-nov-2026): la sesión del proyecto lleva varias a la vez y el CRM le da 24 h; el Coordinador espera lo mismo.
+  const enOrquestador = enNube && contexto.orquestador === true;
+  let reloj = relojDeEtapa(enOrquestador ? MINUTOS_EN_ORQUESTADOR : enNube ? config.tiempos.construirNubeMinutos : config.tiempos.construirMinutos, enNube ? "construir en la nube" : "construir", {
     topeMinutos: enNube ? null : TOPE_DEL_CRM.construir,
   });
   let liberarPuesto = null;

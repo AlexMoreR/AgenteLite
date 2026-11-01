@@ -557,6 +557,12 @@ export function errorSinAccesoAlRepo(repo, { detalle, link = null, extra = "" })
 /** El id de la sesión fija de un proyecto ("session_…"), o null. */
 export const sesionFijaDe = (repo) => repo?.nube?.sesionFija ?? null;
 
+/**
+ * MODO ORQUESTADOR (1-nov-2026, repos.<repo>.nube.orquestador): la sesión fija es la sesión del proyecto que organiza las
+ * tarjetas. Cada tarjeta aprobada le llega apenas se aprueba (sin /clear: lleva varias a la vez) y ella decide el orden.
+ */
+export const esOrquestador = (repo) => repo?.nube?.orquestador === true && Boolean(sesionFijaDe(repo));
+
 /** Cómo se llama el proyecto para el dueño: el nombre de su agente sin "Agente" ("Gestión"), o su clave. */
 export function nombreDelProyecto(repo) {
   const nombre = String(repo?.agente?.nombre ?? "").replace(/^agente\s+/i, "").trim();
@@ -594,6 +600,13 @@ function errorSesionFija(repo, detalle) {
   );
 }
 
+/**
+ * Lo que dice que la sesión fija NO SIRVE (no es que esté ocupada): la nube sin acceso al repo, o la sesión que ya no existe
+ * o está archivada. En el modo orquestador eso sigue siendo nube_sin_acceso_repo; lo demás (ocupada, no contestó a tiempo)
+ * se reintenta en la vuelta siguiente.
+ */
+const SESION_FIJA_SIN_ARREGLO = /not found|archived|no such session|no existe|archivada/i;
+
 /** Un mensaje a la sesión fija. -> { ok, link, texto } o lanza ErrorDeEtapa (cancelada, límite de uso, no responde). */
 async function mensajeASesionFija(contexto, repo, mensaje, { cwd }) {
   const { config, senal } = contexto;
@@ -607,18 +620,29 @@ async function mensajeASesionFija(contexto, repo, mensaje, { cwd }) {
   if (resultado.codigo === 0 && datos && datos.ok !== false && !datos.is_error) return { link: linkDeLaSesionFija(datos, id), texto };
   if (esLimiteDeUso(texto)) throw new ErrorDeEtapa(`Claude llegó a su límite de uso al escribirle a la sesión fija: ${ultimasLineas(texto, 5)}`, { limiteDeUso: true, motor: "claude" });
   const porQue = resultado.vencido ? `no contestó en ${config.nube.lanzarMinutos} min` : `salió con código ${resultado.codigo}${datos?.ok === false ? " (ok: false)" : ""}`;
+  // Modo orquestador: la sesión del proyecto suele estar trabajando en otras tarjetas. Si está ocupada o no contestó, la
+  // tarjeta vuelve a la fila sin gastar intento (coordinador_cortado, con su tope de esperas seguidas) y se reintenta en la
+  // vuelta siguiente. Sin acceso al repo o una sesión que ya no existe sigue siendo el error de siempre.
+  if (esOrquestador(repo) && !lineaSinRepo(texto) && !SESION_FIJA_SIN_ARREGLO.test(texto)) {
+    throw new ErrorDeEtapa(
+      `La sesión de ${nombreDelProyecto(repo)} está ocupada o no contestó (\`claude -p … --cloud ${id}\` ${porQue}): la tarjeta vuelve a la fila y se le entrega en la vuelta siguiente.\nSesión fija: https://claude.ai/code/${id}`,
+      { categoria: "coordinador_cortado" },
+    );
+  }
   throw errorSesionFija(repo, `\`claude -p … --cloud ${id}\` ${porQue}. ${ultimasLineas(texto, 8).replace(/\s+/g, " ").trim()}`.trim());
 }
 
 /**
  * Manda una tarea a la sesión fija del proyecto: primero `/clear` (contexto limpio), después la instrucción.
+ * Modo orquestador (1-nov-2026): sin `/clear` (la sesión lleva varias tarjetas a la vez), solo la instrucción.
  * -> { link, via: "sesion-fija", salida, modeloForzado: false } (el modelo de la sesión lo fija quien la creó; el prompt lo pide).
  */
 export async function mandarASesionFija(contexto, { repo, cwd, prompt }) {
   const { registro } = contexto;
   const id = sesionFijaDe(repo);
-  registro?.info?.(`nube por sesión fija: ${id} (${nombreDelProyecto(repo)}): /clear y la tarea`);
-  await mensajeASesionFija(contexto, repo, "/clear", { cwd });
+  const orquestador = esOrquestador(repo);
+  registro?.info?.(`nube por sesión fija: ${id} (${nombreDelProyecto(repo)}): ${orquestador ? "la tarea, sin /clear (modo orquestador)" : "/clear y la tarea"}`);
+  if (!orquestador) await mensajeASesionFija(contexto, repo, "/clear", { cwd });
   const descripcion = descripcionParaLaNube(prompt);
   if (descripcion.length < String(prompt ?? "").length) registro?.aviso?.(`sesión fija: la instrucción tenía ${String(prompt).length} caracteres; la recorté a ${descripcion.length} (el plan, por el medio)`);
   const { link, texto } = await mensajeASesionFija(contexto, repo, descripcion, { cwd });
@@ -631,7 +655,8 @@ export async function mandarASesionFija(contexto, { repo, cwd, prompt }) {
  */
 export async function lanzarSesionDeLaNube(contexto, { repo, cwd, prompt, modelo = null }) {
   // contexto.sesionNueva (31-oct-2026): la sesión fija ya está ocupada con otra tarea del proyecto; esta abre una nueva.
-  const nueva = Boolean(sesionFijaDe(repo)) && contexto.sesionNueva === true;
+  // En el modo orquestador nunca se abre una sesión nueva: todo va a la sesión fija.
+  const nueva = Boolean(sesionFijaDe(repo)) && contexto.sesionNueva === true && !esOrquestador(repo);
   try {
     if (sesionFijaDe(repo) && !nueva) return await mandarASesionFija(contexto, { repo, cwd, prompt });
     return await lanzarEnNube(contexto, { cwd, prompt, modelo, repo });
@@ -738,7 +763,7 @@ export const esCommitDeInicio = (mensaje) => /^inicio:/i.test(String(mensaje ?? 
 
 /**
  * Espera el commit "resultado:" nuevo (que no estaba en `vistos`) en la rama. Mira cada
- * config.nube.vigilarCadaSegundos; no pasa de config.nube.esperaMinutos ni del reloj de la etapa.
+ * config.nube.vigilarCadaSegundos; no pasa de config.nube.esperaMinutos (o `esperaMinutos`, en el modo orquestador) ni del reloj de la etapa.
  * 29-oct-2026 (4 sesiones de 2 h paradas en una pregunta, sin un commit): ahora también corta antes:
  *   - un commit "pregunta: …" -> error enseguida (nube_pregunta, con la pregunta y el link: no se repara solo);
  *   - ni "inicio:" ni ningún commit nuevo en config.nube.sinSenalMinutos -> error (nube_sin_resultado, con el link);
@@ -746,11 +771,12 @@ export const esCommitDeInicio = (mensaje) => /^inicio:/i.test(String(mensaje ?? 
  *   - con señal pero sin "resultado:" al vencer la espera larga -> nube_sin_resultado (antes tiempo_agotado, que se reparaba solo).
  * Devuelve { build, tests, segundos, paso, detalle, sha, mensaje }.
  */
-export async function esperarResultado(contexto, { repo, rama, vistos, reloj, link }) {
+export async function esperarResultado(contexto, { repo, rama, vistos, reloj, link, esperaMinutos = contexto.config.nube.esperaMinutos, sinSenal = null }) {
   const { config, senal, registro } = contexto;
   const inicio = Date.now();
-  const limite = inicio + config.nube.esperaMinutos * MINUTO;
-  const sinSenalMinutos = config.nube.sinSenalMinutos ?? config.nube.esperaMinutos;
+  const limite = inicio + esperaMinutos * MINUTO;
+  // sinSenal (1-nov-2026, modo orquestador): la sesión del proyecto puede tomar la tarjeta horas después de recibirla.
+  const sinSenalMinutos = sinSenal ?? config.nube.sinSenalMinutos ?? esperaMinutos;
   const limiteSinSenal = inicio + sinSenalMinutos * MINUTO;
   const mirala = link ? ` Mírala: ${link}` : "";
   let ultimoFallo = "";
@@ -796,7 +822,7 @@ export async function esperarResultado(contexto, { repo, rama, vistos, reloj, li
     }
     if (Date.now() >= limite) {
       throw new ErrorDeEtapa(
-        `La sesión de la nube no dejó el commit "resultado:" en la rama ${rama} en ${config.nube.esperaMinutos} min (¿se quedó pensando o hizo una pregunta?).${mirala}`,
+        `La sesión de la nube no dejó el commit "resultado:" en la rama ${rama} en ${esperaMinutos} min (¿se quedó pensando o hizo una pregunta?).${mirala}`,
         { categoria: "nube_sin_resultado" },
       );
     }

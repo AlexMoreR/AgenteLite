@@ -75,16 +75,29 @@ if (process.env.CLAUDE_FALSO_LOG && !prompt.startsWith("Eres un REVISOR DE ")) {
   fs.appendFileSync(process.env.CLAUDE_FALSO_LOG, `${JSON.stringify({ argumentos, cwd: process.cwd(), titulo, modo, prompt: prompt.slice(0, 8000), terminal: Boolean(process.stdout.isTTY) })}\n`);
 }
 
-// La sesión fija: "session_MUERTA…" no responde (como una archivada o que no existe). "/clear" contesta ok. Una tarea:
+// La sesión fija: "session_MUERTA…" no responde (como una archivada o que no existe); "session_OCUPADA…" contesta que está
+// ocupada (1-nov-2026, modo orquestador: se reintenta en la vuelta siguiente). "/clear" contesta ok. Una tarea:
 // contesta { ok, session_id, url } y hace de "máquina de la nube" en la rama que pide el `git checkout -B <rama>`.
+// 1-nov-2026: cada mensaje que le llega (también "/clear") se anota entero en CLAUDE_FALSO_LOG.sesion-fija ({ sesion, mensaje }).
 if (sesionFija) {
+  if (process.env.CLAUDE_FALSO_LOG) fs.appendFileSync(`${process.env.CLAUDE_FALSO_LOG}.sesion-fija`, `${JSON.stringify({ sesion: sesionFija, mensaje: prompt })}\n`);
   if (/^session_MUERTA/.test(sesionFija)) {
     console.error(`Error: session ${sesionFija} not found or archived`);
     process.exit(1);
   }
+  if (/^session_OCUPADA/.test(sesionFija)) {
+    console.error(`Error: session ${sesionFija} is busy`);
+    process.exit(1);
+  }
   const rama = prompt.match(/git checkout -B (\S+) origin\//)?.[1];
-  if (prompt !== "/clear" && rama) {
-    const remoto = execFileSync("git", ["remote", "get-url", "origin"], { encoding: "utf8" }).trim();
+  // Fuera de un repo con remoto (las pruebas de probar-reparto.mjs que solo miran los mensajes) no hay "máquina de la nube".
+  let remoto = "";
+  try {
+    remoto = rama ? execFileSync("git", ["remote", "get-url", "origin"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim() : "";
+  } catch {
+    remoto = "";
+  }
+  if (prompt !== "/clear" && rama && remoto) {
     spawn(process.execPath, [fileURLToPath(import.meta.url), "--trabajo-de-la-nube", JSON.stringify({ remoto, rama, titulo, demora: Number(process.env.NUBE_FALSA_DEMORA_MS ?? 2500) })], {
       detached: true,
       stdio: "ignore",
