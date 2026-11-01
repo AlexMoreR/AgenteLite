@@ -1255,6 +1255,8 @@ prueba("un solo sí de verdad (1-nov-2026): sin «sí final»; solo el gasto en 
   assert.equal(trabajo.esperaPorDinero("falta la simulación V3"), false);
   assert.equal(trabajo.esperaPorGastoEnMetaAds("Gasto en META ADS"), true);
   assert.equal(trabajo.esperaPorGastoEnMetaAds("Toca dinero en Gestión: saldos"), false);
+  assert.equal(trabajo.esperaPorGastoEnMetaAds("toca saldos y sube el presupuesto diario"), true, "dinero y Meta Ads juntos: es gasto en Meta Ads");
+  assert.equal(trabajo.esperaFrenaLaSubida("toca saldos y sube el presupuesto diario", true), true);
   assert.equal(trabajo.esperaFrenaLaSubida(null, false), false);
   assert.equal(trabajo.esperaFrenaLaSubida("Toca dinero en Gestión: saldos", true), false);
   assert.equal(trabajo.esperaFrenaLaSubida("Toca dinero en Gestión: saldos", false), true);

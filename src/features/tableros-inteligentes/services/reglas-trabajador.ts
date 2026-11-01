@@ -576,8 +576,9 @@ export function esGastoEnMetaAds(esperaPor: string | null | undefined): boolean 
 export function esperaPorGastoEnMetaAds(esperaPor: string | null | undefined): boolean {
   if (typeof esperaPor !== "string" || !esperaPor.trim()) return false;
   if (esGastoEnMetaAds(esperaPor)) return true;
-  // Las mismas palabras de gasto que frenan una tarea (reglas-riesgo.ts).
-  return /Meta Ads/.test(porQueLaTareaEsperaTuSi({ titulo: esperaPor, detalle: "", zonaProtegida: [], zonasQueEsperan: [] }) ?? "");
+  // Las mismas palabras de gasto que frenan un plan (reglas-riesgo.ts). Con `tareaAprobadaPorElDueno` se salta el dinero de
+  // Gestión: así un motivo que habla de saldos Y de presupuesto igual se reconoce como gasto en Meta Ads.
+  return /Meta Ads/.test(porQueElPlanEsperaTuSi(esperaPor, { tareaAprobadaPorElDueno: true }) ?? "");
 }
 
 /** ¿El motivo de espera habla de dinero? ("dinero", "plata", o abonos, saldos, nómina, comisiones, facturación, pagos). */
