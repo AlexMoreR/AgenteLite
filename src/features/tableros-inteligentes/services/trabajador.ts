@@ -26,6 +26,8 @@ import {
   planAprobadoPorElDuenoEnElHistorial,
   esGastoEnMetaAds,
   esperaSoloPorLaPruebaExtra,
+  esperaFrenaLaSubida,
+  tareaAprobadaPorElDuenoEnElHistorial,
   soloChatsOBot,
   porQueNoHeredaLaAprobacion,
   errorDeIntentoDeEntrada,
@@ -147,9 +149,10 @@ import { cerrarLaMadreDeLaParte, cerrarLaMadreSiToca as cerrarMadrePartida } fro
   - /tomar (26-oct-2026) además cierra las madres colgadas y pasa a ERROR las HUÉRFANAS: PLANEANDO o EN_CURSO sin
     candado, sin cambios hace más de 30 min, que no esperan a sus partes (SUBIENDO pendiente no es huérfana).
   - /:id/soltar con `categoria` (esperar) y /:id/error con `categoria` (escalar) también dejan su fila.
-  - /arranque (ruta aparte): lo que el negocio tenía en PLANEANDO o EN_CURSO con candado vuelve a la fila.
-  - Las vencidas sin latido vuelven a la fila (SQL_PASAR_VENCIDAS_A_ERROR) en vez de ERROR, salvo las que
-    se pasaron del tope de su etapa, las SUBIENDO o las que ya esperaron TOPE_DE_ESPERAS_SEGUIDAS veces.
+  - /arranque (ruta aparte): lo que el negocio tenía en PLANEANDO, EN_CURSO o SUBIENDO con candado vuelve a la fila
+    (la SUBIENDO, a SUBIENDO pendiente).
+  - Las vencidas sin latido vuelven a la fila (SQL_PASAR_VENCIDAS_A_ERROR) en vez de ERROR (una SUBIENDO, a SUBIENDO
+    pendiente), salvo las que se pasaron del tope de su etapa o las que ya esperaron TOPE_DE_ESPERAS_SEGUIDAS veces.
   - /tomar no toma una tarjeta con una dependencia sin terminar (sql-trabajador.ts).
 
   Cada cambio deja su fila en HistorialTarjeta con origen TRABAJADOR (quien = "trabajador:<clave>")
@@ -431,8 +434,8 @@ export async function tomarTarjeta(contexto: ContextoTrabajador, pedido: PedidoD
   return prisma.$transaction(async (tx) => {
     await tx.$queryRawUnsafe(SQL_CANDADO_DEL_NEGOCIO, contexto.workspaceId);
 
-    // Las vencidas sin latido vuelven a la fila (sueltas) o, si se pasaron del tope, esperaron mucho o
-    // estaban subiendo, pasan a ERROR (con su fila en IntentoTarjeta).
+    // Las vencidas sin latido vuelven a la fila (sueltas; una SUBIENDO, a SUBIENDO pendiente) o, si se pasaron del tope
+    // o esperaron mucho, pasan a ERROR (con su fila en IntentoTarjeta).
     const vencidasODejadas = await tx.$queryRawUnsafe<{ id: string; tableroId: string; antes: string; estado: string; motivo: string | null }[]>(
       SQL_PASAR_VENCIDAS_A_ERROR,
       contexto.workspaceId,
@@ -518,22 +521,23 @@ export async function tomarTarjeta(contexto: ContextoTrabajador, pedido: PedidoD
 }
 
 /**
- * POST /arranque: el Coordinador acaba de arrancar; lo que el negocio tenía en PLANEANDO o EN_CURSO con
+ * POST /arranque: el Coordinador acaba de arrancar; lo que el negocio tenía en PLANEANDO, EN_CURSO o SUBIENDO con
  * candado lo tenía el proceso anterior, que murió. Vuelve a la fila (sin ERROR, sin gastar el intento) con su
- * fila en IntentoTarjeta. SUBIENDO no se toca: pudo haber empujado a main. Con el candado del negocio.
+ * fila en IntentoTarjeta; una SUBIENDO queda SUBIENDO pendiente (sin candado): subir es repetible desde la parte 1 del
+ * 1-nov-2026 (si la rama ya está en main no la vuelve a empujar). Con el candado del negocio.
  */
 export async function arranqueDelTrabajador(contexto: ContextoTrabajador, ahora = new Date()) {
   const iso = ahora.toISOString();
   return prisma.$transaction(async (tx) => {
     await tx.$queryRawUnsafe(SQL_CANDADO_DEL_NEGOCIO, contexto.workspaceId);
-    const filas = await tx.$queryRawUnsafe<{ id: string; tableroId: string; antes: string }[]>(SQL_ARRANQUE, contexto.workspaceId, iso);
+    const filas = await tx.$queryRawUnsafe<{ id: string; tableroId: string; antes: string; estado: string }[]>(SQL_ARRANQUE, contexto.workspaceId, iso);
     for (const fila of filas) {
       await anotarTrabajador(
         tx,
         contexto,
         fila.id,
         { estado: fila.antes },
-        { estado: estadoTrasReparar(fila.antes as EstadoTarjetaTablero), nota: "el Coordinador arrancó de nuevo: vuelve a la fila, sin error" },
+        { estado: fila.estado, nota: "el Coordinador arrancó de nuevo: vuelve a la fila, sin error" },
       );
     }
     await tocarTableros(tx, filas.map((fila) => fila.tableroId), ahora);
@@ -703,10 +707,13 @@ export async function porRevisarDelTrabajador(contexto: ContextoTrabajador) {
         esperaPor,
       });
     }
-    // Solo las que pasaron todo, sin zona que pida el sí y sin otro motivo para esperar que la prueba extra.
-    if (resultado.paso !== true || zonasQuePidenTuSi(fila.zonaProtegida).length || (esperaPor && !esperaSoloPorLaPruebaExtra(esperaPor))) continue;
+    // Solo las que pasaron todo y sin zona que pida el sí.
+    if (resultado.paso !== true || zonasQuePidenTuSi(fila.zonaProtegida).length) continue;
     const historial = await prisma.historialTarjeta.findMany({ where: { tarjetaId: fila.id, accion: "aprobar" }, select: { accion: true, despues: true }, take: 100 });
     const aprobada = aprobacionDelDuenoEnElHistorial(historial);
+    // Un solo sí de verdad (1-nov-2026): con el sí humano, el motivo del Coordinador ya no la deja esperando (salvo gasto en
+    // Meta Ads, dinero de una tarea sin sí a mano o una zona que falló). Sin sí humano, solo la que esperaba la prueba extra.
+    if (esperaPor && !esperaSoloPorLaPruebaExtra(esperaPor) && (!aprobada || esperaFrenaLaSubida(esperaPor, tareaAprobadaPorElDuenoEnElHistorial(historial)))) continue;
     // Sin sí del dueño y sin motivo de la prueba extra: espera su sí por otra causa (riesgo, repo que no sube solo): no se toca.
     if (!esperaPor && !aprobada) continue;
     tarjetas.push({
@@ -741,7 +748,14 @@ async function rescatarTarjeta(contexto: ContextoTrabajador, actual: FilaParaTra
   const zonaQuePide = zonasQuePidenTuSi(actual.zonaProtegida);
   if (zonaQuePide.length) throw new ErrorDelTrabajador(`La zona ${zonaQuePide.join(", ")} espera el sí del dueño.`, 409);
   const esperaPor = typeof previo.esperaPor === "string" ? previo.esperaPor : null;
-  if (esperaPor && !esperaSoloPorLaPruebaExtra(esperaPor)) throw new ErrorDelTrabajador(`Espera el sí del dueño: ${esperaPor}.`, 409);
+  const historial = await prisma.historialTarjeta.findMany({ where: { tarjetaId: actual.id, accion: "aprobar" }, select: { accion: true, despues: true }, take: 100 });
+  const conSiHumano = aprobacionDelDuenoEnElHistorial(historial);
+  const tareaAprobada = tareaAprobadaPorElDuenoEnElHistorial(historial);
+  // Un solo sí de verdad (1-nov-2026): con el sí humano, el motivo que dejó el Coordinador ya no frena; solo el gasto en Meta
+  // Ads, el dinero de una tarea sin sí a mano o una prueba extra de zona que falló (esperaFrenaLaSubida).
+  if (esperaPor && !esperaSoloPorLaPruebaExtra(esperaPor) && (!conSiHumano || esperaFrenaLaSubida(esperaPor, tareaAprobada))) {
+    throw new ErrorDelTrabajador(`Espera el sí del dueño: ${esperaPor}.`, 409);
+  }
 
   if (cuerpo.sube !== true) {
     const motivo = motivoDeEntrada(cuerpo.motivo);
@@ -761,14 +775,14 @@ async function rescatarTarjeta(contexto: ContextoTrabajador, actual: FilaParaTra
   if (!confirmacion) throw new ErrorDelTrabajador("Falta la confirmación de la prueba extra.", 400);
   const migracion = Array.isArray(previo.migracionDestructiva) ? (previo.migracionDestructiva as unknown[]) : [];
   if (migracion.length) throw new ErrorDelTrabajador("La migración tiene cambios destructivos: espera el sí del dueño.", 409);
-  const plan = porQueElPlanEsperaTuSi(actual.plan ?? "");
+  const plan = porQueElPlanEsperaTuSi(actual.plan ?? "", { tareaAprobadaPorElDueno: tareaAprobada });
   if (plan) throw new ErrorDelTrabajador(`Espera el sí del dueño: ${plan}.`, 409);
-  const dinero = motivosDeLosArchivos(Array.isArray(previo.archivos) ? (previo.archivos as string[]) : []).find((motivo) => motivo.startsWith("toca dinero"));
+  // Con la tarea aprobada a mano, el dinero de Gestión no pide otro sí (un solo sí, 1-nov-2026).
+  const dinero = tareaAprobada ? undefined : motivosDeLosArchivos(Array.isArray(previo.archivos) ? (previo.archivos as string[]) : []).find((motivo) => motivo.startsWith("toca dinero"));
   if (dinero) throw new ErrorDelTrabajador(`Espera el sí del dueño: el cambio ${dinero}.`, 409);
   const tarea = porQueLaTareaEsperaTuSi({ titulo: actual.titulo, detalle: actual.detalle, zonaProtegida: [], zonasQueEsperan: [] });
-  const historial = await prisma.historialTarjeta.findMany({ where: { tarjetaId: actual.id, accion: "aprobar" }, select: { accion: true, despues: true }, take: 100 });
   // Con dinero o gasto en Meta Ads en el texto de la tarea solo sube si el dueño ya dio su sí.
-  if (tarea && !aprobacionDelDuenoEnElHistorial(historial)) throw new ErrorDelTrabajador(`Espera el sí del dueño: ${tarea}.`, 409);
+  if (tarea && !conSiHumano) throw new ErrorDelTrabajador(`Espera el sí del dueño: ${tarea}.`, 409);
 
   const { esperaPor: _quitada, ...sinEspera } = previo;
   void _quitada;
@@ -803,6 +817,8 @@ async function revisarDeNuevo(contexto: ContextoTrabajador, actual: FilaParaTrab
   if (previo.paso !== true) throw new ErrorDelTrabajador("Solo se revisa de nuevo una tarjeta que pasó build y pruebas.", 409);
   if (!soloChatsOBot(actual.zonaProtegida)) throw new ErrorDelTrabajador("Solo vale para tarjetas cuyas zonas son CHATS o BOT_VENTAS.", 409);
   const esperaPor = typeof previo.esperaPor === "string" ? previo.esperaPor : null;
+  const historial = await prisma.historialTarjeta.findMany({ where: { tarjetaId: actual.id, accion: "aprobar" }, select: { accion: true, despues: true }, take: 100 });
+  const tareaAprobada = tareaAprobadaPorElDuenoEnElHistorial(historial);
   if (esGastoEnMetaAds(esperaPor)) throw new ErrorDelTrabajador(`Espera el sí del dueño: ${esperaPor}.`, 409);
   const pruebas = Array.isArray(cuerpo.pruebas)
     ? cuerpo.pruebas.filter((texto): texto is string => typeof texto === "string" && texto.trim().length > 0).slice(0, 20).map((texto) => texto.trim().slice(0, 300))
@@ -816,18 +832,15 @@ async function revisarDeNuevo(contexto: ContextoTrabajador, actual: FilaParaTrab
   const commit = shaDe(cuerpo.commit, "commit");
   const base = shaDe(cuerpo.base, "base");
   if (sube) {
-    // Lo mismo que comprueba rescatar: el dinero de Gestión y los cambios destructivos siguen esperando el sí del dueño.
+    // Lo mismo que comprueba rescatar: los cambios destructivos y el dinero de una tarea sin sí a mano siguen esperando al dueño.
     const migracion = Array.isArray(previo.migracionDestructiva) ? (previo.migracionDestructiva as unknown[]) : [];
     if (migracion.length) throw new ErrorDelTrabajador("La migración tiene cambios destructivos: espera el sí del dueño.", 409);
-    const plan = porQueElPlanEsperaTuSi(actual.plan ?? "");
+    const plan = porQueElPlanEsperaTuSi(actual.plan ?? "", { tareaAprobadaPorElDueno: tareaAprobada });
     if (plan) throw new ErrorDelTrabajador(`Espera el sí del dueño: ${plan}.`, 409);
-    const dinero = motivosDeLosArchivos(Array.isArray(previo.archivos) ? (previo.archivos as string[]) : []).find((m) => m.startsWith("toca dinero"));
+    const dinero = tareaAprobada ? undefined : motivosDeLosArchivos(Array.isArray(previo.archivos) ? (previo.archivos as string[]) : []).find((m) => m.startsWith("toca dinero"));
     if (dinero) throw new ErrorDelTrabajador(`Espera el sí del dueño: el cambio ${dinero}.`, 409);
     const tarea = porQueLaTareaEsperaTuSi({ titulo: actual.titulo, detalle: actual.detalle, zonaProtegida: [], zonasQueEsperan: [] });
-    if (tarea) {
-      const historial = await prisma.historialTarjeta.findMany({ where: { tarjetaId: actual.id, accion: "aprobar" }, select: { accion: true, despues: true }, take: 100 });
-      if (!aprobacionDelDuenoEnElHistorial(historial)) throw new ErrorDelTrabajador(`Espera el sí del dueño: ${tarea}.`, 409);
-    }
+    if (tarea && !aprobacionDelDuenoEnElHistorial(historial)) throw new ErrorDelTrabajador(`Espera el sí del dueño: ${tarea}.`, 409);
   }
   const motivoDelCuerpo = typeof cuerpo.motivo === "string" && cuerpo.motivo.trim() ? cuerpo.motivo : null;
   const motivo = sube ? null : `construido, no sube: ${motivoDeEntrada(motivoDelCuerpo ?? esperaPor ?? "el Coordinador no la dejó subir sola")}`.slice(0, 600);
@@ -1133,8 +1146,12 @@ export async function accionDelTrabajador(
       // Regla del dueño (27-oct): el sí que ya dio vale aunque la tarea se reconstruya. Salvo dinero, gasto en Meta Ads,
       // un motivo del Coordinador para esperar (envío nuevo en chats...) o un riesgo que subió a ALTO con este resultado.
       let aprobacionHeredada = false;
+      // Un solo sí de verdad (1-nov-2026): el sí humano a la TAREA decide si el dinero o el gasto en Meta Ads la frenan.
+      const historial = resultado.paso
+        ? await prisma.historialTarjeta.findMany({ where: { tarjetaId: actual.id, accion: "aprobar" }, select: { accion: true, despues: true }, take: 100 })
+        : [];
+      const tareaAprobadaPorElDueno = tareaAprobadaPorElDuenoEnElHistorial(historial);
       if (resultado.paso && !subeSolo && datos.riesgo === undefined) {
-        const historial = await prisma.historialTarjeta.findMany({ where: { tarjetaId: actual.id, accion: "aprobar" }, select: { accion: true, despues: true }, take: 100 });
         aprobacionHeredada =
           porQueNoHeredaLaAprobacion({
             historial,
@@ -1145,8 +1162,16 @@ export async function accionDelTrabajador(
             migracionDestructiva: resultado.migracionDestructiva ?? null,
           }) === null;
       }
-      // Sube sola (SUBIENDO pendiente, la toma enseguida) o espera el sí final del dueño (POR_REVISAR).
-      a = destinoDelResultado({ paso: resultado.paso, subeSolo, zonaProtegida: zonas, aprobacionHeredada, esperaPor: resultado.esperaPor ?? null });
+      // Sube sola (SUBIENDO pendiente, la toma enseguida) o, solo por dinero sin sí humano o una zona que falló, POR_REVISAR.
+      a = destinoDelResultado({
+        paso: resultado.paso,
+        subeSolo,
+        zonaProtegida: zonas,
+        aprobacionHeredada,
+        esperaPor: resultado.esperaPor ?? null,
+        tareaAprobadaPorElDueno,
+        migracionDestructiva: resultado.migracionDestructiva ?? null,
+      });
       datos.estado = a;
       despues.estado = a;
       // CHATS / BOT_VENTAS que construyó bien y no puede subir sola: ERROR con el motivo en una línea (no espera el sí del dueño).

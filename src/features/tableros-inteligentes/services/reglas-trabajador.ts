@@ -19,8 +19,12 @@
   ya NO piden ese sí (24-oct-2026; chats, 26-oct-2026, ZONAS_QUE_SUBEN_SOLAS): suben solos, con pruebas extra y vigilancia de 30 minutos. Si el despliegue falla después
   de subir, el Coordinador hace revert del commit en main y la deja ERROR.
   CHATS y BOT_VENTAS nunca esperan el sí final (30-oct-2026): si la tarjeta construyó bien y no puede subir sola,
-  pasa a ERROR con el motivo en una línea ("construido, no sube: ..."). Solo siguen esperando al dueño el dinero de
-  Gestión y el gasto en Meta Ads (esperaPor). 'revisar_de_nuevo' saca las que ya estaban esperando en POR_REVISAR.
+  pasa a ERROR con el motivo en una línea ("construido, no sube: ..."). 'revisar_de_nuevo' saca las que ya estaban
+  esperando en POR_REVISAR.
+  Un solo sí de verdad (1-nov-2026): ya no hay "sí final". Una tarjeta que compiló y pasó las pruebas sube sola aunque el
+  Coordinador deje un motivo de dinero de Gestión o de supuesto de negocio (esperaPor). Solo espera en POR_REVISAR el
+  gasto en Meta Ads, el dinero de una tarea que NADIE aprobó a mano (tareaAprobadaPorElDueno = false), lo que falla en
+  la prueba extra de una zona (envío nuevo a clientes, simulación V3) y una migración destructiva.
 
   Lo que no se negocia:
   1. Las transiciones del Coordinador (PLANEANDO, PLAN_LISTO, EN_CURSO, POR_REVISAR, SUBIENDO, HECHO,
@@ -568,12 +572,52 @@ export function esGastoEnMetaAds(esperaPor: string | null | undefined): boolean 
   return limpio.includes("gasto") && limpio.includes("meta ads");
 }
 
+/** ¿El motivo de espera habla de gasto en Meta Ads? (gasto en Meta Ads, presupuesto, activar campañas…; sin mayúsculas ni tildes). */
+export function esperaPorGastoEnMetaAds(esperaPor: string | null | undefined): boolean {
+  if (typeof esperaPor !== "string" || !esperaPor.trim()) return false;
+  if (esGastoEnMetaAds(esperaPor)) return true;
+  // Las mismas palabras de gasto que frenan una tarea (reglas-riesgo.ts).
+  return /Meta Ads/.test(porQueLaTareaEsperaTuSi({ titulo: esperaPor, detalle: "", zonaProtegida: [], zonasQueEsperan: [] }) ?? "");
+}
+
+/** ¿El motivo de espera habla de dinero? ("dinero", "plata", o abonos, saldos, nómina, comisiones, facturación, pagos). */
+export function esperaPorDinero(esperaPor: string | null | undefined): boolean {
+  if (typeof esperaPor !== "string" || !esperaPor.trim()) return false;
+  const limpio = esperaPor.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  if (/\b(dinero|plata)\b/.test(limpio)) return true;
+  return /dinero/.test(porQueLaTareaEsperaTuSi({ titulo: esperaPor, detalle: "", zonaProtegida: [], zonasQueEsperan: [] }) ?? "");
+}
+
 /**
- * A qué estado pasa la tarjeta con el /resultado: SUBIENDO (pendiente: el Coordinador la sube enseguida)
- * solo si todo pasó, el Coordinador dice que sube solo y la tarjeta no tiene una zona que pida el sí (ni la
- * que ya tenía ni la que marcó el Coordinador; BOT_VENTAS, META_ADS, LIBRO_V3 y CHATS ya suben solas, ver
- * ZONAS_QUE_SUBEN_SOLAS). Si no sube y la tarjeta es solo de CHATS / BOT_VENTAS (y no espera por gasto en Meta Ads),
- * pasa a ERROR: esas zonas nunca esperan el sí final. En lo demás, POR_REVISAR: espera el sí final del dueño.
+ * ¿El motivo de espera es una prueba extra de zona que FALLÓ? (un envío nuevo de mensajes a clientes, o falta la simulación
+ * del libro V3 o su versión anterior). Eso no es un "sí final": el cambio no está comprobado y no sube, tenga o no sí humano.
+ */
+export function esperaPorZonaQueFalla(esperaPor: string | null | undefined): boolean {
+  if (typeof esperaPor !== "string") return false;
+  const limpio = esperaPor.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  return /envio (nuevo )?de mensaje|falta la simulacion v3|falta el numero de la version/.test(limpio);
+}
+
+/**
+ * Un solo sí de verdad (1-nov-2026): ¿este motivo de espera todavía frena la subida? El gasto en Meta Ads (siempre: es
+ * plata que se gasta sola, igual que en porQueElPlanEsperaTuSi), el dinero de una tarea que NO tiene un sí humano
+ * (`tareaAprobadaPorElDueno === false`) y una prueba extra de zona que falló. Un supuesto de negocio, el dinero de una
+ * tarea aprobada a mano o la prueba extra que solo faltaba escribir ya no frenan. Sin el dato (`undefined`) el dinero no
+ * frena: así se comportaba antes con `subeSolo` (el CRM siempre lo manda).
+ */
+export function esperaFrenaLaSubida(esperaPor: string | null | undefined, tareaAprobadaPorElDueno?: boolean): boolean {
+  if (esperaPorZonaQueFalla(esperaPor) || esperaPorGastoEnMetaAds(esperaPor)) return true;
+  return tareaAprobadaPorElDueno === false && esperaPorDinero(esperaPor);
+}
+
+/**
+ * A qué estado pasa la tarjeta con el /resultado (sin "sí final", 1-nov-2026): SUBIENDO (pendiente: el Coordinador la
+ * sube enseguida) si todo pasó, el Coordinador dice que sube solo (o la tarjeta hereda el sí del dueño) y la tarjeta no
+ * tiene una zona que pida el sí (BOT_VENTAS, META_ADS, LIBRO_V3 y CHATS ya suben solas, ver ZONAS_QUE_SUBEN_SOLAS),
+ * aunque `esperaPor` diga dinero de Gestión o un supuesto de negocio. Excepciones que quedan en POR_REVISAR
+ * (esperaFrenaLaSubida): el gasto en Meta Ads, el dinero sin sí humano a la tarea y una prueba extra de zona que falló;
+ * y una migración destructiva. Si no sube y la tarjeta es solo de CHATS / BOT_VENTAS (y no espera por gasto en Meta Ads), pasa a ERROR
+ * como hasta ahora: esas zonas nunca esperan al dueño.
  */
 export function destinoDelResultado(datos: {
   paso: boolean;
@@ -583,9 +627,14 @@ export function destinoDelResultado(datos: {
   aprobacionHeredada?: boolean;
   /** Lo que el Coordinador dejó como motivo de espera (resultado.esperaPor). */
   esperaPor?: string | null;
+  /** ¿Una persona aprobó la TAREA (pantalla o voz, tareaAprobadaPorElDuenoEnElHistorial)? false = nadie: el dinero espera. */
+  tareaAprobadaPorElDueno?: boolean;
+  /** Lo destructivo de la migración (resultado.migracionDestructiva): con algo, nunca sube sola. */
+  migracionDestructiva?: readonly string[] | null;
 }): "SUBIENDO" | "POR_REVISAR" | "ERROR" {
   if (!datos.paso || zonasQuePidenTuSi(datos.zonaProtegida).length > 0) return "POR_REVISAR";
-  if (datos.subeSolo || datos.aprobacionHeredada) return "SUBIENDO";
+  const frena = esperaFrenaLaSubida(datos.esperaPor, datos.tareaAprobadaPorElDueno) || Boolean(datos.migracionDestructiva?.length);
+  if ((datos.subeSolo || datos.aprobacionHeredada) && !frena) return "SUBIENDO";
   return soloChatsOBot(datos.zonaProtegida) && !esGastoEnMetaAds(datos.esperaPor) ? "ERROR" : "POR_REVISAR";
 }
 
@@ -637,9 +686,10 @@ export function esperaSoloPorLaPruebaExtra(esperaPor: string | null | undefined)
 
 /**
  * Regla del dueño (27-oct-2026): lo que él ya aprobó vale aunque la tarea se reconstruya o se repare; no se le pide dos veces.
- * Hereda solo si el historial trae su sí, el Coordinador no dejó un motivo para esperar (un envío nuevo en chats, gasto en
- * Meta Ads...), el plan y la tarjeta no tocan dinero ni gasto en Meta Ads y la migración no es destructiva. Devuelve el
- * motivo de por qué NO hereda, o null si hereda.
+ * Hereda solo si el historial trae su sí, el motivo de espera del Coordinador no frena (esperaFrenaLaSubida: un envío nuevo
+ * en chats, la simulación V3, gasto en Meta Ads o dinero de una tarea sin sí humano), el plan y la tarjeta no tocan dinero
+ * ni gasto en Meta Ads (con la tarea aprobada a mano, el dinero de Gestión no frena: un solo sí, 1-nov-2026) y la migración no
+ * es destructiva. Devuelve el motivo de por qué NO hereda, o null si hereda.
  */
 export function porQueNoHeredaLaAprobacion(datos: {
   historial: readonly { accion: string; despues: unknown }[];
@@ -650,12 +700,18 @@ export function porQueNoHeredaLaAprobacion(datos: {
   migracionDestructiva?: readonly string[] | null;
 }): string | null {
   if (!aprobacionDelDuenoEnElHistorial(datos.historial)) return "no hay un sí del dueño en el historial";
-  if (datos.esperaPor && !esperaSoloPorLaPruebaExtra(datos.esperaPor)) return `el Coordinador dejó un motivo para esperar (${datos.esperaPor})`;
+  // Un solo sí de verdad (1-nov-2026): con el sí humano ya dado, el motivo del Coordinador no frena. Solo el gasto en Meta
+  // Ads, el dinero de una tarea que nadie aprobó a mano o una prueba extra de zona que falló (esperaFrenaLaSubida).
+  const tareaAprobada = tareaAprobadaPorElDuenoEnElHistorial(datos.historial);
+  if (datos.esperaPor && !esperaSoloPorLaPruebaExtra(datos.esperaPor) && esperaFrenaLaSubida(datos.esperaPor, tareaAprobada)) {
+    return `el Coordinador dejó un motivo para esperar (${datos.esperaPor})`;
+  }
   if (datos.migracionDestructiva?.length) return "la migración tiene cambios destructivos";
-  const plan = porQueElPlanEsperaTuSi(datos.plan ?? "");
+  const plan = porQueElPlanEsperaTuSi(datos.plan ?? "", { tareaAprobadaPorElDueno: tareaAprobada });
   if (plan) return plan;
-  const tarea = porQueLaTareaEsperaTuSi({ titulo: datos.titulo, detalle: datos.detalle, zonaProtegida: [], zonasQueEsperan: [] });
-  return tarea;
+  // Con la tarea aprobada a mano, que su texto hable de dinero ya no pide otro sí.
+  if (tareaAprobada) return null;
+  return porQueLaTareaEsperaTuSi({ titulo: datos.titulo, detalle: datos.detalle, zonaProtegida: [], zonasQueEsperan: [] });
 }
 
 /* ───────────────────────────────────────────────────────────────────── aprobaciones ── */
@@ -1625,9 +1681,9 @@ export function etiquetaEsperando(origenes: readonly { titulo: string; estado: s
   const nombres = pendientes.map((origen) => `«${origen.titulo}»`);
   const lista = nombres.length === 1 ? nombres[0] : `${nombres.slice(0, -1).join(", ")} y ${nombres[nombres.length - 1]}`;
   const trabadas = pendientes.filter((origen) => (ESTADOS_QUE_NO_AVANZAN as readonly string[]).includes(origen.estado));
-  // POR_REVISAR no está trabada: espera el sí final del dueño (solo cambia el texto, no quién aprueba).
+  // POR_REVISAR no está trabada: ya construyó y pasó (o espera por dinero sin sí); solo cambia el texto, no quién aprueba.
   const porRevisar = pendientes.filter((origen) => origen.estado === "POR_REVISAR");
-  if (pendientes.length === 1 && porRevisar.length === 1) return `Esperando a ${lista}: la parte 1 espera tu sí final (Por revisar)`;
+  if (pendientes.length === 1 && porRevisar.length === 1) return `Esperando a ${lista}: la parte 1 está en Por revisar`;
   if (!trabadas.length && !porRevisar.length) return `Esperando a ${lista}`;
   if (trabadas.length === 1 && pendientes.length === 1) {
     return `Esperando a ${lista}, que está ${trabadas[0].estado === "ERROR" ? "en error" : "fallida"}`;
@@ -1637,7 +1693,7 @@ export function etiquetaEsperando(origenes: readonly { titulo: string; estado: s
     avisos.push(`${trabadas.map((origen) => `«${origen.titulo}»`).join(" y ")} ${trabadas.length === 1 ? "está" : "están"} en error o fallidas`);
   }
   if (porRevisar.length) {
-    avisos.push(`${porRevisar.map((origen) => `«${origen.titulo}»`).join(" y ")} ${porRevisar.length === 1 ? "espera" : "esperan"} tu sí final (Por revisar)`);
+    avisos.push(`${porRevisar.map((origen) => `«${origen.titulo}»`).join(" y ")} ${porRevisar.length === 1 ? "está" : "están"} en Por revisar`);
   }
   return `Esperando a ${lista}; ${avisos.join("; ")}`;
 }

@@ -5,6 +5,10 @@
 //   - sin envíos nuevos de mensajes: el Coordinador escribe la confirmación y la tarjeta pasa a SUBIENDO (con la vigilancia de 30 min);
 //   - con un envío nuevo en chats o en el bot: sigue esperando el sí del dueño, y el motivo queda en la tarjeta.
 // El CRM vuelve a comprobar lo suyo (dinero, Meta Ads, migración destructiva) al recibir /:id/rescatar.
+// Un solo sí de verdad (1-nov-2026): ya no hay "sí final". Al arrancar (la primera vuelta corre enseguida: `ultima` empieza en null)
+// se revisa con las reglas nuevas toda tarjeta POR_REVISAR que ya pasó build y pruebas: el CRM (/por-revisar) ahora también lista
+// las que tienen un sí humano y un motivo de espera que ya no frena (dinero de Gestión de una tarea aprobada a mano, un supuesto
+// de negocio); esas pasan a SUBIENDO por /:id/rescatar. Las que esperan por gasto en Meta Ads, o por dinero sin sí humano, no se listan.
 import { git } from "./git.mjs";
 import { pruebaExtraDeLasZonas, zonasTocadas } from "./zonas.mjs";
 
@@ -51,12 +55,13 @@ export async function decidirRescate(tarjeta, repo, diff) {
  *   { hizo, rescatadas: [{ id, titulo, accion, motivo }] }
  */
 export function crearRescatador({ crm, config, registro, diffDeLaRama = diffDeLaRamaDeLaTarjeta, ahora = () => Date.now() }) {
-  let ultima = 0;
+  // null = todavía no corrió en este arranque: la primera vuelta revisa enseguida todo lo que está en POR_REVISAR (1-nov-2026).
+  let ultima = null;
   // Lo que ya se decidió en este arranque (tarjeta + commit): no se repite el mismo "sigue esperando" cada vuelta.
   const vistas = new Set();
   return {
     async revisar({ forzar = false } = {}) {
-      if (!forzar && ahora() - ultima < CADA_MS) return { hizo: false, rescatadas: [] };
+      if (!forzar && ultima !== null && ahora() - ultima < CADA_MS) return { hizo: false, rescatadas: [] };
       ultima = ahora();
       const { tarjetas } = await crm.porRevisar();
       const rescatadas = [];

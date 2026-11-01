@@ -908,13 +908,15 @@ prueba("reparar y partir: tope de 3 reparaciones, resumen de máximo 3 líneas, 
   assert.equal(trabajo.etiquetaEsperando([{ titulo: "El molde", estado: "ERROR" }]), "Esperando a «El molde», que está en error");
   assert.equal(trabajo.etiquetaEsperando([{ titulo: "El molde", estado: "FALLIDO" }]), "Esperando a «El molde», que está fallida");
   assert.match(trabajo.etiquetaEsperando([{ titulo: "A", estado: "EN_CURSO" }, { titulo: "B", estado: "ERROR" }]), /^Esperando a «A» y «B»; «B» está en error o fallidas$/);
-  // POR_REVISAR (31-oct-2026): espera el sí final del dueño, y se dice.
-  assert.equal(trabajo.etiquetaEsperando([{ titulo: "La parte 1", estado: "POR_REVISAR" }]), "Esperando a «La parte 1»: la parte 1 espera tu sí final (Por revisar)");
-  assert.match(trabajo.etiquetaEsperando([{ titulo: "A", estado: "EN_CURSO" }, { titulo: "B", estado: "POR_REVISAR" }]), /espera tu sí final \(Por revisar\)/);
-  assert.equal(trabajo.etiquetaEsperando([{ titulo: "A", estado: "EN_CURSO" }, { titulo: "B", estado: "POR_REVISAR" }]), "Esperando a «A» y «B»; «B» espera tu sí final (Por revisar)");
+  // POR_REVISAR (31-oct-2026; sin "sí final" desde el 1-nov-2026): se dice que está en Por revisar.
+  assert.equal(trabajo.etiquetaEsperando([{ titulo: "La parte 1", estado: "POR_REVISAR" }]), "Esperando a «La parte 1»: la parte 1 está en Por revisar");
+  assert.equal(trabajo.etiquetaEsperando([{ titulo: "A", estado: "EN_CURSO" }, { titulo: "B", estado: "POR_REVISAR" }]), "Esperando a «A» y «B»; «B» está en Por revisar");
+  for (const origenes of [[{ titulo: "X", estado: "POR_REVISAR" }], [{ titulo: "A", estado: "EN_CURSO" }, { titulo: "B", estado: "POR_REVISAR" }], [{ titulo: "B", estado: "POR_REVISAR" }, { titulo: "C", estado: "POR_REVISAR" }]]) {
+    assert.doesNotMatch(trabajo.etiquetaEsperando(origenes), /sí final/, "la etiqueta ya no dice «sí final»");
+  }
   assert.equal(
     trabajo.etiquetaEsperando([{ titulo: "A", estado: "ERROR" }, { titulo: "B", estado: "POR_REVISAR" }, { titulo: "C", estado: "POR_REVISAR" }]),
-    "Esperando a «A», «B» y «C»; «A» está en error o fallidas; «B» y «C» esperan tu sí final (Por revisar)",
+    "Esperando a «A», «B» y «C»; «A» está en error o fallidas; «B» y «C» están en Por revisar",
   );
   assert.equal(trabajo.dependenciaHaceCiclo([{ origenId: "a", destinoId: "b" }], "b", "a"), true);
   // Recoger los errores viejos: máximo 2 veces por tarjeta; lo que hay que recordar va en resultado.recogida.
@@ -1196,7 +1198,7 @@ prueba("CHATS y BOT_VENTAS nunca esperan el sí final (30-oct-2026): si no suben
   assert.ok(trabajo.ACCIONES_DEL_TRABAJADOR.includes("revisar_de_nuevo"));
 });
 
-prueba("el sí del dueño se hereda (27-oct-2026): vale aunque la tarea se reconstruya, salvo dinero, Meta Ads, envío nuevo en chats o migración destructiva", () => {
+prueba("el sí del dueño se hereda (27-oct-2026): vale aunque la tarea se reconstruya, salvo dinero sin sí a la tarea, Meta Ads, envío nuevo en chats o migración destructiva", () => {
   const siDelDueno = [{ accion: "aprobar", despues: { via: "voz", momento: "tarea" } }];
   const tarea = { titulo: "Buscador de la bandeja", detalle: "Un buscador por nombre.", plan: "RIESGO: ALTO\nAPROBAR PLAN: sí\nBuscar en la bandeja.", historial: siDelDueno };
   // El resultado que hoy deja la tarjeta POR_REVISAR (el constructor no escribió la frase) hereda el sí.
@@ -1210,7 +1212,9 @@ prueba("el sí del dueño se hereda (27-oct-2026): vale aunque la tarea se recon
   assert.match(trabajo.porQueNoHeredaLaAprobacion({ ...tarea, esperaPor: "el cambio agrega un envío de mensaje en chats (espera el sí del dueño aunque el plan lo mencione)" }), /envío de mensaje/);
   assert.match(trabajo.porQueNoHeredaLaAprobacion({ ...tarea, esperaPor: "gasto en Meta Ads (daily_budget)" }), /gasto en Meta Ads/);
   assert.match(trabajo.porQueNoHeredaLaAprobacion({ ...tarea, plan: "RIESGO: ALTO\nGASTO EN META ADS: sube el presupuesto diario" }), /Meta Ads/);
-  assert.ok(trabajo.porQueNoHeredaLaAprobacion({ ...tarea, titulo: "Pagar la nómina de las asesoras", detalle: "Calcula la nómina y las comisiones." }));
+  // Un solo sí de verdad (1-nov-2026): con la TAREA aprobada a mano, que hable de dinero ya no frena; con sí solo al plan, sí.
+  assert.equal(trabajo.porQueNoHeredaLaAprobacion({ ...tarea, titulo: "Pagar la nómina de las asesoras", detalle: "Calcula la nómina y las comisiones." }), null);
+  assert.ok(trabajo.porQueNoHeredaLaAprobacion({ ...tarea, historial: [{ accion: "aprobar", despues: { via: "voz", momento: "plan" } }], titulo: "Pagar la nómina de las asesoras", detalle: "Calcula la nómina y las comisiones." }));
   assert.match(trabajo.porQueNoHeredaLaAprobacion({ ...tarea, migracionDestructiva: ["DROP"] }), /destructivos/);
   // destinoDelResultado: con la aprobación heredada sube aunque el Coordinador no lo dijera, pero nunca si no pasó o una zona pide el sí.
   const destino = (extra) => trabajo.destinoDelResultado({ paso: true, subeSolo: false, zonaProtegida: ["CHATS"], aprobacionHeredada: true, ...extra });
@@ -1224,6 +1228,56 @@ prueba("el sí del dueño se hereda (27-oct-2026): vale aunque la tarea se recon
   assert.equal(trabajo.esperaSoloPorLaPruebaExtra("falta la prueba de que no se mandan mensajes nuevos a clientes"), true);
   assert.equal(trabajo.esperaSoloPorLaPruebaExtra("falta la simulación V3 (✔ ...)"), false);
   assert.equal(trabajo.esperaSoloPorLaPruebaExtra(null), false);
+});
+
+prueba("un solo sí de verdad (1-nov-2026): sin «sí final»; solo el gasto en Meta Ads, el dinero sin sí humano, una zona que falló o una migración destructiva frenan", () => {
+  // Lo que pidió el plan: con paso y subeSolo, el dinero de Gestión ya no la deja esperando.
+  assert.equal(trabajo.destinoDelResultado({ paso: true, subeSolo: true, zonaProtegida: [], esperaPor: "Toca dinero en Gestión: saldos" }), "SUBIENDO");
+  const destino = (extra) => trabajo.destinoDelResultado({ paso: true, subeSolo: true, zonaProtegida: [], ...extra });
+  assert.equal(destino({ esperaPor: "Toca dinero en Gestión: saldos", tareaAprobadaPorElDueno: true }), "SUBIENDO");
+  assert.equal(destino({ esperaPor: "el plan supone una decisión de negocio: precios por cliente", tareaAprobadaPorElDueno: false }), "SUBIENDO", "un supuesto de negocio no frena");
+  // Dinero sin sí humano: espera.
+  assert.equal(destino({ esperaPor: "Toca dinero en Gestión: saldos", tareaAprobadaPorElDueno: false }), "POR_REVISAR");
+  // Meta Ads sin sí humano sigue en POR_REVISAR (y el gasto en Meta Ads espera aunque la tarea esté aprobada).
+  assert.equal(destino({ zonaProtegida: ["META_ADS"], esperaPor: "gasto en Meta Ads (daily_budget)", tareaAprobadaPorElDueno: false }), "POR_REVISAR");
+  assert.equal(destino({ zonaProtegida: ["META_ADS"], esperaPor: "gasto en Meta Ads (daily_budget)", tareaAprobadaPorElDueno: true }), "POR_REVISAR");
+  assert.equal(destino({ esperaPor: "el plan habla de presupuesto, de activar campañas o de gasto en Meta Ads" }), "POR_REVISAR");
+  // Una migración destructiva sigue sin subir (con o sin sí humano, con o sin aprobación heredada).
+  assert.equal(destino({ migracionDestructiva: ["DROP COLUMN saldo"], tareaAprobadaPorElDueno: true }), "POR_REVISAR");
+  assert.equal(destino({ subeSolo: false, aprobacionHeredada: true, migracionDestructiva: ["DROP"] }), "POR_REVISAR");
+  // Una prueba extra de zona que falló no sube (y CHATS / BOT_VENTAS siguen pasando a ERROR como hoy).
+  assert.equal(destino({ zonaProtegida: ["LIBRO_V3"], esperaPor: "falta la simulación V3 (✔ simulación V3: sin cambios fuera de lo pedido)", tareaAprobadaPorElDueno: true }), "POR_REVISAR");
+  assert.equal(destino({ zonaProtegida: ["CHATS"], esperaPor: "agrega un envío nuevo de mensaje a clientes en chats", tareaAprobadaPorElDueno: true }), "ERROR");
+  assert.equal(destino({ zonaProtegida: ["CHATS"], subeSolo: false, tareaAprobadaPorElDueno: true }), "ERROR");
+  // Las ayudas.
+  assert.equal(trabajo.esperaPorDinero("Toca dinero en Gestión: saldos"), true);
+  assert.equal(trabajo.esperaPorDinero("el cambio toca dinero (abonos, saldos, nómina, comisiones o facturación)"), true);
+  assert.equal(trabajo.esperaPorDinero("falta la simulación V3"), false);
+  assert.equal(trabajo.esperaPorGastoEnMetaAds("Gasto en META ADS"), true);
+  assert.equal(trabajo.esperaPorGastoEnMetaAds("Toca dinero en Gestión: saldos"), false);
+  assert.equal(trabajo.esperaFrenaLaSubida(null, false), false);
+  assert.equal(trabajo.esperaFrenaLaSubida("Toca dinero en Gestión: saldos", true), false);
+  assert.equal(trabajo.esperaFrenaLaSubida("Toca dinero en Gestión: saldos", false), true);
+  assert.equal(trabajo.esperaFrenaLaSubida("el cambio agrega un envío de mensaje que el plan no menciona", true), true);
+  assert.equal(trabajo.esperaFrenaLaSubida("falta el número de la versión anterior del libro V3 (para volver con v3_volver_a_version)", true), true);
+
+  // La herencia del sí: "el Coordinador dejó un motivo para esperar" ya no frena si hay sí humano.
+  const siALaTarea = [{ accion: "aprobar", despues: { via: "pantalla", momento: "tarea" } }];
+  const gestion = {
+    titulo: "Orden de fabricación con abonos",
+    detalle: "Mostrar los abonos y el saldo de la orden.",
+    plan: "RIESGO: ALTO\nAPROBAR PLAN: ESPERA TU SÍ (toca saldos en Gestión)\nArchivos: src/features/abonos/servicio.ts",
+    historial: siALaTarea,
+    esperaPor: "Toca dinero en Gestión: saldos",
+  };
+  assert.equal(trabajo.porQueNoHeredaLaAprobacion(gestion), null, "Gestión que toca dinero, con la tarea aprobada a mano, hereda el sí");
+  assert.equal(trabajo.porQueNoHeredaLaAprobacion({ ...gestion, esperaPor: "el plan supone una decisión de negocio: precios" }), null);
+  // Con sí solo al plan (no a la tarea), el dinero sigue esperando.
+  const soloPlan = [{ accion: "aprobar", despues: { via: "pantalla", momento: "plan" } }];
+  assert.match(trabajo.porQueNoHeredaLaAprobacion({ ...gestion, historial: soloPlan }), /motivo para esperar/);
+  assert.match(trabajo.porQueNoHeredaLaAprobacion({ ...gestion, esperaPor: "gasto en Meta Ads (daily_budget)" }), /gasto en Meta Ads/);
+  assert.match(trabajo.porQueNoHeredaLaAprobacion({ ...gestion, migracionDestructiva: ["DROP"] }), /destructivos/);
+  assert.match(trabajo.porQueNoHeredaLaAprobacion({ ...gestion, historial: [] }), /no hay un sí/);
 });
 
 await prueba("las 3 líneas del resumen: se recortan y se descartan si vienen vacías", () => {
@@ -2241,6 +2295,21 @@ prueba("inicialDeLaPersona: la inicial en mayúscula; '?' si no hay nombre", () 
       assert.ok(consulta.split(frase).length >= 3, "la frase está en el motivo y en la causa del intento");
       assert.match(consulta, /AS "motivo"/, "devuelve el motivo guardado para el historial");
     }
+  });
+
+  prueba("un solo sí de verdad (1-nov-2026): una SUBIENDO vencida por falta de señal y /arranque la dejan SUBIENDO pendiente, sin ERROR", () => {
+    const sql = cargar("src/features/tableros-inteligentes/services/sql-trabajador.ts");
+    // Ya no se excluye a SUBIENDO de las que vuelven a la fila.
+    assert.ok(!sql.SQL_PASAR_VENCIDAS_A_ERROR.includes(`v."antes" <> 'SUBIENDO'`), "la SUBIENDO también puede volver");
+    assert.ok(sql.SQL_PASAR_VENCIDAS_A_ERROR.includes(`(v."ini" IS NOT NULL AND v."vence" < v."ini" + make_interval(mins => v."tope") AND v."esperas" < $5::int) AS "vuelve"`));
+    // Vuelve a SUBIENDO (no a PLAN_APROBADO), con el candado vacío.
+    for (const consulta of [sql.SQL_PASAR_VENCIDAS_A_ERROR, sql.SQL_ARRANQUE]) {
+      assert.ok(consulta.includes(`WHEN 'SUBIENDO' THEN 'SUBIENDO'::"EstadoTarjeta"`), "una SUBIENDO vuelve a SUBIENDO");
+      assert.ok(consulta.includes(`"trabajoVenceEn" = NULL`), "sin candado");
+    }
+    // /arranque libera también las SUBIENDO y devuelve el estado en que quedaron.
+    assert.ok(sql.SQL_ARRANQUE.includes(`c."estado" IN ('PLANEANDO', 'EN_CURSO', 'SUBIENDO')`));
+    assert.match(sql.SQL_ARRANQUE, /SELECT "id", "tableroId", "antes", "estado" FROM sueltas/);
   });
 
   const AHORA = new Date("2026-10-26T20:00:00Z");

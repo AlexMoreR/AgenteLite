@@ -264,6 +264,70 @@ await prueba("rescate: una tarjeta POR_REVISAR que solo esperaba la prueba extra
   assert.equal(avisos.length, 1);
 });
 
+await prueba("un solo sí de verdad (1-nov-2026): al arrancar, el rescate pasa a SUBIENDO una POR_REVISAR que ya no tiene motivo para esperar", async () => {
+  const repo = { clave: "aizencrm", subirSolo: true, zonasQueSubenSolas: ["BOT_VENTAS", "META_ADS", "LIBRO_V3", "CHATS"], zonasProtegidas: { CHATS: ["src/chats/**"] } };
+  // Lo que ahora lista el CRM (/por-revisar): pasó build y pruebas, con sí humano y un motivo que ya no frena (dinero de una tarea aprobada).
+  const gestion = { id: "g1", titulo: "Orden de fabricación con abonos", repo: "aizencrm", plan: "Mostrar los abonos.", zonaProtegida: [], commit: "abc", base: "def", esperaPor: "Toca dinero en Gestión: saldos", aprobadaPorElDueno: true };
+  const sinMotivo = { ...gestion, id: "g2", titulo: "Sin motivo", esperaPor: null };
+  const llamadas = [];
+  const crm = { porRevisar: async () => ({ tarjetas: [gestion, sinMotivo] }), rescatar: async (id, datos) => llamadas.push([id, datos]) };
+  const rescatador = crearRescatador({
+    crm,
+    config: { repos: { aizencrm: repo } },
+    registro: { info: () => {}, aviso: (m) => assert.fail(m) },
+    diffDeLaRama: async () => ({ archivos: ["src/features/ordenes/abonos.ts"], diffDe: async () => "+export const x = 1;\n" }),
+    ahora: () => 1_000,
+  });
+  // Sin `forzar`: la primera vuelta corre enseguida (al arrancar), sin esperar los 3 minutos.
+  const primera = await rescatador.revisar();
+  assert.equal(primera.hizo, true);
+  assert.deepEqual(llamadas.map(([id, datos]) => [id, datos.sube]), [["g1", true], ["g2", true]]);
+  assert.match(llamadas[0][1].confirmacion, /sí del dueño ya dado/);
+});
+
+await prueba("un solo sí de verdad (1-nov-2026): SQL real en PGlite: una SUBIENDO vencida sin señal y /arranque la dejan SUBIENDO sin candado y sin ERROR", async () => {
+  const { PGlite } = await import("@electric-sql/pglite");
+  const sql = cargar("src/features/tableros-inteligentes/services/sql-trabajador.ts");
+  const db = new PGlite();
+  // Solo las tablas y columnas que usan estas dos consultas (como las crea Prisma).
+  await db.exec(`
+    CREATE TYPE "EstadoTarjeta" AS ENUM ('IDEA', 'POR_APROBAR', 'APROBADO', 'EN_CURSO', 'HECHO', 'FALLIDO', 'PLANEANDO', 'PLAN_LISTO', 'PLAN_APROBADO', 'POR_REVISAR', 'SUBIENDO', 'ERROR');
+    CREATE TABLE "TableroInteligente" ("id" text PRIMARY KEY, "workspaceId" text NOT NULL);
+    CREATE TABLE "TarjetaTablero" (
+      "id" text PRIMARY KEY, "tableroId" text NOT NULL, "estado" "EstadoTarjeta" NOT NULL, "borradoEn" timestamp(3),
+      "trabajoIniciadoEn" timestamp(3), "trabajoVenceEn" timestamp(3), "resultado" jsonb, "intentos" integer NOT NULL DEFAULT 0,
+      "actualizadoEn" timestamp(3) NOT NULL DEFAULT now());
+    CREATE TABLE "IntentoTarjeta" (
+      "id" text PRIMARY KEY, "tarjetaId" text NOT NULL, "numero" integer NOT NULL, "etapa" text NOT NULL, "categoria" text NOT NULL,
+      "causa" text NOT NULL, "error" text, "accion" text NOT NULL, "cuentaComoIntento" boolean NOT NULL, "creadoEn" timestamp(3) NOT NULL);
+    INSERT INTO "TableroInteligente" VALUES ('tab', 'ws');
+    -- Tomada a las 10:00 con candado hasta las 10:05 y sin latido después: venció por falta de señal (antes del tope de subir).
+    INSERT INTO "TarjetaTablero" ("id", "tableroId", "estado", "trabajoIniciadoEn", "trabajoVenceEn", "resultado", "intentos") VALUES
+      ('sube-sin-senal', 'tab', 'SUBIENDO', '2026-11-01 10:00:00', '2026-11-01 10:05:00', '{"rama":"tablero/x","subeSolo":true}', 1),
+      -- Venció por el tope de su etapa: sigue pasando a ERROR.
+      ('sube-por-tope', 'tab', 'SUBIENDO', '2026-11-01 07:00:00', '2026-11-01 10:05:00', NULL, 1);
+  `);
+  const vencidas = (await db.query(sql.SQL_PASAR_VENCIDAS_A_ERROR, ["ws", "2026-11-01T10:06:00.000Z", "sin respuesta", "2026-11-01T10:06:00.000Z", 5])).rows;
+  assert.deepEqual(vencidas.map((f) => [f.id, f.antes, f.estado]).sort(), [["sube-por-tope", "SUBIENDO", "ERROR"], ["sube-sin-senal", "SUBIENDO", "SUBIENDO"]]);
+  const [suelta] = (await db.query(`SELECT "estado", "trabajoVenceEn", "intentos", "resultado" FROM "TarjetaTablero" WHERE "id" = 'sube-sin-senal'`)).rows;
+  assert.equal(suelta.estado, "SUBIENDO");
+  assert.equal(suelta.trabajoVenceEn, null, "candado vacío: queda SUBIENDO pendiente");
+  assert.equal(suelta.intentos, 0, "no gasta el intento");
+  assert.equal(suelta.resultado.error, undefined, "sin ERROR");
+  const [intento] = (await db.query(`SELECT "etapa", "categoria", "accion", "cuentaComoIntento" FROM "IntentoTarjeta" WHERE "tarjetaId" = 'sube-sin-senal'`)).rows;
+  assert.deepEqual(intento, { etapa: "subir", categoria: "coordinador_cortado", accion: "esperar", cuentaComoIntento: false });
+
+  // /arranque: una SUBIENDO con candado (del proceso anterior) queda SUBIENDO sin candado, sin ERROR y sin gastar el intento.
+  await db.exec(`INSERT INTO "TarjetaTablero" ("id", "tableroId", "estado", "trabajoIniciadoEn", "trabajoVenceEn", "intentos") VALUES
+    ('ar-sube', 'tab', 'SUBIENDO', '2026-11-01 10:00:00', '2099-01-01 00:00:00', 1),
+    ('ar-obra', 'tab', 'EN_CURSO', '2026-11-01 10:00:00', '2099-01-01 00:00:00', 1)`);
+  const sueltas = (await db.query(sql.SQL_ARRANQUE, ["ws", "2026-11-01T10:10:00.000Z"])).rows;
+  assert.deepEqual(sueltas.map((f) => [f.id, f.antes, f.estado]).sort(), [["ar-obra", "EN_CURSO", "PLAN_APROBADO"], ["ar-sube", "SUBIENDO", "SUBIENDO"]]);
+  const [arranco] = (await db.query(`SELECT "estado", "trabajoVenceEn", "intentos", "resultado" FROM "TarjetaTablero" WHERE "id" = 'ar-sube'`)).rows;
+  assert.deepEqual([arranco.estado, arranco.trabajoVenceEn, arranco.intentos, arranco.resultado], ["SUBIENDO", null, 0, null]);
+  await db.close();
+});
+
 await prueba("zonas: globs simples y qué zonas toca un cambio", async () => {
   assert.ok(globARegex("src/bot/**").test("src/bot/a/b.ts"));
   assert.ok(globARegex("src/**/agente*.ts").test("src/agente-v3.ts"));
@@ -2824,7 +2888,13 @@ const servidor = http.createServer(async (pedido, respuesta) => {
   if (accion === "resultado") {
     tarjeta.resultado = reglas.resultadoDeEntrada(cuerpo);
     if (cuerpo.zonaProtegida) tarjeta.zonaProtegida = reglas.unirZonas(tarjeta.zonaProtegida, reglas.zonasDeEntrada(cuerpo.zonaProtegida));
-    tarjeta.estado = reglas.destinoDelResultado({ ...tarjeta.resultado, zonaProtegida: tarjeta.zonaProtegida });
+    // Como services/trabajador.ts (1-nov-2026): con `historial` (filas "aprobar"), el sí humano a la tarea y la herencia del sí.
+    const historial = tarjeta.historial ?? [];
+    const tareaAprobadaPorElDueno = tarjeta.historial ? reglas.tareaAprobadaPorElDuenoEnElHistorial(historial) : undefined;
+    const aprobacionHeredada =
+      Boolean(tarjeta.historial) && tarjeta.resultado.paso && !tarjeta.resultado.subeSolo &&
+      reglas.porQueNoHeredaLaAprobacion({ historial, titulo: tarjeta.titulo, detalle: tarjeta.detalle ?? "", plan: tarjeta.plan, esperaPor: tarjeta.resultado.esperaPor ?? null, migracionDestructiva: tarjeta.resultado.migracionDestructiva ?? null }) === null;
+    tarjeta.estado = reglas.destinoDelResultado({ ...tarjeta.resultado, zonaProtegida: tarjeta.zonaProtegida, aprobacionHeredada, tareaAprobadaPorElDueno });
   }
   if (accion === "subida") tarjeta.resultado = { ...tarjeta.resultado, subida: { commit: cuerpo.commit, version: cuerpo.version, linkCommit: cuerpo.linkCommit, ...(cuerpo.vigilancia ? { vigilancia: reglas.vigilanciaDeEntrada(cuerpo.vigilancia) } : {}), ...(cuerpo.resumenTres ? { resumenTres: reglas.resumenDeTresLineasDeEntrada(cuerpo.resumenTres) } : {}) } };
   if (accion === "error") {
@@ -2909,6 +2979,23 @@ const sinRestos = () => {
 };
 
 try {
+  await prueba("un solo sí de verdad (1-nov-2026): una tarjeta de Gestión que toca dinero, aprobada por el dueño, queda en SUBIENDO", async () => {
+    const plan = "RIESGO: ALTO\nAPROBAR PLAN: ESPERA TU SÍ (toca saldos en Gestión)\nArchivos: src/features/abonos/servicio.ts";
+    const extra = { repo: "gestion", plan, detalle: "Mostrar los abonos y el saldo de la orden.", venceEn: Date.now() + 60_000 };
+    const resultado = { resumen: "Orden de fabricación con abonos.", pruebas: "✔ build\n✔ pruebas", paso: true, subeSolo: false, esperaPor: "Toca dinero en Gestión: saldos", archivos: ["src/features/abonos/servicio.ts"], migracionDestructiva: [] };
+    // Con el sí humano a la TAREA: sube sola, sin otro sí.
+    const aprobada = nueva("Orden de fabricación con abonos", "EN_CURSO", { ...extra, historial: [{ accion: "aprobar", despues: { via: "pantalla", momento: "tarea" } }] });
+    assert.deepEqual(await crm.resultado(aprobada, resultado), { ok: true, estado: "SUBIENDO" });
+    // Sin sí humano (solo aprobaciones automáticas): el dinero sigue esperando en POR_REVISAR.
+    const sinSi = nueva("Orden de fabricación sin sí", "EN_CURSO", { ...extra, historial: [{ accion: "aprobar", despues: { via: "automatica", momento: "tarea" } }] });
+    assert.deepEqual(await crm.resultado(sinSi, resultado), { ok: true, estado: "POR_REVISAR" });
+    // Con migración destructiva no sube aunque esté aprobada.
+    const destructiva = nueva("Orden con DROP", "EN_CURSO", { ...extra, historial: [{ accion: "aprobar", despues: { via: "voz", momento: "tarea" } }] });
+    assert.deepEqual(await crm.resultado(destructiva, { ...resultado, migracionDestructiva: ["DROP COLUMN saldo"] }), { ok: true, estado: "POR_REVISAR" });
+    // Que no estorben a las pruebas que siguen (la SUBIENDO pendiente se tomaría primero).
+    for (const id of [aprobada, sinSi, destructiva]) tarjetas.delete(id);
+  });
+
   await prueba("sin nada aprobado: no hace nada", async () => {
     assert.deepEqual(await vuelta(), { hizo: null, motivo: "nada" });
   });
@@ -3374,7 +3461,9 @@ try {
     const id = nueva("Migración que borra [migracion-drop]", "PLAN_APROBADO", { plan: "El plan" });
     const resultado = await vuelta();
     assert.equal(resultado.ok, true, resultado.motivo);
-    const t = subeSoloYSeAparta(id);
+    // 1-nov-2026 (un solo sí de verdad): una migración destructiva nunca sube sola (destinoDelResultado): queda POR_REVISAR.
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "POR_REVISAR", t.resultado?.error?.motivo);
     assert.equal(t.resultado.paso, true);
     const enviado = llamadas.findLast((l) => l.accion === "resultado" && l.id === id).cuerpo;
     assert.deepEqual(enviado.migracionDestructiva.sort(), ["DROP", "UPDATE"], "el comentario con DELETE y el texto con TRUNCATE no cuentan");
@@ -3425,7 +3514,9 @@ try {
     const id = nueva("Con Actions [migracion-drop]", "PLAN_APROBADO", { plan: "El plan" });
     const resultado = await vuelta(crearConfig({}, delCi("buscar-rama", "esperar")));
     assert.equal(resultado.ok, true, resultado.motivo);
-    const t = subeSoloYSeAparta(id);
+    // Trae una migración con DROP: desde el 1-nov-2026 no sube sola, queda POR_REVISAR (destinoDelResultado).
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "POR_REVISAR", t.resultado?.error?.motivo);
     assert.match(t.resultado.pruebas, /^✔ verificado en GitHub Actions \(corrida 7001\)/);
     assert.ok(!fs.existsSync(MARCA_LOCAL), "aizen1 no corrió el build/tipos");
     assert.ok(!/lint sin errores nuevos/.test(t.resultado.pruebas), "el lint tampoco: lo hizo Actions");
