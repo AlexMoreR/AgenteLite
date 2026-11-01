@@ -29,7 +29,7 @@ const nuevaConfig = (extra = {}) =>
     urlCrm: "https://crm.ejemplo.com",
     claveTrabajador: "aizen_trab_x",
     carpetaTrabajo: path.join(T, `trabajo${numero++}`),
-    repos: { aizencrm: { ruta: T, ramaBase: "main", remoto: "origin", verificar: [["true"]] } },
+    repos: { aizencrm: { ruta: T, subirSolo: false, ramaBase: "main", remoto: "origin", verificar: [["true"]] } },
     ...extra,
   });
 const texto = (sesion, semana = 6) =>

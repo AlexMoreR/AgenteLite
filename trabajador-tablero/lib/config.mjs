@@ -275,7 +275,8 @@ export function completarConfig(datos, base = process.cwd()) {
       continue;
     }
     const zonasProtegidas = repo.zonasProtegidas && typeof repo.zonasProtegidas === "object" ? repo.zonasProtegidas : {};
-    const subirSolo = repo.subirSolo === true;
+    // 1-nov-2026 (un solo sí de verdad): sin la clave, el repositorio sube solo; solo `false` explícito lo apaga.
+    const subirSolo = repo.subirSolo !== false;
     // Dónde se CONSTRUYE este proyecto (29-oct-2026): "aizen1" lo saca de la nube aunque nube.todoEnLaNube esté prendido
     // (Gestión: las sesiones de la nube arrancan sin el repo conectado y no pueden subir). Por defecto, como diga nube.
     if (repo.construirEn !== undefined && !["nube", "aizen1"].includes(repo.construirEn)) {

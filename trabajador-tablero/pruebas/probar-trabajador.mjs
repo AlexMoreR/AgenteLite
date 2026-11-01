@@ -327,8 +327,9 @@ await prueba("agentes: el prompt del plan, de construir y de la nube empieza con
 });
 
 await prueba("agentes: la configuración inválida del agente da error, la válida se completa y un proyecto apagado no cuenta", async () => {
-  const base = { urlCrm: "https://app.aizenbot.com", claveTrabajador: "aizen_trab_x", repos: { aizencrm: { ruta: "." } } };
-  const con = (agente) => ({ ...base, repos: { aizencrm: { ruta: ".", agente } } });
+  // 1-nov-2026: sin `subirSolo` el repo sube solo y aizencrm pide la zona CHATS; acá se prueba solo el agente.
+  const base = { urlCrm: "https://app.aizenbot.com", claveTrabajador: "aizen_trab_x", repos: { aizencrm: { ruta: ".", subirSolo: false } } };
+  const con = (agente) => ({ ...base, repos: { aizencrm: { ruta: ".", subirSolo: false, agente } } });
   assert.throws(() => completarConfig(con({ maxEnParalelo: 0 })), /agente\.maxEnParalelo/);
   assert.throws(() => completarConfig(con({ maxEnParalelo: 9 })), /agente\.maxEnParalelo/);
   assert.throws(() => completarConfig(con({ maxEnParalelo: 1.5 })), /agente\.maxEnParalelo/);
@@ -344,9 +345,9 @@ await prueba("agentes: la configuración inválida del agente da error, la váli
   const completa = completarConfig(ejemplo);
   assert.ok(!("marketing" in completa.repos));
   assert.deepEqual(Object.values(completa.repos).map((r) => [r.clave, r.agente.nombre, r.agente.maxEnParalelo]), [["aizencrm", "Agente CRM", 5], ["gestion", "Agente Gestión", 3], ["messenger-basic", "Agente Marketplace (NETMAGI)", 1]], "parte 4: el agente cabe en sus puestos de aizen1 + nube (CRM 2 + 3, Gestión 1 + 2)");
-  assert.doesNotThrow(() => completarConfig({ ...base, repos: { aizencrm: { ruta: "." }, marketing: { activo: false } } }));
+  assert.doesNotThrow(() => completarConfig({ ...base, repos: { aizencrm: { ruta: ".", subirSolo: false }, marketing: { activo: false } } }));
   // Prendido, el mismo bloque se completa como los demás.
-  assert.ok("marketing" in completarConfig({ ...base, repos: { aizencrm: { ruta: "." }, marketing: { ...ejemplo.repos.marketing, activo: true } } }).repos);
+  assert.ok("marketing" in completarConfig({ ...base, repos: { aizencrm: { ruta: ".", subirSolo: false }, marketing: { ...ejemplo.repos.marketing, activo: true } } }).repos);
 });
 
 await prueba("latido: se manda al CRM; si el CRM falla, no lanza, avisa una sola vez y nunca hay dos en vuelo", async () => {
@@ -478,7 +479,7 @@ await prueba("configuración: exige https, la clave y un repo; agrega las herram
   const config = completarConfig({
     urlCrm: "https://app.aizenbot.com/",
     claveTrabajador: "aizen_trab_x",
-    repos: { aizencrm: { ruta: "." } },
+    repos: { aizencrm: { subirSolo: false, ruta: "." } },
     herramientasProhibidas: ["Bash(rm:*)"],
   });
   assert.equal(config.urlCrm, "https://app.aizenbot.com");
@@ -488,7 +489,7 @@ await prueba("configuración: exige https, la clave y un repo; agrega las herram
 });
 
 await prueba("configuración: maxParalelo 2 si no viene (de 1 a 5), límites de CPU y memoria, subagentes permitidos", async () => {
-  const base = { urlCrm: "https://app.aizenbot.com", claveTrabajador: "aizen_trab_x", repos: { aizencrm: { ruta: "." } } };
+  const base = { urlCrm: "https://app.aizenbot.com", claveTrabajador: "aizen_trab_x", repos: { aizencrm: { subirSolo: false, ruta: "." } } };
   const config = completarConfig(base);
   assert.equal(config.maxParalelo, 2);
   assert.deepEqual(config.limites, { cpuPorciento: 85, memoriaPorciento: 85, esperaMaximaMinutos: 10, cpuPromedioMinutos: 3 });
@@ -523,7 +524,7 @@ await prueba("nube: la configuración de ejemplo trae aizen1 con 2, la nube pren
   assert.deepEqual(Object.keys(config.nube.entorno).sort(), ["DATABASE_URL", "DIRECT_URL"]);
   for (const valor of Object.values(config.nube.entorno)) assert.match(valor, /no-usar@127\.0\.0\.1:1/);
   // Sin `nube` ni `maxParalelo` en la configuración: aizen1 2 y la nube prendida por defecto.
-  const sinNada = completarConfig({ urlCrm: "https://app.aizenbot.com", claveTrabajador: "aizen_trab_x", repos: { aizencrm: { ruta: "." } } });
+  const sinNada = completarConfig({ urlCrm: "https://app.aizenbot.com", claveTrabajador: "aizen_trab_x", repos: { aizencrm: { subirSolo: false, ruta: "." } } });
   assert.equal(sinNada.maxParalelo, 2);
   assert.equal(sinNada.nube.activa, true);
   assert.equal(sinNada.tiempos.construirNubeMinutos, 178);
@@ -532,7 +533,7 @@ await prueba("nube: la configuración de ejemplo trae aizen1 con 2, la nube pren
 });
 
 await prueba("nube: la configuración no deja pasar de 12 entre aizen1 y la nube; la verificación de lo que vuelve hace fila con un semáforo", async () => {
-  const base = { urlCrm: "https://app.aizenbot.com", claveTrabajador: "aizen_trab_x", repos: { aizencrm: { ruta: "." } } };
+  const base = { urlCrm: "https://app.aizenbot.com", claveTrabajador: "aizen_trab_x", repos: { aizencrm: { subirSolo: false, ruta: "." } } };
   assert.throws(() => completarConfig({ ...base, maxParalelo: 5, nube: { maxTareas: 8 } }), /no pueden pasar de 12/);
   assert.equal(completarConfig({ ...base, maxParalelo: 5, nube: { maxTareas: 7 } }).nube.maxTareas, 7);
   assert.equal(completarConfig({ ...base, maxParalelo: 5, nube: { activa: false, maxTareas: 8 } }).nube.activa, false, "apagada no se mide");
@@ -586,7 +587,7 @@ const configDeCupos = (extra = {}) =>
     vigilarUsoMinutos: 0,
     maxParalelo: 3,
     nube: { activa: true, maxTareas: 2, todoEnLaNube: true },
-    repos: { aizencrm: { ruta: ".", cuposAizen1: 2 }, gestion: { ruta: ".", cuposAizen1: 1 } },
+    repos: { aizencrm: { subirSolo: false, ruta: ".", cuposAizen1: 2 }, gestion: { ruta: ".", cuposAizen1: 1 } },
     ...extra,
   });
 /**
@@ -635,11 +636,11 @@ await prueba("cupos (d): repos.<repo>.cuposNube vale 1 sin la clave, null no pon
   const config = configDeCupos();
   assert.equal(config.repos.aizencrm.cuposNube, 1, "sin la clave vale 1");
   assert.equal(config.repos.gestion.cuposNube, 1);
-  assert.equal(configDeCupos({ repos: { aizencrm: { ruta: ".", cuposNube: null } } }).repos.aizencrm.cuposNube, null, "null = sin tope propio");
-  assert.equal(configDeCupos({ nube: { activa: true, maxTareas: 8 }, repos: { aizencrm: { ruta: ".", cuposNube: 3 }, gestion: { ruta: ".", cuposNube: 2 } } }).repos.aizencrm.cuposNube, 3);
-  assert.throws(() => configDeCupos({ repos: { aizencrm: { ruta: ".", cuposNube: 2 }, gestion: { ruta: ".", cuposNube: 1 } } }), /cuposNube suman 3 .*nube\.maxTareas \(2\)/);
-  assert.throws(() => configDeCupos({ repos: { aizencrm: { ruta: ".", cuposNube: 0 } } }), /repos\.aizencrm\.cuposNube/);
-  assert.throws(() => configDeCupos({ repos: { aizencrm: { ruta: ".", cuposNube: "dos" } } }), /repos\.aizencrm\.cuposNube/);
+  assert.equal(configDeCupos({ repos: { aizencrm: { subirSolo: false, ruta: ".", cuposNube: null } } }).repos.aizencrm.cuposNube, null, "null = sin tope propio");
+  assert.equal(configDeCupos({ nube: { activa: true, maxTareas: 8 }, repos: { aizencrm: { subirSolo: false, ruta: ".", cuposNube: 3 }, gestion: { ruta: ".", cuposNube: 2 } } }).repos.aizencrm.cuposNube, 3);
+  assert.throws(() => configDeCupos({ repos: { aizencrm: { subirSolo: false, ruta: ".", cuposNube: 2 }, gestion: { ruta: ".", cuposNube: 1 } } }), /cuposNube suman 3 .*nube\.maxTareas \(2\)/);
+  assert.throws(() => configDeCupos({ repos: { aizencrm: { subirSolo: false, ruta: ".", cuposNube: 0 } } }), /repos\.aizencrm\.cuposNube/);
+  assert.throws(() => configDeCupos({ repos: { aizencrm: { subirSolo: false, ruta: ".", cuposNube: "dos" } } }), /repos\.aizencrm\.cuposNube/);
   const ejemplo = completarConfig(JSON.parse(fs.readFileSync(path.join(AQUI, "..", "config.example.json"), "utf8")));
   assert.equal(ejemplo.repos.aizencrm.cuposNube, 3, "parte 4: el ejemplo trae el CRM con 3");
   assert.equal(ejemplo.repos.gestion.cuposNube, 2, "y Gestión con 2");
@@ -873,7 +874,7 @@ await prueba("cupos (e): esperando la versión nueva solo se toman tarjetas para
 const configParte4 = (extraCrm = {}, extraGestion = {}) =>
   configDeCupos({
     nube: { activa: true, maxTareas: 8, todoEnLaNube: true },
-    repos: { aizencrm: { ruta: ".", cuposAizen1: 2, cuposNube: 3, ...extraCrm }, gestion: { ruta: ".", cuposAizen1: 1, cuposNube: 2, ...extraGestion } },
+    repos: { aizencrm: { subirSolo: false, ruta: ".", cuposAizen1: 2, cuposNube: 3, ...extraCrm }, gestion: { ruta: ".", cuposAizen1: 1, cuposNube: 2, ...extraGestion } },
   });
 const DIA = 24 * 60 * 60_000;
 
@@ -1741,7 +1742,7 @@ await prueba("29-oct: la nube deja 'inicio:' y, si pregunta, 'pregunta:'; espera
     delete process.env.GH_COMMITS_PRUEBA;
   }
   // La configuración: sinSenalMinutos por defecto 20, validado y nunca más que la espera.
-  const base = { urlCrm: "https://crm.test", claveTrabajador: "aizen_trab_x", carpetaTrabajo: os.tmpdir(), repos: { aizencrm: { ruta: AQUI } } };
+  const base = { urlCrm: "https://crm.test", claveTrabajador: "aizen_trab_x", carpetaTrabajo: os.tmpdir(), repos: { aizencrm: { subirSolo: false, ruta: AQUI } } };
   assert.equal(completarConfig(base).nube.sinSenalMinutos, 20);
   assert.equal(completarConfig({ ...base, nube: { esperaMinutos: 10, sinSenalMinutos: 30 } }).nube.sinSenalMinutos, 10);
   assert.throws(() => completarConfig({ ...base, nube: { sinSenalMinutos: 0 } }), /nube\.sinSenalMinutos/);
@@ -1842,7 +1843,7 @@ await prueba("29-oct revisión: veredictos, pantallas, 'resultado:' con y sin re
   const sinRevision = promptDeNube(tarjeta, { clave: "aizencrm" }, "tablero/abc", { revision: false });
   assert.ok(!/REVISIÓN \(obligatoria|revision=/.test(sinRevision), "con la revisión apagada la nube no la hace");
   // La configuración: prendida y 2 vueltas por defecto; validada.
-  const base = { urlCrm: "https://crm.test", claveTrabajador: "aizen_trab_x", carpetaTrabajo: os.tmpdir(), repos: { aizencrm: { ruta: AQUI } } };
+  const base = { urlCrm: "https://crm.test", claveTrabajador: "aizen_trab_x", carpetaTrabajo: os.tmpdir(), repos: { aizencrm: { subirSolo: false, ruta: AQUI } } };
   assert.deepEqual(completarConfig(base).revision, { activa: true, vueltas: 2 });
   assert.deepEqual(completarConfig({ ...base, revision: { activa: false } }).revision, { activa: false, vueltas: 2 });
   assert.throws(() => completarConfig({ ...base, revision: { vueltas: 3 } }), /revision\.vueltas/);
@@ -2152,7 +2153,7 @@ await prueba("límite de Codex: se reconoce el aviso de ChatGPT (y no cualquier 
 });
 
 await prueba("motores: por defecto todo Claude (Opus planea, Sonnet construye y revisa); con Codex: Claude alto -> Codex solo con respaldoCodex; Codex agotado -> espera (o Claude con respaldo)", async () => {
-  const base = { urlCrm: "https://app.aizenbot.com", claveTrabajador: "aizen_trab_x", repos: { aizencrm: { ruta: "." } } };
+  const base = { urlCrm: "https://app.aizenbot.com", claveTrabajador: "aizen_trab_x", repos: { aizencrm: { subirSolo: false, ruta: "." } } };
   const porDefecto = completarConfig(base);
   assert.deepEqual(porDefecto.motores, { planear: "claude", construir: "claude", revisar: "claude", respaldoClaude: false, respaldoCodex: false });
   // 29-oct-2026: el revisor de seguridad va en Opus (revisarSeguridad) y `desde` (cambios con fecha) viene vacío.
@@ -2320,7 +2321,7 @@ await prueba("manual de la noche: hora, un solo intento al día, sin notas, con 
       carpetaTrabajo: path.join(N, "trabajo"),
       comandoClaude: [process.execPath, path.join(AQUI, "claude-falso.mjs")],
       git: { nombre: "Trabajador de prueba", correo: "trabajador@x.co" },
-      repos: { aizencrm: { ruta: repoDir, ramaBase: "main", remoto: "origin" } },
+      repos: { aizencrm: { subirSolo: false, ruta: repoDir, ramaBase: "main", remoto: "origin" } },
     };
     const config = completarConfig(base);
     assert.deepEqual(config.manual, { activo: true, hora: 23, repo: "aizencrm" }, "por defecto: prendido, 23 h, aizencrm");
@@ -2888,6 +2889,18 @@ const crm = crearCrm(config);
 const vuelta = (otraConfig = config) => unaVuelta({ crm, config: otraConfig, registro });
 const leerLog = (archivoLog) =>
   fs.existsSync(archivoLog) ? fs.readFileSync(archivoLog, "utf8").trim().split(/\r?\n/).filter(Boolean).map((linea) => JSON.parse(linea)) : [];
+/**
+ * 1-nov-2026 (un solo sí de verdad): sin `subirSolo` el repo sube solo, así que lo que antes quedaba POR_REVISAR esperando el sí
+ * ahora pasa a SUBIENDO. Las pruebas que solo miran construir lo comprueban y la apartan (POR_REVISAR, como quedaba antes) para
+ * que la siguiente vuelta no la tome a subir antes que lo suyo.
+ */
+const subeSoloYSeAparta = (id) => {
+  const t = tarjetas.get(id);
+  assert.equal(t.estado, "SUBIENDO", t.resultado?.error?.motivo);
+  assert.equal(t.resultado.subeSolo, true);
+  t.estado = "POR_REVISAR";
+  return t;
+};
 const sinRestos = () => {
   const worktrees = g(REPO, "worktree", "list", "--porcelain").split(/\r?\n/).filter((linea) => linea.startsWith("worktree "));
   assert.equal(worktrees.length, 1, `quedaron worktrees: ${worktrees.join(", ")}`);
@@ -2928,13 +2941,16 @@ try {
     sinRestos();
   });
 
-  await prueba("PLAN_APROBADO -> EN_CURSO -> POR_REVISAR: construye, verifica, ensaya la migración y empuja SOLO la rama", async () => {
+  await prueba("PLAN_APROBADO -> EN_CURSO -> SUBIENDO: construye, verifica, ensaya la migración y empuja SOLO la rama (sin subirSolo, sube solo)", async () => {
     tarjetas.get(feliz).estado = "PLAN_APROBADO"; // el dueño aprobó el plan
     const resultado = await vuelta();
     assert.equal(resultado.hizo, "construir");
     assert.equal(resultado.ok, true, resultado.motivo);
     const t = tarjetas.get(feliz);
-    assert.equal(t.estado, "POR_REVISAR");
+    // 1-nov-2026: el repo de la prueba no dice subirSolo: sube solo (ya no espera el sí final).
+    assert.equal(t.estado, "SUBIENDO");
+    assert.equal(t.resultado.subeSolo, true);
+    assert.match(t.resultado.resumen, /Al terminar: construido, sube solo\./);
     const rama = `tablero/${feliz.slice(-8)}-agregar-tabla-nueva-migracion`;
     assert.equal(t.resultado.rama, rama);
     assert.equal(t.resultado.paso, true);
@@ -3039,7 +3055,7 @@ try {
   const reiniciarLogs = () => fs.rmSync(conteoLogs, { force: true });
 
   await prueba("configuración: la vigilancia trae maxSubidaDeEnvios 1.5 y minEnviosParaComparar 5; un valor que no sirve usa el de por defecto", async () => {
-    const con = (vigilancia) => completarConfig({ ...config, repos: { aizencrm: { ruta: REPO, vigilancia } } }).repos.aizencrm.vigilancia;
+    const con = (vigilancia) => completarConfig({ ...config, repos: { aizencrm: { subirSolo: false, ruta: REPO, vigilancia } } }).repos.aizencrm.vigilancia;
     assert.equal(con({}).maxSubidaDeEnvios, 1.5);
     assert.equal(con({}).minEnviosParaComparar, 5);
     assert.equal(con({ maxSubidaDeEnvios: 2, minEnviosParaComparar: 10 }).maxSubidaDeEnvios, 2);
@@ -3358,8 +3374,7 @@ try {
     const id = nueva("Migración que borra [migracion-drop]", "PLAN_APROBADO", { plan: "El plan" });
     const resultado = await vuelta();
     assert.equal(resultado.ok, true, resultado.motivo);
-    const t = tarjetas.get(id);
-    assert.equal(t.estado, "POR_REVISAR");
+    const t = subeSoloYSeAparta(id);
     assert.equal(t.resultado.paso, true);
     const enviado = llamadas.findLast((l) => l.accion === "resultado" && l.id === id).cuerpo;
     assert.deepEqual(enviado.migracionDestructiva.sort(), ["DROP", "UPDATE"], "el comentario con DELETE y el texto con TRUNCATE no cuentan");
@@ -3371,6 +3386,7 @@ try {
   await prueba("riesgo: sin migración, migracionDestructiva es [] y archivos trae lo que cambió", async () => {
     const id = nueva("Cambio chico sin migración", "PLAN_APROBADO", { plan: "El plan" });
     assert.equal((await vuelta()).ok, true);
+    subeSoloYSeAparta(id);
     const enviado = llamadas.findLast((l) => l.accion === "resultado" && l.id === id).cuerpo;
     assert.deepEqual(enviado.migracionDestructiva, []);
     assert.equal(enviado.archivos.length, 1);
@@ -3409,8 +3425,7 @@ try {
     const id = nueva("Con Actions [migracion-drop]", "PLAN_APROBADO", { plan: "El plan" });
     const resultado = await vuelta(crearConfig({}, delCi("buscar-rama", "esperar")));
     assert.equal(resultado.ok, true, resultado.motivo);
-    const t = tarjetas.get(id);
-    assert.equal(t.estado, "POR_REVISAR");
+    const t = subeSoloYSeAparta(id);
     assert.match(t.resultado.pruebas, /^✔ verificado en GitHub Actions \(corrida 7001\)/);
     assert.ok(!fs.existsSync(MARCA_LOCAL), "aizen1 no corrió el build/tipos");
     assert.ok(!/lint sin errores nuevos/.test(t.resultado.pruebas), "el lint tampoco: lo hizo Actions");
@@ -3448,8 +3463,7 @@ try {
     const id = nueva("Sin Actions", "PLAN_APROBADO", { plan: "El plan" });
     const resultado = await vuelta(crearConfig({}, delCi("buscar-nada", "esperar", { minutos: 0.03 })));
     assert.equal(resultado.ok, true, resultado.motivo);
-    const t = tarjetas.get(id);
-    assert.equal(t.estado, "POR_REVISAR");
+    const t = subeSoloYSeAparta(id);
     assert.match(t.resultado.pruebas, /^⚠ Actions no respondió en 0\.03 min: se compiló en aizen1/);
     assert.ok(fs.existsSync(MARCA_LOCAL), "aizen1 sí compiló");
     assert.match(t.resultado.pruebas, /lint sin errores nuevos/, "y midió el lint de main para comparar");
@@ -3464,9 +3478,137 @@ try {
     const id = nueva("Con Actions apagado", "PLAN_APROBADO", { plan: "El plan" });
     const resultado = await vuelta(crearConfig({}, delCi("buscar-rama", "esperar", { activo: false })));
     assert.equal(resultado.ok, true, resultado.motivo);
+    subeSoloYSeAparta(id);
     assert.ok(fs.existsSync(MARCA_LOCAL));
     assert.equal(leerLog(LOGS.gh).length, ghAntes, "no consultó a gh");
     assert.ok(!/GitHub Actions/.test(tarjetas.get(id).resultado.pruebas));
+    sinRestos();
+  });
+
+  /* ── Un solo sí de verdad, parte 1 (1-nov-2026): subida que se puede repetir sin daño y subirSolo por defecto ── */
+
+  /** Una rama tablero/… en el remoto con un archivo nuevo, hecha encima del main de ahora. -> { rama, commit, base } */
+  const ramaEnElRemoto = (nombre, relativo, texto) => {
+    g(REPO, "pull", "--quiet", "--ff-only", "origin", "main");
+    const base = g(REPO, "rev-parse", "HEAD");
+    const rama = `tablero/${nombre}`;
+    g(REPO, "checkout", "--quiet", "-b", rama);
+    archivo(relativo, texto);
+    g(REPO, "add", "-A");
+    g(REPO, "commit", "--quiet", "-m", `cambio de ${nombre}`);
+    g(REPO, "push", "--quiet", "origin", rama);
+    const commit = g(REPO, "rev-parse", "HEAD");
+    g(REPO, "checkout", "--quiet", "main");
+    g(REPO, "branch", "--quiet", "-D", rama);
+    return { rama, commit, base };
+  };
+  /** main avanza con un commit ajeno a la tarea (en la copia REPO, que queda en ese main). */
+  const cambiarMainAntes = async (relativo, texto) => {
+    g(REPO, "pull", "--quiet", "--ff-only", "origin", "main");
+    archivo(relativo, texto);
+    g(REPO, "add", "-A");
+    g(REPO, "commit", "--quiet", "-m", `main cambia ${relativo}`);
+    g(REPO, "push", "--quiet", "origin", "main");
+  };
+  /** ¿El registro del Coordinador dice que la rama ya estaba en main (y no se empujó)? */
+  const dijoYaEnMain = (rama) => {
+    const logs = path.join(T, "trabajo", "logs");
+    const texto = fs.readdirSync(logs).map((nombre) => fs.readFileSync(path.join(logs, nombre), "utf8")).join("\n");
+    return texto.includes(`la rama ${rama} ya estaba en main`);
+  };
+  const pushesDesde = (desde) => leerLog(LOGS.gh).slice(desde).filter((l) => l.accion === "buscar").map((l) => l.valor);
+
+  await prueba("subir con la rama YA en main (tal cual): no empuja, espera el CI y la versión de ese commit y cierra en HECHO", async () => {
+    const { rama, commit, base } = ramaEnElRemoto("ya-en-main-tal-cual", "ya-en-main-1.txt", "uno\n");
+    // Un intento anterior la subió a main (fast-forward) y se cayó antes de cerrar la tarjeta.
+    execFileSync("git", ["--git-dir", REMOTO, "update-ref", "refs/heads/main", commit]);
+    const mainAhora = shaDe("main");
+    const ghAntes = leerLog(LOGS.gh).length;
+    const id = nueva("Ya estaba en main tal cual", "SUBIENDO", { plan: "El plan", resultado: { paso: true, rama, commit, base, subeSolo: true } });
+    const resultado = await vuelta();
+    assert.equal(resultado.hizo, "subir");
+    assert.equal(resultado.ok, true, resultado.motivo);
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "HECHO", t.resultado?.error?.motivo);
+    assert.equal(shaDe("main"), mainAhora, "no empujó nada a main");
+    assert.equal(t.resultado.subida.commit, commit, "el commit de main que contiene la rama");
+    assert.ok(dijoYaEnMain(rama), "tomó el camino de 'ya estaba en main'");
+    assert.deepEqual(pushesDesde(ghAntes), [commit], "esperó el CI de ese commit (gh falso con CI ok)");
+    assert.equal(g(REPO, "ls-remote", "origin", "refs/heads/main").split(/\s+/)[0], mainAhora);
+    sinRestos();
+  });
+
+  await prueba("subir con la rama YA en main (con otro sha, por rebase): no empuja y espera el commit equivalente de main", async () => {
+    const { rama, commit, base } = ramaEnElRemoto("ya-en-main-rebase", "ya-en-main-2.txt", "dos\n");
+    // main avanzó y después se le aplicó el mismo cambio con otro sha (rebase de un intento anterior).
+    await cambiarMainAntes("otro-de-main.txt", "otro\n");
+    g(REPO, "cherry-pick", commit);
+    g(REPO, "push", "--quiet", "origin", "main");
+    const equivalente = shaDe("main");
+    assert.notEqual(equivalente, commit);
+    const ghAntes = leerLog(LOGS.gh).length;
+    const id = nueva("Ya estaba en main por rebase", "SUBIENDO", { plan: "El plan", resultado: { paso: true, rama, commit, base, subeSolo: true } });
+    const resultado = await vuelta();
+    assert.equal(resultado.ok, true, resultado.motivo);
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "HECHO", t.resultado?.error?.motivo);
+    assert.equal(shaDe("main"), equivalente, "no empujó nada a main");
+    assert.equal(t.resultado.subida.commit, equivalente);
+    assert.ok(dijoYaEnMain(rama), "tomó el camino de 'ya estaba en main'");
+    assert.deepEqual(pushesDesde(ghAntes), [equivalente]);
+    sinRestos();
+  });
+
+  await prueba("subir con la rama YA en main y el despliegue falla: se deshace solo ese cambio con un commit nuevo (sin force)", async () => {
+    const { rama, commit, base } = ramaEnElRemoto("ya-en-main-falla", "ya-en-main-3.txt", "tres\n");
+    await cambiarMainAntes("otro-de-main-2.txt", "otro 2\n");
+    g(REPO, "cherry-pick", commit);
+    g(REPO, "push", "--quiet", "origin", "main");
+    const equivalente = shaDe("main");
+    const id = nueva("Ya estaba en main y falla", "SUBIENDO", { plan: "El plan", resultado: { paso: true, rama, commit, base, subeSolo: true } });
+    const conCiQueFalla = crearConfig({}, { subida: { ...config.repos.aizencrm.subida, ciEsperar: [node, falso("gh-falso.mjs"), "esperar-falla", "{run}"] } });
+    const resultado = await vuelta(conCiQueFalla);
+    assert.equal(resultado.ok, false);
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "ERROR");
+    assert.match(t.resultado.error.motivo, /se deshizo/);
+    // El revert va encima de main (no reescribe) y solo quita el archivo de la tarea; lo otro de main queda.
+    assert.equal(execFileSync("git", ["--git-dir", REMOTO, "rev-parse", "main~1"], { encoding: "utf8" }).trim(), equivalente);
+    assert.match(execFileSync("git", ["--git-dir", REMOTO, "log", "-1", "--format=%s", "main"], { encoding: "utf8" }), /^revert: deshacer /);
+    const arbol = execFileSync("git", ["--git-dir", REMOTO, "ls-tree", "--name-only", "main"], { encoding: "utf8" });
+    assert.ok(!/^ya-en-main-3\.txt$/m.test(arbol), "se quitó lo de la tarea");
+    assert.ok(/^otro-de-main-2\.txt$/m.test(arbol), "lo ajeno de main sigue");
+    sinRestos();
+  });
+
+  await prueba("subirSolo por defecto: sin la clave el repo sube solo; el plan ya no dice que el Coordinador no sube solo", async () => {
+    const base = { urlCrm: "https://app.aizenbot.com", claveTrabajador: "aizen_trab_x" };
+    assert.equal(completarConfig({ ...base, repos: { gestion: { ruta: "." } } }).repos.gestion.subirSolo, true);
+    assert.equal(completarConfig({ ...base, repos: { gestion: { ruta: ".", subirSolo: false } } }).repos.gestion.subirSolo, false);
+    // aizencrm sigue pidiendo la zona CHATS para subir solo (ahora también sin la clave).
+    assert.throws(() => completarConfig({ ...base, repos: { aizencrm: { ruta: "." } } }), /falta la zona CHATS/);
+    const tarjeta = { id: "t1", titulo: "Algo", detalle: "", plan: "El plan", zonasAprobadas: [] };
+    assert.ok(!/todavía no sube solo/.test(promptDeConstruir(tarjeta, { clave: "gestion", ruta: "." }, "tablero/x")));
+    // Una tarjeta construida con un repo sin subirSolo: el resultado dice subeSolo=true.
+    const id = nueva("Sin subirSolo sube solo", "PLAN_APROBADO", { plan: "El plan" });
+    assert.equal((await vuelta()).ok, true);
+    const enviado = llamadas.findLast((l) => l.accion === "resultado" && l.id === id).cuerpo;
+    assert.equal(enviado.subeSolo, true);
+    assert.equal(enviado.paso, true);
+    subeSoloYSeAparta(id);
+    sinRestos();
+  });
+
+  await prueba("subirSolo: false explícito: la rama queda empujada y la tarjeta va a ERROR con su motivo (no 'espera tu sí')", async () => {
+    const id = nueva("Repo que no sube solo", "PLAN_APROBADO", { plan: "El plan" });
+    const resultado = await vuelta(crearConfig({}, { subirSolo: false }));
+    assert.equal(resultado.ok, false);
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "ERROR");
+    assert.match(t.resultado.error.motivo, /No sube: el repositorio aizencrm tiene subirSolo: false/);
+    assert.ok(!/espera tu sí/.test(t.resultado.error.motivo));
+    assert.ok(!llamadas.some((l) => l.accion === "resultado" && l.id === id), "no manda un resultado que quede esperando");
+    assert.ok(ramasDelRemoto().some((r) => r.startsWith(`tablero/${id.slice(-8)}-`)), "la rama quedó empujada");
     sinRestos();
   });
 
@@ -3480,7 +3622,7 @@ try {
   await prueba("ERROR al subir si la rama choca con main (conflicto): main no cambia", async () => {
     const id = nueva("Tocar el archivo compartido [conflicto]", "PLAN_APROBADO", { plan: "El plan" });
     assert.equal((await vuelta()).ok, true);
-    assert.equal(tarjetas.get(id).estado, "POR_REVISAR");
+    subeSoloYSeAparta(id);
     // Mientras tanto alguien cambió lo mismo en main (la copia del repo no la tocó el trabajador: está atrás).
     g(REPO, "pull", "--ff-only", "origin", "main");
     archivo("conflicto.txt", "lo nuevo de main\n");
@@ -3499,7 +3641,7 @@ try {
   await prueba("31-oct: al subir con la rama atrás de main y un conflicto simple, Claude lo junta solo y termina en HECHO (sin /error ni reparaciones)", async () => {
     const id = nueva("Tocar el archivo compartido [conflicto][choque-simple]", "PLAN_APROBADO", { plan: "El plan", moderno: true, reparaciones: 0 });
     assert.equal((await vuelta()).ok, true);
-    assert.equal(tarjetas.get(id).estado, "POR_REVISAR");
+    subeSoloYSeAparta(id);
     g(REPO, "pull", "--ff-only", "origin", "main");
     archivo("conflicto.txt", "lo de main, choque simple\n");
     g(REPO, "commit", "-am", "main cambia el archivo compartido");
@@ -3533,7 +3675,7 @@ try {
   await prueba("31-oct: al subir con un choque de lógica queda en ERROR con ese motivo en una línea y la categoría choque_de_logica; main no cambia", async () => {
     const id = nueva("Tocar el archivo compartido [conflicto][choque-logica]", "PLAN_APROBADO", { plan: "El plan", moderno: true, reparaciones: 0 });
     assert.equal((await vuelta()).ok, true);
-    assert.equal(tarjetas.get(id).estado, "POR_REVISAR");
+    subeSoloYSeAparta(id);
     g(REPO, "pull", "--ff-only", "origin", "main");
     archivo("conflicto.txt", "lo de main, choque de lógica\n");
     g(REPO, "commit", "-am", "main cambia otra vez el archivo compartido");
@@ -3624,7 +3766,7 @@ try {
     assert.match(segunda.prompt, /\nCAUSA: [^\n]*compil[^\n]*\nQUÉ CAMBIA: es el primer arreglo[^\n]*\nREPARACIÓN 1 de 3/i);
     assert.match(segunda.prompt, /error TS2322/);
     assert.match(segunda.prompt, /Corrige solo eso/);
-    assert.equal(tarjetas.get(id).estado, "POR_REVISAR");
+    subeSoloYSeAparta(id);
     soltarTodas(id);
     sinRestos();
   });
@@ -3669,7 +3811,7 @@ try {
     // El dueño aprobó el plan tal cual (pantalla o voz): se construye.
     const id2 = nuevaModerna("Plan con dudas aprobado [preguntas]", "PLAN_APROBADO", { plan, planAprobadoPorElDueno: true });
     assert.equal((await vuelta()).ok, true);
-    assert.equal(tarjetas.get(id2).estado, "POR_REVISAR");
+    subeSoloYSeAparta(id2);
     soltarTodas(id2);
     sinRestos();
   });
@@ -3683,7 +3825,7 @@ try {
     const resultado = await vuelta();
     assert.equal(resultado.ok, true, resultado.motivo);
     const t = tarjetas.get(id);
-    assert.equal(t.estado, "POR_REVISAR");
+    subeSoloYSeAparta(id);
     assert.match(t.resultado.resumen, /Revisión \(4 revisores\): APROBADA a la primera — seguridad APROBADO · experiencia no aplica · diseño no aplica · código APROBADO\./);
     const revisiones = revisionesDe(titulo);
     assert.deepEqual(revisiones.map((r) => r.revisor).sort(), ["código", "seguridad"]);
@@ -3747,6 +3889,7 @@ try {
     assert.match(texto, /- Regla: Corre `npx tsc --noEmit` y el build antes de terminar/);
     // La segunda sesión (construir de nuevo) trae la lección en sus instrucciones.
     assert.equal((await vuelta()).ok, true);
+    subeSoloYSeAparta(id);
     const reparada = ultimaDeClaude("Falla y se arregla [tsc-una-vez]");
     assert.match(reparada.prompt, /Lecciones de este proyecto: no repitas estas fallas\./);
     assert.match(reparada.prompt, /Regla: Corre `npx tsc --noEmit` y el build antes de terminar/);
@@ -4109,8 +4252,7 @@ try {
     const mainAhora = shaDe("main");
     const resultado = await vuelta(conCodex());
     assert.equal(resultado.ok, true, resultado.motivo);
-    const t = tarjetas.get(id);
-    assert.equal(t.estado, "POR_REVISAR");
+    const t = subeSoloYSeAparta(id);
     assert.deepEqual(t.resultado.motor, { plan: "claude", construir: "codex", revisar: "claude" });
     assert.match(t.resultado.resumen, /RESUMEN: Codex hizo "Cambio hecho por Codex"/);
     assert.match(t.resultado.resumen, /Revisión \(claude\): REVISIÓN: todo bien \(claude\)/);
@@ -4152,8 +4294,7 @@ try {
     const id = nueva("Codex agotado, respaldo [codex-limite]", "PLAN_APROBADO", { plan: "El plan" });
     const resultado = await vuelta(conCodex({ respaldoClaude: true }));
     assert.equal(resultado.ok, true, resultado.motivo);
-    const t = tarjetas.get(id);
-    assert.equal(t.estado, "POR_REVISAR");
+    const t = subeSoloYSeAparta(id);
     assert.equal(t.resultado.motor.construir, "claude");
     assert.equal(t.resultado.motor.revisar, undefined, "lo de Claude no pasa por otra revisión");
     assert.match(t.resultado.resumen, /RESUMEN: hice "Codex agotado/);
@@ -5303,7 +5444,7 @@ try {
     tarjetas.get(pagina).estado = "HECHO";
     const construye = await vuelta();
     assert.equal(construye.hizo, "construir");
-    assert.equal(tarjetas.get(id).estado, "POR_REVISAR");
+    subeSoloYSeAparta(id);
     soltarTodas(id);
     sinRestos();
   });
@@ -5378,7 +5519,7 @@ try {
       const resultado = await vuelta();
       assert.equal(resultado.hizo, "construir");
       assert.equal(resultado.ok, true, resultado.motivo);
-      assert.equal(tarjetas.get(id).estado, "POR_REVISAR", tarjetas.get(id).resultado?.error?.motivo);
+      subeSoloYSeAparta(id);
       assert.equal(tarjetas.get(id).resultado.paso, true);
       assert.ok(!("erroresViejos" in tarjetas.get(id).resultado), "la lista no viaja en el resultado");
       sinFinal(id);
@@ -5411,13 +5552,13 @@ try {
     const limpia = nuevaModerna("Tarea limpia con pruebas viejas");
     const resultado = await vuelta(conPruebasViejas);
     assert.equal(resultado.ok, true, resultado.motivo);
-    assert.equal(tarjetas.get(limpia).estado, "POR_REVISAR");
+    subeSoloYSeAparta(limpia);
     assert.match(tarjetas.get(limpia).resultado.pruebas, /falla igual en main \(1 falla\(s\) vieja\(s\)\)/);
     assert.equal(medidosDeMain(), medidosAntes + 1, "main se midió una vez");
     // Otra tarea del mismo main: usa lo guardado, no vuelve a correr main.
     const otra = nuevaModerna("Otra tarea limpia con pruebas viejas");
     assert.equal((await vuelta(conPruebasViejas)).ok, true);
-    assert.equal(tarjetas.get(otra).estado, "POR_REVISAR");
+    subeSoloYSeAparta(otra);
     assert.equal(medidosDeMain(), medidosAntes + 1, "la segunda usó lo guardado");
     // Una prueba nueva que se rompe: la falla es de la tarea.
     const rota = nuevaModerna("Rompe una prueba nueva [falla-nueva]");

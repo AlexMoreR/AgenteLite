@@ -731,8 +731,9 @@ export function reglasDeZonasQueSubenSolas(repo) {
 
 /** Lo que el plan tiene que decir al principio: si al terminar sube solo o espera el sí del dueño. */
 function fraseAlTerminar(repo) {
-  if (!repo.subirSolo) {
-    return 'Al principio del plan escribe esta frase: "Al terminar: espera tu sí" (en este repositorio el Coordinador todavía no sube solo a producción).';
+  // 1-nov-2026: cada repositorio sube solo salvo `subirSolo: false` explícito.
+  if (repo.subirSolo === false) {
+    return 'Al principio del plan escribe esta frase: "Al terminar: espera tu sí".';
   }
   const rutas = Object.entries(repo.zonasProtegidas ?? {})
     .map(([zona, globs]) => `${zona}: ${(globs ?? []).join(", ")}`)
@@ -806,7 +807,7 @@ export function planParaLaNube(plan) {
  * 30 min en el Coordinador), ni de "espera tu sí", ni declara gasto en Meta Ads. En los demás casos deja la rama lista.
  */
 export function laSesionSubeAMain(tarjeta, repo) {
-  if (!esOrquestador(repo) || repo?.subirSolo !== true) return false;
+  if (!esOrquestador(repo) || repo?.subirSolo === false) return false;
   const plan = String(tarjeta?.plan ?? "");
   if (/^\s*APROBAR PLAN:\s*ESPERA TU S[IÍ]/im.test(plan) || planDeclaraGastoEnMetaAds(plan)) return false;
   const alTerminar = plan.match(/Al terminar\**\s*:\**\s*([^\n]*)/i)?.[1] ?? "";
@@ -1653,7 +1654,9 @@ export async function construir(contexto, tarjeta) {
     if (destructivo.length) pruebas.push(`⚠ migración con cambios destructivos: ${destructivo.join(", ")}`);
     // Las pruebas extra de la zona se miran con todo ya probado: lo que escribió el que construyó y el diff.
     let esperaPor = null;
-    if (repo.subirSolo === true && !zonasQuePidenSi.length && zonasDeLaTarjeta.length) {
+    // 1-nov-2026 (un solo sí de verdad): cada repositorio sube solo salvo `subirSolo: false` explícito.
+    const repoSubeSolo = repo.subirSolo !== false;
+    if (repoSubeSolo && !zonasQuePidenSi.length && zonasDeLaTarjeta.length) {
       const diffs = { todo: await diffDeArchivos(carpeta, base, archivos) };
       for (const zona of zonasDeLaTarjeta) if (tocadas[zona]) diffs[zona] = await diffDeArchivos(carpeta, base, tocadas[zona]);
       // La prueba extra de chats y del bot la hace el Coordinador con el diff real (27-oct-2026): si el constructor no escribió la
@@ -1667,21 +1670,31 @@ export async function construir(contexto, tarjeta) {
     if (esperaPor && !esperaAlDueno(esperaPor) && zonasDeLaTarjeta.every((zona) => ["CHATS", "BOT_VENTAS"].includes(zona))) {
       throw new ErrorDeEtapa(`No sube: ${esperaPor}`, { categoria: "zona", zonas: zonasDeLaTarjeta });
     }
-    const subeSolo = repo.subirSolo === true && !zonasQuePidenSi.length && !esperaPor;
-    const alTerminar = subeSolo
+    // 1-nov-2026: subeSolo depende del repositorio (sube solo salvo `subirSolo: false`) y de las zonas que piden el sí.
+    // `esperaPor` viaja tal cual en el resultado y el CRM decide con él; mientras el CRM no lo mire, un motivo de espera
+    // (gasto en Meta Ads, falta la simulación V3, un envío nuevo a clientes) sigue sin subir solo: no se sube a ciegas.
+    const subeSolo = repoSubeSolo && !zonasQuePidenSi.length && !esperaPor;
+    const alTerminar = !repoSubeSolo
+      ? `construido, no sube: el repositorio ${repo.clave} tiene subirSolo: false en la configuración del Coordinador`
+      : subeSolo
       ? zonasDeLaTarjeta.length
         ? `construido, sube solo (zona ${zonasDeLaTarjeta.join(", ")}; la vigilan 30 min)`
         : "construido, sube solo"
       : esperaPor
         ? `construido, espera tu sí (${esperaPor})`
-        : zonas.length
-        ? `construido, espera tu sí (zona ${zonasTexto})`
-        : "construido, espera tu sí (en este repositorio el Coordinador todavía no sube solo)";
+        : `construido, espera tu sí (zona ${zonasTexto || zonasQuePidenSi.join(", ")})`;
     pruebas.push(`→ ${alTerminar}`);
 
     reloj.resta();
     // La rama de la nube se sube sin --force, encima de lo que dejó la sesión; las de aizen1 se rehacen cada intento.
     if (!yaSubida) await pushDeRama(carpeta, repo.remoto, rama, { forzar: !nube });
+    // `subirSolo: false` explícito: la rama queda empujada y la tarjeta va a ERROR con el motivo (no se queda esperando un sí).
+    if (!repoSubeSolo) {
+      throw new ErrorDeEtapa(
+        `No sube: el repositorio ${repo.clave} tiene subirSolo: false en la configuración del Coordinador. La rama ${rama} quedó lista con build y pruebas en OK; para que suba, quita esa línea (o ponla en true).`,
+        { categoria: "zona", zonas: zonasDeLaTarjeta },
+      );
+    }
     const commit = (await git(carpeta, ["rev-parse", "HEAD"])).salida.trim();
     const web = webDeGithub(await urlDelRemoto(repo));
     registro.info(`rama ${rama} empujada (${commit.slice(0, 10)}): ${alTerminar}`);
@@ -2203,9 +2216,18 @@ export async function subir(contexto, tarjeta) {
     let antes;
     let pruebas;
     let commit;
+    // 1-nov-2026 (subida que se puede repetir sin daño): si todo lo de la rama ya está en main (un intento anterior lo subió
+    // y se cayó esperando el despliegue, o la sesión lo juntó), no se empuja nada: se espera el despliegue del commit de
+    // main que lo contiene, como siempre. Así un reintento no deshace en vacío ni vuelve a compilar lo que ya está arriba.
+    const yaEnMain = await ramaYaEnMain(carpeta, base, { baseDeLaTarjeta: tarjeta.resultado?.base });
+    if (yaEnMain) {
+      ({ commit, antes } = yaEnMain);
+      pruebas = [`✔ lo de la rama ya estaba en ${repo.ramaBase} (commit ${commit.slice(0, 10)}): no se vuelve a subir; se espera su despliegue`];
+      registro.info(`la rama ${rama} ya estaba en ${repo.ramaBase} (${commit.slice(0, 10)}): no se empuja, se espera el despliegue`);
+    }
     // 25-oct-2026: rebase (con los .md y demás "sin choque" juntados solos, git.mjs: rebaseSobre), verificar y push. Si
     // main cambió MIENTRAS se verificaba (push rechazado), se reintenta UNA vez sola: fetch, rebase y verificar de nuevo.
-    for (let vuelta = 1; ; vuelta += 1) {
+    for (let vuelta = 1; !yaEnMain; vuelta += 1) {
       antes = (await git(carpeta, ["rev-parse", base])).salida.trim();
       // Si main sigue donde estaba al construir y la rama es la que se probó, ya está todo verificado.
       const mainIgual = vuelta === 1 && Boolean(tarjeta.resultado?.base) && tarjeta.resultado.base === antes && tarjeta.resultado?.commit === cabeza;
@@ -2298,7 +2320,7 @@ export async function subir(contexto, tarjeta) {
         throw new ErrorDeEtapa(`No se pudo subir a ${repo.ramaBase} (¿cambió mientras tanto?). No se subió nada.\nDetalle técnico: ${error.message}`, { categoria: "choca_con_main" });
       }
     }
-    registro.info(`subido a ${repo.ramaBase}: ${commit.slice(0, 10)} (${tarjeta.titulo})`);
+    if (!yaEnMain) registro.info(`subido a ${repo.ramaBase}: ${commit.slice(0, 10)} (${tarjeta.titulo})`);
     let version;
     try {
       const ci = await esperarCi(contexto, repo, commit, carpeta, reloj);
@@ -2307,14 +2329,14 @@ export async function subir(contexto, tarjeta) {
       registro.info(`${ci}; ${comprobada.texto}`);
     } catch (error) {
       // Se subió y no arrancó: se deshace lo subido para que producción vuelva a la versión anterior.
-      throw await deshacerSubida(contexto, repo, carpeta, { antes, commit, motivo: error instanceof Error ? error.message : String(error) });
+      throw await deshacerOAvisar(contexto, repo, carpeta, { antes, commit, motivo: error instanceof Error ? error.message : String(error) });
     }
     let vigilancia = null;
     if (foto) {
       contexto.fase?.("vigilando");
       const visto = await vigilarElServidor(contexto, repo, foto);
       if (!visto.ok) {
-        throw await deshacerSubida(contexto, repo, carpeta, { antes, commit, motivo: visto.motivo, vigilancia: true });
+        throw await deshacerOAvisar(contexto, repo, carpeta, { antes, commit, motivo: visto.motivo, vigilancia: true });
       }
       vigilancia = { zona: zonasAVigilar.join(", "), minutos: Math.round(repo.vigilancia.minutos), ok: true };
       registro.info(`vigilancia de ${repo.vigilancia.minutos} min OK (zona ${vigilancia.zona})`);
@@ -2585,6 +2607,54 @@ export async function diagnosticarConClaude(contexto, { rutaLog, error }) {
 }
 
 /** Revert del commit en main después de un despliegue fallido. Devuelve el ErrorDeEtapa para la tarjeta. */
+/**
+ * ¿Todo lo de la rama (HEAD de `carpeta`) ya está en `base` (remoto/main)? (1-nov-2026, subida que se puede repetir sin daño.)
+ * Lo mira `git cherry` por el contenido de cada commit, así cuenta también lo que entró con rebase (otro sha). Devuelve null si
+ * falta algo; si ya está, { commit, antes }: `commit` es el commit de main que lo contiene (el que se espera desplegado) y
+ * `antes` el de main justo antes de la tarea (con él se deshace `antes..commit` si el despliegue falla), o null si no se puede
+ * saber sin riesgo de deshacer trabajo ajeno (la rama trae merges o entró mezclada con otros commits).
+ */
+export async function ramaYaEnMain(carpeta, base, { baseDeLaTarjeta = null } = {}) {
+  const lineasDe = (texto) => texto.split(/\r?\n/).map((linea) => linea.trim()).filter(Boolean);
+  const cherry = lineasDe((await git(carpeta, ["cherry", base, "HEAD"])).salida);
+  if (cherry.some((linea) => linea.startsWith("+"))) return null;
+  const cabeza = (await git(carpeta, ["rev-parse", "HEAD"])).salida.trim();
+  const esAncestro = async (viejo, nuevo) => (await git(carpeta, ["merge-base", "--is-ancestor", viejo, nuevo], { permitirFallo: true })).codigo === 0;
+  const sinMerges = async (desde, hasta) => !lineasDe((await git(carpeta, ["rev-list", "--merges", `${desde}..${hasta}`])).salida).length;
+  if (await esAncestro(cabeza, base)) {
+    // Entró tal cual (fast-forward o merge): el commit es la punta de la rama. Se deshace desde la base con que se construyó,
+    // solo si la tarea es una fila de commits propios encima de ella.
+    const desde = typeof baseDeLaTarjeta === "string" && /^[0-9a-f]{7,40}$/i.test(baseDeLaTarjeta) ? baseDeLaTarjeta : null;
+    const seguro = desde && desde !== cabeza && (await esAncestro(desde, cabeza)) && (await sinMerges(desde, cabeza));
+    return { commit: cabeza, antes: seguro ? desde : null };
+  }
+  // Entró con rebase (otro sha): los commits de main con el mismo contenido que los de la rama, del más nuevo al más viejo.
+  const iguales = lineasDe((await git(carpeta, ["rev-list", "--left-only", "--cherry-mark", "--no-merges", `${base}...HEAD`])).salida)
+    .filter((linea) => linea.startsWith("="))
+    .map((linea) => linea.slice(1).trim());
+  // La rama no tiene commits propios con contenido (solo merges): no se da por subida, sigue el camino de siempre.
+  if (!iguales.length) return null;
+  const commit = iguales[0];
+  const padre = await git(carpeta, ["rev-parse", `${iguales.at(-1)}^`], { permitirFallo: true });
+  const antes = padre.codigo === 0 ? padre.salida.trim() : null;
+  // Seguro solo si esos commits están juntos en main (nada ajeno en medio) y sin merges.
+  const juntos = antes && Number((await git(carpeta, ["rev-list", "--count", `${antes}..${commit}`])).salida.trim()) === iguales.length;
+  return { commit, antes: juntos && (await sinMerges(antes, commit)) ? antes : null };
+}
+
+/**
+ * Deshacer lo subido; si no se sabe con seguridad desde dónde (ramaYaEnMain sin `antes`), no se revierte nada a ciegas: el
+ * error lo dice para revisarlo a mano.
+ */
+async function deshacerOAvisar(contexto, repo, carpeta, { antes, commit, motivo, vigilancia = false }) {
+  if (antes) return deshacerSubida(contexto, repo, carpeta, { antes, commit, motivo, vigilancia });
+  contexto.registro.error(`URGENTE: ${commit.slice(0, 10)} ya estaba en ${repo.ramaBase}, falló y no se puede deshacer solo: ${motivo}`);
+  return new ErrorDeEtapa(
+    `URGENTE: no se pudo deshacer solo, revisar a mano. Lo de la tarea ya estaba en ${repo.ramaBase} (commit ${commit.slice(0, 10)}) junto con otros cambios o con merges, y ${vigilancia ? "la vigilancia vio una falla" : "el despliegue falló"}.\nDetalle técnico: ${motivo}`,
+    { reversion: { commit, revert: null, ok: false } },
+  );
+}
+
 async function deshacerSubida(contexto, repo, carpeta, { antes, commit, motivo, vigilancia = false }) {
   const { config, registro } = contexto;
   registro.error(`${vigilancia ? "la vigilancia de" : "el despliegue de"} ${commit.slice(0, 10)} ${vigilancia ? "vio una falla" : "falló"}; se deshace: ${motivo}`);

@@ -18,7 +18,7 @@ function prueba(nombre, fn) {
   console.log(`ok - ${nombre}`);
 }
 
-const base = { urlCrm: "https://app.aizenbot.com", claveTrabajador: "aizen_trab_x", repos: { aizencrm: { ruta: "." } } };
+const base = { urlCrm: "https://app.aizenbot.com", claveTrabajador: "aizen_trab_x", repos: { aizencrm: { ruta: ".", subirSolo: false } } };
 const sencilla = { titulo: "Cambiar el color del botón Guardar", detalle: "Ponerlo verde en la ficha.", intentos: 1 };
 
 prueba("tarea sencilla: Sonnet; el resto de pasos también Sonnet y leer con Haiku", () => {

@@ -204,7 +204,7 @@ await prueba("builds: con el aviso de candado espera, limpia y reintenta SIN con
 });
 
 await prueba("configuración: medir, recogerErrores y candadoDeBuild vienen con valores y se validan", () => {
-  const base = { urlCrm: "https://crm.test", claveTrabajador: "aizen_trab_x", repos: { aizencrm: { ruta: os.tmpdir(), remoto: "origin", ramaBase: "main", verificar: [["npm", "run", "build"]], pruebas: [] } } };
+  const base = { urlCrm: "https://crm.test", claveTrabajador: "aizen_trab_x", repos: { aizencrm: { ruta: os.tmpdir(), subirSolo: false, remoto: "origin", ramaBase: "main", verificar: [["npm", "run", "build"]], pruebas: [] } } };
   const buena = completarConfig(base);
   assert.deepEqual(buena.medir, { activo: true, puntosGrande: 4, puntosDudosa: 2, consultaHaiku: true });
   assert.deepEqual(buena.recogerErrores, { activo: true, maximoPorDia: 6, maximoPorTarjeta: 2 });

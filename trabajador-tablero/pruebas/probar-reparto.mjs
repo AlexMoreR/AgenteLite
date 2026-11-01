@@ -281,7 +281,7 @@ await prueba("subir: rebaseSobre junta solo los dos lados de un .md; si choca c�
 });
 
 await prueba("escoger: el planificador manda en `excluir` todas las libres menos la elegida (la más cerca de HECHO y más chica)", async () => {
-  const config = completarConfig({ urlCrm: "https://app.aizenbot.com", claveTrabajador: "aizen_trab_x", repos: { aizencrm: { ruta: "." } }, maxParalelo: 2 });
+  const config = completarConfig({ urlCrm: "https://app.aizenbot.com", claveTrabajador: "aizen_trab_x", repos: { aizencrm: { ruta: ".", subirSolo: false } }, maxParalelo: 2 });
   const pedidos = [];
   const crm = {
     candidatas: async () => ({
@@ -340,7 +340,7 @@ await prueba("agentes: el planificador no toma una segunda tarjeta del mismo age
       claveTrabajador: "aizen_trab_x",
       maxParalelo: 3,
       nube: { activa: false },
-      repos: { aizencrm: { ruta: "." }, gestion: { ruta: ".", agente: { maxEnParalelo: maxGestion } } },
+      repos: { aizencrm: { ruta: ".", subirSolo: false }, gestion: { ruta: ".", agente: { maxEnParalelo: maxGestion } } },
     });
     const tarjetas = [
       { id: "g1", titulo: "g1", repo: "gestion", hacer: "planear", plan: null },
@@ -387,22 +387,22 @@ await prueba("agentes: el planificador no toma una segunda tarjeta del mismo age
 });
 
 await prueba("configuración: repos.<clave>.agente se valida, sin tope propio queda en null y un proyecto apagado no cuenta", async () => {
-  const base = { urlCrm: "https://app.aizenbot.com", claveTrabajador: "aizen_trab_x", maxParalelo: 3, repos: { aizencrm: { ruta: "." } } };
+  const base = { urlCrm: "https://app.aizenbot.com", claveTrabajador: "aizen_trab_x", maxParalelo: 3, repos: { aizencrm: { ruta: ".", subirSolo: false } } };
   assert.deepEqual(completarConfig(base).repos.aizencrm.agente, { nombre: "Agente CRM", lecciones: "", maxEnParalelo: null });
-  assert.equal(completarConfig({ ...base, repos: { aizencrm: { ruta: ".", agente: { maxEnParalelo: 1 } } } }).repos.aizencrm.agente.maxEnParalelo, 1);
-  const apagado = completarConfig({ ...base, repos: { aizencrm: { ruta: "." }, marketing: { activo: false } } });
+  assert.equal(completarConfig({ ...base, repos: { aizencrm: { ruta: ".", subirSolo: false, agente: { maxEnParalelo: 1 } } } }).repos.aizencrm.agente.maxEnParalelo, 1);
+  const apagado = completarConfig({ ...base, repos: { aizencrm: { ruta: ".", subirSolo: false }, marketing: { activo: false } } });
   assert.deepEqual(Object.keys(apagado.repos), ["aizencrm"], "el proyecto apagado no entra");
   assert.throws(() => completarConfig({ ...base, repos: { marketing: { activo: false } } }), /falta al menos un repositorio/);
 });
 
 await prueba("configuración: cola de pasos pesados de 1, CPU promedio de 3 min, partir antes con 25 archivos, .md sin choque", async () => {
-  const base = { urlCrm: "https://app.aizenbot.com", claveTrabajador: "aizen_trab_x", repos: { aizencrm: { ruta: "." } } };
+  const base = { urlCrm: "https://app.aizenbot.com", claveTrabajador: "aizen_trab_x", repos: { aizencrm: { ruta: ".", subirSolo: false } } };
   const config = completarConfig(base);
   assert.deepEqual(config.colaPesada, { maximo: 1, esperaMaximaMinutos: 20 });
   assert.equal(config.limites.cpuPromedioMinutos, 3);
   assert.deepEqual(config.partir, { archivosMinimos: 8, archivosAntes: 25, archivosConMigracion: 15 });
   assert.deepEqual(config.repos.aizencrm.sinChoque, ["**/*.md"]);
-  assert.deepEqual(completarConfig({ ...base, repos: { aizencrm: { ruta: ".", sinChoque: ["**/*.md", "CHANGELOG.txt"] } } }).repos.aizencrm.sinChoque, ["**/*.md", "CHANGELOG.txt"]);
+  assert.deepEqual(completarConfig({ ...base, repos: { aizencrm: { ruta: ".", subirSolo: false, sinChoque: ["**/*.md", "CHANGELOG.txt"] } } }).repos.aizencrm.sinChoque, ["**/*.md", "CHANGELOG.txt"]);
   assert.equal(completarConfig({ ...base, colaPesada: { maximo: 0 } }).colaPesada.maximo, 0, "0 = sin cola");
   assert.throws(() => completarConfig({ ...base, colaPesada: { maximo: 9 } }), /colaPesada/);
   assert.throws(() => completarConfig({ ...base, colaPesada: { maximo: 1, esperaMaximaMinutos: 95 } }), /colaPesada.esperaMaximaMinutos/);

@@ -124,15 +124,33 @@ function matarArbol(pid) {
   }
 }
 
-/** -> { codigo, colgado } */
+// 1-nov-2026: cuando el Coordinador se cae (código distinto de 0), las últimas líneas de su stderr quedan en lanzador.log,
+// para saber por qué se cayó sin tener que adivinar. Se guarda solo la cola (no todo lo que escribe) y sin la clave del CRM.
+const LINEAS_DE_STDERR = 40;
+const MAXIMO_STDERR = 64 * 1024;
+
+/** Las últimas `cuantas` líneas del texto, sin la clave del trabajador. */
+function colaDeStderr(texto, cuantas = LINEAS_DE_STDERR) {
+  const clave = typeof config.claveTrabajador === "string" && config.claveTrabajador.length >= 8 ? config.claveTrabajador : null;
+  const limpio = clave ? texto.split(clave).join("[oculto]") : texto;
+  return limpio.split(/\r?\n/).filter((linea) => linea.trim()).slice(-cuantas);
+}
+
+/** -> { codigo, colgado, stderr } (stderr: la cola de lo que escribió el Coordinador por stderr) */
 function correrCoordinador() {
   return new Promise((resolver) => {
     let colgado = false;
+    let stderr = "";
     const hijo = spawn(process.execPath, [script, ...argumentos], {
       cwd: repo,
-      stdio: "inherit",
+      // stderr por un tubo: se sigue mostrando igual en la consola y además se guarda su cola.
+      stdio: ["inherit", "inherit", "pipe"],
       windowsHide: true,
       env: { ...process.env, TRABAJADOR_LANZADOR: "1" },
+    });
+    hijo.stderr?.on("data", (trozo) => {
+      process.stderr.write(trozo);
+      stderr = (stderr + trozo.toString("utf8")).slice(-MAXIMO_STDERR);
     });
     const perro =
       PERRO_MINUTOS > 0
@@ -149,9 +167,20 @@ function correrCoordinador() {
             matarArbol(hijo.pid);
           }, PERRO_CADA_MS)
         : null;
+    let terminado = false;
     const fin = (codigo) => {
+      if (terminado) return;
+      terminado = true;
       if (perro) clearInterval(perro);
-      resolver({ codigo, colgado });
+      // "exit" puede llegar antes que lo último de stderr: se espera a que el tubo cierre (máximo 1 s, por si un nieto lo
+      // dejó abierto).
+      const listo = () => resolver({ codigo, colgado, stderr });
+      if (!hijo.stderr || hijo.stderr.readableEnded || hijo.stderr.destroyed) return listo();
+      const espera = setTimeout(listo, 1000);
+      hijo.stderr.once("close", () => {
+        clearTimeout(espera);
+        listo();
+      });
     };
     hijo.on("error", (error) => {
       anotar(`no pude arrancar node: ${error.message}`);
@@ -165,8 +194,16 @@ for (const senal of ["SIGINT", "SIGTERM"]) process.on(senal, () => process.exit(
 
 for (;;) {
   const inicio = Date.now();
-  const { codigo, colgado } = await correrCoordinador();
+  const { codigo, colgado, stderr } = await correrCoordinador();
   const minutos = (Date.now() - inicio) / 60_000;
+  if (codigo !== 0) {
+    const cola = colaDeStderr(stderr);
+    anotar(
+      cola.length
+        ? `el Coordinador salió con código ${codigo}; últimas ${cola.length} líneas de su stderr:\n${cola.map((linea) => `    ${linea}`).join("\n")}`
+        : `el Coordinador salió con código ${codigo} sin escribir nada en stderr`,
+    );
+  }
 
   // 0. El perro guardián lo mató por colgado: se arranca de nuevo ya (el CRM suelta lo que dejó con candado).
   if (colgado) {
