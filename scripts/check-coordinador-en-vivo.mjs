@@ -326,6 +326,32 @@ await prueba("la vista junta el latido con las tarjetas en marcha: lugar, modelo
   assert.match(texto, /Límite de uso: Sin límite/);
 });
 
+await prueba("orquestador (1-nov-2026): la que construye la sesión del proyecto se ve 'En la sesión de Gestión', no esperando ni bloqueada", async () => {
+  const orquestada = { construccion: { lugar: "orquestador", linkSesion: "https://claude.ai/code/session_01Fija" } };
+  estado.tarjetas.push(tarjeta({ id: "t1", titulo: "La lleva la sesión", estado: "EN_CURSO", repo: "gestion", resultado: orquestada }));
+  estado.tarjetas.push(tarjeta({ id: "t2", titulo: "Sin agente en el latido", estado: "EN_CURSO", repo: "gestion", resultado: orquestada }));
+  estado.tarjetas.push(tarjeta({ id: "t3", titulo: "En la nube de siempre", estado: "EN_CURSO", resultado: { construccion: { lugar: "nube" } } }));
+  await servicio.guardarLatido(
+    contexto,
+    {
+      tareas: [
+        { tarjetaId: "t1", titulo: "La lleva la sesión", agente: "Agente Gestión", etapa: "construyendo", lugar: "nube" },
+        { tarjetaId: "t3", titulo: "En la nube de siempre", agente: "Agente CRM", etapa: "construyendo", lugar: "nube" },
+      ],
+    },
+    hace(0.2),
+  );
+  const vista = await servicio.vistaDelCoordinador("ws1", AHORA);
+  const lugar = (id) => vista.tareas.find((t) => t.tarjetaId === id)?.lugarTexto;
+  assert.equal(lugar("t1"), "la sesión de Gestión");
+  assert.equal(lugar("t2"), "la sesión de gestion", "sin latido, el nombre del repo");
+  assert.equal(lugar("t3"), "Nube de Claude", "sin el modo, como siempre");
+  assert.equal(vista.esperandoAOtra.cantidad, 0);
+  assert.deepEqual(vista.fila.bloqueadas, []);
+  assert.match(servicio.textoDelCoordinador(vista), /«La lleva la sesión»: construyendo en la sesión de Gestión \(Agente Gestión\)/);
+  assert.equal(servicio.lugarDelOrquestador({ estado: "SUBIENDO", resultado: orquestada }, "Agente Gestión"), null, "solo mientras construye");
+});
+
 await prueba("sin latido (o con uno viejo) el panel dice apagado, pero las tarjetas se siguen viendo", async () => {
   estado.tarjetas.push(tarjeta({ id: "t1", titulo: "En marcha", estado: "PLANEANDO" }));
   let vista = await servicio.vistaDelCoordinador("ws1", AHORA);

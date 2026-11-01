@@ -297,6 +297,40 @@ seleccionado:
 - `repos.<repo>.construirEn: "aizen1"` manda sobre todo esto (ese proyecto no va a la nube). Hoy Gestión lo tiene como
   solución temporal; cuando la sesión fija esté probada se quita `construirEn` y se pone `nube.sesionFija`.
 
+#### El modo ORQUESTADOR de un proyecto (`nube.orquestador`, desde el 1-nov-2026)
+
+Con el modo prendido, el Coordinador **solo entrega**: cada tarjeta aprobada del proyecto va a la sesión fija, que
+organiza el trabajo y, cuando se puede, la sube a main ella misma. El Coordinador comprueba y pone el resultado en el tablero.
+
+- **Cómo se prende**: por proyecto, a mano, en `config.local.json` de aizen1 (en `config.example.json` nace apagado):
+
+  ```json
+  "gestion": { "subirSolo": true, "nube": { "sesionFija": "session_…", "orquestador": true } }
+  ```
+
+  Necesita la **sesión fija** (sin `sesionFija`, la configuración no carga). Solo acepta `true` o `false`.
+- **Entregar**: cada tarjeta va a la sesión fija apenas se aprueba el plan, **sin `/clear`**, sin mirar choques, puestos de
+  la nube ni el máximo por agente (solo `DEPENDE_DE:` la frena). El mensaje dice el id, el título y la rama de la tarjeta;
+  la sesión decide el orden, qué va a la vez (con subagentes) y resuelve los choques con main. Si está ocupada o no
+  contesta, la tarjeta vuelve a la fila sin gastar intento. El Coordinador espera su `resultado:` hasta 24 h y el panel
+  la muestra "En la sesión de Gestión".
+- **Quién sube a main**: la **sesión del proyecto**, solo si el proyecto tiene `subirSolo`, el plan dice
+  "Al terminar: sube solo" y la tarjeta **no** es de zona protegida (ni aprobada ni en los archivos del plan) ni de
+  "espera tu sí" ni declara gasto en Meta Ads (`laSesionSubeAMain` en `lib/etapas.mjs`). A esa se le pide: build y
+  pruebas en OK, `git merge origin/main` (nunca rebase ni `--force`), `git push origin HEAD:main` y el commit
+  `resultado: build=OK tests=OK segundos=N main=<sha>`. El Coordinador comprueba el sha con git (`commitEstaEnMain`):
+  si está en main, la tarjeta pasa a **HECHO** sin volver a subir; si no está, a **ERROR** "no está en main" (no se
+  repara sola). Si la sesión no pudo subir, deja el `resultado:` sin `main=` y sigue el camino de siempre.
+- **Lo que sigue en el Coordinador**: las zonas protegidas (CHATS, BOT_VENTAS, LIBRO_V3, con sus pruebas extra y la
+  vigilancia de 30 min) y todo lo que espera el sí del dueño. A esas la sesión solo les deja la rama lista; un `main=`
+  en su resultado no cuenta (no se comprueba ni las pasa a HECHO): siguen por el sí del dueño, la subida del Coordinador
+  y la vigilancia.
+- **Preguntas**: un commit `pregunta: …` de la sesión deja la tarjeta en "Por revisar" con la pregunta y manda UN aviso
+  "necesita" por WhatsApp (el mismo de `NECESITO:`); no se reintenta.
+- **Riesgo**: lo que sube la sesión no pasa por la revisión del Coordinador en aizen1 (sí por sus 4 revisores). Si la
+  sesión fija se cae o se archiva, **todo ese proyecto espera**. Antes de prenderlo hay que probar que la sesión fija
+  acepta mensajes mientras trabaja.
+
 ### Motores (Codex y Claude) (desde el 23-oct-2026)
 
 El trabajador usa dos "motores" de IA que ya están logueados en aizen1:

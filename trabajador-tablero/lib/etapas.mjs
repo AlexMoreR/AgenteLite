@@ -60,7 +60,8 @@ import {
   textoParaLaNube,
 } from "./revisores.mjs";
 import { esLimiteDeCodex, nombreDelMotor } from "./motores.mjs";
-import { esOrquestador, esperarResultado, lanzarSesionDeLaNube, sesionFijaDe } from "./nube.mjs";
+import { esOrquestador, esperarResultado, lanzarSesionDeLaNube, nombreDelProyecto, sesionFijaDe } from "./nube.mjs";
+import { archivosDelPlan } from "./choques.mjs";
 import { vigilarSesion } from "./atasco.mjs";
 import { cerrarProcesosEn, comoTexto, correr, detalleDeFalla, lineasQueFallaron, ultimasLineas } from "./procesos.mjs";
 import { esperarRecursos, faltanRecursos, medirUnaVez } from "./recursos.mjs";
@@ -84,6 +85,7 @@ import {
   lineasDeEnvioFallidoDeLog,
   lineasDeErrorNuevasDeLog,
   minutosDeLaVentana,
+  planDeclaraGastoEnMetaAds,
   pruebaExtraDeLasZonas,
   zonasTocadas,
 } from "./zonas.mjs";
@@ -797,6 +799,22 @@ export function planParaLaNube(plan) {
   );
 }
 
+/**
+ * MODO ORQUESTADOR, parte 3 (1-nov-2026): ¿esta tarjeta la sube a main la propia sesión del proyecto? Solo si el proyecto
+ * está en modo orquestador y sube solo (repos.<x>.subirSolo), el plan dice "Al terminar: sube solo" y NO es de zona
+ * protegida (ni aprobada ni en los archivos del plan: CHATS, BOT_VENTAS, LIBRO_V3 siguen con su subida y su vigilancia de
+ * 30 min en el Coordinador), ni de "espera tu sí", ni declara gasto en Meta Ads. En los demás casos deja la rama lista.
+ */
+export function laSesionSubeAMain(tarjeta, repo) {
+  if (!esOrquestador(repo) || repo?.subirSolo !== true) return false;
+  const plan = String(tarjeta?.plan ?? "");
+  if (/^\s*APROBAR PLAN:\s*ESPERA TU S[IÍ]/im.test(plan) || planDeclaraGastoEnMetaAds(plan)) return false;
+  const alTerminar = plan.match(/Al terminar\**\s*:\**\s*([^\n]*)/i)?.[1] ?? "";
+  if (!/^\**\s*sube solo/i.test(alTerminar) || /espera tu s[ií]|zona|vigilancia/i.test(alTerminar)) return false;
+  if ((tarjeta?.zonasAprobadas ?? []).length) return false;
+  return !Object.keys(zonasTocadas(archivosDelPlan(plan), repo.zonasProtegidas ?? {})).length;
+}
+
 export function promptDeNube(tarjeta, repo, rama, { entorno = {}, modelo = null, lecciones = "", revision = true, modeloRevisar = "sonnet", modeloRevisarSeguridad = "opus", vueltasRevision = 2, sesionFija = false, orquestador = false } = {}) {
   const aprobadas = tarjeta.zonasAprobadas?.length ? tarjeta.zonasAprobadas.join(", ") : "ninguna";
   const pasos = [repo.instalar, ...(repo.verificar ?? []), ...(repo.pruebas ?? [])].filter(Boolean).map((comando) => `\`${comoTexto(comando)}\``);
@@ -805,11 +823,16 @@ export function promptDeNube(tarjeta, repo, rama, { entorno = {}, modelo = null,
   // que nunca se recorta): la tarea es nueva y se cambia a la rama de esta tarjeta (el Coordinador ya la subió).
   // 1-nov-2026 (modo orquestador): la sesión del proyecto recibe varias tarjetas sin /clear y las organiza ella. El primer
   // bloque dice cuál es esta (id, título y rama) y que cada una deja su resultado en SU rama (el Coordinador sigue subiendo).
+  // Parte 3: si la tarjeta sube sola y no es de zona protegida ni de "espera tu sí", la sesión la sube a main ella misma
+  // (git merge con main, nunca rebase ni --force) y deja "main=<sha>" en su commit "resultado:"; el Coordinador lo comprueba.
+  const subeLaSesion = orquestador && laSesionSubeAMain(tarjeta, repo);
   const tarjetaParaOrquestador = orquestador
     ? [
         `TARJETA NUEVA PARA LA SESIÓN DEL PROYECTO: id ${tarjeta.id} — «${tarjeta.titulo}». Su rama: ${rama} (ya existe en GitHub).`,
         "Llegan varias tarjetas a esta sesión; tú decides el orden, qué va al mismo tiempo (puedes usar subagentes) y qué se junta. Resuelves los choques con main.",
-        `Para trabajar ESTA tarjeta: git fetch origin && git checkout -B ${rama} origin/${rama}. Todo lo de esta tarjeta va en esa rama; nunca hagas push a main ni a la rama de otra tarjeta. Al terminarla deja en SU rama el commit "resultado:" de siempre (o "pregunta: …"). No subas nada a main: el Coordinador verifica y sube. No uses ningún conector ni herramienta MCP de esta sesión.`,
+        subeLaSesion
+          ? `Para trabajar ESTA tarjeta: git fetch origin && git checkout -B ${rama} origin/${rama}. Todo lo de esta tarjeta va en esa rama; nunca hagas push a la rama de otra tarjeta. ESTA TARJETA LA SUBES TÚ A MAIN (sube sola y no es de zona protegida): con build y pruebas en OK (y la revisión aprobada), git fetch origin && git merge origin/main (sin rebase); si main trajo cambios, vuelve a compilar y a probar; después git push origin HEAD:main (sin --force) y git push origin ${rama}. Al final deja en SU rama el commit vacío "resultado: build=OK tests=OK segundos=<N> main=<sha>" (el sha que quedó en main: git rev-parse HEAD). Si no se puede subir (choque que no resuelves, push rechazado, algo en FALLO), no subas nada a main y deja el "resultado:" sin main=: el Coordinador decide. No uses ningún conector ni herramienta MCP de esta sesión.`
+          : `Para trabajar ESTA tarjeta: git fetch origin && git checkout -B ${rama} origin/${rama}. Todo lo de esta tarjeta va en esa rama; nunca hagas push a main ni a la rama de otra tarjeta. Al terminarla deja en SU rama el commit "resultado:" de siempre (o "pregunta: …"). No subas nada a main: el Coordinador verifica y sube. No uses ningún conector ni herramienta MCP de esta sesión.`,
       ].join("\n") + "\n"
     : "";
   const nuevaEnSesionFija = orquestador
@@ -820,8 +843,10 @@ export function promptDeNube(tarjeta, repo, rama, { entorno = {}, modelo = null,
   return [
     `${nuevaEnSesionFija}${identidadDelAgente(repo)} Implementa EXACTAMENTE el plan que aprobó el dueño, en este repositorio ("${repo.clave}"). Estás en una sesión de Claude en la nube, sobre la rama ${rama} (ya existe en GitHub: es la tuya).`,
     contextoDeLaTarjeta(tarjeta),
-    'Subir a main y a producción lo hace el Coordinador, nunca tú: las líneas "Al terminar: …" del plan son para él. Tú solo empujas tu rama.',
-    `PLAN APROBADO:\n${planParaLaNube(tarjeta.plan)}`,
+    subeLaSesion
+      ? 'Esta tarjeta la subes tú a main, como dice arriba (las líneas "Al terminar: …" del plan son para el Coordinador). Nada de --force ni de rebase sobre main.'
+      : 'Subir a main y a producción lo hace el Coordinador, nunca tú: las líneas "Al terminar: …" del plan son para él. Tú solo empujas tu rama.',
+    `PLAN APROBADO:\n${subeLaSesion ? String(tarjeta.plan ?? "") : planParaLaNube(tarjeta.plan)}`,
     bloqueDeLecciones(lecciones),
     bloqueDeReparacion(tarjeta),
     modelo ? `MODELO PEDIDO: ${nombreDelModelo(modelo)} (construir se hace con ese modelo; no cambies a otro).` : "",
@@ -835,8 +860,8 @@ export function promptDeNube(tarjeta, repo, rama, { entorno = {}, modelo = null,
         ? `   Antes de compilar o probar, exporta estas variables (NO son secretas, son direcciones falsas a propósito):\n${variables.map((linea) => `   ${linea}`).join("\n")}`
         : "",
       `2. TODO EN PRIMER PLANO: nada en segundo plano ni subagentes esperando. No digas "reviso más tarde": la sesión no termina hasta tener el resultado (OK o error).${orquestador ? " Los subagentes que uses para llevar varias tarjetas a la vez, también en primer plano y esperando su respuesta." : revision ? " Los ÚNICOS subagentes permitidos son los 4 de la REVISIÓN de abajo, en primer plano y esperando su respuesta." : ""}`,
-      `3. DEJA TODO EN LA RAMA ${rama}: haz commit y \`git push origin ${rama}\` (sin --force). No uses otra rama ni abras pull requests. Como ÚLTIMO paso deja un commit VACÍO y súbelo:`,
-      `   git commit --allow-empty -m "resultado: build=OK tests=OK segundos=<N>${revision ? " revision=OK" : ""}"`,
+      `3. DEJA TODO EN LA RAMA ${rama}: haz commit y \`git push origin ${rama}\` (sin --force). No uses otra rama ${subeLaSesion ? "(salvo el push a main de arriba) " : ""}ni abras pull requests. Como ÚLTIMO paso deja un commit VACÍO y súbelo:`,
+      `   git commit --allow-empty -m "resultado: build=OK tests=OK segundos=<N>${subeLaSesion ? " main=<sha>" : ""}${revision ? " revision=OK" : ""}"`,
       `   (build=FALLO o tests=FALLO si algo falló; <N> = los segundos que tardó todo${revision ? "; revision= como dice la REVISIÓN de abajo" : ""}).`,
       '4. SI FALLA: no preguntes ni te quedes dando vueltas. Si no lo puedes arreglar, deja el commit vacío con FALLO y pon en su CUERPO las últimas 30 líneas del error: git commit --allow-empty -m "resultado: build=FALLO tests=FALLO segundos=<N>" -m "<últimas 30 líneas>", y súbelo.',
     ]
@@ -984,6 +1009,11 @@ async function construirLaParteDeLaNube(contexto, tarjeta, { repo, rama, base, r
     try {
       resultado = await esperarResultado(contexto, { repo, rama, vistos, reloj, link: lanzado.link, ...(contexto.orquestador === true ? { esperaMinutos: MINUTOS_EN_ORQUESTADOR, sinSenal: MINUTOS_EN_ORQUESTADOR } : {}) });
     } catch (error) {
+      // Modo orquestador (parte 3): la pregunta de la sesión del proyecto va al dueño con el aviso "necesita" de siempre.
+      if (contexto.orquestador === true && error instanceof ErrorDeEtapa && error.categoria === "nube_pregunta" && error.pregunta) {
+        registro.info(`la sesión de ${nombreDelProyecto(repo)} hizo una pregunta: ${error.pregunta}`);
+        return { link: lanzado.link, pregunta: error.pregunta };
+      }
       if (error instanceof ErrorDeEtapa && !error.message.includes(lanzado.link)) error.message += `\nSesión de la nube: ${lanzado.link}`;
       throw error;
     }
@@ -1013,6 +1043,22 @@ async function construirLaParteDeLaNube(contexto, tarjeta, { repo, rama, base, r
     if (conRevision && !resultado.revision) registro.aviso(`la nube no dejó revision= en su commit "resultado:": no consta la revisión de los 4 (sigo como antes)`);
     // La rama vuelve a aizen1: se verifica sobre el commit de main del que salió (así lo que se prueba es lo de la nube).
     await git(repo.ruta, ["fetch", repo.remoto]);
+    // Modo orquestador, parte 3: la sesión del proyecto dice que ya la subió a main (main=<sha>). Solo vale en las tarjetas
+    // que ella sube (laSesionSubeAMain) y si git confirma que el commit está en main: entonces pasa a HECHO sin volver a
+    // subir. Una de zona protegida o de "espera tu sí" sigue por el Coordinador aunque traiga main= (su sí, su vigilancia).
+    if (contexto.orquestador === true && resultado.main) {
+      if (laSesionSubeAMain(tarjeta, repo)) {
+        if (!(await commitEstaEnMain(repo, resultado.main))) {
+          throw new ErrorDeEtapa(
+            `La sesión de ${nombreDelProyecto(repo)} dejó main=${resultado.main} en su commit "resultado:", pero ese commit no está en main (${repo.remoto}/${repo.ramaBase}). No se subió nada.\nSesión de la nube: ${lanzado.link}`,
+            { categoria: "nube_sin_resultado" },
+          );
+        }
+        registro.info(`la sesión de ${nombreDelProyecto(repo)} subió la tarjeta a main (${resultado.main.slice(0, 10)}): comprobado con git`);
+        return { link: lanzado.link, segundos: resultado.segundos, subidaPorLaSesion: { commit: resultado.main } };
+      }
+      registro.aviso(`la sesión dejó main=${resultado.main}, pero esta tarjeta no la sube ella (zona protegida o espera tu sí): sigue por el Coordinador`);
+    }
     const baseComun = (await git(repo.ruta, ["merge-base", base, `${repo.remoto}/${rama}`])).salida.trim();
     return {
       link: lanzado.link,
@@ -1351,6 +1397,23 @@ export async function construir(contexto, tarjeta) {
     if (enNube) {
       rama = await ramaParaLaNube(repo, tarjeta);
       nube = await construirLaParteDeLaNube(contexto, tarjeta, { repo, rama, base, reloj });
+      // Modo orquestador, parte 3: una pregunta de la sesión del proyecto -> "Por revisar" con UN aviso "necesita" (como
+      // NECESITO); lo que ella ya subió a main (comprobado con git) -> HECHO sin volver a subir (como YA_ESTA_HECHO).
+      const proyecto = nombreDelProyecto(repo);
+      if (nube.pregunta) {
+        const detalle = enUnaLinea(nube.pregunta, 400);
+        return { necesita: { tipo: "decisión", detalle }, resumen: `La sesión de ${proyecto} hizo una pregunta y paró: ${detalle}\nSesión de la nube: ${nube.link}`, pruebas: "", paso: false, subeSolo: false };
+      }
+      if (nube.subidaPorLaSesion) {
+        const { commit } = nube.subidaPorLaSesion;
+        return {
+          yaHecho: { commit, motivo: `la sesión de ${proyecto} lo subió a main con build y pruebas en OK (${nube.link})` },
+          resumen: `Construida y subida a main por la sesión de ${proyecto} (commit ${commit.slice(0, 10)}). Sesión: ${nube.link}`,
+          pruebas: "",
+          paso: false,
+          subeSolo: false,
+        };
+      }
     }
     // CONFIAR EN LA NUBE (26-oct-2026, regla del dueño; config.nube.confiarEnResultado, sí por defecto): si allá pasaron
     // build y pruebas, aizen1 NO compila ni prueba NADA (ni npm ci, prisma generate, tsc, build, pruebas ni lint). Solo

@@ -719,6 +719,8 @@ export async function commitsDeLaRama(contexto, repo, rama) {
  * revisión, una línea por revisor. null si no es un commit de resultado.
  * La revisión (29-oct-2026, revisores.mjs) es opcional: una sesión vieja sin `revision=` sigue valiendo como antes (sin
  * los campos). Con ella: { revision: "OK"|"FALLO", revisor, motivoRevision }.
+ * `main=<sha>` (1-nov-2026, modo orquestador): opcional, el commit que la sesión del proyecto dejó en main. Solo vale un sha
+ * hexadecimal de 7 a 40 caracteres (en minúsculas); con otro formato se ignora. El Coordinador lo comprueba con git.
  */
 export function resultadoDelCommit(mensaje) {
   const [primera = "", ...resto] = String(mensaje ?? "").split(/\r?\n/);
@@ -727,6 +729,8 @@ export function resultadoDelCommit(mensaje) {
   const build = coincide[1].toUpperCase();
   const tests = coincide[2].toUpperCase();
   const resultado = { build, tests, segundos: coincide[3] === undefined ? null : Number(coincide[3]), paso: build === "OK" && tests === "OK", detalle: resto.join("\n").trim() };
+  const main = primera.match(/(?:^|\s)main=([0-9a-f]{7,40})(?=\s|$)/i)?.[1];
+  if (main) resultado.main = main.toLowerCase();
   const revision = primera.match(/\brevisi[oó]n=([A-Za-z]+)/i);
   if (!revision) return resultado;
   const estado = revision[1].toUpperCase() === "OK" ? "OK" : "FALLO";
@@ -800,7 +804,8 @@ export async function esperarResultado(contexto, { repo, rama, vistos, reloj, li
         if (resultado) return { ...resultado, sha: commit.sha, mensaje: commit.mensaje };
         const pregunta = preguntaDelCommit(commit.mensaje);
         if (pregunta) {
-          throw new ErrorDeEtapa(`La sesión de la nube hizo una pregunta y paró: ${pregunta}.${mirala}`, { categoria: "nube_pregunta" });
+          // `pregunta` va aparte (1-nov-2026): en el modo orquestador sale el aviso "necesita" con ella (etapas.mjs).
+          throw Object.assign(new ErrorDeEtapa(`La sesión de la nube hizo una pregunta y paró: ${pregunta}.${mirala}`, { categoria: "nube_pregunta" }), { pregunta });
         }
         // 29-oct-2026: el progreso de la revisión de los 4 ("revision: R1 seguridad=OK …"): el más nuevo va al panel (latido).
         // Como cualquier commit nuevo, también cuenta como señal para el corte sin señal.

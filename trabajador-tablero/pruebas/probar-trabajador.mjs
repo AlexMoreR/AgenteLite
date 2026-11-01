@@ -34,6 +34,7 @@ import {
   CONFIRMACION_REVISION_DE_NUEVO,
   buscarCorridaDelDespliegue,
   esLimiteDeUso,
+  laSesionSubeAMain,
   planParaLaNube,
   promptDeConstruir,
   promptDeNube,
@@ -1658,6 +1659,43 @@ await prueba("29-oct: preguntas abiertas del plan (la sección PREGUNTAS ABIERTA
   // La instrucción de planear pide la sección.
   const repo = { clave: "aizencrm" };
   assert.match(promptDelPlan({ id: "t", titulo: "t", detalle: "d", tablero: "E" }, repo), /"PREGUNTAS ABIERTAS:"[^\n]*"PREGUNTAS ABIERTAS: ninguna"/);
+});
+
+await prueba("modo orquestador parte 3 (1-nov-2026): main=<sha> en el resultado (7 a 40 hexadecimales; otro formato se ignora) y quién sube a main", async () => {
+  const sha = "0123456789abcdef0123456789abcdef01234567";
+  assert.equal(resultadoDelCommit(`resultado: build=OK tests=OK segundos=1 main=${sha}`).main, sha);
+  assert.equal(resultadoDelCommit("resultado: build=OK tests=OK segundos=1 main=ABCDEF1 revision=OK").main, "abcdef1", "en minúsculas, con revision= después");
+  assert.equal(resultadoDelCommit("resultado: build=OK tests=OK segundos=1 revision=OK main=abc1234").revision, "OK");
+  for (const raro of ["main=abc", "main=xyz12345", `main=${sha}0`, "main=abc1234;rm", "main="]) {
+    assert.equal(resultadoDelCommit(`resultado: build=OK tests=OK segundos=1 ${raro}`).main, undefined, `se ignora ${raro}`);
+  }
+  assert.ok(!("main" in resultadoDelCommit("resultado: build=OK tests=OK segundos=1")), "sin main= no aparece el dato");
+  // Quién sube: la sesión solo si el proyecto orquesta, sube solo y el plan dice "sube solo" sin zona ni "espera tu sí".
+  const repo = { clave: "aizencrm", subirSolo: true, nube: { sesionFija: "session_01X", orquestador: true }, zonasProtegidas: { CHATS: ["src/chats/**"], BOT_VENTAS: ["src/bot/**"], LIBRO_V3: ["src/agente-v3/**"] } };
+  const plan = "Al terminar: sube solo a producción\n5. Archivos:\n- src/features/x/a.ts";
+  assert.equal(laSesionSubeAMain({ plan }, repo), true);
+  assert.equal(laSesionSubeAMain({ plan: plan.replace("Al terminar:", "**Al terminar:**") }, repo), true, "con negritas");
+  assert.equal(laSesionSubeAMain({ plan }, { ...repo, nube: { sesionFija: "session_01X", orquestador: false } }), false, "sin el modo");
+  assert.equal(laSesionSubeAMain({ plan }, { ...repo, subirSolo: false }), false, "el proyecto no sube solo");
+  assert.equal(laSesionSubeAMain({ plan: "Al terminar: espera tu sí\n- src/features/x/a.ts" }, repo), false, "espera tu sí");
+  assert.equal(laSesionSubeAMain({ plan: `APROBAR PLAN: ESPERA TU SÍ — el agente necesita una decisión\n${plan}` }, repo), false, "plan que espera el sí");
+  assert.equal(laSesionSubeAMain({ plan: "Al terminar: sube solo a producción (zona CHATS, con vigilancia de 30 min)\n- src/chats/a.ts" }, repo), false, "zona CHATS");
+  assert.equal(laSesionSubeAMain({ plan: "Al terminar: sube solo\n- src/bot/respuesta.ts" }, repo), false, "un archivo del bot de ventas");
+  assert.equal(laSesionSubeAMain({ plan, zonasAprobadas: ["LIBRO_V3"] }, repo), false, "zona aprobada");
+  assert.equal(laSesionSubeAMain({ plan: `GASTO EN META ADS: sube el presupuesto\n${plan}` }, repo), false, "gasto en Meta Ads");
+  assert.equal(laSesionSubeAMain({ plan: "Sin la línea Al terminar" }, repo), false, "sin la línea");
+  // El mensaje: la que sube la sesión le pide el push a main y main=<sha>; las demás siguen como en la parte 2.
+  const sube = promptDeNube({ id: "t1", titulo: "T", plan: `${plan}\nSube a main.` }, repo, "tablero/t1-x", { orquestador: true, sesionFija: true });
+  assert.match(sube, /ESTA TARJETA LA SUBES TÚ A MAIN/);
+  assert.match(sube, /git merge origin\/main \(sin rebase\)[^\n]*git push origin HEAD:main \(sin --force\)/);
+  assert.match(sube, /resultado: build=OK tests=OK segundos=<N> main=<sha>/);
+  assert.ok(!/nunca hagas push a main/.test(sube) && !/el Coordinador lo sube a main/.test(sube), "no se contradice");
+  for (const otra of [{ plan: "Al terminar: espera tu sí\n- src/x.ts" }, { plan, zonasAprobadas: ["CHATS"] }]) {
+    const texto = promptDeNube({ id: "t2", titulo: "T", ...otra }, repo, "tablero/t2-x", { orquestador: true, sesionFija: true });
+    assert.ok(!/LA SUBES TÚ A MAIN|main=<sha>/.test(texto), "deja la rama lista");
+    assert.match(texto, /No subas nada a main: el Coordinador verifica y sube/);
+  }
+  assert.ok(!/main=<sha>/.test(promptDeNube({ id: "t3", titulo: "T", plan }, repo, "tablero/t3-x", { sesionFija: true })), "sin orquestador, como siempre");
 });
 
 await prueba("29-oct: la nube deja 'inicio:' y, si pregunta, 'pregunta:'; esperarResultado corta enseguida o a los sinSenalMinutos", async () => {
@@ -4866,6 +4904,106 @@ try {
     sinRestos();
   });
 
+
+  /* ── MODO ORQUESTADOR, parte 3 (1-nov-2026): la sesión del proyecto sube a main y el Coordinador solo comprueba ── */
+
+  const orquestadorConfig = (delRepo = {}) =>
+    crearConfig({ construirNubeMinutos: 2 }, { subirSolo: true, github: "prueba/repo", agente: { nombre: "Agente Gestión" }, nube: { sesionFija: FIJA, orquestador: true }, ...delRepo }, {
+      maxParalelo: 2,
+      nube: { activa: true, maxTareas: 8, vigilarCadaSegundos: 0.3, esperaMinutos: 1, lanzarMinutos: 1, terminal: "sin-terminal", comandoGh: [node, falso("gh-falso.mjs")], todoEnLaNube: true },
+    });
+  const planQueSubeSolo = (modulo) => `Al terminar: sube solo a producción\n${planDe(modulo)}`;
+  const enMain = (sha) => {
+    try {
+      execFileSync("git", ["--git-dir", REMOTO, "merge-base", "--is-ancestor", sha, "main"], { stdio: "ignore" });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  await prueba("orquestador: 'resultado: build=OK tests=OK segundos=1 main=<sha>' con el sha en main -> HECHO sin volver a subir (comprobado con git)", async () => {
+    despejar();
+    olvidarSinAcceso();
+    const desde = leerLog(LOGS.claude).length;
+    const id = nueva("Gestión la sube la sesión [nube-main-ok]", "PLAN_APROBADO", { plan: planQueSubeSolo("orqok") });
+    const planificador = planificar(orquestadorConfig());
+    await correrHasta(planificador, () => ["HECHO", "ERROR", "POR_REVISAR"].includes(tarjetas.get(id).estado), 120_000);
+    await planificador.esperarTodas();
+    planificador.parar();
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "HECHO", t.resultado?.error?.motivo);
+    const { commit, motivo } = t.resultado.yaEstabaHecho;
+    assert.match(commit, /^[0-9a-f]{40}$/);
+    assert.ok(enMain(commit), "el commit está en main");
+    assert.match(motivo, /la sesión de Gestión lo subió a main con build y pruebas en OK/);
+    assert.ok(!llamadas.some((l) => l.id === id && ["resultado", "subida"].includes(l.accion)), "el Coordinador no la construyó ni la subió otra vez");
+    const [tarea] = llamadasAFija(desde).filter((l) => l.prompt !== "/clear");
+    assert.match(tarea.prompt, /ESTA TARJETA LA SUBES TÚ A MAIN/);
+    assert.match(tarea.prompt, /main=<sha>/);
+    sinRestos();
+  });
+
+  await prueba("orquestador: con main=<sha> fuera de main -> ERROR 'no está en main', sin subir nada", async () => {
+    despejar();
+    olvidarSinAcceso();
+    const mainAntes = shaDe("main");
+    const id = nueva("Gestión dice que subió [nube-main-fuera]", "PLAN_APROBADO", { plan: planQueSubeSolo("orqfuera") });
+    const planificador = planificar(orquestadorConfig());
+    await correrHasta(planificador, () => ["HECHO", "ERROR", "POR_REVISAR"].includes(tarjetas.get(id).estado), 120_000);
+    await planificador.esperarTodas();
+    planificador.parar();
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "ERROR");
+    assert.match(t.resultado.error.motivo, /no está en main/);
+    assert.equal(t.resultado.yaEstabaHecho, undefined);
+    assert.equal(shaDe("main"), mainAntes, "main no cambió");
+    sinRestos();
+  });
+
+  await prueba("orquestador: con 'pregunta:' la tarjeta queda en 'Por revisar' y sale UN aviso 'necesita' con la pregunta", async () => {
+    despejar();
+    olvidarSinAcceso();
+    const avisosAntes = llamadas.filter((l) => l.accion === "aviso").length;
+    const id = nueva("Gestión con una duda [nube-pregunta]", "PLAN_APROBADO", { plan: planQueSubeSolo("orqpregunta") });
+    const planificador = planificar(orquestadorConfig());
+    await correrHasta(planificador, () => ["HECHO", "ERROR", "POR_REVISAR"].includes(tarjetas.get(id).estado), 120_000);
+    await planificador.esperarTodas();
+    planificador.parar();
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "POR_REVISAR", t.resultado?.error?.motivo);
+    assert.match(t.resultado.resumen, /La sesión de Gestión hizo una pregunta y paró: ¿La subo a main o espera a la otra tarjeta\?/);
+    const avisos = llamadas.filter((l) => l.accion === "aviso").slice(avisosAntes);
+    assert.equal(avisos.length, 1);
+    assert.equal(avisos[0].cuerpo.tipo, "necesita");
+    assert.equal(avisos[0].cuerpo.tarjetaId, id);
+    assert.match(avisos[0].cuerpo.texto, /necesita una decisión para "Gestión con una duda \[nube-pregunta\]": ¿La subo a main o espera a la otra tarjeta\?/);
+    t.estado = "HECHO";
+    sinRestos();
+  });
+
+  await prueba("orquestador: una tarjeta de zona CHATS con main= no queda en HECHO: sigue a la subida del Coordinador (con su vigilancia)", async () => {
+    despejar();
+    olvidarSinAcceso();
+    const desde = leerLog(LOGS.claude).length;
+    const plan = "Al terminar: sube solo a producción (zona CHATS, con vigilancia de 30 min)\n5. Archivos:\nsrc/chats/orquestador.ts";
+    // La sesión deja main=<sha> (de su rama): en CHATS ese dato no cuenta y no se comprueba; la sube el Coordinador.
+    const id = nueva("Chats en la sesión [nube-main-fuera]", "PLAN_APROBADO", { plan, zonaProtegida: ["CHATS"] });
+    const planificador = planificar(orquestadorConfig({ zonasQueSubenSolas: ["BOT_VENTAS", "META_ADS", "LIBRO_V3", "CHATS"], vigilancia: { minutos: 0.02, cadaSegundos: 0.3, maxErroresNuevos: 2 } }));
+    await correrHasta(planificador, () => !["PLAN_APROBADO", "EN_CURSO"].includes(tarjetas.get(id).estado), 120_000);
+    await planificador.esperarTodas();
+    planificador.parar();
+    const t = tarjetas.get(id);
+    assert.notEqual(t.estado, "HECHO", "no queda en HECHO por traer main=");
+    assert.equal(t.estado, "SUBIENDO", t.resultado?.error?.motivo);
+    assert.equal(t.resultado.yaEstabaHecho, undefined);
+    assert.equal(t.resultado.subeSolo, true);
+    assert.match(t.resultado.pruebas, /construido, sube solo \(zona CHATS; la vigilan 30 min\)/);
+    const [tarea] = llamadasAFija(desde).filter((l) => l.prompt !== "/clear");
+    assert.ok(!/LA SUBES TÚ A MAIN/.test(tarea.prompt), "a la sesión no se le pide subir a main");
+    t.estado = "HECHO";
+    sinRestos();
+  });
 
   // La terminal real (node-pty): solo si está instalado (en aizen1 sí; en otros PCs se salta).
   const hayPty = await import("node-pty").then(

@@ -263,8 +263,28 @@ async function tarjetasEnMarcha(workspaceId: string, ahora: Date) {
     },
     orderBy: { trabajoIniciadoEn: "asc" },
     take: 20,
-    select: { id: true, titulo: true, estado: true, intentos: true, reparaciones: true, trabajoIniciadoEn: true },
+    select: { id: true, titulo: true, estado: true, intentos: true, reparaciones: true, trabajoIniciadoEn: true, repo: true, resultado: true },
   });
+}
+
+/** Dónde se construye según el último latido de la tarjeta (resultado.construccion.lugar): "aizen1", "nube", "orquestador" o null. */
+function lugarDeLaConstruccion(resultado: unknown): string | null {
+  if (!resultado || typeof resultado !== "object" || Array.isArray(resultado)) return null;
+  const construccion = (resultado as Record<string, unknown>).construccion;
+  if (!construccion || typeof construccion !== "object" || Array.isArray(construccion)) return null;
+  const lugar = (construccion as Record<string, unknown>).lugar;
+  return typeof lugar === "string" ? lugar : null;
+}
+
+/**
+ * Modo orquestador (1-nov-2026): una tarjeta EN_CURSO que construye la sesión del proyecto se ve "En la sesión de Gestión",
+ * no como "Esperando a otra" ni "Bloqueada". El proyecto sale del agente del latido ("Agente Gestión" -> "Gestión") o, si no
+ * viene, del repo. null si no es del orquestador (queda el lugar de siempre).
+ */
+export function lugarDelOrquestador(tarjeta: { estado: string; repo?: string | null; resultado?: unknown }, agente: string | null | undefined): string | null {
+  if (tarjeta.estado !== "EN_CURSO" || lugarDeLaConstruccion(tarjeta.resultado) !== "orquestador") return null;
+  const proyecto = (agente ?? "").replace(/^agente\s+/i, "").trim() || tarjeta.repo?.trim() || "el proyecto";
+  return `la sesión de ${proyecto}`;
 }
 
 /**
@@ -466,7 +486,7 @@ export async function vistaDelCoordinador(workspaceId: string, ahora = new Date(
       etapa,
       etapaTexto: NOMBRE_DE_LA_ETAPA[etapa],
       lugar,
-      lugarTexto: NOMBRE_DEL_LUGAR[lugar],
+      lugarTexto: lugarDelOrquestador(tarjeta, dato?.agente) ?? NOMBRE_DEL_LUGAR[lugar],
       modelo,
       modeloTexto: modelo ? NOMBRE_DEL_MODELO[modelo] : dato?.motor === "codex" ? "Codex" : null,
       inicioEn: (dato?.inicioEn ?? tarjeta.trabajoIniciadoEn?.toISOString()) ?? null,

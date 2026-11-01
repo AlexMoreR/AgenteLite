@@ -45,6 +45,18 @@ if (argumentos[0] === "--trabajo-de-la-nube") {
     } else if (titulo.includes("[nube-rev-fallo]")) {
       // La revisión de los 4 no pasó tras 2 correcciones (29-oct-2026): build y pruebas OK, revision=FALLO.
       git(carpeta, "commit", "--quiet", "--allow-empty", "-m", "resultado: build=OK tests=OK segundos=50 revision=FALLO revisor=seguridad motivo=src/api/ruta.ts: validar quién llama", "-m", "seguridad: CAMBIOS — src/api/ruta.ts: validar quién llama\nexperiencia: no aplica\ndiseno: no aplica\ncodigo: APROBADO\nDUEÑO 1: La revisión de seguridad no aprobó: pide que src/api/ruta.ts revise quién llama antes de leer los datos.\nDUEÑO 2: ¿Lo subo así, lo corrijo con tu indicación o lo cierro?");
+    } else if (titulo.includes("[nube-pregunta]")) {
+      // Modo orquestador (1-nov-2026): la sesión del proyecto deja una pregunta en vez del resultado.
+      git(carpeta, "commit", "--quiet", "--allow-empty", "-m", "pregunta: ¿La subo a main o espera a la otra tarjeta?");
+    } else if (titulo.includes("[nube-main-ok]") || titulo.includes("[nube-main-fuera]")) {
+      // Modo orquestador, parte 3: "resultado: … main=<sha>". Con [nube-main-ok] la sesión de verdad lo sube a main (gh-falso
+      // subir-a-main); con [nube-main-fuera] dice el sha de su rama pero no lo sube (no está en main).
+      const sha = git(carpeta, "rev-parse", "HEAD").trim();
+      if (titulo.includes("[nube-main-ok]")) {
+        git(carpeta, "push", "--quiet", "origin", `HEAD:refs/heads/${rama}`);
+        execFileSync(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), "gh-falso.mjs"), "subir-a-main", sha], { env: { ...process.env, GH_FALSO_REMOTO: remoto, GH_FALSO_LOG: "" }, stdio: "ignore" });
+      }
+      git(carpeta, "commit", "--quiet", "--allow-empty", "-m", `resultado: build=OK tests=OK segundos=1 main=${sha}`);
     } else if (titulo.includes("[nube-rev-ok]")) {
       git(carpeta, "commit", "--quiet", "--allow-empty", "-m", "resultado: build=OK tests=OK segundos=44 revision=OK", "-m", "seguridad: APROBADO\nexperiencia: no aplica\ndiseno: no aplica\ncodigo: APROBADO — tras 1 corrección");
     } else git(carpeta, "commit", "--quiet", "--allow-empty", "-m", "resultado: build=OK tests=OK segundos=42");
