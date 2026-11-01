@@ -119,6 +119,10 @@
       "ruta": "D:/Proyectos/AgenteLite",
       "ramaBase": "main",
       "remoto": "origin",
+      "nube": {
+        "sesionFija": "",
+        "orquestador": false
+      },
       "agente": {
         "nombre": "Agente CRM",
         "lecciones": "",
@@ -358,7 +362,8 @@
       "ramaBase": "main",
       "remoto": "origin",
       "nube": {
-        "sesionFija": ""
+        "sesionFija": "",
+        "orquestador": false
       },
       "agente": {
         "nombre": "Agente Gestión",
@@ -476,6 +481,10 @@
       "ruta": "D:/Proyectos/messenger-basic",
       "ramaBase": "main",
       "remoto": "origin",
+      "nube": {
+        "sesionFija": "",
+        "orquestador": false
+      },
       "agente": {
         "nombre": "Agente Marketplace (NETMAGI)",
         "lecciones": "",
@@ -538,6 +547,10 @@
       "ruta": "D:/Proyectos/Marketing",
       "ramaBase": "main",
       "remoto": "origin",
+      "nube": {
+        "sesionFija": "",
+        "orquestador": false
+      },
       "agente": {
         "nombre": "Agente Marketing",
         "lecciones": "",

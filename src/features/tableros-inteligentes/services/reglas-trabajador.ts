@@ -315,15 +315,32 @@ export type EtapaDelTrabajador = "planear" | "construir" | "subir";
  */
 export const MINUTOS_POR_ETAPA: Record<EtapaDelTrabajador, number> = { planear: 20, construir: 90, subir: 80 };
 
-/** Dónde construye el Coordinador (25-oct-2026): en aizen1 o en la nube (`claude --cloud`). */
-export type LugarDeConstruccion = "aizen1" | "nube";
+/**
+ * Dónde construye el Coordinador (25-oct-2026): en aizen1 o en la nube (`claude --cloud`). "orquestador" (1-nov-2026): la
+ * tarjeta la organiza la sesión fija del proyecto (repos.<x>.nube.orquestador), que puede llevar varias a la vez.
+ */
+export type LugarDeConstruccion = "aizen1" | "nube" | "orquestador";
+
+/** Los lugares que se construyen en una sesión de Claude en la nube: guardan el link de la sesión y sus segundos. */
+const esLugarDeLaNube = (lugar: LugarDeConstruccion | null | undefined) => lugar === "nube" || lugar === "orquestador";
+
+/** El lugar que manda el Coordinador, limpio: solo los conocidos. */
+function lugarDeEntrada(valor: unknown): LugarDeConstruccion | null {
+  return valor === "nube" || valor === "aizen1" || valor === "orquestador" ? valor : null;
+}
 
 /** Construir en la nube tiene 180 minutos (en aizen1 siguen siendo 90): la sesión tarda más y luego se verifica en aizen1. */
 export const MINUTOS_PARA_CONSTRUIR_EN_LA_NUBE = 180;
 
-/** El tope de una etapa en minutos. Solo construir cambia, y solo si el latido dijo que se construye en la nube. */
+/** Con el modo orquestador (1-nov-2026) construir tiene 24 horas: la sesión del proyecto organiza varias tarjetas a la vez. */
+export const MINUTOS_PARA_CONSTRUIR_EN_ORQUESTADOR = 1440;
+
+/** El tope de una etapa en minutos. Solo construir cambia, y solo si el latido dijo que se construye en la nube o en el orquestador. */
 export function topeDeLaEtapa(etapa: EtapaDelTrabajador, lugar?: LugarDeConstruccion | null): number {
-  return etapa === "construir" && lugar === "nube" ? MINUTOS_PARA_CONSTRUIR_EN_LA_NUBE : MINUTOS_POR_ETAPA[etapa];
+  if (etapa !== "construir") return MINUTOS_POR_ETAPA[etapa];
+  if (lugar === "orquestador") return MINUTOS_PARA_CONSTRUIR_EN_ORQUESTADOR;
+  if (lugar === "nube") return MINUTOS_PARA_CONSTRUIR_EN_LA_NUBE;
+  return MINUTOS_POR_ETAPA.construir;
 }
 
 /**
@@ -351,7 +368,7 @@ const MINUTO = 60_000;
 
 /**
  * El vencimiento del candado: ahora + gracia, sin pasar del tope de la etapa contado desde que la tomó.
- * `lugar` = "nube" solo importa al construir (180 min en vez de 90).
+ * `lugar` = "nube" u "orquestador" solo importa al construir (180 min o 24 h en vez de 90).
  */
 export function vencimientoDelCandado(etapa: EtapaDelTrabajador, iniciadoEn: Date, ahora: Date, lugar?: LugarDeConstruccion | null): Date {
   const tope = iniciadoEn.getTime() + topeDeLaEtapa(etapa, lugar) * MINUTO;
@@ -384,12 +401,12 @@ export function linkDeSesionDeEntrada(valor: unknown): string | null {
   return esLinkDeSesion(link) ? link : null;
 }
 
-/** Lo que el latido de una tarjeta puede decir al construir: dónde (aizen1 o nube) y el link de la sesión de la nube. */
+/** Lo que el latido de una tarjeta puede decir al construir: dónde (aizen1, nube u orquestador) y el link de la sesión de la nube. */
 export function latidoDeEntrada(cuerpo: unknown): { lugar: LugarDeConstruccion | null; linkSesion: string | null } {
   const datos = (cuerpo && typeof cuerpo === "object" ? cuerpo : {}) as Record<string, unknown>;
-  const lugar = datos.lugar === "nube" || datos.lugar === "aizen1" ? datos.lugar : null;
-  // El link solo vale si la construcción es en la nube.
-  return { lugar, linkSesion: lugar === "nube" ? linkDeSesionDeEntrada(datos.sesion) : null };
+  const lugar = lugarDeEntrada(datos.lugar);
+  // El link solo vale si la construcción es en la nube (o en la sesión del proyecto que orquesta).
+  return { lugar, linkSesion: esLugarDeLaNube(lugar) ? linkDeSesionDeEntrada(datos.sesion) : null };
 }
 
 export type PedidoDeTomar = { maxParalelo?: unknown; excluir?: unknown };
@@ -1168,7 +1185,7 @@ export type ResultadoDelTrabajador = {
   archivos?: string[];
   /** Lo destructivo que encontró en la migración nueva (DROP, UPDATE...). [] = nada. Solo si vino. */
   migracionDestructiva?: string[];
-  /** Dónde se construyó (25-oct-2026): "aizen1" o "nube". Solo si vino (un Coordinador viejo no lo manda). */
+  /** Dónde se construyó (25-oct-2026): "aizen1", "nube" u "orquestador" (1-nov-2026). Solo si vino (un Coordinador viejo no lo manda). */
   construidoEn?: LugarDeConstruccion;
   /** El link de la sesión de Claude en la nube (solo claude.ai/code/session_…). Solo si se construyó en la nube. */
   linkSesion?: string;
@@ -1214,10 +1231,10 @@ export function resultadoDeEntrada(valor: unknown): ResultadoDelTrabajador {
   const modelo = modelosDeEntrada(datos.modelo);
   const archivos = archivosDeEntrada(datos.archivos);
   const destructivo = migracionDestructivaDeEntrada(datos.migracionDestructiva);
-  const construidoEn: LugarDeConstruccion | null = datos.construidoEn === "nube" || datos.construidoEn === "aizen1" ? datos.construidoEn : null;
-  // El link solo se guarda si se construyó en la nube y es de claude.ai (nada de otros sitios).
-  const linkSesion = construidoEn === "nube" ? linkDeSesionDeEntrada(datos.linkSesion) : null;
-  const segundosNube = construidoEn === "nube" && typeof datos.segundosNube === "number" && Number.isFinite(datos.segundosNube) && datos.segundosNube >= 0 ? Math.round(datos.segundosNube) : null;
+  const construidoEn = lugarDeEntrada(datos.construidoEn);
+  // El link solo se guarda si se construyó en la nube (o en el orquestador) y es de claude.ai (nada de otros sitios).
+  const linkSesion = esLugarDeLaNube(construidoEn) ? linkDeSesionDeEntrada(datos.linkSesion) : null;
+  const segundosNube = esLugarDeLaNube(construidoEn) && typeof datos.segundosNube === "number" && Number.isFinite(datos.segundosNube) && datos.segundosNube >= 0 ? Math.round(datos.segundosNube) : null;
   // El link del workflow solo se guarda si es de github.com (nada de otros sitios).
   const enlaceWorkflow = textoONull(datos.linkWorkflow, 500);
   const linkWorkflow = enlaceWorkflow && /^https:\/\/github\.com\//.test(enlaceWorkflow) ? enlaceWorkflow : null;

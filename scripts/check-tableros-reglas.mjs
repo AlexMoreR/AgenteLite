@@ -999,6 +999,26 @@ prueba("construir en la nube (25-oct-2026): 180 min solo cuando el latido dice n
   assert.equal(trabajo.vencimientoDelCandado("planear", inicio, min(19), "nube").toISOString(), min(20).toISOString());
 });
 
+prueba("modo orquestador (1-nov-2026): construir tiene 24 h; el latido y el resultado con lugar orquestador se aceptan y conservan el link", () => {
+  assert.equal(trabajo.MINUTOS_PARA_CONSTRUIR_EN_ORQUESTADOR, 1440);
+  assert.equal(trabajo.topeDeLaEtapa("construir", "orquestador"), 1440);
+  assert.equal(trabajo.topeDeLaEtapa("construir", "nube"), 180, "la nube sigue en 180");
+  assert.equal(trabajo.topeDeLaEtapa("construir", "aizen1"), 90, "aizen1 sigue en 90");
+  assert.equal(trabajo.topeDeLaEtapa("planear", "orquestador"), 20, "solo cambia el tope de construir");
+  const inicio = new Date("2026-11-01T15:00:00Z");
+  const min = (n) => new Date(inicio.getTime() + n * 60_000);
+  assert.equal(trabajo.vencimientoDelCandado("construir", inicio, min(1438), "orquestador").toISOString(), min(1440).toISOString(), "tope de 24 h");
+  const sesion = "https://claude.ai/code/session_01Orquesta";
+  assert.deepEqual(trabajo.latidoDeEntrada({ lugar: "orquestador", sesion }), { lugar: "orquestador", linkSesion: sesion });
+  assert.equal(trabajo.latidoDeEntrada({ lugar: "orquestador", sesion: "https://evil.example/code/session_X" }).linkSesion, null, "link raro no");
+  const r = trabajo.resultadoDeEntrada({ resumen: "Hecho", paso: true, construidoEn: "orquestador", linkSesion: sesion, segundosNube: 600.6, verificadoEn: "nube" });
+  assert.equal(r.construidoEn, "orquestador");
+  assert.equal(r.linkSesion, sesion);
+  assert.equal(r.segundosNube, 601);
+  assert.equal(r.verificadoEn, "nube");
+  assert.match(cargar("src/features/tableros-inteligentes/services/sql-trabajador.ts").SQL_PASAR_VENCIDAS_A_ERROR, /WHEN 'orquestador' THEN 1440/, "la consulta de vencidas también da 24 h");
+});
+
 prueba("el latido dice dónde se construye y el link de la sesión; solo se aceptan links seguros de claude.ai", () => {
   const sesion = "https://claude.ai/code/session_01AbC-9_x";
   assert.deepEqual(trabajo.latidoDeEntrada({ lugar: "nube", sesion }), { lugar: "nube", linkSesion: sesion });

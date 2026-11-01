@@ -139,25 +139,41 @@ function cuposNubeDelRepo(repo, clave, errores) {
 }
 
 /**
- * repos.<repo>.nube (29-oct-2026): { sesionFija: "session_…" }. Con sesión fija, construir en la nube le manda la tarea a esa
- * sesión (creada a mano en claude.ai/code con el repo seleccionado: así puede subir su rama) en vez de crear otra con
+ * repos.<repo>.nube (29-oct-2026): { sesionFija: "session_…", orquestador }. Con sesión fija, construir en la nube le manda la
+ * tarea a esa sesión (creada a mano en claude.ai/code con el repo seleccionado: así puede subir su rama) en vez de crear otra con
  * `claude --cloud`. Una tarea a la vez en esa sesión: con cuposNube de 2 o más, la 2.ª y la 3.ª abren sesiones nuevas
  * (31-oct-2026). Sin sesión fija, todo como siempre.
+ * orquestador (1-nov-2026): booleano, false si no se escribe. Con true, la sesión fija es la sesión del proyecto que organiza
+ * las tarjetas (por eso necesita sesionFija); construir en ese modo tiene 24 h en el CRM. Nace apagado: el reparto todavía no cambia.
  */
 function nubeDelRepo(valor, clave, errores) {
-  if (valor === undefined || valor === null) return { sesionFija: null };
+  if (valor === undefined || valor === null) return { sesionFija: null, orquestador: false };
   if (typeof valor !== "object" || Array.isArray(valor)) {
-    errores.push(`repos.${clave}.nube: un bloque { sesionFija }.`);
-    return { sesionFija: null };
+    errores.push(`repos.${clave}.nube: un bloque { sesionFija, orquestador }.`);
+    return { sesionFija: null, orquestador: false };
   }
+  let orquestador = false;
+  if (valor.orquestador !== undefined) {
+    if (typeof valor.orquestador === "boolean") orquestador = valor.orquestador;
+    else errores.push(`repos.${clave}.nube.orquestador: true o false (false si no se escribe).`);
+  }
+  const sesionFija = sesionFijaDelRepo(valor, clave, errores);
+  if (orquestador && !sesionFija) {
+    errores.push(`repos.${clave}.nube.orquestador: necesita repos.${clave}.nube.sesionFija (la sesión del proyecto que organiza las tarjetas).`);
+    orquestador = false;
+  }
+  return { sesionFija, orquestador };
+}
+
+/** repos.<repo>.nube.sesionFija limpia: el id "session_…" o null (vacía, como en config.example.json, = sin sesión fija). */
+function sesionFijaDelRepo(valor, clave, errores) {
   const sesionFija = typeof valor.sesionFija === "string" ? valor.sesionFija.trim() : "";
-  // Vacía (como en config.example.json) = sin sesión fija.
-  if (!sesionFija) return { sesionFija: null };
+  if (!sesionFija) return null;
   if (!/^session_[A-Za-z0-9_-]+$/.test(sesionFija)) {
     errores.push(`repos.${clave}.nube.sesionFija: el id de la sesión ("session_…", sale en su link claude.ai/code/session_…).`);
-    return { sesionFija: null };
+    return null;
   }
-  return { sesionFija };
+  return sesionFija;
 }
 
 

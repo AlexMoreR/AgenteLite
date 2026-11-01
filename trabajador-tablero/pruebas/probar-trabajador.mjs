@@ -4713,11 +4713,25 @@ try {
     });
   const llamadasAFija = (desde, id = FIJA) => leerLog(LOGS.claude).slice(desde).filter((l) => l.argumentos.includes("--cloud") && l.argumentos.includes(id));
 
+  await prueba("modo orquestador (1-nov-2026): nace apagado; con true necesita la sesión fija y solo acepta true o false", () => {
+    assert.throws(
+      () => crearConfig({}, { nube: { orquestador: true } }),
+      /repos\.aizencrm\.nube\.orquestador: necesita repos\.aizencrm\.nube\.sesionFija \(la sesión del proyecto que organiza las tarjetas\)/,
+      "sin sesión fija: error claro",
+    );
+    assert.throws(() => crearConfig({}, { nube: { sesionFija: "", orquestador: true } }), /nube\.orquestador: necesita/, "sesión fija vacía tampoco sirve");
+    assert.throws(() => crearConfig({}, { nube: { sesionFija: FIJA, orquestador: "si" } }), /nube\.orquestador: true o false/);
+    assert.deepEqual(crearConfig({}, { nube: { sesionFija: FIJA, orquestador: true } }).repos.aizencrm.nube, { sesionFija: FIJA, orquestador: true }, "con sesión fija sí carga");
+    assert.deepEqual(crearConfig({}, { nube: { sesionFija: FIJA } }).repos.aizencrm.nube, { sesionFija: FIJA, orquestador: false }, "sin la clave: apagado");
+    const ejemplo = completarConfig(JSON.parse(fs.readFileSync(path.join(AQUI, "..", "config.example.json"), "utf8")));
+    for (const [clave, repo] of Object.entries(ejemplo.repos)) assert.equal(repo.nube.orquestador, false, `${clave}: nace apagado`);
+  });
+
   await prueba("sesión fija (config y piezas): sin nada no hay sesión fija; el id es session_…; el prompt empieza con la tarea nueva y prohíbe conectores", () => {
-    assert.deepEqual(crearConfig().repos.aizencrm.nube, { sesionFija: null }, "sin nada: como siempre");
+    assert.deepEqual(crearConfig().repos.aizencrm.nube, { sesionFija: null, orquestador: false }, "sin nada: como siempre");
     assert.equal(crearConfig().nube.chequeoPrevio, true);
     assert.equal(crearConfig().nube.sinAccesoMinutos, 60);
-    assert.deepEqual(crearConfig({}, { nube: { sesionFija: "" } }).repos.aizencrm.nube, { sesionFija: null }, "vacía (como en el ejemplo) = sin sesión fija");
+    assert.deepEqual(crearConfig({}, { nube: { sesionFija: "" } }).repos.aizencrm.nube, { sesionFija: null, orquestador: false }, "vacía (como en el ejemplo) = sin sesión fija");
     assert.throws(() => crearConfig({}, { nube: { sesionFija: "https://claude.ai/code/x" } }), /nube\.sesionFija/);
     const repo = fijaConfig().repos.aizencrm;
     assert.equal(sesionFijaDe(repo), FIJA);

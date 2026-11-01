@@ -132,7 +132,7 @@ import { cerrarLaMadreDeLaParte, cerrarLaMadreSiToca as cerrarMadrePartida } fro
   - /:id/soltar la devuelve sin ERROR ni contar el intento (Claude llegó a su límite de uso, o choca con
     otra que corre): PLANEANDO -> APROBADO, EN_CURSO -> PLAN_APROBADO, SUBIENDO -> SUBIENDO pendiente.
   - /:id/latido corre el vencimiento (de a 5 min, hasta el tope de la etapa: 20 / 90 / 45 min; construyendo en la
-    nube, 180 min). Construyendo trae { lugar, sesion }: se guarda en resultado.construccion (25-oct-2026).
+    nube, 180 min; en el orquestador, 24 h). Construyendo trae { lugar, sesion }: se guarda en resultado.construccion (25-oct-2026).
   - /:id/subida acepta también resumenTres { hizo, ahora, revisar } (las 3 líneas del agente; se recortan y se descartan si vienen vacías).
   - /:id/plan, /resultado, /subida y /error la mueven de estado (reglas-trabajador.ts). /resultado
     pasa a SUBIENDO (sube sola) o a POR_REVISAR (espera el sí final) según destinoDelResultado.
@@ -904,8 +904,8 @@ export async function accionDelTrabajador(
     if (!etapa || !actual.trabajoVenceEn || actual.trabajoVenceEn.getTime() <= ahora.getTime() || !actual.trabajoIniciadoEn) {
       throw new ErrorDelTrabajador("El candado de esta tarjeta ya venció: no sigas (el próximo /tomar la pasa a ERROR).", 409);
     }
-    // Construyendo, el latido dice dónde (aizen1 o nube) y el link de la sesión de la nube. En la nube el tope es de
-    // 180 min (no 90) y la tarjeta muestra "La está construyendo Claude en la nube… Ver la sesión".
+    // Construyendo, el latido dice dónde (aizen1, nube u orquestador) y el link de la sesión de la nube. En la nube el tope
+    // es de 180 min (no 90) y en el orquestador de 24 h, y la tarjeta muestra "La está construyendo Claude en la nube… Ver la sesión".
     const { lugar, linkSesion } = latidoDeEntrada(cuerpo);
     const venceEn = vencimientoDelCandado(etapa, actual.trabajoIniciadoEn, ahora, etapa === "construir" ? lugar : null);
     const previo = resultadoComoObjeto(actual.resultado);

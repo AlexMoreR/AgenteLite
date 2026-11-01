@@ -15,6 +15,7 @@
 
 import {
   MINUTOS_PARA_CONSTRUIR_EN_LA_NUBE,
+  MINUTOS_PARA_CONSTRUIR_EN_ORQUESTADOR,
   MINUTOS_POR_ETAPA,
   PALABRA_DE_PRIORIDAD,
   PALABRAS_DE_LA_FILA,
@@ -69,7 +70,11 @@ WITH v AS (
          CASE c."estado"::text
            WHEN 'PLANEANDO' THEN ${MINUTOS_POR_ETAPA.planear}
            -- Construir en la nube tiene 180 min: el latido de la nube deja resultado.construccion.lugar = 'nube'.
-           WHEN 'EN_CURSO' THEN (CASE WHEN c."resultado"->'construccion'->>'lugar' = 'nube' THEN ${MINUTOS_PARA_CONSTRUIR_EN_LA_NUBE} ELSE ${MINUTOS_POR_ETAPA.construir} END)
+           -- En el orquestador (1-nov-2026), 24 h: el latido deja lugar = 'orquestador'.
+           WHEN 'EN_CURSO' THEN (CASE c."resultado"->'construccion'->>'lugar'
+             WHEN 'nube' THEN ${MINUTOS_PARA_CONSTRUIR_EN_LA_NUBE}
+             WHEN 'orquestador' THEN ${MINUTOS_PARA_CONSTRUIR_EN_ORQUESTADOR}
+             ELSE ${MINUTOS_POR_ETAPA.construir} END)
            ELSE ${MINUTOS_POR_ETAPA.subir}
          END AS "tope",
          (
