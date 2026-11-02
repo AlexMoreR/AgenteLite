@@ -169,6 +169,13 @@ export function LibroDeReglasView({ libro, problemas }: { libro: LibroDeReglas; 
                     {regla.activa ? null : <span className="ml-2 text-[11px] text-muted-foreground">(apagada)</span>}
                   </p>
 
+                  {regla.reemplazaLaBienvenida ? (
+                    <p className="inline-flex max-w-full items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                      <Sparkles className="size-3 shrink-0" />
+                      <span className="min-w-0">Reemplaza la bienvenida general</span>
+                    </p>
+                  ) : null}
+
                   <p className="text-[13px] text-muted-foreground">
                     <CircleDot className="mr-1 inline size-3" />
                     {comoSeLeeElDisparador(regla)}

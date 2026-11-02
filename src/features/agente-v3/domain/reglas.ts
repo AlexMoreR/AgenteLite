@@ -83,6 +83,15 @@ export type ReglaV3 = {
   soloSi?: Condiciones;
   entonces: Accion[];
   activa: boolean;
+  /**
+   * Esta regla YA saluda al cliente nuevo (por ejemplo, la bienvenida del combo para quien llega
+   * del anuncio): si gana en el primer mensaje, NO se antepone la bienvenida general.
+   *
+   * Sin esto, al cliente del anuncio del combo le salían dos bienvenidas seguidas (General + Combo),
+   * o había que apagar la General y los clientes de otros productos se quedaban sin ninguna (tarjeta
+   * del 02-11-2026). Sin la marca, la regla se comporta como siempre.
+   */
+  reemplazaLaBienvenida?: boolean;
   /** Para el historial: quién la escribió y cuándo. */
   autor?: string;
   creadaEl?: string;

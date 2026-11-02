@@ -96,6 +96,11 @@ const ESQUEMA_DE_REGLA = {
       },
     },
     activa: { type: "boolean", description: "Por defecto true" },
+    reemplaza_bienvenida: {
+      type: "boolean",
+      description:
+        "true si esta regla YA saluda al cliente nuevo (ej. la bienvenida del combo para quien llega del anuncio): si gana en el primer mensaje, NO se antepone la bienvenida general (la regla 'siempre' + esPrimerMensaje). Por defecto false. Si la regla ya manda el mismo flujo que la bienvenida general, no hace falta marcarla.",
+    },
   },
   required: ["nombre", "cuando", "entonces"],
 } as const;
@@ -174,7 +179,7 @@ export const HERRAMIENTAS_MCP_V3 = [
     name: "v3_probar_mensaje",
     title: "Probar un mensaje (V3)",
     description:
-      "Dice que regla ganaria con ese mensaje y por que, sin mandar nada. Sirve para responder '¿por que contesto eso?' antes de que pase.",
+      "Dice que regla ganaria con ese mensaje y por que, sin mandar nada, y si sale la bienvenida general del primer mensaje (bienvenida.sale, motivo, reemplazada_por). Sirve para responder '¿por que contesto eso?' antes de que pase. No llama a la IA: las reglas de intencion no se disparan aca.",
     inputSchema: {
       type: "object",
       properties: {
@@ -236,6 +241,8 @@ export function esHerramientaV3(nombre: string) {
 function comoRegla(argumentos: Argumentos, base?: ReglaV3): ReglaV3 {
   const cuando = (argumentos.cuando ?? base?.cuando) as ReglaV3["cuando"];
   const entonces = (argumentos.entonces ?? base?.entonces ?? []) as ReglaV3["entonces"];
+  const reemplazaLaBienvenida =
+    typeof argumentos.reemplaza_bienvenida === "boolean" ? argumentos.reemplaza_bienvenida : base?.reemplazaLaBienvenida;
   return {
     id: base?.id ?? `regla-${randomUUID()}`,
     nombre: typeof argumentos.nombre === "string" ? argumentos.nombre : (base?.nombre ?? ""),
@@ -243,6 +250,8 @@ function comoRegla(argumentos: Argumentos, base?: ReglaV3): ReglaV3 {
     soloSi: (argumentos.soloSi as ReglaV3["soloSi"]) ?? base?.soloSi,
     entonces,
     activa: typeof argumentos.activa === "boolean" ? argumentos.activa : (base?.activa ?? true),
+    // Solo se guarda si está prendida: así las reglas de siempre quedan igual que antes en el libro.
+    ...(reemplazaLaBienvenida ? { reemplazaLaBienvenida: true } : {}),
     autor: base?.autor,
     creadaEl: base?.creadaEl ?? new Date().toISOString(),
   };
@@ -267,6 +276,7 @@ export async function ejecutarHerramientaMcpV3(
         cuando: regla.cuando,
         solo_si: regla.soloSi,
         entonces: regla.entonces,
+        reemplaza_bienvenida: regla.reemplazaLaBienvenida === true,
       })),
       problemas: revisarLibro(libro),
       nota:
@@ -357,6 +367,30 @@ export async function ejecutarHerramientaMcpV3(
         falta: "No hay nada para el primer mensaje: al cliente nuevo no lo recibe nadie.",
         preguntar: "Cuando alguien escribe por primera vez, ¿qué tiene que recibir?",
       });
+    }
+    // Dos bienvenidas "siempre" se suman en el primer mensaje: al cliente nuevo le llegan las dos.
+    const bienvenidasSiempre = libro.reglas.filter(
+      (regla) => regla.activa && regla.cuando.tipo === "siempre" && regla.soloSi?.esPrimerMensaje === true,
+    );
+    if (bienvenidasSiempre.length > 1) {
+      huecos.push({
+        falta: `Hay ${bienvenidasSiempre.length} bienvenidas que salen siempre en el primer mensaje (${bienvenidasSiempre.map((regla) => `"${regla.nombre}"`).join(", ")}): al cliente nuevo le llegan todas.`,
+        preguntar:
+          "¿Cuál es la bienvenida general? Las otras conviene pasarlas a una regla de frase o de intención marcada 'reemplaza la bienvenida'.",
+      });
+    }
+    // Una regla que reemplaza la bienvenida tiene que saludar: si no le dice nada, el cliente entra sin bienvenida.
+    for (const regla of libro.reglas) {
+      if (!regla.activa || regla.reemplazaLaBienvenida !== true) continue;
+      const leDiceAlgo = regla.entonces.some(
+        (accion) => accion.tipo === "mensaje" || accion.tipo === "flujo" || accion.tipo === "responder_con_ia",
+      );
+      if (!leDiceAlgo) {
+        huecos.push({
+          falta: `"${regla.nombre}" reemplaza la bienvenida pero no le dice nada al cliente: si gana en el primer mensaje, entra sin bienvenida.`,
+          preguntar: `¿Qué bienvenida tiene que recibir quien entra por "${regla.nombre}"?`,
+        });
+      }
     }
     const productos = new Set(
       libro.reglas.flatMap((regla) =>
@@ -454,6 +488,11 @@ export async function ejecutarHerramientaMcpV3(
       gana: decision.regla ? { regla_id: decision.regla.id, nombre: decision.regla.nombre } : null,
       haria: [...decision.saludo, ...decision.acciones],
       porque: decision.porque,
+      bienvenida: {
+        sale: decision.bienvenida.sale,
+        motivo: decision.bienvenida.motivo,
+        reemplazada_por: decision.bienvenida.reemplazadaPor,
+      },
       tambien_encajaban: decision.tambienEncajaban,
     };
   }

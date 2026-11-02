@@ -23,6 +23,7 @@
     "test:sugerencia-otro-chat": "npx tsx --test src/components/chats/destino-de-la-sugerencia.test.ts",
     "test:agente-v3-foto": "node scripts/check-agente-v3-foto.mjs",
     "test:agente-v3-historial": "node scripts/check-agente-v3-historial.mjs",
+    "test:agente-v3-bienvenida": "node scripts/check-agente-v3-bienvenida.mjs",
     "test:v3-mapa": "node scripts/check-v3-mapa.mjs",
     "test:velocidad-bandeja": "node scripts/check-velocidad-bandeja.mjs",
     "test:coach": "node scripts/check-coach.mjs",

@@ -1,0 +1,2 @@
+## Advertencias de operación
+- `v3_reemplaza_bienvenida`: en el libro V3, la bienvenida general (regla "siempre" + primer mensaje) sale antes de la regla que gana, salvo que esa regla esté marcada "reemplaza la bienvenida" o ya mande el mismo flujo de la bienvenida. Si se marca una regla que no saluda, ese cliente entra sin bienvenida (lo avisa `v3_que_falta`); si otra regla de primer mensaje manda otra bienvenida y no se marca, salen dos. Probar con `v3_probar_mensaje`, que devuelve `bienvenida: { sale, motivo, reemplazada_por }`.
