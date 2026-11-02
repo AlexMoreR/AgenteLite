@@ -18,10 +18,39 @@ Solo toma tarjetas de un tipo **con aprobación** (como Tarea) que tengan **repo
 | PLAN_APROBADO | En una rama `tablero/<id>-<nombre>` desde `origin/main`: Claude **construye** el plan (puede editar, no puede hacer push). Después el trabajador, él mismo: hace el commit, marca las **zonas protegidas** que toca, corre tsc / build / pruebas, compara el **lint** con el de main (solo cuentan errores nuevos), **ensaya la migración** si hay una nueva (PGlite y producción dentro de `BEGIN … ROLLBACK`) y **sube solo la rama**. | SUBIENDO (sube sola) o POR_REVISAR (espera el sí) |
 | SUBIENDO | Rebase de la rama sobre `origin/main`. Si `main` no cambió desde que se construyó, no vuelve a compilar; si cambió, verifica y ensaya otra vez. **Push a main**, espera el CI (`gh run watch`) y comprueba que `/api/version` diga el commit nuevo. | HECHO (con el commit y su link) |
 
+### Un solo sí (1 y 2 de noviembre de 2026)
+
+El dueño dice **un solo sí**: el de la tarea (en la pantalla o por voz). Después de ese sí nada vuelve a esperar un
+"sí final": el plan pasa solo, se construye, se prueba y sube solo a producción.
+
+- **Preguntas abiertas del plan** (2-nov-2026, `lib/preguntas-abiertas.mjs`): cada pregunta de la sección
+  `PREGUNTAS ABIERTAS:` trae su opción recomendada en la misma línea (`- ¿A o B? Recomendada: A`). El plan ya **no**
+  recibe `APROBAR PLAN: ESPERA TU SÍ` por eso: el Coordinador sigue con la recomendada (si no la trae, con la primera
+  opción escrita, y lo anota así; si no hay opciones, con lo que dice el plan), deja arriba del plan la nota
+  "Seguí con la opción recomendada: A (pregunta: ¿A o B?)" (queda en el historial de la tarjeta y quien construye la lee)
+  y le manda al dueño **UN aviso de una línea** que solo informa ("Solo para que sepas: … No tienes que responder.").
+  Construir tampoco frena por preguntas (ya no existe `frenarPlanConPreguntas`).
+- **Lo que sigue esperando al dueño**: el gasto en Meta Ads (presupuesto, activar campañas) sin su sí, un `NECESITO:`
+  real del agente (clave, acceso o decisión que solo él da), el dinero de Gestión en una tarea que nadie aprobó a mano y
+  una migración destructiva.
+- **Cada repositorio sube solo** salvo que su configuración diga `"subirSolo": false` (sin la clave, sube solo). Con
+  `false` la tarjeta no espera el sí: queda en ERROR con el motivo. Gestión con dinero, con el sí de la tarea, sube solo
+  después de compilar y pasar las pruebas; la vigilancia de 30 minutos de los logs es solo para las zonas que suben
+  solas (CHATS, BOT_VENTAS, LIBRO_V3), no para Gestión.
+- **La subida se puede repetir**: si `git cherry` dice que todo lo de la rama ya está en main (también si entró con
+  rebase y otro sha), no se vuelve a empujar; se espera el CI y la versión del commit de main que lo contiene y, si falla,
+  se deshace solo ese cambio (o avisa URGENTE si no se puede sin riesgo).
+- **Una SUBIENDO vencida vuelve a la fila**: si el candado de una tarjeta SUBIENDO vence por falta de señal (no por el
+  tope de la etapa), vuelve a SUBIENDO pendiente, sin ERROR y sin gastar intento; `/arranque` hace lo mismo con las que
+  tenía el proceso anterior. Al arrancar, el Coordinador también pasa a SUBIENDO lo que estaba en Por revisar y ya no
+  tiene motivo para esperar.
+- **Registro de errores del lanzador**: cuando el Coordinador sale con un código distinto de 0, `lanzador.mjs` guarda en
+  `logs/lanzador.log` las últimas 40 líneas de su stderr (sin la clave), para saber por qué se cayó.
+
 ### El plan pasa solo (regla del dueño, 24-oct-2026)
 
 Aprobada la tarea, el plan pasa solo de PLAN_LISTO a PLAN_APROBADO, con cualquier riesgo y aunque
-la tarjeta tenga zona protegida (esa zona sigue pidiendo el sí final al subir). **Única excepción:**
+la tarjeta tenga zona protegida. **Única excepción:**
 el plan toca dinero de Gestión (abonos, saldos, nómina, comisiones, facturación, pagos) o puede subir
 presupuesto, activar campañas o crear gasto en Meta Ads: queda PLAN_LISTO con su motivo. El Coordinador
 lo dice con una línea del plan, `APROBAR PLAN: SOLO` o `APROBAR PLAN: ESPERA TU SÍ — motivo`, y el CRM
@@ -31,8 +60,8 @@ sin fila) la apaga por negocio; la vuelta del reloj también pasa las PLAN_LISTO
 
 ### Sube solo (desde el 21-oct-2026)
 
-El flujo es **Planear → Aprobar plan → Hacer**, y "Hacer" incluye subir a producción. Con
-`subirSolo: true` en el repo, cuando todo pasa (compila, pruebas, lint sin errores nuevos, ensayo de la
+El flujo es **Planear → Aprobar plan → Hacer**, y "Hacer" incluye subir a producción. Desde el 1-nov-2026
+el repo sube solo salvo `subirSolo: false` (ver "Un solo sí"): cuando todo pasa (compila, pruebas, lint sin errores nuevos, ensayo de la
 migración) la tarjeta pasa directo a SUBIENDO y el trabajador la sube **enseguida**, sin esperar el
 minuto y antes que cualquier otra tarjeta.
 
@@ -80,8 +109,8 @@ minuto y antes que cualquier otra tarjeta.
   publica la imagen) más la comprobación de `/api/version`. Se le agrega `--workflow <archivo>` al `gh run list` de `ciBuscar`
   (o se usa `{workflow}` en el comando). Un workflow de revisión (p. ej. «CI tablero») que falle en el mismo commit no deshace
   nada (26-oct-2026: así se deshizo una subida buena). Sin configurarlo queda un aviso en el registro en cada subida.
-- Con `subirSolo` apagado (o sin ponerlo) todo sigue como antes: queda POR_REVISAR y espera el sí final.
-- En `aizencrm`, el trabajador **no arranca** con `subirSolo: true` si falta la zona `CHATS`: así un
+- Con `subirSolo: false` la tarjeta no sube ni espera el sí: queda ERROR con el motivo. Sin la clave, sube solo.
+- En `aizencrm`, el trabajador **no arranca** subiendo solo si falta la zona `CHATS`: así un
   descuido en la configuración no puede hacer que un cambio de chats suba solo.
 - Un archivo nuevo de chats, agentes o Meta Ads que no calce con ningún glob **subiría solo**: al
   crear carpetas nuevas de esas áreas, agregarlas a `zonasProtegidas`.
@@ -120,7 +149,7 @@ latido la tarjeta pasa a ERROR ("se pasó del tiempo"). Topes por etapa: plan 20
 subir 45 min (el CI de AizenCRM tarda hasta 20 y la versión hasta 8; tiene que alcanzar para deshacer).
 
 Lo que **nunca** hace: push a main de un cambio que no pasó todo, ni de uno que toca una zona
-protegida sin el sí final del dueño; push con `--force` a main; `prisma migrate dev` / `db push`; nada
+protegida que no sube sola sin el sí del dueño; push con `--force` a main; `prisma migrate dev` / `db push`; nada
 contra la base de producción salvo el ensayo que se deshace (ROLLBACK). Los comandos corren con
 `DATABASE_URL` apuntando a nada.
 
@@ -640,12 +669,12 @@ Apagado, todo funciona como antes.
 ### Actualizar aizen1 al flujo nuevo
 
 1. Traer el código nuevo (`git pull` en la copia del repo de donde corre el trabajador).
-2. En `config.local.json`: agregar `"subirSolo": true` en cada repo que deba subir solo, copiar la zona
+2. En `config.local.json`: los repos suben solos sin la clave (poner `"subirSolo": false` en el que no deba), copiar la zona
    `CHATS` y los globs ampliados de `BOT_VENTAS`, `LIBRO_V3` y `META_ADS` desde `config.example.json`, y
    poner `"subirMinutos": 44` en `tiempos` (o quitar la línea).
 3. Reiniciar el trabajador (la tarea programada o el `node trabajador-tablero/trabajador.mjs`).
 
-Mientras no se haga, sigue funcionando como antes (todo queda POR_REVISAR).
+Mientras no se haga, sigue funcionando como antes.
 
 ## Configurar y arrancar (pasos para el dueño)
 
@@ -661,7 +690,7 @@ Mientras no se haga, sigue funcionando como antes (todo queda POR_REVISAR).
      Si no está y la tarea trae una migración nueva, el trabajador NO la entrega (queda ERROR).
    - `zonasProtegidas`: las rutas (globs) de cada zona (`CHATS`, `BOT_VENTAS`, `LIBRO_V3`, `META_ADS`).
      Las del ejemplo son un punto de partida: revisarlas.
-   - `subirSolo`: `true` para que las tarjetas que pasan todo y no tocan una zona suban solas a producción.
+   - `subirSolo`: sin la clave (o `true`), las tarjetas que pasan todo suben solas a producción; `false` lo apaga (quedan ERROR con el motivo).
    - `zonasQueSubenSolas`: las zonas que suben solas aunque estén en `zonasProtegidas` (`BOT_VENTAS`, `META_ADS`,
      `LIBRO_V3`, `CHATS`), con `vigilancia` y `ssh.logs` / `ssh.estado`. Hay que agregarlas al `config.json` real.
    - `subida`: cómo esperar el CI y comprobar la versión de cada repo.

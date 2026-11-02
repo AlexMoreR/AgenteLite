@@ -44,7 +44,7 @@ import {
   subir,
 } from "../lib/etapas.mjs";
 import { MAX_DESCRIPCION, descripcionParaLaNube, esCommitDeInicio, esTareaGrande, estaDentroDe, esperarResultado, lanzarEnNube, lineaSinRepo, linkDeLaSesionFija, linkDeSesion, marcarSinAccesoASesionesNuevas, nombreDelProyecto, olvidarSinAcceso, sesionFijaDe, sinAccesoALaNube, preguntaDeConfianza, preguntaDelCommit, resultadoDelCommit, seccionDelPlan, trabajaConMigracion } from "../lib/nube.mjs";
-import { preguntasAbiertasDelPlan, primeraPreguntaAbierta } from "../lib/preguntas-abiertas.mjs";
+import { opcionDeLaPregunta, preguntasAbiertasDelPlan, primeraPreguntaAbierta, seguirConLaRecomendada } from "../lib/preguntas-abiertas.mjs";
 import {
   PREGUNTA_POR_DEFECTO,
   REVISORES,
@@ -1761,6 +1761,37 @@ await prueba("modo orquestador parte 3 (1-nov-2026): main=<sha> en el resultado 
     assert.match(texto, /No subas nada a main: el Coordinador verifica y sube/);
   }
   assert.ok(!/main=<sha>/.test(promptDeNube({ id: "t3", titulo: "T", plan }, repo, "tablero/t3-x", { sesionFija: true })), "sin orquestador, como siempre");
+});
+
+await prueba("2-nov un solo sí: cada pregunta abierta sigue con su opción recomendada (o la primera escrita) y el plan lo pide", () => {
+  assert.deepEqual(opcionDeLaPregunta("¿A o B? Recomendada: A"), { pregunta: "¿A o B?", opcion: "A", origen: "recomendada" });
+  assert.deepEqual(opcionDeLaPregunta("¿Qué línea usa? (Opción recomendada: **la Admin**)."), { pregunta: "¿Qué línea usa?", opcion: "la Admin", origen: "recomendada" });
+  assert.equal(opcionDeLaPregunta("¿Se manda por WhatsApp o por correo? recomendado: por WhatsApp").opcion, "por WhatsApp");
+  // Sin recomendada: la primera opción escrita, y se anota así.
+  assert.deepEqual(opcionDeLaPregunta("¿A o B?"), { pregunta: "¿A o B?", opcion: "A", origen: "primera" });
+  assert.equal(opcionDeLaPregunta("Qué línea: a) la Admin, b) la de ventas").opcion, "la Admin");
+  // Sin opciones: se sigue con lo que dice el plan.
+  assert.deepEqual(opcionDeLaPregunta("¿Qué ruta del CRM manda el WhatsApp?"), { pregunta: "¿Qué ruta del CRM manda el WhatsApp?", opcion: null, origen: "plan" });
+  const plan = "## 1. Qué se cambia\nUn botón.\n\nPREGUNTAS ABIERTAS:\n- ¿A o B? Recomendada: A\n- ¿C o D?\n\nPlan escrito con: x";
+  const resueltas = seguirConLaRecomendada(plan, "Botón nuevo");
+  assert.deepEqual(resueltas.nota.split("\n"), ["Seguí con la opción recomendada: A (pregunta: ¿A o B?)", "Seguí con la primera opción escrita, no traía recomendada: C (pregunta: ¿C o D?)"]);
+  assert.ok(!resueltas.aviso.includes("\n"), "el aviso es de una línea");
+  assert.match(resueltas.aviso, /^Solo para que sepas: el plan de "Botón nuevo" tenía una pregunta abierta y seguí con la opción recomendada: A \(y 1 pregunta\(s\) más, en la tarjeta\)\. No tienes que responder\.$/);
+  assert.equal(seguirConLaRecomendada("Un plan limpio.\nPREGUNTAS ABIERTAS: ninguna"), null);
+  // La instrucción de planear pide la recomendada en la misma línea; ESPERA TU SÍ sigue siendo solo por dinero o Meta Ads.
+  const prompt = promptDelPlan({ id: "t", titulo: "t", detalle: "d", tablero: "E" }, { clave: "aizencrm" });
+  assert.match(prompt, /"- ¿A o B\? Recomendada: A"/);
+  assert.match(prompt, /El plan no espera al dueño por una pregunta: el Coordinador sigue con la opción recomendada/);
+  assert.ok(!/un plan con preguntas abiertas espera al dueño/.test(prompt));
+  assert.match(prompt, /^Escribe ESPERA TU SÍ solo si el plan toca dinero en Gestión .* o puede subir presupuesto, activar campañas o crear gasto en Meta Ads\./m);
+  // Con la nota arriba, el plan se aprueba solo; siguen esperando el gasto en Meta Ads sin sí humano, NECESITO y la migración destructiva.
+  const conNota = `${resueltas.nota}\n\nRIESGO: BAJO — un botón\nAPROBAR PLAN: SOLO\n${plan}`;
+  assert.equal(reglasDeRiesgo.porQueElPlanEsperaTuSi(conNota), null, "las preguntas ya resueltas no frenan");
+  assert.match(reglasDeRiesgo.porQueElPlanEsperaTuSi(`${conNota}\nGASTO EN META ADS: prende la campaña`), /gasto en Meta Ads/);
+  assert.match(reglasDeRiesgo.porQueElPlanEsperaTuSi(`${conNota}\nNECESITO: acceso al panel de Meta`, { tareaAprobadaPorElDueno: true }), /el agente necesita algo del dueño/);
+  const historial = [{ accion: "aprobar", despues: { via: "pantalla", momento: "tarea" } }];
+  assert.match(reglas.porQueNoHeredaLaAprobacion({ historial, titulo: "t", detalle: "d", plan: conNota, migracionDestructiva: ["DROP COLUMN saldo"] }), /destructivos/);
+  assert.equal(reglas.porQueNoHeredaLaAprobacion({ historial, titulo: "t", detalle: "d", plan: conNota, migracionDestructiva: [] }), null);
 });
 
 await prueba("29-oct: la nube deja 'inicio:' y, si pregunta, 'pregunta:'; esperarResultado corta enseguida o a los sinSenalMinutos", async () => {
@@ -3883,27 +3914,68 @@ try {
     sinRestos();
   });
 
-  await prueba("29-oct: un plan con preguntas abiertas que se aprobó solo no se construye: ERROR plan_con_preguntas y un aviso al dueño; aprobado por el dueño, sí", async () => {
+  await prueba("2-nov un solo sí: un plan con preguntas abiertas que se aprobó solo SÍ se construye (construir ya no frena por preguntas)", async () => {
     const plan = "## 1. Qué se cambia\nUn aviso.\n## 3. Riesgos\nAntes de construir hay que revisar con el CRM cuál es la entrada.\n## 5. Archivos que se tocan\n- src/features/a/x.ts\n\nPREGUNTAS ABIERTAS:\n- ¿Qué ruta del CRM manda el WhatsApp?";
     const avisosAntes = llamadas.filter((l) => l.accion === "aviso").length;
     const id = nuevaModerna("Plan con dudas [preguntas]", "PLAN_APROBADO", { plan });
     const resultado = await vuelta();
-    assert.deepEqual([resultado.ok, resultado.accion, resultado.categoria], [false, "escalar", "plan_con_preguntas"]);
+    assert.equal(resultado.ok, true, resultado.motivo);
+    assert.notEqual(resultado.categoria, "plan_con_preguntas");
+    assert.ok(ultimaDeClaude("Plan con dudas [preguntas]"), "abre la sesión de construir");
+    assert.equal(llamadas.filter((l) => l.accion === "aviso").slice(avisosAntes).filter((l) => /no se construye/.test(l.cuerpo.texto)).length, 0, "sin aviso de freno");
+    subeSoloYSeAparta(id);
+    soltarTodas(id);
+    sinRestos();
+  });
+
+  await prueba("2-nov un solo sí: planear con 'PREGUNTAS ABIERTAS: - ¿A o B? Recomendada: A' no espera tu sí, anota la opción, avisa en una línea y construir no frena", async () => {
+    // Un claude falso que agrega la sección al plan (envuelve al de siempre; claude-falso.mjs no cambia).
+    const envoltorio = path.join(T, "claude-con-preguntas.mjs");
+    fs.writeFileSync(
+      envoltorio,
+      [
+        'import { spawnSync } from "node:child_process";',
+        'import fs from "node:fs";',
+        "const entrada = fs.readFileSync(0, \"utf8\");",
+        "const argumentos = process.argv.slice(2);",
+        `const r = spawnSync(process.execPath, [${JSON.stringify(falso("claude-falso.mjs"))}, ...argumentos], { input: entrada, encoding: "utf8", env: process.env, maxBuffer: 64 * 1024 * 1024 });`,
+        'process.stderr.write(r.stderr ?? "");',
+        'let salida = r.stdout ?? "";',
+        'const titulo = (entrada.match(/^Tarea: (.*)$/m) ?? [])[1] ?? "";',
+        'if (argumentos[argumentos.indexOf("--permission-mode") + 1] === "plan" && titulo.includes("[recomendada]")) salida = `${salida.trimEnd()}\\n\\nPREGUNTAS ABIERTAS:\\n- ¿A o B? Recomendada: A\\n`;',
+        "process.stdout.write(salida);",
+        "process.exit(r.status ?? 1);",
+      ].join("\n"),
+    );
+    const conPreguntas = crearConfig({}, {}, { comandoClaude: [node, envoltorio] });
+    const titulo = "Botón con dos caminos [recomendada]";
+    const id = nuevaModerna(titulo, "APROBADO");
+    const avisosAntes = llamadas.filter((l) => l.accion === "aviso").length;
+    const resultado = await vuelta(conPreguntas);
+    assert.equal(resultado.hizo, "planear");
+    assert.equal(resultado.ok, true, resultado.motivo);
     const t = tarjetas.get(id);
-    assert.equal(t.estado, "ERROR");
-    assert.equal(t.reparaciones ?? 0, 0, "no gasta reparaciones");
-    assert.match(t.resultado.error.motivo, /^Qué falló: El plan tiene preguntas abiertas: ¿Qué ruta del CRM manda el WhatsApp\?/, "primero la sección PREGUNTAS ABIERTAS");
-    assert.equal(ultimaDeClaude("Plan con dudas [preguntas]"), undefined, "no abre la sesión de construir");
+    assert.equal(t.estado, "PLAN_LISTO");
+    assert.match(t.plan, /PREGUNTAS ABIERTAS:\n- ¿A o B\? Recomendada: A/, "el plan trae la pregunta");
+    assert.ok(!/ESPERA TU SÍ/.test(t.plan), "no recibe ESPERA TU SÍ");
+    // La nota queda arriba del plan: el CRM la guarda en el historial de la tarjeta (despues.plan) y quien construye la lee.
+    assert.match(t.plan, /^Seguí con la opción recomendada: A \(pregunta: ¿A o B\?\)\n\nPLAN para "Botón con dos caminos \[recomendada\]"/);
+    assert.equal(reglasDeRiesgo.porQueElPlanEsperaTuSi(t.plan), null, "el CRM lo aprueba solo");
+    assert.equal(reglasDeRiesgo.porQueElPlanEsperaTuSi(t.plan, { tareaAprobadaPorElDueno: true }), null);
     const avisos = llamadas.filter((l) => l.accion === "aviso").slice(avisosAntes);
-    assert.equal(avisos.length, 1);
-    assert.equal(avisos[0].cuerpo.tipo, "necesita");
+    assert.equal(avisos.length, 1, "UN aviso");
+    assert.ok(!avisos[0].cuerpo.texto.includes("\n"), "de una línea");
+    assert.match(avisos[0].cuerpo.texto, /^Solo para que sepas: el plan de "Botón con dos caminos \[recomendada\]" tenía una pregunta abierta y seguí con la opción recomendada: A\. No tienes que responder\.$/);
+    assert.ok(!/necesita una decisión|esperando tu sí/.test(avisos[0].cuerpo.texto), "solo informa: no es el aviso de NECESITO");
     assert.equal(avisos[0].cuerpo.tarjetaId, id, "lleva el id de la tarjeta");
-    assert.match(avisos[0].cuerpo.texto, /no se construye: el plan tiene preguntas abiertas/);
-    // El dueño aprobó el plan tal cual (pantalla o voz): se construye.
-    const id2 = nuevaModerna("Plan con dudas aprobado [preguntas]", "PLAN_APROBADO", { plan, planAprobadoPorElDueno: true });
-    assert.equal((await vuelta()).ok, true);
-    subeSoloYSeAparta(id2);
-    soltarTodas(id2);
+    // Se aprueba solo (como haría el CRM) y construir no frena por la pregunta.
+    t.estado = "PLAN_APROBADO";
+    const construida = await vuelta();
+    assert.equal(construida.hizo, "construir");
+    assert.equal(construida.ok, true, construida.motivo);
+    assert.ok(ultimaDeClaude(titulo), "abrió la sesión de construir");
+    subeSoloYSeAparta(id);
+    soltarTodas(id);
     sinRestos();
   });
 

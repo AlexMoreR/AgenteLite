@@ -70,7 +70,7 @@ import { PRIORIDAD } from "./cola.mjs";
 import { tamanoDeLaRespuesta } from "./medir.mjs";
 import { carpetaDeIntentos } from "./registro.mjs";
 import { migracionDestructiva } from "./riesgo.mjs";
-import { primeraPreguntaAbierta } from "./preguntas-abiertas.mjs";
+import { seguirConLaRecomendada } from "./preguntas-abiertas.mjs";
 import { MINUTOS_PARA_RESOLVER, resolverChoque } from "./resolver-choque.mjs";
 import {
   CONFIRMACION_BOT_VENTAS,
@@ -658,10 +658,11 @@ export function promptDelPlan(tarjeta, repo, motor = "claude", { lecciones = "" 
       "4. Migración de base de datos: sí o no. Si sí, cuál (solo aditiva y escrita a mano). El CRM revisa esta parte buscando SQL destructivo: NO escribas las palabras DROP, DELETE, UPDATE, RENAME ni TRUNCATE (ni siquiera para decir que no se usan) salvo que de verdad se vayan a usar.",
       "5. Archivos que se tocan.",
       "6. Cómo se va a probar.",
-      // 29-oct-2026: un plan con dudas sin resolver no se construye (preguntas-abiertas.mjs); el dueño las responde antes.
+      // 2-nov-2026 (un solo sí de verdad): cada pregunta abierta trae su opción recomendada y el Coordinador sigue con esa
+      // (preguntas-abiertas.mjs: seguirConLaRecomendada); el plan ya no espera al dueño por preguntas.
       // 29-oct-2026 (spec-writer de la Software Factory): criterios de aceptación, fuera de alcance y supuestos (criterios.mjs).
       'Al final, en este orden: "CRITERIOS DE ACEPTACIÓN:" (lista numerada; cada punto un comportamiento observable y cómo se comprueba: un comando, una página y qué debe mostrar, o un archivo y qué debe contener; que lo compruebe alguien que solo tiene el repo), "FUERA DE ALCANCE:" (lo que quien construye podría querer hacer y no debe) y "SUPUESTOS:" (las decisiones que tomaste donde el pedido era ambiguo, cada una con su razón en una línea; una decisión de negocio, como precios, textos públicos, qué es gratis o pagado o dinero, no se supone: va a PREGUNTAS ABIERTAS). Corto. Un plan sin criterios no se aprueba solo.',
-      'De ÚLTIMA, una sección "PREGUNTAS ABIERTAS:" con cada duda que no pudiste resolver leyendo el código (lo que hay que confirmar, decidir o revisar antes de construir, una pieza de otro sistema que no comprobaste), una por línea. Si no tienes ninguna, escribe "PREGUNTAS ABIERTAS: ninguna". No las escondas en los riesgos: un plan con preguntas abiertas espera al dueño y no se construye.',
+      'De ÚLTIMA, una sección "PREGUNTAS ABIERTAS:" con cada duda que no pudiste resolver leyendo el código (lo que hay que confirmar, decidir o revisar antes de construir, una pieza de otro sistema que no comprobaste), una por línea, y en la MISMA línea tu opción recomendada: "- ¿A o B? Recomendada: A". Si no tienes ninguna, escribe "PREGUNTAS ABIERTAS: ninguna". No las escondas en los riesgos. El plan no espera al dueño por una pregunta: el Coordinador sigue con la opción recomendada (si no la escribes, con la primera opción que pusiste) y se lo avisa al dueño, así que recomienda la que harías tú.',
     ].join("\n"),
     `Reglas: ${REGLAS_DE_ZONAS} Si la tarea lo requiere, dilo claro al principio del plan: "TOCA ZONA PROTEGIDA: <cuál y por qué>".`,
     motor === "codex" ? SIN_SUBAGENTES_AL_PLANEAR : SUBAGENTES_AL_PLANEAR,
@@ -1352,12 +1353,13 @@ export async function planear(contexto, tarjeta) {
     // gana sobre cualquier "SOLO") y el bucle manda UN aviso "necesita".
     const necesita = necesitoDe(texto);
     if (necesita) return { plan: `APROBAR PLAN: ESPERA TU SÍ — el agente necesita ${necesita.tipo}: ${necesita.detalle}\n\n${plan}`, motor, modelo, necesita };
-    // Preguntas abiertas (29-oct-2026): igual que NECESITO, el plan espera el sí del dueño (no se aprueba solo) y va UN aviso.
-    const pregunta = primeraPreguntaAbierta(plan);
-    if (pregunta) {
-      contexto.registro?.info?.(`el plan tiene preguntas abiertas: ${pregunta}`);
-      const detalle = `el plan tiene preguntas abiertas: ${pregunta}`;
-      return { plan: `APROBAR PLAN: ESPERA TU SÍ — ${detalle}\n\n${plan}`, motor, modelo, necesita: { tipo: "decisión", detalle: enUnaLinea(detalle, 400) } };
+    // Preguntas abiertas (2-nov-2026, un solo sí de verdad): ya no esperan el sí del dueño. Por cada pregunta se sigue con su
+    // opción recomendada (o la primera escrita); la nota va arriba del plan (queda en el historial de la tarjeta y quien
+    // construye la lee) y el bucle manda UN aviso de una línea que solo informa (`informa`, no `necesita`).
+    const resueltas = seguirConLaRecomendada(plan, tarjeta.titulo);
+    if (resueltas) {
+      contexto.registro?.info?.(`el plan tenía ${resueltas.elegidas.length} pregunta(s) abierta(s): ${enUnaLinea(resueltas.nota, 300)}`);
+      return { plan: `${resueltas.nota}\n\n${plan}`, motor, modelo, informa: resueltas.aviso };
     }
     return { plan, motor, modelo };
   } finally {

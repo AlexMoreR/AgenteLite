@@ -2,7 +2,8 @@
 //
 // La tarjeta ykpl83z3 tenía un plan que decía "hay que confirmarlo", "Antes de construir hay que revisar con el CRM…" y
 // "Lo que no revisé y queda pendiente: …". Se aprobó solo y se construyó 4 veces en la nube (8 horas): la sesión se quedó
-// parada en esa misma duda. Un plan con preguntas abiertas no se construye: espera al dueño.
+// parada en esa misma duda. Desde el 2-nov-2026 (un solo sí de verdad) ya no se espera al dueño: el Coordinador sigue con la
+// opción recomendada de cada pregunta (seguirConLaRecomendada, abajo), lo anota en la tarjeta y le avisa en una línea.
 //
 // La instrucción de planear (etapas.mjs: promptDelPlan) pide una sección final "PREGUNTAS ABIERTAS:" (o "ninguna").
 // Esta función la lee y además busca las frases que delatan una duda sin resolver aunque la sección no esté.
@@ -88,4 +89,83 @@ export function primeraPreguntaAbierta(plan, n = 300) {
   const [primera] = preguntasAbiertasDelPlan(plan);
   if (!primera) return null;
   return primera.length > n ? `${primera.slice(0, n - 1)}…` : primera;
+}
+
+// UN SOLO SÍ DE VERDAD (2-nov-2026, parte 4): las preguntas abiertas ya no frenan el plan. Cada pregunta trae su opción
+// recomendada ("Recomendada: …", lo pide promptDelPlan); el Coordinador sigue con esa y lo deja anotado. Si no la trae,
+// sigue con la primera opción escrita ("¿A o B?" -> A) y lo anota así. Si no hay opciones, sigue con lo que dice el plan.
+
+/** "Recomendada: A", "(recomendado: A)", "Opción recomendada: A", "Recomiendo: A" (sobre el texto tal cual, con o sin tilde). */
+const RECOMENDADA = /(?:opci[oó]n\s+)?(?:recomendad[ao]|recomiendo|sugerid[ao])\s*:\s*/i;
+
+/** Lo que sobra alrededor de una opción: comillas, viñetas, paréntesis y puntos finales. */
+const limpiaOpcion = (texto) =>
+  String(texto ?? "")
+    .replace(/\*+/g, "")
+    .replace(/^[\s"'«“(\[:\-—–]+/, "")
+    .replace(/[\s"'»”)\].;,]+$/, "")
+    .trim();
+
+/** La primera opción escrita de una pregunta: "a) X; b) Y" -> X, "¿A o B?" -> A. null si no tiene opciones. */
+function primeraOpcion(pregunta) {
+  const texto = String(pregunta ?? "");
+  // Opciones con letra o número: "a) X, b) Y", "(1) X (2) Y", "Opción A: X / Opción B: Y".
+  const conLetra = /(?:^|[\s(¿:])(?:\(?[a1]\)|opci[oó]n\s+(?:a|1)\s*[:.)-])\s*(.+?)(?=\s*(?:[,;/]|\bo\b)?\s*(?:\(?[b2]\)|opci[oó]n\s+(?:b|2)\s*[:.)-])|$)/i.exec(texto);
+  if (conLetra) {
+    const opcion = limpiaOpcion(conLetra[1]);
+    if (opcion) return opcion;
+  }
+  // "¿A o B?": lo que va antes del primer " o " dentro de los signos de pregunta.
+  const dentro = /¿([^?]+)\?/.exec(texto)?.[1] ?? (/\?/.test(texto) ? texto.split("?")[0] : null);
+  if (dentro) {
+    const partes = dentro.split(/\s+o\s+|\s*\/\s*/i);
+    if (partes.length > 1) {
+      const opcion = limpiaOpcion(partes[0]);
+      if (opcion) return opcion;
+    }
+  }
+  return null;
+}
+
+/**
+ * La opción con que sigue el Coordinador para una pregunta abierta: { pregunta, opcion, origen }.
+ *   origen "recomendada": la que trae "Recomendada: …" (la pregunta queda sin esa parte);
+ *   origen "primera": no traía recomendada, es la primera opción escrita;
+ *   origen "plan": no tiene opciones; opcion null (se sigue con lo que dice el plan).
+ */
+export function opcionDeLaPregunta(pregunta) {
+  const original = String(pregunta ?? "").replace(/\s+/g, " ").trim();
+  const calce = RECOMENDADA.exec(original);
+  if (calce) {
+    const opcion = limpiaOpcion(original.slice(calce.index + calce[0].length));
+    const sinRecomendada = limpiaOpcion(original.slice(0, calce.index).replace(/[\s(\-—–]+$/, "")) || original;
+    if (opcion) return { pregunta: /\?$/.test(sinRecomendada) || !/¿/.test(sinRecomendada) ? sinRecomendada : `${sinRecomendada}?`, opcion, origen: "recomendada" };
+  }
+  const opcion = primeraOpcion(original);
+  return opcion ? { pregunta: original, opcion, origen: "primera" } : { pregunta: original, opcion: null, origen: "plan" };
+}
+
+/** Una línea de la nota del historial para una pregunta ya resuelta. */
+export function lineaDeLaOpcion({ pregunta, opcion, origen }) {
+  if (origen === "recomendada") return `Seguí con la opción recomendada: ${opcion} (pregunta: ${pregunta})`;
+  if (origen === "primera") return `Seguí con la primera opción escrita, no traía recomendada: ${opcion} (pregunta: ${pregunta})`;
+  return `Seguí con lo que dice el plan, la pregunta no traía opciones: ${pregunta}`;
+}
+
+/**
+ * Las preguntas abiertas del plan resueltas con su opción recomendada (o la primera): { elegidas, nota, aviso } o null si el
+ * plan no tiene preguntas. `nota`: una línea por pregunta, para el historial de la tarjeta (va arriba del plan). `aviso`: UNA
+ * línea corta para el dueño, que solo informa (no espera respuesta).
+ */
+export function seguirConLaRecomendada(plan, titulo = "") {
+  const preguntas = preguntasAbiertasDelPlan(plan);
+  if (!preguntas.length) return null;
+  const elegidas = preguntas.map(opcionDeLaPregunta);
+  const nota = elegidas.map(lineaDeLaOpcion).join("\n");
+  const [primera] = elegidas;
+  const corta = (texto, n) => (texto.length > n ? `${texto.slice(0, n - 1)}…` : texto);
+  const queSegui = primera.opcion ? `seguí con ${primera.origen === "recomendada" ? "la opción recomendada" : "la primera opción"}: ${corta(primera.opcion, 120)}` : "seguí con lo que dice el plan";
+  const mas = elegidas.length > 1 ? ` (y ${elegidas.length - 1} pregunta(s) más, en la tarjeta)` : "";
+  const aviso = `Solo para que sepas: el plan de "${corta(String(titulo ?? "").replace(/\s+/g, " ").trim(), 100)}" tenía una pregunta abierta y ${queSegui}${mas}. No tienes que responder.`;
+  return { elegidas, nota, aviso };
 }
