@@ -1,10 +1,12 @@
 import {
   normalizar,
   pesoDeLaRegla,
+  temaDeLaRegla,
   type Accion,
   type LibroDeReglas,
   type PasoDelEmbudo,
   type ReglaV3,
+  type TemaDePregunta,
 } from "../domain/reglas";
 import {
   REGLA_FOTO_Y_PRECIO_POR_DEFECTO,
@@ -15,7 +17,8 @@ import {
 } from "./foto-y-precio";
 
 /**
- * EL MOTOR: dado un mensaje y el estado de la conversación, elige UNA regla.
+ * EL MOTOR: dado un mensaje y el estado de la conversación, elige UNA regla (o, si la clienta
+ * preguntó varias cosas de tema a la vez, junta esas respuestas en un solo mensaje).
  *
  * Es una función pura y sin IA adentro. Eso no es un detalle: significa que la misma entrada da
  * siempre la misma salida, que se puede probar contra conversaciones viejas sin gastar un peso, y
@@ -60,6 +63,11 @@ export type Decision = {
   porque: string;
   /** Las que también encajaban y perdieron, para poder explicar un desempate. */
   tambienEncajaban: Array<{ id: string; nombre: string }>;
+  /**
+   * Cuando la clienta preguntó varias cosas a la vez: las reglas de tema que se contestaron JUNTAS
+   * en un solo mensaje (ver `juntarVariasPreguntas`). Ausente = ganó una sola, como siempre.
+   */
+  juntas?: Array<{ id: string; nombre: string }>;
 };
 
 /**
@@ -239,6 +247,25 @@ export function decidir(input: {
   const ganadora = ordenadas[0].regla;
 
   /*
+    VARIAS PREGUNTAS EN UN MENSAJE (caso del 26-10-2026, ver `juntarVariasPreguntas`).
+
+    Solo si la que ganaría es una regla de tema (garantía, envío, materiales...). Si gana una que
+    cambia la charla -catálogo, mover de paso, tomar un producto- todo sigue igual que antes. El
+    saludo va aparte y sale igual; la foto + precio ya se resolvió arriba.
+  */
+  const juntas = juntarVariasPreguntas({
+    libro: input.libro,
+    mensaje: input.mensaje,
+    estado: input.estado,
+    esDelSaludo,
+    saludo,
+    ordenadas: ordenadas.map(({ regla }) => regla),
+  });
+  if (juntas) {
+    return juntas;
+  }
+
+  /*
     Si la regla mueve de paso, el mensaje de ESE paso sale en el mismo turno.
 
     Sin esto, "me interesa el combo de estetica" elegia el producto y lo dejaba en el paso 1... en
@@ -319,6 +346,269 @@ function decidirFotoYPrecio(input: {
       .filter((regla) => regla.id !== ganadora.id)
       .map((regla) => ({ id: regla.id, nombre: regla.nombre })),
   };
+}
+
+/*
+  VARIAS PREGUNTAS, UN SOLO MENSAJE CORTO.
+
+  Caso real (26-10-2026, Ventas 1, combo de camillas): la clienta escribió "Materiales garantía y
+  envío los costos es gratis??". Encajaban tres reglas y, como el motor dejaba ganar una sola, se
+  le contestó solo la garantía: nunca supo de qué está hecho ni cuánto cuesta el envío, y dejó de
+  escribir.
+
+  Ahora, si encajan dos o más reglas de TEMA (ver `temaDeLaRegla`), se contestan todas en un solo
+  mensaje: una línea corta por tema, con su emoji, y al final UNA pregunta para avanzar. Los datos
+  salen del texto que ya está escrito en cada regla, nunca se inventan: de cada una se toma su
+  primera frase útil (la que afirma algo, no la pregunta).
+
+  Si además pregunta el precio de OTRO producto ("¿y cuánto vale la silla?"), no se le contesta el
+  precio del combo: se contesta lo demás y solo ese precio pasa a una asesora, con el texto de la
+  regla de "foto + precio" del libro (o el del motor si el libro no la tiene).
+*/
+
+/** Palabras de precio, comparadas enteras: "vale" no engancha en "equivale". */
+const PALABRAS_DE_PRECIO_DE_OTRO = ["precio", "valor", "cuanto vale", "cuanto cuesta", "cuesta", "vale", "costo"];
+/** Productos que NO son el combo. "camilla" no está: es parte del combo. */
+const OTROS_PRODUCTOS = [
+  "silla",
+  "sillas",
+  "sofa",
+  "sofas",
+  "tocador",
+  "tocadores",
+  "lavacabezas",
+  "espejo",
+  "espejos",
+  "mueble",
+  "muebles",
+  "butaco",
+  "butacos",
+  "poltrona",
+  "poltronas",
+  "vitrina",
+  "vitrinas",
+];
+const EMOJI_DE_LA_ASESORA = "👨🏻‍💻";
+export const MOTIVO_PRECIO_DE_OTRO_PRODUCTO =
+  "Preguntó varias cosas a la vez y una es el precio de otro producto (no el del combo): se le contestó lo demás, falta ese precio";
+
+/** ¿Pregunta el precio de un producto que no es el combo? */
+export function preguntaPrecioDeOtroProducto(mensaje: string): boolean {
+  const texto = ` ${normalizar(mensaje)} `;
+  if (texto.includes(" combo ")) return false;
+  const preguntaPrecio = PALABRAS_DE_PRECIO_DE_OTRO.some((palabra) => texto.includes(` ${palabra} `));
+  return preguntaPrecio && OTROS_PRODUCTOS.some((producto) => texto.includes(` ${producto} `));
+}
+
+const INTERJECCIONES = ["claro", "perfecto", "listo", "con gusto", "hola", "genial", "super", "excelente", "que bien", "dale"];
+
+/**
+ * ¿Sirve esta frase como respuesta? No sirven las preguntas, los "¡Claro!" sueltos, las que
+ * anuncian una lista ("te cuento:") ni las que ofrecen contraentrega (política del 09-10-2026: la
+ * mezcla nunca la ofrece; una frase que dice que NO se maneja sí sirve).
+ */
+function esFraseUtil(frase: string): boolean {
+  const texto = normalizar(frase);
+  const palabras = texto.split(" ").filter(Boolean);
+  if (palabras.length < 3) return false;
+  if (/[:,]\s*$/.test(frase.trim())) return false;
+  if (palabras.length <= 4 && INTERJECCIONES.some((inicio) => texto.startsWith(inicio))) return false;
+  if (/contra ?entrega/.test(texto) && !palabras.includes("no")) return false;
+  return true;
+}
+
+/** Quita los emojis o viñetas del comienzo, para poner el del tema sin que queden dos. */
+function sinEmojiAlComienzo(frase: string): string {
+  return frase.replace(/^(?:\p{Extended_Pictographic}|‍|️|[\u{1F3FB}-\u{1F3FF}]|[•·\-–]|\s)+/u, "").trim();
+}
+
+/** Las frases que afirman algo, en orden: cada línea partida por oraciones, sin la parte de pregunta. */
+function frasesQueAfirman(texto: string): string[] {
+  const frases: string[] = [];
+  for (const linea of texto.split(/\n+/)) {
+    for (const oracion of linea.split(/(?<=[.!?])\s+/)) {
+      // Lo que viene desde el "¿" es pregunta; lo de antes puede ser una afirmación.
+      const antes = oracion.split("¿")[0].trim();
+      if (!antes || antes.endsWith("?")) continue;
+      const limpia = sinEmojiAlComienzo(antes);
+      if (limpia && esFraseUtil(limpia)) frases.push(limpia);
+    }
+  }
+  return frases;
+}
+
+/** La ÚLTIMA pregunta del texto ("¿En qué ciudad estás?"), o null si no tiene ninguna. */
+function preguntaDelTexto(texto: string): string | null {
+  const preguntas = texto.match(/¿[^¿?]+\?/g) ?? [];
+  for (const pregunta of [...preguntas].reverse()) {
+    if (/contra ?entrega/.test(normalizar(pregunta))) continue;
+    return pregunta.trim().replace(/^¿\s*(\p{Ll})/u, (_, letra: string) => `¿${letra.toUpperCase()}`);
+  }
+  return null;
+}
+
+function textosDeLaRegla(regla: ReglaV3): string[] {
+  return regla.entonces
+    .filter((accion): accion is Extract<Accion, { tipo: "mensaje" }> => accion.tipo === "mensaje")
+    .map((accion) => accion.texto?.trim() ?? "")
+    .filter(Boolean);
+}
+
+/** Dónde y cuánto encaja la frase de la regla en el mensaje: para ordenar como preguntó y desempatar. */
+function encaje(regla: ReglaV3, mensaje: string): { posicion: number; largo: number } {
+  if (regla.cuando.tipo !== "frase") return { posicion: Number.POSITIVE_INFINITY, largo: 0 };
+  const texto = normalizar(mensaje);
+  let posicion = Number.POSITIVE_INFINITY;
+  let largo = 0;
+  for (const frase of regla.cuando.frases.map(normalizar).filter(Boolean)) {
+    const donde = texto.indexOf(frase);
+    if (donde < 0) continue;
+    posicion = Math.min(posicion, donde);
+    largo = Math.max(largo, frase.length);
+  }
+  return { posicion, largo };
+}
+
+/**
+ * Junta las reglas de tema que encajaron en UNA respuesta, o devuelve null si no corresponde (y el
+ * motor sigue con la ganadora de siempre).
+ *
+ * Corresponde solo si la ganadora de siempre es de tema y quedan al menos dos temas con algo que
+ * decir, o uno más el precio de otro producto. Las reglas que no son de tema y perdieron siguen
+ * perdiendo, igual que antes.
+ */
+function juntarVariasPreguntas(input: {
+  libro: LibroDeReglas;
+  mensaje: string;
+  estado: EstadoDeLaCharla;
+  esDelSaludo: Set<string>;
+  saludo: Accion[];
+  /** Las candidatas ya ordenadas por el desempate: la primera es la que ganaría sola. */
+  ordenadas: ReglaV3[];
+}): Decision | null {
+  const ganadora = input.ordenadas[0];
+  if (!ganadora || !temaDeLaRegla(ganadora)) return null;
+
+  const precioDeOtro = preguntaPrecioDeOtroProducto(input.mensaje);
+
+  /*
+    Una regla por tema: si dos hablan de lo mismo ("envío" y "¿el envío es gratis?"), va la que
+    encajó con la frase más larga, que es la más específica; si empatan, la que ya ganaba el
+    desempate. Con el precio de otro producto, las de precio se dejan afuera: darían el del combo.
+  */
+  const porTema = new Map<string, { regla: ReglaV3; tema: TemaDePregunta; orden: number; posicion: number; largo: number }>();
+  input.ordenadas.forEach((regla, orden) => {
+    const tema = temaDeLaRegla(regla);
+    if (!tema) return;
+    if (precioDeOtro && tema.tema === "precio") return;
+    const { posicion, largo } = encaje(regla, input.mensaje);
+    const actual = porTema.get(tema.tema);
+    if (!actual || largo > actual.largo) {
+      porTema.set(tema.tema, { regla, tema, orden, posicion, largo });
+    }
+  });
+
+  // En el orden en que la clienta lo preguntó; las de intención (sin posición) al final.
+  const elegidas = [...porTema.values()].sort((a, b) =>
+    a.posicion !== b.posicion ? a.posicion - b.posicion : a.orden - b.orden,
+  );
+  const conIa = elegidas.some(({ regla }) => regla.entonces.some((accion) => accion.tipo === "responder_con_ia"));
+
+  // Con textos fijos, cada tema necesita una frase que afirme algo; si no la tiene, no entra.
+  const lineas = elegidas
+    .map((elegida) => {
+      const frase = textosDeLaRegla(elegida.regla).flatMap(frasesQueAfirman)[0];
+      return frase ? { ...elegida, linea: `${elegida.tema.emoji} ${frase}` } : null;
+    })
+    .filter((linea): linea is NonNullable<typeof linea> => linea !== null);
+  const juntas = conIa ? elegidas : lineas;
+
+  if (juntas.length === 0 || (juntas.length < 2 && !precioDeOtro)) return null;
+
+  // El precio de otro producto: con el texto y las acciones de la regla de "foto + precio".
+  const deLaAsesora = precioDeOtro ? reglaParaElPrecioDeOtro(input) : null;
+  const lineaDeLaAsesora = deLaAsesora
+    ? (() => {
+        const frases = textosDeLaRegla(deLaAsesora).flatMap(frasesQueAfirman);
+        return frases.length ? `${EMOJI_DE_LA_ASESORA} ${frases.join(" ")}` : null;
+      })()
+    : null;
+  const accionesDeLaAsesora: Accion[] = deLaAsesora
+    ? [
+        { tipo: "avisar_asesor", motivo: MOTIVO_PRECIO_DE_OTRO_PRODUCTO },
+        ...(deLaAsesora.entonces.some((accion) => accion.tipo === "pausar_ia") ? [{ tipo: "pausar_ia" } as const] : []),
+      ]
+    : [];
+
+  // UNA sola pregunta al final: la de la ganadora; si no trae, la de otra de las juntas o la de la asesora.
+  const pregunta =
+    [ganadora, ...juntas.map(({ regla }) => regla), ...(deLaAsesora ? [deLaAsesora] : [])]
+      .flatMap(textosDeLaRegla)
+      .map(preguntaDelTexto)
+      .find((texto): texto is string => Boolean(texto)) ?? null;
+
+  const respuesta: Accion = conIa
+    ? { tipo: "responder_con_ia", guia: guiaCombinada(juntas, lineaDeLaAsesora, pregunta) }
+    : {
+        tipo: "mensaje",
+        texto: [...lineas.map(({ linea }) => linea), ...(lineaDeLaAsesora ? [lineaDeLaAsesora] : []), ...(pregunta ? [pregunta] : [])].join("\n"),
+      };
+
+  const nombres = juntas.map(({ regla }) => `"${regla.nombre}"`);
+  const enLista = nombres.length > 1 ? `${nombres.slice(0, -1).join(", ")} y ${nombres[nombres.length - 1]}` : nombres[0];
+  const idsJuntas = new Set(juntas.map(({ regla }) => regla.id));
+
+  return {
+    regla: juntas[0].regla,
+    saludo: input.saludo,
+    acciones: [respuesta, ...accionesDeLaAsesora],
+    porque:
+      `Preguntó varias cosas a la vez: se contestaron juntas, en un solo mensaje corto, ${enLista}.` +
+      (deLaAsesora ? " También preguntó el precio de otro producto: ese lo confirma una asesora." : ""),
+    tambienEncajaban: input.ordenadas
+      .filter((regla) => !idsJuntas.has(regla.id))
+      .map((regla) => ({ id: regla.id, nombre: regla.nombre })),
+    juntas: juntas.map(({ regla }) => ({ id: regla.id, nombre: regla.nombre })),
+  };
+}
+
+/** La regla de "foto + precio" del libro que pasa el precio a una asesora; si no hay, la del motor. */
+function reglaParaElPrecioDeOtro(input: { libro: LibroDeReglas; estado: EstadoDeLaCharla; esDelSaludo: Set<string> }): ReglaV3 {
+  const delLibro = input.libro.reglas.filter(
+    (regla) =>
+      regla.activa &&
+      !input.esDelSaludo.has(regla.id) &&
+      esReglaDeFotoYPrecio(regla) &&
+      cumpleLasCondiciones(regla, input.estado),
+  );
+  return [...delLibro].sort((a, b) => Number(pasaAUnaAsesora(b)) - Number(pasaAUnaAsesora(a)))[0] ?? REGLA_FOTO_Y_PRECIO_POR_DEFECTO;
+}
+
+/**
+ * Si alguna de las reglas juntas contesta con IA, no se pega a ciegas un texto fijo con uno de IA:
+ * se le pasa a la IA una sola guía con los datos de TODAS, y la orden de contestar en líneas cortas.
+ */
+function guiaCombinada(
+  juntas: Array<{ regla: ReglaV3; tema: TemaDePregunta }>,
+  lineaDeLaAsesora: string | null,
+  pregunta: string | null,
+): string {
+  const datos = juntas.map(({ regla, tema }) => {
+    const deLaRegla = regla.entonces
+      .map((accion) => (accion.tipo === "mensaje" ? accion.texto : accion.tipo === "responder_con_ia" ? accion.guia : ""))
+      .filter((texto) => texto?.trim())
+      .join(" ");
+    return `${tema.emoji} ${tema.etiqueta}: ${deLaRegla}`;
+  });
+  return [
+    "La clienta hizo varias preguntas en el mismo mensaje. Contéstalas TODAS en UN solo mensaje corto: una línea por tema, cada una con su emoji, sin párrafos largos.",
+    "Usa SOLO estos datos, sin inventar nada y sin ofrecer contraentrega:",
+    ...datos,
+    ...(lineaDeLaAsesora
+      ? [`También preguntó el precio de otro producto: no lo des. Agrega esta línea tal cual: ${lineaDeLaAsesora}`]
+      : []),
+    pregunta ? `Termina con esta única pregunta: ${pregunta}` : "Termina con una sola pregunta corta para avanzar la venta.",
+  ].join("\n");
 }
 
 /**
