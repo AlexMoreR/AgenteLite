@@ -8,10 +8,13 @@ import type { GastoDeAnuncio } from "../dominio/reporte";
  * Nunca pausa, edita ni crea nada (la prueba scripts/check-pauta.mjs vigila que no aparezca otro método).
  *
  * Hace falta una llave con permiso `ads_read` y el número de la cuenta publicitaria, en las variables
- * META_ADS_ACCESS_TOKEN y META_ADS_ACCOUNT_ID. Sin ellas todo devuelve "no disponible" y no lanza.
+ * META_ADS_ACCESS_TOKEN y META_ADS_ACCOUNT_ID. Sin ellas todo devuelve "no disponible" y no lanza; el gasto por
+ * región además dice si fue por falta de llave o porque Meta contestó con error (y el error de Meta va al log).
  */
 
 const VERSION = "v21.0";
+
+const texto = (valor: unknown): string | null => (typeof valor === "string" && valor.trim() ? valor.trim() : null);
 const BASE = `https://graph.facebook.com/${VERSION}`;
 
 export function metaAdsConfigurado(): boolean {
@@ -32,11 +35,24 @@ async function leer(ruta: string, parametros: Record<string, string>): Promise<R
     cache: "no-store",
     signal: AbortSignal.timeout(30_000),
   });
-  if (!respuesta.ok) throw new Error(`Meta Ads respondió ${respuesta.status}`);
+  if (!respuesta.ok) throw new Error(`Meta Ads respondió ${respuesta.status}: ${await motivoDeMeta(respuesta)}`);
   return (await respuesta.json()) as Record<string, unknown>;
 }
 
-const texto = (valor: unknown): string | null => (typeof valor === "string" && valor.trim() ? valor.trim() : null);
+/**
+ * El motivo que Meta da cuando contesta con error ({"error":{"message","type","code"}}), para el log.
+ * Solo el mensaje, el tipo y el código, recortado: nunca la URL ni la llave.
+ */
+async function motivoDeMeta(respuesta: Response): Promise<string> {
+  try {
+    const cuerpo = (await respuesta.json()) as Record<string, unknown>;
+    const error = (cuerpo.error ?? {}) as Record<string, unknown>;
+    const partes = [texto(error.message), texto(error.type), error.code !== undefined ? `código ${String(error.code)}` : null].filter(Boolean);
+    return partes.length ? partes.join(" · ").slice(0, 300) : "sin detalle";
+  } catch {
+    return "sin detalle";
+  }
+}
 
 export type DatosDeAnuncio = {
   anuncioNombre: string | null;
@@ -106,8 +122,11 @@ export async function leerGastoPorAnuncio(desde: string, hasta: string): Promise
 
 export type GastoDeRegion = { region: string; gasto: number };
 
-/** Gasto por región de Meta: "ok" con las filas, o "no disponible" (sin llave, Meta falló o tardó). */
-export type GastoPorRegion = { estado: "ok"; filas: GastoDeRegion[] } | { estado: "no disponible" };
+/** Por qué no hay gasto: falta la llave en el servidor, o Meta contestó con error (o no contestó a tiempo). */
+export type MotivoSinGasto = "sin llave" | "meta fallo";
+
+/** Gasto por región de Meta: "ok" con las filas, o "no disponible" con su motivo. */
+export type GastoPorRegion = { estado: "ok"; filas: GastoDeRegion[] } | { estado: "no disponible"; motivo: MotivoSinGasto };
 
 /**
  * Gasto de toda la cuenta por región entre dos días AAAA-MM-DD (incluidos): una sola consulta a insights
@@ -115,7 +134,7 @@ export type GastoPorRegion = { estado: "ok"; filas: GastoDeRegion[] } | { estado
  * Department"); la traduce el mapa. Nunca lanza.
  */
 export async function leerGastoPorRegion(desde: string, hasta: string): Promise<GastoPorRegion> {
-  if (!metaAdsConfigurado()) return { estado: "no disponible" };
+  if (!metaAdsConfigurado()) return { estado: "no disponible", motivo: "sin llave" };
   try {
     const filas: GastoDeRegion[] = [];
     let siguiente: string | null = null;
@@ -140,6 +159,6 @@ export async function leerGastoPorRegion(desde: string, hasta: string): Promise<
     return { estado: "ok", filas };
   } catch (error) {
     console.warn("[pauta] no se pudo leer el gasto por región en Meta", error instanceof Error ? error.message : String(error));
-    return { estado: "no disponible" };
+    return { estado: "no disponible", motivo: "meta fallo" };
   }
 }

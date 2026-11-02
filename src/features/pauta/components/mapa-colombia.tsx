@@ -3,7 +3,6 @@
 import { useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
@@ -25,6 +24,33 @@ function tonoDelGasto(gasto: number | null, maximo: number): string {
   if (!gasto || gasto <= 0 || maximo <= 0) return "fill-muted";
   const indice = Math.min(TONOS.length - 1, Math.floor((gasto / maximo) * TONOS.length));
   return TONOS[indice];
+}
+
+const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+
+/** "2026-10" → "octubre de 2026" (el dueño lee el mes en palabras, no AAAA-MM). */
+export function mesEnPalabras(mes: string): string {
+  const [anio, numero] = mes.split("-");
+  const nombre = MESES[Number(numero) - 1];
+  return nombre && anio ? `${nombre} de ${anio}` : mes;
+}
+
+/** Los avisos de abajo, en palabras y solo si de verdad falta algo. */
+function avisosDelMapa(mapa: MapaDelMes): string[] {
+  const avisos: string[] = [];
+  if (mapa.fuentes.gasto === "no disponible") {
+    avisos.push(
+      mapa.motivoSinGasto === "sin llave"
+        ? "Falta la llave de Meta Ads: por eso el mapa sale sin colores."
+        : "Meta Ads no contestó: por eso el mapa sale sin colores. Vuelve a abrirlo más tarde.",
+    );
+  } else if (!mapa.rojo.datosSuficientes) {
+    avisos.push(`El rojo no se pudo calcular: faltan datos de los últimos ${mapa.rojo.dias} días.`);
+  }
+  if (mapa.fuentes.chats === "no disponible") avisos.push("No se pudieron leer los chats.");
+  if (mapa.fuentes.ventas === "no disponible") avisos.push("No se pudieron leer las ventas.");
+  if (mapa.aviso) avisos.push(mapa.aviso);
+  return avisos;
 }
 
 const textoNumero = (valor: number | null) => (valor === null ? "No disponible" : valor.toLocaleString("es-CO"));
@@ -83,6 +109,7 @@ export function MapaColombia({ mapa, meses, error }: { mapa: MapaDelMes; meses: 
   const maximo = Math.max(0, ...mapa.departamentos.map((d) => d.gasto ?? 0));
   const seleccionado = elegido ? porClave.get(elegido as DepartamentoDelMapa["clave"]) ?? null : null;
   const opciones = meses.includes(mapa.mes) ? meses : [mapa.mes, ...meses];
+  const avisos = avisosDelMapa(mapa);
 
   const cambiarMes = (mes: string) => {
     setElegido(null);
@@ -121,11 +148,8 @@ export function MapaColombia({ mapa, meses, error }: { mapa: MapaDelMes; meses: 
   return (
     <div className="flex flex-col gap-4 p-4">
       <div className="flex flex-col gap-1">
-        <h1 className="text-lg font-semibold">Mapa de Colombia: gasto, chats y ventas</h1>
-        <p className="text-sm text-muted-foreground">
-          Del {mapa.desde} al {mapa.hasta}. Más oscuro = más gasto en Meta Ads. En rojo: gastó en los últimos {mapa.rojo.dias} días (del{" "}
-          {mapa.rojo.desde} al {mapa.rojo.hasta}) y no vendió.
-        </p>
+        <h1 className="text-lg font-semibold">Mapa de Colombia</h1>
+        <p className="text-sm text-muted-foreground">Más oscuro = más gasto. Rojo = gastó y no vendió. Toca un departamento.</p>
       </div>
 
       <div className="flex flex-wrap items-end gap-2">
@@ -134,7 +158,7 @@ export function MapaColombia({ mapa, meses, error }: { mapa: MapaDelMes; meses: 
           <NativeSelect value={mapa.mes} onChange={(evento) => cambiarMes(evento.target.value)} disabled={cargando} aria-label="Mes">
             {opciones.map((mes) => (
               <NativeSelectOption key={mes} value={mes}>
-                {mes}
+                {mesEnPalabras(mes)}
               </NativeSelectOption>
             ))}
           </NativeSelect>
@@ -143,19 +167,6 @@ export function MapaColombia({ mapa, meses, error }: { mapa: MapaDelMes; meses: 
       </div>
 
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
-
-      <div className="flex flex-wrap gap-2">
-        {mapa.fuentes.gasto === "no disponible" ? <Badge variant="outline">Gasto no disponible: Meta Ads no respondió</Badge> : null}
-        {mapa.fuentes.chats === "no disponible" ? <Badge variant="outline">Chats no disponibles</Badge> : null}
-        {mapa.fuentes.ventas === "no disponible" ? <Badge variant="outline">Ventas no disponibles</Badge> : null}
-        {!mapa.rojo.datosSuficientes ? <Badge variant="outline">Rojo sin calcular: faltan datos de {mapa.rojo.dias} días</Badge> : null}
-      </div>
-
-      {mapa.aviso ? (
-        <p className="rounded-lg border p-3 text-sm text-muted-foreground">
-          {mapa.aviso} Por eso el rojo puede no ser exacto.
-        </p>
-      ) : null}
 
       <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,20rem)]">
         <Card>
@@ -183,15 +194,17 @@ export function MapaColombia({ mapa, meses, error }: { mapa: MapaDelMes; meses: 
                 San Andrés
               </text>
             </svg>
-            <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+            {/* Leyenda en una línea: Sin gasto · Menos → Más gasto · Rojo: gastó y no vendió */}
+            <div className="mt-3 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
               <span className="flex items-center gap-1">
                 <svg viewBox="0 0 10 10" className="size-3" aria-hidden="true">
                   <rect width="10" height="10" className="fill-muted" />
                 </svg>
                 Sin gasto
               </span>
+              <span aria-hidden="true">·</span>
               <span className="flex items-center gap-1">
-                Menos gasto
+                Menos
                 {TONOS.map((tono) => (
                   <svg key={tono} viewBox="0 0 10 10" className="size-3" aria-hidden="true">
                     <rect width="10" height="10" className={tono} />
@@ -199,11 +212,12 @@ export function MapaColombia({ mapa, meses, error }: { mapa: MapaDelMes; meses: 
                 ))}
                 Más gasto
               </span>
+              <span aria-hidden="true">·</span>
               <span className="flex items-center gap-1">
                 <svg viewBox="0 0 10 10" className="size-3" aria-hidden="true">
                   <rect width="10" height="10" className="fill-destructive" />
                 </svg>
-                Gasta y no vende
+                Rojo: gastó y no vendió
               </span>
             </div>
           </CardContent>
@@ -233,6 +247,14 @@ export function MapaColombia({ mapa, meses, error }: { mapa: MapaDelMes; meses: 
           </Card>
         </div>
       </div>
+
+      {avisos.length ? (
+        <ul className="flex flex-col gap-1 text-xs text-muted-foreground">
+          {avisos.map((aviso) => (
+            <li key={aviso}>{aviso}</li>
+          ))}
+        </ul>
+      ) : null}
 
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
