@@ -3,7 +3,9 @@
 import bcrypt from "bcryptjs";
 import { AuthError } from "next-auth";
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { Role } from "@prisma/client";
 import { z } from "zod";
 import { auth, signIn, signOut } from "@/auth";
@@ -26,11 +28,17 @@ import {
   sendEmailVerificationEmail,
   sendPasswordResetEmail,
 } from "@/lib/mailer";
+import {
+  atenderPedidoDeRecuperacion,
+  crearLimitePorIp,
+  leerIp,
+} from "@/lib/limite-recuperacion-de-clave";
 import { upsertOfficialApiConfigByWorkspaceId } from "@/lib/official-api-config";
 import { prisma } from "@/lib/prisma";
 import {
   ActionState,
   changePasswordSchema,
+  forgotPasswordSchema,
   loginSchema,
   profileSchema,
   registerSchema,
@@ -341,6 +349,69 @@ export async function requestPasswordResetAction(
     console.error("No se pudo enviar el correo de recuperacion:", error);
     return { ok: false, message: "No se pudo enviar el correo de recuperacion" };
   }
+}
+
+// Límite por IP de "¿Olvidaste tu contraseña?": vive en la memoria de este servidor.
+const limiteRecuperacionPorIp = crearLimitePorIp();
+
+// "¿Olvidaste tu contraseña?" desde /recuperar-contrasena: se usa SIN sesión.
+// Siempre responde el mismo aviso, exista o no el correo; las fallas solo quedan en el registro del servidor.
+export async function forgotPasswordAction(
+  prevState: ActionState = defaultState,
+  formData: FormData,
+): Promise<ActionState> {
+  void prevState;
+
+  const parsed = forgotPasswordSchema.safeParse({
+    email: formData.get("email"),
+  });
+
+  if (!parsed.success) {
+    return {
+      ok: false,
+      message: "Revisa el correo",
+      errors: parsed.error.flatten().fieldErrors,
+    };
+  }
+
+  const ip = leerIp(await headers());
+
+  return atenderPedidoDeRecuperacion(
+    { correo: parsed.data.email, ip },
+    {
+      ahora: () => Date.now(),
+      limitePorIp: limiteRecuperacionPorIp,
+      buscarUsuario: (correo) =>
+        prisma.user.findFirst({
+          where: { email: { equals: correo, mode: "insensitive" } },
+          select: { id: true, email: true, name: true },
+        }),
+      contarEnlacesDesde: (userId, desde) =>
+        prisma.emailAuthToken.count({
+          where: { userId, purpose: "PASSWORD_RESET", createdAt: { gte: desde } },
+        }),
+      enviarEnlace: async (usuario) => {
+        const baseUrl = getPublicBaseUrl();
+        if (!baseUrl) {
+          throw new Error("Falta configurar AUTH_URL, NEXTAUTH_URL o NEXT_PUBLIC_SITE_URL");
+        }
+
+        const token = await createPasswordResetToken(usuario.id, usuario.email);
+        const resetUrl = `${baseUrl}/reset-password?token=${encodeURIComponent(token)}`;
+
+        await sendPasswordResetEmail({
+          to: usuario.email,
+          name: usuario.name ?? "",
+          resetUrl,
+        });
+      },
+      despues: (trabajo) => after(trabajo),
+      registrar: (mensaje, error) => {
+        if (error === undefined) console.warn(mensaje);
+        else console.error(mensaje, error);
+      },
+    },
+  );
 }
 
 export async function resetPasswordWithTokenAction(

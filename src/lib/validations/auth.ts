@@ -5,6 +5,11 @@ export const loginSchema = z.object({
   password: z.string().min(8, "Minimo 8 caracteres"),
 });
 
+// Pantalla "¿Olvidaste tu contraseña?" (/recuperar-contrasena): solo pide el correo.
+export const forgotPasswordSchema = z.object({
+  email: z.string().trim().max(254, "Correo invalido").email("Correo invalido"),
+});
+
 export const registerSchema = z.object({
   name: z.string().min(2, "Nombre muy corto").max(100, "Nombre muy largo"),
   email: z.string().email("Correo invalido"),

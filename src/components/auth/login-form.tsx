@@ -68,6 +68,14 @@ export function LoginForm() {
             </p>
           ) : null}
         </label>
+        <div className="-mt-1 text-right">
+          <Link
+            href="/recuperar-contrasena"
+            className="text-sm font-semibold text-[#8deedc] hover:text-[#b4f7ea]"
+          >
+            ¿Olvidaste tu contraseña?
+          </Link>
+        </div>
         {formMessage ? (
           <p
             className={`rounded-xl border px-3 py-2 text-sm ${
