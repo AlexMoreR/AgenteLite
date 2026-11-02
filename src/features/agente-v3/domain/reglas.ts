@@ -153,6 +153,70 @@ export function normalizar(texto: string): string {
 }
 
 /**
+ * LOS TEMAS de las preguntas informativas: los que el motor puede contestar JUNTOS en un solo
+ * mensaje cuando la clienta pregunta varias cosas a la vez (caso del 26-10-2026: "Materiales
+ * garantía y envío los costos es gratis??" y solo se le contestó la garantía).
+ *
+ * El orden importa: se mira de arriba abajo y gana el primero que encaje. "Tiempo de entrega" va
+ * antes que "envío" para que una regla de "¿cuánto se demora el envío?" no se confunda con la de
+ * "¿el envío es gratis?" y se pierda una de las dos al juntar.
+ *
+ * El pago (contraentrega) NO está a propósito: es una política del negocio (09-10-2026) y una regla
+ * de pago nunca entra a la mezcla; si encaja, el motor sigue como siempre.
+ */
+export const TEMAS_DE_PREGUNTA = [
+  { tema: "garantia", etiqueta: "Garantía", emoji: "✅", palabras: ["garantia", "garantias"] },
+  {
+    tema: "tiempo_de_entrega",
+    etiqueta: "Tiempo de entrega",
+    emoji: "⏱️",
+    palabras: ["tiempo de entrega", "tiempos de entrega", "demora", "se demora", "tarda", "dias habiles", "cuando llega"],
+  },
+  { tema: "envio", etiqueta: "Envío", emoji: "🚚", palabras: ["envio", "envios", "domicilio", "flete", "despacho"] },
+  { tema: "materiales", etiqueta: "Materiales", emoji: "🪑", palabras: ["material", "materiales", "cuero", "tela", "estructura"] },
+  { tema: "peso", etiqueta: "Peso", emoji: "⚖️", palabras: ["peso", "pesa", "kilos"] },
+  { tema: "colores", etiqueta: "Colores", emoji: "🎨", palabras: ["color", "colores"] },
+  { tema: "precio", etiqueta: "Precio", emoji: "💰", palabras: ["precio", "valor", "cuanto vale", "cuanto cuesta", "costo"] },
+] as const;
+
+export type TemaDePregunta = (typeof TEMAS_DE_PREGUNTA)[number];
+
+/** ¿Aparece la palabra (o frase) entera en el texto ya normalizado? "pesa" no engancha en "empresa". */
+function nombraPalabra(textoNormalizado: string, palabra: string): boolean {
+  return ` ${textoNormalizado} `.includes(` ${palabra} `);
+}
+
+/**
+ * ¿De qué tema es esta regla? Devuelve null si no es una pregunta informativa que se pueda juntar.
+ *
+ * Es "de tema" SOLO si:
+ * - se dispara por frase o por intención (no el saludo, ni un paso, ni un seguimiento), y
+ * - lo único que hace es contestar (mensaje fijo o responder con IA): nada de mandar un flujo,
+ *   tomar un producto, mover de paso o de etapa, avisar a una asesora ni pausar. Esas reglas cambian
+ *   la charla y siguen ganando solas, como siempre.
+ *
+ * El tema se lee primero del NOMBRE de la regla ("Pregunta por la garantía") y, si no dice nada, de
+ * sus frases.
+ */
+export function temaDeLaRegla(regla: ReglaV3): TemaDePregunta | null {
+  if (regla.cuando.tipo !== "frase" && regla.cuando.tipo !== "intencion") return null;
+  if (regla.entonces.length === 0) return null;
+  const soloContesta = regla.entonces.every((accion) => accion.tipo === "mensaje" || accion.tipo === "responder_con_ia");
+  if (!soloContesta) return null;
+
+  const nombre = normalizar(regla.nombre);
+  // El pago nunca se mezcla (ver arriba), aunque la regla también nombre el envío.
+  if (["contraentrega", "contra entrega"].some((palabra) => nombraPalabra(nombre, palabra))) return null;
+  const porNombre = TEMAS_DE_PREGUNTA.find(({ palabras }) => palabras.some((palabra) => nombraPalabra(nombre, palabra)));
+  if (porNombre) return porNombre;
+
+  if (regla.cuando.tipo !== "frase") return null;
+  const frases = regla.cuando.frases.map(normalizar).join(" | ");
+  if (["contraentrega", "contra entrega"].some((palabra) => nombraPalabra(frases, palabra))) return null;
+  return TEMAS_DE_PREGUNTA.find(({ palabras }) => palabras.some((palabra) => nombraPalabra(frases, palabra))) ?? null;
+}
+
+/**
  * Revisa el libro antes de guardarlo.
  *
  * Devuelve problemas en lenguaje de negocio, no errores de programa: quien los va a leer es quien

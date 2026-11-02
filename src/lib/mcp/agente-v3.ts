@@ -455,6 +455,8 @@ export async function ejecutarHerramientaMcpV3(
       haria: [...decision.saludo, ...decision.acciones],
       porque: decision.porque,
       tambien_encajaban: decision.tambienEncajaban,
+      // Varias preguntas en un mensaje: las reglas que se contestaron juntas (vacío = ganó una sola).
+      contesta_juntas: decision.juntas ?? [],
     };
   }
 
