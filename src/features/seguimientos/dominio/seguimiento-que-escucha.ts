@@ -158,18 +158,28 @@ export function seguimientoDelAnuncio(producto: string | null | undefined): stri
   return `¿Te comparto fotos y medidas de ${nombre}?`;
 }
 
+/** "15m" → "a los 15 minutos sin respuesta"; "1h" → "a la hora sin respuesta"; "3h" → "a las 3 horas …". */
+function descripcionDelPaso(paso: string): string {
+  const partes = /^(\d+)\s*([mh])$/i.exec(paso.trim());
+  if (!partes) return paso.trim();
+  const n = Number(partes[1]);
+  if (partes[2].toLowerCase() === "m") return `a los ${n} minutos sin respuesta`;
+  return n === 1 ? "a la hora sin respuesta" : `a las ${n} horas sin respuesta`;
+}
+
 function quien(linea: Linea) {
   return linea.de === "cliente" ? "Cliente" : "Nosotros";
 }
 
 /**
  * Las instrucciones y el contexto para que la IA escriba el seguimiento de ESTE cliente.
- * `paso` es el numero del seguimiento (1 = el primero despues del silencio).
+ * `paso` es el numero del seguimiento (1 = el primero despues del silencio), o el del reloj del V3
+ * ("15m" = a los 15 minutos sin respuesta, "1h" = a la hora).
  */
 export function armarPedidoDeSeguimiento(input: {
   lineas: Linea[];
   producto: string | null;
-  paso: number;
+  paso: number | string;
   yaEnviados: string[];
   datosDelLibro: string | null;
   soloMandoElAnuncio: boolean;
@@ -198,7 +208,9 @@ export function armarPedidoDeSeguimiento(input: {
 
   const contexto = [
     `PRODUCTO QUE LE INTERESA: ${input.producto?.trim() || "(no se sabe)"}`,
-    `SEGUIMIENTO NÚMERO: ${input.paso}`,
+    typeof input.paso === "number"
+      ? `SEGUIMIENTO NÚMERO: ${input.paso}`
+      : `SEGUIMIENTO: ${descripcionDelPaso(input.paso)}`,
     "",
     "CONVERSACIÓN (de la más vieja a la más nueva):",
     conversacion.length ? conversacion.join("\n") : "(sin mensajes)",

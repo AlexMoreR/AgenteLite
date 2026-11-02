@@ -13,6 +13,10 @@ import { revisarFrenoDeAutomatico } from "@/lib/freno-de-automaticos";
 import { apagarSiCorresponde } from "@/features/seguimientos/services/follows";
 import { revisarConvivencia } from "@/features/seguimiento-inteligente/servicios/convivencia";
 import { limpiarFrasesProhibidas } from "@/lib/reglas-de-redaccion";
+import {
+  marcaDelSeguimiento,
+  redactarSeguimientoQueEscucha,
+} from "@/features/seguimientos/services/seguimiento-que-escucha";
 
 import { cumpleLasCondiciones } from "../motor/decidir";
 import { elV3AtendioLaCharla, guardarEstado, leerEstado } from "../motor/estado";
@@ -68,6 +72,11 @@ const CUANTOS_POR_VUELTA = 10;
  * comían los 10 cupos y los de más atrás no se miraban nunca.
  */
 const CUANTOS_A_MIRAR = 200;
+
+/** El paso para el redactor, por los minutos de la regla: 15 → "15m", 60 → "1h". */
+export function pasoDelReloj(minutos: number): string {
+  return minutos >= 60 && minutos % 60 === 0 ? `${minutos / 60}h` : `${minutos}m`;
+}
 
 export async function ejecutarSeguimientosV3(
   ahora = new Date(),
@@ -284,8 +293,38 @@ export async function ejecutarSeguimientosV3(
         continue;
       }
 
+      /*
+        Seguimientos que escuchan al cliente (parte 3): la IA lee el chat y los audios y escribe un
+        mensaje sobre lo que dijo ESTE cliente, con el texto de la regla del libro como respaldo. Con
+        el interruptor `seguimientos-que-escuchan:apagado`, sin clave de OpenAI o si el redactor falla,
+        sale el texto de la regla tal cual, como antes. Las reglas del libro no se tocan.
+      */
+      const redactado = await redactarSeguimientoQueEscucha({
+        conversationId: conversacion.id,
+        workspaceId: canal.workspaceId,
+        textoFijo: textos.join("\n"),
+        paso: pasoDelReloj(toca.minutos),
+        origen: "agente-v3",
+      });
+      if (!redactado.enviar) {
+        frenados += 1;
+        anotar(redactado.motivo);
+        // Ningún texto pasó la revisión: ese recordatorio se da por visto (no se vuelve a intentar cada
+        // minuto). Si solo se llenó el tope de la vuelta, no se marca: sale en la vuelta siguiente.
+        if (!redactado.reprogramar) {
+          await guardarEstado(conversacion.id, {
+            ...estado,
+            seguimientosEnviados: [...new Set([...yaSalieron, toca.minutos])],
+          });
+        }
+        continue;
+      }
+      // El texto de la regla sale tal cual (uno o varios mensajes) salvo que el redactor lo cambie.
+      const aEnviar = redactado.textoReemplazado === null && !redactado.deIA ? textos : [redactado.texto];
+      const marca = marcaDelSeguimiento(redactado);
+
       try {
-        for (const texto of textos) {
+        for (const texto of aEnviar) {
           const resultado = await sendEvolutionTextMessageWithReconnect({
             instanceName: canal.evolutionInstanceName,
             phoneNumber: telefono,
@@ -303,7 +342,11 @@ export async function ejecutarSeguimientosV3(
               status: "SENT",
               content: texto,
               sentAt: new Date(),
-              rawPayload: { source: "agente-v3-seguimiento", evolution: resultado } as never,
+              rawPayload: {
+                source: redactado.deIA ? "agente-v3-seguimiento-ia" : "agente-v3-seguimiento",
+                evolution: resultado,
+                ...(marca ?? {}),
+              } as never,
             },
           });
         }
@@ -342,7 +385,7 @@ export async function ejecutarSeguimientosV3(
           productoV3: estado.productoActivo,
           reglaId: toca.regla.id,
           reglaNombre: toca.regla.nombre,
-          datos: { minutos: toca.minutos, mensajes: textos.length },
+          datos: { minutos: toca.minutos, mensajes: aEnviar.length },
         });
       } catch (error) {
         console.error("[agente-v3] no se pudo enviar el seguimiento", {

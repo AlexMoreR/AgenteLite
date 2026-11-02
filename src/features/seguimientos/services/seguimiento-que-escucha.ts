@@ -121,9 +121,12 @@ export async function redactarSeguimientoQueEscucha(input: {
   workspaceId: string;
   /** El texto agendado (ya con el nombre puesto): es el respaldo y lo que sale si esto esta apagado. */
   textoFijo: string;
-  /** Numero del seguimiento (1 = el primero del silencio). null = se cuenta con los ya enviados. */
-  paso?: number | null;
-  /** De donde viene ("follow", "flujo"): solo para el registro. */
+  /**
+   * Numero del seguimiento (1 = el primero del silencio), o el del reloj del V3 ("15m", "1h").
+   * null = se cuenta con los ya enviados.
+   */
+  paso?: number | string | null;
+  /** De donde viene ("follow", "flujo", "agente-v3"): solo para el registro. */
   origen: string;
 }): Promise<SeguimientoRedactado> {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
@@ -407,6 +410,9 @@ function aLineas(mensajes: MensajeLeido[]): Linea[] {
     .filter((linea) => linea.texto);
 }
 
+/** Los origenes de los seguimientos que ya le llegaron: los de Seguimientos y los del reloj del V3. */
+const ORIGENES_DE_SEGUIMIENTO = ["follow", "agente-v3-seguimiento", "agente-v3-seguimiento-ia"];
+
 /** Los seguimientos que ya le llegaron a este chat (texto y fecha). */
 async function seguimientosYaEnviados(conversationId: string) {
   const filas = await prisma.message.findMany({
@@ -414,7 +420,7 @@ async function seguimientosYaEnviados(conversationId: string) {
       conversationId,
       direction: "OUTBOUND",
       deletedAt: null,
-      rawPayload: { path: ["source"], equals: "follow" },
+      OR: ORIGENES_DE_SEGUIMIENTO.map((source) => ({ rawPayload: { path: ["source"], equals: source } })),
     },
     orderBy: { createdAt: "asc" },
     take: 100,
