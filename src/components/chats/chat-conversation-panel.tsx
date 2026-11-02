@@ -82,6 +82,11 @@ import {
 import { ACCEPT_DOCUMENTOS_CHAT, revisarArchivoAntesDeSubir } from "@/lib/chat-envio-seguro";
 import { ContactAvatar } from "@/components/chats/contact-avatar";
 import {
+  AVISO_SUGERENCIA_EN_SU_CAJA,
+  AVISO_SUGERENCIA_NO_USADA,
+  dondeVaLaSugerencia,
+} from "@/components/chats/destino-de-la-sugerencia";
+import {
   getContactDetailsAction,
   generateSuggestedReplyAction,
   marcarFlujoDeSugerenciaAction,
@@ -1455,6 +1460,16 @@ export const ConversationPanel = memo(function ConversationPanel({
     [insertQuickReply, selectedConversationId],
   );
 
+  /*
+    El chat abierto AHORA (tarjeta otxmycwu). El panel no se vuelve a montar al cambiar de chat, asi
+    que la caja es siempre la del chat abierto; la sugerencia ✨ lo lee al llegar para no escribir en
+    la caja de otro cliente.
+  */
+  const chatAbiertoRef = useRef(selectedConversationId ?? "");
+  useEffect(() => {
+    chatAbiertoRef.current = selectedConversationId ?? "";
+  }, [selectedConversationId]);
+
   const handleSuggestReply = useCallback(async () => {
     // Se usa el chat REALMENTE abierto y no mediaConfig: en los chats de la API oficial ese
     // config no existía, así que el botón ✨ se veía pero al tocarlo no pasaba NADA (ni un aviso).
@@ -1464,24 +1479,42 @@ export const ConversationPanel = memo(function ConversationPanel({
       return;
     }
 
+    // El chat para el que se pide la sugerencia (puede no ser el abierto cuando llegue).
+    const chatPedido = selectedConversationId ?? "";
     setIsSuggestingReply(true);
     try {
       // La fuente sale de la clave del chat abierto: los de la API oficial se leen de otra tabla.
-      const fuente = selectedConversationId?.startsWith("official:") ? "official" : "agent";
+      const fuente = chatPedido.startsWith("official:") ? "official" : "agent";
       const result = await generateSuggestedReplyAction(conversationId, fuente);
       if (result.error || !result.suggestion) {
         toast.error(result.error || "No se pudo generar la sugerencia");
         return;
       }
-      sugerenciaEnLaCaja.current = result.sugerenciaId
-        ? { id: result.sugerenciaId, chat: selectedConversationId ?? "" }
-        : null;
       setFlujoSugerido(
         result.flujo
-          ? { ...result.flujo, sugerenciaId: result.sugerenciaId ?? null, chat: selectedConversationId ?? "" }
+          ? { ...result.flujo, sugerenciaId: result.sugerenciaId ?? null, chat: chatPedido }
           : null,
       );
 
+      // Si la asesora ya esta en otro chat, la caja abierta es la de ese otro cliente: no se toca.
+      const destino = dondeVaLaSugerencia({
+        chatPedido,
+        chatAbierto: chatAbiertoRef.current,
+        borradorDelChatPedido: leerBorrador(chatPedido),
+      });
+      if (destino === "borrador") {
+        guardarBorrador(chatPedido, result.suggestion);
+        toast.info(AVISO_SUGERENCIA_EN_SU_CAJA);
+        return;
+      }
+      if (destino === "descartar") {
+        toast.info(AVISO_SUGERENCIA_NO_USADA);
+        return;
+      }
+
+      sugerenciaEnLaCaja.current = result.sugerenciaId
+        ? { id: result.sugerenciaId, chat: chatPedido }
+        : null;
       const textarea = composerTextAreaRef.current;
       if (textarea) {
         const suggestion = result.suggestion;
