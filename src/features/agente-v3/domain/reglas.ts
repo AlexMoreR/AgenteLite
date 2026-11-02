@@ -83,6 +83,15 @@ export type ReglaV3 = {
   soloSi?: Condiciones;
   entonces: Accion[];
   activa: boolean;
+  /**
+   * La regla ya manda su propia bienvenida: si gana en el primer mensaje, NO sale antes la
+   * bienvenida general (las reglas "siempre" + primer mensaje).
+   *
+   * Nace del cliente del anuncio del combo, que recibía dos bienvenidas seguidas: la General y la
+   * del combo (02-11-2026). Así puede haber varias bienvenidas y le llega UNA sola, según cómo llega.
+   * Sin la marca la regla se comporta como siempre: la general sale primero.
+   */
+  reemplazaLaBienvenida?: boolean;
   /** Para el historial: quién la escribió y cuándo. */
   autor?: string;
   creadaEl?: string;
@@ -95,6 +104,21 @@ export type LibroDeReglas = {
   comoHablamos: string;
   reglas: ReglaV3[];
 };
+
+/** Las reglas que forman la bienvenida general: "siempre" + solo en el primer mensaje. */
+export function esReglaDeBienvenidaGeneral(regla: ReglaV3): boolean {
+  return regla.cuando.tipo === "siempre" && regla.soloSi?.esPrimerMensaje === true;
+}
+
+/** Lo que de verdad le llega al cliente: un texto, un flujo o una respuesta redactada. */
+export function leDiceAlgoAlCliente(regla: ReglaV3): boolean {
+  return regla.entonces.some(
+    (accion) =>
+      (accion.tipo === "mensaje" && Boolean(accion.texto?.trim())) ||
+      accion.tipo === "flujo" ||
+      accion.tipo === "responder_con_ia",
+  );
+}
 
 export const LIBRO_VACIO: LibroDeReglas = {
   version: 1,

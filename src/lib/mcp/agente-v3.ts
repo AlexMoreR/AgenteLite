@@ -9,7 +9,13 @@ import {
 } from "@/features/agente-v3/servicios/almacen";
 import { simularConversacion } from "@/features/agente-v3/servicios/simulador";
 import { decidir } from "@/features/agente-v3/motor/decidir";
-import { PASOS_DEL_EMBUDO, revisarLibro, type ReglaV3 } from "@/features/agente-v3/domain/reglas";
+import {
+  PASOS_DEL_EMBUDO,
+  esReglaDeBienvenidaGeneral,
+  leDiceAlgoAlCliente,
+  revisarLibro,
+  type ReglaV3,
+} from "@/features/agente-v3/domain/reglas";
 
 /*
   AGENTE V3 POR MCP: el libro de reglas se dicta hablando.
@@ -96,6 +102,11 @@ const ESQUEMA_DE_REGLA = {
       },
     },
     activa: { type: "boolean", description: "Por defecto true" },
+    reemplaza_bienvenida: {
+      type: "boolean",
+      description:
+        "true si esta regla ya manda su propia bienvenida: cuando gana en el primer mensaje, NO sale antes la bienvenida general (la regla 'siempre' + esPrimerMensaje). Por defecto false: la general sale primero.",
+    },
   },
   required: ["nombre", "cuando", "entonces"],
 } as const;
@@ -174,7 +185,7 @@ export const HERRAMIENTAS_MCP_V3 = [
     name: "v3_probar_mensaje",
     title: "Probar un mensaje (V3)",
     description:
-      "Dice que regla ganaria con ese mensaje y por que, sin mandar nada. Sirve para responder '¿por que contesto eso?' antes de que pase.",
+      "Dice que regla ganaria con ese mensaje y por que, sin mandar nada. Sirve para responder '¿por que contesto eso?' antes de que pase. En el primer mensaje, 'bienvenida' dice si sale la bienvenida general o si la reemplaza la regla que gano. Solo prueba reglas de frase: no llama a la IA.",
     inputSchema: {
       type: "object",
       properties: {
@@ -243,6 +254,12 @@ function comoRegla(argumentos: Argumentos, base?: ReglaV3): ReglaV3 {
     soloSi: (argumentos.soloSi as ReglaV3["soloSi"]) ?? base?.soloSi,
     entonces,
     activa: typeof argumentos.activa === "boolean" ? argumentos.activa : (base?.activa ?? true),
+    // Solo se guarda cuando está prendida: así las reglas sin la marca quedan igual que antes en el libro.
+    ...((typeof argumentos.reemplaza_bienvenida === "boolean"
+      ? argumentos.reemplaza_bienvenida
+      : base?.reemplazaLaBienvenida === true)
+      ? { reemplazaLaBienvenida: true }
+      : {}),
     autor: base?.autor,
     creadaEl: base?.creadaEl ?? new Date().toISOString(),
   };
@@ -264,6 +281,7 @@ export async function ejecutarHerramientaMcpV3(
         regla_id: regla.id,
         nombre: regla.nombre,
         activa: regla.activa,
+        reemplaza_bienvenida: regla.reemplazaLaBienvenida === true,
         cuando: regla.cuando,
         solo_si: regla.soloSi,
         entonces: regla.entonces,
@@ -374,6 +392,25 @@ export async function ejecutarHerramientaMcpV3(
         });
       }
     }
+    /*
+      Sale UNA sola bienvenida por cliente nuevo (02-11-2026). Dos reglas "siempre" + primer mensaje
+      salen juntas, y una regla que reemplaza la bienvenida sin decir nada deja al cliente sin saludo.
+    */
+    const generales = libro.reglas.filter((regla) => regla.activa && esReglaDeBienvenidaGeneral(regla));
+    if (generales.length > 1) {
+      huecos.push({
+        falta: `Hay ${generales.length} bienvenidas generales prendidas (${generales.map((regla) => `"${regla.nombre}"`).join(", ")}): al cliente nuevo le llegan todas juntas.`,
+        preguntar: "¿Cuál es la bienvenida que tiene que recibir el cliente nuevo? Las otras se apagan o pasan a una regla con frase.",
+      });
+    }
+    for (const regla of libro.reglas) {
+      if (regla.activa && regla.reemplazaLaBienvenida === true && !leDiceAlgoAlCliente(regla)) {
+        huecos.push({
+          falta: `"${regla.nombre}" reemplaza la bienvenida pero no le dice nada al cliente: si gana en el primer mensaje, entra sin bienvenida.`,
+          preguntar: `¿Qué tiene que recibir el cliente cuando llega por "${regla.nombre}"? Si no trae su propia bienvenida, se le quita la marca.`,
+        });
+      }
+    }
     if (!libro.reglas.some((regla) => regla.entonces.some((accion) => accion.tipo === "avisar_asesor"))) {
       huecos.push({
         falta: "No hay ningún caso en el que entre una persona.",
@@ -455,6 +492,11 @@ export async function ejecutarHerramientaMcpV3(
       haria: [...decision.saludo, ...decision.acciones],
       porque: decision.porque,
       tambien_encajaban: decision.tambienEncajaban,
+      bienvenida: {
+        sale: decision.bienvenida.sale,
+        motivo: decision.bienvenida.motivo,
+        reemplazada_por: decision.bienvenida.reemplazadaPor,
+      },
     };
   }
 

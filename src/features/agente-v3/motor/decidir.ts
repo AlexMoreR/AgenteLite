@@ -1,4 +1,5 @@
 import {
+  esReglaDeBienvenidaGeneral,
   normalizar,
   pesoDeLaRegla,
   type Accion,
@@ -53,14 +54,105 @@ export type EstadoDeLaCharla = {
 
 export type Decision = {
   regla: ReglaV3 | null;
-  /** Lo que sale SIEMPRE antes, aunque gane otra regla: hoy, el saludo del primer mensaje. */
+  /**
+   * Lo que sale ANTES de la regla que gana: la bienvenida general del primer mensaje. Viene vacío
+   * si la regla que gana ya manda su propia bienvenida.
+   */
   saludo: Accion[];
   acciones: Accion[];
   /** En palabras: por qué ganó ésta. Es lo que se va a poder leer en el chat. */
   porque: string;
   /** Las que también encajaban y perdieron, para poder explicar un desempate. */
   tambienEncajaban: Array<{ id: string; nombre: string }>;
+  /**
+   * Qué pasó con la bienvenida general en este mensaje, para el simulador. `reemplazadaPor` es la
+   * regla que hizo que no saliera (porque está marcada o porque ya manda el mismo flujo).
+   */
+  bienvenida: {
+    sale: boolean;
+    motivo: string;
+    reemplazadaPor: { id: string; nombre: string } | null;
+  };
 };
+
+/** El resultado de la bienvenida cuando no hay nada que decidir (no es el primer mensaje, o no hay). */
+function bienvenidaQueNoAplica(esPrimerMensaje: boolean): Decision["bienvenida"] {
+  return {
+    sale: false,
+    motivo: esPrimerMensaje
+      ? "El libro no tiene una bienvenida general activa (regla «siempre» + primer mensaje)."
+      : "No es el primer mensaje del cliente.",
+    reemplazadaPor: null,
+  };
+}
+
+/** Los ids de los flujos que manda una lista de acciones. */
+function flujosDe(acciones: Accion[]): Set<string> {
+  return new Set(
+    acciones.filter((accion): accion is Extract<Accion, { tipo: "flujo" }> => accion.tipo === "flujo").map((accion) => accion.flujoId),
+  );
+}
+
+/** "Bienvenida General" o "Bienvenida General" y "Otra", entre comillas, para el "por qué". */
+function nombresEntreComillas(reglas: ReglaV3[]): string {
+  return reglas.map((regla) => `"${regla.nombre}"`).join(" y ");
+}
+
+/**
+ * ¿Sale la bienvenida general antes de lo que hace la regla que ganó?
+ *
+ * Sale una SOLA bienvenida por cliente nuevo (02-11-2026):
+ * - Si la regla que ganó (o la del paso que se encadena) está marcada "reemplaza la bienvenida",
+ *   no sale ninguna bienvenida general: esa regla ya trae la suya.
+ * - Si lo que hace la regla que ganó ya manda el mismo flujo que una bienvenida, esa bienvenida no se
+ *   antepone: saldría dos veces.
+ * - En los demás casos sale primero la general y después lo de la regla, como siempre.
+ */
+function resolverLaBienvenida(input: {
+  bienvenidas: ReglaV3[];
+  reglasQueMandan: ReglaV3[];
+  acciones: Accion[];
+}): { saludo: Accion[]; bienvenida: Decision["bienvenida"]; nota: string } {
+  const laQueReemplaza = input.reglasQueMandan.find((regla) => regla.reemplazaLaBienvenida === true);
+  if (laQueReemplaza) {
+    const nota = `No sale ${nombresEntreComillas(input.bienvenidas)} porque "${laQueReemplaza.nombre}" ya manda su propia bienvenida.`;
+    return {
+      saludo: [],
+      bienvenida: { sale: false, motivo: nota, reemplazadaPor: { id: laQueReemplaza.id, nombre: laQueReemplaza.nombre } },
+      nota,
+    };
+  }
+
+  const yaSeMandan = flujosDe(input.acciones);
+  const repetidas = input.bienvenidas.filter((regla) => [...flujosDe(regla.entonces)].some((flujo) => yaSeMandan.has(flujo)));
+  const quedan = input.bienvenidas.filter((regla) => !repetidas.includes(regla));
+  const saludo = quedan.flatMap((regla) => regla.entonces);
+  if (repetidas.length === 0) {
+    return {
+      saludo,
+      bienvenida: {
+        sale: true,
+        motivo: `Sale primero ${nombresEntreComillas(input.bienvenidas)} por ser su primer mensaje, y después lo de la regla que ganó.`,
+        reemplazadaPor: null,
+      },
+      nota: "",
+    };
+  }
+
+  const quienLaManda = input.reglasQueMandan.find((regla) => repetidas.some((bienvenida) =>
+    [...flujosDe(bienvenida.entonces)].some((flujo) => flujosDe(regla.entonces).has(flujo)),
+  )) ?? input.reglasQueMandan[0];
+  const nota = `No se antepone ${nombresEntreComillas(repetidas)} porque "${quienLaManda.nombre}" ya la manda.`;
+  return {
+    saludo,
+    bienvenida: {
+      sale: saludo.length > 0,
+      motivo: quedan.length ? `${nota} Sale primero ${nombresEntreComillas(quedan)}.` : nota,
+      reemplazadaPor: { id: quienLaManda.id, nombre: quienLaManda.nombre },
+    },
+    nota,
+  };
+}
 
 /**
  * ¿Se cumplen las condiciones extra de una regla en este momento de la charla?
@@ -176,21 +268,21 @@ export function decidir(input: {
   const intenciones = input.intencionesReconocidas ?? [];
 
   /*
-    El saludo del primer mensaje sale SIEMPRE, aunque gane otra regla.
+    La bienvenida general del primer mensaje se SUMA a la regla que gana: no compite.
 
-    No compite: se suma. Si compitiera, un cliente que escribe "quiero el combo de estetica" en su
-    primer mensaje entraria directo al embudo y nunca recibiria la bienvenida, que es obligatoria
-    (Alex, 21-sep-2026). Son las reglas de tipo "siempre" atadas al primer mensaje.
+    Si compitiera, un cliente que escribe "quiero el combo de estetica" en su primer mensaje
+    entraria directo al embudo y nunca recibiria la bienvenida, que es obligatoria (Alex,
+    21-sep-2026). Son las reglas de tipo "siempre" atadas al primer mensaje.
+
+    La única excepción es cuando la regla que gana ya trae su propia bienvenida (ver
+    `resolverLaBienvenida`): ahí sale una sola, la de esa regla.
   */
-  const saludo = input.estado.esPrimerMensaje
-    ? input.libro.reglas
-        .filter((regla) => regla.activa && regla.cuando.tipo === "siempre" && regla.soloSi?.esPrimerMensaje === true)
-        .flatMap((regla) => regla.entonces)
+  const bienvenidas = input.estado.esPrimerMensaje
+    ? input.libro.reglas.filter((regla) => regla.activa && esReglaDeBienvenidaGeneral(regla))
     : [];
+  const saludo = bienvenidas.flatMap((regla) => regla.entonces);
   const esDelSaludo = new Set(
-    input.libro.reglas
-      .filter((regla) => regla.cuando.tipo === "siempre" && regla.soloSi?.esPrimerMensaje === true)
-      .map((regla) => regla.id),
+    input.libro.reglas.filter((regla) => esReglaDeBienvenidaGeneral(regla)).map((regla) => regla.id),
   );
 
   const candidatas = input.libro.reglas
@@ -213,6 +305,7 @@ export function decidir(input: {
     intenciones,
     esDelSaludo,
     saludo,
+    bienvenidas,
     candidatas: candidatas.map(({ regla }) => regla),
   });
   if (fotoYPrecio) {
@@ -228,6 +321,13 @@ export function decidir(input: {
         ? "Sale el saludo del primer mensaje; ninguna otra regla encajó."
         : "Ninguna regla encajó con este mensaje.",
       tambienEncajaban: [],
+      bienvenida: saludo.length
+        ? {
+            sale: true,
+            motivo: `Sale sola ${nombresEntreComillas(bienvenidas)}: es su primer mensaje y ninguna otra regla encajó.`,
+            reemplazadaPor: null,
+          }
+        : bienvenidaQueNoAplica(input.estado.esPrimerMensaje),
     };
   }
 
@@ -262,14 +362,25 @@ export function decidir(input: {
         )
       : undefined;
 
+  const acciones = reglaDelPaso ? [...ganadora.entonces, ...reglaDelPaso.entonces] : ganadora.entonces;
+  const porque = reglaDelPaso
+    ? `Ganó "${ganadora.nombre}" porque ${comoSeLee(ganadora)}. Y como pasó al paso ${despues.pasoActual}, sigue con "${reglaDelPaso.nombre}".`
+    : `Ganó "${ganadora.nombre}" porque ${comoSeLee(ganadora)}.`;
+  const resuelta = bienvenidas.length
+    ? resolverLaBienvenida({
+        bienvenidas,
+        reglasQueMandan: reglaDelPaso ? [ganadora, reglaDelPaso] : [ganadora],
+        acciones,
+      })
+    : { saludo: [], bienvenida: bienvenidaQueNoAplica(input.estado.esPrimerMensaje), nota: "" };
+
   return {
     regla: ganadora,
-    saludo,
-    acciones: reglaDelPaso ? [...ganadora.entonces, ...reglaDelPaso.entonces] : ganadora.entonces,
-    porque: reglaDelPaso
-      ? `Ganó "${ganadora.nombre}" porque ${comoSeLee(ganadora)}. Y como pasó al paso ${despues.pasoActual}, sigue con "${reglaDelPaso.nombre}".`
-      : `Ganó "${ganadora.nombre}" porque ${comoSeLee(ganadora)}.`,
+    saludo: resuelta.saludo,
+    acciones,
+    porque: resuelta.nota ? `${porque} ${resuelta.nota}` : porque,
     tambienEncajaban: ordenadas.slice(1).map(({ regla }) => ({ id: regla.id, nombre: regla.nombre })),
+    bienvenida: resuelta.bienvenida,
   };
 }
 
@@ -285,6 +396,7 @@ function decidirFotoYPrecio(input: {
   intenciones: string[];
   esDelSaludo: Set<string>;
   saludo: Accion[];
+  bienvenidas: ReglaV3[];
   candidatas: ReglaV3[];
 }): Decision | null {
   if (!input.fotoDelCliente) return null;
@@ -318,6 +430,14 @@ function decidirFotoYPrecio(input: {
     tambienEncajaban: input.candidatas
       .filter((regla) => regla.id !== ganadora.id)
       .map((regla) => ({ id: regla.id, nombre: regla.nombre })),
+    // El caso "foto + precio" no cambia: la bienvenida general sale igual que antes.
+    bienvenida: input.saludo.length
+      ? {
+          sale: true,
+          motivo: `Sale primero ${nombresEntreComillas(input.bienvenidas)} por ser su primer mensaje.`,
+          reemplazadaPor: null,
+        }
+      : bienvenidaQueNoAplica(input.estado.esPrimerMensaje),
   };
 }
 
