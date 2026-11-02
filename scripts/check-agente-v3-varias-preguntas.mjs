@@ -94,7 +94,6 @@ const reemplazos = new Map([
 
 const { atenderConAgenteV3 } = cargar(ruta("features/agente-v3/motor/ejecutar.ts"), reemplazos);
 const { decidir } = cargar(ruta("features/agente-v3/motor/decidir.ts"), reemplazos);
-const fotoYPrecio = cargar(ruta("features/agente-v3/motor/foto-y-precio.ts"), reemplazos);
 
 const reglasDominio = cargar(ruta("features/agente-v3/domain/reglas.ts"), reemplazos);
 const { MOTIVO_PRECIO_DE_OTRO_PRODUCTO, preguntaPrecioDeOtroProducto } = cargar(
