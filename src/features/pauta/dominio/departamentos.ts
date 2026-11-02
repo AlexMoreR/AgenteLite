@@ -84,7 +84,8 @@ const OTROS_NOMBRES: Partial<Record<ClaveDepartamento, string[]>> = {
  * limpieza quita). Solo los nombres que no salen ya del nombre del departamento o de OTROS_NOMBRES.
  */
 const NOMBRES_DE_META: Partial<Record<ClaveDepartamento, string[]>> = {
-  bogota: ["Bogota", "Bogota, D.C.", "Bogotá D.C.", "Capital District"],
+  // Meta llama a Bogotá "Distrito Especial" (visto en el gasto de octubre de 2026); sin esta línea su gasto caía en "Otras regiones".
+  bogota: ["Bogota", "Bogota, D.C.", "Bogotá D.C.", "Capital District", "Distrito Especial", "Distrito Especial Department"],
   "san-andres": ["Archipiélago de San Andrés, Providencia y Santa Catalina Department", "San Andres y Providencia Department", "San Andrés and Providencia"],
   "valle-del-cauca": ["Valle del Cauca Department"],
   choco: ["Chocó Department"],

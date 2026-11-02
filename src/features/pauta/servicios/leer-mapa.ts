@@ -12,7 +12,7 @@ import {
 } from "../dominio/mapa";
 import { variantesDeTelefono } from "../dominio/reporte";
 import { rangoPorDefecto } from "./leer-reporte";
-import { leerGastoPorRegion } from "./meta-ads-lectura";
+import { leerGastoPorRegion, type MotivoSinGasto } from "./meta-ads-lectura";
 import { limitesDelRango, pedirAGestion, type VentaPagada } from "./ventas-de-gestion";
 
 /**
@@ -54,11 +54,13 @@ export type MapaDelMes = {
   rojo: { desde: string; hasta: string; dias: number; datosSuficientes: boolean };
   /** Un aviso si quedaron muchas ventas sin ubicar; null si no. */
   aviso: string | null;
+  /** Por qué no hay gasto de Meta (falta la llave o Meta contestó con error); null si se leyó. */
+  motivoSinGasto: MotivoSinGasto | null;
   fuentes: { gasto: EstadoDeFuente; chats: EstadoDeFuente; ventas: EstadoDeFuente; gasto60d: EstadoDeFuente; ventas60d: EstadoDeFuente };
 };
 
-/** Desde este porcentaje de ventas sin ubicar se avisa que el reparto está incompleto. */
-export const PORCIENTO_AVISO_SIN_UBICAR = 30;
+/** Desde este porcentaje de ventas sin ubicar se avisa que el reparto está incompleto (la meta es menos de 2 de cada 10). */
+export const PORCIENTO_AVISO_SIN_UBICAR = 20;
 
 const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
 
@@ -88,6 +90,8 @@ export function armarMapa(datos: {
   ventas: FilaDelMapa[] | null;
   gasto60d: FilaDelMapa[] | null;
   ventas60d: FilaDelMapa[] | null;
+  /** Por qué no llegó el gasto (si no llegó). */
+  motivoSinGasto?: MotivoSinGasto | null;
 }): MapaDelMes {
   const delMes = sumarPorDepartamento([...(datos.gasto ?? []), ...(datos.chats ?? []), ...(datos.ventas ?? [])]);
   const de60 = sumarPorDepartamento([...(datos.gasto60d ?? []), ...(datos.ventas60d ?? [])]);
@@ -120,7 +124,7 @@ export function armarMapa(datos: {
   if (totalVentas && sinUbicar.ventas) {
     const porciento = redondear1((sinUbicar.ventas / totalVentas) * 100);
     if (porciento >= PORCIENTO_AVISO_SIN_UBICAR) {
-      aviso = `${sinUbicar.ventas} de ${totalVentas} ventas (${porciento} %) quedaron sin ubicar: Gestión no mandó el departamento y el chat no tiene ciudad. El reparto por departamento está incompleto.`;
+      aviso = `${sinUbicar.ventas} de ${totalVentas} ventas sin ubicar (${porciento.toLocaleString("es-CO")} %): ni Gestión ni el chat dicen el departamento.`;
     }
   }
 
@@ -140,6 +144,7 @@ export function armarMapa(datos: {
     },
     rojo: { desde: datos.rojoDesde, hasta: datos.rojoHasta, dias: DIAS_ROJO, datosSuficientes },
     aviso,
+    motivoSinGasto: datos.gasto && datos.gasto60d ? null : datos.motivoSinGasto ?? null,
     fuentes: {
       gasto: estado(datos.gasto),
       chats: estado(datos.chats),
@@ -188,10 +193,13 @@ export function resumenParaDecir(mapa: MapaDelMes): string {
 
 /* ------------------------------------------------------------------ lectura (base, Meta y Gestión) */
 
-async function gastoPorDepartamento(desde: string, hasta: string): Promise<FilaDelMapa[] | null> {
-  if (desde > hasta) return [];
+/** El gasto del rango por región de Meta; si no llega, filas null y el motivo (falta la llave o Meta falló). */
+async function gastoPorDepartamento(desde: string, hasta: string): Promise<{ filas: FilaDelMapa[] | null; motivo: MotivoSinGasto | null }> {
+  if (desde > hasta) return { filas: [], motivo: null };
   const gasto = await leerGastoPorRegion(desde, hasta);
-  return gasto.estado === "ok" ? gasto.filas.map((f) => ({ regionMeta: f.region, gasto: f.gasto })) : null;
+  return gasto.estado === "ok"
+    ? { filas: gasto.filas.map((f) => ({ regionMeta: f.region, gasto: f.gasto })), motivo: null }
+    : { filas: null, motivo: gasto.motivo };
 }
 
 async function chatsPorDepartamento(workspaceId: string, desdeFecha: Date, hastaFecha: Date): Promise<FilaDelMapa[] | null> {
@@ -297,5 +305,17 @@ export async function leerMapa(workspaceId: string, pedido: { mes?: string | nul
     gastoPorDepartamento(rojoDesde, hoy),
     ventasPorDepartamento(workspaceId, rojoDesde, hoy),
   ]);
-  return armarMapa({ mes, desde: rango.desde, hasta, rojoDesde, rojoHasta: hoy, gasto, chats, ventas, gasto60d, ventas60d });
+  return armarMapa({
+    mes,
+    desde: rango.desde,
+    hasta,
+    rojoDesde,
+    rojoHasta: hoy,
+    gasto: gasto.filas,
+    chats,
+    ventas,
+    gasto60d: gasto60d.filas,
+    ventas60d,
+    motivoSinGasto: gasto.motivo ?? gasto60d.motivo,
+  });
 }

@@ -72,6 +72,10 @@ await prueba("nombres de región de Meta llevan al departamento", () => {
   assert.equal(d.departamentoDeRegionMeta("Meta Department"), "meta");
   assert.equal(d.departamentoDeRegionMeta("Antioquia"), "antioquia");
   for (const dep of d.DEPARTAMENTOS) assert.equal(d.departamentoDeRegionMeta(`${dep.nombre} Department`), dep.clave, dep.nombre);
+  // Meta llama a Bogotá "Distrito Especial": antes su gasto caía en "Otras regiones".
+  assert.equal(d.departamentoDeRegionMeta("Distrito Especial"), "bogota");
+  assert.equal(d.departamentoDeRegionMeta("Distrito Especial Department"), "bogota");
+  assert.equal(d.departamentoDeRegionMeta("Valle del Cauca"), "valle-del-cauca");
   assert.equal(d.departamentoDeRegionMeta("Unknown"), null);
   assert.equal(d.departamentoDeRegionMeta("Florida"), null);
   assert.equal(d.departamentoDeRegionMeta(""), null);
@@ -249,9 +253,12 @@ await prueba("armarMapa: avisa si quedaron muchas ventas sin ubicar", () => {
   const base = { mes: "2026-10", desde: "2026-10-01", hasta: "2026-10-31", rojoDesde: "x", rojoHasta: "y", gasto: [], chats: [], gasto60d: [], ventas60d: [] };
   const muchas = lm.armarMapa({ ...base, ventas: [{ departamento: "choco", ventas: 1 }, { departamento: null, ventas: 1 }] });
   assert.equal(muchas.sinUbicar.ventas, 1);
-  assert.match(muchas.aviso, /1 de 2 ventas \(50 %\) quedaron sin ubicar/);
-  const pocas = lm.armarMapa({ ...base, ventas: [{ departamento: "choco", ventas: 3 }, { departamento: null, ventas: 1 }] });
-  assert.equal(pocas.aviso, null, "25 % no alcanza el aviso");
+  assert.match(muchas.aviso, /^1 de 2 ventas sin ubicar \(50 %\)/);
+  assert.equal(lm.PORCIENTO_AVISO_SIN_UBICAR, 20, "la meta es menos de 2 de cada 10");
+  const justo = lm.armarMapa({ ...base, ventas: [{ departamento: "choco", ventas: 4 }, { departamento: null, ventas: 1 }] });
+  assert.match(justo.aviso, /^1 de 5 ventas sin ubicar \(20 %\)/, "desde 2 de cada 10 se avisa");
+  const pocas = lm.armarMapa({ ...base, ventas: [{ departamento: "choco", ventas: 5 }, { departamento: null, ventas: 1 }] });
+  assert.equal(pocas.aviso, null, "16,7 % no alcanza el aviso");
 });
 
 await prueba("resumenParaDecir: los 3 departamentos con más ventas, el % del gasto de Valle y los rojos", () => {
@@ -299,6 +306,7 @@ await prueba("leerMapa: sin llave de Meta el gasto sale 'no disponible'; chats y
   const r = await lm.leerMapa("ws1", { mes });
   assert.equal(r.mes, mes);
   assert.equal(r.fuentes.gasto, "no disponible");
+  assert.equal(r.motivoSinGasto, "sin llave", "sin llave no culpa a Meta");
   assert.equal(r.fuentes.gasto60d, "no disponible");
   assert.equal(r.totales.gasto, null);
   assert.equal(r.fuentes.chats, "ok");
@@ -330,6 +338,128 @@ await prueba("leerMapa: si la base falla, esa fuente sale 'no disponible' y el r
   db.falla = new Set();
 });
 
+/* ------------------------------------------------------------------ Meta Ads: motivo y Meta falso */
+
+const meta = cargar("src/features/pauta/servicios/meta-ads-lectura.ts");
+const fetchReal = globalThis.fetch;
+const warnReal = console.warn;
+const LLAVE = "llave-de-prueba-123";
+const llamadasAMeta = [];
+let respuestaDeMeta = () => new Response("{}", { status: 200 });
+const fetchFalso = async (url, opciones) => {
+  llamadasAMeta.push({ url: String(url), metodo: opciones?.method, auth: opciones?.headers?.Authorization });
+  return respuestaDeMeta(new URL(String(url)));
+};
+const conMetaFalso = async (fn) => {
+  process.env.META_ADS_ACCESS_TOKEN = LLAVE;
+  process.env.META_ADS_ACCOUNT_ID = "392437484223294";
+  globalThis.fetch = fetchFalso;
+  const avisos = [];
+  console.warn = (...args) => avisos.push(args.map((x) => (typeof x === "string" ? x : JSON.stringify(x))).join(" "));
+  try {
+    await fn(avisos);
+  } finally {
+    globalThis.fetch = fetchReal;
+    console.warn = warnReal;
+    delete process.env.META_ADS_ACCESS_TOKEN;
+    delete process.env.META_ADS_ACCOUNT_ID;
+  }
+};
+
+await prueba("Meta Ads: sin llave el motivo es 'sin llave' y no se llama a Meta", async () => {
+  delete process.env.META_ADS_ACCESS_TOKEN;
+  delete process.env.META_ADS_ACCOUNT_ID;
+  globalThis.fetch = fetchFalso;
+  llamadasAMeta.length = 0;
+  try {
+    assert.deepEqual({ ...(await meta.leerGastoPorRegion("2026-10-01", "2026-10-30")) }, { estado: "no disponible", motivo: "sin llave" });
+    assert.equal(llamadasAMeta.length, 0);
+  } finally {
+    globalThis.fetch = fetchReal;
+  }
+});
+
+await prueba("Meta Ads: si Meta contesta 400, el motivo es 'meta fallo', no lanza y el log trae el mensaje de Meta sin la llave", async () => {
+  await conMetaFalso(async (avisos) => {
+    llamadasAMeta.length = 0;
+    respuestaDeMeta = () =>
+      new Response(JSON.stringify({ error: { message: "(#100) Invalid parameter", type: "OAuthException", code: 100 } }), { status: 400 });
+    const r = await meta.leerGastoPorRegion("2026-10-01", "2026-10-30");
+    assert.deepEqual({ ...r }, { estado: "no disponible", motivo: "meta fallo" });
+    assert.equal(llamadasAMeta.length, 1);
+    assert.ok(avisos.some((a) => a.includes("400") && a.includes("(#100) Invalid parameter") && a.includes("OAuthException")), avisos.join("\n"));
+    assert.ok(avisos.every((a) => !a.includes(LLAVE)), "la llave no va al log");
+    // Meta que no contesta (red caída): mismo motivo, tampoco lanza.
+    respuestaDeMeta = () => {
+      throw new TypeError("fetch failed");
+    };
+    assert.deepEqual({ ...(await meta.leerGastoPorRegion("2026-10-01", "2026-10-30")) }, { estado: "no disponible", motivo: "meta fallo" });
+    const mapa = await lm.leerMapa("ws1", { mes: "2026-10" });
+    assert.equal(mapa.fuentes.gasto, "no disponible");
+    assert.equal(mapa.motivoSinGasto, "meta fallo");
+  });
+});
+
+await prueba("Meta Ads: octubre de 2026 con Meta falso: Valle del Cauca y 'Distrito Especial' quedan en Valle y Bogotá, solo con GET", async () => {
+  await conMetaFalso(async () => {
+    llamadasAMeta.length = 0;
+    respuestaDeMeta = (url) => {
+      assert.equal(url.pathname, "/v21.0/act_392437484223294/insights");
+      assert.equal(url.searchParams.get("breakdowns"), "region");
+      return new Response(
+        JSON.stringify({
+          data: [
+            { region: "Valle del Cauca", spend: "381596" },
+            { region: "Antioquia", spend: "81896" },
+            { region: "Distrito Especial", spend: "51519" },
+            { region: "Unknown", spend: "1000" },
+          ],
+        }),
+        { status: 200 },
+      );
+    };
+    const r = await lm.leerMapa("ws1", { mes: "2026-10" });
+    assert.ok(llamadasAMeta.length >= 2, "el mes y los 60 días del rojo");
+    assert.ok(llamadasAMeta.every((l) => l.metodo === "GET"), "a Meta solo se le hacen GET");
+    assert.ok(llamadasAMeta.every((l) => l.auth === `Bearer ${LLAVE}` && !l.url.includes(LLAVE)), "la llave va en la cabecera, no en la URL");
+    const mesPedido = new URL(llamadasAMeta[0].url).searchParams.get("time_range");
+    assert.deepEqual(JSON.parse(mesPedido), { since: "2026-10-01", until: "2026-10-31" });
+    assert.equal(r.fuentes.gasto, "ok");
+    assert.equal(r.motivoSinGasto, null);
+    const por = (clave) => r.departamentos.find((x) => x.clave === clave);
+    assert.equal(por("valle-del-cauca").gasto, 381_596);
+    assert.equal(por("bogota").gasto, 51_519, "Distrito Especial es Bogotá");
+    assert.equal(por("antioquia").gasto, 81_896);
+    assert.equal(r.otrasRegiones.gasto, 1_000, "solo lo que no es un departamento");
+    assert.equal(Math.max(...r.departamentos.map((x) => x.gasto ?? 0)), por("valle-del-cauca").gasto, "Valle es el más oscuro");
+    assert.ok(por("valle-del-cauca").porcentajeDelGasto > 70);
+  });
+  respuestaDeMeta = () => new Response("{}", { status: 200 });
+});
+
+await prueba("pantalla: título, una línea, mes en palabras, avisos abajo y leyenda de una línea", () => {
+  const ui = { Button: () => null, Card: () => null, CardContent: () => null, CardHeader: () => null, CardTitle: () => null, NativeSelect: () => null, NativeSelectOption: () => null };
+  const c = cargar("src/features/pauta/components/mapa-colombia.tsx", {
+    "next/navigation": { usePathname: () => "/", useRouter: () => ({}) },
+    "@/components/ui/button": ui,
+    "@/components/ui/card": ui,
+    "@/components/ui/native-select": ui,
+  });
+  assert.equal(c.mesEnPalabras("2026-10"), "octubre de 2026");
+  assert.equal(c.mesEnPalabras("2027-01"), "enero de 2027");
+  assert.equal(c.mesEnPalabras("raro"), "raro");
+  const componente = fs.readFileSync(`${RAIZ}/src/features/pauta/components/mapa-colombia.tsx`, "utf8");
+  assert.ok(componente.includes("Más oscuro = más gasto. Rojo = gastó y no vendió. Toca un departamento."));
+  assert.ok(componente.includes('<h1 className="text-lg font-semibold">Mapa de Colombia</h1>'));
+  assert.ok(!componente.includes("Meta Ads no respondió"), "ya no culpa a Meta sin razón");
+  assert.ok(componente.includes("Falta la llave de Meta Ads") && componente.includes("Meta Ads no contestó"));
+  assert.ok(!/mapa\.(desde|hasta)|mapa\.rojo\.(desde|hasta)/.test(componente), "ninguna fecha AAAA-MM-DD en pantalla");
+  assert.ok(componente.includes("{mesEnPalabras(mes)}"), "el selector dice el mes en palabras");
+  assert.ok(componente.includes("Sin gasto") && componente.includes("Más gasto") && componente.includes("Rojo: gastó y no vendió"), "leyenda");
+  // Los avisos van después del mapa, no encima.
+  assert.ok(componente.indexOf("avisos.map(") > componente.indexOf("<svg viewBox={VIEWBOX}"));
+});
+
 await prueba("pantalla: un contorno por departamento (mismas claves), dentro del dibujo y San Andrés en su recuadro", () => {
   const f = cargar("src/features/pauta/components/mapa-colombia-formas.ts");
   assert.deepEqual(Object.keys(f.FORMAS_DE_DEPARTAMENTOS).sort(), d.DEPARTAMENTOS.map((x) => x.clave).sort());
@@ -355,7 +485,6 @@ await prueba("pantalla: solo jefes, lee ?mes= con leerMapa y queda en el menú d
   const componente = fs.readFileSync(`${RAIZ}/src/features/pauta/components/mapa-colombia.tsx`, "utf8");
   assert.ok(componente.startsWith('"use client";'));
   assert.ok(componente.includes("?mes=") && componente.includes("fill-destructive"));
-  assert.ok(componente.includes("Gasto no disponible") && componente.includes("el rojo puede no ser exacto"));
   const nav = fs.readFileSync(`${RAIZ}/src/components/nav-direccion.tsx`, "utf8");
   assert.ok(nav.includes('{ title: "Mapa de Colombia", view: "mapa-colombia", icon: MapIcon }'));
   assert.ok(nav.indexOf('view: "pauta"') < nav.indexOf('view: "mapa-colombia"') && nav.indexOf('view: "mapa-colombia"') < nav.indexOf('view: "recuperacion"'));
