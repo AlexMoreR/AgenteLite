@@ -189,7 +189,10 @@ export async function leerDatosDelLead(workspaceId: string, contactId: string): 
             conversationId: { in: idsDeChats },
             createdAt: { gte: desde },
             direction: "OUTBOUND",
-            rawPayload: { path: ["source"], equals: "agente-v3-seguimiento" },
+            OR: [
+              { rawPayload: { path: ["source"], equals: "agente-v3-seguimiento" } },
+              { rawPayload: { path: ["source"], equals: "agente-v3-seguimiento-ia" } },
+            ],
           },
           orderBy: { createdAt: "desc" },
           take: MAX_RECORDATORIOS,

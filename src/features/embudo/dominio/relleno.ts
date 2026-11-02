@@ -17,7 +17,7 @@ import { eventosDeSenales, eventosDelTurno, type EventoDelEmbudo } from "./event
 export const ORIGEN_RELLENO = "backfill" as const;
 
 const FUENTES_DE_PERSONA = new Set(["manual", "instance"]);
-const FUENTES_DE_SEGUIMIENTO = new Set(["agente-v3-seguimiento", "follow"]);
+const FUENTES_DE_SEGUIMIENTO = new Set(["agente-v3-seguimiento", "agente-v3-seguimiento-ia", "follow"]);
 
 /** Claves que el registro en vivo usa igual: el relleno no las duplica nunca. */
 export const CLAVES_COMO_EN_VIVO = /^(ENTRADA|BIENVENIDA|RESPONDIO|PASO|RECOMENDACION|ASESORA_RESPONDIO|SENAL|VENTA):/;

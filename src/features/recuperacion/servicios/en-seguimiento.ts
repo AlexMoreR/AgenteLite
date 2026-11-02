@@ -73,7 +73,7 @@ async function cargar(workspaceId: string): Promise<LeadEnSeguimiento[]> {
         FROM "Message" m
         WHERE m."conversationId" = ch."id"
           AND m."createdAt" > COALESCE(ui."en", '2000-01-01'::timestamp)
-          AND m."rawPayload"->>'source' IN ('follow', 'agente-v3-seguimiento')
+          AND m."rawPayload"->>'source' IN ('follow', 'agente-v3-seguimiento', 'agente-v3-seguimiento-ia')
       ) s ON true
       WHERE s."n" > 0 AND s."ultimo" > ${desdeSeguimiento}
     )

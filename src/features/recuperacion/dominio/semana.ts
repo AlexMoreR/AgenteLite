@@ -43,7 +43,7 @@ export const NOMBRE_DE_CLASE: Record<ClaseDeSeguimiento, string> = {
  * (servicios/convivencia.ts) y "Campaña: …" (campanas/services/campaigns.ts).
  */
 export function claseDeSeguimiento(origen: string | null | undefined, nombreDelFollow: string | null | undefined): ClaseDeSeguimiento | null {
-  if (origen === "agente-v3-seguimiento") return "bot";
+  if (origen === "agente-v3-seguimiento" || origen === "agente-v3-seguimiento-ia") return "bot";
   if (origen !== "follow") return null;
   const nombre = (nombreDelFollow ?? "").trim().toLowerCase();
   if (nombre.startsWith("tras asesora")) return "tras_asesora";

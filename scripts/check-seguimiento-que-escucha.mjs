@@ -654,6 +654,22 @@ await prueba("V3: el redactor va después de la revisión anti-bloqueo y del fre
   assert.match(codigo, /source: redactado\.deIA \? "agente-v3-seguimiento-ia" : "agente-v3-seguimiento"/);
 });
 
+await prueba("el origen agente-v3-seguimiento-ia cuenta como recordatorio del V3 en el mapa, la recuperación y el embudo", async () => {
+  const fs = await import("node:fs");
+  const leer = (archivo) => fs.readFileSync(new URL(`../${archivo}`, import.meta.url), "utf8");
+  for (const archivo of [
+    "src/features/mapa-del-lead/servicios/leer.ts",
+    "src/features/recuperacion/servicios/en-seguimiento.ts",
+    "src/features/recuperacion/servicios/semana.ts",
+    "src/features/embudo/dominio/relleno.ts",
+  ]) {
+    assert.match(leer(archivo), /agente-v3-seguimiento-ia/, archivo);
+  }
+  const semana = cargar("src/features/recuperacion/dominio/semana.ts");
+  assert.equal(semana.claseDeSeguimiento("agente-v3-seguimiento-ia", null), "bot");
+  assert.equal(semana.claseDeSeguimiento("agente-v3-seguimiento", null), "bot");
+});
+
 console.info = consolaOriginal.info;
 console.warn = consolaOriginal.warn;
 

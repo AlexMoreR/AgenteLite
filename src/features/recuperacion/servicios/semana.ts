@@ -112,7 +112,7 @@ async function cargar(workspaceId: string, lunes: string): Promise<LecturaDeRecu
         WHERE m."conversationId" = ANY(${ids})
           AND m."createdAt" >= ${inicio} AND m."createdAt" < ${hasta}
           AND m."type" <> 'SYSTEM'
-          AND (m."direction" = 'INBOUND' OR m."rawPayload"->>'source' IN ('follow', 'agente-v3-seguimiento'))
+          AND (m."direction" = 'INBOUND' OR m."rawPayload"->>'source' IN ('follow', 'agente-v3-seguimiento', 'agente-v3-seguimiento-ia'))
       `)
     : [];
 
