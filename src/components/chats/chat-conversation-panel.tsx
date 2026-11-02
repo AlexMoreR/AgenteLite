@@ -133,6 +133,7 @@ import { ComposerEmojiPicker, ComposerSendButton } from "./chat-composer";
 import { AvisoDeCierre } from "./aviso-de-cierre";
 import { AvisoDeLlamada } from "./aviso-de-llamada";
 import { BotonDeMapaDeCaminos } from "./boton-mapa-de-caminos";
+import { dondeVaLaSugerencia } from "./destino-de-la-sugerencia";
 import { textoTraeElTotal } from "@/lib/etapa-automatica-crm-texto";
 
 // El panel de envio se baja recien cuando se abre la ficha del contacto: no pesa en la carga del chat.
@@ -1341,6 +1342,14 @@ export const ConversationPanel = memo(function ConversationPanel({
   */
   const hayCajaDeTexto = Boolean(composer && renderedConversation);
   const borradorTimerRef = useRef<number | null>(null);
+  /*
+    El chat abierto AHORA MISMO. Lo que llega tarde del servidor (la sugerencia de la ✨) lo mira
+    para no escribir en la caja de otro chat: la caja es la misma al cambiar de chat.
+  */
+  const chatAbiertoRef = useRef(selectedConversationId ?? "");
+  useEffect(() => {
+    chatAbiertoRef.current = selectedConversationId ?? "";
+  }, [selectedConversationId]);
   const guardarBorradorAhora = useCallback((chat: string) => {
     if (borradorTimerRef.current !== null) {
       window.clearTimeout(borradorTimerRef.current);
@@ -1464,6 +1473,8 @@ export const ConversationPanel = memo(function ConversationPanel({
       return;
     }
 
+    // El chat donde se toco ✨: la sugerencia es para este cliente y no para otro.
+    const chatPedido = selectedConversationId ?? "";
     setIsSuggestingReply(true);
     try {
       // La fuente sale de la clave del chat abierto: los de la API oficial se leen de otra tabla.
@@ -1473,15 +1484,32 @@ export const ConversationPanel = memo(function ConversationPanel({
         toast.error(result.error || "No se pudo generar la sugerencia");
         return;
       }
-      sugerenciaEnLaCaja.current = result.sugerenciaId
-        ? { id: result.sugerenciaId, chat: selectedConversationId ?? "" }
-        : null;
+      // El boton "Enviar flujo" se ve solo en el chat donde se pidio, igual que antes.
       setFlujoSugerido(
         result.flujo
-          ? { ...result.flujo, sugerenciaId: result.sugerenciaId ?? null, chat: selectedConversationId ?? "" }
+          ? { ...result.flujo, sugerenciaId: result.sugerenciaId ?? null, chat: chatPedido }
           : null,
       );
 
+      // Si la asesora ya esta en otro chat, la caja a la vista es la de ese otro cliente: no se toca.
+      const destino = dondeVaLaSugerencia({
+        chatPedido,
+        chatAbierto: chatAbiertoRef.current,
+        borradorDelChatPedido: leerBorrador(chatPedido),
+      });
+      if (destino === "borrador") {
+        guardarBorrador(chatPedido, result.suggestion);
+        toast.info("La sugerencia era para otro chat: quedó en su caja.");
+        return;
+      }
+      if (destino === "descartar") {
+        toast.info("La sugerencia era para otro chat y no se usó.");
+        return;
+      }
+
+      sugerenciaEnLaCaja.current = result.sugerenciaId
+        ? { id: result.sugerenciaId, chat: chatPedido }
+        : null;
       const textarea = composerTextAreaRef.current;
       if (textarea) {
         const suggestion = result.suggestion;
