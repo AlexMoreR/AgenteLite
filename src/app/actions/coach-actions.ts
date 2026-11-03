@@ -7,6 +7,7 @@ import { after } from "next/server";
 import { diaEnBogota, esDiaValido } from "@/features/coach/reglas";
 import type { EstadoDeAccion } from "@/features/coach/dominio/acciones-de-hoy";
 import { ESTADOS_DE_ACCION, guardarEstadoDeAccion } from "@/features/coach/servicios/acciones-coach";
+import { guardarCoachOpusActivo } from "@/features/coach/revision-opus/servicio";
 import { generarCoachDelDia, guardarCoachNocturno } from "@/features/coach/servicios/generar-coach";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { puedeSupervisar } from "@/lib/permisos-del-equipo";
@@ -57,4 +58,16 @@ export async function guardarCoachNocturnoAction(formData: FormData): Promise<vo
   const pedido = String(formData.get("dia") ?? "").trim();
   revalidatePath("/cliente/equipo/coach", "layout");
   redirect(`/cliente/equipo/coach/informe${esDiaValido(pedido) ? `?dia=${pedido}` : ""}`);
+}
+
+/**
+ * Prende o apaga el Coach con Opus (corre en aizen1 de lunes a sábado a las 10 p. m.). Solo el dueño
+ * o un administrador, igual que el interruptor nocturno. No toca el Coach de cada noche.
+ */
+export async function cambiarCoachOpus(activo: boolean): Promise<void> {
+  const access = await requireClientWorkspaceAccess("crm", { ownerOnly: true });
+  // La acción se puede llamar desde afuera con cualquier valor: solo vale true o false.
+  if (typeof activo !== "boolean") return;
+  await guardarCoachOpusActivo(access.workspaceId, activo);
+  revalidatePath("/cliente/equipo/coach/informe");
 }

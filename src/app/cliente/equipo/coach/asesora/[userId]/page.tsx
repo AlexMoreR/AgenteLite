@@ -9,7 +9,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { FiltroDeMetrica, FiltroDeRango } from "@/features/coach/components/linea/FiltrosDelCoach";
 import { GraficoDelCoach } from "@/features/coach/components/linea/GraficoDelCoach";
 import { TarjetaDeAccionCoach } from "@/features/coach/components/acciones/TarjetaDeAccionCoach";
-import { armarAccionesDeHoy, diaCorto, moverDia, type TarjetaDeAccion } from "@/features/coach/dominio/acciones-de-hoy";
+import { RevisionOpusCard, type EnlaceDeRevision } from "@/features/coach/components/RevisionOpusCard";
+import {
+  armarAccionesDeHoy,
+  diaCorto,
+  moverDia,
+  telefonoEnmascarado,
+  type TarjetaDeAccion,
+} from "@/features/coach/dominio/acciones-de-hoy";
 import { numerosDeLaParte } from "@/features/coach/dominio/chats-cerrados";
 import {
   armarSerie,
@@ -21,6 +28,8 @@ import {
   type Rango,
 } from "@/features/coach/dominio/linea-de-tiempo";
 import { diaEnBogota, esDiaValido } from "@/features/coach/reglas";
+import { ultimos4 } from "@/features/coach/revision-opus/reglas";
+import { leerRevision, type RevisionGuardada } from "@/features/coach/revision-opus/servicio";
 import { conversacionesPorNumero, leerEstadosDeAcciones } from "@/features/coach/servicios/acciones-coach";
 import { leerInformeDelCoach } from "@/features/coach/servicios/leer-coach";
 import { leerDiasDelCoach } from "@/features/coach/servicios/linea-coach";
@@ -69,6 +78,42 @@ async function tarjetaDelDia(workspaceId: string, dia: string, userId: string, s
   return acciones.tarjetas[0] ?? null;
 }
 
+/**
+ * Los enlaces de los chats de la revisión con Opus: el chatId es de un chat del canal viejo o de la
+ * API oficial, siempre de ESTE negocio. Abre la bandeja como los otros enlaces del Coach; la
+ * etiqueta lleva el número del chat y solo los últimos 4 dígitos del teléfono.
+ */
+async function enlacesDeLaRevision(workspaceId: string, revision: RevisionGuardada | null) {
+  const enlaces: Record<string, EnlaceDeRevision> = {};
+  const ids = [...new Set((revision?.chats ?? []).map((chat) => chat.chatId).filter(Boolean))];
+  if (!ids.length) return enlaces;
+  const [viejos, oficiales] = await Promise.all([
+    prisma.conversation.findMany({
+      where: { id: { in: ids }, workspaceId },
+      select: { id: true, numero: true, contact: { select: { phoneNumber: true } } },
+    }),
+    prisma.officialApiConversation.findMany({
+      where: { id: { in: ids }, config: { workspaceId } },
+      select: { id: true, numero: true, contact: { select: { phoneNumber: true, waId: true } } },
+    }),
+  ]);
+  const etiqueta = (numero: number | null, telefono: string | null | undefined) =>
+    [numero ? `#${numero}` : "Chat", telefonoEnmascarado(ultimos4(telefono))].join(" · ");
+  for (const c of viejos) {
+    enlaces[c.id] = {
+      href: `/cliente/chats?chatKey=${encodeURIComponent(`agent:${c.id}`)}&assigned=all`,
+      etiqueta: etiqueta(c.numero, c.contact.phoneNumber),
+    };
+  }
+  for (const c of oficiales) {
+    enlaces[c.id] = {
+      href: `/cliente/chats?chatKey=${encodeURIComponent(`official:${c.id}`)}&assigned=all`,
+      etiqueta: etiqueta(c.numero, c.contact.phoneNumber ?? c.contact.waId),
+    };
+  }
+  return enlaces;
+}
+
 /** Enlace a esta misma seccion con otro rango o dia. */
 function enlace(userId: string, rango: Rango, cambios: { dia?: string | null; metrica?: string | null } = {}) {
   const q = new URLSearchParams();
@@ -104,7 +149,7 @@ export default async function SeccionDeAsesoraPage({ params, searchParams }: Pag
   // Un dia: el que se toco en la lista, o el del rango "Ayer".
   const dia = esDiaValido(diaPedido) && diaPedido <= hoy ? diaPedido : rango.tipo === "ayer" ? rango.hasta : null;
 
-  const [tarjeta, dias, ultima] = await Promise.all([
+  const [tarjeta, dias, ultima, revision] = await Promise.all([
     dia ? tarjetaDelDia(access.workspaceId, dia, userId, supervisa) : Promise.resolve(null),
     rango.tipo !== "ayer" ? leerDiasDelCoach(access.workspaceId, rango.desde, rango.hasta, { soloUserId: userId }) : Promise.resolve([]),
     // El nombre: de su ultimo informe en ESTE negocio (no se lee el usuario de otro lado).
@@ -113,8 +158,14 @@ export default async function SeccionDeAsesoraPage({ params, searchParams }: Pag
       orderBy: { createdAt: "desc" },
       select: { nombre: true },
     }),
+    // La revisión con Opus no debe tumbar la página si falla: sale el estado vacío.
+    leerRevision(access.workspaceId, userId).catch((error) => {
+      console.error("[COACH-OPUS] leer_revision_fallo", access.workspaceId, error instanceof Error ? error.message : error);
+      return null;
+    }),
   ]);
-  const nombre = tarjeta?.nombre ?? ultima?.nombre ?? "Asesora";
+  const enlacesDeRevision = await enlacesDeLaRevision(access.workspaceId, revision).catch(() => ({}));
+  const nombre = tarjeta?.nombre ?? ultima?.nombre ?? revision?.nombre ?? "Asesora";
   const puedeMarcar = supervisa || userId === access.userId;
 
   const actuales: Record<string, string> = {};
@@ -134,6 +185,8 @@ export default async function SeccionDeAsesoraPage({ params, searchParams }: Pag
         <Link href="/cliente/equipo/coach">‹ Coach</Link>
       </Button>
       <h1 className="text-lg font-semibold">{nombre}</h1>
+
+      <RevisionOpusCard revision={revision} enlaces={enlacesDeRevision} />
 
       <FiltroDeRango {...destino} rango={rango} opciones={["ayer", "semana", "mes"]} hoy={hoy} />
 

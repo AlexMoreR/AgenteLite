@@ -478,6 +478,40 @@ prueba("chats del día: primero los más útiles, los quietos al final y máximo
   assert.equal(mcp.ordenarParaRevisar([medido("a"), medido("quieto", { quieto: true })], desde).at(-1).id, "quieto");
 });
 
+prueba("cambiarCoachOpus: solo el dueño o un administrador, valida el valor y no toca el Coach nocturno", () => {
+  const fuente = fs.readFileSync("src/app/actions/coach-actions.ts", "utf8");
+  assert.match(fuente, /^"use server";/);
+  const inicio = fuente.indexOf("export async function cambiarCoachOpus(");
+  assert.ok(inicio >= 0, "falta la acción cambiarCoachOpus");
+  const fin = fuente.indexOf("\n}\n", inicio);
+  const cuerpo = fuente.slice(inicio, fin);
+  // La misma protección que la acción del interruptor nocturno.
+  assert.match(fuente, /guardarCoachNocturnoAction[\s\S]*?requireClientWorkspaceAccess\("crm", \{ ownerOnly: true \}\)/);
+  const permiso = cuerpo.indexOf('requireClientWorkspaceAccess("crm", { ownerOnly: true })');
+  const guardar = cuerpo.indexOf("guardarCoachOpusActivo(access.workspaceId, activo)");
+  assert.ok(permiso >= 0, "cambiarCoachOpus tiene que pedir ownerOnly");
+  assert.ok(guardar > permiso, "primero el permiso, después guardar");
+  assert.ok(cuerpo.indexOf('typeof activo !== "boolean"') > permiso && cuerpo.indexOf('typeof activo !== "boolean"') < guardar);
+  assert.match(cuerpo, /revalidatePath\("\/cliente\/equipo\/coach\/informe"\)/);
+  assert.doesNotMatch(cuerpo, /guardarCoachNocturno\(/);
+
+  // ownerOnly deja pasar solo al dueño o a un administrador.
+  const acceso = fs.readFileSync("src/lib/client-workspace-access.ts", "utf8");
+  assert.match(acceso, /options\.ownerOnly && !access\.isOwner && access\.role !== "ADMIN"/);
+});
+
+prueba("la tarjeta de la asesora tapa teléfonos, avisa 'no depende de ti' y la página la pone con su control", () => {
+  const tarjeta = fs.readFileSync("src/features/coach/components/RevisionOpusCard.tsx", "utf8");
+  assert.match(tarjeta, /taparTelefonos/);
+  assert.match(tarjeta, /chat\.causa === "bot" \|\| chat\.causa === "politica"/);
+  assert.match(tarjeta, /No depende de ti/);
+  assert.match(tarjeta, /Copiar mensaje modelo|CopiarMensajeModelo/);
+  const pagina = fs.readFileSync("src/app/cliente/equipo/coach/asesora/[userId]/page.tsx", "utf8");
+  assert.match(pagina, /if \(!supervisa && userId !== access\.userId\) redirect/);
+  assert.match(pagina, /leerRevision\(access\.workspaceId, userId\)/);
+  assert.match(pagina, /<RevisionOpusCard /);
+});
+
 for (const correr of pendientes) {
   try {
     await correr();
