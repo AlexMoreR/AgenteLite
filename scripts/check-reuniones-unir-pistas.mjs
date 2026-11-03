@@ -27,6 +27,8 @@ const { esDeEgress, nombreParaGuardar, nombreVisible, personasDeLaReunion, userI
 const { sePuedeBorrarPorEstado, puedeBorrarLaReunionDe } = cargar("src/features/reuniones/servicios/borrar-reunion.ts", mocks);
 
 const { debeReconectar, nombreDelMotivo, esperaDelIntento, hayQueRendirse, RENDIRSE_MS } = cargar("src/features/reuniones/components/reconexion.ts", mocks);
+// Altavoz o auricular en la sala (lógica pura).
+const { opcionesDeSalida, tipoParaCambiar, siguienteSalida, salidaGuardada, esCelular, AVISO_SIN_CAMBIO } = cargar("src/features/reuniones/components/salida-de-audio.ts", mocks);
 
 const { parsearSilencios, armarTramos, frasesDelTramo, modeloDeTranscripcion, devuelveSegmentos, resumenDeAhorro, argumentosDeSilencios } = cargar("src/features/reuniones/servicios/tramos-de-voz.ts", mocks);
 
@@ -534,6 +536,75 @@ prueba("reconexión: dos pistas de la misma persona con un hueco de 30 s quedan 
   // El hueco de la reconexión (20 s -> 50 s) se respeta: no se juntan ni se corren las frases.
   assert.equal(unidas[2].inicioMs - unidas[1].finMs, 30_000);
   assert.equal(transcripcionEnTexto(unidas).split("\n")[2], "[00:50] Ana: Ya volví");
+});
+
+// ── altavoz o auricular en la sala (celular) ─────────────────────────────────────────────────
+const disp = (kind, deviceId, label) => ({ kind, deviceId, label });
+
+prueba("salida de audio: Android (sin salidas, Speakerphone y Headset earpiece como micrófonos)", () => {
+  const android = [
+    disp("audioinput", "default", "Default"),
+    disp("audioinput", "a1", "Speakerphone"),
+    disp("audioinput", "a2", "Headset earpiece"),
+  ];
+  const opciones = opcionesDeSalida(android);
+  assert.equal(opciones.forma, "microfono");
+  assert.equal(opciones.altavoz.label, "Speakerphone");
+  assert.equal(opciones.auricular.label, "Headset earpiece");
+  assert.equal(tipoParaCambiar(opciones.forma), "audioinput");
+  // Android con una sola salida «default»: sigue siendo por el micrófono.
+  assert.equal(opcionesDeSalida([...android, disp("audiooutput", "default", "")]).forma, "microfono");
+  // Con audífonos Bluetooth, el modo auricular los prefiere.
+  const conBluetooth = opcionesDeSalida([...android, disp("audioinput", "a3", "Bluetooth headset")]);
+  assert.equal(conBluetooth.auricular.label, "Bluetooth headset");
+  assert.equal(conBluetooth.altavoz.label, "Speakerphone");
+});
+
+prueba("salida de audio: computador con varias salidas escoge por el nombre", () => {
+  const computador = [
+    disp("audioinput", "default", "Predeterminado - Micrófono"),
+    disp("audioinput", "m1", "Micrófono (Realtek)"),
+    disp("audiooutput", "default", "Predeterminado - Altavoces (Realtek)"),
+    disp("audiooutput", "communications", "Comunicaciones - Altavoces (Realtek)"),
+    disp("audiooutput", "s1", "Altavoces (Realtek)"),
+    disp("audiooutput", "s2", "Audífonos (USB)"),
+  ];
+  const opciones = opcionesDeSalida(computador);
+  assert.equal(opciones.forma, "salida");
+  assert.equal(opciones.altavoz.deviceId, "s1");
+  assert.equal(opciones.auricular.deviceId, "s2");
+  assert.equal(tipoParaCambiar(opciones.forma), "audiooutput");
+  // Sin nombres que digan nada: igual son dos salidas distintas.
+  const sinNombres = opcionesDeSalida([disp("audiooutput", "x1", "Salida 1"), disp("audiooutput", "x2", "Salida 2")]);
+  assert.equal(sinNombres.forma, "salida");
+  assert.notEqual(sinNombres.altavoz.deviceId, sinNombres.auricular.deviceId);
+  // Una sola salida real (más sus copias) no alcanza: no hay a dónde cambiar.
+  assert.equal(opcionesDeSalida(computador.filter((d) => d.deviceId !== "s2")).forma, "ninguna");
+});
+
+prueba("salida de audio: iPhone o sin dispositivos responde que no se puede", () => {
+  for (const lista of [[], null, undefined, [disp("audioinput", "i1", "iPhone Micrófono")], [disp("audioinput", "", ""), disp("audiooutput", "", "")]]) {
+    const opciones = opcionesDeSalida(lista);
+    assert.deepEqual(opciones, { forma: "ninguna", altavoz: null, auricular: null });
+    assert.equal(tipoParaCambiar(opciones.forma), null);
+  }
+  // Solo Speakerphone (sin auricular) tampoco permite alternar.
+  assert.equal(opcionesDeSalida([disp("audioinput", "a1", "Speakerphone")]).forma, "ninguna");
+  assert.match(AVISO_SIN_CAMBIO, /no deja cambiar la salida/);
+});
+
+prueba("salida de audio: el botón alterna, la elección guardada y quién es celular", () => {
+  assert.equal(siguienteSalida(null), "altavoz");
+  assert.equal(siguienteSalida("altavoz"), "auricular");
+  assert.equal(siguienteSalida("auricular"), "altavoz");
+  assert.equal(salidaGuardada("altavoz"), "altavoz");
+  assert.equal(salidaGuardada("auricular"), "auricular");
+  assert.equal(salidaGuardada(null), null);
+  assert.equal(salidaGuardada("otra"), null);
+  assert.equal(esCelular("Mozilla/5.0 (Linux; Android 14; SM-A146M) AppleWebKit/537.36 Chrome/130.0 Mobile Safari/537.36"), true);
+  assert.equal(esCelular("Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148"), true);
+  assert.equal(esCelular("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0 Safari/537.36"), false);
+  assert.equal(esCelular(undefined), false);
 });
 
 console.log(`\n${casos} pruebas de reuniones (unir pistas y partes puras) OK`);

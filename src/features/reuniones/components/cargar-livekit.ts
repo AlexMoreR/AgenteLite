@@ -58,7 +58,10 @@ export type SalaLK = {
   connect: (url: string, pase: string) => Promise<void>;
   disconnect: () => Promise<void>;
   startAudio: () => Promise<void>;
-  on: (evento: string, oyente: (...argumentos: never[]) => void) => SalaLK;
+  /** Cambia el micrófono ("audioinput") o el parlante ("audiooutput"); devuelve false si no se pudo. */
+  switchActiveDevice: (tipo: "audioinput" | "audiooutput", deviceId: string, exacto?: boolean) => Promise<boolean>;
+  getActiveDevice: (tipo: "audioinput" | "audiooutput") => string | undefined;
+  on:(evento: string, oyente: (...argumentos: never[]) => void) => SalaLK;
   off: (evento: string, oyente: (...argumentos: never[]) => void) => SalaLK;
 };
 

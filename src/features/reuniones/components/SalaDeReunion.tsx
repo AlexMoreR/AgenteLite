@@ -13,6 +13,7 @@ import {
   PhoneOff,
   Send,
   X,
+  Volume2,
   ZoomOut,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -29,6 +30,18 @@ import {
   type SalaLK,
 } from "@/features/reuniones/components/cargar-livekit";
 import { debeReconectar, esperaDelIntento, hayQueRendirse, nombreDelMotivo } from "@/features/reuniones/components/reconexion";
+import {
+  AVISO_SIN_CAMBIO,
+  CLAVE_GUARDADA,
+  esCelular,
+  opcionesDeSalida,
+  salidaGuardada,
+  siguienteSalida,
+  tipoParaCambiar,
+  type DispositivoDeAudio,
+  type FormaDeCambiar,
+  type SalidaDeAudio,
+} from "@/features/reuniones/components/salida-de-audio";
 
 export type PaseDeLaSala = { url: string; pase: string; identidad: string; nombre: string; puedeTerminar: boolean };
 
@@ -38,6 +51,40 @@ export type ResultadoDelPase = { pase: PaseDeLaSala } | { error: string; termina
 type Mensaje = { id: string; de: string; texto: string; mio: boolean };
 
 const TEMA_DEL_CHAT = "chat";
+
+/** Los micrófonos y parlantes que muestra el navegador (vacío si no deja verlos). */
+async function dispositivosDeAudio(): Promise<DispositivoDeAudio[]> {
+  try {
+    return navigator.mediaDevices?.enumerateDevices ? await navigator.mediaDevices.enumerateDevices() : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Manda el sonido al altavoz o al auricular: por la salida de sonido si el navegador la deja escoger, o
+ * por el «micrófono» Speakerphone / Headset earpiece en Chrome de Android (ver salida-de-audio.ts).
+ */
+async function aplicarSalida(sala: SalaLK, salida: SalidaDeAudio): Promise<"listo" | "no-se-puede" | "fallo"> {
+  const opciones = opcionesDeSalida(await dispositivosDeAudio());
+  const tipo = tipoParaCambiar(opciones.forma);
+  const dispositivo = opciones[salida];
+  if (!tipo || !dispositivo) {
+    return "no-se-puede";
+  }
+  try {
+    return (await sala.switchActiveDevice(tipo, dispositivo.deviceId, true)) === false ? "fallo" : "listo";
+  } catch {
+    return "fallo";
+  }
+}
+
+/** Vuelve a poner la salida que escogió la persona (si escogió una), sin avisos: el teléfono pudo cambiarla solo. */
+async function volverAAplicarSalida(sala: SalaLK, salida: SalidaDeAudio | null) {
+  if (salida) {
+    await aplicarSalida(sala, salida);
+  }
+}
 
 /** Pega una pista de audio a su elemento mientras está en la sala. */
 function AudioDePista({ pista }: { pista: PistaLK }) {
@@ -301,6 +348,12 @@ export function SalaDeReunion({
   const [mensajes, setMensajes] = useState<Mensaje[]>([]);
   const [texto, setTexto] = useState("");
   const [terminando, setTerminando] = useState(false);
+  // Altavoz o auricular: lo que escogió la persona (null = lo que elija el teléfono) y si se puede cambiar.
+  const [salida, setSalida] = useState<SalidaDeAudio | null>(null);
+  const [formaDeSalida, setFormaDeSalida] = useState<FormaDeCambiar>("ninguna");
+  const [celular, setCelular] = useState(false);
+  const [cambiandoSalida, setCambiandoSalida] = useState(false);
+  const salidaRef = useRef<SalidaDeAudio | null>(null);
   const chatAbiertoRef = useRef(false);
   useEffect(() => {
     chatAbiertoRef.current = chatAbierto;
@@ -318,6 +371,19 @@ export function SalaDeReunion({
   }, [pedirPase]);
 
   const repintar = useCallback(() => setVersion((valor) => valor + 1), []);
+
+  // La elección queda guardada en este aparato para la próxima reunión.
+  useEffect(() => {
+    setCelular(esCelular(navigator.userAgent));
+    let guardada: SalidaDeAudio | null = null;
+    try {
+      guardada = salidaGuardada(window.localStorage.getItem(CLAVE_GUARDADA));
+    } catch {
+      // Sin acceso al almacenamiento (modo privado): cada reunión empieza con lo que elija el teléfono.
+    }
+    salidaRef.current = guardada;
+    setSalida(guardada);
+  }, []);
 
   useEffect(() => {
     let cancelada = false;
@@ -388,6 +454,7 @@ export function SalaDeReunion({
           setReconectando(false);
           setSinAudio(!room.canPlaybackAudio);
           await prenderMicrofono(room);
+          await volverAAplicarSalida(room, salidaRef.current);
           repintar();
         } else if (resultado.terminada) {
           salirSinReconectar(TERMINO);
@@ -428,6 +495,14 @@ export function SalaDeReunion({
           if (evento) {
             room.on(evento, repintar);
           }
+        }
+        // Entra alguien nuevo: se vuelve a poner la salida escogida (por si el teléfono la cambió).
+        if (E.ParticipantConnected) {
+          room.on(E.ParticipantConnected, () => {
+            if (room) {
+              void volverAAplicarSalida(room, salidaRef.current);
+            }
+          });
         }
         room.on(E.AudioPlaybackStatusChanged, () => setSinAudio(!room?.canPlaybackAudio));
         room.on(E.Reconnecting, () => setReconectando(true));
@@ -484,6 +559,7 @@ export function SalaDeReunion({
         setEstado("dentro");
         setSinAudio(!room.canPlaybackAudio);
         await prenderMicrofono(room);
+        await volverAAplicarSalida(room, salidaRef.current);
         repintar();
       } catch (error) {
         if (!cancelada) {
@@ -570,9 +646,32 @@ export function SalaDeReunion({
     };
   }, [estado, titulo]);
 
+  // ¿Este navegador deja cambiar la salida? Se revisa al entrar y cuando se conecta o quita un aparato
+  // (audífonos, Bluetooth). En el computador el botón «Altavoz» sale solo si se puede.
+  useEffect(() => {
+    if (estado !== "dentro") {
+      return;
+    }
+    let activo = true;
+    const revisarSalidas = async () => {
+      const { forma } = opcionesDeSalida(await dispositivosDeAudio());
+      if (activo) {
+        setFormaDeSalida(forma);
+      }
+    };
+    void revisarSalidas();
+    navigator.mediaDevices?.addEventListener?.("devicechange", revisarSalidas);
+    return () => {
+      activo = false;
+      navigator.mediaDevices?.removeEventListener?.("devicechange", revisarSalidas);
+    };
+  }, [estado]);
+
   // Al volver a la pestaña (se prende la pantalla o se regresa a la app): si la conexión está caída se
-  // intenta ya; si el micrófono quedó terminado o silenciado por el sistema se reinicia; y si el audio de
-  // los demás quedó pausado se reanuda (si el navegador no deja, sale «Toca aquí para escuchar…»).
+  // intenta ya; si el micrófono quedó terminado o silenciado por el sistema se reinicia (con el mismo
+  // micrófono escogido, que en Android es el que decide altavoz o auricular); se vuelve a poner la salida
+  // escogida; y si el audio de los demás quedó pausado se reanuda (si el navegador no deja, sale «Toca
+  // aquí para escuchar…»).
   useEffect(() => {
     if (!room || !lk) {
       return;
@@ -586,11 +685,13 @@ export function SalaDeReunion({
       const delNavegador = pista?.mediaStreamTrack;
       if (micDeseadoRef.current && pista?.restartTrack && delNavegador && (delNavegador.readyState === "ended" || delNavegador.muted)) {
         try {
-          await pista.restartTrack();
+          const escogido = salidaRef.current ? room.getActiveDevice?.("audioinput") : undefined;
+          await pista.restartTrack(escogido ? { deviceId: escogido } : undefined);
         } catch {
           toast.error("El micrófono se apagó. Tócalo para volver a prenderlo.");
         }
       }
+      await volverAAplicarSalida(room, salidaRef.current);
       if (!room.canPlaybackAudio) {
         await room.startAudio().catch(() => undefined);
         setSinAudio(!room.canPlaybackAudio);
@@ -617,6 +718,33 @@ export function SalaDeReunion({
     } catch {
       toast.error("No se pudo. Revisa el permiso del navegador.");
     }
+    repintar();
+  };
+
+  const alternarSalida = async () => {
+    if (!room) {
+      return;
+    }
+    const nueva = siguienteSalida(salidaRef.current);
+    setCambiandoSalida(true);
+    const resultado = await aplicarSalida(room, nueva);
+    setCambiandoSalida(false);
+    if (resultado === "no-se-puede") {
+      toast(AVISO_SIN_CAMBIO);
+      return;
+    }
+    if (resultado === "fallo") {
+      toast.error("No se pudo cambiar por dónde sale el sonido.");
+      return;
+    }
+    salidaRef.current = nueva;
+    setSalida(nueva);
+    try {
+      window.localStorage.setItem(CLAVE_GUARDADA, nueva);
+    } catch {
+      // Sin almacenamiento: vale para esta reunión.
+    }
+    toast.success(nueva === "altavoz" ? "El sonido sale por el altavoz." : "El sonido sale por el auricular.");
     repintar();
   };
 
@@ -800,6 +928,20 @@ export function SalaDeReunion({
         >
           {local?.isMicrophoneEnabled ? <Mic /> : <MicOff />}
         </Button>
+        {celular || formaDeSalida !== "ninguna" ? (
+          <Button
+            size="icon-lg"
+            variant={salida === "altavoz" ? "default" : "outline"}
+            onClick={() => void alternarSalida()}
+            disabled={!room || reconectando || cambiandoSalida}
+            aria-label="Altavoz"
+            aria-pressed={salida === "altavoz"}
+            title={salida === "altavoz" ? "Sale por el altavoz. Toca para pasar al auricular." : "Toca para pasar al altavoz."}
+            className={cn(salida !== "altavoz" && "text-foreground")}
+          >
+            {cambiandoSalida ? <Loader2 className="animate-spin" /> : <Volume2 />}
+          </Button>
+        ) : null}
         {puedeCompartir ? (
           <Button
             size="icon-lg"
