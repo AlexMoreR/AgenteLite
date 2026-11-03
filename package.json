@@ -30,6 +30,7 @@
     "test:coach-resueltos": "node scripts/check-coach-resueltos.mjs",
     "test:coach-linea": "node scripts/check-coach-linea.mjs",
     "test:embudo": "node scripts/check-embudo.mjs",
+    "test:barrido-de-etapas": "node scripts/check-barrido-de-etapas.mjs",
     "test:descarte-tras-seguimientos": "node scripts/check-descarte-tras-seguimientos.mjs",
     "test:embudo-semanal": "node scripts/check-embudo-semanal.mjs",
     "test:embudo-versiones": "node scripts/check-embudo-versiones.mjs",

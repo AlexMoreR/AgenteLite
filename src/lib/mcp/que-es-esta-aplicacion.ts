@@ -593,6 +593,10 @@ async function automatizaciones(
         ? "apagada (crm:etapa-automatica:<negocio> = off)"
         : "activa: pasa a Frio al asignar un chat en NUEVO y a Caliente al cotizar o enviar el total; nunca pone Ganado ni Perdido ni baja a un lead",
     etapa_por_lectura: await estadoDeEtapaPorLectura(workspaceId).catch(() => "no se pudo leer"),
+    barrido_de_etapas:
+      etapaAuto === "off"
+        ? "apagada (crm:etapa-automatica:<negocio> = off)"
+        : `activa: cada 10 minutos pone Ganado desde las ventas de Gestión${(await bandera(`crm:etapa-automatica:ganado:${workspaceId}`).catch(() => null))?.trim().toLowerCase() === "off" ? " (APAGADO: crm:etapa-automatica:ganado:<negocio> = off)" : ""} y la IA lee hasta 20 chats sin etapa por vuelta (300 al día)`,
     campanas: campanasEnCurso > 0 ? `activa: ${campanasEnCurso} en curso` : "sin campañas en curso",
     transcripcion_de_audios: !process.env.OPENAI_API_KEY?.trim()
       ? "apagada: falta la clave de OpenAI"
