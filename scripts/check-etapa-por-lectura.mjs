@@ -520,10 +520,146 @@ await prueba("los enganches existen: las dos entradas de WhatsApp, el enfriamien
   assert.ok(archivo("src/app/api/webhooks/evolution/route.ts").includes("etapaPorLectura("));
   assert.ok(archivo("src/lib/official-api-crm-stage.ts").includes("etapaPorLectura("));
   assert.ok(archivo("src/features/crm/services/bajada-por-inactividad.ts").includes("'recontactarEl'"));
-  assert.ok(archivo("src/lib/mcp/que-es-esta-aplicacion.ts").includes("etapa_por_lectura: await estadoDeEtapaPorLectura("));
+  const mcp = archivo("src/lib/mcp/que-es-esta-aplicacion.ts");
+  assert.ok(mcp.includes("const lectura = await estadoDeEtapaPorLectura(workspaceId)"));
+  for (const clave of ["calientes_hoy:", "calientes_por_dia:", "porcentaje_sin_etapa_semana:", "leidos_por_ia_hoy:", "ganados_de_gestion_hoy:"]) {
+    assert.ok(mcp.includes(clave), clave);
+  }
+  // La tarjeta del informe y su nota del manual, con la misma clave que la herramienta.
+  assert.ok(archivo("src/app/cliente/direccion/informe/page.tsx").includes("<CalientesDelDiaCard"));
+  assert.ok(archivo("docs/cambios-pendientes/ffk92sdj.md").includes("- `barrido_de_etapas`:"));
+  assert.ok(mcp.includes("    barrido_de_etapas: {"));
   // Leer un mensaje no le manda nada al cliente: el servicio no envía mensajes.
   const fuente = archivo("src/features/crm/services/etapa-por-lectura.ts");
   assert.ok(!/sendMessage|sendText|enviarMensaje|evolution|graph\.facebook/i.test(fuente));
+});
+
+/* ------------------------------------------------------------------ los números del dueño (parte 3) */
+
+const AHORA = new Date("2026-11-03T20:00:00Z"); // martes 3-nov, 3 p. m. en Bogotá
+const horasAtras = (h) => new Date(AHORA.getTime() - h * 3_600_000);
+
+/** Un prisma falso para la medición: historial, contactos de la semana y AppSetting. */
+function prismaDeMedicion({ historial = [], contactos = [], settings = {}, falla = null } = {}) {
+  const fallar = (parte) => {
+    if (falla === parte) throw Object.assign(new Error("x"), { code: "P2024" });
+  };
+  return {
+    appSetting: { findUnique: async ({ where }) => (where.key in settings ? { value: settings[where.key] } : null) },
+    historialEtapa: {
+      findMany: async ({ where }) => {
+        fallar("historial");
+        return historial
+          .filter((h) => h.etapaNueva === where.etapaNueva && h.etapaAnterior !== where.NOT.etapaAnterior && h.creadoEn >= where.creadoEn.gte)
+          .map(({ contactId, creadoEn }) => ({ contactId, creadoEn }));
+      },
+      count: async ({ where }) =>
+        historial.filter(
+          (h) =>
+            h.origen === where.origen && h.etapaNueva === where.etapaNueva && h.creadoEn >= where.creadoEn.gte && (h.nota ?? "").includes(where.nota.contains),
+        ).length,
+    },
+    contact: {
+      count: async ({ where }) => {
+        fallar("contactos");
+        return contactos.filter((c) => !where.crmStage || c.crmStage === where.crmStage).length;
+      },
+    },
+    $queryRaw: async () => [],
+  };
+}
+
+await prueba("calientes: uno de hoy y otro de hace 3 días dan calientes_hoy = 1 y 7 días", async () => {
+  const estado = await servicio.estadoDeEtapaPorLectura("ws", {
+    ahora: AHORA,
+    prisma: prismaDeMedicion({
+      historial: [
+        { contactId: "a", etapaAnterior: "PROPUESTA", etapaNueva: "NEGOCIACION", origen: "AUTOMATICO", creadoEn: horasAtras(2) },
+        { contactId: "b", etapaAnterior: "NUEVO", etapaNueva: "NEGOCIACION", origen: "ASESORA", creadoEn: horasAtras(72) },
+        // El mismo contacto dos veces el mismo día cuenta una vez; un Tibio no cuenta.
+        { contactId: "b", etapaAnterior: "PROPUESTA", etapaNueva: "NEGOCIACION", origen: "AUTOMATICO", creadoEn: horasAtras(71) },
+        { contactId: "c", etapaAnterior: "NUEVO", etapaNueva: "PROPUESTA", origen: "AUTOMATICO", creadoEn: horasAtras(1) },
+      ],
+    }),
+  });
+  assert.equal(estado.calientes_hoy, 1);
+  assert.equal(estado.calientes_por_dia.length, 7);
+  assert.deepEqual(
+    estado.calientes_por_dia.map((d) => d.fecha),
+    ["2026-10-28", "2026-10-29", "2026-10-30", "2026-10-31", "2026-11-01", "2026-11-02", "2026-11-03"],
+  );
+  assert.deepEqual(estado.calientes_por_dia.map((d) => d.calientes), [0, 0, 0, 1, 0, 0, 1]);
+  assert.deepEqual(estado.no_se_pudo_leer, []);
+});
+
+await prueba("calientes: el día cambia a medianoche de Colombia, no de UTC", async () => {
+  // 3-nov 02:00 UTC = 2-nov 9 p. m. en Bogotá: es de ayer.
+  const filas = [{ contactId: "a", creadoEn: new Date("2026-11-03T02:00:00Z") }];
+  const dias = servicio.contarCalientesPorDia(filas, AHORA);
+  assert.equal(dias.at(-1).calientes, 0);
+  assert.equal(dias.at(-2).fecha, "2026-11-02");
+  assert.equal(dias.at(-2).calientes, 1);
+});
+
+await prueba("sin etapa: 1 chat en \"---\" de 10 da 10 % (y no pasa la meta)", async () => {
+  const contactos = Array.from({ length: 10 }, (_, i) => ({ crmStage: i === 0 ? "NUEVO" : "CALIFICADO" }));
+  const estado = await servicio.estadoDeEtapaPorLectura("ws", { ahora: AHORA, prisma: prismaDeMedicion({ contactos }) });
+  assert.equal(estado.porcentaje_sin_etapa_semana, 10);
+  assert.deepEqual(estado.sin_etapa_semana, { sin_etapa: 1, total: 10 });
+  assert.equal(servicio.META_SIN_ETAPA, 10);
+  assert.ok(!(estado.porcentaje_sin_etapa_semana > servicio.META_SIN_ETAPA));
+  assert.equal(servicio.porcentajeSinEtapa(0, 0), 0);
+  assert.equal(servicio.porcentajeSinEtapa(1, 3), 33.3);
+});
+
+await prueba("estado del barrido: prendido, Ganado apagado, leídos por la IA hoy y Ganado de Gestión de hoy", async () => {
+  const estado = await servicio.estadoDeEtapaPorLectura("ws", {
+    ahora: AHORA,
+    prisma: prismaDeMedicion({
+      settings: {
+        "crm:etapa-automatica:ganado:ws": "off",
+        "crm:barrido-de-etapas:ia-del-dia:ws": JSON.stringify({ dia: "2026-11-03", usados: 40 }),
+      },
+      historial: [
+        { contactId: "a", etapaNueva: "GANADO", origen: "AUTOMATICO", nota: "etapa automática: [gestion] cotización COT-1", creadoEn: horasAtras(3) },
+        { contactId: "b", etapaNueva: "GANADO", origen: "AUTOMATICO", nota: "etapa automática: [gestion] venta pagada", creadoEn: horasAtras(30) },
+        { contactId: "c", etapaNueva: "GANADO", origen: "ASESORA", nota: null, creadoEn: horasAtras(1) },
+      ],
+    }),
+  });
+  assert.deepEqual(estado.barrido, { prendido: true, ganado_automatico_prendido: false, leidos_por_ia_hoy: 40, ganados_de_gestion_hoy: 1 });
+  assert.ok(estado.estado.startsWith("activa:"));
+
+  // El contador de ayer no cuenta hoy; con todo apagado el barrido sale apagado.
+  const apagado = await servicio.estadoDeEtapaPorLectura("ws", {
+    ahora: AHORA,
+    prisma: prismaDeMedicion({
+      settings: {
+        "crm:etapa-automatica:ws": "off",
+        "crm:barrido-de-etapas:ia-del-dia:ws": JSON.stringify({ dia: "2026-11-02", usados: 300 }),
+      },
+    }),
+  });
+  assert.equal(apagado.barrido.prendido, false);
+  assert.equal(apagado.barrido.ganado_automatico_prendido, false);
+  assert.equal(apagado.barrido.leidos_por_ia_hoy, 0);
+  assert.ok(apagado.estado.startsWith("apagada"));
+});
+
+await prueba("si una consulta falla, no lanza: queda en el registro con su causa corta y el resto sale", async () => {
+  const lineas = await registroDe(async () => {
+    const estado = await servicio.estadoDeEtapaPorLectura("ws", {
+      ahora: AHORA,
+      prisma: prismaDeMedicion({ falla: "historial", contactos: [{ crmStage: "NUEVO" }] }),
+    });
+    assert.equal(estado.calientes_hoy, null);
+    assert.deepEqual(estado.calientes_por_dia, []);
+    assert.equal(estado.porcentaje_sin_etapa_semana, 100);
+    assert.deepEqual(estado.no_se_pudo_leer, ["calientes por dia"]);
+  });
+  assert.equal(lineas.length, 1);
+  assert.ok(lineas[0].includes("causa=base-P2024"), lineas[0]);
+  assert.ok(!LINEA_DE_FALLA.test(lineas[0]), lineas[0]);
 });
 
 console.log(`\n${pruebas} pruebas ok`);

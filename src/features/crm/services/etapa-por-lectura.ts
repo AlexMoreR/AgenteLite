@@ -5,6 +5,7 @@ import {
   causaCorta,
   claveInterruptorDescarteAutomatico,
   claveInterruptorEtapaAutomatica,
+  claveInterruptorGanadoAutomatico,
   etapaAutomaticaPrendida,
   etapaQueSePuedeLeer,
   moverEtapaAutomatica,
@@ -19,6 +20,7 @@ import {
   type IntencionDeLaIA,
   type LecturaDelMensaje,
 } from "@/features/crm/domain/intencion-del-cliente";
+import { claveContadorDeIA } from "@/features/crm/services/barrido-de-etapas";
 import type { CrmStage } from "@/features/crm/types";
 
 /**
@@ -149,37 +151,194 @@ export async function etapaPorLectura(input: {
 }
 
 /* ---------------------------------------------------------------------------------------------- */
-/* MEDIR (para la herramienta "qué es esta aplicación"): los últimos 7 días. */
+/* MEDIR (para la herramienta "qué es esta aplicación" y para Dirección → Informe). */
 
 const DIAS_DE_MEDICION = 7;
 /** Si las asesoras revierten más que esto de los descartes automáticos, hay que endurecer la regla. */
 const TOPE_DE_REVERSIONES = 0.05;
+/** La meta del dueño: menos de este % de los chats de la semana sin etapa ("---"). */
+export const META_SIN_ETAPA = 10;
+const DIA_MS = 86_400_000;
 
-export async function estadoDeEtapaPorLectura(workspaceId: string): Promise<string> {
-  const [general, descarte] = await Promise.all([
-    prisma.appSetting.findUnique({ where: { key: claveInterruptorEtapaAutomatica(workspaceId) }, select: { value: true } }),
-    prisma.appSetting.findUnique({ where: { key: claveInterruptorDescarteAutomatico(workspaceId) }, select: { value: true } }),
+export type CalientesDelDia = { fecha: string; calientes: number };
+
+export type EstadoDeEtapaPorLectura = {
+  /** La frase de siempre: activa o apagada y la medición de 7 días. */
+  estado: string;
+  /** Contactos que pasaron a Caliente hoy (hora de Colombia), contados desde HistorialEtapa. null si no se pudo leer. */
+  calientes_hoy: number | null;
+  /** Los 7 últimos días, del más viejo a hoy. Vacío si no se pudo leer. */
+  calientes_por_dia: CalientesDelDia[];
+  /** De los contactos de la línea de ventas con un mensaje del cliente en 7 días, el % que sigue en "---". */
+  porcentaje_sin_etapa_semana: number | null;
+  sin_etapa_semana: { sin_etapa: number; total: number } | null;
+  barrido: {
+    prendido: boolean | null;
+    ganado_automatico_prendido: boolean | null;
+    leidos_por_ia_hoy: number | null;
+    ganados_de_gestion_hoy: number | null;
+  };
+  /** Las partes que fallaron (la consulta queda en el registro con su causa corta). */
+  no_se_pudo_leer: string[];
+};
+
+type Db = typeof prisma;
+
+/** El día en hora de Colombia (AAAA-MM-DD). Colombia no cambia de hora: siempre -05:00. */
+function diaDeColombia(momento: Date | number): string {
+  return new Date(new Date(momento).getTime() - 5 * 3_600_000).toISOString().slice(0, 10);
+}
+
+function apagado(valor: string | null | undefined): boolean {
+  return valor?.trim().toLowerCase() === "off";
+}
+
+/** Los 7 días (del más viejo a hoy) con los contactos que pasaron a Caliente cada día; uno por contacto y día. */
+export function contarCalientesPorDia(
+  filas: Array<{ contactId: string; creadoEn: Date }>,
+  ahora: Date,
+  dias = DIAS_DE_MEDICION,
+): CalientesDelDia[] {
+  const hoy = Date.parse(`${diaDeColombia(ahora)}T00:00:00-05:00`);
+  const fechas = Array.from({ length: dias }, (_, i) => diaDeColombia(hoy - (dias - 1 - i) * DIA_MS + 12 * 3_600_000));
+  const porDia = new Map(fechas.map((fecha) => [fecha, new Set<string>()]));
+  for (const fila of filas) porDia.get(diaDeColombia(fila.creadoEn))?.add(fila.contactId);
+  return fechas.map((fecha) => ({ fecha, calientes: porDia.get(fecha)?.size ?? 0 }));
+}
+
+/** El % con un decimal (1 de 10 → 10). Sin chats, 0. */
+export function porcentajeSinEtapa(sinEtapa: number, total: number): number {
+  return total > 0 ? Math.round((sinEtapa / total) * 1000) / 10 : 0;
+}
+
+/**
+ * El estado de la etapa automática por lectura y del barrido, con los números del dueño: Calientes de hoy,
+ * Calientes de los 7 días y el % de chats de la semana sin etapa. NUNCA lanza: si una consulta falla queda
+ * en el registro con su causa corta, sale en `no_se_pudo_leer` y el resto sale igual.
+ */
+export async function estadoDeEtapaPorLectura(
+  workspaceId: string,
+  deps: { prisma?: Db; ahora?: Date } = {},
+): Promise<EstadoDeEtapaPorLectura> {
+  const db = deps.prisma ?? prisma;
+  const ahora = deps.ahora ?? new Date();
+  const no_se_pudo_leer: string[] = [];
+  const seguro = async <T>(parte: string, leer: () => Promise<T>): Promise<T | null> => {
+    try {
+      return await leer();
+    } catch (falla) {
+      console.info(`[etapa-por-lectura] no se pudo leer ${parte} workspaceId=${workspaceId} causa=${causaCorta(falla)}`);
+      no_se_pudo_leer.push(parte);
+      return null;
+    }
+  };
+  const bandera = async (clave: string) =>
+    (await db.appSetting.findUnique({ where: { key: clave }, select: { value: true } }))?.value ?? null;
+
+  const desde = new Date(ahora.getTime() - DIAS_DE_MEDICION * DIA_MS);
+  const hoy = diaDeColombia(ahora);
+  const medianocheDeHoy = new Date(`${hoy}T00:00:00-05:00`);
+  const inicioDeLaSemana = new Date(medianocheDeHoy.getTime() - (DIAS_DE_MEDICION - 1) * DIA_MS);
+
+  const [interruptores, estado, calientes, sinEtapa, leidosPorIA, ganadosDeGestion] = await Promise.all([
+    seguro("interruptores", async () => {
+      const [general, descarte, ganado] = await Promise.all([
+        bandera(claveInterruptorEtapaAutomatica(workspaceId)),
+        bandera(claveInterruptorDescarteAutomatico(workspaceId)),
+        bandera(claveInterruptorGanadoAutomatico(workspaceId)),
+      ]);
+      return { general: !apagado(general), descarte: !apagado(descarte), ganado: !apagado(ganado) };
+    }),
+    seguro("medicion de 7 dias", () => medicionDeLaSemana(db, workspaceId, desde)),
+    seguro("calientes por dia", async () => {
+      const filas = await db.historialEtapa.findMany({
+        where: { workspaceId, etapaNueva: "NEGOCIACION", NOT: { etapaAnterior: "NEGOCIACION" }, creadoEn: { gte: inicioDeLaSemana } },
+        select: { contactId: true, creadoEn: true },
+      });
+      return contarCalientesPorDia(filas, ahora);
+    }),
+    seguro("chats sin etapa de la semana", async () => {
+      // Los mismos chats que mira la IA del barrido: línea de ventas, dentro del CRM, con un mensaje del cliente en 7 días.
+      const conMensaje = {
+        workspaceId,
+        excludedFromCrm: false,
+        conversations: {
+          some: {
+            workspaceId,
+            lastMessageAt: { gte: desde },
+            channel: { purpose: "SALES" as const },
+            messages: { some: { direction: "INBOUND" as const, isStatusBroadcast: false, createdAt: { gte: desde } } },
+          },
+        },
+      };
+      const [total, sin_etapa] = await Promise.all([
+        db.contact.count({ where: conMensaje }),
+        db.contact.count({ where: { ...conMensaje, crmStage: "NUEVO" } }),
+      ]);
+      return { sin_etapa, total };
+    }),
+    seguro("chats leidos por la IA hoy", async () => {
+      const valor = JSON.parse((await bandera(claveContadorDeIA(workspaceId))) ?? "{}") as { dia?: string; usados?: number };
+      return valor.dia === hoy && Number.isFinite(valor.usados) ? Number(valor.usados) : 0;
+    }),
+    seguro("Ganado de Gestion de hoy", () =>
+      db.historialEtapa.count({
+        where: {
+          workspaceId,
+          origen: "AUTOMATICO",
+          etapaNueva: "GANADO",
+          creadoEn: { gte: medianocheDeHoy },
+          nota: { contains: "[gestion]" },
+        },
+      }),
+    ),
   ]);
-  if (general?.value?.trim().toLowerCase() === "off") {
-    return "apagada (crm:etapa-automatica:<negocio> = off): no lee los mensajes del cliente";
-  }
-  const desde = new Date(Date.now() - DIAS_DE_MEDICION * 86_400_000);
-  const prefijo = `${NOTA_ETAPA_AUTOMATICA}:%`;
 
+  let textoDelEstado: string;
+  if (interruptores && !interruptores.general) {
+    textoDelEstado = "apagada (crm:etapa-automatica:<negocio> = off): no lee los mensajes del cliente";
+  } else {
+    const descarteApagado = interruptores ? !interruptores.descarte : false;
+    textoDelEstado =
+      `activa: lee cada mensaje del cliente y pasa a Frío (solo desde "---"), Caliente, Tibio${descarteApagado ? "" : " o Descartado"}` +
+      `${descarteApagado ? " (descarte apagado: crm:etapa-automatica:descarte:<negocio> = off)" : ""}. ` +
+      (estado ?? "La medición de 7 días no se pudo leer. ") +
+      `La frase exacta del descarte queda en Contact.metadata.${CLAVE_DESCARTE_POR_LECTURA}.`;
+  }
+
+  return {
+    estado: textoDelEstado,
+    calientes_hoy: calientes ? calientes[calientes.length - 1]?.calientes ?? 0 : null,
+    calientes_por_dia: calientes ?? [],
+    porcentaje_sin_etapa_semana: sinEtapa ? porcentajeSinEtapa(sinEtapa.sin_etapa, sinEtapa.total) : null,
+    sin_etapa_semana: sinEtapa,
+    barrido: {
+      prendido: interruptores ? interruptores.general : null,
+      ganado_automatico_prendido: interruptores ? interruptores.general && interruptores.ganado : null,
+      leidos_por_ia_hoy: leidosPorIA,
+      ganados_de_gestion_hoy: ganadosDeGestion,
+    },
+    no_se_pudo_leer,
+  };
+}
+
+/** La medición de siempre (7 días): % de leads nuevos con etapa, movidos por frase y por IA, y descartes revertidos. */
+async function medicionDeLaSemana(db: Db, workspaceId: string, desde: Date): Promise<string> {
+  const prefijo = `${NOTA_ETAPA_AUTOMATICA}:%`;
   const [leads, porMetodo, reversiones] = await Promise.all([
-    prisma.$queryRaw<Array<{ total: bigint; con_etapa: bigint }>>`
+    db.$queryRaw<Array<{ total: bigint; con_etapa: bigint }>>`
       SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE c."crmStage"::text <> 'NUEVO') AS con_etapa
       FROM "Contact" c
       WHERE c."workspaceId" = ${workspaceId} AND c."excludedFromCrm" = false AND c."createdAt" >= ${desde}
     `,
-    prisma.$queryRaw<Array<{ metodo: string; cantidad: bigint }>>`
+    db.$queryRaw<Array<{ metodo: string; cantidad: bigint }>>`
       SELECT CASE WHEN h."nota" LIKE '%[ia]' THEN 'ia' ELSE 'frase' END AS metodo, COUNT(*) AS cantidad
       FROM "HistorialEtapa" h
       WHERE h."workspaceId" = ${workspaceId} AND h."origen" = 'AUTOMATICO' AND h."creadoEn" >= ${desde}
         AND h."nota" LIKE ${prefijo} AND (h."nota" LIKE '%[ia]' OR h."nota" LIKE '%[frase]')
       GROUP BY 1
     `,
-    prisma.$queryRaw<Array<{ descartados: bigint; revertidos: bigint }>>`
+    db.$queryRaw<Array<{ descartados: bigint; revertidos: bigint }>>`
       SELECT COUNT(*) AS descartados,
              COALESCE(SUM(CASE WHEN EXISTS (
                SELECT 1 FROM "HistorialEtapa" p
@@ -202,14 +361,9 @@ export async function estadoDeEtapaPorLectura(workspaceId: string): Promise<stri
     descartados > 0 && revertidos / descartados > TOPE_DE_REVERSIONES
       ? ` ALERTA: las asesoras revirtieron más del ${Math.round(TOPE_DE_REVERSIONES * 100)} % de los descartes automáticos; hay que endurecer las frases o apagar crm:etapa-automatica:descarte:<negocio>.`
       : "";
-  const descarteApagado = descarte?.value?.trim().toLowerCase() === "off";
-
   return (
-    `activa: lee cada mensaje del cliente y pasa a Frío (solo desde "---"), Caliente, Tibio${descarteApagado ? "" : " o Descartado"}` +
-    `${descarteApagado ? " (descarte apagado: crm:etapa-automatica:descarte:<negocio> = off)" : ""}. ` +
     `Últimos ${DIAS_DE_MEDICION} días: ${porcentaje(conEtapa, total)} % de los leads nuevos con etapa (${conEtapa} de ${total}); ` +
     `movidos por frase: ${metodos.frase ?? 0}, por IA: ${metodos.ia ?? 0}; ` +
-    `descartes automáticos: ${descartados}, revertidos por una asesora: ${revertidos} (${porcentaje(revertidos, descartados)} %).${alerta} ` +
-    `La frase exacta del descarte queda en Contact.metadata.${CLAVE_DESCARTE_POR_LECTURA}.`
+    `descartes automáticos: ${descartados}, revertidos por una asesora: ${revertidos} (${porcentaje(revertidos, descartados)} %).${alerta} `
   );
 }

@@ -13,7 +13,7 @@ import { avisosPrendidos, leerEstadoDeAvisos, sistemasPrendido, telefonoDeSistem
 import { resumenDeAvisosAlEquipo } from "@/features/tableros-inteligentes/services/avisos-al-equipo";
 import { MOTIVO_TERMINADA, terminadasPrendidas } from "@/features/tableros-inteligentes/services/avisos-de-terminadas";
 import { tieneAccesoAlDrive } from "@/features/cerebro/services/conexion";
-import { estadoDeEtapaPorLectura } from "@/features/crm/services/etapa-por-lectura";
+import { META_SIN_ETAPA, estadoDeEtapaPorLectura } from "@/features/crm/services/etapa-por-lectura";
 
 /**
  * "¿QUE ES ESTA APLICACION?" PARA UN ASESOR DE IA.
@@ -561,8 +561,12 @@ async function automatizaciones(
     bandera("seguimientos-que-escuchan:apagado"),
   ]);
 
+  // Nunca lanza: lo que no pudo leer sale en no_se_pudo_leer y el resto sale igual.
+  const lectura = await estadoDeEtapaPorLectura(workspaceId);
+
   const sinInterruptor = "activa (no tiene interruptor: corre siempre)";
-  const estados: Record<string, string> = {
+  // La mayoría es una frase; la etapa por lectura y el barrido traen además sus números.
+  const estados: Record<string, string | Record<string, unknown>> = {
     seguimientos_programados: reglasProgramadas > 0 ? `activa: ${reglasProgramadas} reglas prendidas` : "sin reglas prendidas",
     seguimientos_v3:
       v3.hayLineasConV3 && v3.reglasSinRespuesta > 0
@@ -592,11 +596,25 @@ async function automatizaciones(
       etapaAuto === "off"
         ? "apagada (crm:etapa-automatica:<negocio> = off)"
         : "activa: pasa a Frio al asignar un chat en NUEVO y a Caliente al cotizar o enviar el total; nunca pone Ganado ni Perdido ni baja a un lead",
-    etapa_por_lectura: await estadoDeEtapaPorLectura(workspaceId).catch(() => "no se pudo leer"),
-    barrido_de_etapas:
-      etapaAuto === "off"
-        ? "apagada (crm:etapa-automatica:<negocio> = off)"
-        : `activa: cada 10 minutos pone Ganado desde las ventas de Gestión${(await bandera(`crm:etapa-automatica:ganado:${workspaceId}`).catch(() => null))?.trim().toLowerCase() === "off" ? " (APAGADO: crm:etapa-automatica:ganado:<negocio> = off)" : ""} y la IA lee hasta 20 chats sin etapa por vuelta (300 al día)`,
+    etapa_por_lectura: {
+      estado: lectura.estado,
+      calientes_hoy: lectura.calientes_hoy,
+      calientes_por_dia: lectura.calientes_por_dia,
+      porcentaje_sin_etapa_semana: lectura.porcentaje_sin_etapa_semana,
+      sin_etapa_semana: lectura.sin_etapa_semana,
+      meta_sin_etapa: `menos del ${META_SIN_ETAPA} % de los chats de la semana en "---"`,
+      ...(lectura.no_se_pudo_leer.length > 0 ? { no_se_pudo_leer: lectura.no_se_pudo_leer } : {}),
+    },
+    barrido_de_etapas: {
+      estado:
+        etapaAuto === "off"
+          ? "apagada (crm:etapa-automatica:<negocio> = off)"
+          : `activa: cada 10 minutos pone Ganado desde las ventas de Gestión${lectura.barrido.ganado_automatico_prendido === false ? " (APAGADO: crm:etapa-automatica:ganado:<negocio> = off)" : ""} y la IA lee hasta 20 chats sin etapa por vuelta (300 al día)`,
+      prendido: lectura.barrido.prendido,
+      ganado_automatico_prendido: lectura.barrido.ganado_automatico_prendido,
+      leidos_por_ia_hoy: lectura.barrido.leidos_por_ia_hoy,
+      ganados_de_gestion_hoy: lectura.barrido.ganados_de_gestion_hoy,
+    },
     campanas: campanasEnCurso > 0 ? `activa: ${campanasEnCurso} en curso` : "sin campañas en curso",
     transcripcion_de_audios: !process.env.OPENAI_API_KEY?.trim()
       ? "apagada: falta la clave de OpenAI"
