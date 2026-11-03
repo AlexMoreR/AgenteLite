@@ -82,6 +82,7 @@
     "test:seguimiento-inteligente": "node scripts/check-seguimiento-inteligente.mjs",
     "test:alertas": "node scripts/check-alertas.mjs",
     "test:alerta-destinatario-migracion": "node scripts/check-alerta-destinatario-migracion.mjs",
+    "test:tablero-aprobador-sistemas-migracion": "node scripts/check-tablero-aprobador-sistemas-migracion.mjs",
     "test:alerta-ultima-vez-migracion": "node scripts/check-alerta-ultima-vez-migracion.mjs",
     "test:seguimientos-apagados-migracion": "node scripts/check-seguimientos-apagados-migracion.mjs",
     "test:seguimientos-apagados": "node scripts/check-seguimientos-apagados.mjs",

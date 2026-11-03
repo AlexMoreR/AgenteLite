@@ -2248,7 +2248,7 @@ model AprobadorTablero {
   id          String    @id @default(cuid())
   workspaceId String
   userId      String
-  /// TODO | DESARROLLO
+  /// TODO | DESARROLLO | SISTEMAS
   alcance     String    @default("DESARROLLO")
   puedeSubir  Boolean   @default(false)
   creadoEn    DateTime  @default(now())

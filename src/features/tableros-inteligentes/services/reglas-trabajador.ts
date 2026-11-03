@@ -74,7 +74,13 @@ import {
 } from "./reglas";
 import { type AreaDeAlerta, leerAreaDeAlerta, tocaDineroOMetaAds } from "@/features/alertas/dominio/reglas";
 import { type ModelosDelResultado, esLinkDeSesion, modelosDeEntrada } from "./modelos-del-coordinador";
-import { archivosDeEntrada, migracionDestructivaDeEntrada, porQueElPlanEsperaTuSi, porQueLaTareaEsperaTuSi } from "./reglas-riesgo";
+import {
+  archivosDeEntrada,
+  migracionDestructivaDeEntrada,
+  motivosDeLosArchivos,
+  porQueElPlanEsperaTuSi,
+  porQueLaTareaEsperaTuSi,
+} from "./reglas-riesgo";
 
 /* ───────────────────────────────────────────────────────────────────── repos ── */
 
@@ -760,17 +766,52 @@ export type TarjetaParaSistemas = {
   area: string | null;
   /** Lo que no se puede editar a mano (el resumen y las pruebas del Coordinador, el motivo del riesgo): también cuenta para el límite. */
   extra?: string | null;
+  /** El nombre del tablero de la tarjeta (el tablero "Sistemas" es técnico). */
+  tablero?: string | null;
+  /** Los archivos del plan y del resultado (un archivo de dinero lo aprueba Alexander). */
+  archivos?: readonly string[];
 };
 
-/** ¿La tarjeta toca dinero de Gestión o Meta Ads? Mira el título, la descripción, el plan, el área y la zona. Ante la duda, sí. */
+/** Minúsculas, sin tildes y con espacios simples, para comparar nombres de área y de tablero. */
+const nombreNormal = (texto: string | null | undefined) =>
+  String(texto ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+
+/** Los nombres de área que también cuentan como Tecnología (además de AREAS_DE_TECNOLOGIA), ya normalizados. */
+const AREAS_TECNICAS_POR_NOMBRE: readonly string[] = ["sistemas", "tecnologia"];
+/** El tablero cuyas tarjetas son técnicas, ya normalizado. */
+const TABLERO_DE_SISTEMAS = "sistemas";
+
+/**
+ * ¿La tarjeta toca dinero de Gestión o Meta Ads? Ante la duda, sí.
+ * - El título y la descripción: la lista de palabras de alertas (tocaDineroOMetaAds).
+ * - El plan y `extra` (lo que escribe el Coordinador): sin palabras sueltas, las señales del plan de reglas-riesgo.ts
+ *   (porQueElPlanEsperaTuSi: la línea "APROBAR PLAN: ESPERA TU SÍ", el gasto declarado en Meta Ads, los archivos de dinero
+ *   que nombra y, si no trae la línea APROBAR PLAN, las palabras de dinero de Gestión).
+ * - Los archivos del plan y del resultado: los de dinero (motivosDeLosArchivos).
+ * - La zona META_ADS.
+ */
 export function tarjetaTocaDineroOMetaAds(tarjeta: TarjetaParaSistemas, zonaProtegida: readonly string[]): boolean {
   if (zonaProtegida.includes("META_ADS")) return true;
-  return tocaDineroOMetaAds([tarjeta.titulo, tarjeta.detalle, tarjeta.plan ?? "", tarjeta.area ?? "", tarjeta.extra ?? ""].join("\n"));
+  if (tocaDineroOMetaAds([tarjeta.titulo, tarjeta.detalle].join("\n"))) return true;
+  const delCoordinador = [tarjeta.plan ?? "", tarjeta.extra ?? ""].filter((texto) => texto.trim()).join("\n");
+  if (delCoordinador && porQueElPlanEsperaTuSi(delCoordinador)) return true;
+  return motivosDeLosArchivos(tarjeta.archivos ?? []).some((motivo) => motivo.startsWith("toca dinero"));
+}
+
+/** ¿La tarjeta es técnica por su área ("Sistemas" o "Tecnología") o por su tablero ("Sistemas")? */
+function esTecnicaPorNombre(tarjeta: TarjetaParaSistemas): boolean {
+  return AREAS_TECNICAS_POR_NOMBRE.includes(nombreNormal(tarjeta.area)) || nombreNormal(tarjeta.tablero) === TABLERO_DE_SISTEMAS;
 }
 
 /**
  * ¿Por qué un aprobador SISTEMAS NO puede con esta tarjeta? null = puede. Sin saber la tarjeta, no puede.
- * Un área desconocida solo se acepta si la tarjeta es de un repo de desarrollo (es trabajo técnico).
+ * Es técnica si su área es de AREAS_DE_TECNOLOGIA, si el área se llama "Sistemas" o "Tecnología" o si es del tablero
+ * "Sistemas". Un área desconocida solo se acepta si la tarjeta es de un repo de desarrollo (es trabajo técnico).
  */
 export function vetoDeSistemas(
   persona: PersonaQueAprueba,
@@ -785,6 +826,7 @@ export function vetoDeSistemas(
   if (!tarjeta) return "No se pudo comprobar de qué área es la tarjeta: la aprueba el dueño del negocio.";
   if (zonaProtegida.length) return "Esta tarjeta toca una zona protegida: la aprueba solo el dueño, en la pantalla.";
   if (tarjetaTocaDineroOMetaAds(tarjeta, zonaProtegida)) return MENSAJE_DINERO_O_META;
+  if (esTecnicaPorNombre(tarjeta)) return null;
   const area = leerAreaDeAlerta(tarjeta.area ?? "");
   const esTecnologia = area
     ? AREAS_DE_TECNOLOGIA.includes(area)

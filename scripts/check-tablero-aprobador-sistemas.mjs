@@ -71,6 +71,46 @@ await prueba("Emanuel no aprueba tarjetas de otra área ni con zona protegida", 
   assert.match(puede(emanuel, "tarea", null) ?? "", /dueño/);
 });
 
+await prueba("qué es técnico: el plan con APROBAR PLAN: SOLO, el área Sistemas o Tecnología y el tablero Sistemas", () => {
+  const planSolo = [
+    "1) Cambiar la regla del tablero.",
+    "APROBAR PLAN: SOLO — no toca dinero (abonos, saldos, nómina), ni Meta Ads.",
+  ].join("\n");
+  for (const momento of ["tarea", "plan", "subir"]) {
+    assert.equal(puede(emanuel, momento, { ...tecnica, plan: planSolo }), null, momento);
+  }
+  // Con el plan diciendo SOLO, lo que escribe el Coordinador ya no se revisa por palabras sueltas.
+  assert.equal(puede(emanuel, "plan", { ...tecnica, plan: planSolo, extra: "Resumen: no toca abonos ni saldos." }), null);
+  assert.equal(puede(emanuel, "tarea", { ...tecnica, area: "Sistemas" }, { repo: null }), null);
+  assert.equal(puede(emanuel, "tarea", { ...tecnica, area: "Tecnología" }, { repo: null }), null);
+  assert.equal(puede(emanuel, "tarea", { ...tecnica, area: " tecnologia " }, { repo: null }), null);
+  assert.equal(puede(emanuel, "tarea", { ...tecnica, area: null, tablero: "Sistemas" }, { repo: null }), null);
+  // El tablero Sistemas no salva una tarjeta de dinero.
+  assert.equal(puede(emanuel, "tarea", { ...tecnica, area: "Sistemas", titulo: "Mostrar los abonos" }), trabajo.MENSAJE_DINERO_O_META);
+});
+
+await prueba("veto: ESPERA TU SÍ, abonos en el título, zona META_ADS, archivo de dinero y la fecha vencida", () => {
+  const planEspera = "1) Cambiar el cálculo.\nAPROBAR PLAN: ESPERA TU SÍ — cambia cómo se muestran los saldos.";
+  assert.equal(puede(emanuel, "plan", { ...tecnica, plan: planEspera }), trabajo.MENSAJE_DINERO_O_META);
+  assert.equal(puede(emanuel, "plan", { ...tecnica, plan: null, extra: planEspera }), trabajo.MENSAJE_DINERO_O_META);
+  assert.equal(puede(emanuel, "tarea", { ...tecnica, titulo: "Revisar los abonos del día" }), trabajo.MENSAJE_DINERO_O_META);
+  assert.equal(trabajo.tarjetaTocaDineroOMetaAds(tecnica, ["META_ADS"]), true);
+  assert.match(puede(emanuel, "tarea", tecnica, { zonas: ["META_ADS"] }) ?? "", /zona protegida/);
+  const planSolo = "APROBAR PLAN: SOLO — no toca dinero.";
+  // Un archivo de dinero en los archivos de la tarjeta o nombrado en el plan.
+  assert.equal(
+    puede(emanuel, "subir", { ...tecnica, plan: planSolo, archivos: ["src/features/abonos/services/saldo.ts"] }),
+    trabajo.MENSAJE_DINERO_O_META,
+  );
+  assert.equal(
+    puede(emanuel, "plan", { ...tecnica, plan: `${planSolo}\nCambiar src/features/pagos/registrar.ts` }),
+    trabajo.MENSAJE_DINERO_O_META,
+  );
+  assert.equal(puede(emanuel, "subir", { ...tecnica, plan: planSolo, archivos: ["src/components/ui/boton.tsx"] }), null);
+  const vencida = new Date("2026-11-30T15:00:00Z"); // 30-nov de Bogotá
+  assert.match(puede(emanuel, "tarea", { ...tecnica, area: "Sistemas" }, { ahora: vencida }) ?? "", /venció/);
+});
+
 await prueba("El permiso vence el 29-nov (día de Bogotá) y se puede prorrogar con un ajuste", () => {
   assert.equal(puede(emanuel, "subir", tecnica, { ahora: ULTIMO_DIA }), null);
   for (const momento of ["tarea", "plan", "subir"]) {
