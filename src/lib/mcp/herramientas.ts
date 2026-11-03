@@ -58,6 +58,7 @@ import {
   ejecutarHerramientaMcpAgentesDeArea,
   esHerramientaDeAgentesDeArea,
 } from "@/lib/mcp/agentes-de-area";
+import { HERRAMIENTAS_MCP_COACH, ejecutarHerramientaMcpCoach, esHerramientaDelCoach } from "@/lib/mcp/coach";
 import {
   HERRAMIENTAS_MCP_CEREBRO,
   ejecutarHerramientaMcpCerebro,
@@ -1138,6 +1139,7 @@ export const HERRAMIENTAS_MCP = [
   ...HERRAMIENTAS_MCP_PRODUCTOS,
   ...HERRAMIENTAS_MCP_TABLEROS,
   ...HERRAMIENTAS_MCP_AGENTES_DE_AREA,
+  ...HERRAMIENTAS_MCP_COACH,
   ...HERRAMIENTAS_MCP_CEREBRO,
 ];
 
@@ -1180,6 +1182,9 @@ export async function ejecutarHerramientaMcp(nombre: string, args: Argumentos, c
   }
   if (esHerramientaDeAgentesDeArea(nombre)) {
     return ejecutarHerramientaMcpAgentesDeArea(nombre, args, contexto);
+  }
+  if (esHerramientaDelCoach(nombre)) {
+    return ejecutarHerramientaMcpCoach(nombre, args, contexto);
   }
   if (esHerramientaDelCerebro(nombre)) {
     return ejecutarHerramientaMcpCerebro(nombre, args, contexto);

@@ -6,6 +6,7 @@ import { leerLibro } from "@/features/agente-v3/servicios/almacen";
 import { estadoDelArchivado } from "@/features/tableros-inteligentes/services/archivadas";
 import { agenteActivo } from "@/features/agentes-de-area/servicios/config";
 import { leerUltimosResumenes } from "@/features/agentes-de-area/servicios/resumenes";
+import { coachOpusActivo, diasSaltados } from "@/features/coach/revision-opus/servicio";
 import { prisma } from "@/lib/prisma";
 import { aprobacionAutomaticaPrendida, aprobarPlanesSoloPrendido, aprobarTareasSoloPrendido } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
 import { recogidaDelResultado } from "@/features/tableros-inteligentes/services/reglas-trabajador";
@@ -371,6 +372,18 @@ async function estadoDelCoach(workspaceId: string) {
   return `${bandera?.value === "1" ? "activa: cada noche a las 11:30 p. m." : "apagada (solo con Generar ahora)"}${cuando}`;
 }
 
+/** El Coach con Opus (aizen1): si el interruptor está prendido, la última revisión y el último día saltado. */
+async function estadoDelCoachOpus(workspaceId: string) {
+  const [activo, ultima, saltados] = await Promise.all([
+    coachOpusActivo(workspaceId),
+    prisma.coachRevision.findFirst({ where: { workspaceId }, orderBy: { fecha: "desc" }, select: { fecha: true } }),
+    diasSaltados(workspaceId),
+  ]);
+  const revision = ultima ? `; última revisión del ${ultima.fecha}` : "; sin revisiones";
+  const saltado = saltados[0] ? `; último día saltado: ${saltados[0].fecha} (${saltados[0].motivo})` : "";
+  return `${activo ? "activa: Opus revisa los chats cada noche desde aizen1" : "apagada (coach-opus:<negocio> distinto de 1)"}${revision}${saltado}`;
+}
+
 /** La cola de las reuniones: si tiene clave de OpenAI y cuántas esperan o fallaron en este negocio. */
 async function estadoDeLasReuniones(workspaceId: string) {
   const [enCola, conError] = await Promise.all([
@@ -613,6 +626,7 @@ async function automatizaciones(
       ? `activa: ultimo informe del ${ultimoInforme.reportDate.toISOString().slice(0, 10)}`
       : "sin informes generados",
     coach_de_ventas: await estadoDelCoach(workspaceId).catch(() => "no se pudo leer"),
+    coach_opus: await estadoDelCoachOpus(workspaceId).catch(() => "no se pudo leer"),
     reuniones_transcripcion: await estadoDeLasReuniones(workspaceId).catch(() => "no se pudo leer"),
     aprobacion_automatica_tablero: await estadoDeLaAprobacionAutomatica(workspaceId).catch(() => "no se pudo leer"),
     aprobar_tareas_solas_tablero: await estadoDeAprobarTareasSolo(workspaceId).catch(() => "no se pudo leer"),

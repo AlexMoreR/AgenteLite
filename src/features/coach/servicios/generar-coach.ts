@@ -100,7 +100,7 @@ type FilaDeMensaje = {
 };
 
 /** Un chat de cualquiera de las dos tablas, con lo que el coach necesita. */
-type ChatDelDia = {
+export type ChatDelDia = {
   fuente: "agent" | "official";
   id: string;
   numero: number | null;
@@ -115,7 +115,7 @@ type ChatDelDia = {
 };
 
 /** El chat ya medido y atribuido. */
-type ChatMedido = ChatDelDia & {
+export type ChatMedido = ChatDelDia & {
   ref: string;
   ultimos4: string;
   asesoraId: string | null;
@@ -285,7 +285,7 @@ function agrupar(filas: FilaDeMensaje[]) {
   return porChat;
 }
 
-async function chatsDelDia(workspaceId: string, desde: Date, hasta: Date): Promise<ChatDelDia[]> {
+export async function chatsDelDia(workspaceId: string, desde: Date, hasta: Date): Promise<ChatDelDia[]> {
   const rango = { gte: desde, lt: hasta };
   const conMovimiento = { createdAt: rango, isStatusBroadcast: false, type: { not: "SYSTEM" as const } };
   const contactoValido = { excludedFromCrm: false, bloqueadoEn: null };
@@ -394,7 +394,7 @@ async function chatsDelDia(workspaceId: string, desde: Date, hasta: Date): Promi
 
 const HORA_BOGOTA = new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", hour: "numeric", minute: "2-digit" });
 
-function medirChat(chat: ChatDelDia, asesoras: Set<string>, desde: Date, corte: Date): ChatMedido {
+export function medirChat(chat: ChatDelDia, asesoras: Set<string>, desde: Date, corte: Date): ChatMedido {
   const delDia = chat.mensajes.filter((m) => m.en >= desde);
 
   // A quien se le cuenta: la que mas escribio hoy desde el CRM; si nadie, la asignada (incierta).

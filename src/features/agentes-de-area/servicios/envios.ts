@@ -1,6 +1,7 @@
 import { ORIGEN_POR_AREA, claveDeAlerta, textoDeUrgente, tituloCorto, tituloDelTexto } from "@/features/alertas/dominio/reglas";
 import { marcarSalioPorWhatsApp, registrarAlerta, soloUrgentesPrendido } from "@/features/alertas/servicios/alertas";
 import { leerConfigGravedad, lineaInterna } from "@/features/avisos-gravedad/servicios/enrutador";
+import { coachOpusActivo } from "@/features/coach/revision-opus/servicio";
 import { sendEvolutionTextMessageWithReconnect } from "@/lib/evolution";
 import { prisma } from "@/lib/prisma";
 
@@ -9,9 +10,10 @@ import {
   MOTIVO_NO_ES_DEL_EQUIPO,
   MOTIVO_SIN_LINEA,
   MOTIVO_YA_SE_MANDO,
+  ORIGEN_DEL_COACH,
   estaEnElEquipo,
   hoyEnBogota,
-  type Area,
+  type AreaDeEnvio,
   type EstadoDeEnvio,
   type PedidoDeEnvio,
 } from "../dominio/reglas";
@@ -22,7 +24,7 @@ import { agenteActivo, leerEquipoDeAvisos } from "./config";
  *
  * Todo se valida AQUÍ, en el servidor, y no en el agente:
  *  1. El número tiene que estar en la lista del equipo (Mi empresa → Equipo). Un cliente nunca.
- *  2. El interruptor del agente tiene que estar prendido.
+ *  2. El interruptor del agente tiene que estar prendido (para el área "coach", el del Coach con Opus).
  *  3. Sale por la línea INTERNA (Admin), la misma de los avisos del Supervisor; nunca una de ventas.
  *  4. Un solo envío vivo por número, área y día: lo garantiza un índice único parcial en la base.
  *  5. ALERTAS (29-oct-2026): lo que va a Alexander se guarda en la página de Alertas. Por WhatsApp solo sale si el agente lo
@@ -48,7 +50,7 @@ function esChoqueDeUnico(error: unknown): boolean {
 }
 
 async function anotar(
-  base: { workspaceId: string; area: Area; fecha: string; pedido: PedidoDeEnvio },
+  base: { workspaceId: string; area: AreaDeEnvio; fecha: string; pedido: PedidoDeEnvio },
   estado: EstadoDeEnvio,
   motivo: string | null,
 ): Promise<string | null> {
@@ -77,7 +79,7 @@ async function anotar(
 
 export async function mandarWhatsAppAlEquipo(input: {
   workspaceId: string;
-  area: Area;
+  area: AreaDeEnvio;
   pedido: PedidoDeEnvio;
   ahora?: Date;
 }): Promise<ResultadoDeEnvio> {
@@ -93,15 +95,16 @@ export async function mandarWhatsAppAlEquipo(input: {
   const equipo = await leerEquipoDeAvisos(workspaceId);
   if (!estaEnElEquipo(pedido.numero, equipo.map((persona) => persona.numero))) return bloquear(MOTIVO_NO_ES_DEL_EQUIPO);
 
-  // 2. El interruptor.
-  if (!(await agenteActivo(area, workspaceId))) return bloquear(MOTIVO_INTERRUPTOR_APAGADO);
+  // 2. El interruptor. El Coach con Opus no es un agente de área: usa el suyo (si no se puede leer, apagado).
+  const activo = area === "coach" ? await coachOpusActivo(workspaceId).catch(() => false) : await agenteActivo(area, workspaceId);
+  if (!activo) return bloquear(MOTIVO_INTERRUPTOR_APAGADO);
 
   // 2b. ALERTAS: lo de Alexander queda en la página; solo lo urgente sigue camino, y corto.
   let pedidoFinal = pedido;
   let claveDeLaAlerta: string | null = null;
   if (pedido.tipo === "ALEXANDER" && (await soloUrgentesPrendido(workspaceId))) {
     const titulo = pedido.titulo ? tituloCorto(pedido.titulo) : tituloDelTexto(pedido.texto);
-    const origen = ORIGEN_POR_AREA[area] ?? "Agente de área";
+    const origen = area === "coach" ? ORIGEN_DEL_COACH : (ORIGEN_POR_AREA[area] ?? "Agente de área");
     claveDeLaAlerta = claveDeAlerta(origen, titulo);
     const urgente = pedido.prioridad === "URGENTE";
     await registrarAlerta({ workspaceId, clave: claveDeLaAlerta, prioridad: pedido.prioridad ?? "MEDIA", titulo, detalle: pedido.texto, origen });
