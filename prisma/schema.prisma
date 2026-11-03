@@ -1848,6 +1848,30 @@ model CoachAsesora {
   @@index([workspaceId, userId, createdAt])
 }
 
+/// Coach con Opus (3-nov-2026): la revisión diaria de los chats de UNA asesora, escrita por Opus
+/// desde aizen1. Una fila por negocio, día y asesora. Las reglas están en
+/// src/features/coach/revision-opus/reglas.ts. Sin llaves foráneas a propósito.
+model CoachRevision {
+  id            String    @id @default(cuid())
+  workspaceId   String
+  /// Día local AAAA-MM-DD (hora de Colombia).
+  fecha         String
+  userId        String
+  nombre        String
+  modelo        String
+  resumen       String
+  /// Máximo 1 chat 'bien' y 2 'mejorable' (ChatRevisado en reglas.ts).
+  chats         Json
+  chatsLeidos   Int       @default(0)
+  /// Cuándo se le mandó el WhatsApp a la asesora. Null = todavía no.
+  avisadoEn     DateTime?
+  creadoEn      DateTime  @default(now())
+  actualizadoEn DateTime  @updatedAt
+
+  @@unique([workspaceId, fecha, userId])
+  @@index([workspaceId, userId, fecha])
+}
+
 /// EMBUDO (F1, medir sin cambiar nada): cada cosa que le pasa a un lead queda como una fila que no
 /// se edita. La escriben el motor V3, los relojes, el reparto, las asesoras y el relleno historico.
 /// Sin claves foraneas a proposito: es un registro de medicion y no puede impedir borrar nada ni

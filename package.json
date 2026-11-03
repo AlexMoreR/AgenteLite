@@ -29,6 +29,8 @@
     "test:coach-acciones": "node scripts/check-coach-acciones.mjs",
     "test:coach-resueltos": "node scripts/check-coach-resueltos.mjs",
     "test:coach-linea": "node scripts/check-coach-linea.mjs",
+    "test:coach-opus": "node scripts/check-coach-opus.mjs",
+    "test:coach-opus-migracion": "node scripts/check-coach-opus-migracion.mjs",
     "test:embudo": "node scripts/check-embudo.mjs",
     "test:barrido-de-etapas": "node scripts/check-barrido-de-etapas.mjs",
     "test:descarte-tras-seguimientos": "node scripts/check-descarte-tras-seguimientos.mjs",
