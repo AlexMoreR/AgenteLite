@@ -33,6 +33,8 @@ model User {
   ownedWorkspaces       Workspace[]           @relation("WorkspaceOwner")
   workspaceMemberships  WorkspaceMember[]
   assignedConversations Conversation[]        @relation("ConversationAssignee")
+  /// Chats donde esta persona es el segundo asesor (Conversation.segundoAsesorId).
+  chatsDeSegundoAsesor  Conversation[]        @relation("ConversationSegundoAsesor")
   webPushSubscriptions  WebPushSubscription[]
   callAttempts          CallAttempt[]         @relation("CallAttemptCaller")
   diagrams              Diagram[]             @relation("DiagramCreatedBy")
@@ -292,6 +294,9 @@ model Conversation {
   channelId               String?
   contactId               String
   assignedToUserId        String?
+  /// Segundo asesor del chat (opcional): el chat sale en "Mías" de los dos. Vacío = un solo asesor,
+  /// como siempre. Ver src/lib/chats-asignacion-compartida.ts.
+  segundoAsesorId         String?
   status                  ConversationStatus       @default(OPEN)
   lastMessageAt           DateTime?
   autoReplyBatchStartedAt DateTime?
@@ -322,12 +327,14 @@ model Conversation {
   contact                 Contact                  @relation(fields: [contactId], references: [id], onDelete: Cascade)
   workspace               Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   assignedTo              User?                    @relation("ConversationAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  segundoAsesor           User?                    @relation("ConversationSegundoAsesor", fields: [segundoAsesorId], references: [id], onDelete: SetNull)
   messages                Message[]
   funnelState             ConversationFunnelState?
   contactMatches          ContactMatch[]
 
   @@index([workspaceId, status])
   @@index([workspaceId, assignedToUserId])
+  @@index([workspaceId, segundoAsesorId])
   @@index([workspaceId, lastMessageAt])
   @@index([workspaceId, lastMessageAt, updatedAt])
   @@index([workspaceId, autoReplyBatchDueAt])
