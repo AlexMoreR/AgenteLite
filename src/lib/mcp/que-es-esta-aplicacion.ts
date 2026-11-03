@@ -14,6 +14,7 @@ import { resumenDeAvisosAlEquipo } from "@/features/tableros-inteligentes/servic
 import { MOTIVO_TERMINADA, terminadasPrendidas } from "@/features/tableros-inteligentes/services/avisos-de-terminadas";
 import { tieneAccesoAlDrive } from "@/features/cerebro/services/conexion";
 import { estadoDeEtapaPorLectura } from "@/features/crm/services/etapa-por-lectura";
+import { coachOpusActivo, diasSaltados } from "@/features/coach/revision-opus/servicio";
 
 /**
  * "¿QUE ES ESTA APLICACION?" PARA UN ASESOR DE IA.
@@ -371,6 +372,18 @@ async function estadoDelCoach(workspaceId: string) {
   return `${bandera?.value === "1" ? "activa: cada noche a las 11:30 p. m." : "apagada (solo con Generar ahora)"}${cuando}`;
 }
 
+/** Coach con Opus (desde aizen1): si el interruptor está prendido, la última revisión y el último día saltado. */
+async function estadoDelCoachOpus(workspaceId: string) {
+  const [activo, ultima, saltados] = await Promise.all([
+    coachOpusActivo(workspaceId),
+    prisma.coachRevision.findFirst({ where: { workspaceId }, orderBy: { fecha: "desc" }, select: { fecha: true } }),
+    diasSaltados(workspaceId),
+  ]);
+  const revision = ultima ? `; última revisión del ${ultima.fecha}` : "; sin revisiones";
+  const saltado = saltados[0] ? `; último día saltado: ${saltados[0].fecha} (${saltados[0].motivo})` : "";
+  return `${activo ? "activa (coach-opus:<negocio> = 1)" : "apagada (coach-opus:<negocio>): no guarda ni avisa"}${revision}${saltado}`;
+}
+
 /** La cola de las reuniones: si tiene clave de OpenAI y cuántas esperan o fallaron en este negocio. */
 async function estadoDeLasReuniones(workspaceId: string) {
   const [enCola, conError] = await Promise.all([
@@ -613,6 +626,7 @@ async function automatizaciones(
       ? `activa: ultimo informe del ${ultimoInforme.reportDate.toISOString().slice(0, 10)}`
       : "sin informes generados",
     coach_de_ventas: await estadoDelCoach(workspaceId).catch(() => "no se pudo leer"),
+    coach_opus: await estadoDelCoachOpus(workspaceId).catch(() => "no se pudo leer"),
     reuniones_transcripcion: await estadoDeLasReuniones(workspaceId).catch(() => "no se pudo leer"),
     aprobacion_automatica_tablero: await estadoDeLaAprobacionAutomatica(workspaceId).catch(() => "no se pudo leer"),
     aprobar_tareas_solas_tablero: await estadoDeAprobarTareasSolo(workspaceId).catch(() => "no se pudo leer"),

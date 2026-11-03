@@ -19,6 +19,19 @@ export function esArea(valor: unknown): valor is Area {
   return typeof valor === "string" && (AREAS as readonly string[]).includes(valor);
 }
 
+/**
+ * ÁREAS DE ENVÍO (3-nov-2026): quién puede mandar el WhatsApp interno. Son las áreas de arriba más "coach" (el Coach con
+ * Opus avisa a cada asesora su revisión). "coach" va aparte y NO en AREAS: no es un agente de área ni tiene pantalla.
+ * El cupo de "una vez por persona y día" es por área (el índice único de AgenteDeAreaEnvio incluye el área), así el
+ * aviso del Coach no le gasta el envío del día al Agente de Ventas.
+ */
+export const AREAS_DE_ENVIO = [...AREAS, "coach"] as const;
+export type AreaDeEnvio = (typeof AREAS_DE_ENVIO)[number];
+
+export function esAreaDeEnvio(valor: unknown): valor is AreaDeEnvio {
+  return typeof valor === "string" && (AREAS_DE_ENVIO as readonly string[]).includes(valor);
+}
+
 /** Interruptor: AppSetting `agente-area:<area>:<workspaceId>` = {"activo": true}. Sin fila = apagado. */
 export const claveInterruptorDelAgente = (area: Area, workspaceId: string) => `agente-area:${area}:${workspaceId}`;
 
