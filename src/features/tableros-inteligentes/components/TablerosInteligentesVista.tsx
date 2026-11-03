@@ -3,8 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Controls, ReactFlow, applyNodeChanges, type NodeChange, type ReactFlowInstance } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import Link from "next/link";
-import { ArrowLeft, ChevronRight, LayoutGrid, Shapes, UserRound } from "lucide-react";
+import { ArrowLeft, UserRound } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -30,7 +29,6 @@ import { FlechaFlotante, type FlechaDeTablero } from "./FlechaFlotante";
 import { MigasDelNivel } from "./MigasDelNivel";
 import { NodoTarjeta, type NodoDeTarjeta } from "./NodoTarjeta";
 import { PanelTipos } from "./PanelTipos";
-import { RUTA_DEL_INICIO } from "./DialogoDeTablero";
 import { SelectorDeTablero } from "./SelectorDeTablero";
 import type { CuentasDeTableros } from "./DialogoDeTablero";
 import { SelectorDeVista } from "./SelectorDeVista";
@@ -50,9 +48,10 @@ import { guardarUltimaVistaAction } from "@/app/actions/tablero-ia-vistas-action
   hijas directas (las áreas) ALREDEDOR en un solo anillo (services/disposicion.ts); las nietas no se
   ven. Cada etiqueta muestra sus contadores RECURSIVOS (ella + toda su descendencia): te toca, en
   curso, siguen. Tocar una tarjeta CON hijas entra a ella; tocar una SIN hijas abre su ficha;
-  mantener presionada una con hijas, o tocar la del centro, abre su ficha sin entrar. Arriba, en UNA
-  fila baja: "←" (sube un nivel), "Tablero IA" (vuelve al listado de tableros, la página de inicio),
-  la ruta ("Tablero › Magilus › Ventas") y el ícono de Tipos. El
+  mantener presionada una con hijas, o tocar la del centro, abre su ficha sin entrar. Dentro de un
+  nivel sale arriba UNA fila baja: "←" (sube un nivel) y la ruta ("Tablero › Magilus › Ventas"); en
+  la raíz no sale (el nombre ya está en el selector de arriba). El ícono de Tipos va junto a las
+  pestañas de vistas. El
   nivel va en la URL (?area=<id>) con history.pushState: atrás del navegador vuelve al nivel anterior
   y los links funcionan sin pedirle nada al servidor. La unión con la madre es una línea fina gris
   del centro a cada hija con un punto que viaja (rojo si la hija tiene algo que "te toca"); las
@@ -549,11 +548,12 @@ export function TablerosInteligentesVista({
         alAbrir={refrescarTableros}
         alRenombrar={alRenombrarTablero}
       />
-      {/* Arriba, en UNA fila baja: "←" (sube un nivel), "Tablero IA" (el listado), la ruta y, a la
-          derecha, el ícono de Tipos (solo dueño/admin). En el celular todo botón mide al menos 40 px
-          y "Tablero IA" queda solo con su ícono. */}
-      <div className="flex min-h-10 shrink-0 items-center gap-0.5 border-b border-border bg-card px-1 md:min-h-9 md:px-2">
-        {vista === "mapa" && nivel ? (
+      {/* El nombre del tablero sale una sola vez: en el selector de arriba (que trae "Todos los
+          tableros" para volver al listado). Solo en el Mapa y DENTRO de un nivel sale una fila baja
+          con "←" (sube un nivel) y la ruta (la casa vuelve a la raíz). En el celular todo botón mide
+          al menos 40 px. */}
+      {vista === "mapa" && nivel ? (
+        <div className="flex min-h-10 shrink-0 items-center gap-0.5 border-b border-border bg-card px-1 md:min-h-9 md:px-2">
           <Button
             variant="ghost"
             size="icon"
@@ -564,38 +564,16 @@ export function TablerosInteligentesVista({
           >
             <ArrowLeft />
           </Button>
-        ) : null}
-        <Link
-          href={RUTA_DEL_INICIO}
-          className="flex min-h-10 shrink-0 items-center gap-1 rounded-md px-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground md:min-h-8 md:px-1.5"
-          aria-label="Tablero IA: todos los tableros"
-          title="Todos los tableros"
-        >
-          <LayoutGrid className="size-4 shrink-0" aria-hidden />
-          <span className="hidden sm:inline">Tablero IA</span>
-        </Link>
-        <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-        <MigasDelNivel
-          tableroNombre={nombreDelTablero}
-          // Fuera del mapa no hay niveles: solo el nombre del tablero.
-          ruta={vista === "mapa" ? ruta : []}
-          alIr={(id) => (vista === "mapa" ? irANivel(id) : undefined)}
-        />
-        {puedeEditarTipos ? (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-10 shrink-0 text-muted-foreground md:size-8"
-            onClick={() => setPanelTipos(true)}
-            aria-label="Tipos de tarjeta"
-            title="Tipos de tarjeta"
-          >
-            <Shapes />
-          </Button>
-        ) : null}
-      </div>
+          <MigasDelNivel tableroNombre={nombreDelTablero} ruta={ruta} alIr={irANivel} />
+        </div>
+      ) : null}
 
-      <SelectorDeVista vista={vista} alElegir={elegirVista} />
+      {/* Las pestañas de vistas y, a la derecha, el ícono de Tipos (solo quien puede editarlos). */}
+      <SelectorDeVista
+        vista={vista}
+        alElegir={elegirVista}
+        alAbrirTipos={puedeEditarTipos ? () => setPanelTipos(true) : undefined}
+      />
 
       {vista === "tabla" ? (
         <div className="min-h-0 flex-1">
