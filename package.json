@@ -13,6 +13,7 @@
     "test:leads-nuevos": "node scripts/check-leads-nuevos.mjs",
     "test:generar-cotizacion": "node scripts/check-generar-cotizacion.mjs",
     "test:contraentrega": "node scripts/check-contraentrega.mjs",
+    "test:recibo-de-caja": "npx tsx --test src/lib/recibo-de-caja.test.ts",
     "test:firma-del-chat": "node scripts/check-firma-del-chat.mjs",
     "test:recibiendo-clientes": "node scripts/check-recibiendo-clientes.mjs",
     "test:nota-de-voz": "node scripts/check-nota-de-voz.mjs",
