@@ -2,6 +2,8 @@
 // Qué se rechaza al guardar la revisión y cómo salen los avisos a la asesora y al dueño.
 // Parte 2: las herramientas del MCP (src/lib/mcp/coach.ts) y el área de envío "coach", con la base y los envíos
 // simulados: con el interruptor apagado, guardar y avisar responden "apagado" y no guardan ni mandan nada.
+// Parte 3: las pantallas. El permiso de cambiarCoachOpus (solo dueño o administrador), los enlaces a los chats
+// (solo del negocio, sin teléfono completo) y la tarjeta "Revisión del día (Opus)" dibujada en HTML.
 // Sin base ni red. Correr: npm run test:coach-opus
 import fs from "node:fs";
 import path from "node:path";
@@ -28,7 +30,7 @@ function crearCargador(simulados = {}) {
     if (simulado) return simulado;
     if (cache.has(absoluto)) return cache.get(absoluto).exports;
     const salida = ts.transpileModule(fs.readFileSync(absoluto, "utf8"), {
-      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
       fileName: absoluto,
     });
     const mod = { exports: {} };
@@ -476,6 +478,142 @@ prueba("chats del día: primero los más útiles, los quietos al final y máximo
   assert.deepEqual(orden.slice(0, 2).map((c) => c.id), ["con-error", "cotizado"]);
   assert.ok(!orden.some((c) => c.id === "quieto"));
   assert.equal(mcp.ordenarParaRevisar([medido("a"), medido("quieto", { quieto: true })], desde).at(-1).id, "quieto");
+});
+
+// ---------- Parte 3: pantallas ----------
+
+/** Carga coach-actions.ts con todo simulado. `dueno` decide si la protección deja pasar o redirige. */
+function cargarAcciones({ dueno }) {
+  const llamadas = { acceso: [], guardar: [], revalidar: [] };
+  const redirigir = (destino) => {
+    throw new Error(`REDIRECT:${destino}`);
+  };
+  const simulados = {
+    "next/cache": { revalidatePath: (ruta) => llamadas.revalidar.push(ruta) },
+    "next/navigation": { redirect: redirigir },
+    "next/server": { after: () => {} },
+    "@/lib/client-workspace-access": {
+      requireClientWorkspaceAccess: async (modulo, opciones = {}) => {
+        llamadas.acceso.push([modulo, opciones]);
+        // Igual que la real: con ownerOnly, quien no es dueño ni ADMIN se va a /unauthorized.
+        if (opciones.ownerOnly && !dueno) redirigir("/unauthorized");
+        return { workspaceId: "ws1", userId: dueno ? "dueno" : "u1", isOwner: dueno, role: dueno ? "CLIENTE" : "EMPLEADO" };
+      },
+    },
+    "@/lib/permisos-del-equipo": { puedeSupervisar: async () => dueno },
+    "@/features/coach/revision-opus/servicio": {
+      guardarCoachOpusActivo: async (workspaceId, activo) => llamadas.guardar.push([workspaceId, activo]),
+    },
+    "@/features/coach/servicios/acciones-coach": { ESTADOS_DE_ACCION: [], guardarEstadoDeAccion: async () => {} },
+    "@/features/coach/servicios/generar-coach": { generarCoachDelDia: async () => ({}), guardarCoachNocturno: async () => {} },
+  };
+  return { acciones: crearCargador(simulados)("src/app/actions/coach-actions.ts"), llamadas };
+}
+
+prueba("cambiarCoachOpus: una asesora (ni dueño ni administrador) no puede prenderlo y no se guarda nada", async () => {
+  const { acciones, llamadas } = cargarAcciones({ dueno: false });
+  await assert.rejects(() => acciones.cambiarCoachOpus(true), /REDIRECT:\/unauthorized/);
+  assert.deepEqual(llamadas.acceso, [["crm", { ownerOnly: true }]]);
+  assert.deepEqual(llamadas.guardar, []);
+  assert.deepEqual(llamadas.revalidar, []);
+});
+
+prueba("cambiarCoachOpus: el dueño lo prende y lo apaga en SU negocio y se revalida el informe; solo true lo prende", async () => {
+  const { acciones, llamadas } = cargarAcciones({ dueno: true });
+  await acciones.cambiarCoachOpus(true);
+  await acciones.cambiarCoachOpus(false);
+  await acciones.cambiarCoachOpus("1");
+  assert.deepEqual(llamadas.guardar, [["ws1", true], ["ws1", false], ["ws1", false]]);
+  assert.ok(llamadas.acceso.every(([, opciones]) => opciones.ownerOnly === true));
+  assert.deepEqual(llamadas.revalidar, Array(3).fill("/cliente/equipo/coach/informe"));
+});
+
+prueba("la protección de cambiarCoachOpus es la misma que la del interruptor nocturno", () => {
+  const codigo = fs.readFileSync("src/app/actions/coach-actions.ts", "utf8");
+  const proteccion = (nombre) => {
+    const cuerpo = codigo.slice(codigo.indexOf(`export async function ${nombre}`));
+    return cuerpo.match(/requireClientWorkspaceAccess\([^)]*\)/)[0];
+  };
+  assert.equal(proteccion("cambiarCoachOpus"), proteccion("guardarCoachNocturnoAction"));
+});
+
+prueba("enlaces de la revisión: link igual al del CRM, etiqueta sin teléfono completo y buscados solo en el negocio", async () => {
+  const consultas = [];
+  const prismaSimulado = {
+    conversation: {
+      findMany: async (pedido) => {
+        consultas.push(["conversation", pedido.where]);
+        return [{ id: "c1", numero: 3948, contact: { phoneNumber: "+57 300 123 0204" } }];
+      },
+    },
+    officialApiConversation: {
+      findMany: async (pedido) => {
+        consultas.push(["oficial", pedido.where]);
+        return [{ id: "o1", numero: null, contact: { phoneNumber: null, waId: "573005557788" } }];
+      },
+    },
+  };
+  const enlaces = crearCargador({ "@/lib/prisma": { prisma: prismaSimulado } })("src/features/coach/revision-opus/enlaces.ts");
+  assert.equal(enlaces.hrefDeChatOpus("agent", "c1"), "/cliente/chats?chatKey=agent%3Ac1&assigned=all");
+  assert.equal(enlaces.etiquetaDeChatOpus(12, "3001234567"), "#12 · •••• 4567");
+  assert.equal(enlaces.etiquetaDeChatOpus(null, null), "Chat");
+  const mapa = await enlaces.enlacesDeChatsOpus("ws1", ["c1", "o1", "c1", "otro-negocio"]);
+  assert.deepEqual(mapa, {
+    c1: { href: "/cliente/chats?chatKey=agent%3Ac1&assigned=all", etiqueta: "#3948 · •••• 0204" },
+    o1: { href: "/cliente/chats?chatKey=official%3Ao1&assigned=all", etiqueta: "•••• 7788" },
+  });
+  assert.deepEqual(consultas, [
+    ["conversation", { id: { in: ["c1", "o1", "otro-negocio"] }, workspaceId: "ws1" }],
+    ["oficial", { id: { in: ["c1", "o1", "otro-negocio"] }, config: { workspaceId: "ws1" } }],
+  ]);
+  assert.deepEqual(await enlaces.enlacesDeChatsOpus("ws1", []), {});
+});
+
+prueba("tarjeta 'Revisión del día (Opus)': chats en orden, 'No depende de ti' para bot/política, botones y sin teléfonos", async () => {
+  const React = requireNativo("react");
+  const { renderToStaticMarkup } = requireNativo("react-dom/server");
+  const { RevisionOpusCard, noDependeDeTi } = crearCargador()("src/features/coach/components/RevisionOpusCard.tsx");
+  assert.deepEqual(["asesora", "bot", "politica", "cliente_sin_intencion"].map(noDependeDeTi), [false, true, true, false]);
+
+  const vacia = renderToStaticMarkup(React.createElement(RevisionOpusCard, { revision: null }));
+  assert.match(vacia, /Revisión del día \(Opus\)/);
+  assert.match(vacia, /Todavía no hay revisión de Opus/);
+
+  const revisionGuardada = {
+    fecha: "2026-11-02",
+    resumen: "Buen día. El cliente del 3001234567 pidió precio.",
+    chatsLeidos: 7,
+    chats: [
+      chat("m1", "mejorable", "bot"),
+      chat("b1", "bien"),
+      chat("m2", "mejorable", "asesora", { mensajeModelo: "Escríbeme al +57 300 123 4567" }),
+      chat("m3", "mejorable"),
+    ],
+  };
+  const html = renderToStaticMarkup(
+    React.createElement(RevisionOpusCard, {
+      revision: revisionGuardada,
+      enlaces: { b1: { href: "/cliente/chats?chatKey=agent%3Ab1&assigned=all", etiqueta: "#1 · •••• 4567" } },
+    }),
+  );
+  assert.match(html, /2-nov/);
+  assert.match(html, /7 chats leídos/);
+  // 1 bien llevado primero y hasta 2 "se pudo hacer mejor": m3 no sale.
+  assert.equal((html.match(/Bien llevado/g) ?? []).length, 1);
+  assert.equal((html.match(/Se pudo hacer mejor/g) ?? []).length, 2);
+  assert.ok(html.indexOf("Bien llevado") < html.indexOf("Se pudo hacer mejor"));
+  assert.ok(!html.includes("chat m3"));
+  assert.equal((html.match(/No depende de ti/g) ?? []).length, 1);
+  assert.match(html, /Qué pasó/);
+  assert.match(html, /Cuándo se cayó el cliente/);
+  assert.match(html, /Mensaje modelo/);
+  assert.match(html, /href="\/cliente\/chats\?chatKey=agent%3Ab1&amp;assigned=all"/);
+  assert.equal((html.match(/Copiar mensaje modelo/g) ?? []).length, 3);
+  // Los chats sin enlace no inventan uno.
+  assert.equal((html.match(/Sin enlace al chat/g) ?? []).length, 2);
+  // Ningún teléfono completo: solo los últimos 4.
+  assert.ok(!/\d{7,}/.test(html.replace(/\s|-/g, "")), html);
+  assert.match(html, /…4567/);
 });
 
 for (const correr of pendientes) {

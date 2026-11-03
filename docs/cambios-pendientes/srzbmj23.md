@@ -1,0 +1,5 @@
+## Módulos
+- `equipo`: en el Coach de ventas, la sección de cada asesora (`/cliente/equipo/coach/asesora/<id>`) muestra arriba la tarjeta "Revisión del día (Opus)": la fecha, el resumen y hasta 3 chats (1 "bien llevado" y hasta 2 "se pudo hacer mejor") con qué pasó, cuándo se cayó el cliente, el mensaje modelo y los botones "Abrir chat" y "Copiar mensaje modelo". Lo que se cayó por el bot o por una política sale como "No depende de ti". Cada asesora ve solo la suya; teléfonos solo con los últimos 4 dígitos. En el informe (`/cliente/equipo/coach/informe`, desplegable "Generar el informe") el dueño o un administrador tiene el interruptor "Coach con Opus (aizen1)", apagado por defecto, junto al del Coach de cada noche, y ve el último día que no corrió.
+
+## Qué no existe hoy
+- `coach_opus_historial_en_pantalla`: la tarjeta "Revisión del día (Opus)" muestra solo la última revisión de la asesora; no hay pantalla para ver revisiones de días anteriores ni la lista completa de días saltados (solo el último).

@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { FiltroDeMetrica, FiltroDeRango } from "@/features/coach/components/linea/FiltrosDelCoach";
 import { GraficoDelCoach } from "@/features/coach/components/linea/GraficoDelCoach";
 import { TarjetaDeAccionCoach } from "@/features/coach/components/acciones/TarjetaDeAccionCoach";
+import { RevisionOpusCard } from "@/features/coach/components/RevisionOpusCard";
 import { armarAccionesDeHoy, diaCorto, moverDia, type TarjetaDeAccion } from "@/features/coach/dominio/acciones-de-hoy";
 import { numerosDeLaParte } from "@/features/coach/dominio/chats-cerrados";
 import {
@@ -21,6 +22,8 @@ import {
   type Rango,
 } from "@/features/coach/dominio/linea-de-tiempo";
 import { diaEnBogota, esDiaValido } from "@/features/coach/reglas";
+import { enlacesDeChatsOpus } from "@/features/coach/revision-opus/enlaces";
+import { leerRevision } from "@/features/coach/revision-opus/servicio";
 import { conversacionesPorNumero, leerEstadosDeAcciones } from "@/features/coach/servicios/acciones-coach";
 import { leerInformeDelCoach } from "@/features/coach/servicios/leer-coach";
 import { leerDiasDelCoach } from "@/features/coach/servicios/linea-coach";
@@ -104,7 +107,7 @@ export default async function SeccionDeAsesoraPage({ params, searchParams }: Pag
   // Un dia: el que se toco en la lista, o el del rango "Ayer".
   const dia = esDiaValido(diaPedido) && diaPedido <= hoy ? diaPedido : rango.tipo === "ayer" ? rango.hasta : null;
 
-  const [tarjeta, dias, ultima] = await Promise.all([
+  const [tarjeta, dias, ultima, revisionOpus] = await Promise.all([
     dia ? tarjetaDelDia(access.workspaceId, dia, userId, supervisa) : Promise.resolve(null),
     rango.tipo !== "ayer" ? leerDiasDelCoach(access.workspaceId, rango.desde, rango.hasta, { soloUserId: userId }) : Promise.resolve([]),
     // El nombre: de su ultimo informe en ESTE negocio (no se lee el usuario de otro lado).
@@ -113,8 +116,19 @@ export default async function SeccionDeAsesoraPage({ params, searchParams }: Pag
       orderBy: { createdAt: "desc" },
       select: { nombre: true },
     }),
+    // La última revisión del Coach con Opus de ESTA asesora (ya se comprobó arriba que puede verla).
+    leerRevision(access.workspaceId, userId).catch((error) => {
+      console.error("[COACH-OPUS] leer_revision_fallo", error instanceof Error ? error.message : "error");
+      return null;
+    }),
   ]);
-  const nombre = tarjeta?.nombre ?? ultima?.nombre ?? "Asesora";
+  const enlacesOpus = revisionOpus
+    ? await enlacesDeChatsOpus(
+        access.workspaceId,
+        revisionOpus.chats.map((chat) => chat.chatId),
+      ).catch(() => ({}))
+    : {};
+  const nombre = tarjeta?.nombre ?? ultima?.nombre ?? revisionOpus?.nombre ?? "Asesora";
   const puedeMarcar = supervisa || userId === access.userId;
 
   const actuales: Record<string, string> = {};
@@ -134,6 +148,8 @@ export default async function SeccionDeAsesoraPage({ params, searchParams }: Pag
         <Link href="/cliente/equipo/coach">‹ Coach</Link>
       </Button>
       <h1 className="text-lg font-semibold">{nombre}</h1>
+
+      <RevisionOpusCard revision={revisionOpus} enlaces={enlacesOpus} />
 
       <FiltroDeRango {...destino} rango={rango} opciones={["ayer", "semana", "mes"]} hoy={hoy} />
 

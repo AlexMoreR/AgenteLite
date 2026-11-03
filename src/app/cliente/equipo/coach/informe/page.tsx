@@ -1,9 +1,16 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import { generarCoachAhoraAction, guardarCoachNocturnoAction, marcarAccionDelCoachAction } from "@/app/actions/coach-actions";
+import {
+  cambiarCoachOpus,
+  generarCoachAhoraAction,
+  guardarCoachNocturnoAction,
+  marcarAccionDelCoachAction,
+} from "@/app/actions/coach-actions";
 import { Button } from "@/components/ui/button";
+import { FormActionSwitch } from "@/components/ui/form-action-switch";
 import { Input } from "@/components/ui/input";
+import { Separator } from "@/components/ui/separator";
 import { AccionesDeHoy } from "@/features/coach/components/acciones/AccionesDeHoy";
 import { PanelOperativoCoach } from "@/features/coach/components/acciones/PanelOperativoCoach";
 import { Desplegable } from "@/features/coach/components/acciones/piezas";
@@ -11,6 +18,7 @@ import { ParteDeAsesoraCard } from "@/features/coach/components/ParteDeAsesoraCa
 import { ResumenDelEquipoCard } from "@/features/coach/components/ResumenDelEquipoCard";
 import { armarAccionesDeHoy, diaCorto, refsCitadas } from "@/features/coach/dominio/acciones-de-hoy";
 import { diaEnBogota, esDiaValido } from "@/features/coach/reglas";
+import { coachOpusActivo, diasSaltados } from "@/features/coach/revision-opus/servicio";
 import { conversacionesPorNumero, leerEstadosDeAcciones } from "@/features/coach/servicios/acciones-coach";
 import { coachNocturnoActivo } from "@/features/coach/servicios/generar-coach";
 import { leerInformeDelCoach, type InformeDelCoach, type ParteDeAsesora } from "@/features/coach/servicios/leer-coach";
@@ -68,7 +76,7 @@ export default async function CoachDeVentasPage({ searchParams }: PageProps) {
   const esDueno = access.isOwner || access.role === "ADMIN";
   const opcionesDeLectura = supervisa ? {} : { soloUserId: access.userId };
   const diaSiguiente = moverDia(dia, 1);
-  const [informe, nocturno, siguiente] = await Promise.all([
+  const [informe, nocturno, siguiente, opus, saltados] = await Promise.all([
     leerInformeDelCoach(access.workspaceId, dia, opcionesDeLectura),
     esDueno ? coachNocturnoActivo(access.workspaceId) : Promise.resolve(false),
     // Para el "cumplido" automatico: la misma metrica en el informe del dia siguiente, tal cual se
@@ -76,7 +84,11 @@ export default async function CoachDeVentasPage({ searchParams }: PageProps) {
     diaSiguiente <= hoy
       ? leerInformeDelCoach(access.workspaceId, diaSiguiente, { ...opcionesDeLectura, quitarCerrados: false }).catch(() => null)
       : Promise.resolve(null),
+    // Coach con Opus (aizen1): su interruptor y el último día que no corrió. Solo para el dueño.
+    esDueno ? coachOpusActivo(access.workspaceId).catch(() => false) : Promise.resolve(false),
+    esDueno ? diasSaltados(access.workspaceId).catch(() => []) : Promise.resolve([]),
   ]);
+  const ultimoSaltado = saltados[0] ?? null;
 
   const asesoraPedida = supervisa && typeof params.asesora === "string" ? params.asesora : "";
   const partes = informe
@@ -240,6 +252,27 @@ export default async function CoachDeVentasPage({ searchParams }: PageProps) {
                   : "Apagado: solo corre cuando tocas “Generar ahora”."}{" "}
                 No envía nada a los clientes ni cambia el bot.
               </p>
+              <Separator className="my-1" />
+              <div className="flex min-h-11 items-center justify-between gap-3">
+                <p className="text-sm font-medium">
+                  Coach con Opus (aizen1)
+                </p>
+                <FormActionSwitch
+                  action={cambiarCoachOpus.bind(null, !opus)}
+                  checked={opus}
+                  ariaLabel={opus ? "Apagar el Coach con Opus" : "Prender el Coach con Opus"}
+                  hiddenFields={[]}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {opus ? "Prendido. " : "Apagado. "}Corre en aizen1 de lunes a sábado a las 10 p. m. (hora de Colombia) y deja a
+                cada asesora su «Revisión del día». Mientras esté apagado no se guarda ni se manda nada.
+              </p>
+              {ultimoSaltado ? (
+                <p className="text-xs text-muted-foreground" data-testid="coach-opus-saltado">
+                  Último día que no corrió: {diaCorto(ultimoSaltado.fecha)} ({ultimoSaltado.motivo}).
+                </p>
+              ) : null}
           </div>
         </Desplegable>
       ) : null}

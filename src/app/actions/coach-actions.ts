@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { after } from "next/server";
 
 import { diaEnBogota, esDiaValido } from "@/features/coach/reglas";
+import { guardarCoachOpusActivo } from "@/features/coach/revision-opus/servicio";
 import type { EstadoDeAccion } from "@/features/coach/dominio/acciones-de-hoy";
 import { ESTADOS_DE_ACCION, guardarEstadoDeAccion } from "@/features/coach/servicios/acciones-coach";
 import { generarCoachDelDia, guardarCoachNocturno } from "@/features/coach/servicios/generar-coach";
@@ -57,4 +58,15 @@ export async function guardarCoachNocturnoAction(formData: FormData): Promise<vo
   const pedido = String(formData.get("dia") ?? "").trim();
   revalidatePath("/cliente/equipo/coach", "layout");
   redirect(`/cliente/equipo/coach/informe${esDiaValido(pedido) ? `?dia=${pedido}` : ""}`);
+}
+
+/**
+ * Prende o apaga el Coach con Opus (corre en aizen1). Misma protección que el interruptor nocturno:
+ * solo el dueño o un administrador. Se usa con `.bind(null, activo)` desde el interruptor, por eso
+ * después de `activo` puede llegar el FormData (no se usa). Solo `true` lo prende.
+ */
+export async function cambiarCoachOpus(activo: boolean): Promise<void> {
+  const access = await requireClientWorkspaceAccess("crm", { ownerOnly: true });
+  await guardarCoachOpusActivo(access.workspaceId, activo === true);
+  revalidatePath("/cliente/equipo/coach/informe");
 }
