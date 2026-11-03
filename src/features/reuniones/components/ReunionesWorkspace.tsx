@@ -4,13 +4,13 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { EstadoReunion } from "@prisma/client";
-import { Copy, Loader2, MessageCircle, Plus, Search, Trash2, Video } from "lucide-react";
+import { Copy, Loader2, MessageCircle, Search, Trash2, Video } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { borrarReunionAction, crearReunionAction } from "@/app/actions/reuniones-actions";
+import { borrarReunionAction } from "@/app/actions/reuniones-actions";
 import { ESTADOS_EN_CURSO, ESTADOS_PARA_ENTRAR, NOMBRE_DEL_ESTADO } from "@/features/reuniones/estados";
 import { SalasDeReuniones, type SalaDeLaPantalla, type UsuarioDelNegocio } from "@/features/reuniones/components/SalasDeReuniones";
 
@@ -110,9 +110,9 @@ export function CompartirLink({ codigo, titulo }: { codigo: string; titulo: stri
 }
 
 /**
- * Arriba las salas fijas de cada área; abajo «Sin sala», las reuniones sueltas (y las de antes de las
- * salas) con «Nueva reunión» para las de una sola vez. Al buscar se busca en todas y cada resultado
- * dice su sala.
+ * Las salas fijas de cada área: toda reunión nueva se hace desde una sala. Las reuniones viejas sin sala
+ * (sueltas o de antes de las salas) quedan al final, plegadas en «Reuniones antiguas». Al buscar se
+ * busca en todas y cada resultado dice su sala.
  */
 export function ReunionesWorkspace({
   reuniones: reunionesLeidas,
@@ -135,11 +135,7 @@ export function ReunionesWorkspace({
 }) {
   const reuniones = reunionesLeidas ?? [];
   const router = useRouter();
-  const [titulo, setTitulo] = useState("");
-  const [sinGrabar, setSinGrabar] = useState(false);
   const [texto, setTexto] = useState(buscado);
-  const [creando, startCrear] = useTransition();
-  const [nueva, setNueva] = useState<{ codigo: string; titulo: string } | null>(null);
 
   // Mientras algo está en vivo o en la cola (o una sala tiene su reunión abierta), la lista se pone al día sola.
   const hayEnCurso = reuniones.some((reunion) => ESTADOS_EN_CURSO.includes(reunion.estado)) || Boolean(salas?.some((sala) => sala.abierta));
@@ -155,19 +151,39 @@ export function ReunionesWorkspace({
     return () => window.clearInterval(reloj);
   }, [hayEnCurso, router]);
 
-  const crear = () => {
-    startCrear(async () => {
-      const resultado = await crearReunionAction(titulo, sinGrabar);
-      if (resultado.error || !resultado.codigo) {
-        toast.error(resultado.error ?? "No se pudo crear la reunión.");
-        return;
-      }
-      setNueva({ codigo: resultado.codigo, titulo: titulo.trim() || "la reunión" });
-      setTitulo("");
-      setSinGrabar(false);
-      router.refresh();
-    });
-  };
+  const lista = (
+    <div className="space-y-2">
+      {reuniones.map((reunion) => (
+        <div key={reunion.id} className="space-y-2 rounded-xl border border-border bg-card px-3 py-2.5">
+          <Link href={`/cliente/reuniones/${reunion.id}`} className="block min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">{reunion.titulo}</span>
+              <EtiquetaDeEstado estado={reunion.estado} sinGrabar={reunion.sinGrabar} />
+            </div>
+            <span className="block text-xs text-muted-foreground">
+              {buscado ? `${reunion.sala ?? "Sin sala"} · ` : ""}
+              {formatearFecha(reunion.creada)}
+              {reunion.origen === "SUBIDA" ? " · Audio subido" : ` · ${reunion.participantes} ${reunion.participantes === 1 ? "persona" : "personas"}`}
+              {reunion.creadaPor ? ` · ${reunion.creadaPor}` : ""}
+            </span>
+            {reunion.aviso ? <span className="block text-xs text-amber-600">{reunion.aviso}</span> : null}
+            {reunion.estado === "ERROR" && reunion.motivoError ? (
+              <span className="block truncate text-xs text-destructive">{reunion.motivoError}</span>
+            ) : null}
+            {reunion.resumen ? <span className="mt-1 line-clamp-2 block text-xs text-foreground/80">{reunion.resumen}</span> : null}
+          </Link>
+          {(reunion.origen === "VIVO" && ESTADOS_PARA_ENTRAR.includes(reunion.estado)) || reunion.puedeBorrar ? (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {reunion.origen === "VIVO" && ESTADOS_PARA_ENTRAR.includes(reunion.estado) ? (
+                <CompartirLink codigo={reunion.codigo} titulo={reunion.titulo} />
+              ) : null}
+              {reunion.puedeBorrar ? <BotonBorrar reunionId={reunion.id} /> : null}
+            </div>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  );
 
   const buscar = (evento: React.FormEvent) => {
     evento.preventDefault();
@@ -201,101 +217,37 @@ export function ReunionesWorkspace({
       {!buscado ? <SalasDeReuniones salas={salas} usuarios={usuarios} puedeAdministrar={puedeAdministrarSalas} /> : null}
 
       {buscado ? (
-        <div className="flex items-center justify-between gap-2">
-          <h2 className="text-sm font-semibold text-foreground">Resultados de «{buscado}»</h2>
-          <Button size="sm" variant="ghost" render={<Link href="/cliente/reuniones" />}>
-            Ver las salas
-          </Button>
-        </div>
-      ) : (
-        <div className="space-y-0.5 pt-2">
-          <h2 className="text-sm font-semibold text-foreground">Sin sala</h2>
-          <p className="text-xs text-muted-foreground">Reuniones de una sola vez y las de antes de las salas.</p>
-        </div>
-      )}
-
-      {!buscado ? (
         <>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <Input
-              value={titulo}
-              onChange={(evento) => setTitulo(evento.target.value)}
-              placeholder="Título (opcional)"
-              maxLength={120}
-              className="sm:flex-1"
-            />
-            <div className="flex gap-2">
-              <Button onClick={crear} disabled={creando || !videoListo} className="flex-1 sm:flex-none">
-                {creando ? <Loader2 className="animate-spin" /> : <Plus />}
-                Nueva reunión
-              </Button>
-            </div>
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-foreground">Resultados de «{buscado}»</h2>
+            <Button size="sm" variant="ghost" render={<Link href="/cliente/reuniones" />}>
+              Ver las salas
+            </Button>
           </div>
-
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={sinGrabar} onChange={(evento) => setSinGrabar(evento.target.checked)} className="size-4" />
-            Sin grabar
-            <span className="text-xs text-muted-foreground">(no se graba, no se transcribe y no hay acta)</span>
-          </label>
-
-          {nueva ? (
-            <div className="space-y-2 rounded-xl border border-border bg-card px-3 py-3">
-              <p className="text-sm font-medium">Reunión creada. Comparte el link:</p>
-              <p className="truncate rounded-md bg-muted px-2 py-1 font-mono text-xs">{linkDeLaReunion(nueva.codigo)}</p>
-              <CompartirLink codigo={nueva.codigo} titulo={nueva.titulo} />
-            </div>
-          ) : null}
-        </>
-      ) : null}
-
-      {reunionesLeidas === null ? (
-        <p className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
-          No se pudieron cargar las reuniones. Recarga la página.
-        </p>
-      ) : reuniones.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-border px-4 py-12 text-center">
-          <Video className="mx-auto mb-2 size-6 text-muted-foreground" />
-          <p className="text-sm font-medium">{buscado ? "No hay reuniones con ese texto" : "Todavía no hay reuniones sin sala"}</p>
-          {!buscado ? (
-            <p className="mx-auto mt-1 max-w-sm text-xs text-muted-foreground">
-              Para una reunión de una sola vez, crea una y comparte el link: se entra desde el celular o el PC sin instalar
-              nada. Se graba, se pasa a texto y queda el acta.
+          {reunionesLeidas === null ? (
+            <p className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
+              No se pudieron cargar las reuniones. Recarga la página.
             </p>
-          ) : null}
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {reuniones.map((reunion) => (
-            <div key={reunion.id} className="space-y-2 rounded-xl border border-border bg-card px-3 py-2.5">
-              <Link href={`/cliente/reuniones/${reunion.id}`} className="block min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">{reunion.titulo}</span>
-                  <EtiquetaDeEstado estado={reunion.estado} sinGrabar={reunion.sinGrabar} />
-                </div>
-                <span className="block text-xs text-muted-foreground">
-                  {buscado ? `${reunion.sala ?? "Sin sala"} · ` : ""}
-                  {formatearFecha(reunion.creada)}
-                  {reunion.origen === "SUBIDA" ? " · Audio subido" : ` · ${reunion.participantes} ${reunion.participantes === 1 ? "persona" : "personas"}`}
-                  {reunion.creadaPor ? ` · ${reunion.creadaPor}` : ""}
-                </span>
-                {reunion.aviso ? <span className="block text-xs text-amber-600">{reunion.aviso}</span> : null}
-                {reunion.estado === "ERROR" && reunion.motivoError ? (
-                  <span className="block truncate text-xs text-destructive">{reunion.motivoError}</span>
-                ) : null}
-                {reunion.resumen ? <span className="mt-1 line-clamp-2 block text-xs text-foreground/80">{reunion.resumen}</span> : null}
-              </Link>
-              {(reunion.origen === "VIVO" && ESTADOS_PARA_ENTRAR.includes(reunion.estado)) || reunion.puedeBorrar ? (
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {reunion.origen === "VIVO" && ESTADOS_PARA_ENTRAR.includes(reunion.estado) ? (
-                    <CompartirLink codigo={reunion.codigo} titulo={reunion.titulo} />
-                  ) : null}
-                  {reunion.puedeBorrar ? <BotonBorrar reunionId={reunion.id} /> : null}
-                </div>
-              ) : null}
+          ) : reuniones.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-border px-4 py-12 text-center">
+              <Video className="mx-auto mb-2 size-6 text-muted-foreground" />
+              <p className="text-sm font-medium">No hay reuniones con ese texto</p>
             </div>
-          ))}
-        </div>
-      )}
+          ) : (
+            lista
+          )}
+        </>
+      ) : reunionesLeidas === null ? (
+        <p className="pt-2 text-xs text-muted-foreground">No se pudieron cargar las reuniones antiguas. Recarga la página.</p>
+      ) : reuniones.length > 0 ? (
+        // Las reuniones sin sala (sueltas o de antes de las salas): ya no se crean, pero sus actas siguen aquí.
+        <details className="pt-2">
+          <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">
+            Reuniones antiguas ({reuniones.length})
+          </summary>
+          <div className="mt-2">{lista}</div>
+        </details>
+      ) : null}
     </section>
   );
 }

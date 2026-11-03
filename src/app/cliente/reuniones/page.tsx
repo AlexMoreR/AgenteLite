@@ -18,8 +18,9 @@ export const dynamic = "force-dynamic";
 
 /**
  * Reuniones: videollamadas propias (LiveKit) que se graban por persona, se pasan a texto y dejan
- * un acta. Arriba las salas fijas de cada área; abajo «Sin sala», las reuniones sueltas (y las de
- * antes de las salas). Al buscar se busca en todas y cada resultado dice su sala.
+ * un acta. Arriba las salas fijas de cada área (toda reunión nueva se hace desde una sala); al final,
+ * plegadas en «Reuniones antiguas», las reuniones viejas sin sala, que siguen abriendo su acta. Al
+ * buscar se busca en todas y cada resultado dice su sala.
  */
 export default async function ClienteReunionesPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const access = await requireClientWorkspaceAccess("reuniones");
