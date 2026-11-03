@@ -409,3 +409,112 @@ export function etapaCaliente(input: {
     motivo: input.motivo,
   });
 }
+
+/* ---------------------------------------------------------------------------------------------- */
+/* GANADO DESDE GESTIÓN (parte 2, 3-nov-2026): ver features/crm/services/barrido-de-etapas.ts.     */
+
+/**
+ * Interruptor aparte, solo para el Ganado que sale de las ventas pagadas de Gestión:
+ * `crm:etapa-automatica:ganado:<negocio>` = `off`. Si no existe, está prendido.
+ */
+export function claveInterruptorGanadoAutomatico(workspaceId: string): string {
+  return `crm:etapa-automatica:ganado:${workspaceId}`;
+}
+
+export async function ganadoAutomaticoPrendido(workspaceId: string): Promise<boolean> {
+  const fila = await prisma.appSetting.findUnique({
+    where: { key: claveInterruptorGanadoAutomatico(workspaceId) },
+    select: { value: true },
+  });
+  return fila?.value?.trim().toLowerCase() !== "off";
+}
+
+/** La marca del historial que deja cada Ganado de Gestión: "[gestion] cotización COT-123". */
+export function marcaDeGanadoPorGestion(cotizacion: string | null | undefined): string {
+  const ref = cotizacion?.trim();
+  return ref ? `[gestion] cotización ${ref}` : "[gestion] venta pagada";
+}
+
+/**
+ * Gestión registró el pago: el lead pasa a Ganado con la fecha del pago (wonAt) y la cotización
+ * (wonQuoteRef). Es la ÚNICA subida que pasa por encima de cualquier etapa, también de un Descartado
+ * puesto a mano: el pago es un hecho, no una lectura. Si ya está en Ganado no hace nada.
+ *
+ * Deja la fila del historial (origen AUTOMATICO, nota "[gestion] cotización COT-…") y la nota interna
+ * en el chat más reciente del lead. Solo escribe en el CRM: no le avisa nada a Gestión ni al cliente,
+ * y no dispara reglas de seguimiento. Devuelve true si lo movió. NUNCA lanza.
+ */
+export async function marcarGanadoPorGestion(input: {
+  workspaceId: string;
+  contactId: string;
+  cotizacion: string | null;
+  fechaPago: Date;
+}): Promise<boolean> {
+  try {
+    const contacto = await prisma.contact.findFirst({
+      where: { id: input.contactId, workspaceId: input.workspaceId },
+      select: { crmStage: true },
+    });
+    if (!contacto) return false;
+    const actual = contacto.crmStage as CrmStage;
+    if (actual === "GANADO") return false;
+
+    const cotizacion = input.cotizacion?.trim() || null;
+    // Solo si sigue en la etapa leída: si alguien lo movió en el medio, se intenta en la próxima vuelta.
+    const guardado = await prisma.contact.updateMany({
+      where: { id: input.contactId, workspaceId: input.workspaceId, crmStage: actual },
+      data: { crmStage: "GANADO", wonAt: input.fechaPago, wonQuoteRef: cotizacion, lostReason: null },
+    });
+    if (guardado.count === 0) return false;
+
+    // El chat más reciente del lead (línea de WhatsApp de siempre o API oficial), para la nota.
+    const [chat, oficial] = await Promise.all([
+      prisma.conversation.findFirst({
+        where: { workspaceId: input.workspaceId, contactId: input.contactId },
+        orderBy: [{ lastMessageAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
+        select: { id: true, channelId: true, lastMessageAt: true },
+      }),
+      prisma.officialApiConversation.findFirst({
+        where: { contact: { crmContactId: input.contactId } },
+        orderBy: [{ lastMessageAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
+        select: { id: true, configId: true, lastMessageAt: true },
+      }),
+    ]);
+    const usarOficial =
+      Boolean(oficial) && (!chat || (oficial?.lastMessageAt?.getTime() ?? 0) > (chat.lastMessageAt?.getTime() ?? 0));
+
+    await registrarCambioDeEtapa({
+      workspaceId: input.workspaceId,
+      contactId: input.contactId,
+      conversationId: usarOficial ? oficial?.id ?? null : chat?.id ?? null,
+      etapaAnterior: actual,
+      etapaNueva: "GANADO",
+      origen: "AUTOMATICO",
+      nota: `${NOTA_ETAPA_AUTOMATICA}: ${marcaDeGanadoPorGestion(cotizacion)}`,
+    });
+
+    const texto = `Etapa movida por el sistema: Ganado (Gestión registró el pago${cotizacion ? ` de la cotización ${cotizacion}` : ""})`;
+    try {
+      if (usarOficial && oficial) {
+        await dejarNotaOficial({ configId: oficial.configId, conversationId: oficial.id, texto });
+      } else if (chat) {
+        await recordConversationActivity({
+          workspaceId: input.workspaceId,
+          conversationId: chat.id,
+          channelId: chat.channelId,
+          contactId: input.contactId,
+          kind: "stage_changed",
+          text: texto,
+        });
+      }
+    } catch (falla) {
+      console.info(
+        `[etapa-automatica] Ganado de Gestión guardado pero la nota no quedó en el chat contactId=${input.contactId} causa=${causaCorta(falla)}`,
+      );
+    }
+    return true;
+  } catch (falla) {
+    console.info(`[etapa-automatica] no marcó Ganado por Gestión contactId=${input.contactId} causa=${causaCorta(falla)}`);
+    return false;
+  }
+}

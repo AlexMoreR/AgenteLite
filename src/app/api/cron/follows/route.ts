@@ -26,6 +26,7 @@ import { enviarResumenDiarioAlDueno } from "@/features/tableros-inteligentes/ser
 import { revisarAvisosDeTerminadas } from "@/features/tableros-inteligentes/services/avisos-de-terminadas";
 import { revisarAvisosAlEquipo } from "@/features/tableros-inteligentes/services/avisos-al-equipo";
 import { archivarLasTerminadas } from "@/features/tableros-inteligentes/services/archivadas";
+import { barrerEtapasDeTodos } from "@/features/crm/services/barrido-de-etapas";
 
 function resolveCronSecret() {
   return process.env.FOLLOW_CRON_SECRET?.trim() || process.env.EVOLUTION_WEBHOOK_SECRET?.trim() || "";
@@ -375,6 +376,21 @@ async function handleCron(request: Request) {
         await revisarAlertaDeConexion();
       } catch (error) {
         console.error("[cron/follows] sincronizacion del cerebro error", error);
+      }
+    });
+  }
+
+  /*
+    BARRIDO DE ETAPAS (ver src/features/crm/services/barrido-de-etapas.ts): cada 10 minutos (minuto 6, 16,
+    26...), por negocio: Ganado desde las ventas pagadas de Gestión y la IA barata para los chats sin etapa
+    (máx. 20 por vuelta y 300 al día). Solo escribe la etapa en el CRM; apagado con crm:etapa-automatica:<negocio>.
+  */
+  if (minuto % 10 === 6) {
+    after(async () => {
+      try {
+        await barrerEtapasDeTodos();
+      } catch (error) {
+        console.error("[cron/follows] barrido de etapas error", error);
       }
     });
   }
