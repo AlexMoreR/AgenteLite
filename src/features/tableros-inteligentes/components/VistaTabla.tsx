@@ -91,6 +91,9 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
   const grupos = useMemo(() => aplicarConfig(filas, config), [filas, config]);
   const enOtras = useMemo(() => enOtrasPestanas(todasLasFilas, pestanas, pestana?.clave ?? null, config), [todasLasFilas, pestanas, pestana, config]);
   const visibles = grupos.reduce((suma, grupo) => suma + grupo.filas.length, 0);
+  // Las tarjetas en Hecho o Fallido que la tabla esconde (tras buscar y filtrar) mientras el filtro de Estado no las incluya.
+  const ocultas = useMemo(() => contarTerminadasOcultas(filas, config), [filas, config]);
+  const textoOcultas = ocultas === 1 ? "1 terminada oculta" : `${ocultas} terminadas ocultas`;
   // Las áreas que ya existen, para el menú de la celda (sin repetir por mayúsculas o tildes).
   const areas = useMemo(() => {
     const vistas = new Map<string, string>();
@@ -448,7 +451,8 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
           </select>
         </label>
         <span className="text-xs tabular-nums text-muted-foreground">
-          {visibles} de {filas.length}
+          {visibles} de {filas.length - ocultas}
+          {ocultas > 0 ? ` · ${textoOcultas}` : ""}
         </span>
       </div>
 
@@ -519,9 +523,12 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
             El tablero está vacío. Las ideas que anote Claude aparecen acá en unos segundos.
           </p>
         ) : visibles === 0 ? (
-          !config.busqueda.trim() && !filtrosActivos && contarTerminadasOcultas(filas, config) > 0 ? (
+          ocultas > 0 ? (
             <div className="flex flex-col items-center gap-2 px-6 py-16 text-center text-sm text-muted-foreground">
-              En {pestana.nombre} todas las tarjetas están en Hecho o Fallido.
+              <span>
+                {config.busqueda.trim() || filtrosActivos ? "Con esta búsqueda o estos filtros, en" : "En"} {pestana.nombre} hay {textoOcultas}{" "}
+                (en Hecho o Fallido). Se ven marcando Hecho o Fallido en Filtros → Estado.
+              </span>
               <Button variant="outline" size="sm" onClick={() => cambiarConfig({ filtros: { ...config.filtros, estado: ["HECHO", "FALLIDO"] } })}>
                 Ver las terminadas
               </Button>
