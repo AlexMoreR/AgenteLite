@@ -57,14 +57,13 @@ export type TarjetaDeVista = {
 /** Lo mínimo de un tipo (TipoVista lo cumple). */
 export type TipoDeVista = { id: string; nombre: string; requiereAprobacion: boolean; usaEstados: boolean; orden: number };
 
-/** Una fila de la tabla: la tarjeta y lo que se lee de su tipo y de su madre. */
+/** Una fila de la tabla: la tarjeta, lo que se lee de su tipo y el área heredada de su carpeta madre. */
 export type FilaDeTabla<T extends TarjetaDeVista = TarjetaDeVista> = {
   tarjeta: T;
   tipoNombre: string;
   tipoOrden: number;
   requiereAprobacion: boolean;
   usaEstados: boolean;
-  madreTitulo: string | null;
   /** El área que se muestra: la de la tarjeta o, si no tiene, la de la carpeta (tipo sin estados) de la que cuelga. */
   area: string | null;
   /** true si el área sale de la carpeta madre y no de la tarjeta. */
@@ -99,7 +98,6 @@ export function filasDeTabla<T extends TarjetaDeVista>(tarjetas: readonly T[], t
       tipoOrden: tipo?.orden ?? Number.MAX_SAFE_INTEGER,
       requiereAprobacion: tipo?.requiereAprobacion ?? true,
       usaEstados: tipo?.usaEstados ?? true,
-      madreTitulo: tarjeta.padreId ? (porId.get(tarjeta.padreId)?.titulo ?? null) : null,
       area: propia ?? heredada,
       areaHeredada: !propia && heredada !== null,
     };

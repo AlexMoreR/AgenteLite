@@ -187,6 +187,13 @@ await prueba("una vista que llega de afuera se limpia (columnas y valores raros 
   });
 });
 
+await prueba("una vista guardada que usaba «De qué cuelga» (madre) llega limpia", () => {
+  const limpia = vistas.limpiarConfig({ orden: { columna: "madre", direccion: "asc" }, agrupar: "madre", filtros: { madre: ["x"] } });
+  assert.equal(limpia.orden, null);
+  assert.equal(limpia.agrupar, null);
+  assert.deepEqual(limpia.filtros, {});
+});
+
 await prueba("menú de Estado: IDEA no ofrece Aprobado; PLANEANDO no deja cambiar y dice el motivo de la regla", () => {
   const deIdea = vistas.estadosPermitidos(fila(tareaIdea));
   assert.ok(!deIdea.includes("APROBADO"));
