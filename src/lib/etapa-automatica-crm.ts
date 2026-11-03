@@ -475,7 +475,7 @@ export async function marcarGanadoPorGestion(input: {
         select: { id: true, channelId: true, lastMessageAt: true },
       }),
       prisma.officialApiConversation.findFirst({
-        where: { contact: { crmContactId: input.contactId } },
+        where: { contact: { crmContactId: input.contactId, config: { workspaceId: input.workspaceId } } },
         orderBy: [{ lastMessageAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
         select: { id: true, configId: true, lastMessageAt: true },
       }),
