@@ -4,6 +4,7 @@ import { demoteUnresponsiveStaleLeads } from "@/features/llamadas/services/lead-
 import { enfriarLeadsSinRespuesta } from "@/features/crm/services/lead-temperature";
 import { ejecutarDescarteAutomatico } from "@/features/crm/services/descarte-automatico";
 import { ejecutarDescarteTrasSeguimientos } from "@/features/crm/services/descarte-tras-seguimientos";
+import { barrerEtapasDeTodos } from "@/features/crm/services/barrido-de-etapas";
 import { procesarTandasDeCampanas } from "@/features/campanas/services/campaigns";
 import { purgeOldWebhookEventLogs } from "@/lib/webhook-log-retention";
 import { ejecutarSeguimientosV3 } from "@/features/agente-v3/servicios/seguimientos";
@@ -189,6 +190,21 @@ async function handleCron(request: Request) {
     } catch (error) {
       console.error("[cron/follows] descarte tras seguimientos error", error);
     }
+  }
+
+  /*
+    Barrido de etapas (ver features/crm/services/barrido-de-etapas): cada 10 minutos (minuto 4, 14, 24...), por
+    negocio, Ganado por las ventas de Gestión y la IA para los chats sin etapa (máximo 20 por vuelta y 300 al día).
+    No le escribe a nadie. Se apaga con `crm:etapa-automatica:<negocio>` = "off". En segundo plano.
+  */
+  if (new Date().getMinutes() % 10 === 4) {
+    after(async () => {
+      try {
+        await barrerEtapasDeTodos();
+      } catch (error) {
+        console.error("[cron/follows] barrido de etapas error", error);
+      }
+    });
   }
 
   /*

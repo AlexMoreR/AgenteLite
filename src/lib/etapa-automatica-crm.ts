@@ -38,6 +38,11 @@ export { textoTraeElTotal } from "@/lib/etapa-automatica-crm-texto";
  *    interruptor: `crm:etapa-automatica:descarte:<negocio>` = `off`. Viene prendido;
  *  - Tibio sobre un Caliente no lo baja: solo le deja la fecha de recontacto en la ficha;
  *  - no dispara las reglas de seguimiento por etapa: leer un mensaje no puede terminar en un WhatsApp.
+ *
+ * GANADO POR GESTIÓN (3-nov-2026, ver features/crm/services/barrido-de-etapas.ts): una venta pagada en
+ * Gestión es la ÚNICA forma en que el sistema pone Ganado (`marcarGanadoPorGestion`). Pasa por encima de
+ * cualquier etapa, también de un Descartado puesto a mano: la venta ya ocurrió. Tiene su interruptor:
+ * `crm:etapa-automatica:ganado:<negocio>` = `off`. Viene prendido. No le avisa nada a Gestión.
  */
 
 export type MotivoDeEtapaAutomatica =
@@ -51,6 +56,7 @@ const ETIQUETA: Partial<Record<CrmStage, string>> = {
   CALIFICADO: "Frío",
   PROPUESTA: "Tibio",
   NEGOCIACION: "Caliente",
+  GANADO: "Ganado",
   PERDIDO: "Descartado",
 };
 
@@ -77,6 +83,19 @@ export function claveInterruptorDescarteAutomatico(workspaceId: string): string 
 export async function descartePorLecturaPrendido(workspaceId: string): Promise<boolean> {
   const fila = await prisma.appSetting.findUnique({
     where: { key: claveInterruptorDescarteAutomatico(workspaceId) },
+    select: { value: true },
+  });
+  return fila?.value?.trim().toLowerCase() !== "off";
+}
+
+/** Interruptor aparte, solo para el Ganado que sale de una venta de Gestión. */
+export function claveInterruptorGanadoAutomatico(workspaceId: string): string {
+  return `crm:etapa-automatica:ganado:${workspaceId}`;
+}
+
+export async function ganadoAutomaticoPrendido(workspaceId: string): Promise<boolean> {
+  const fila = await prisma.appSetting.findUnique({
+    where: { key: claveInterruptorGanadoAutomatico(workspaceId) },
     select: { value: true },
   });
   return fila?.value?.trim().toLowerCase() !== "off";
@@ -408,4 +427,75 @@ export function etapaCaliente(input: {
     destino: "NEGOCIACION",
     motivo: input.motivo,
   });
+}
+
+/**
+ * GANADO POR UNA VENTA DE GESTIÓN. Pone Ganado con la fecha del pago y la cotización, deja la fila del
+ * historial (AUTOMATICO, nota "... [gestion] cotización COT-...") y la nota en el chat más reciente.
+ *
+ * Pasa por encima de cualquier etapa, también de un Descartado puesto a mano: la venta ya está pagada.
+ * Si ya está en Ganado no hace nada. Tampoco toca un contacto "fuera del CRM". NO le avisa a Gestión el
+ * origen de la venta (eso lo hace solo el Ganado a mano) ni dispara seguimientos: no sale ningún mensaje.
+ * Quien llama revisa los interruptores. Devuelve true si lo movió. Nunca lanza.
+ */
+export async function marcarGanadoPorGestion(input: {
+  workspaceId: string;
+  contactId: string;
+  cotizacion: string | null;
+  fechaPago: Date;
+}): Promise<boolean> {
+  try {
+    const contacto = await prisma.contact.findFirst({
+      where: { id: input.contactId, workspaceId: input.workspaceId },
+      select: { crmStage: true, excludedFromCrm: true },
+    });
+    if (!contacto || contacto.excludedFromCrm) return false;
+    const actual = contacto.crmStage as CrmStage;
+    if (actual === "GANADO") return false;
+    const cotizacion = input.cotizacion?.trim() || null;
+
+    // Solo si sigue en la etapa leída: si alguien la movió en el medio, se intenta en la próxima vuelta.
+    const guardado = await prisma.contact.updateMany({
+      where: { id: input.contactId, workspaceId: input.workspaceId, crmStage: actual },
+      data: { crmStage: "GANADO", wonAt: input.fechaPago, wonQuoteRef: cotizacion, lostReason: null },
+    });
+    if (guardado.count === 0) return false;
+
+    const conversacion = await prisma.conversation.findFirst({
+      where: { contactId: input.contactId, workspaceId: input.workspaceId },
+      orderBy: { lastMessageAt: "desc" },
+      select: { id: true, channelId: true },
+    });
+    const motivo = cotizacion ? `cotización ${cotizacion}` : "venta sin número de cotización";
+    await registrarCambioDeEtapa({
+      workspaceId: input.workspaceId,
+      contactId: input.contactId,
+      conversationId: conversacion?.id ?? null,
+      etapaAnterior: actual,
+      etapaNueva: "GANADO",
+      origen: "AUTOMATICO",
+      nota: `${NOTA_ETAPA_AUTOMATICA}: [gestion] ${motivo}`,
+    });
+
+    if (conversacion) {
+      try {
+        await recordConversationActivity({
+          workspaceId: input.workspaceId,
+          conversationId: conversacion.id,
+          channelId: conversacion.channelId,
+          contactId: input.contactId,
+          kind: "stage_changed",
+          text: `Etapa movida por el sistema: Ganado (Gestión registró el pago${cotizacion ? ` de la cotización ${cotizacion}` : ""})`,
+        });
+      } catch (falla) {
+        console.info(
+          `[etapa-automatica] quedó en Ganado pero la nota no quedó en el chat contactId=${input.contactId} causa=${causaCorta(falla)}`,
+        );
+      }
+    }
+    return true;
+  } catch (falla) {
+    console.info(`[etapa-automatica] no marcó Ganado contactId=${input.contactId} causa=${causaCorta(falla)}`);
+    return false;
+  }
 }
