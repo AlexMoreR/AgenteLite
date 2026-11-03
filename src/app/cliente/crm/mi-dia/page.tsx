@@ -26,6 +26,7 @@ import { LeadsNuevosDelDia } from "@/features/leads-nuevos/components/LeadsNuevo
 import { ResumenDiaView } from "@/features/llamadas/components/ResumenDiaView";
 import { prisma } from "@/lib/prisma";
 import { canAccessClientModule } from "@/lib/client-workspace-access";
+import { PanelDeMetasSuspendido } from "@/features/metas/components/PanelDeMetas";
 import { buildWaCallsDialerUrl } from "@/lib/wacalls";
 
 export const metadata: Metadata = {
@@ -150,6 +151,8 @@ export default async function ClienteCrmMiDiaPage() {
     ) : null;
 
   return (
+    <>
+    <PanelDeMetasSuspendido access={access} className="mx-4 mt-4 md:mx-6 md:mt-6" />
     <MiDiaView
       data={data}
       llamadasUrgentes={
@@ -181,5 +184,6 @@ export default async function ClienteCrmMiDiaPage() {
         </>
       }
     />
+    </>
   );
 }
