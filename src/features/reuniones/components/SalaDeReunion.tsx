@@ -379,6 +379,8 @@ export function SalaDeReunion({
         if ("pase" in resultado) {
           await room.connect(resultado.pase.url, resultado.pase.pase);
           if (cancelada || caidaDesde === null) {
+            // Tocó «Salir» (o se cerró la sala) mientras entraba: no se queda adentro sin pantalla.
+            void room.disconnect();
             return;
           }
           caidaDesde = null;
@@ -649,7 +651,7 @@ export function SalaDeReunion({
   const enviar = async (evento: React.FormEvent) => {
     evento.preventDefault();
     const limpio = texto.trim().slice(0, 1000);
-    if (!limpio || !local) {
+    if (!limpio || !local || reconectando) {
       return;
     }
     try {
@@ -774,8 +776,13 @@ export function SalaDeReunion({
               ))}
             </div>
             <form onSubmit={enviar} className="flex gap-1.5 border-t border-white/10 p-2">
-              <Input value={texto} onChange={(evento) => setTexto(evento.target.value)} placeholder="Escribe un mensaje" className="text-foreground" />
-              <Button type="submit" size="icon" aria-label="Enviar">
+              <Input
+                value={texto}
+                onChange={(evento) => setTexto(evento.target.value)}
+                placeholder={reconectando ? "Reconectando, espera un momento" : "Escribe un mensaje"}
+                className="text-foreground"
+              />
+              <Button type="submit" size="icon" aria-label="Enviar" disabled={reconectando}>
                 <Send />
               </Button>
             </form>
