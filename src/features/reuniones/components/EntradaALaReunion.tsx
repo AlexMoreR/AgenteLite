@@ -5,7 +5,7 @@ import { Loader2, Video } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { SalaDeReunion, type PaseDeLaSala } from "@/features/reuniones/components/SalaDeReunion";
+import { SalaDeReunion, type PaseDeLaSala, type ResultadoDelPase } from "@/features/reuniones/components/SalaDeReunion";
 
 const CLAVE_IDENTIDAD = "reunion:identidad";
 const CLAVE_NOMBRE = "reunion:nombre";
@@ -45,14 +45,11 @@ export function EntradaALaReunion({ codigo, titulo, sinGrabar = false, nombreCon
     }
   }, []);
 
-  const entrar = async (evento?: React.FormEvent) => {
-    evento?.preventDefault();
-    if (!nombreConSesion && nombre.trim().length < 2) {
-      setError("Escribe tu nombre para entrar.");
-      return;
-    }
-    setEntrando(true);
-    setError(null);
+  /**
+   * Pide el pase al servidor del CRM, con la misma identidad (la sesión o la que guarda el navegador).
+   * La usa «Entrar» y también la sala para volver a entrar sola si se cae la conexión.
+   */
+  const pedirPase = async (): Promise<ResultadoDelPase> => {
     try {
       const respuesta = await fetch("/api/reuniones/pase", {
         method: "POST",
@@ -66,23 +63,40 @@ export function EntradaALaReunion({ codigo, titulo, sinGrabar = false, nombreCon
         recuerdo?: string | null;
       };
       if (!respuesta.ok || !datos.ok || !datos.pase || !datos.url) {
-        setError(datos.error ?? "No se pudo entrar. Intenta de nuevo.");
-        return;
+        // 410: la reunión ya terminó (no tiene sentido seguir intentando).
+        return { error: datos.error ?? "No se pudo entrar. Intenta de nuevo.", terminada: respuesta.status === 410 };
       }
       if (!nombreConSesion && datos.recuerdo) {
         recordar(CLAVE_IDENTIDAD, datos.recuerdo);
         recordar(CLAVE_NOMBRE, nombre.trim());
       }
-      setPase({ url: datos.url, pase: datos.pase, identidad: datos.identidad ?? "", nombre: datos.nombre ?? nombre, puedeTerminar: Boolean(datos.puedeTerminar) });
+      return {
+        pase: { url: datos.url, pase: datos.pase, identidad: datos.identidad ?? "", nombre: datos.nombre ?? nombre, puedeTerminar: Boolean(datos.puedeTerminar) },
+      };
     } catch {
-      setError("No hay conexión. Intenta de nuevo.");
-    } finally {
-      setEntrando(false);
+      return { error: "No hay conexión. Intenta de nuevo.", terminada: false };
+    }
+  };
+
+  const entrar = async (evento?: React.FormEvent) => {
+    evento?.preventDefault();
+    if (!nombreConSesion && nombre.trim().length < 2) {
+      setError("Escribe tu nombre para entrar.");
+      return;
+    }
+    setEntrando(true);
+    setError(null);
+    const resultado = await pedirPase();
+    setEntrando(false);
+    if ("pase" in resultado) {
+      setPase(resultado.pase);
+    } else {
+      setError(resultado.error);
     }
   };
 
   if (pase) {
-    return <SalaDeReunion codigo={codigo} titulo={titulo} sinGrabar={sinGrabar} pase={pase} onSalir={() => setPase(null)} />;
+    return <SalaDeReunion codigo={codigo} titulo={titulo} sinGrabar={sinGrabar} pase={pase} pedirPase={pedirPase} onSalir={() => setPase(null)} />;
   }
 
   return (

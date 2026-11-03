@@ -1,0 +1,2 @@
+## Advertencias de operación
+- `reuniones`: en el celular la sala deja la pantalla encendida y, si se cae la conexión, vuelve a entrar sola a la misma sala (franja «Reconectando…», hasta 10 minutos; después sale «Volver a entrar»). En iPhone (Safari), si se aprieta el botón de bloqueo, iOS corta el micrófono de cualquier página web mientras la pantalla está bloqueada: lo dicho en ese rato no queda en la grabación. Al desbloquear, el micrófono y el audio vuelven solos. En Android con Chrome el audio sigue con la pantalla apagada.

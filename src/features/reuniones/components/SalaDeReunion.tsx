@@ -28,8 +28,12 @@ import {
   type PistaLK,
   type SalaLK,
 } from "@/features/reuniones/components/cargar-livekit";
+import { debeReconectar, esperaDelIntento, hayQueRendirse, nombreDelMotivo } from "@/features/reuniones/components/reconexion";
 
 export type PaseDeLaSala = { url: string; pase: string; identidad: string; nombre: string; puedeTerminar: boolean };
+
+/** Lo que devuelve pedir un pase: el pase, o el error (y si es porque la reunión ya terminó). */
+export type ResultadoDelPase = { pase: PaseDeLaSala } | { error: string; terminada: boolean };
 
 type Mensaje = { id: string; de: string; texto: string; mio: boolean };
 
@@ -242,23 +246,47 @@ function Cuadro({ participante, compacto = false }: { participante: Participante
   );
 }
 
+const SALIO = "Saliste de la reunión.";
+const TERMINO = "La reunión terminó.";
+
+/** Texto de la pantalla de salida cuando NO se reconecta, según el motivo de LiveKit. */
+function textoDeSalida(motivo: string | null) {
+  if (motivo === "ROOM_DELETED") {
+    return TERMINO;
+  }
+  if (motivo === "DUPLICATE_IDENTITY") {
+    return "Entraste a esta reunión desde otro dispositivo.";
+  }
+  if (motivo === "PARTICIPANT_REMOVED") {
+    return "Te sacaron de la reunión.";
+  }
+  return SALIO;
+}
+
 /**
  * Adentro de la reunión: voz (micrófono, silenciar, salir), compartir pantalla y chat. Sin cámara.
  * La pantalla compartida no se graba: el acta sale solo del audio de los micrófonos.
  * Quien la creó, el dueño y los administradores ven
  * "Terminar reunión", que la cierra para todos.
+ *
+ * Para el celular: mientras está adentro la pantalla no se apaga sola (Wake Lock); al volver a la
+ * pestaña revisa el micrófono y el audio; y si la conexión se cae del todo vuelve a entrar sola a la
+ * misma sala con un pase nuevo (misma identidad), así la grabación sigue con una pista nueva que el
+ * CRM une por la hora con la anterior.
  */
 export function SalaDeReunion({
   codigo,
   titulo,
   sinGrabar = false,
   pase,
+  pedirPase,
   onSalir,
 }: {
   codigo: string;
   titulo: string;
   sinGrabar?: boolean;
   pase: PaseDeLaSala;
+  pedirPase: () => Promise<ResultadoDelPase>;
   onSalir: () => void;
 }) {
   const [lk, setLk] = useState<LivekitClient | null>(null);
@@ -277,12 +305,101 @@ export function SalaDeReunion({
   useEffect(() => {
     chatAbiertoRef.current = chatAbierto;
   }, [chatAbierto]);
+  // Lo que la persona quiere del micrófono (para prenderlo igual al reconectar o reiniciarlo al volver).
+  const micDeseadoRef = useRef(true);
+  // «Salir»: la salida es voluntaria y no se reconecta.
+  const salidaVoluntariaRef = useRef(false);
+  // El efecto de la conexión deja acá cómo intentar ya mismo y cómo dejar de intentar.
+  const intentarYaRef = useRef<() => void>(() => undefined);
+  const detenerReconexionRef = useRef<() => void>(() => undefined);
+  const pedirPaseRef = useRef(pedirPase);
+  useEffect(() => {
+    pedirPaseRef.current = pedirPase;
+  }, [pedirPase]);
 
   const repintar = useCallback(() => setVersion((valor) => valor + 1), []);
 
   useEffect(() => {
     let cancelada = false;
     let room: SalaLK | null = null;
+    // Reconexión sola: desde cuándo está caída (null = conectada), número de intento y espera en curso.
+    let caidaDesde: number | null = null;
+    let intento = 0;
+    let intentando = false;
+    let temporizador: number | undefined;
+
+    const salirSinReconectar = (texto: string) => {
+      caidaDesde = null;
+      window.clearTimeout(temporizador);
+      setReconectando(false);
+      setMotivoDeSalida(texto);
+      setEstado("fuera");
+    };
+    detenerReconexionRef.current = () => {
+      caidaDesde = null;
+      window.clearTimeout(temporizador);
+    };
+
+    const prenderMicrofono = async (sala: SalaLK) => {
+      if (!micDeseadoRef.current) {
+        return;
+      }
+      try {
+        await sala.localParticipant.setMicrophoneEnabled(true);
+      } catch {
+        // Sin permiso: no se insiste en cada reconexión; la persona lo prende con el botón.
+        micDeseadoRef.current = false;
+        toast.error("No se pudo usar el micrófono. Revisa el permiso del navegador.");
+      }
+    };
+
+    const programar = () => {
+      window.clearTimeout(temporizador);
+      const espera = esperaDelIntento(intento);
+      intento += 1;
+      temporizador = window.setTimeout(() => void intentar(), espera);
+    };
+
+    // Un intento de volver a entrar: pase nuevo (misma identidad) y la misma sala.
+    const intentar = async () => {
+      if (cancelada || caidaDesde === null || intentando || !room) {
+        return;
+      }
+      window.clearTimeout(temporizador);
+      if (hayQueRendirse(caidaDesde, Date.now())) {
+        salirSinReconectar("Se perdió la conexión con la reunión.");
+        return;
+      }
+      intentando = true;
+      try {
+        const resultado = await pedirPaseRef.current();
+        if (cancelada || caidaDesde === null) {
+          return;
+        }
+        if ("pase" in resultado) {
+          await room.connect(resultado.pase.url, resultado.pase.pase);
+          if (cancelada || caidaDesde === null) {
+            return;
+          }
+          caidaDesde = null;
+          intento = 0;
+          setReconectando(false);
+          setSinAudio(!room.canPlaybackAudio);
+          await prenderMicrofono(room);
+          repintar();
+        } else if (resultado.terminada) {
+          salirSinReconectar(TERMINO);
+        }
+      } catch {
+        // Sin señal todavía: se vuelve a intentar abajo.
+      } finally {
+        intentando = false;
+        if (!cancelada && caidaDesde !== null) {
+          programar();
+        }
+      }
+    };
+    intentarYaRef.current = () => void intentar();
 
     (async () => {
       try {
@@ -312,11 +429,27 @@ export function SalaDeReunion({
         }
         room.on(E.AudioPlaybackStatusChanged, () => setSinAudio(!room?.canPlaybackAudio));
         room.on(E.Reconnecting, () => setReconectando(true));
-        room.on(E.Reconnected, () => setReconectando(false));
+        room.on(E.Reconnected, () => {
+          if (caidaDesde === null) {
+            setReconectando(false);
+          }
+        });
         room.on(E.Disconnected, ((motivo?: number | string) => {
-          const borrada = cliente.DisconnectReason?.ROOM_DELETED;
-          setMotivoDeSalida(borrada !== undefined && motivo === borrada ? "La reunión terminó." : "Saliste de la reunión.");
-          setEstado("fuera");
+          // Al desmontar, o un intento de reconexión que falló (ya hay uno en curso): nada que hacer.
+          if (cancelada || caidaDesde !== null) {
+            return;
+          }
+          const voluntaria = salidaVoluntariaRef.current;
+          if (!debeReconectar({ motivo, tabla: cliente.DisconnectReason, voluntaria })) {
+            salirSinReconectar(voluntaria ? SALIO : textoDeSalida(nombreDelMotivo(motivo, cliente.DisconnectReason)));
+            return;
+          }
+          // Se cayó la conexión: la sala sigue a la vista con «Reconectando…» y vuelve a entrar sola.
+          caidaDesde = Date.now();
+          intento = 0;
+          setReconectando(true);
+          repintar();
+          programar();
         }) as (...argumentos: never[]) => void);
         room.on(E.DataReceived, ((datos: Uint8Array, participante?: ParticipanteLK, _tipo?: unknown, tema?: string) => {
           if (tema !== TEMA_DEL_CHAT) {
@@ -348,11 +481,7 @@ export function SalaDeReunion({
         setRoom(room);
         setEstado("dentro");
         setSinAudio(!room.canPlaybackAudio);
-        try {
-          await room.localParticipant.setMicrophoneEnabled(true);
-        } catch {
-          toast.error("No se pudo usar el micrófono. Revisa el permiso del navegador.");
-        }
+        await prenderMicrofono(room);
         repintar();
       } catch (error) {
         if (!cancelada) {
@@ -362,24 +491,141 @@ export function SalaDeReunion({
       }
     })();
 
+    // Al volver la señal se intenta enseguida, sin esperar el turno.
+    const alVolverLaSenal = () => void intentar();
+    window.addEventListener("online", alVolverLaSenal);
+
     return () => {
       cancelada = true;
+      window.clearTimeout(temporizador);
+      window.removeEventListener("online", alVolverLaSenal);
+      intentarYaRef.current = () => undefined;
+      detenerReconexionRef.current = () => undefined;
       void room?.disconnect();
     };
   }, [pase.url, pase.pase, repintar]);
 
   const local = room?.localParticipant;
 
+  // Pantalla encendida mientras está adentro. El navegador la suelta al pasar a segundo plano:
+  // se vuelve a pedir al regresar a la pestaña. Si el navegador no lo permite, no pasa nada.
+  useEffect(() => {
+    if (estado !== "dentro") {
+      return;
+    }
+    let activo = true;
+    let candado: WakeLockSentinel | null = null;
+    const pedir = async () => {
+      if (!activo || document.visibilityState !== "visible" || !navigator.wakeLock || (candado && !candado.released)) {
+        return;
+      }
+      try {
+        const nuevo = await navigator.wakeLock.request("screen");
+        if (activo) {
+          candado = nuevo;
+        } else {
+          void nuevo.release().catch(() => undefined);
+        }
+      } catch {
+        // Sin permiso o sin batería suficiente: la pantalla se apaga como siempre.
+      }
+    };
+    const alCambiarVisibilidad = () => {
+      if (document.visibilityState === "visible") {
+        void pedir();
+      }
+    };
+    void pedir();
+    document.addEventListener("visibilitychange", alCambiarVisibilidad);
+    return () => {
+      activo = false;
+      document.removeEventListener("visibilitychange", alCambiarVisibilidad);
+      void candado?.release().catch(() => undefined);
+      candado = null;
+    };
+  }, [estado]);
+
+  // Se le dice al celular que hay audio en curso, para que no lo corte en segundo plano.
+  useEffect(() => {
+    if (estado !== "dentro" || !("mediaSession" in navigator)) {
+      return;
+    }
+    try {
+      if (typeof MediaMetadata !== "undefined") {
+        navigator.mediaSession.metadata = new MediaMetadata({ title: titulo, artist: "Reunión" });
+      }
+      navigator.mediaSession.playbackState = "playing";
+    } catch {
+      // Navegador sin Media Session completa: no pasa nada.
+    }
+    return () => {
+      try {
+        navigator.mediaSession.playbackState = "none";
+        navigator.mediaSession.metadata = null;
+      } catch {
+        // Igual que arriba.
+      }
+    };
+  }, [estado, titulo]);
+
+  // Al volver a la pestaña (se prende la pantalla o se regresa a la app): si la conexión está caída se
+  // intenta ya; si el micrófono quedó terminado o silenciado por el sistema se reinicia; y si el audio de
+  // los demás quedó pausado se reanuda (si el navegador no deja, sale «Toca aquí para escuchar…»).
+  useEffect(() => {
+    if (!room || !lk) {
+      return;
+    }
+    const revisar = async () => {
+      if (document.visibilityState !== "visible") {
+        return;
+      }
+      intentarYaRef.current();
+      const pista = room.localParticipant.getTrackPublication(lk.Track.Source.Microphone)?.track;
+      const delNavegador = pista?.mediaStreamTrack;
+      if (micDeseadoRef.current && pista?.restartTrack && delNavegador && (delNavegador.readyState === "ended" || delNavegador.muted)) {
+        try {
+          await pista.restartTrack();
+        } catch {
+          toast.error("El micrófono se apagó. Tócalo para volver a prenderlo.");
+        }
+      }
+      if (!room.canPlaybackAudio) {
+        await room.startAudio().catch(() => undefined);
+        setSinAudio(!room.canPlaybackAudio);
+      }
+      repintar();
+    };
+    const alCambiarVisibilidad = () => void revisar();
+    document.addEventListener("visibilitychange", alCambiarVisibilidad);
+    window.addEventListener("pageshow", alCambiarVisibilidad);
+    return () => {
+      document.removeEventListener("visibilitychange", alCambiarVisibilidad);
+      window.removeEventListener("pageshow", alCambiarVisibilidad);
+    };
+  }, [room, lk, repintar]);
+
   const alternarMicrofono = async () => {
     if (!local) {
       return;
     }
+    const prender = !local.isMicrophoneEnabled;
     try {
-      await local.setMicrophoneEnabled(!local.isMicrophoneEnabled);
+      await local.setMicrophoneEnabled(prender);
+      micDeseadoRef.current = prender;
     } catch {
       toast.error("No se pudo. Revisa el permiso del navegador.");
     }
     repintar();
+  };
+
+  const salir = () => {
+    salidaVoluntariaRef.current = true;
+    // Si estaba reconectando, la sala ya está desconectada y no avisa: se sale acá.
+    detenerReconexionRef.current();
+    setReconectando(false);
+    setMotivoDeSalida(SALIO);
+    setEstado("fuera");
+    void room?.disconnect();
   };
 
   const puedeCompartir = typeof navigator !== "undefined" && !!navigator.mediaDevices?.getDisplayMedia;
@@ -433,7 +679,7 @@ export function SalaDeReunion({
         <div className="max-w-sm space-y-3 text-center">
           <h1 className="text-lg font-semibold">{titulo}</h1>
           <p className="text-sm text-muted-foreground">{motivoDeSalida}</p>
-          {motivoDeSalida !== "La reunión terminó." ? <Button onClick={onSalir}>Volver a entrar</Button> : null}
+          {motivoDeSalida !== TERMINO ? <Button onClick={onSalir}>Volver a entrar</Button> : null}
         </div>
       </div>
     );
@@ -542,7 +788,7 @@ export function SalaDeReunion({
           size="icon-lg"
           variant={local?.isMicrophoneEnabled ? "secondary" : "destructive"}
           onClick={() => void alternarMicrofono()}
-          disabled={!local}
+          disabled={!local || reconectando}
           aria-label="Micrófono"
         >
           {local?.isMicrophoneEnabled ? <Mic /> : <MicOff />}
@@ -552,7 +798,7 @@ export function SalaDeReunion({
             size="icon-lg"
             variant={local?.isScreenShareEnabled ? "default" : "outline"}
             onClick={() => void alternarPantalla()}
-            disabled={!local}
+            disabled={!local || reconectando}
             aria-label="Compartir pantalla"
             className={cn(!local?.isScreenShareEnabled && "text-foreground")}
           >
@@ -574,7 +820,7 @@ export function SalaDeReunion({
             <span className="absolute -top-1 -right-1 rounded-full bg-red-600 px-1 text-[10px] leading-4 text-white">{sinLeer}</span>
           ) : null}
         </Button>
-        <Button size="lg" variant="outline" onClick={() => void room?.disconnect()} className="text-foreground">
+        <Button size="lg" variant="outline" onClick={salir} className="text-foreground">
           <LogOut /> Salir
         </Button>
         {pase.puedeTerminar ? (
