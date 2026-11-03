@@ -19,6 +19,7 @@ import {
   personaQueAprueba,
   tarjetaAsignada,
 } from "@/features/tableros-inteligentes/services/tableros";
+import { preferenciasDe } from "@/features/tableros-inteligentes/services/vistas-guardadas";
 import { FichaDeAsignada } from "@/features/tableros-inteligentes/components/FichaDeAsignada";
 import { InicioDeTableros } from "@/features/tableros-inteligentes/components/InicioDeTableros";
 import { TablerosInteligentesVista } from "@/features/tableros-inteligentes/components/TablerosInteligentesVista";
@@ -53,6 +54,9 @@ const uno = (valor: string | string[] | undefined) => (Array.isArray(valor) ? va
   para los demás se ignora).
   ?vista=hoy abre la pestaña "Hoy" (lo que terminó, falló o espera al dueño): es el link de los WhatsApp.
   ?vista=terminados abre la pestaña "Trabajos terminados" (las tarjetas archivadas; solo el dueño o el ADMIN).
+  Un tablero abre en la última vista de la persona (Tabla, Tablero, Calendario o Mapa; la primera vez,
+  Tabla), guardada en AppSetting `tablero-ia:vistas:<userId>`. Un link con ?area= es de un nivel del
+  mapa: abre en Mapa.
 */
 export default async function TableroIAPage({ searchParams }: PageProps) {
   const access = await requireClientWorkspaceAccess("tableros_inteligentes");
@@ -133,7 +137,11 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
       </>
     );
   }
-  const contenido = await contenidoDelTablero(elegido.id);
+  const [contenido, preferencias] = await Promise.all([
+    contenidoDelTablero(elegido.id),
+    // Si no se puede leer lo guardado, se abre en Tabla sin vistas guardadas: no deja la pantalla sin abrir.
+    preferenciasDe(access.userId).catch(() => ({ ultima: "tabla" as const, guardadas: [] })),
+  ]);
   // El link a una tarjeta abre el nivel de su madre; si no, el nivel pedido (la vista lo valida).
   const nivelInicial =
     tarjetaInicial && !pedidoNivel ? nivelDeLaTarjeta(contenido.tarjetas, tarjetaInicial) : pedidoNivel;
@@ -157,6 +165,8 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
       puedeSubir={persona.esDueno || (persona.aprobador?.alcance === ALCANCE_SISTEMAS && permisoDeSistemasVigente(new Date(), persona.sistemasHasta))}
       puedeCerebro={puedeCerebro}
       puedeAsignar={puedeAsignarResponsable(alcance.soloDe, elegido.duenoUserId)}
+      vistaInicial={pedidoNivel ? "mapa" : preferencias.ultima}
+      vistasGuardadas={preferencias.guardadas}
     />
   );
 }

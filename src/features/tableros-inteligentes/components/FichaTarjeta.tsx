@@ -130,6 +130,8 @@ type Props = {
   flechasEntrantes: ConexionVista[];
   abierta: boolean;
   lado: "bottom" | "right";
+  /** "pagina": la tarjeta abierta desde la Tabla, el Tablero o el Calendario, como página ancha (en el celular, toda la pantalla). */
+  modo?: "panel" | "pagina";
   puedeAprobar: boolean;
   /** Dueño del negocio: el sí final (subir a producción) y quitar zonas protegidas. */
   esDueno: boolean;
@@ -163,6 +165,7 @@ export function FichaTarjeta({
   flechasEntrantes,
   abierta,
   lado,
+  modo = "panel",
   puedeAprobar,
   esDueno,
   puedeSubir,
@@ -241,10 +244,14 @@ export function FichaTarjeta({
   return (
     <Sheet open={abierta} onOpenChange={(abrir) => (!abrir ? alCerrar() : undefined)}>
       <SheetContent
-        side={lado}
+        side={modo === "pagina" ? "right" : lado}
         className={cn(
           "gap-0 overflow-y-auto",
-          lado === "bottom" ? "max-h-[85dvh] rounded-t-2xl" : "w-full sm:max-w-md",
+          modo === "pagina"
+            ? "w-full data-[side=right]:w-full sm:max-w-3xl data-[side=right]:sm:max-w-3xl"
+            : lado === "bottom"
+              ? "max-h-[85dvh] rounded-t-2xl"
+              : "w-full sm:max-w-md",
         )}
       >
         {tarjeta && color ? (
