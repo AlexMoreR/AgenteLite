@@ -16,6 +16,7 @@ import {
   interpretarRespuestaDeLaIA,
   leerIntencionPorFrase,
   vaALaIA,
+  type IntencionDeLaIA,
   type LecturaDelMensaje,
 } from "@/features/crm/domain/intencion-del-cliente";
 import type { CrmStage } from "@/features/crm/types";
@@ -25,12 +26,14 @@ import type { CrmStage } from "@/features/crm/types";
  *
  * Corre después de cada mensaje del cliente, en segundo plano (after() del webhook): no demora nada y
  * nunca lanza. Primero frases claras (gratis); si no hay ninguna, una pregunta corta a la IA del CRM,
- * que solo puede decir Caliente, Tibio o nada. Descartado sale SOLO de una frase clara.
+ * que solo puede decir Caliente, Tibio, Frío o nada. Descartado sale SOLO de una frase clara y la IA
+ * nunca pone Descartado ni Ganado. Pedir precio o fotos (Interesado) pasa a Frío solo un chat vacío ("---").
  *
  * Mueve la etapa con el motor de la etapa automática (src/lib/etapa-automatica-crm.ts), con todas sus
  * protecciones: nunca baja salvo a Descartado, no toca Ganado ni Perdido, ni "fuera del CRM", ni la
- * línea administrativa, y respeta 24 horas lo que una persona movió a mano. No le escribe al cliente:
- * solo pone la etapa, la nota en el chat y la fecha de recontacto.
+ * línea administrativa, y lo que una persona puso a mano nunca baja (ni a Descartado), por más tiempo que
+ * haya pasado: solo sube. No le escribe al cliente: solo pone la etapa, la nota en el chat y la fecha de
+ * recontacto.
  */
 
 /** El modelo barato que ya usa el CRM para leer conversaciones. */
@@ -41,10 +44,11 @@ const SISTEMA = `Eres el clasificador del CRM de una tienda de mobiliario para e
 Lees UN mensaje de un cliente por WhatsApp y contestas con UNA palabra:
 CALIENTE si quiere comprar ya: pregunta cómo pagar, pide datos para consignar, pide el total, elige color o modelo, dice su ciudad para el envío o manda sus datos.
 TIBIO si muestra interés pero lo deja para después, duda o lo va a pensar.
-NADA si solo saluda, pregunta información general, precio o fotos, o no se sabe.
+FRIO si pregunta el precio o pide fotos.
+NADA si solo saluda, pregunta información general o no se sabe.
 Nunca contestes otra cosa.`;
 
-async function preguntarALaIA(texto: string): Promise<"CALIENTE" | "TIBIO" | null> {
+async function preguntarALaIA(texto: string): Promise<IntencionDeLaIA | null> {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) return null;
   const respuesta = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -67,7 +71,14 @@ async function preguntarALaIA(texto: string): Promise<"CALIENTE" | "TIBIO" | nul
   return interpretarRespuestaDeLaIA(datos.choices?.[0]?.message?.content);
 }
 
-/** La IA solo sube a Caliente o Tibio: a un Caliente no se le pregunta. */
+/** La nota de cada respuesta de la IA. */
+const PORQUE_DE_LA_IA: Record<IntencionDeLaIA, string> = {
+  CALIENTE: "el cliente mostró intención de compra",
+  TIBIO: "el cliente lo deja para después",
+  INTERESADO: "el cliente pidió precio o fotos",
+};
+
+/** La IA solo sube a Caliente, Tibio o Frío: a un Caliente no se le pregunta. */
 const SIN_IA: CrmStage[] = ["NEGOCIACION"];
 
 export async function etapaPorLectura(input: {
@@ -89,8 +100,8 @@ export async function etapaPorLectura(input: {
     if (!(await etapaAutomaticaPrendida(input.workspaceId))) return null;
     let metodo: "frase" | "ia" = "frase";
     if (!lectura) {
-      // Solo si el chat se puede mover: ni línea Admin, ni "fuera del CRM", ni cerrado, ni movido a mano
-      // en las últimas 24 h. Así esos mensajes no salen a la IA ni gastan.
+      // Solo si el chat se puede mover: ni línea Admin, ni "fuera del CRM", ni cerrado. Así esos mensajes
+      // no salen a la IA ni gastan. Una etapa puesta a mano sí se lee: la IA solo sube.
       const etapa = await etapaQueSePuedeLeer(input);
       if (etapa && !SIN_IA.includes(etapa)) {
         // Si la IA no contesta (sin conexión, demora), no se mueve nada: lo intenta el próximo mensaje.
@@ -100,10 +111,7 @@ export async function etapaPorLectura(input: {
         });
         if (ia) {
           metodo = "ia";
-          lectura = {
-            intencion: ia,
-            porque: ia === "CALIENTE" ? "el cliente mostró intención de compra" : "el cliente lo deja para después",
-          };
+          lectura = { intencion: ia, porque: PORQUE_DE_LA_IA[ia] };
         }
       }
     }
@@ -120,8 +128,14 @@ export async function etapaPorLectura(input: {
       });
     } else if (lectura.intencion === "TIBIO") {
       movida = await moverEtapaAutomatica({ ...base, destino: "PROPUESTA", recontactarEl: fechaDeRecontacto(texto, cuando).fecha });
-    } else {
+    } else if (lectura.intencion === "INTERESADO") {
+      // Pedir precio o fotos solo llena un chat vacío ("---"): un Tibio o un Caliente no cambian.
+      movida = await moverEtapaAutomatica({ ...base, destino: "CALIFICADO", soloSiEstaVacio: true });
+    } else if (lectura.intencion === "CALIENTE") {
       movida = await moverEtapaAutomatica({ ...base, destino: "NEGOCIACION" });
+    } else {
+      // Un Descartado sin motivo de la lista no mueve nada.
+      movida = null;
     }
     // Cada decisión queda en el registro con su método; las que movieron, además, en el historial de etapas.
     console.info(
@@ -191,7 +205,7 @@ export async function estadoDeEtapaPorLectura(workspaceId: string): Promise<stri
   const descarteApagado = descarte?.value?.trim().toLowerCase() === "off";
 
   return (
-    `activa: lee cada mensaje del cliente y pasa a Caliente, Tibio${descarteApagado ? "" : " o Descartado"}` +
+    `activa: lee cada mensaje del cliente y pasa a Frío (solo desde "---"), Caliente, Tibio${descarteApagado ? "" : " o Descartado"}` +
     `${descarteApagado ? " (descarte apagado: crm:etapa-automatica:descarte:<negocio> = off)" : ""}. ` +
     `Últimos ${DIAS_DE_MEDICION} días: ${porcentaje(conEtapa, total)} % de los leads nuevos con etapa (${conEtapa} de ${total}); ` +
     `movidos por frase: ${metodos.frase ?? 0}, por IA: ${metodos.ia ?? 0}; ` +

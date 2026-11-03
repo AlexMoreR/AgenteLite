@@ -2,13 +2,15 @@
  * QUÉ QUIERE EL CLIENTE, LEYENDO SU MENSAJE (código puro, sin base ni IA). Decisión del dueño, 23-oct-2026.
  *
  * Las asesoras no siempre ponen la etapa, y sin etapa el embudo, "Mi día" y los informes mienten. Con
- * cada mensaje del cliente el sistema decide una de cuatro cosas:
+ * cada mensaje del cliente el sistema decide una de cinco cosas:
  *  - CALIENTE (Negociación): pregunta cómo pagar, pide datos para consignar, pide el total, elige color,
  *    dice su ciudad para el envío o manda sus datos.
  *  - TIBIO (Propuesta): lo deja para después ("más adelante", "lo pienso", "te confirmo", "voy en
  *    noviembre"). Lleva una fecha de recontacto: la que dijo el cliente o 3 días.
  *  - DESCARTADO (Perdido): SOLO con una frase clara (no le interesa, ya compró en otro lado, se
  *    equivocó de número, que no le escriban más).
+ *  - INTERESADO (Frío): pide precio o fotos ("¿qué precio tiene?", "cuánto vale", "mándame fotos"). Solo
+ *    mueve un chat vacío ("---"): eso lo cuida el servicio (etapa-por-lectura.ts).
  *  - nada.
  *
  * ANTE LA DUDA, TIBIO Y NUNCA DESCARTADO. Caso real: una clienta dijo "voy a Bogotá en noviembre" y la
@@ -28,7 +30,10 @@ import { siguienteHoraLaboral } from "../../seguimiento-inteligente/dominio/form
 import { colorElegido } from "../../seguimiento-inteligente/dominio/temperatura";
 import { DIAS_POR_DEFECTO, HORARIO_DE_PAUSA, diceQueEspera } from "../../supervisor/dominio/pausa-acordada";
 
-export type Intencion = "CALIENTE" | "TIBIO" | "DESCARTADO";
+export type Intencion = "CALIENTE" | "TIBIO" | "DESCARTADO" | "INTERESADO";
+
+/** Lo que la IA puede contestar: nunca Descartado ni Ganado. */
+export type IntencionDeLaIA = "CALIENTE" | "TIBIO" | "INTERESADO";
 
 export type MotivoDeDescarte = "no_le_interesa" | "compro_en_otro_lado" | "numero_equivocado" | "no_quiere_que_le_escriban";
 
@@ -195,12 +200,31 @@ export function porQueTibio(texto: string | null | undefined, cuando: Date): str
 }
 
 /* ---------------------------------------------------------------------------------------------- */
+/* INTERESADO (Frío): pide precio o fotos. */
+
+const PIDE_PRECIO =
+  /\b(precio|precios|cuanto (vale|valen|cuesta|cuestan|sale|salen|esta|estan|tiene|cobran|me vale|me cuesta|me sale)|que valor|el valor|valor de|valores|cuanto es el valor|costo|costos)\b/;
+const FOTOS = /\b(foto|fotos|fotico|foticos|fotografias|imagen|imagenes|video|videos|catalogo)\b/;
+const PIDE_VER =
+  /\b(mandame|mandeme|enviame|envieme|pasame|paseme|regalame|regaleme|muestrame|muestreme|tienes|tiene|tienen|hay|quiero ver|quisiera ver|puedo ver|podria ver|me (mandas|manda|mandan|envias|envia|envian|pasas|pasa|regalas|regala|muestras|muestra))\b/;
+
+/** Por qué el mensaje es de un interesado ("el cliente pidió el precio"), o null. */
+export function porQueInteresado(texto: string | null | undefined): string | null {
+  const original = (texto ?? "").slice(0, MAXIMO);
+  if (!original.trim()) return null;
+  const limpio = normalizarParaCierre(original);
+  if (PIDE_PRECIO.test(limpio)) return "el cliente pidió el precio";
+  if (FOTOS.test(limpio) && (PIDE_VER.test(limpio) || /[?¿]/.test(original))) return "el cliente pidió fotos";
+  return null;
+}
+
+/* ---------------------------------------------------------------------------------------------- */
 
 /**
  * La lectura por frases del mensaje, o null si ninguna frase coincide (ahí decide la IA).
  *
  * Orden: Descartado claro → lo deja para después (Tibio gana a la compra: "lo compro en noviembre" es
- * noviembre) → Caliente → señales negativas sueltas (Tibio).
+ * noviembre) → Caliente → señales negativas sueltas (Tibio) → pide precio o fotos (Interesado).
  */
 export function leerIntencionPorFrase(texto: string | null | undefined, cuando: Date): LecturaDelMensaje | null {
   const original = (texto ?? "").slice(0, MAXIMO);
@@ -218,6 +242,8 @@ export function leerIntencionPorFrase(texto: string | null | undefined, cuando: 
   if (caliente) return { intencion: "CALIENTE", porque: caliente };
   const tibio = porQueTibio(original, cuando);
   if (tibio) return { intencion: "TIBIO", porque: tibio };
+  const interesado = porQueInteresado(original);
+  if (interesado) return { intencion: "INTERESADO", porque: interesado };
   return null;
 }
 
@@ -233,12 +259,15 @@ export function vaALaIA(texto: string | null | undefined): boolean {
   return palabras.length >= 3;
 }
 
-/** La respuesta de la IA, en una intención. La IA NUNCA descarta: solo Caliente, Tibio o nada. */
-export function interpretarRespuestaDeLaIA(crudo: string | null | undefined): "CALIENTE" | "TIBIO" | null {
+/**
+ * La respuesta de la IA, en una intención: Caliente, Tibio, Frío (Interesado) o nada. La IA NUNCA pone
+ * Descartado ni Ganado: si contesta eso (o cualquier otra cosa), el resultado es nada y la etapa no cambia.
+ */
+export function interpretarRespuestaDeLaIA(crudo: string | null | undefined): IntencionDeLaIA | null {
   const t = normalizarParaCierre(crudo ?? "");
   if (/^caliente\b/.test(t)) return "CALIENTE";
-  // Cualquier intento de "descartado" o "frío" de la IA se lee como duda: Tibio.
-  if (/^(tibio|descartado|descartar|perdido|frio)\b/.test(t)) return "TIBIO";
+  if (/^tibio\b/.test(t)) return "TIBIO";
+  if (/^frio\b/.test(t)) return "INTERESADO";
   return null;
 }
 

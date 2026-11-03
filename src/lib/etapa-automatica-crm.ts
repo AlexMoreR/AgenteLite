@@ -29,10 +29,12 @@ export { textoTraeElTotal } from "@/lib/etapa-automatica-crm-texto";
  * NUNCA lanza: la asignación, la cotización o el envío ya ocurrieron y no se pueden romper por esto.
  *
  * LO QUE DICE EL CLIENTE (23-oct-2026, ver features/crm/services/etapa-por-lectura.ts): con cada
- * mensaje del cliente se lee la intención y se mueve a Caliente, Tibio o Descartado. Además de lo de
- * arriba:
- *  - si una persona movió la etapa a mano en las últimas 24 horas, no se cambia nada;
- *  - Descartado es la ÚNICA bajada, sale solo de una frase clara (nunca de la IA) y tiene su propio
+ * mensaje del cliente se lee la intención y se mueve a Frío (pide precio o fotos, solo desde "---"),
+ * Caliente, Tibio o Descartado. Además de lo de arriba:
+ *  - LA ETAPA PUESTA A MANO NUNCA BAJA (3-nov-2026, reemplaza la ventana de 24 horas): si el último
+ *    cambio del historial es de una persona (ASESORA o MCP), el sistema solo la puede SUBIR, sin importar
+ *    cuánto tiempo pasó. Ver `puedeMoverSobreEtapaManual`;
+ *  - Descartado es la ÚNICA bajada (y por eso nunca entra sobre una etapa puesta a mano), sale solo de una frase clara (nunca de la IA) y tiene su propio
  *    interruptor: `crm:etapa-automatica:descarte:<negocio>` = `off`. Viene prendido;
  *  - Tibio sobre un Caliente no lo baja: solo le deja la fecha de recontacto en la ficha;
  *  - no dispara las reglas de seguimiento por etapa: leer un mensaje no puede terminar en un WhatsApp.
@@ -85,8 +87,37 @@ export const CLAVE_RECONTACTO = "recontactarEl";
 /** Donde queda la frase exacta con la que el cliente se descartó solo. */
 export const CLAVE_DESCARTE_POR_LECTURA = "descartePorLectura";
 
-/** Lo que una persona movió a mano en las últimas 24 horas se respeta. */
-const RESPETO_A_LA_PERSONA_MS = 24 * 60 * 60 * 1000;
+/** El orden de subida. Perdido (Descartado) no está: no es "más arriba" de nada, es un final. */
+const ORDEN_DE_SUBIDA: CrmStage[] = ["NUEVO", "CALIFICADO", "PROPUESTA", "NEGOCIACION", "GANADO"];
+
+/** Los orígenes del historial que son una persona: lo que ellas ponen el sistema nunca lo baja. */
+const ORIGENES_A_MANO = ["ASESORA", "MCP"];
+
+/**
+ * ¿El sistema puede pasar el lead de `actual` a `destino`? Si el último cambio de etapa lo hizo una
+ * persona (ASESORA o MCP), solo si es una SUBIDA en el orden --- < Frío < Tibio < Caliente < Ganado,
+ * sin importar cuánto tiempo pasó. Descartado nunca entra sobre una etapa puesta a mano (es una bajada)
+ * y sobre un Descartado puesto a mano no se sube nada. Si el último cambio no fue de una persona (o no
+ * hay historial), decide el resto del motor.
+ *
+ * La parte 2 la reutiliza para el Ganado de Gestión, la única excepción (pasa por encima de un
+ * Descartado puesto a mano): esa excepción la pone quien llama, no esta función.
+ */
+export function puedeMoverSobreEtapaManual(
+  actual: CrmStage | null | undefined,
+  destino: CrmStage,
+  ultimoOrigen: string | null | undefined,
+): boolean {
+  if (!ultimoOrigen || !ORIGENES_A_MANO.includes(ultimoOrigen)) return true;
+  return esSubida(actual, destino);
+}
+
+/** ¿De `actual` a `destino` es subir en el orden --- < Frío < Tibio < Caliente < Ganado? */
+function esSubida(actual: CrmStage | null | undefined, destino: CrmStage): boolean {
+  const desde = ORDEN_DE_SUBIDA.indexOf(actual ?? "NUEVO");
+  const hasta = ORDEN_DE_SUBIDA.indexOf(destino);
+  return desde >= 0 && hasta >= 0 && hasta > desde;
+}
 
 /**
  * La causa de una falla en UNA palabra corta y sin el mensaje completo, para el registro.
@@ -147,24 +178,22 @@ type Entrada = {
   recontactarEl?: Date | null;
   /** Descartado: el motivo de la lista (Contact.lostReason) y la frase exacta del cliente. */
   descarte?: { lostReason: string; frase: string } | null;
+  /** Solo mueve un chat vacío ("---", NUEVO): el Interesado que pide precio o fotos. */
+  soloSiEstaVacio?: boolean;
 };
 
 function leerMetadata(valor: unknown): Record<string, unknown> {
   return valor && typeof valor === "object" && !Array.isArray(valor) ? { ...(valor as Record<string, unknown>) } : {};
 }
 
-/** ¿Una persona (asesora o MCP) movió la etapa de este lead en las últimas 24 horas? */
-async function movidaAManoHacePoco(workspaceId: string, contactId: string): Promise<boolean> {
+/** El origen del último cambio de etapa de este lead (ASESORA, MCP, AUTOMATICO, ...), o null si no hay. */
+async function ultimoOrigenDeEtapa(workspaceId: string, contactId: string): Promise<string | null> {
   const fila = await prisma.historialEtapa.findFirst({
-    where: {
-      workspaceId,
-      contactId,
-      origen: { in: ["ASESORA", "MCP"] },
-      creadoEn: { gte: new Date(Date.now() - RESPETO_A_LA_PERSONA_MS) },
-    },
-    select: { id: true },
+    where: { workspaceId, contactId },
+    orderBy: { creadoEn: "desc" },
+    select: { origen: true },
   });
-  return Boolean(fila);
+  return fila?.origen ?? null;
 }
 
 /**
@@ -240,16 +269,15 @@ async function leerLead(entrada: ChatDelLead) {
 }
 
 /**
- * La etapa del lead si lo que diga el cliente lo puede mover, o null: no es del embudo, está cerrado
- * (Ganado o Perdido) o una persona lo movió en las últimas 24 horas. Sirve para no preguntarle a la IA
- * por un chat que igual no se va a tocar.
+ * La etapa del lead si lo que diga el cliente lo puede mover, o null: no es del embudo o está cerrado
+ * (Ganado o Perdido). Sirve para no preguntarle a la IA por un chat que igual no se va a tocar. Una etapa
+ * puesta a mano no lo impide: la IA solo sube (Frío, Tibio o Caliente) y subir siempre se puede.
  */
 export async function etapaQueSePuedeLeer(entrada: ChatDelLead): Promise<CrmStage | null> {
   const lead = await leerLead(entrada);
   if (!lead) return null;
   const actual = lead.contacto.crmStage as CrmStage;
   if (actual === "GANADO" || actual === "PERDIDO") return null;
-  if (await movidaAManoHacePoco(entrada.workspaceId, lead.contactId)) return null;
   return actual;
 }
 
@@ -264,9 +292,15 @@ export async function moverEtapaAutomatica(entrada: Entrada): Promise<CrmStage |
 
     const actual = contacto.crmStage as CrmStage;
     const lectura = entrada.motivo.tipo === "lectura";
-    if (lectura && (await movidaAManoHacePoco(entrada.workspaceId, contactId))) return null;
+    // Pedir precio o fotos solo llena un chat vacío: en Tibio, Caliente u otra etapa no cambia nada.
+    if (entrada.soloSiEstaVacio && actual && actual !== "NUEVO") return null;
 
-    const destino = await decidirDestino(entrada, actual);
+    let destino = await decidirDestino(entrada, actual);
+    // Lo que puso una persona nunca baja. Solo se pregunta al historial si no es una subida.
+    if (destino && !esSubida(actual, destino)) {
+      const origen = await ultimoOrigenDeEtapa(entrada.workspaceId, contactId);
+      if (!puedeMoverSobreEtapaManual(actual, destino, origen)) destino = null;
+    }
     const metadata = leerMetadata(contacto.metadata);
     if (entrada.recontactarEl) metadata[CLAVE_RECONTACTO] = entrada.recontactarEl.toISOString();
 

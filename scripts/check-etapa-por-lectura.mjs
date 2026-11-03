@@ -2,11 +2,12 @@
 // src/features/crm/domain/intencion-del-cliente.ts) con un prisma y una IA FALSOS.
 // Correr: npm run test:etapa-por-lectura
 //
-// 1. Frases reales de cada etapa: Caliente, Tibio, Descartado y nada.
+// 1. Frases reales de cada etapa: Caliente, Tibio, Descartado, Interesado (Frío, solo desde "---") y nada.
 // 2. "voy a Bogotá en noviembre" → Tibio con recontacto en noviembre; "no gracias, ya compré" → Descartado.
 // 3. Un Ganado nunca cambia; con el interruptor apagado no mueve nada; el descarte tiene su interruptor.
-// 4. Respeta 24 h lo que movió una persona; nunca baja (Caliente + "lo pienso" solo deja la fecha).
-// 5. La IA solo da Caliente o Tibio (nunca Descartado), no se le pregunta por un "ok" ni a un Caliente.
+// 4. Lo que puso una persona nunca baja (ni a Descartado), por más días que pasen; nunca baja (Caliente +
+//    "lo pienso" solo deja la fecha).
+// 5. La IA solo da Caliente, Tibio o Frío (nunca Descartado ni Ganado), no se le pregunta por un "ok" ni a un Caliente.
 // 6. Nota en el chat, historial con el método, ningún seguimiento; los enganches existen.
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -17,7 +18,8 @@ const db = {
   settings: new Map(),
   contacto: null,
   canal: "SALES",
-  manualReciente: false,
+  /** El último cambio del historial: { origen, creadoEn } o null. */
+  ultimoCambio: null,
   historial: [],
   notas: [],
   oficial: [],
@@ -40,7 +42,7 @@ const prisma = {
       return { count: 1 };
     },
   },
-  historialEtapa: { findFirst: async () => (db.manualReciente ? { id: "h1" } : null) },
+  historialEtapa: { findFirst: async () => (db.ultimoCambio ? { ...db.ultimoCambio } : null) },
   $executeRaw: async (_s, ...valores) => {
     db.oficial.push(valores);
     return 1;
@@ -85,7 +87,7 @@ function reiniciar(etapa = "NUEVO") {
   db.settings.clear();
   db.contacto = { crmStage: etapa, excludedFromCrm: false, metadata: { otra: "cosa" }, lostReason: null };
   db.canal = "SALES";
-  db.manualReciente = false;
+  db.ultimoCambio = null;
   db.historial.length = 0;
   db.notas.length = 0;
   db.oficial.length = 0;
@@ -165,13 +167,59 @@ await prueba("sin frase: nada; la IA nunca descarta; los cortos no van a la IA",
   assert.equal(dominio.leerIntencionPorFrase("hola buenas tardes quisiera información", CUANDO), null);
   assert.equal(dominio.interpretarRespuestaDeLaIA("CALIENTE"), "CALIENTE");
   assert.equal(dominio.interpretarRespuestaDeLaIA("Tibio."), "TIBIO");
-  assert.equal(dominio.interpretarRespuestaDeLaIA("DESCARTADO"), "TIBIO");
+  assert.equal(dominio.interpretarRespuestaDeLaIA("FRIO"), "INTERESADO");
+  assert.equal(dominio.interpretarRespuestaDeLaIA("Frío"), "INTERESADO");
+  // La IA nunca pone Descartado ni Ganado: eso es nada.
+  for (const crudo of ["DESCARTADO", "descartado.", "GANADO", "Ganado", "PERDIDO"]) {
+    assert.equal(dominio.interpretarRespuestaDeLaIA(crudo), null, crudo);
+  }
   assert.equal(dominio.interpretarRespuestaDeLaIA("NADA"), null);
   for (const texto of ["ok", "gracias", "👍", "listo", "", "sí señora"]) assert.equal(dominio.vaALaIA(texto), false, texto);
   assert.equal(dominio.vaALaIA("quisiera saber más de la camilla"), true);
 });
 
+await prueba("Interesado: pide precio o fotos → Frío; las frases de Caliente, Tibio y Descartado siguen ganando", async () => {
+  const casos = {
+    "¿qué precio tiene?": "el cliente pidió el precio",
+    "Cuánto vale": "el cliente pidió el precio",
+    "cuanto cuesta la camilla": "el cliente pidió el precio",
+    "precio": "el cliente pidió el precio",
+    "mándame fotos": "el cliente pidió fotos",
+    "tienes fotos?": "el cliente pidió fotos",
+    "me regalas fotos de la silla": "el cliente pidió fotos",
+  };
+  for (const [texto, porque] of Object.entries(casos)) {
+    const r = dominio.leerIntencionPorFrase(texto, CUANDO);
+    assert.equal(r?.intencion, "INTERESADO", texto);
+    assert.equal(r.porque, porque, texto);
+  }
+  assert.equal(dominio.leerIntencionPorFrase("cuánto sería el total con envío", CUANDO)?.intencion, "CALIENTE");
+  assert.equal(dominio.leerIntencionPorFrase("muy caro el precio, lo pienso", CUANDO)?.intencion, "TIBIO");
+  assert.equal(dominio.leerIntencionPorFrase("No me interesa", CUANDO)?.intencion, "DESCARTADO");
+  assert.equal(dominio.leerIntencionPorFrase("ya te mandé la foto", CUANDO), null);
+});
+
 // ── El servicio: protecciones, nota, fecha, motivo ───────────────────────────────────────────
+
+await prueba("\"¿qué precio tiene?\" en un chat \"---\" queda en Frío (CALIFICADO)", async () => {
+  assert.equal(await leer("¿qué precio tiene?"), "CALIFICADO");
+  assert.equal(db.contacto.crmStage, "CALIFICADO");
+  assert.equal(db.notas[0].text, "Etapa movida por el sistema: Frío (el cliente pidió el precio)");
+  assert.equal(db.historial[0].nota, "etapa automática: el cliente pidió el precio [frase]");
+  assert.equal(db.ia.length, 0);
+  assert.equal(db.seguimientos, 0);
+  reiniciar();
+  assert.equal(await leer("mándame fotos"), "CALIFICADO");
+});
+
+await prueba("pedir precio o fotos en un chat en Tibio, Caliente o Frío no cambia nada", async () => {
+  for (const etapa of ["CALIFICADO", "PROPUESTA", "NEGOCIACION", "GANADO", "PERDIDO"]) {
+    reiniciar(etapa);
+    assert.equal(await leer("¿qué precio tiene?"), null, etapa);
+    assert.equal(db.contacto.crmStage, etapa);
+    assert.equal(db.notas.length + db.historial.length, 0, etapa);
+  }
+});
 
 await prueba("Caliente: NUEVO pasa a Caliente con nota, historial [frase] y sin seguimientos", async () => {
   assert.equal(await leer("¿Cómo pago?"), "NEGOCIACION");
@@ -236,13 +284,58 @@ await prueba("con el interruptor del descarte apagado las frases de descarte no 
   assert.equal(await leer("¿Cómo pago?"), "NEGOCIACION");
 });
 
-await prueba("si una persona movió la etapa en las últimas 24 h no se cambia nada", async () => {
-  db.manualReciente = true;
+const HACE_30_DIAS = new Date(CUANDO.getTime() - 30 * 86_400_000);
+
+await prueba("una asesora lo puso en Caliente hace 30 días: no baja a Tibio por frase ni a Descartado", async () => {
+  for (const origen of ["ASESORA", "MCP"]) {
+    reiniciar("NEGOCIACION");
+    db.ultimoCambio = { origen, creadoEn: HACE_30_DIAS };
+    assert.equal(await leer("lo pienso"), null, origen);
+    assert.equal(db.contacto.crmStage, "NEGOCIACION");
+    assert.equal(await leer("no me interesa"), null, origen);
+    assert.equal(db.contacto.crmStage, "NEGOCIACION");
+    assert.equal(db.contacto.lostReason, null);
+    assert.equal(db.historial.length + db.notas.length, 0);
+  }
+});
+
+await prueba("lo puesto a mano solo sube: Frío de la asesora pasa a Caliente; Tibio de la asesora no se descarta", async () => {
+  reiniciar("CALIFICADO");
+  db.ultimoCambio = { origen: "ASESORA", creadoEn: new Date(CUANDO.getTime() - 60_000) };
+  assert.equal(await leer("¿Cómo pago?"), "NEGOCIACION");
+  reiniciar("PROPUESTA");
+  db.ultimoCambio = { origen: "ASESORA", creadoEn: HACE_30_DIAS };
+  assert.equal(await leer("no gracias, ya compré"), null);
+  assert.equal(db.contacto.crmStage, "PROPUESTA");
+  // Un Descartado puesto a mano tampoco se toca.
+  reiniciar("PERDIDO");
+  db.ultimoCambio = { origen: "ASESORA", creadoEn: HACE_30_DIAS };
   assert.equal(await leer("¿Cómo pago?"), null);
-  assert.equal(await leer("no me interesa"), null);
-  assert.equal(await leer("lo pienso"), null);
-  assert.equal(db.contacto.crmStage, "NUEVO");
-  assert.equal(db.contacto.metadata.recontactarEl, undefined);
+  assert.equal(db.contacto.crmStage, "PERDIDO");
+});
+
+await prueba("si el último cambio fue del sistema, la frase clara sí descarta", async () => {
+  reiniciar("PROPUESTA");
+  db.ultimoCambio = { origen: "AUTOMATICO", creadoEn: HACE_30_DIAS };
+  assert.equal(await leer("no me interesa"), "PERDIDO");
+});
+
+await prueba("la regla de la etapa puesta a mano, sola", async () => {
+  const { puedeMoverSobreEtapaManual } = cargar("src/lib/etapa-automatica-crm.ts", mocks);
+  // Sin persona en el último cambio decide el resto del motor.
+  assert.equal(puedeMoverSobreEtapaManual("NEGOCIACION", "PERDIDO", "AUTOMATICO"), true);
+  assert.equal(puedeMoverSobreEtapaManual("NEGOCIACION", "PERDIDO", null), true);
+  // Con persona: solo subir, en el orden --- < Frío < Tibio < Caliente < Ganado.
+  for (const origen of ["ASESORA", "MCP"]) {
+    assert.equal(puedeMoverSobreEtapaManual("NUEVO", "CALIFICADO", origen), true);
+    assert.equal(puedeMoverSobreEtapaManual("CALIFICADO", "PROPUESTA", origen), true);
+    assert.equal(puedeMoverSobreEtapaManual("PROPUESTA", "NEGOCIACION", origen), true);
+    assert.equal(puedeMoverSobreEtapaManual("NEGOCIACION", "GANADO", origen), true);
+    assert.equal(puedeMoverSobreEtapaManual("NEGOCIACION", "PROPUESTA", origen), false);
+    assert.equal(puedeMoverSobreEtapaManual("PROPUESTA", "PROPUESTA", origen), false);
+    assert.equal(puedeMoverSobreEtapaManual("CALIFICADO", "PERDIDO", origen), false);
+    assert.equal(puedeMoverSobreEtapaManual("PERDIDO", "GANADO", origen), false);
+  }
 });
 
 await prueba("nunca baja: un Caliente que dice \"lo pienso\" sigue Caliente y solo queda la fecha", async () => {
@@ -267,10 +360,25 @@ await prueba("la IA decide cuando no hay frase, y nunca descarta", async () => {
   assert.equal(await leer("quisiera saber más de la camilla doble para mi spa"), "NEGOCIACION");
   assert.equal(db.ia.length, 1);
   assert.equal(db.historial[0].nota, "etapa automática: el cliente mostró intención de compra [ia]");
+  // Si la IA contesta "descartado" o "ganado", la etapa no cambia.
+  for (const respuesta of ["DESCARTADO", "GANADO"]) {
+    for (const etapa of ["NUEVO", "PROPUESTA"]) {
+      reiniciar(etapa);
+      db.respuestaIA = respuesta;
+      assert.equal(await leer("quisiera saber más de la camilla doble para mi spa"), null, `${respuesta} ${etapa}`);
+      assert.equal(db.contacto.crmStage, etapa);
+      assert.equal(db.historial.length + db.notas.length, 0);
+    }
+  }
+  // "FRIO" de la IA llena un chat vacío y no toca un Tibio.
   reiniciar();
-  db.respuestaIA = "DESCARTADO";
-  assert.equal(await leer("quisiera saber más de la camilla doble para mi spa"), "PROPUESTA");
-  assert.notEqual(db.contacto.crmStage, "PERDIDO");
+  db.respuestaIA = "FRIO";
+  assert.equal(await leer("quisiera saber más de la camilla doble para mi spa"), "CALIFICADO");
+  assert.equal(db.historial[0].nota, "etapa automática: el cliente pidió precio o fotos [ia]");
+  reiniciar("PROPUESTA");
+  db.respuestaIA = "FRIO";
+  assert.equal(await leer("quisiera saber más de la camilla doble para mi spa"), null);
+  assert.equal(db.contacto.crmStage, "PROPUESTA");
   reiniciar();
   db.respuestaIA = "NADA";
   assert.equal(await leer("quisiera saber más de la camilla doble para mi spa"), null);
@@ -286,7 +394,7 @@ await prueba("a la IA no se le pregunta por un \"ok\" ni por un lead ya Caliente
   assert.equal(db.ia.length, 0);
 });
 
-await prueba("línea Admin, \"fuera del CRM\" o movido a mano en 24 h: el mensaje no sale a la IA", async () => {
+await prueba("línea Admin o \"fuera del CRM\": el mensaje no sale a la IA; puesto a mano sí, y solo sube", async () => {
   db.respuestaIA = "CALIENTE";
   const texto = "quisiera saber más de la camilla doble para mi spa";
   db.canal = "ADMIN";
@@ -294,11 +402,13 @@ await prueba("línea Admin, \"fuera del CRM\" o movido a mano en 24 h: el mensaj
   reiniciar();
   db.contacto.excludedFromCrm = true;
   assert.equal(await leer(texto), null);
-  reiniciar();
-  db.manualReciente = true;
-  assert.equal(await leer(texto), null);
   assert.equal(db.ia.length, 0);
   assert.equal(db.contacto.crmStage, "NUEVO");
+  reiniciar("CALIFICADO");
+  db.respuestaIA = "CALIENTE";
+  db.ultimoCambio = { origen: "ASESORA", creadoEn: HACE_30_DIAS };
+  assert.equal(await leer(texto), "NEGOCIACION");
+  assert.equal(db.ia.length, 1);
 });
 
 await prueba("una IA caída o sin texto no rompe nada", async () => {

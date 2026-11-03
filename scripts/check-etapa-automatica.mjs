@@ -7,12 +7,14 @@
 // 4. Con el interruptor en off no hace nada; si el lead cambió en el medio no se guarda nada.
 // 5. Deja la nota en el chat y la fila de historial (AUTOMATICO, "etapa automática").
 // 6. Un error de base no lanza. 7. La función "el texto trae el total". 8. Los enganches existen.
+// 9. Lo que puso una persona (ASESORA o MCP) nunca baja, por más días que pasen: solo sube (ya no hay
+//    ventana de 24 horas). Subir no consulta el historial.
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { cargar, RAIZ } from "./supervisor-cargar.mjs";
 
-const db = { settings: new Map(), contacto: null, canal: "SALES", historial: [], notas: [], oficial: [], seguimientos: 0, falla: false, carrera: false };
+const db = { settings: new Map(), contacto: null, canal: "SALES", historial: [], notas: [], oficial: [], seguimientos: 0, falla: false, carrera: false, ultimoCambio: null, consultasHistorial: 0 };
 
 const prisma = {
   appSetting: { findUnique: async ({ where }) => (db.settings.has(where.key) ? { value: db.settings.get(where.key) } : null) },
@@ -20,6 +22,12 @@ const prisma = {
     findFirst: async () => (db.falla ? Promise.reject(new Error("base caída")) : { contactId: "ct", channelId: "ch", channel: { purpose: db.canal } }),
   },
   officialApiConversation: { findUnique: async () => ({ configId: "cfg", contact: { crmContactId: "ct" } }) },
+  historialEtapa: {
+    findFirst: async () => {
+      db.consultasHistorial += 1;
+      return db.ultimoCambio ? { ...db.ultimoCambio } : null;
+    },
+  },
   contact: {
     findFirst: async () => (db.contacto ? { ...db.contacto } : null),
     updateMany: async ({ where }) => {
@@ -68,6 +76,8 @@ function reiniciar() {
   db.seguimientos = 0;
   db.falla = false;
   db.carrera = false;
+  db.ultimoCambio = null;
+  db.consultasHistorial = 0;
   guardadas.length = 0;
 }
 const asignar = (extra = {}) => motor.etapaAlAsignar({ workspaceId: "ws", source: "agent", conversationId: "cv", asesora: "Laura", ...extra });
@@ -160,6 +170,43 @@ await prueba("un error de base no lanza", async () => {
   } finally {
     console.warn = original;
   }
+});
+
+await prueba("puesto a mano hace 30 días: subir sí (sin consultar el historial); bajar o descartar no", async () => {
+  const haceUnMes = new Date(Date.now() - 30 * 86_400_000);
+  for (const origen of ["ASESORA", "MCP"]) {
+    reiniciar();
+    db.contacto.crmStage = "CALIFICADO";
+    db.ultimoCambio = { origen, creadoEn: new Date() };
+    assert.equal(await caliente(), "NEGOCIACION", origen);
+    assert.equal(db.consultasHistorial, 0);
+  }
+  const descartar = () =>
+    motor.moverEtapaAutomatica({
+      workspaceId: "ws",
+      source: "agent",
+      conversationId: "cv",
+      destino: "PERDIDO",
+      motivo: { tipo: "lectura", porque: "el cliente dijo: «no me interesa»", metodo: "frase" },
+      descarte: { lostReason: "otro: No le interesa", frase: "no me interesa" },
+    });
+  for (const origen of ["ASESORA", "MCP"]) {
+    reiniciar();
+    db.contacto.crmStage = "NEGOCIACION";
+    db.ultimoCambio = { origen, creadoEn: haceUnMes };
+    assert.equal(await descartar(), null, origen);
+    assert.equal(guardadas.length, 0);
+    assert.equal(db.historial.length, 0);
+  }
+  // Si el último cambio fue del sistema, el descarte por frase clara sí entra.
+  reiniciar();
+  db.contacto.crmStage = "NEGOCIACION";
+  db.ultimoCambio = { origen: "AUTOMATICO", creadoEn: haceUnMes };
+  assert.equal(await descartar(), "PERDIDO");
+  // Ya no hay ventana de 24 horas en el código.
+  const codigo = fs.readFileSync(path.join(RAIZ, "src/lib/etapa-automatica-crm.ts"), "utf8");
+  assert.ok(!/RESPETO_A_LA_PERSONA_MS|movidaAManoHacePoco/.test(codigo));
+  assert.ok(/export function puedeMoverSobreEtapaManual\(/.test(codigo));
 });
 
 await prueba("el texto enviado todavía trae el total: intacto, editado alrededor y borrado", async () => {
