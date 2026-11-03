@@ -33,6 +33,19 @@ import { PanelTipos } from "./PanelTipos";
 import { RUTA_DEL_INICIO } from "./DialogoDeTablero";
 import { SelectorDeTablero } from "./SelectorDeTablero";
 import type { CuentasDeTableros } from "./DialogoDeTablero";
+import { guardarUltimaVistaAction } from "@/app/actions/tablero-ia-vistas-actions";
+import {
+  CONFIG_VACIA,
+  aplicarConfig,
+  filasDeLaTabla,
+  type ConfigDeTabla,
+  type Vista,
+  type VistaGuardada,
+} from "../services/vistas-de-tabla";
+import { SelectorDeVista } from "./SelectorDeVista";
+import { BarraDeLaVista, VistaTabla } from "./VistaTabla";
+import { VistaKanban } from "./VistaKanban";
+import { VistaCalendario } from "./VistaCalendario";
 
 /*
   La pantalla de Tablero IA, con el estilo del tablero "Tareas Magilus": el mapa POR NIVELES (como
@@ -54,6 +67,12 @@ import type { CuentasDeTableros } from "./DialogoDeTablero";
 
   Los chips cuentan lo del nivel (recursivo). Apagar un chip atenúa las hijas que no tienen nada en
   los grupos encendidos; "Hecho" arranca apagado.
+
+  ESTILO NOTION (2-nov-2026): un solo tablero con varias vistas de los mismos datos (SelectorDeVista):
+  Tabla (la de entrada), Tablero (kanban por estado), Calendario (por fecha) y Mapa (este diagrama, sin
+  cambios). Tabla, Tablero y Calendario comparten la barra (buscador, filtros, vistas guardadas); tocar
+  una tarjeta ahí la abre como página ancha y la URL lleva ?tarjeta=<id> (atrás del navegador la
+  cierra). La última vista de cada persona y sus vistas guardadas viven en el servidor (AppSetting).
 
   En el celular: arrastrar y pellizcar mueven y acercan el mapa, tocar una tarjeta abre la ficha
   desde abajo, y la ruta y los chips se deslizan de lado.
@@ -121,6 +140,10 @@ type Props = {
   puedeCerebro?: boolean;
   /** Puede cambiar el responsable de las tarjetas de este tablero (quien lo edita). */
   puedeAsignar: boolean;
+  /** La última vista de esta persona (Tabla la primera vez). */
+  vistaInicial: Vista;
+  /** Las vistas que guardó esta persona (las de fábrica se agregan en la barra). */
+  vistasGuardadas: VistaGuardada[];
 };
 
 /** Hasta dónde puede acercar el ajuste automático: pocas tarjetas se ven grandes. */
@@ -225,9 +248,10 @@ function construirNodos(
 
 const posicionesDe = (nodos: NodoDeTarjeta[]) => new Map(nodos.map((nodo) => [nodo.id, nodo.position]));
 
-function urlDelNivel(tableroId: string, nivel: string | null) {
+function urlDelNivel(tableroId: string, nivel: string | null, tarjeta: string | null = null) {
   const parametros = new URLSearchParams({ tablero: tableroId });
   if (nivel) parametros.set("area", nivel);
+  if (tarjeta) parametros.set("tarjeta", tarjeta);
   return `${window.location.pathname}?${parametros.toString()}`;
 }
 
@@ -246,8 +270,16 @@ export function TablerosInteligentesVista({
   puedeSubir,
   puedeCerebro = false,
   puedeAsignar,
+  vistaInicial,
+  vistasGuardadas,
 }: Props) {
   const angosta = useEsAngosta();
+  const [vista, setVista] = useState<Vista>(vistaInicial);
+  const [config, setConfig] = useState<ConfigDeTabla>(CONFIG_VACIA);
+  const [vistaActiva, setVistaActiva] = useState<string | null>(null);
+  const [guardadas, setGuardadas] = useState<VistaGuardada[]>(vistasGuardadas);
+  // true si la ficha abierta se abrió desde la tabla con pushState (cerrarla = "atrás").
+  const fichaEmpujada = useRef(false);
 
   const [contenido, setContenido] = useState<ContenidoNuevo | null>(inicial);
   const [nivel, setNivel] = useState<string | null>(() =>
@@ -343,22 +375,65 @@ export function TablerosInteligentesVista({
     const alVolver = () => {
       const parametros = new URLSearchParams(window.location.search);
       if (parametros.get("tablero") && parametros.get("tablero") !== tableroId) return;
-      irANivel(parametros.get("area"), { empujar: false });
+      // Atrás (o adelante) del navegador: el nivel y la tarjeta abierta salen de la URL.
+      const tarjeta = parametros.get("tarjeta");
+      if (!tarjeta) fichaEmpujada.current = false;
+      irANivel(parametros.get("area"), { empujar: false, abrir: tarjeta });
     };
     window.addEventListener("popstate", alVolver);
     return () => window.removeEventListener("popstate", alVolver);
   }, [irANivel, tableroId]);
 
+  /**
+   * Tabla, Tablero y Calendario: abrir la tarjeta como página ancha. La URL lleva ?tarjeta=<id>, así
+   * que "atrás" del navegador la cierra (popstate).
+   */
+  const abrirComoPagina = useCallback(
+    (id: string) => {
+      setAbierta(id);
+      window.history.pushState(null, "", urlDelNivel(tableroId, nivel, id));
+      fichaEmpujada.current = true;
+    },
+    [nivel, tableroId],
+  );
+
+  /** Cerrar la ficha: si se abrió con pushState, es "atrás"; si llegó en el link, se limpia la URL. */
+  const cerrarFicha = useCallback(() => {
+    setAbierta(null);
+    if (!new URLSearchParams(window.location.search).has("tarjeta")) return;
+    if (fichaEmpujada.current) {
+      fichaEmpujada.current = false;
+      window.history.back();
+    } else {
+      window.history.replaceState(null, "", urlDelNivel(tableroId, nivel));
+    }
+  }, [nivel, tableroId]);
+
+  /** Cambiar de vista y recordarla para esta persona (en el servidor: sirve en cualquier navegador). */
+  const cambiarVista = useCallback((nueva: Vista) => {
+    setVista(nueva);
+    if (nueva === "mapa") setPedidoDeZoom((n) => n + 1);
+    void guardarUltimaVistaAction(nueva)
+      .then((resultado) => {
+        if (!resultado.ok) console.warn("[tablero-ia] no se pudo recordar la vista:", resultado.error);
+      })
+      .catch(() => undefined);
+  }, []);
+
   /** Mostrar una tarjeta: va al nivel de su madre y abre su ficha. */
   const mostrarTarjeta = useCallback(
     (id: string) => {
+      if (vista !== "mapa") {
+        abrirComoPagina(id);
+        return;
+      }
       if (enNivel.has(id)) {
         setAbierta(id);
         return;
       }
       irANivel(madre.get(id) ?? null, { abrir: id });
     },
-    [enNivel, irANivel, madre],
+    [abrirComoPagina, enNivel, irANivel, madre, vista],
   );
 
   /** Aplica filtros nuevos: reacomoda el mapa con lo visible (lo arrastrado a mano se queda) y ajusta el zoom. */
@@ -465,6 +540,13 @@ export function TablerosInteligentesVista({
     return cuenta;
   }, [tarjetas]);
 
+  // Tabla, Tablero y Calendario: las mismas tarjetas como filas, con la búsqueda y los filtros de la barra.
+  const filas = useMemo(() => filasDeLaTabla(tarjetas, tipos), [tarjetas, tipos]);
+  const filasVisibles = useMemo(() => aplicarConfig(filas, config), [config, filas]);
+  const alCambiarDatos = useCallback(async () => {
+    await refrescarYa();
+  }, [refrescarYa]);
+
   const tarjetaAbierta = abierta ? (tarjetas.find((tarjeta) => tarjeta.id === abierta) ?? null) : null;
   const entrantes = abierta ? conexiones.filter((c) => c.destinoId === abierta).map((c) => c.origenId) : [];
   const salientes = abierta ? conexiones.filter((c) => c.origenId === abierta).map((c) => c.destinoId) : [];
@@ -483,7 +565,7 @@ export function TablerosInteligentesVista({
           derecha, el ícono de Tipos (solo dueño/admin). En el celular todo botón mide al menos 40 px
           y "Tablero IA" queda solo con su ícono. */}
       <div className="flex min-h-10 shrink-0 items-center gap-0.5 border-b border-border bg-card px-1 md:min-h-9 md:px-2">
-        {nivel ? (
+        {nivel && vista === "mapa" ? (
           <Button
             variant="ghost"
             size="icon"
@@ -505,7 +587,14 @@ export function TablerosInteligentesVista({
           <span className="hidden sm:inline">Tablero IA</span>
         </Link>
         <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-        <MigasDelNivel tableroNombre={nombreDelTablero}ruta={ruta} alIr={(id) => irANivel(id)} />
+        <MigasDelNivel
+          tableroNombre={nombreDelTablero}
+          ruta={vista === "mapa" ? ruta : []}
+          alIr={(id) => {
+            if (vista !== "mapa") cambiarVista("mapa");
+            irANivel(id);
+          }}
+        />
         {puedeEditarTipos ? (
           <Button
             variant="ghost"
@@ -520,8 +609,45 @@ export function TablerosInteligentesVista({
         ) : null}
       </div>
 
+      <SelectorDeVista vista={vista} alCambiar={cambiarVista} />
+
+      {vista !== "mapa" ? (
+        <BarraDeLaVista
+          filas={filas}
+          config={config}
+          setConfig={setConfig}
+          vistaActiva={vistaActiva}
+          setVistaActiva={setVistaActiva}
+          guardadas={guardadas}
+          setGuardadas={setGuardadas}
+          conAgrupar={vista === "tabla"}
+          cuantas={vista === "tablero" ? filasVisibles.filter((fila) => fila.estado).length : filasVisibles.length}
+        />
+      ) : null}
+
+      {vista === "tabla" ? (
+        <VistaTabla
+          filas={filasVisibles}
+          todas={filas}
+          tipos={tipoPorId}
+          config={config}
+          setConfig={setConfig}
+          setVistaActiva={setVistaActiva}
+          miembros={cuentas.miembros}
+          editable={puedeAsignar}
+          alAbrir={abrirComoPagina}
+          alCambiar={alCambiarDatos}
+          hayTarjetas={tarjetas.length > 0}
+        />
+      ) : null}
+      {vista === "tablero" ? (
+        <VistaKanban filas={filasVisibles} tipos={tipoPorId} editable={puedeAsignar} alAbrir={abrirComoPagina} alCambiar={alCambiarDatos} />
+      ) : null}
+      {vista === "calendario" ? <VistaCalendario filas={filasVisibles} alAbrir={abrirComoPagina} /> : null}
+
       {/* Chips de grupo del nivel (recursivos). Apagado = tachado y "○": sus tarjetas desaparecen del mapa.
-          Se deslizan de lado en el celular. */}
+          Se deslizan de lado en el celular. Solo en la vista Mapa. */}
+      {vista === "mapa" ? (
       <div className="flex shrink-0 gap-1.5 overflow-x-auto border-b border-border bg-card px-3 py-2 [scrollbar-width:none]">
         {CHIPS.map(({ grupo, nombre, color }) => {
           const activo = filtros.has(grupo);
@@ -560,7 +686,9 @@ export function TablerosInteligentesVista({
           Mis tarjetas {cuantasMias}
         </button>
       </div>
+      ) : null}
 
+      {vista === "mapa" ? (
       <div className="relative min-h-0 flex-1 bg-zinc-50 dark:bg-zinc-950">
         {tarjetas.length === 0 ? (
           <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-muted-foreground">
@@ -607,6 +735,7 @@ export function TablerosInteligentesVista({
           </>
         )}
       </div>
+      ) : null}
 
       <FichaTarjeta
         key={abierta ?? "ninguna"}
@@ -619,6 +748,7 @@ export function TablerosInteligentesVista({
         flechasEntrantes={flechasEntrantes}
         abierta={abierta !== null}
         lado={angosta ? "bottom" : "right"}
+        ancha={vista !== "mapa"}
         puedeAprobar={puedeAprobar}
         esDueno={esDueno}
         puedeSubir={puedeSubir}
@@ -626,9 +756,13 @@ export function TablerosInteligentesVista({
         puedeCerebro={puedeCerebro}
         miembros={cuentas.miembros}
         puedeAsignar={puedeAsignar}
-        alCerrar={() => setAbierta(null)}
+        alCerrar={cerrarFicha}
         alElegir={mostrarTarjeta}
-        alEntrar={(id) => irANivel(id)}
+        alEntrar={(id) => {
+          // "Ver sus tarjetas" entra a ese nivel del mapa.
+          if (vista !== "mapa") cambiarVista("mapa");
+          irANivel(id);
+        }}
         alAprobar={refrescarYa}
       />
 

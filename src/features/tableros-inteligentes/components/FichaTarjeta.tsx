@@ -130,6 +130,8 @@ type Props = {
   flechasEntrantes: ConexionVista[];
   abierta: boolean;
   lado: "bottom" | "right";
+  /** Como página ancha (Tablero IA estilo Notion: al tocar una fila de la tabla, el tablero o el calendario). */
+  ancha?: boolean;
   puedeAprobar: boolean;
   /** Dueño del negocio: el sí final (subir a producción) y quitar zonas protegidas. */
   esDueno: boolean;
@@ -163,6 +165,7 @@ export function FichaTarjeta({
   flechasEntrantes,
   abierta,
   lado,
+  ancha = false,
   puedeAprobar,
   esDueno,
   puedeSubir,
@@ -241,10 +244,11 @@ export function FichaTarjeta({
   return (
     <Sheet open={abierta} onOpenChange={(abrir) => (!abrir ? alCerrar() : undefined)}>
       <SheetContent
-        side={lado}
+        side={ancha ? "right" : lado}
         className={cn(
           "gap-0 overflow-y-auto",
-          lado === "bottom" ? "max-h-[85dvh] rounded-t-2xl" : "w-full sm:max-w-md",
+          // Página ancha: ocupa toda la pantalla en el celular y buena parte en el computador.
+          ancha ? "data-[side=right]:w-full data-[side=right]:sm:max-w-3xl" : lado === "bottom" ? "max-h-[85dvh] rounded-t-2xl" : "w-full sm:max-w-md",
         )}
       >
         {tarjeta && color ? (

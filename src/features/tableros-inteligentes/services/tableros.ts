@@ -207,6 +207,8 @@ export type TarjetaVista = {
   /** A quién se le asignó (un miembro activo del negocio) y su nombre; null si no tiene responsable. */
   responsableId: string | null;
   responsableNombre: string | null;
+  /** Marcada urgente (la columna Prioridad de la tabla: Urgente o Normal). */
+  urgente: boolean;
 };
 
 /** El resultado del Coordinador como lo ve la pantalla (todo opcional: lo escribe el Coordinador). */
@@ -317,6 +319,7 @@ const SELECT_TARJETA = {
   trabajoVenceEn: true,
   responsableId: true,
   responsable: { select: { name: true, email: true } },
+  urgente: true,
 } as const;
 
 type FilaTarjeta = Prisma.TarjetaTableroGetPayload<{ select: typeof SELECT_TARJETA }>;
@@ -351,6 +354,7 @@ function aVista(fila: FilaTarjeta): TarjetaVista {
     trabajoVenceEn: fila.trabajoVenceEn ? fila.trabajoVenceEn.toISOString() : null,
     responsableId: fila.responsableId,
     responsableNombre: fila.responsable ? nombreDePersona(fila.responsable) : null,
+    urgente: fila.urgente === true,
   };
 }
 

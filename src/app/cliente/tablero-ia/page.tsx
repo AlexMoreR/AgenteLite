@@ -19,6 +19,8 @@ import {
   personaQueAprueba,
   tarjetaAsignada,
 } from "@/features/tableros-inteligentes/services/tableros";
+import { leerPreferenciasDeVistas } from "@/features/tableros-inteligentes/services/vistas-guardadas";
+import { PREFERENCIAS_INICIALES } from "@/features/tableros-inteligentes/services/vistas-de-tabla";
 import { FichaDeAsignada } from "@/features/tableros-inteligentes/components/FichaDeAsignada";
 import { InicioDeTableros } from "@/features/tableros-inteligentes/components/InicioDeTableros";
 import { TablerosInteligentesVista } from "@/features/tableros-inteligentes/components/TablerosInteligentesVista";
@@ -53,6 +55,8 @@ const uno = (valor: string | string[] | undefined) => (Array.isArray(valor) ? va
   para los demás se ignora).
   ?vista=hoy abre la pestaña "Hoy" (lo que terminó, falló o espera al dueño): es el link de los WhatsApp.
   ?vista=terminados abre la pestaña "Trabajos terminados" (las tarjetas archivadas; solo el dueño o el ADMIN).
+  Dentro de un tablero (estilo Notion, 2-nov-2026) se abre la última vista de la persona: Tabla, Tablero,
+  Calendario o Mapa (la primera vez, Tabla), guardada en AppSetting con su userId.
 */
 export default async function TableroIAPage({ searchParams }: PageProps) {
   const access = await requireClientWorkspaceAccess("tableros_inteligentes");
@@ -133,7 +137,15 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
       </>
     );
   }
-  const contenido = await contenidoDelTablero(elegido.id);
+  const [contenido, vistas] = await Promise.all([
+    contenidoDelTablero(elegido.id),
+    // La última vista de esta persona y sus vistas guardadas (estilo Notion). Si falla la lectura, se
+    // abre en Tabla sin vistas propias: nunca deja la pantalla sin abrir.
+    leerPreferenciasDeVistas(access.userId).catch((fallo) => {
+      console.warn("[tablero-ia] no se pudieron leer las vistas guardadas:", fallo instanceof Error ? fallo.message : fallo);
+      return PREFERENCIAS_INICIALES;
+    }),
+  ]);
   // El link a una tarjeta abre el nivel de su madre; si no, el nivel pedido (la vista lo valida).
   const nivelInicial =
     tarjetaInicial && !pedidoNivel ? nivelDeLaTarjeta(contenido.tarjetas, tarjetaInicial) : pedidoNivel;
@@ -157,6 +169,8 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
       puedeSubir={persona.esDueno || (persona.aprobador?.alcance === ALCANCE_SISTEMAS && permisoDeSistemasVigente(new Date(), persona.sistemasHasta))}
       puedeCerebro={puedeCerebro}
       puedeAsignar={puedeAsignarResponsable(alcance.soloDe, elegido.duenoUserId)}
+      vistaInicial={vistas.ultimaVista}
+      vistasGuardadas={vistas.guardadas}
     />
   );
 }
