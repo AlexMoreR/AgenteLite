@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { PanelDeMetasSuspendido } from "@/features/metas/components/PanelDeMetas";
 import { MiTableroView } from "@/features/crm/components/MiTableroView";
 import { diaDeHoyBogota, getMiTableroData } from "@/features/crm/services/getMiTableroData";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
@@ -60,6 +61,7 @@ export default async function MiTableroPage({ searchParams }: PageProps) {
 
   return (
     <section className="p-4 md:p-6">
+      <PanelDeMetasSuspendido access={access} workspaceId={access.workspaceId} userId={access.userId} className="mb-4" />
       <MiTableroView data={data} userId={userId} esDeOtraPersona={userId !== access.userId} />
     </section>
   );

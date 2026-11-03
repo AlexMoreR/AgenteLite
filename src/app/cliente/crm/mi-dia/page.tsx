@@ -13,6 +13,7 @@ import {
   leerAprobacionesPendientes,
   leerRecuperacionesDeAsesora,
 } from "@/features/seguimiento-inteligente/servicios/recuperacion";
+import { PanelDeMetasSuspendido } from "@/features/metas/components/PanelDeMetas";
 import { PedidosDelSupervisor } from "@/features/supervisor-accionable/components/PanelAccionable";
 import { leerPedidosDelSupervisor } from "@/features/supervisor-accionable/servicios/accionable";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
@@ -150,6 +151,8 @@ export default async function ClienteCrmMiDiaPage() {
     ) : null;
 
   return (
+    <>
+    <PanelDeMetasSuspendido access={access} workspaceId={access.workspaceId} userId={access.userId} className="mx-4 mt-4 md:mx-6 md:mt-6" />
     <MiDiaView
       data={data}
       llamadasUrgentes={
@@ -181,5 +184,6 @@ export default async function ClienteCrmMiDiaPage() {
         </>
       }
     />
+    </>
   );
 }
