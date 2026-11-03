@@ -2,6 +2,7 @@
 #   - "Agente de Sistemas"  a las 6:30 a. m. (solo lee: revisa lo subido, la salud del sistema y, los lunes, el uso)
 #   - "Agente de Marketing" a las 6:45 a. m. (antes de Ventas, para que Ventas pueda usar su dato)
 #   - "Agente de Ventas"    a las 7:00 a. m.
+#   - "Coach de Ventas"     a las 10:00 p. m. (Opus revisa los chats del día de cada asesora; correr-coach.mjs)
 # Si aizen1 estaba apagado a esa hora, corren apenas prenda ("ejecutar en cuanto se pueda si se pasó la hora"): Ventas
 # avisa en el mensaje a Alexander que salió tarde y el resumen de Marketing queda marcado "salió tarde". Lo corre el
 # dueño, una vez, en el PC "aizen1", cuando ya probó los agentes a mano (ver README.md). Se copia del instalador del
@@ -10,7 +11,8 @@
 #   powershell -ExecutionPolicy Bypass -File agentes-de-area\instalar-tarea-windows.ps1
 #   (para quitarlas:  Unregister-ScheduledTask -TaskName "Agente de Ventas" -Confirm:$false
 #                     Unregister-ScheduledTask -TaskName "Agente de Marketing" -Confirm:$false
-#                     Unregister-ScheduledTask -TaskName "Agente de Sistemas" -Confirm:$false)
+#                     Unregister-ScheduledTask -TaskName "Agente de Sistemas" -Confirm:$false
+#                     Unregister-ScheduledTask -TaskName "Coach de Ventas" -Confirm:$false)
 #
 # Corren con el usuario que inicia sesión (el que tiene `claude` con el plan de Alexander), sin permisos de
 # administrador: el `claude` logueado vive en la sesión del usuario.
@@ -25,9 +27,9 @@ $node = (Get-Command node -ErrorAction Stop).Source
 if (-not (Test-Path $config)) {
   Write-Error "Falta $config. Copia config.example.json a config.local.json y complétalo antes de instalar las tareas."
 }
-foreach ($area in @("ventas", "marketing", "sistemas")) {
+foreach ($area in @("ventas", "marketing", "sistemas", "coach")) {
   if (-not (Test-Path (Join-Path $carpeta "$area\.mcp.json"))) {
-    Write-Error "Falta $area\.mcp.json. Copia $area\.mcp.json.example a $area\.mcp.json y pon las claves (CRM, Gestión y, en marketing, el conector de Meta Ads; en sistemas, además, el de Google Drive de solo lectura)."
+    Write-Error "Falta $area\.mcp.json. Copia $area\.mcp.json.example a $area\.mcp.json y pon las claves (CRM, Gestión y, en marketing, el conector de Meta Ads; en sistemas, además, el de Google Drive de solo lectura; en coach, solo el CRM)."
   }
 }
 
@@ -54,4 +56,18 @@ foreach ($tarea in $tareas) {
     -Description $tarea.Descripcion -Force | Out-Null
   Write-Host "Listo: la tarea '$($tarea.Nombre)' corre de lunes a sábado a las $($tarea.Hora). Para probarla ya: Start-ScheduledTask -TaskName '$($tarea.Nombre)'"
 }
+# El Coach de Ventas: a las 10 p. m., de lunes a sábado (sin domingo), con su propio lanzador. Tope de 2 h para la
+# tarea (Claude tiene su tope de 60 min dentro del lanzador; el resto es leer el uso y avisar).
+$scriptCoach = Join-Path $carpeta "correr-coach.mjs"
+$ajustesCoach = New-ScheduledTaskSettingsSet `
+  -StartWhenAvailable `
+  -ExecutionTimeLimit (New-TimeSpan -Hours 2) `
+  -MultipleInstances IgnoreNew `
+  -AllowStartIfOnBatteries `
+  -DontStopIfGoingOnBatteries
+$accionCoach = New-ScheduledTaskAction -Execute $node -Argument "`"$scriptCoach`"" -WorkingDirectory $carpeta
+$disparadorCoach = New-ScheduledTaskTrigger -Weekly -DaysOfWeek $dias -At "10:00PM"
+Register-ScheduledTask -TaskName "Coach de Ventas" -Action $accionCoach -Trigger $disparadorCoach -Settings $ajustesCoach -Principal $quien `
+  -Description "Coach de Ventas: Opus revisa los chats del día de cada asesora y les deja su revisión; salta el día si el uso semanal de Claude va en 80 % o más (agentes-de-area/correr-coach.mjs)." -Force | Out-Null
+Write-Host "Listo: la tarea 'Coach de Ventas' corre de lunes a sábado a las 10:00PM. Para probarla ya: Start-ScheduledTask -TaskName 'Coach de Ventas'"
 Write-Host "El registro de cada día queda en agentes-de-area\logs."

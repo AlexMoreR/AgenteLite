@@ -107,3 +107,29 @@ Revisa **al día siguiente de cada subida** si lo construido funciona, si se usa
    `revisar-pantalla.mjs` (`sistemas.sesionPlaywright`). Sin esa sesión las pantallas salen "NO SE PUEDE PROBAR: pide iniciar sesión".
 5. Pruebas: `npm run test:agente-de-sistemas` (CRM, base de mentira), `npm run test:agente-de-sistemas-candado` (herramientas y candado) y
    `npm run test:agentes-de-area-lanzador`.
+
+## Coach de Ventas (Opus): cómo corre
+
+Cada noche **Claude Opus** lee los chats del día de cada asesora y le deja una revisión corta para vender mejor
+(**enseña, no castiga**). Nunca le escribe a un cliente.
+
+1. **10 p. m., de lunes a sábado** (sin domingo) — tarea de Windows "Coach de Ventas": `node correr-coach.mjs`. Revisa los
+   chats de 00:00 a 22:00 de ese día; si aizen1 estaba apagado y corre al prender, antes del mediodía revisa el día anterior.
+2. **Corte por uso**: antes de abrir Claude lee el uso **semanal** de la suscripción (`claude -p /usage`). Si va en
+   `coach.umbralSemana` (80 %) o más, o no se puede leer, **no abre Claude**: llama a `coach_avisar_del_dia` con
+   `saltado: true` (el dueño recibe el WhatsApp "día saltado por uso") y termina.
+3. Si el uso está bien abre Claude con `--model opus` en `coach/` (su `CLAUDE.md`, `.claude/settings.json` y `.mcp.json`;
+   los subagentes también van con Opus), con un tope de `coach.maxMinutos` (60): al vencer se mata el proceso. Claude
+   lee hasta 25 chats por asesora (`coach_chats_del_dia`, `coach_ver_chat`), elige 1 bien llevado y 2 mejorables, guarda
+   la revisión (`coach_guardar_revision`) y anota 1 o 2 aprendizajes en "Aprendizajes de Ventas".
+4. **El aviso lo hace el lanzador**, no Claude (Claude no tiene permiso): al final llama a `coach_avisar_del_dia` y el CRM
+   le manda a cada asesora su WhatsApp corto con el link a su revisión.
+5. **El interruptor** está en `/cliente/equipo/coach/informe`: apagado, el CRM no guarda revisiones ni avisa nada.
+6. **El candado** (`coach/.claude/settings.json`, y el lanzador pasa las mismas listas): solo las 5 herramientas del Coach y
+   del cerebro del área; prohibidos Bash, Edit, Write, `mandar_whatsapp_al_equipo`, `cerebro_escribir`, `editar_*`,
+   `v3_*`, `ads_*` y `coach_avisar_del_dia`.
+7. **Prueba**: `node agentes-de-area\correr-coach.mjs --prueba` (con `--fecha AAAA-MM-DD` para otro día) hace todo igual
+   pero el aviso va con `prueba: true`: **no sale ningún WhatsApp** y el registro muestra los textos.
+8. **Instalar**: copiar `coach\.mcp.json.example` a `coach\.mcp.json` (solo la clave del CRM) y correr otra vez
+   `instalar-tarea-windows.ps1`. Cada noche deja `logs/coach-AAAA-MM-DD.log` (con las líneas que fallaron y las últimas
+   30 líneas de Claude) y `logs/coach-AAAA-MM-DD-claude.txt`. Prueba: `node agentes-de-area/pruebas/probar-coach.mjs`.

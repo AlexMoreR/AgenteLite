@@ -27,5 +27,11 @@
   "tableroDeEmanuel": "PEGAR_AQUI_EL_ID_DEL_TABLERO_DE_EMANUEL",
   "sistemas": {
     "sesionPlaywright": "./sistemas/sesion-solo-lectura.json"
+  },
+  "coach": {
+    "modelo": "opus",
+    "umbralSemana": 80,
+    "maxChatsPorAsesora": 25,
+    "maxMinutos": 60
   }
 }

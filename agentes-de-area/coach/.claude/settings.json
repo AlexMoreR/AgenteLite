@@ -1,0 +1,32 @@
+{
+  "model": "opus",
+  "env": {
+    "CLAUDE_CODE_SUBAGENT_MODEL": "opus"
+  },
+  "permissions": {
+    "allow": [
+      "mcp__aizencrm__coach_chats_del_dia",
+      "mcp__aizencrm__coach_ver_chat",
+      "mcp__aizencrm__coach_guardar_revision",
+      "mcp__aizencrm__cerebro_del_area",
+      "mcp__aizencrm__cerebro_anotar_aprendizaje"
+    ],
+    "deny": [
+      "Bash",
+      "Edit",
+      "Write",
+      "NotebookEdit",
+      "WebFetch",
+      "WebSearch",
+      "mcp__aizencrm__mandar_whatsapp_al_equipo",
+      "mcp__aizencrm__cerebro_escribir",
+      "mcp__aizencrm__cerebro_listar",
+      "mcp__aizencrm__cerebro_buscar",
+      "mcp__aizencrm__cerebro_leer",
+      "mcp__aizencrm__editar_*",
+      "mcp__aizencrm__v3_*",
+      "mcp__aizencrm__ads_*",
+      "mcp__aizencrm__coach_avisar_del_dia"
+    ]
+  }
+}

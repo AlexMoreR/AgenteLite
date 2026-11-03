@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "aizencrm": {
+      "type": "http",
+      "url": "https://app.aizenbot.com/api/mcp",
+      "headers": { "Authorization": "Bearer aizen_mcp_PEGAR_AQUI_LA_CLAVE_DEL_MCP_DEL_CRM" }
+    }
+  }
+}
