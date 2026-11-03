@@ -1,5 +1,5 @@
 // Pruebas de las partes puras del módulo Reuniones: unir las pistas por hora, limpiar lo que
-// devuelve whisper-1, los archivos de audio, el acta y lo que se lee de los avisos de LiveKit.
+// devuelve whisper-1, los archivos de audio, el acta, lo que se lee de los avisos de LiveKit y la reconexión sola de la sala.
 // Correr: npm run test:reuniones-unir-pistas
 import assert from "node:assert/strict";
 import os from "node:os";
@@ -25,6 +25,8 @@ const { slugDeTitulo, slugLibre } = cargar("src/features/reuniones/servicios/slu
 const { esDeEgress, nombreParaGuardar, nombreVisible, personasDeLaReunion, userIdsPorBuscar } = cargar("src/features/reuniones/servicios/nombres-de-participantes.ts", mocks);
 
 const { sePuedeBorrarPorEstado, puedeBorrarLaReunionDe } = cargar("src/features/reuniones/servicios/borrar-reunion.ts", mocks);
+
+const { debeReconectar, nombreDelMotivo, esperaDelIntento, hayQueRendirse, RENDIRSE_MS } = cargar("src/features/reuniones/components/reconexion.ts", mocks);
 
 const { parsearSilencios, armarTramos, frasesDelTramo, modeloDeTranscripcion, devuelveSegmentos, resumenDeAhorro, argumentosDeSilencios } = cargar("src/features/reuniones/servicios/tramos-de-voz.ts", mocks);
 
@@ -461,6 +463,77 @@ prueba("modelo: por defecto gpt-4o-mini-transcribe y configurable", () => {
   assert.equal(modeloDeTranscripcion(" whisper-1 "), "whisper-1");
   assert.equal(devuelveSegmentos("whisper-1"), true);
   assert.equal(devuelveSegmentos("gpt-4o-mini-transcribe"), false);
+});
+
+// ── reconexión sola de la sala (celular) ─────────────────────────────────────────────────────
+// Así llega el enum de livekit-client: nombre -> número y número -> nombre.
+const TABLA_DE_MOTIVOS = {
+  UNKNOWN_REASON: 0, 0: "UNKNOWN_REASON",
+  CLIENT_INITIATED: 1, 1: "CLIENT_INITIATED",
+  DUPLICATE_IDENTITY: 2, 2: "DUPLICATE_IDENTITY",
+  SERVER_SHUTDOWN: 3, 3: "SERVER_SHUTDOWN",
+  PARTICIPANT_REMOVED: 4, 4: "PARTICIPANT_REMOVED",
+  ROOM_DELETED: 5, 5: "ROOM_DELETED",
+  SIGNAL_CLOSE: 9, 9: "SIGNAL_CLOSE",
+};
+
+prueba("debeReconectar: no con Salir, sala borrada, identidad duplicada ni participante sacado", () => {
+  assert.equal(debeReconectar({ motivo: TABLA_DE_MOTIVOS.CLIENT_INITIATED, tabla: TABLA_DE_MOTIVOS, voluntaria: true }), false);
+  assert.equal(debeReconectar({ motivo: undefined, tabla: TABLA_DE_MOTIVOS, voluntaria: true }), false);
+  for (const nombre of ["ROOM_DELETED", "DUPLICATE_IDENTITY", "PARTICIPANT_REMOVED"]) {
+    assert.equal(debeReconectar({ motivo: TABLA_DE_MOTIVOS[nombre], tabla: TABLA_DE_MOTIVOS, voluntaria: false }), false, nombre);
+    // También si el motivo llega como texto.
+    assert.equal(debeReconectar({ motivo: nombre, tabla: null, voluntaria: false }), false, `${nombre} como texto`);
+  }
+});
+
+prueba("debeReconectar: sí con caídas de red o de señal (y sin motivo conocido)", () => {
+  for (const nombre of ["UNKNOWN_REASON", "SIGNAL_CLOSE", "SERVER_SHUTDOWN"]) {
+    assert.equal(debeReconectar({ motivo: TABLA_DE_MOTIVOS[nombre], tabla: TABLA_DE_MOTIVOS, voluntaria: false }), true, nombre);
+  }
+  assert.equal(debeReconectar({ motivo: undefined, tabla: TABLA_DE_MOTIVOS, voluntaria: false }), true);
+  assert.equal(debeReconectar({ motivo: 99, tabla: undefined, voluntaria: false }), true);
+  // El navegador puede cortar la sala al pasar a segundo plano (pagehide) sin que la persona tocara Salir.
+  assert.equal(debeReconectar({ motivo: TABLA_DE_MOTIVOS.CLIENT_INITIATED, tabla: TABLA_DE_MOTIVOS, voluntaria: false }), true);
+  assert.equal(nombreDelMotivo(5, TABLA_DE_MOTIVOS), "ROOM_DELETED");
+  assert.equal(nombreDelMotivo(5, null), null);
+});
+
+prueba("esperaDelIntento: 1, 2, 4, 8 y después 15 s", () => {
+  assert.deepEqual([0, 1, 2, 3, 4, 5, 20].map(esperaDelIntento), [1000, 2000, 4000, 8000, 15000, 15000, 15000]);
+});
+
+prueba("hayQueRendirse: a los 10 minutos de la caída, no antes", () => {
+  const caida = Date.parse(INICIO);
+  assert.equal(RENDIRSE_MS, 10 * 60 * 1000);
+  assert.equal(hayQueRendirse(caida, caida), false);
+  assert.equal(hayQueRendirse(caida, caida + 10 * 60 * 1000 - 1), false);
+  assert.equal(hayQueRendirse(caida, caida + 10 * 60 * 1000), true);
+  assert.equal(hayQueRendirse(caida, caida + 11 * 60 * 1000), true);
+});
+
+prueba("reconexión: dos pistas de la misma persona con un hueco de 30 s quedan en orden y con el hueco", () => {
+  // Ana habla, se le cae la señal a los 20 s y vuelve a los 50 s: LiveKit abre una pista nueva.
+  // Las pistas llegan en desorden (como pueden salir de la base).
+  const unidas = unirPistas(
+    [
+      { nombre: "Ana", empiezaEn: mas(50), frases: [frase(0, 3, "Ya volví"), frase(5, 8, "sigo con las ventas")] },
+      { nombre: "Ana", empiezaEn: INICIO, frases: [frase(0, 4, "Empiezo con las ventas"), frase(15, 20, "y se me va la señal")] },
+    ],
+    INICIO,
+  );
+  assert.deepEqual(
+    unidas.map((una) => [una.inicioMs, una.finMs, una.nombre, una.texto]),
+    [
+      [0, 4000, "Ana", "Empiezo con las ventas"],
+      [15000, 20000, "Ana", "y se me va la señal"],
+      [50000, 53000, "Ana", "Ya volví"],
+      [55000, 58000, "Ana", "sigo con las ventas"],
+    ],
+  );
+  // El hueco de la reconexión (20 s -> 50 s) se respeta: no se juntan ni se corren las frases.
+  assert.equal(unidas[2].inicioMs - unidas[1].finMs, 30_000);
+  assert.equal(transcripcionEnTexto(unidas).split("\n")[2], "[00:50] Ana: Ya volví");
 });
 
 console.log(`\n${casos} pruebas de reuniones (unir pistas y partes puras) OK`);

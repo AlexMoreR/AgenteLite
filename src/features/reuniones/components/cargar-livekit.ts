@@ -19,6 +19,9 @@ export type PistaLK = {
   source: string;
   attach: (elemento: HTMLMediaElement) => HTMLMediaElement;
   detach: (elemento?: HTMLMediaElement) => HTMLMediaElement[] | HTMLMediaElement;
+  /** Solo en las pistas propias (por ejemplo el micrófono): la pista del navegador y cómo reiniciarla. */
+  mediaStreamTrack?: MediaStreamTrack;
+  restartTrack?: (opciones?: Record<string, unknown>) => Promise<void>;
 };
 
 export type PublicacionLK = {
@@ -63,6 +66,7 @@ export type LivekitClient = {
   Room: new (opciones?: Record<string, unknown>) => SalaLK;
   RoomEvent: Record<string, string>;
   Track: { Source: Record<"Camera" | "Microphone" | "ScreenShare" | "ScreenShareAudio", string> };
+  /** Motivo de la desconexión (ROOM_DELETED, DUPLICATE_IDENTITY…): enum numérico con sus nombres. */
   DisconnectReason?: Record<string, number | string>;
 };
 
