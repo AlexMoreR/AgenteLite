@@ -117,13 +117,12 @@ export const COLUMNAS = [
   { clave: "prioridad", nombre: "Prioridad" },
   { clave: "responsable", nombre: "Responsable" },
   { clave: "fecha", nombre: "Fecha" },
-  { clave: "madre", nombre: "De qué cuelga" },
 ] as const;
 export type ClaveDeColumna = (typeof COLUMNAS)[number]["clave"];
 export const NOMBRE_DE_LA_COLUMNA = Object.fromEntries(COLUMNAS.map((c) => [c.clave, c.nombre])) as Record<ClaveDeColumna, string>;
 
 /** Por las que se filtra con opciones y se agrupa (Código y Título se buscan con el buscador). */
-export const COLUMNAS_CON_OPCIONES = ["tipo", "area", "estado", "prioridad", "responsable", "fecha", "madre"] as const satisfies readonly ClaveDeColumna[];
+export const COLUMNAS_CON_OPCIONES = ["tipo", "area", "estado", "prioridad", "responsable", "fecha"] as const satisfies readonly ClaveDeColumna[];
 export type ColumnaConOpciones = (typeof COLUMNAS_CON_OPCIONES)[number];
 
 export function esColumna(valor: unknown): valor is ClaveDeColumna {
@@ -178,10 +177,6 @@ export function valorDeColumna(fila: FilaDeTabla, columna: ClaveDeColumna): { cl
       const mes = MES.format(new Date(`${dia.slice(0, 7)}-15T12:00:00Z`));
       return { clave: dia.slice(0, 7), texto: mes.charAt(0).toUpperCase() + mes.slice(1) };
     }
-    case "madre":
-      return tarjeta.padreId && fila.madreTitulo
-        ? { clave: tarjeta.padreId, texto: fila.madreTitulo }
-        : { clave: "", texto: "No cuelga de nada" };
   }
 }
 

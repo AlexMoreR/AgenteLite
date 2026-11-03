@@ -87,7 +87,7 @@ const ids = (lista) => lista.map((f) => f.tarjeta.id);
 await prueba("las columnas de la tabla son las del plan, en orden", () => {
   assert.deepEqual(
     vistas.COLUMNAS.map((c) => c.nombre),
-    ["Código", "Título", "Tipo", "Área", "Estado", "Prioridad", "Responsable", "Fecha", "De qué cuelga"],
+    ["Código", "Título", "Tipo", "Área", "Estado", "Prioridad", "Responsable", "Fecha"],
   );
   assert.equal(filas.length, TARJETAS.length, "una fila por tarjeta");
 });
@@ -99,14 +99,12 @@ await prueba("la vista por defecto es Tabla y las vistas son Tabla, Tablero, Cal
   assert.equal(vistas.esVista("lista"), false);
 });
 
-await prueba("valor de cada columna: área heredada de la carpeta, prioridad, madre, fecha y carpetas sin estado", () => {
+await prueba("valor de cada columna: área heredada de la carpeta, prioridad, fecha y carpetas sin estado", () => {
   assert.equal(fila(idea1).area, "Sistemas");
   assert.equal(fila(idea1).areaHeredada, true);
   assert.equal(fila(idea2).areaHeredada, false);
   assert.deepEqual(vistas.valorDeColumna(fila(tareaPorAprobar), "prioridad"), { clave: "URGENTE", texto: "Urgente" });
   assert.deepEqual(vistas.valorDeColumna(fila(idea2), "prioridad"), { clave: "NORMAL", texto: "Normal" });
-  assert.deepEqual(vistas.valorDeColumna(fila(idea1), "madre"), { clave: sistemas.id, texto: "Sistemas" });
-  assert.equal(vistas.valorDeColumna(fila(idea2), "madre").clave, "");
   assert.equal(vistas.valorDeColumna(fila(sistemas), "estado").clave, "", "una carpeta no es una idea");
   assert.equal(vistas.valorDeColumna(fila(idea2), "fecha").clave, "2026-11");
   assert.equal(vistas.diaDeBogota("2026-11-10T17:00:00.000Z"), "2026-11-10");

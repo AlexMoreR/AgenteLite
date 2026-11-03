@@ -287,18 +287,6 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
           />
         );
       }
-      case "madre":
-        return tarjeta.padreId && fila.madreTitulo ? (
-          <button
-            type="button"
-            className="line-clamp-2 text-left text-muted-foreground hover:text-foreground hover:underline"
-            onClick={() => alAbrir(tarjeta.padreId!)}
-          >
-            {fila.madreTitulo}
-          </button>
-        ) : (
-          <span className="text-muted-foreground">—</span>
-        );
     }
   };
 
@@ -308,7 +296,6 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
     columna === "estado" ||
     columna === "area" ||
     columna === "fecha" ||
-    columna === "madre" ||
     (columna === "responsable" && puedeAsignar);
 
   return (
