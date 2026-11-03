@@ -1,2 +1,0 @@
-## Advertencias de operación
-- `coordinador_subir_solo`: en la configuración del Coordinador (`config.local.json`), un repositorio sin `subirSolo` ahora sube solo a producción; solo `subirSolo: false` lo apaga, y entonces sus tarjetas quedan en ERROR con el motivo (ya no esperan el sí). AizenCRM sigue sin arrancar si sube solo y falta la zona CHATS. Si una subida se repite y lo de la rama ya está en main, no se vuelve a empujar: se espera el despliegue de ese commit. Cuando el Coordinador se cae, `logs/lanzador.log` guarda las últimas 40 líneas de su stderr.
