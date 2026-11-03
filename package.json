@@ -125,7 +125,8 @@
     "test:permisos-del-crm": "npx tsx --test src/lib/permisos-del-crm.test.ts",
     "test:recuperar-contrasena": "npx tsx --test src/lib/limite-recuperacion-de-clave.test.ts",
     "test:ubicacion-del-local": "node scripts/check-ubicacion-del-local.mjs",
-    "test:seguimiento-fecha-exacta": "node scripts/check-seguimiento-fecha-exacta.mjs"
+    "test:seguimiento-fecha-exacta": "node scripts/check-seguimiento-fecha-exacta.mjs",
+    "test:metas-del-mes": "npx tsx --test src/features/metas/dominio/calculo.test.ts"
   },
   "prisma": {
     "seed": "node prisma/seed.js"
