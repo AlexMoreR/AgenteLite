@@ -52,6 +52,8 @@ export type TarjetaDeVista = {
   urgente: boolean;
   responsableId: string | null;
   responsableNombre: string | null;
+  /** El orden entre hermanas (el del Mapa); sin orden, cuenta como 0. */
+  orden?: number;
 };
 
 /** Lo mínimo de un tipo (TipoVista lo cumple). */
@@ -68,7 +70,35 @@ export type FilaDeTabla<T extends TarjetaDeVista = TarjetaDeVista> = {
   area: string | null;
   /** true si el área sale de la carpeta madre y no de la tarjeta. */
   areaHeredada: boolean;
+  /** La pestaña de la Tabla: el id de la carpeta (Área) más cercana hacia arriba, o PESTANA_SIN_AREA. */
+  pestana: string;
 };
+
+/** ¿El tipo es de carpeta (sin estados, como Área)? Un tipo que no se conoce cuenta como con estados. */
+export const esCarpeta = (tipo: Pick<TipoDeVista, "usaEstados"> | undefined) => tipo?.usaEstados === false;
+
+/** La pestaña de las tarjetas que no cuelgan de ningún Área (o cuya madre no está, o están en un ciclo). */
+export const PESTANA_SIN_AREA = "sin-area";
+
+/**
+ * El id del Área (carpeta) más cercana hacia arriba de la que cuelga la tarjeta: lo de Marketplace es de
+ * Marketplace aunque Marketplace cuelgue de Marketing. Si la cadena se corta (madre ausente, archivada)
+ * o da la vuelta (ciclo) antes de llegar a una carpeta, PESTANA_SIN_AREA.
+ */
+export function areaMasCercana<T extends Pick<TarjetaDeVista, "id" | "padreId" | "tipoId">>(
+  tarjeta: T,
+  porId: ReadonlyMap<string, T>,
+  tipoPorId: ReadonlyMap<string, Pick<TipoDeVista, "usaEstados">>,
+): string {
+  const vistas = new Set<string>([tarjeta.id]);
+  let madre = tarjeta.padreId ? porId.get(tarjeta.padreId) : undefined;
+  while (madre && !vistas.has(madre.id)) {
+    if (esCarpeta(tipoPorId.get(madre.tipoId))) return madre.id;
+    vistas.add(madre.id);
+    madre = madre.padreId ? porId.get(madre.padreId) : undefined;
+  }
+  return PESTANA_SIN_AREA;
+}
 
 /**
  * Arma las filas. El área de una tarjeta sin área es la carpeta (un tipo sin estados, como Área) más
@@ -100,8 +130,117 @@ export function filasDeTabla<T extends TarjetaDeVista>(tarjetas: readonly T[], t
       usaEstados: tipo?.usaEstados ?? true,
       area: propia ?? heredada,
       areaHeredada: !propia && heredada !== null,
+      pestana: areaMasCercana(tarjeta, porId, tipoPorId),
     };
   });
+}
+
+/* ------------------------------------------------------------------ pestañas de la Tabla (una por Área) */
+
+/** Una pestaña de la Tabla: `clave` es el id del Área (o PESTANA_SIN_AREA); `cuantas`, sus ideas y tareas. */
+export type PestanaDeTabla = { clave: string; nombre: string; cuantas: number };
+
+/** Las filas que se ven como filas en la Tabla: todo menos las carpetas (Áreas). */
+export function filasSinCarpetas<F extends FilaDeTabla>(filas: readonly F[]): F[] {
+  return filas.filter((fila) => fila.usaEstados);
+}
+
+/** Las filas de una pestaña (sin carpetas). */
+export function filasDePestana<F extends FilaDeTabla>(filas: readonly F[], pestana: string): F[] {
+  return filas.filter((fila) => fila.usaEstados && fila.pestana === pestana);
+}
+
+/**
+ * Las pestañas de la Tabla: una por Área con ideas o tareas propias (un Área que solo tiene otras Áreas,
+ * como "Magilus", no lleva), en el orden del árbol como el Mapa (la madre antes que sus hijas; entre
+ * hermanas, por orden y luego por título), y "Sin área" al final solo si hay tarjetas sueltas. Si dos
+ * Áreas se llaman igual, la pestaña dice también la madre ("Magilus › Ventas").
+ */
+export function pestanasDeTabla(filas: readonly FilaDeTabla[]): PestanaDeTabla[] {
+  const cuantas = new Map<string, number>();
+  for (const fila of filasSinCarpetas(filas)) cuantas.set(fila.pestana, (cuantas.get(fila.pestana) ?? 0) + 1);
+
+  // El orden del árbol: se recorre desde las raíces (sin madre en el tablero), hijas ordenadas.
+  const porId = new Map(filas.map((fila) => [fila.tarjeta.id, fila]));
+  const hijas = new Map<string | null, FilaDeTabla[]>();
+  for (const fila of filas) {
+    const madre = fila.tarjeta.padreId && porId.has(fila.tarjeta.padreId) ? fila.tarjeta.padreId : null;
+    const lista = hijas.get(madre);
+    if (lista) lista.push(fila);
+    else hijas.set(madre, [fila]);
+  }
+  const porOrden = (a: FilaDeTabla, b: FilaDeTabla) =>
+    (a.tarjeta.orden ?? 0) - (b.tarjeta.orden ?? 0) || COMPARAR_TEXTO.compare(a.tarjeta.titulo, b.tarjeta.titulo);
+  const carpetas: FilaDeTabla[] = [];
+  const recorridas = new Set<string>();
+  const recorrer = (madre: string | null) => {
+    for (const fila of [...(hijas.get(madre) ?? [])].sort(porOrden)) {
+      if (recorridas.has(fila.tarjeta.id)) continue;
+      recorridas.add(fila.tarjeta.id);
+      if (!fila.usaEstados) carpetas.push(fila);
+      recorrer(fila.tarjeta.id);
+    }
+  };
+  recorrer(null);
+  // Las carpetas metidas en un ciclo no cuelgan de ninguna raíz: van al final, por título.
+  carpetas.push(...filas.filter((fila) => !fila.usaEstados && !recorridas.has(fila.tarjeta.id)).sort(porOrden));
+
+  const conTarjetas = carpetas.filter((fila) => cuantas.get(fila.tarjeta.id));
+  const repetidos = new Map<string, number>();
+  for (const fila of conTarjetas) repetidos.set(normalizar(fila.tarjeta.titulo), (repetidos.get(normalizar(fila.tarjeta.titulo)) ?? 0) + 1);
+  const pestanas = conTarjetas.map((fila) => {
+    const madre = fila.tarjeta.padreId ? porId.get(fila.tarjeta.padreId) : undefined;
+    const repetido = (repetidos.get(normalizar(fila.tarjeta.titulo)) ?? 0) > 1;
+    return {
+      clave: fila.tarjeta.id,
+      nombre: repetido && madre ? `${madre.tarjeta.titulo} › ${fila.tarjeta.titulo}` : fila.tarjeta.titulo,
+      cuantas: cuantas.get(fila.tarjeta.id) ?? 0,
+    };
+  });
+  const sueltas = cuantas.get(PESTANA_SIN_AREA) ?? 0;
+  if (sueltas) pestanas.push({ clave: PESTANA_SIN_AREA, nombre: "Sin área", cuantas: sueltas });
+  return pestanas;
+}
+
+/** La pestaña que se ve: la elegida si sigue existiendo; si no, la primera (null si no hay ninguna). */
+export function pestanaVigente(pestanas: readonly PestanaDeTabla[], elegida: string | null): PestanaDeTabla | null {
+  return pestanas.find((pestana) => pestana.clave === elegida) ?? pestanas[0] ?? null;
+}
+
+/**
+ * Para el aviso "También hay en…": cuántas tarjetas de las OTRAS pestañas deja ver la búsqueda y los
+ * filtros (con la misma regla de la Tabla, terminadas incluidas). Solo si se busca o se filtra algo.
+ */
+export function enOtrasPestanas(
+  filas: readonly FilaDeTabla[],
+  pestanas: readonly PestanaDeTabla[],
+  actual: string | null,
+  config: Pick<ConfigDeTabla, "busqueda" | "filtros">,
+): PestanaDeTabla[] {
+  const filtra = Object.values(config.filtros).some((valores) => valores?.length);
+  if (!normalizar(config.busqueda) && !filtra) return [];
+  return pestanas
+    .filter((pestana) => pestana.clave !== actual)
+    .map((pestana) => ({
+      ...pestana,
+      cuantas: ocultarTerminadas(filtrarFilas(filasDePestana(filas, pestana.clave), config), config.filtros).length,
+    }))
+    .filter((pestana) => pestana.cuantas > 0);
+}
+
+/**
+ * La pestaña a la que pasa la Tabla al elegir una vista guardada: si la vista filtra por Área, la pestaña
+ * de esa Área (por su nombre, sin mayúsculas ni tildes); si no, null (se queda en la elegida).
+ */
+export function pestanaDeLaVista(filas: readonly FilaDeTabla[], pestanas: readonly PestanaDeTabla[], config: ConfigDeTabla): string | null {
+  const areas = config.filtros.area ?? [];
+  if (!areas.length) return null;
+  const porId = new Map(filas.map((fila) => [fila.tarjeta.id, fila]));
+  const pestana = pestanas.find((p) => {
+    const carpeta = porId.get(p.clave);
+    return carpeta ? areas.includes(normalizar(carpeta.tarjeta.titulo)) : false;
+  });
+  return pestana?.clave ?? null;
 }
 
 /* ------------------------------------------------------------------ columnas */
