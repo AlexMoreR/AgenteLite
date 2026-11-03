@@ -1909,16 +1909,77 @@ prueba("hecho a mano: se niega si el Coordinador la tiene y en cualquier otro es
   }
 });
 
-prueba("hecho a mano: solo el dueño (ni asesora, ni aprobador, ni ADMIN de la plataforma que no es la dueña)", () => {
+prueba("hecho a mano: solo el dueño o Emanuel (ni asesora, ni aprobador TODO o DESARROLLO, ni ADMIN de la plataforma)", () => {
   const otras = [
     personaDeHecho({}),
     personaDeHecho({ aprobador: { alcance: "TODO", puedeSubir: true } }),
+    personaDeHecho({ aprobador: { alcance: "DESARROLLO", puedeSubir: true } }),
     personaDeHecho({ esAdminPlataforma: true }),
+    personaDeHecho({ esAdminPlataforma: true, aprobador: { alcance: "TODO", puedeSubir: true } }),
   ];
   for (const persona of otras) {
-    assert.match(trabajo.puedeMarcarHechoAMano(pedidoDePantalla({ persona })).error, /solo el dueño/);
-    assert.match(trabajo.puedeMarcarHechoAMano(pedidoDeVoz({ persona })).error, /solo el dueño/);
+    assert.match(trabajo.puedeMarcarHechoAMano(pedidoDePantalla({ persona })).error, /solo el dueño del negocio o Emanuel \(Sistemas\)/);
+    assert.match(trabajo.puedeMarcarHechoAMano(pedidoDeVoz({ persona })).error, /solo el dueño del negocio o Emanuel \(Sistemas\)/);
+    assert.equal(trabajo.personaPuedeMarcarHechoAMano(persona), false);
+    assert.equal(trabajo.marcaHechoAManoPorSistemas(persona), false);
   }
+});
+
+/* Emanuel (aprobador SISTEMAS) marca hecho a mano igual que el dueño (decisión del 3-nov-2026), sin fecha de vencimiento. */
+const emanuel = { esDueno: false, aprobador: { alcance: "SISTEMAS", puedeSubir: true } };
+
+prueba("hecho a mano: Emanuel (SISTEMAS) marca HECHO desde ERROR, FALLIDO y POR_REVISAR, en pantalla y por voz", () => {
+  for (const estado of ["ERROR", "FALLIDO", "POR_REVISAR"]) {
+    const nota = "Lo subió Claude Code a mano";
+    assert.deepEqual(trabajo.puedeMarcarHechoAMano(pedidoDePantalla({ estado, persona: emanuel })), { nota, commit: null }, `${estado} pantalla`);
+    assert.deepEqual(trabajo.puedeMarcarHechoAMano(pedidoDeVoz({ estado, persona: emanuel })), { nota, commit: null }, `${estado} voz`);
+  }
+  assert.equal(trabajo.personaPuedeMarcarHechoAMano(emanuel), true);
+  assert.equal(trabajo.marcaHechoAManoPorSistemas(emanuel), true);
+  // El dueño sigue pudiendo y no queda marcado como Sistemas.
+  assert.equal(trabajo.personaPuedeMarcarHechoAMano({ esDueno: true, aprobador: null }), true);
+  assert.equal(trabajo.marcaHechoAManoPorSistemas({ esDueno: true, aprobador: { alcance: "SISTEMAS", puedeSubir: true } }), false);
+});
+
+prueba("hecho a mano: a Emanuel le aplican las mismas condiciones que al dueño", () => {
+  for (const estado of ["PLANEANDO", "EN_CURSO", "SUBIENDO"]) {
+    assert.match(trabajo.puedeMarcarHechoAMano(pedidoDePantalla({ estado, persona: emanuel })).error, /Coordinador tiene/, estado);
+    assert.match(trabajo.puedeMarcarHechoAMano(pedidoDeVoz({ estado, persona: emanuel })).error, /Coordinador tiene/, estado);
+  }
+  for (const estado of ["POR_APROBAR", "APROBADO", "PLAN_LISTO", "PLAN_APROBADO", "IDEA", "HECHO"]) {
+    assert.ok(trabajo.puedeMarcarHechoAMano(pedidoDePantalla({ estado, persona: emanuel })).error, estado);
+  }
+  assert.match(trabajo.puedeMarcarHechoAMano(pedidoDePantalla({ repo: null, persona: emanuel })).error, /no tiene repo/);
+  assert.match(trabajo.puedeMarcarHechoAMano(pedidoDePantalla({ nota: "  ", persona: emanuel })).error, /nota/);
+  assert.match(trabajo.puedeMarcarHechoAMano(pedidoDePantalla({ nota: undefined, persona: emanuel })).error, /nota/);
+  assert.match(trabajo.puedeMarcarHechoAMano(pedidoDePantalla({ commit: "abc", persona: emanuel })).error, /commit/);
+  assert.equal(trabajo.puedeMarcarHechoAMano(pedidoDePantalla({ commit: "abcdef1", persona: emanuel })).commit, "abcdef1");
+  assert.match(trabajo.puedeMarcarHechoAMano(pedidoDeVoz({ textoConfirmacion: undefined, persona: emanuel })).error, /márcala hecha/);
+  assert.match(trabajo.puedeMarcarHechoAMano(pedidoDeVoz({ textoConfirmacion: "sí, no la marques hecha", persona: emanuel })).error, /un "no"/);
+  assert.ok(trabajo.puedeMarcarHechoAMano(pedidoDePantalla({ origen: "MCP", persona: emanuel })).error);
+  assert.ok(trabajo.puedeMarcarHechoAMano(pedidoDePantalla({ origen: "TRABAJADOR", persona: emanuel })).error);
+});
+
+prueba("hecho a mano: a Emanuel no lo frena el filtro de dinero de Gestión ni el vencimiento de la prueba", () => {
+  // La tarjeta que habla de abonos la frena vetoDeSistemas para aprobar, pero no para el hecho a mano.
+  const tarjetaDeAbonos = { titulo: "Arreglar el abono de los pedidos", detalle: "", plan: null, area: "Gestión" };
+  assert.equal(trabajo.vetoDeSistemas(emanuel, tarjetaDeAbonos, "gestion", [], T0), trabajo.MENSAJE_DINERO_O_META);
+  assert.deepEqual(trabajo.puedeMarcarHechoAMano(pedidoDePantalla({ repo: "gestion", persona: emanuel, tarjeta: tarjetaDeAbonos })), { nota: "Lo subió Claude Code a mano", commit: null });
+  assert.ok(!("error" in trabajo.puedeMarcarHechoAMano(pedidoDeVoz({ repo: "gestion", persona: emanuel, tarjeta: tarjetaDeAbonos }))));
+  // Permanente: aunque su prueba de Sistemas haya vencido, puede.
+  const vencido = { ...emanuel, sistemasHasta: "2026-01-01" };
+  assert.ok(!("error" in trabajo.puedeMarcarHechoAMano(pedidoDePantalla({ persona: vencido }))));
+});
+
+prueba("hecho a mano: el historial dice 'por Sistemas' cuando la marcó Emanuel", () => {
+  const base = { via: "pantalla", quienNombre: "Emanuel Gómez", userId: "u2", nota: "Resuelta con Ingrid", commit: null, textoConfirmacion: null };
+  const deEmanuel = trabajo.registroDeHechoAMano({ ...base, porSistemas: true });
+  assert.equal(deEmanuel.como, "marcado hecho a mano por Sistemas (Emanuel Gómez)");
+  assert.equal(deEmanuel.porSistemas, true);
+  assert.ok(trabajo.esHechoAMano({ accion: "estado", despues: deEmanuel }));
+  const delDueno = trabajo.registroDeHechoAMano({ ...base, quienNombre: "Alexander" });
+  assert.equal(delDueno.como, "marcado hecho a mano por el dueño (Alexander)");
+  assert.equal("porSistemas" in delDueno, false);
 });
 
 prueba("hecho a mano: sin repo, sin nota, con nota larga o con el commit mal escrito se niega", () => {

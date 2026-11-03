@@ -40,7 +40,8 @@
 
   9. HECHO A MANO (22-oct-2026): una tarjeta con repo en ERROR, FALLIDO o POR_REVISAR cuyo cambio se
      terminó por fuera del Coordinador (por ejemplo, lo subió Claude Code a mano) la marca HECHO el
-     dueño, con una nota obligatoria y el commit opcional (puedeMarcarHechoAMano, reglas-trabajador.ts).
+     dueño o Emanuel (Sistemas, desde el 3-nov-2026), con una nota obligatoria y el commit opcional
+     (puedeMarcarHechoAMano, reglas-trabajador.ts).
      Es una regla aparte: puedeCambiarEstado NO cambia y sigue negando el HECHO en tarjetas con repo.
 */
 
@@ -143,7 +144,7 @@ export function estaTrabajando(estado: EstadoTarjetaTablero) {
 }
 
 /**
- * Los estados de una tarjeta con repo desde los que el dueño la puede marcar HECHO a mano (cuando el
+ * Los estados de una tarjeta con repo desde los que el dueño o Emanuel (Sistemas) la marcan HECHO a mano (cuando el
  * cambio se terminó por fuera del Coordinador). Es una regla aparte (puedeMarcarHechoAMano en
  * reglas-trabajador.ts): puedeCambiarEstado sigue negando el HECHO en tarjetas con repo.
  */
@@ -155,7 +156,7 @@ export function sePuedeMarcarHechoAMano(estado: EstadoTarjetaTablero) {
 
 /** Cómo pedir el HECHO de una tarjeta con repo, para decirlo cuando se niega. */
 export const COMO_MARCAR_HECHO_A_MANO =
-  'Si el cambio ya se terminó por fuera del trabajador, el dueño la marca "hecha a mano" desde ERROR, FALLIDO o POR_REVISAR: en la pantalla con el botón "Marcar hecho a mano", o con cambiar_estado_tarjeta (estado HECHO) con texto_confirmacion (lo que dijo el dueño, por ejemplo "sí, márcala hecha") y una nota de qué se hizo.';
+  'Si el cambio ya se terminó por fuera del trabajador, el dueño o Emanuel (Sistemas) la marca "hecha a mano" desde ERROR, FALLIDO o POR_REVISAR: en la pantalla con el botón "Marcar hecho a mano", o con cambiar_estado_tarjeta (estado HECHO) con texto_confirmacion (lo que dijo la persona, por ejemplo "sí, márcala hecha") y una nota de qué se hizo.';
 
 /**
  * ¿Se puede mover la tarjeta de `de` a `a` con un cambio de estado común (no una aprobación)?

@@ -59,6 +59,8 @@
      obligatoria, commit opcional, y por voz el texto "sí, márcala hecha" con la clave de la cuenta
      dueña. Nunca mientras el Coordinador la tiene. Queda en el historial (registroDeHechoAMano). La
      regla general no cambia: en el camino normal el HECHO lo pone solo el Coordinador.
+     Desde el 3-nov-2026 también lo hace Emanuel (el aprobador con alcance SISTEMAS), igual que el dueño
+     e incluidas las tarjetas de dinero de Gestión; queda marcado en el historial (porSistemas).
 */
 
 import {
@@ -1159,10 +1161,25 @@ export type PedidoDeHechoAMano = {
 };
 
 /**
+ * ¿Esta persona puede marcar hecho a mano? El dueño del negocio y, desde el 3-nov-2026 (decisión del
+ * dueño: "personal de confianza", sin fecha de vencimiento), Emanuel: el aprobador con alcance SISTEMAS.
+ * Para él NO se usa vetoDeSistemas (el filtro de dinero y Meta Ads ni el vencimiento de la prueba): el
+ * hecho a mano solo cambia el estado de la tarjeta. Los demás aprobadores y el ADMIN de la plataforma, no.
+ */
+export function personaPuedeMarcarHechoAMano(persona: PersonaQueAprueba): boolean {
+  return persona.esDueno || marcaHechoAManoPorSistemas(persona);
+}
+
+/** true cuando el que marca hecho a mano es Emanuel (Sistemas) y no el dueño: así queda en el historial. */
+export function marcaHechoAManoPorSistemas(persona: PersonaQueAprueba): boolean {
+  return !persona.esDueno && persona.aprobador?.alcance === ALCANCE_SISTEMAS;
+}
+
+/**
  * La regla de "marcar hecho a mano": una tarjeta CON repo en ERROR, FALLIDO o POR_REVISAR (nunca
- * mientras el Coordinador la tiene) la pasa a HECHO solo el dueño del negocio, con una nota obligatoria
- * (hasta 500 letras) y el commit opcional. Por voz (MCP), además, el texto "sí, márcala hecha". Devuelve
- * la nota y el commit ya limpios, o el error.
+ * mientras el Coordinador la tiene) la pasa a HECHO el dueño del negocio o Emanuel (Sistemas)
+ * (personaPuedeMarcarHechoAMano), con una nota obligatoria (hasta 500 letras) y el commit opcional. Por
+ * voz (MCP), además, el texto "sí, márcala hecha". Devuelve la nota y el commit ya limpios, o el error.
  */
 export function puedeMarcarHechoAMano(
   pedido: PedidoDeHechoAMano,
@@ -1183,8 +1200,8 @@ export function puedeMarcarHechoAMano(
     const texto = textoDeConfirmacionParaHecho(pedido.textoConfirmacion);
     if (texto) return { error: `${texto} ${COMO_MARCAR_HECHO_A_MANO}` };
   }
-  if (!pedido.persona.esDueno) {
-    return { error: `Marcar hecho a mano lo hace solo el dueño del negocio.${conLaCuenta(pedido.persona, pedido.via)}` };
+  if (!personaPuedeMarcarHechoAMano(pedido.persona)) {
+    return { error: `Marcar hecho a mano lo hace solo el dueño del negocio o Emanuel (Sistemas).${conLaCuenta(pedido.persona, pedido.via)}` };
   }
   const nota = typeof pedido.nota === "string" ? pedido.nota.trim() : "";
   if (!nota) return { error: "Falta la nota: escribe en pocas palabras qué se hizo por fuera." };
@@ -1206,12 +1223,15 @@ export type RegistroDeHechoAMano = {
   nota: string;
   commit: string | null;
   textoConfirmacion: string | null;
-  /** "marcado hecho a mano por el dueño (nombre)". */
+  /** true cuando la marcó Emanuel (el aprobador SISTEMAS) y no el dueño. */
+  porSistemas?: true;
+  /** "marcado hecho a mano por el dueño (nombre)" o "marcado hecho a mano por Sistemas (nombre)". */
   como: string;
 };
 
 export function registroDeHechoAMano(datos: Omit<RegistroDeHechoAMano, "estado" | "hechoAMano" | "como">): RegistroDeHechoAMano {
-  return { ...datos, estado: "HECHO", hechoAMano: true, como: `marcado hecho a mano por el dueño (${datos.quienNombre})` };
+  const quien = datos.porSistemas ? "Sistemas" : "el dueño";
+  return { ...datos, estado: "HECHO", hechoAMano: true, como: `marcado hecho a mano por ${quien} (${datos.quienNombre})` };
 }
 
 /** ¿Este cambio del historial es un HECHO a mano? Lo dice su `despues`. */

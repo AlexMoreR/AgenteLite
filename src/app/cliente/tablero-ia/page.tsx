@@ -5,7 +5,11 @@ import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { prisma } from "@/lib/prisma";
 import { permisosDelCerebro } from "@/features/cerebro/services/permisos";
 import { personaPuedeAprobar, puedeAsignarResponsable } from "@/features/tableros-inteligentes/services/reglas";
-import { ALCANCE_SISTEMAS, permisoDeSistemasVigente } from "@/features/tableros-inteligentes/services/reglas-trabajador";
+import {
+  ALCANCE_SISTEMAS,
+  permisoDeSistemasVigente,
+  personaPuedeMarcarHechoAMano,
+} from "@/features/tableros-inteligentes/services/reglas-trabajador";
 import { nivelDeLaTarjeta } from "@/features/tableros-inteligentes/services/niveles";
 import {
   RUTA_TABLEROS,
@@ -163,6 +167,8 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
       esDueno={persona.esDueno}
       // Emanuel (prueba hasta el 29-nov): ve el botón del sí final; el servidor lo niega si toca dinero, Meta Ads u otra área.
       puedeSubir={persona.esDueno || (persona.aprobador?.alcance === ALCANCE_SISTEMAS && permisoDeSistemasVigente(new Date(), persona.sistemasHasta))}
+      // "Marcar hecho a mano": el dueño o Emanuel (Sistemas), sin fecha de vencimiento (decisión del 3-nov-2026).
+      puedeMarcarHechoAMano={personaPuedeMarcarHechoAMano(persona)}
       puedeCerebro={puedeCerebro}
       puedeAsignar={puedeAsignarResponsable(alcance.soloDe, elegido.duenoUserId)}
       vistaInicial={pedidoNivel ? "mapa" : preferencias.ultima}

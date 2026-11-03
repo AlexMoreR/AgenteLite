@@ -1,0 +1,2 @@
+## Advertencias de operación
+- `hecho_a_mano_sistemas`: desde el 3-nov-2026 "Marcar hecho a mano" (tarjetas con repo en ERROR, FALLIDO o POR_REVISAR) lo puede usar, además del dueño, Emanuel (el aprobador con alcance SISTEMAS), sin fecha de vencimiento e incluidas las tarjetas que tocan dinero de Gestión; los demás aprobadores y el ADMIN de la plataforma no. En el historial queda "marcado hecho a mano por Sistemas (nombre)" (marca `porSistemas`). Si a Emanuel se le quita la fila de aprobador SISTEMAS, pierde el botón.

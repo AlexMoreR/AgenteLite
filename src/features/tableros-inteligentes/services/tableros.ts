@@ -45,6 +45,7 @@ import {
   esDuenoDelNegocio,
   esHechoAMano,
   esperaASusPartes,
+  marcaHechoAManoPorSistemas,
   esRepo,
   estadoAlPonerRepo,
   motivoNoEsDueno,
@@ -924,7 +925,7 @@ export async function tarjetaAsignada(workspaceId: string, userId: string, tarje
 export async function planYResultado(alcance: Alcance, tarjetaId: unknown) {
   const { tarjeta, cambios } = await historialDeTarjeta(alcance, tarjetaId);
   const intentos = await intentosDeLaTarjeta(alcance, tarjeta.id);
-  // Si la tarjeta está HECHO porque el dueño la marcó a mano, no la subió el Coordinador: se dice.
+  // Si la tarjeta está HECHO porque el dueño (o Emanuel, de Sistemas) la marcó a mano, no la subió el Coordinador: se dice.
   const marca = tarjeta.estado === "HECHO" ? cambios.find((cambio) => !cambio.deshechoEn && esHechoAMano(cambio)) : undefined;
   const despues = (marca?.despues ?? {}) as Record<string, unknown>;
   const hechoAMano = marca
@@ -933,6 +934,8 @@ export async function planYResultado(alcance: Alcance, tarjetaId: unknown) {
         commit: typeof despues.commit === "string" ? despues.commit : null,
         quien: typeof despues.quienNombre === "string" ? despues.quienNombre : marca.quienNombre,
         via: typeof despues.via === "string" ? despues.via : "pantalla",
+        // true si la marcó Emanuel (Sistemas) y no el dueño.
+        porSistemas: despues.porSistemas === true,
         cuando: marca.creadoEn.toISOString(),
       }
     : null;
@@ -1890,10 +1893,17 @@ export async function cambiarEstadoTarjeta(
   }
   const actual = await tarjetaDelNegocio(contexto, tarjetaId);
   // HECHO de una tarjeta con repo que quedó en ERROR, FALLIDO o POR_REVISAR: es "marcar hecho a mano",
-  // una regla aparte que exige al dueño (reglas-trabajador.ts). Lo demás sigue por las reglas de siempre.
+  // una regla aparte que exige al dueño o a Emanuel, de Sistemas (reglas-trabajador.ts). Lo demás sigue por las reglas de siempre.
   if (estado === "HECHO" && actual.repo && sePuedeMarcarHechoAMano(actual.estado)) {
     const marcada = await marcarHechoAMano(contexto, actual.id, { via: "voz", ...hechoAMano });
-    return { cambioId: marcada.cambioId, antes: marcada.antes, ahora: marcada.ahora, titulo: marcada.titulo, aprobacionAutomatica: null };
+    return {
+      cambioId: marcada.cambioId,
+      antes: marcada.antes,
+      ahora: marcada.ahora,
+      titulo: marcada.titulo,
+      aprobacionAutomatica: null,
+      porSistemas: marcada.porSistemas,
+    };
   }
   const tipo = await reglasDelTipo(actual.tipoId);
   const veredicto = puedeCambiarEstado(actual.estado, estado, tipo.requiereAprobacion, tipo.usaEstados, Boolean(actual.repo));
@@ -1965,6 +1975,8 @@ export async function marcarHechoAMano(contexto: ContextoTablero, tarjetaId: unk
     nota: veredicto.nota,
     commit: veredicto.commit,
     textoConfirmacion: pedido.via === "voz" ? texto || null : null,
+    // Si la marcó Emanuel (Sistemas), queda dicho en el historial.
+    ...(marcaHechoAManoPorSistemas(persona) ? { porSistemas: true as const } : {}),
   });
   const marcada = await prisma.$transaction(async (tx) => {
     // Condicionado al estado y al momento en que se leyó, al tipo y al repo: si el Coordinador la tomó
@@ -1991,6 +2003,7 @@ export async function marcarHechoAMano(contexto: ContextoTablero, tarjetaId: unk
       antes: actual.estado,
       ahora: "HECHO" as EstadoTarjetaTablero,
       quien: persona.nombre,
+      porSistemas: registro.porSistemas === true,
       nota: veredicto.nota,
       commit: veredicto.commit,
     };

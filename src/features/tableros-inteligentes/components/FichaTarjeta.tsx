@@ -136,6 +136,8 @@ type Props = {
   /** Dueño del negocio: el sí final (subir a producción) y quitar zonas protegidas. */
   esDueno: boolean;
   puedeSubir?: boolean;
+  /** Ve "Marcar hecho a mano": el dueño o Emanuel (Sistemas). */
+  puedeMarcarHechoAMano?: boolean;
   /** Dueño o ADMIN de la plataforma: "Cerrar como fallida" (el servidor vuelve a revisarlo). */
   puedeCerrarComoFallida?: boolean;
   /** Puede usar el cerebro (el dueño o quien él autorizó): muestra "Pasar al cerebro" en tarjetas hechas o de decisión. */
@@ -169,6 +171,7 @@ export function FichaTarjeta({
   puedeAprobar,
   esDueno,
   puedeSubir,
+  puedeMarcarHechoAMano,
   puedeCerrarComoFallida = false,
   puedeCerebro = false,
   miembros,
@@ -348,6 +351,7 @@ export function FichaTarjeta({
                 puedeAprobar={puedeAprobar}
                 esDueno={esDueno}
                 puedeSubir={puedeSubir}
+                puedeMarcarHechoAMano={puedeMarcarHechoAMano}
                 puedeCerrarComoFallida={puedeCerrarComoFallida}
                 alCambiar={() => {
                   setHistorial(null);

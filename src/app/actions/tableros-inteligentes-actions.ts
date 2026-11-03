@@ -101,7 +101,7 @@ export async function aprobarTarjetaAction(
 }
 
 /**
- * Marcar hecho a mano desde la pantalla (solo el dueño; lo comprueba el servicio): una tarjeta con repo
+ * Marcar hecho a mano desde la pantalla (el dueño o Emanuel, de Sistemas; lo comprueba el servicio): una tarjeta con repo
  * en ERROR, FALLIDO o POR_REVISAR cuyo cambio se terminó por fuera. Pide la nota y, si se quiere, el commit.
  */
 export async function marcarHechoAManoAction(

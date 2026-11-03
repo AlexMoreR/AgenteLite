@@ -105,7 +105,8 @@ import {
     tarjetas con repo, EN_CURSO, HECHO y los demás estados del Coordinador los pone solo el Coordinador.
     Única excepción, el HECHO a mano (22-oct-2026): si el cambio se terminó por fuera del Coordinador y la
     tarjeta con repo quedó en ERROR, FALLIDO o POR_REVISAR, cambiar_estado_tarjeta la pasa a HECHO solo
-    con texto_confirmacion del dueño ("sí, márcala hecha"), la clave de la cuenta dueña y una nota.
+    con texto_confirmacion del dueño ("sí, márcala hecha"), la clave de la cuenta dueña y una nota. Desde el
+    3-nov-2026 también con la clave de Emanuel (el aprobador SISTEMAS); queda "por Sistemas" en el historial.
   - Quitar una zona protegida (solo ponerla).
   - Dejar intacta una aprobación al editar: si edita una tarjeta APROBADA, vuelve a POR_APROBAR; si
     le cambia el tipo, queda POR_APROBAR o IDEA.
@@ -419,7 +420,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     title: "Mover una tarjeta de estado",
     description:
       "Mueve una tarjeta de estado. NO aprueba (para eso está aprobar_tarjeta, solo si la persona lo dice) y no pone ningún estado del Coordinador (PLANEANDO, PLAN_LISTO, PLAN_APROBADO, POR_REVISAR, SUBIENDO, ERROR). Para pedir aprobación, dejarla POR_APROBAR (solo tipos con aprobación). En tipos con aprobación y SIN repo, EN_CURSO solo sale de una APROBADA, y HECHO de una APROBADA o EN_CURSO; en tarjetas CON repo, EN_CURSO y HECHO los pone solo el Coordinador, y mientras él la tiene no se mueve. FALLIDO (abandonarla) sale de algo aprobado o de lo que dejó el Coordinador. Los tipos sin aprobación van libres entre IDEA, EN_CURSO, HECHO y FALLIDO. Las tarjetas de un tipo sin estados (Área) no tienen estado: se rechaza. " +
-      "HECHO A MANO: si un cambio con repo se terminó por fuera del Coordinador (por ejemplo, lo subió Claude Code) y la tarjeta quedó en ERROR, FALLIDO o POR_REVISAR, NO la borres: el dueño la marca hecha. Primero léele el título y espera que diga 'sí, márcala hecha'; manda eso en texto_confirmacion (tal cual) y en nota qué se hizo (obligatoria, hasta 500 letras); commit es opcional (código de 7 a 40 letras y números, o link de GitHub). La cuenta de la clave de Claude tiene que ser la dueña del negocio. Nunca lo hagas por tu cuenta ni mientras el Coordinador la tiene (PLANEANDO, EN_CURSO, SUBIENDO). Queda en el historial como 'marcado hecho a mano por el dueño'. Si venía de ERROR o POR_REVISAR no se puede deshacer desde acá." +
+      "HECHO A MANO: si un cambio con repo se terminó por fuera del Coordinador (por ejemplo, lo subió Claude Code) y la tarjeta quedó en ERROR, FALLIDO o POR_REVISAR, NO la borres: el dueño (o Emanuel, de Sistemas) la marca hecha. Primero léele el título y espera que diga 'sí, márcala hecha'; manda eso en texto_confirmacion (tal cual) y en nota qué se hizo (obligatoria, hasta 500 letras); commit es opcional (código de 7 a 40 letras y números, o link de GitHub). La cuenta de la clave de Claude tiene que ser la dueña del negocio o la de Emanuel (aprobador SISTEMAS). Nunca lo hagas por tu cuenta ni mientras el Coordinador la tiene (PLANEANDO, EN_CURSO, SUBIENDO). Queda en el historial como 'marcado hecho a mano por el dueño' (o 'por Sistemas' si fue Emanuel). Si venía de ERROR o POR_REVISAR no se puede deshacer desde acá." +
       REGLA_DEL_TABLERO,
     inputSchema: {
       type: "object",
@@ -429,7 +430,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
         texto_confirmacion: {
           type: "string",
           description:
-            "Solo para HECHO a mano: lo que dijo el dueño, tal cual, por ejemplo 'sí, márcala hecha'. Mínimo 8 caracteres, con 'sí' y 'hecha'.",
+            "Solo para HECHO a mano: lo que dijo el dueño (o Emanuel, de Sistemas), tal cual, por ejemplo 'sí, márcala hecha'. Mínimo 8 caracteres, con 'sí' y 'hecha'.",
         },
         nota: {
           type: "string",
@@ -574,7 +575,12 @@ function tipoParaClaude(tipo: TipoVista, nombres: Map<string, string>) {
 }
 
 /** Lo que sigue para una tarjeta, en una frase (para que Claude se lo cuente a la persona). */
-function queFalta(estado: string, conRepo: boolean, conZona: boolean, hechoAMano?: { nota: string; commit: string | null; quien: string } | null): string {
+function queFalta(
+  estado: string,
+  conRepo: boolean,
+  conZona: boolean,
+  hechoAMano?: { nota: string; commit: string | null; quien: string; porSistemas?: boolean } | null,
+): string {
   const dondeAprobar = conZona ? "en la pantalla (tiene zona protegida)" : "en la pantalla o diciéndolo aquí";
   switch (estado) {
     case "POR_APROBAR":
@@ -597,7 +603,7 @@ function queFalta(estado: string, conRepo: boolean, conZona: boolean, hechoAMano
       return "El Coordinador la está subiendo a producción (sube sola si pasó todo, o el dueño dio el sí final). Si el despliegue falla, la deshace y queda ERROR.";
     case "HECHO":
       if (hechoAMano) {
-        return `Marcada hecha a mano por el dueño (${hechoAMano.quien}): ${hechoAMano.nota}${hechoAMano.commit ? ` (commit ${hechoAMano.commit})` : ""}. No la subió el Coordinador.`;
+        return `Marcada hecha a mano por ${hechoAMano.porSistemas ? "Sistemas" : "el dueño"} (${hechoAMano.quien}): ${hechoAMano.nota}${hechoAMano.commit ? ` (commit ${hechoAMano.commit})` : ""}. No la subió el Coordinador.`;
       }
       return conRepo ? "Hecha: está en producción (ver resultado.subida, con el link del commit)." : "Hecha.";
     case "ERROR":
@@ -969,7 +975,7 @@ export async function ejecutarHerramientaMcpTableros(
     case "cambiar_estado_tarjeta": {
       const tarjetaId = typeof args.tarjeta_id === "string" ? args.tarjeta_id : "";
       const tablero = await tableroDeLaTarjeta(contexto,tarjetaId);
-      // HECHO a mano (tarjeta con repo en ERROR, FALLIDO o POR_REVISAR): el servidor revisa el texto del dueño,
+      // HECHO a mano (tarjeta con repo en ERROR, FALLIDO o POR_REVISAR): el servidor revisa el texto (del dueño o de Emanuel),
       // la cuenta de la clave y la nota (services/reglas-trabajador.ts).
       const resultado = await cambiarEstadoTarjeta(contexto, tarjetaId, args.estado, {
         textoConfirmacion: args.texto_confirmacion,
@@ -990,7 +996,7 @@ export async function ejecutarHerramientaMcpTableros(
             : resultado.ahora === "POR_APROBAR"
             ? "Quedó POR_APROBAR: el dueño la aprueba en la pantalla."
             : resultado.ahora === "HECHO" && sePuedeMarcarHechoAMano(resultado.antes)
-            ? `"${resultado.titulo}" quedó marcada hecha a mano por el dueño (venía de ${resultado.antes}). ${
+            ? `"${resultado.titulo}" quedó marcada hecha a mano por ${"porSistemas" in resultado && resultado.porSistemas ? "Sistemas" : "el dueño"} (venía de ${resultado.antes}). ${
                 resultado.antes === "FALLIDO" ? "Se puede deshacer con deshacer_cambio_tarjeta." : "No se puede deshacer desde acá: el dueño la reintenta o la marca Fallido."
               }`
             : `"${resultado.titulo}" pasó de ${resultado.antes} a ${resultado.ahora}.`,

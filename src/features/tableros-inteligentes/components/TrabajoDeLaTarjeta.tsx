@@ -47,7 +47,8 @@ import type { TarjetaVista } from "../services/tableros";
     30 minutos: "Subió sola (zona X) — vigilancia 30 min OK" o "Revertida: motivo") o lo que gasta plata
     en Meta Ads, y acá se dice cuál.
   - "Reintentar" (ERROR): con el plan que ya tiene (si tiene) o planeando de nuevo.
-  - "Marcar hecho a mano" (ERROR, FALLIDO o POR_REVISAR, con repo): SOLO el dueño. Abre un panel con la
+  - "Marcar hecho a mano" (ERROR, FALLIDO o POR_REVISAR, con repo): el dueño y, desde el 3-nov-2026,
+    Emanuel (Sistemas), según puedeMarcarHechoAMano. Abre un panel con la
     nota (obligatoria) y el commit (opcional); el servidor revisa todo (puedeMarcarHechoAMano).
   - "Cerrar como fallida" (26-oct-2026; ERROR, o huérfana: PLANEANDO o EN_CURSO sin el candado del Coordinador y
     sin partes que esperar, con repo): el dueño o el ADMIN de la plataforma, con confirmación en la misma pantalla.
@@ -67,6 +68,8 @@ type Props = {
   esDueno: boolean;
   /** Ve el botón del sí final: el dueño o Emanuel mientras dure su prueba (el servidor decide si esa tarjeta sí). */
   puedeSubir?: boolean;
+  /** Ve "Marcar hecho a mano": el dueño o Emanuel (Sistemas). Sin valor, solo el dueño. */
+  puedeMarcarHechoAMano?: boolean;
   /** Dueño o ADMIN de la plataforma: "Cerrar como fallida". */
   puedeCerrarComoFallida?: boolean;
   alCambiar: () => void;
@@ -90,7 +93,16 @@ function EnlaceDeLaSesion({ link }: { link: string }) {
 const BOTON = "h-11 w-full text-base";
 const BOTON_GRANDE = "h-14 w-full text-lg font-semibold";
 
-export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDueno, puedeSubir = esDueno, puedeCerrarComoFallida = false, alCambiar }: Props) {
+export function TrabajoDeLaTarjeta({
+  tarjeta,
+  pideAprobacion,
+  puedeAprobar,
+  esDueno,
+  puedeSubir = esDueno,
+  puedeMarcarHechoAMano = esDueno,
+  puedeCerrarComoFallida = false,
+  alCambiar,
+}: Props) {
   const [ocupado, empezar] = useTransition();
   const [confirmarSubida, setConfirmarSubida] = useState(false);
   const [confirmarFallida, setConfirmarFallida] = useState(false);
@@ -411,7 +423,7 @@ export function TrabajoDeLaTarjeta({ tarjeta, pideAprobacion, puedeAprobar, esDu
         </div>
       ) : null}
 
-      {esDueno && tarjeta.repo && (estado === "ERROR" || estado === "FALLIDO" || estado === "POR_REVISAR") ? (
+      {puedeMarcarHechoAMano && tarjeta.repo && (estado === "ERROR" || estado === "FALLIDO" || estado === "POR_REVISAR") ? (
         hechoAMano ? (
           <div role="dialog" aria-label="Marcar hecho a mano" className="space-y-3 rounded-lg border-2 border-primary p-3">
             <p className="text-base font-medium">Marcar hecho a mano</p>
