@@ -23,6 +23,18 @@ import {
 import { COLOR_DEL_ESTADO } from "./colores";
 import { IconoDeTipo } from "./IconoDeTipo";
 
+/**
+ * Una acción del servidor que, si falla la red o la sesión (la promesa se rechaza), responde como un
+ * error común: así la vista nunca se queda a medias (tarjeta movida, celda con un valor que no se guardó).
+ */
+export async function accionSegura<T extends { ok: boolean }>(promesa: Promise<T>): Promise<T | { ok: false; error: string }> {
+  try {
+    return await promesa;
+  } catch {
+    return { ok: false, error: "No se pudo guardar: revisa la conexión e inténtalo de nuevo." };
+  }
+}
+
 type Pedido = {
   fila: FilaDeTabla<TarjetaVista>;
   estado: EstadoTarjetaTablero;
@@ -48,11 +60,11 @@ export function useCambioDeEstado(alCambiar: () => void): {
 
   const ejecutar = async ({ fila, estado, alFallar, alTerminar }: Pedido) => {
     setCambiando(fila.tarjeta.id);
-    const resultado = await cambiarEstadoDesdeVistaAction(fila.tarjeta.id, estado);
+    const resultado = await accionSegura(cambiarEstadoDesdeVistaAction(fila.tarjeta.id, estado));
     setCambiando(null);
     if (resultado.ok) {
       toast.success(
-        resultado.aprobadaSola
+        "aprobadaSola" in resultado && resultado.aprobadaSola
           ? "Quedó Por aprobar y se aprobó sola por la regla de hoy: el Coordinador ya la puede tomar"
           : `Quedó en ${NOMBRE_DEL_ESTADO[estado]}`,
       );

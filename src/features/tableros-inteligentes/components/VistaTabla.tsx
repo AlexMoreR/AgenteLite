@@ -32,7 +32,7 @@ import {
 } from "../services/vistas-de-tabla";
 import { COLOR_DEL_ESTADO } from "./colores";
 import { IconoDeTipo } from "./IconoDeTipo";
-import { useCambioDeEstado } from "./VistaKanban";
+import { accionSegura, useCambioDeEstado } from "./VistaKanban";
 
 const DIA = new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", day: "numeric", month: "short", year: "numeric" });
 
@@ -110,7 +110,7 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
   const guardarVista = async () => {
     if (nombreNueva === null) return;
     setGuardando(true);
-    const resultado = await guardarVistaDeTablaAction(nombreNueva, config);
+    const resultado = await accionSegura(guardarVistaDeTablaAction(nombreNueva, config));
     setGuardando(false);
     if (!resultado.ok) {
       toast.error(resultado.error);
@@ -123,7 +123,7 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
   };
 
   const borrarVista = async (vista: VistaDeTabla) => {
-    const resultado = await borrarVistaDeTablaAction(vista.id);
+    const resultado = await accionSegura(borrarVistaDeTablaAction(vista.id));
     if (!resultado.ok) {
       toast.error(resultado.error);
       return;
@@ -133,7 +133,7 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
   };
 
   const guardarCelda = async (tarjetaId: string, cambio: { area: string | null } | { fecha: string | null }) => {
-    const resultado = await editarCeldaAction(tarjetaId, cambio);
+    const resultado = await accionSegura(editarCeldaAction(tarjetaId, cambio));
     if (resultado.ok) toast.success("Guardado");
     else {
       toast.error(resultado.error);
@@ -143,7 +143,7 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
   };
 
   const asignar = async (tarjetaId: string, responsableId: string | null) => {
-    const resultado = await cambiarResponsableAction(tarjetaId, responsableId);
+    const resultado = await accionSegura(cambiarResponsableAction(tarjetaId, responsableId));
     if (resultado.ok) toast.success(responsableId ? "Tarjeta asignada" : "Sin responsable");
     else {
       toast.error(resultado.error);
@@ -194,7 +194,16 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
       case "codigo":
         return <span className="tabular-nums text-muted-foreground">{tarjeta.codigo || "—"}</span>;
       case "titulo":
-        return <span className="line-clamp-2 font-medium">{tarjeta.titulo}</span>;
+        // Un botón de verdad: con teclado o lector de pantalla también se abre la tarjeta.
+        return (
+          <button
+            type="button"
+            onClick={() => alAbrir(tarjeta.id)}
+            className="line-clamp-2 text-left font-medium hover:underline focus-visible:underline focus-visible:outline-none"
+          >
+            {tarjeta.titulo}
+          </button>
+        );
       case "tipo": {
         const tipo = tipoPorId.get(tarjeta.tipoId);
         return (
@@ -295,7 +304,12 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
 
   // Las celdas que se editan no abren la tarjeta al tocarlas.
   const editable = (columna: ClaveDeColumna) =>
-    columna === "estado" || columna === "area" || columna === "fecha" || columna === "madre" || (columna === "responsable" && puedeAsignar);
+    columna === "titulo" ||
+    columna === "estado" ||
+    columna === "area" ||
+    columna === "fecha" ||
+    columna === "madre" ||
+    (columna === "responsable" && puedeAsignar);
 
   return (
     <div className="flex h-full flex-col">

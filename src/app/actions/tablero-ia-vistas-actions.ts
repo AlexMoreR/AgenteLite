@@ -86,7 +86,14 @@ export async function editarCeldaAction(
 ): Promise<Resultado> {
   const contexto = await contextoDePantalla();
   // Solo estos dos campos: la celda no edita nada más.
-  const permitido = "area" in cambio ? { area: cambio.area ?? "" } : "fecha" in cambio ? { fecha: cambio.fecha ?? "" } : null;
+  const permitido =
+    typeof cambio !== "object" || cambio === null
+      ? null
+      : "area" in cambio
+        ? { area: cambio.area ?? "" }
+        : "fecha" in cambio
+          ? { fecha: cambio.fecha ?? "" }
+          : null;
   if (!permitido) return { ok: false, error: "Esa columna no se edita desde la tabla." };
   try {
     await editarTarjeta(contexto, tarjetaId, permitido);
