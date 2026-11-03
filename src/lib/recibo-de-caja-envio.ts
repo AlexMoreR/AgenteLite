@@ -9,6 +9,7 @@ import { variantesDeTelefono } from "@/lib/origen-de-venta";
 import { prisma } from "@/lib/prisma";
 import {
   procesarRecibo,
+  taparNumeros,
   telefonoTapado,
   type DependenciasDelEnvio,
   type ModoDelRecibo,
@@ -169,7 +170,8 @@ async function enviarPorLaLineaAdmin(
     console.warn("[recibo-de-caja] el link no salió, se prueba en base64", {
       reciboId: recibo.reciboId,
       telefono: telefonoTapado(telefono),
-      detalle: errorDelLink instanceof Error ? errorDelLink.message.slice(0, 200) : "desconocido",
+      // El error crudo del gateway puede repetir el número del cliente: se tapa antes del log.
+      detalle: errorDelLink instanceof Error ? taparNumeros(errorDelLink.message).slice(0, 200) : "desconocido",
     });
     salida = await sendEvolutionMediaBase64({
       instanceName: instancia,
@@ -218,7 +220,7 @@ async function enviarPorLaLineaAdmin(
   } catch (error) {
     console.error("[recibo-de-caja] el recibo SÍ salió pero no se pudo guardar en el chat", {
       reciboId: recibo.reciboId,
-      detalle: error instanceof Error ? error.message.slice(0, 200) : "desconocido",
+      detalle: error instanceof Error ? taparNumeros(error.message).slice(0, 200) : "desconocido",
     });
   }
 }

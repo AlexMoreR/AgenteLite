@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { workspacePorLlaveDeGestion } from "@/lib/origen-de-venta-crm";
-import { CUERPO_MAXIMO_BYTES, responderReciboDeCaja } from "@/lib/recibo-de-caja";
+import { CUERPO_MAXIMO_BYTES, responderReciboDeCaja, taparNumeros } from "@/lib/recibo-de-caja";
 import { enviarReciboDeCaja } from "@/lib/recibo-de-caja-envio";
 
 /**
@@ -29,7 +29,7 @@ export async function POST(request: Request) {
     );
     return NextResponse.json(respuesta.body, { status: respuesta.status, headers: sinCache });
   } catch (error) {
-    console.error("[recibo-de-caja] pedido_fallido", { error: error instanceof Error ? error.message.slice(0, 200) : "desconocido" });
+    console.error("[recibo-de-caja] pedido_fallido", { error: error instanceof Error ? taparNumeros(error.message).slice(0, 200) : "desconocido" });
     return NextResponse.json({ error: "error_interno" }, { status: 500, headers: sinCache });
   }
 }
