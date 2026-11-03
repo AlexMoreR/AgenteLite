@@ -52,13 +52,12 @@ export function CalientesDelDiaCard({
                 <li
                   key={dia.fecha}
                   className={cn(
-                    "flex min-w-0 flex-col items-center rounded-md border border-border px-1 py-1.5",
+                    "flex min-w-0 flex-col items-center rounded-md border border-border px-0.5 py-1.5",
                     esHoy ? "bg-muted" : "bg-card",
                   )}
                 >
-                  <span className="truncate text-[11px] text-muted-foreground">
-                    {semana} {numero}
-                  </span>
+                  <span className="text-[11px] leading-4 text-muted-foreground">{semana}</span>
+                  <span className="text-[11px] leading-4 text-muted-foreground tabular-nums">{numero}</span>
                   <span className="text-[13px] font-semibold text-foreground tabular-nums">{dia.calientes}</span>
                 </li>
               );
