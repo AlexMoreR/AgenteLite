@@ -316,9 +316,32 @@ export function agrupar<F extends FilaDeTabla>(filas: readonly F[], columna: Col
   return [...lista.filter((g) => g.clave), ...lista.filter((g) => !g.clave)];
 }
 
-/** Todo junto: filtra, busca y ordena; y agrupa si se pidió (sin agrupar, un solo grupo con todo). */
+/* ------------------------------------------------------------------ terminadas: ocultas en la Tabla */
+
+/** Los estados que la Tabla esconde mientras no se filtre por Estado (las tarjetas terminadas). */
+export const ESTADOS_OCULTOS_EN_TABLA: readonly EstadoTarjetaTablero[] = ["HECHO", "FALLIDO"];
+
+const estaOculta = (fila: FilaDeTabla) => fila.usaEstados && ESTADOS_OCULTOS_EN_TABLA.includes(fila.tarjeta.estado);
+
+/**
+ * Quita de la Tabla las tarjetas en Hecho o Fallido, salvo que se filtre por Estado: con ese filtro
+ * `filtrarFilas` ya dejó solo los estados elegidos y se devuelven tal cual. Las carpetas (tipos sin
+ * estados, como Área) se quedan siempre.
+ */
+export function ocultarTerminadas<F extends FilaDeTabla>(filas: readonly F[], filtros: ConfigDeTabla["filtros"]): F[] {
+  if (filtros.estado?.length) return [...filas];
+  return filas.filter((fila) => !estaOculta(fila));
+}
+
+/** Cuántas filas esconde `ocultarTerminadas` después de la búsqueda y los demás filtros (para el contador). */
+export function contarTerminadasOcultas(filas: readonly FilaDeTabla[], config: Pick<ConfigDeTabla, "busqueda" | "filtros">): number {
+  const filtradas = filtrarFilas(filas, config);
+  return filtradas.length - ocultarTerminadas(filtradas, config.filtros).length;
+}
+
+/** Todo junto: filtra, busca, esconde las terminadas y ordena; y agrupa si se pidió (sin agrupar, un solo grupo con todo). */
 export function aplicarConfig<F extends FilaDeTabla>(filas: readonly F[], config: ConfigDeTabla): GrupoDeFilas<F>[] {
-  const ordenadas = ordenarFilas(filtrarFilas(filas, config), config.orden);
+  const ordenadas = ordenarFilas(ocultarTerminadas(filtrarFilas(filas, config), config.filtros), config.orden);
   if (!config.agrupar) return [{ clave: "*", texto: "", filas: ordenadas }];
   // Dentro de cada grupo se respeta el orden pedido.
   return agrupar(ordenadas, config.agrupar).map((grupo) => ({ ...grupo, filas: ordenarFilas(grupo.filas, config.orden) }));

@@ -172,6 +172,40 @@ await prueba("vistas de fábrica: Ideas (estado IDEA) y Sistemas en curso", () =
   assert.deepEqual(ids(filasSistemas), [planeando.id, enCursoRepo.id]);
 });
 
+await prueba("la Tabla esconde Hecho y Fallido salvo que se filtre por Estado; las carpetas se quedan", () => {
+  // Datos propios para no cambiar los de las pruebas de arriba.
+  const carpeta = tarjeta({ titulo: "Carpeta Cierres", tipoId: "area" });
+  const hecha1 = tarjeta({ titulo: "Cierre de caja listo", tipoId: "tarea", estado: "HECHO", padreId: carpeta.id });
+  const hecha2 = tarjeta({ titulo: "Otra terminada", estado: "HECHO" });
+  const fallida = tarjeta({ titulo: "Cierre que falló", tipoId: "tarea", estado: "FALLIDO" });
+  const ideaViva = tarjeta({ titulo: "Cierre semanal", estado: "IDEA" });
+  const enCurso = tarjeta({ titulo: "Algo en curso", tipoId: "tarea", estado: "EN_CURSO" });
+  const lista = vistas.filasDeTabla([carpeta, hecha1, hecha2, fallida, ideaViva, enCurso], TIPOS);
+  const deLaTabla = (config) => ids(vistas.aplicarConfig(lista, config).flatMap((g) => g.filas));
+
+  assert.deepEqual([...vistas.ESTADOS_OCULTOS_EN_TABLA], ["HECHO", "FALLIDO"]);
+  // a) sin filtros: ni Hecho ni Fallido; la carpeta sin estado sí.
+  assert.deepEqual(deLaTabla(vistas.CONFIG_VACIA), [carpeta.id, ideaViva.id, enCurso.id]);
+  // b) filtro de Estado = Hecho: solo las hechas.
+  assert.deepEqual(deLaTabla({ ...vistas.CONFIG_VACIA, filtros: { estado: ["HECHO"] } }), [hecha1.id, hecha2.id]);
+  // c) Hecho o Idea: las hechas y las ideas.
+  assert.deepEqual(deLaTabla({ ...vistas.CONFIG_VACIA, filtros: { estado: ["HECHO", "IDEA"] } }), [hecha1.id, hecha2.id, ideaViva.id]);
+  // d) buscar sin filtro de Estado no trae terminadas.
+  assert.deepEqual(deLaTabla({ ...vistas.CONFIG_VACIA, busqueda: "cierre" }), [carpeta.id, ideaViva.id]);
+  // Agrupado tampoco las trae (la regla va antes de agrupar).
+  const agrupadas = vistas.aplicarConfig(lista, { ...vistas.CONFIG_VACIA, agrupar: "estado" });
+  assert.ok(!agrupadas.some((g) => g.clave === "HECHO" || g.clave === "FALLIDO"), "sin grupos de terminadas");
+  // e) el contador de escondidas.
+  assert.equal(vistas.contarTerminadasOcultas(lista, vistas.CONFIG_VACIA), 3);
+  assert.equal(vistas.contarTerminadasOcultas(lista, { ...vistas.CONFIG_VACIA, busqueda: "cierre" }), 2, "cuenta después de buscar");
+  assert.equal(vistas.contarTerminadasOcultas(lista, { ...vistas.CONFIG_VACIA, filtros: { estado: ["HECHO"] } }), 0);
+  assert.equal(vistas.contarTerminadasOcultas(lista, { ...vistas.CONFIG_VACIA, filtros: { estado: ["HECHO", "IDEA"] } }), 0);
+  // ocultarTerminadas no toca la lista que llega.
+  const copia = [...lista];
+  vistas.ocultarTerminadas(lista, {});
+  assert.deepEqual(lista, copia);
+});
+
 await prueba("una vista que llega de afuera se limpia (columnas y valores raros fuera)", () => {
   const limpia = vistas.limpiarConfig({
     busqueda: 42,
