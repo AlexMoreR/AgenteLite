@@ -36,6 +36,7 @@ import {
   TriangleAlert,
   Workflow,
   FolderOpen,
+  Palette,
   X,
 } from "lucide-react";
 
@@ -94,6 +95,7 @@ import { clearPendingConversationSelection } from "@/components/chats/chat-selec
 import { ChatTagsControl } from "@/components/chats/chat-tags-control";
 import { QuickRepliesDialog } from "@/components/chats/quick-replies-dialog";
 import { MediaLibraryDialog } from "@/components/chats/media-library-dialog";
+import { CartaDeColoresDialog } from "@/components/chats/carta-de-colores-dialog";
 import { subirArchivoPorPedazos } from "@/lib/subir-archivo-por-pedazos";
 import { cuandoEsteLibre } from "@/lib/cuando-este-libre";
 import {
@@ -392,6 +394,7 @@ export const ConversationPanel = memo(function ConversationPanel({
   const [isPlaybookOpen, setIsPlaybookOpen] = useState(false);
   const [isSendFlowOpen, setIsSendFlowOpen] = useState(false);
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
+  const [isCartaDeColoresOpen, setIsCartaDeColoresOpen] = useState(false);
   const [isNoteOpen, setIsNoteOpen] = useState(false);
   // Mensaje que se esta reenviando (null = dialogo cerrado).
   const [mensajeAReenviar, setMensajeAReenviar] = useState<SharedInboxMessageItem | null>(null);
@@ -2613,6 +2616,19 @@ export const ConversationPanel = memo(function ConversationPanel({
                                   <FolderOpen className="size-4 shrink-0 text-[#8b5cf6]" />
                                   <span>Biblioteca</span>
                                 </Button>
+                                {/* La carta de colores, a mano: se escoge el material y sale al pulsar Enviar. */}
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  onClick={() => {
+                                    setIsAttachMenuOpen(false);
+                                    setIsCartaDeColoresOpen(true);
+                                  }}
+                                  className="flex h-auto w-full items-center justify-start gap-2.5 rounded-md px-2.5 py-2 text-left text-[13px] font-medium text-foreground md:py-1.5 transition hover:bg-muted focus:outline-none focus-visible:bg-muted"
+                                >
+                                  <Palette className="size-4 shrink-0 text-[#ec4899]" />
+                                  <span>Colores</span>
+                                </Button>
                                 <div className="-mx-1 my-0.5 h-px bg-border" />
                                 {/* Lo que el equipo necesita saber del cliente y no se le manda
                                     a el. Antes se lo pasaban por WhatsApp entre ellas y se
@@ -2931,6 +2947,15 @@ export const ConversationPanel = memo(function ConversationPanel({
               toast.error((result && "error" in result && result.error) || `No se pudo enviar "${item.title}".`);
               return false;
             }}
+          />
+        ) : null}
+        {/* Montado solo mientras esta abierto, igual que la Biblioteca. */}
+        {mediaConfig && isCartaDeColoresOpen ? (
+          <CartaDeColoresDialog
+            open
+            onClose={() => setIsCartaDeColoresOpen(false)}
+            envio={mediaConfig}
+            onEnviado={onScrollToBottom}
           />
         ) : null}
         <PlaybookPanelDialog

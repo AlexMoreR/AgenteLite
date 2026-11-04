@@ -27,8 +27,8 @@ export const MATERIALES_BASE: readonly MaterialBase[] = Object.freeze([
 /** Cuántos colores van en cada imagen de la carta. */
 export const COLORES_POR_IMAGEN = 12;
 
-/** Texto que acompaña a la carta cuando se manda en el chat. */
-export const TEXTO_CARTA_DE_COLORES = "Escríbeme el código del color que te gustó 😊";
+/** Texto que acompaña a la carta cuando se manda en el chat (vive aparte para poder usarlo en el navegador). */
+export { TEXTO_CARTA_DE_COLORES } from "./carta-de-colores-texto";
 
 /** Largo máximo del código de un color (lo que el cliente escribe en el chat). */
 export const LARGO_MAXIMO_CODIGO = 20;
