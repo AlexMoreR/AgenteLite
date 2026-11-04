@@ -14,6 +14,12 @@ import {
   type ColorParaCarta,
 } from "./carta-de-colores";
 import { ELECCION_TODOS, imagenesParaMandar, mandarEnOrden } from "./carta-de-colores-chat";
+import {
+  fotoConDireccionCompleta,
+  responderCartaParaGestion,
+  type MaterialLeido,
+} from "./carta-de-colores-para-gestion";
+import { mismaLlave } from "./origen-de-venta";
 
 function color(numero: number, cambios: Partial<ColorParaCarta> = {}): ColorParaCarta {
   return {
@@ -184,4 +190,126 @@ test("mandarEnOrden se para si el envío se cae", async () => {
   });
   assert.equal(resultado.enviadas, 0);
   assert.ok(resultado.error);
+});
+
+// ---- Carta de colores para Gestión (GET /api/gestion/carta-de-colores) ----
+
+const LLAVE_BUENA = "llave-de-la-conexion-con-gestion";
+const BASE_CRM = "https://crm.ejemplo.test";
+
+function cartaDeLaBase(): MaterialLeido[] {
+  return [
+    {
+      nombre: "Telas",
+      tipo: "TELA",
+      orden: 3,
+      colores: [color(1, { id: "t1", fotoUrl: null })],
+    },
+    {
+      nombre: "Cuerotex",
+      tipo: "CUERO",
+      orden: 0,
+      colores: [
+        color(10, { id: "k10", fotoUrl: "/uploads/carta-colores/fotos/k10.jpg" }),
+        color(2, { id: "k2", fotoUrl: "/uploads/carta-colores/fotos/k2.jpg" }),
+        color(5, { id: "k5", oculto: true, fotoUrl: "/uploads/carta-colores/fotos/k5.jpg" }),
+        color(7, { id: "k7", orden: -1, fotoUrl: null }),
+      ],
+    },
+    { nombre: "Prana", tipo: "CUERO", orden: 1, colores: [] },
+  ];
+}
+
+function depsDePrueba(carta: MaterialLeido[] = cartaDeLaBase()) {
+  const lecturas: string[] = [];
+  return {
+    lecturas,
+    deps: {
+      workspacePorLlave: async (llave: string) => (mismaLlave(llave, LLAVE_BUENA) ? "ws1" : null),
+      leerCarta: async (workspaceId: string) => {
+        lecturas.push(workspaceId);
+        return carta;
+      },
+    },
+  };
+}
+
+test("carta para Gestión: 401 sin llave, con llave mala o sin «Bearer», y no lee la carta", async () => {
+  for (const autorizacion of [null, "", "Bearer otra-llave", LLAVE_BUENA, "Basic " + LLAVE_BUENA, "Bearer "]) {
+    const { deps, lecturas } = depsDePrueba();
+    const respuesta = await responderCartaParaGestion({ autorizacion, base: BASE_CRM }, deps);
+    assert.equal(respuesta.status, 401, `autorización: ${String(autorizacion)}`);
+    assert.deepEqual(respuesta.body, { error: "no_autorizado" });
+    assert.deepEqual(lecturas, []);
+  }
+});
+
+test("carta para Gestión: 200 con la llave buena, en orden y sin colores ocultos", async () => {
+  const { deps, lecturas } = depsDePrueba();
+  const respuesta = await responderCartaParaGestion({ autorizacion: `Bearer ${LLAVE_BUENA}`, base: BASE_CRM }, deps);
+  assert.equal(respuesta.status, 200);
+  assert.deepEqual(lecturas, ["ws1"]);
+  if (respuesta.status !== 200) return;
+  const { materiales } = respuesta.body;
+  assert.deepEqual(
+    materiales.map((m) => [m.nombre, m.tipo, m.orden]),
+    [
+      ["Cuerotex", "CUERO", 0],
+      ["Prana", "CUERO", 1],
+      ["Telas", "TELA", 3],
+    ],
+  );
+  const cuerotex = materiales[0];
+  // El oculto (k5) no sale; el orden es el de la carta: orden y luego código ("2" antes que "10").
+  assert.deepEqual(
+    cuerotex.colores.map((c) => c.id),
+    ["k7", "k2", "k10"],
+  );
+  assert.deepEqual(cuerotex.colores[1], {
+    id: "k2",
+    codigo: "2",
+    nombre: "Color 2",
+    fotoUrl: "https://crm.ejemplo.test/uploads/carta-colores/fotos/k2.jpg",
+    orden: 0,
+  });
+  assert.deepEqual(materiales[1].colores, []);
+});
+
+test("carta para Gestión: fotoUrl completa cuando hay foto y null cuando no", async () => {
+  const { deps } = depsDePrueba();
+  const respuesta = await responderCartaParaGestion({ autorizacion: `bearer  ${LLAVE_BUENA} `, base: `${BASE_CRM}/` }, deps);
+  assert.equal(respuesta.status, 200);
+  if (respuesta.status !== 200) return;
+  const todos = respuesta.body.materiales.flatMap((m) => m.colores);
+  for (const c of todos) {
+    if (["k2", "k10"].includes(c.id)) assert.ok(c.fotoUrl?.startsWith("https://"), c.fotoUrl ?? "sin foto");
+    else assert.equal(c.fotoUrl, null);
+  }
+  assert.equal(todos.find((c) => c.id === "k10")?.fotoUrl, "https://crm.ejemplo.test/uploads/carta-colores/fotos/k10.jpg");
+  assert.equal(fotoConDireccionCompleta("https://otro.test/a.jpg", BASE_CRM), "https://otro.test/a.jpg");
+  assert.equal(fotoConDireccionCompleta("   ", BASE_CRM), null);
+});
+
+test("carta para Gestión: la respuesta no trae oculto, workspaceId, imagenesUrl ni datos de clientes", async () => {
+  const conExtras = cartaDeLaBase().map((m) => ({ ...m, workspaceId: "ws1", imagenesUrl: ["/uploads/x.png"] }));
+  const { deps } = depsDePrueba(conExtras);
+  const respuesta = await responderCartaParaGestion({ autorizacion: `Bearer ${LLAVE_BUENA}`, base: BASE_CRM }, deps);
+  assert.equal(respuesta.status, 200);
+  if (respuesta.status !== 200) return;
+  for (const material of respuesta.body.materiales) {
+    assert.deepEqual(Object.keys(material).sort(), ["colores", "nombre", "orden", "tipo"]);
+    for (const c of material.colores) {
+      assert.deepEqual(Object.keys(c).sort(), ["codigo", "fotoUrl", "id", "nombre", "orden"]);
+    }
+  }
+  const texto = JSON.stringify(respuesta.body);
+  for (const prohibido of ["oculto", "workspaceId", "imagenesUrl", "ws1", "phone", "contact"]) {
+    assert.ok(!texto.includes(prohibido), `no debe salir ${prohibido}`);
+  }
+});
+
+test("carta para Gestión: un negocio sin carta devuelve 200 con lista vacía", async () => {
+  const { deps } = depsDePrueba([]);
+  const respuesta = await responderCartaParaGestion({ autorizacion: `Bearer ${LLAVE_BUENA}`, base: BASE_CRM }, deps);
+  assert.deepEqual(respuesta, { status: 200, body: { materiales: [] } });
 });
