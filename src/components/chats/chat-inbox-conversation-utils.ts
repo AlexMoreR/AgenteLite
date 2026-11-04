@@ -203,6 +203,26 @@ function inferChannelTypeFromId(
   return id?.startsWith("official:") ? "whatsapp_official" : "whatsapp";
 }
 
+/**
+ * El segundo asesor que queda en la fila: el que trae el dato nuevo si lo trae (null = se quito) y,
+ * si no lo trae (undefined), el que ya tenia. El nombre va siempre con su id.
+ */
+function conservarSegundoAsesor(
+  snapshot: { segundoAsesorId?: string | null; segundoAsesorNombre?: string | null },
+  existing?: { segundoAsesorId?: string | null; segundoAsesorNombre?: string | null } | null,
+): Pick<SharedInboxConversationItem, "segundoAsesorId" | "segundoAsesorNombre"> {
+  if (snapshot.segundoAsesorId !== undefined) {
+    return {
+      segundoAsesorId: snapshot.segundoAsesorId,
+      segundoAsesorNombre: snapshot.segundoAsesorId ? snapshot.segundoAsesorNombre ?? null : null,
+    };
+  }
+  return {
+    segundoAsesorId: existing?.segundoAsesorId,
+    segundoAsesorNombre: existing?.segundoAsesorNombre,
+  };
+}
+
 export function buildConversationItemFromSnapshot(
   snapshot: LiveConversationSnapshot,
   existing?: SharedInboxConversationItem | null,
@@ -251,6 +271,8 @@ export function buildConversationItemFromSnapshot(
     // Lo que usa la barra del chat al tocar la fila: fresco del chat abierto, o el que ya tenia.
     assignedToUserId:
       snapshot.assignedTo !== undefined ? snapshot.assignedTo?.id ?? null : existing?.assignedToUserId,
+    // El segundo asesor, igual: fresco si el chat lo trae y, si no, el que ya tenia la fila.
+    ...conservarSegundoAsesor(snapshot, existing),
     automationPaused: snapshot.automationPaused ?? existing?.automationPaused,
     status: snapshot.status ?? existing?.status ?? null,
     // Esta funcion solo actualiza la conversacion abierta: el usuario la esta viendo,
@@ -302,6 +324,8 @@ export function buildConversationItemFromListSnapshot(
     assignedToName: snapshot.assignedToName ?? existing?.assignedToName ?? null,
     assignedToUserId:
       snapshot.assignedToUserId !== undefined ? snapshot.assignedToUserId : existing?.assignedToUserId,
+    // Sin esto, un refresco en vivo que no lo trae borraba al segundo asesor de la fila.
+    ...conservarSegundoAsesor(snapshot, existing),
     automationPaused: snapshot.automationPaused ?? existing?.automationPaused,
     status: snapshot.status ?? existing?.status ?? null,
     incomingCount: snapshot.incomingCount ?? existing?.incomingCount ?? 0,
@@ -450,6 +474,8 @@ export function areConversationListItemsEqual(
     left.assignedToName === right.assignedToName &&
     // Los de la barra del chat: si no, quedaba el valor viejo para dibujarla al tocar la fila.
     (left.assignedToUserId ?? null) === (right.assignedToUserId ?? null) &&
+    (left.segundoAsesorId ?? null) === (right.segundoAsesorId ?? null) &&
+    (left.segundoAsesorNombre ?? null) === (right.segundoAsesorNombre ?? null) &&
     (left.automationPaused ?? null) === (right.automationPaused ?? null) &&
     // La linea y el estado tambien: si no, la fila que llegaba sin linea se quedaba asi aunque la
     // recarga la trajera, y la linea "aparecia al rato" o nunca (Alex, 02-10-2026).
@@ -539,6 +565,9 @@ export function areSelectedConversationsEqual(
     (left.channelName ?? null) === (right.channelName ?? null) &&
     (left.assignedTo?.id ?? null) === (right.assignedTo?.id ?? null) &&
     (left.assignedTo?.name ?? null) === (right.assignedTo?.name ?? null) &&
+    // El segundo asesor: si no, al agregarlo o quitarlo la respuesta fresca se descartaba por "igual".
+    left.segundoAsesorId === right.segundoAsesorId &&
+    (left.segundoAsesorNombre ?? null) === (right.segundoAsesorNombre ?? null) &&
     Boolean(left.canImportHistory) === Boolean(right.canImportHistory) &&
     // La ultima llamada llega con /live: sin esto, si los mensajes eran los mismos de la cache, la
     // respuesta se descartaba por "igual" y el aviso no aparecia.

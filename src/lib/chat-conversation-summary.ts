@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { whereEsMio } from "@/lib/chats-asignacion-compartida";
 
 export type ChatConversationSummary = {
   id: string;
@@ -27,6 +28,9 @@ export type ChatConversationSummary = {
   lastMessageStatus: string | null;
   lastMessageAt: Date | null;
   channelType: "whatsapp" | "whatsapp_official" | "instagram" | "facebook";
+  /** El segundo asesor del chat (null = no tiene): viaja para que un refresco en vivo no lo borre. */
+  segundoAsesorId: string | null;
+  segundoAsesorNombre: string | null;
 };
 
 function getAgentContactLabel(input: { name: string | null; phoneNumber: string }) {
@@ -77,19 +81,22 @@ async function getIncomingCountForConversation(input: { workspaceId: string; con
 export async function getAgentConversationSummaryByConversationId(input: {
   workspaceId: string;
   conversationId: string;
-  // Si se especifica, solo se devuelve la conversacion cuando esta asignada a este usuario.
-  // Lo usan los empleados (no-managers) para no recibir summaries de chats que no son suyos.
+  // Si se especifica, solo se devuelve la conversacion cuando es de este usuario (principal o
+  // segundo asesor). Lo usan los empleados (no-managers) para no recibir summaries de chats que
+  // no son suyos. Con el segundo incluido, a quien agregaron al chat tambien le llega el refresco.
   assignedToUserId?: string;
 }): Promise<ChatConversationSummary | null> {
   const conversation = await prisma.conversation.findFirst({
     where: {
       id: input.conversationId,
       workspaceId: input.workspaceId,
-      ...(input.assignedToUserId ? { assignedToUserId: input.assignedToUserId } : {}),
+      ...(input.assignedToUserId ? whereEsMio(input.assignedToUserId) : {}),
     },
     select: {
       id: true,
       channelId: true,
+      segundoAsesorId: true,
+      segundoAsesor: { select: { name: true } },
       contact: {
         select: {
           id: true,
@@ -162,6 +169,8 @@ export async function getAgentConversationSummaryByConversationId(input: {
     lastMessageStatus: lastMessage?.status ?? null,
     lastMessageAt: lastMessage?.createdAt ?? null,
     channelType: "whatsapp",
+    segundoAsesorId: conversation.segundoAsesorId ?? null,
+    segundoAsesorNombre: conversation.segundoAsesorId ? conversation.segundoAsesor?.name?.trim() || null : null,
   };
 }
 
@@ -169,8 +178,9 @@ export async function getAgentConversationSummaryByPhoneNumber(input: {
   workspaceId: string;
   instanceName: string;
   phoneNumber: string;
-  // Si se especifica, solo se devuelve la conversacion cuando esta asignada a este usuario.
-  // Lo usan los empleados (no-managers) para no recibir summaries de chats que no son suyos.
+  // Si se especifica, solo se devuelve la conversacion cuando es de este usuario (principal o
+  // segundo asesor). Lo usan los empleados (no-managers) para no recibir summaries de chats que
+  // no son suyos. Con el segundo incluido, a quien agregaron al chat tambien le llega el refresco.
   assignedToUserId?: string;
 }): Promise<ChatConversationSummary | null> {
   const phoneVariants = Array.from(new Set([
@@ -218,10 +228,12 @@ export async function getAgentConversationSummaryByPhoneNumber(input: {
       workspaceId: input.workspaceId,
       channelId: channel.id,
       contactId: contact.id,
-      ...(input.assignedToUserId ? { assignedToUserId: input.assignedToUserId } : {}),
+      ...(input.assignedToUserId ? whereEsMio(input.assignedToUserId) : {}),
     },
     select: {
       id: true,
+      segundoAsesorId: true,
+      segundoAsesor: { select: { name: true } },
     },
   });
 
@@ -284,6 +296,8 @@ export async function getAgentConversationSummaryByPhoneNumber(input: {
     lastMessageStatus: lastMessage?.status ?? null,
     lastMessageAt: lastMessage?.createdAt ?? null,
     channelType: "whatsapp",
+    segundoAsesorId: conversation.segundoAsesorId ?? null,
+    segundoAsesorNombre: conversation.segundoAsesorId ? conversation.segundoAsesor?.name?.trim() || null : null,
   };
 }
 

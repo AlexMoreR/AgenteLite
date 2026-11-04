@@ -3060,6 +3060,14 @@ export function SharedInbox({
         // El selector pide el correo como texto: una cuenta sin correo trae null, y se muestra por nombre.
         assignee={conversation.assignedTo ? { ...conversation.assignedTo, email: conversation.assignedTo.email ?? "" } : null}
         source={esOficial ? "official" : "agent"}
+        // El segundo asesor llega con /live. Mientras no llega (undefined) no se ofrece agregarlo.
+        segundoAsesor={
+          esOficial || conversation.segundoAsesorId === undefined
+            ? undefined
+            : conversation.segundoAsesorId
+              ? { id: conversation.segundoAsesorId, name: conversation.segundoAsesorNombre ?? null }
+              : null
+        }
       />
     );
   }, [renderedConversation, selectedConversationKey]);
