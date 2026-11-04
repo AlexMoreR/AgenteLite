@@ -15,6 +15,7 @@ import { resumenDeAvisosAlEquipo } from "@/features/tableros-inteligentes/servic
 import { MOTIVO_TERMINADA, terminadasPrendidas } from "@/features/tableros-inteligentes/services/avisos-de-terminadas";
 import { tieneAccesoAlDrive } from "@/features/cerebro/services/conexion";
 import { estadoDeEtapaPorLectura } from "@/features/crm/services/etapa-por-lectura";
+import { claveModoDelRecibo, claveTelefonoDePrueba, modoDelRecibo, telefonoParaWhatsApp } from "@/lib/recibo-de-caja";
 
 /**
  * "¿QUE ES ESTA APLICACION?" PARA UN ASESOR DE IA.
@@ -358,6 +359,19 @@ async function bandera(clave: string) {
   return fila?.value ?? null;
 }
 
+/** El recibo de caja por WhatsApp (Gestión → línea Admin): el modo y si hay teléfono de prueba (sin mostrarlo). */
+async function estadoDelReciboDeCaja(workspaceId: string) {
+  const [modo, telefono] = await Promise.all([bandera(claveModoDelRecibo(workspaceId)), bandera(claveTelefonoDePrueba(workspaceId))]);
+  const actual = modoDelRecibo(modo);
+  if (actual === "APAGADO") return "APAGADO (recibo-caja:modo:<negocio> sin guardar o distinto de PRUEBA/ACTIVO): Gestión recibe 'apagado' y no sale nada";
+  if (actual === "PRUEBA") {
+    return telefonoParaWhatsApp(telefono)
+      ? "PRUEBA: cada recibo le llega solo al teléfono de prueba por la línea Admin, nunca al cliente"
+      : "PRUEBA sin teléfono de prueba guardado (recibo-caja:telefono-prueba:<negocio>): no sale nada y Gestión recibe 'fallo'";
+  }
+  return "ACTIVO: cada abono de Gestión le manda al cliente su recibo de caja en PDF por la línea Admin";
+}
+
 /** El coach de ventas: si corre solo cada noche y de cuando es el ultimo informe. */
 async function estadoDelCoach(workspaceId: string) {
   const [bandera, ultimo] = await Promise.all([
@@ -643,6 +657,7 @@ async function automatizaciones(
     agente_de_marketing: await estadoDelAgenteDeMarketing(workspaceId).catch(() => "no se pudo leer"),
     agente_de_sistemas: await estadoDelAgenteDeSistemas(workspaceId).catch(() => "no se pudo leer"),
     recoger_errores_tablero: await estadoDeRecogerErrores(workspaceId).catch(() => "no se pudo leer"),
+    recibo_de_caja: await estadoDelReciboDeCaja(workspaceId).catch(() => "no se pudo leer"),
     // Vive en el Coordinador (aizen1), no en la base: el CRM solo recibe las 3 líneas del resumen con la subida.
     mejora_continua_tablero: "activa: corre dentro del Coordinador (aizen1); las lecciones viven en su carpeta de trabajo y el CRM no las puede leer, solo guarda las 3 líneas del resumen de cada subida",
   };
