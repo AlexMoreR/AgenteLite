@@ -14,7 +14,7 @@ import { avisosPrendidos, leerEstadoDeAvisos, sistemasPrendido, telefonoDeSistem
 import { resumenDeAvisosAlEquipo } from "@/features/tableros-inteligentes/services/avisos-al-equipo";
 import { MOTIVO_TERMINADA, terminadasPrendidas } from "@/features/tableros-inteligentes/services/avisos-de-terminadas";
 import { tieneAccesoAlDrive } from "@/features/cerebro/services/conexion";
-import { estadoDeEtapaPorLectura } from "@/features/crm/services/etapa-por-lectura";
+import { estadoDeEtapaPorLectura, type EstadoDeEtapaPorLectura } from "@/features/crm/services/etapa-por-lectura";
 import { claveModoDelRecibo, claveTelefonoDePrueba, modoDelRecibo, telefonoParaWhatsApp } from "@/lib/recibo-de-caja";
 
 /**
@@ -559,6 +559,23 @@ async function estadoDeLaPauta(workspaceId: string) {
   return `activa: una vez al día (4 a. m.) guarda el origen de ${origenes} chat(s) de anuncio y de ${ventas} venta(s); ${meta ? "Meta Ads conectado en solo lectura" : "SIN llave de Meta Ads (META_ADS_ACCESS_TOKEN y META_ADS_ACCOUNT_ID): el gasto sale no disponible y no hay nombre de campaña"}`;
 }
 
+/** El barrido de etapas (cada 10 minutos): prendido o no, el interruptor del Ganado y lo que hizo hoy. */
+function estadoDelBarrido(etapaAuto: string | null, lectura: EstadoDeEtapaPorLectura | null): string {
+  if (etapaAuto === "off") return "apagada (crm:etapa-automatica:<negocio> = off)";
+  const barrido = lectura?.barrido;
+  const ganado =
+    barrido?.ganado_automatico_prendido === false
+      ? " (APAGADO: crm:etapa-automatica:ganado:<negocio> = off)"
+      : barrido?.ganado_automatico_prendido == null
+        ? " (no se pudo leer su interruptor)"
+        : "";
+  const numero = (n: number | null | undefined) => (n == null ? "?" : String(n));
+  return (
+    `activa: cada 10 minutos pone Ganado desde las ventas de Gestión${ganado} y la IA lee hasta 20 chats sin etapa por vuelta (300 al día). ` +
+    `Hoy: ${numero(barrido?.chats_leidos_por_ia_hoy)} chats leídos por la IA y ${numero(barrido?.ganados_de_gestion_hoy)} Ganado de Gestión`
+  );
+}
+
 async function automatizaciones(
   workspaceId: string,
   descritas: Map<string, string>,
@@ -588,8 +605,9 @@ async function automatizaciones(
     bandera("seguimientos-que-escuchan:apagado"),
   ]);
 
+  const lectura = await estadoDeEtapaPorLectura(workspaceId).catch(() => null);
   const sinInterruptor = "activa (no tiene interruptor: corre siempre)";
-  const estados: Record<string, string> = {
+  const estados: Record<string, string | EstadoDeEtapaPorLectura> = {
     seguimientos_programados: reglasProgramadas > 0 ? `activa: ${reglasProgramadas} reglas prendidas` : "sin reglas prendidas",
     seguimientos_v3:
       v3.hayLineasConV3 && v3.reglasSinRespuesta > 0
@@ -619,11 +637,10 @@ async function automatizaciones(
       etapaAuto === "off"
         ? "apagada (crm:etapa-automatica:<negocio> = off)"
         : "activa: pasa a Frio al asignar un chat en NUEVO y a Caliente al cotizar o enviar el total; nunca pone Ganado ni Perdido ni baja a un lead",
-    etapa_por_lectura: await estadoDeEtapaPorLectura(workspaceId).catch(() => "no se pudo leer"),
-    barrido_de_etapas:
-      etapaAuto === "off"
-        ? "apagada (crm:etapa-automatica:<negocio> = off)"
-        : `activa: cada 10 minutos pone Ganado desde las ventas de Gestión${(await bandera(`crm:etapa-automatica:ganado:${workspaceId}`).catch(() => null))?.trim().toLowerCase() === "off" ? " (APAGADO: crm:etapa-automatica:ganado:<negocio> = off)" : ""} y la IA lee hasta 20 chats sin etapa por vuelta (300 al día)`,
+    // Trae la línea de estado y los números del dueño: calientes_hoy, calientes_por_dia y
+    // porcentaje_sin_etapa_semana (meta: menos de 10 %), más el estado del barrido.
+    etapa_por_lectura: lectura ?? "no se pudo leer",
+    barrido_de_etapas: estadoDelBarrido(etapaAuto, lectura),
     campanas: campanasEnCurso > 0 ? `activa: ${campanasEnCurso} en curso` : "sin campañas en curso",
     transcripcion_de_audios: !process.env.OPENAI_API_KEY?.trim()
       ? "apagada: falta la clave de OpenAI"

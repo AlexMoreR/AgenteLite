@@ -26,6 +26,9 @@ const db = {
   seguimientos: 0,
   ia: [],
   respuestaIA: "NADA",
+  /** Para la medición: filas de HistorialEtapa { contactId, etapaNueva, origen, nota, creadoEn }. */
+  cambios: [],
+  sinEtapa: { total: 0, sin_etapa: 0 },
 };
 
 const prisma = {
@@ -42,7 +45,27 @@ const prisma = {
       return { count: 1 };
     },
   },
-  historialEtapa: { findFirst: async () => (db.ultimoCambio ? { ...db.ultimoCambio } : null) },
+  historialEtapa: {
+    findFirst: async () => (db.ultimoCambio ? { ...db.ultimoCambio } : null),
+    // La medición: los cambios a Caliente desde una fecha y los Ganado de Gestión de hoy.
+    findMany: async ({ where }) =>
+      db.cambios
+        .filter((c) => c.etapaNueva === where.etapaNueva && c.creadoEn >= where.creadoEn.gte)
+        .map((c) => ({ contactId: c.contactId, creadoEn: c.creadoEn })),
+    count: async ({ where }) =>
+      db.cambios.filter(
+        (c) => c.etapaNueva === where.etapaNueva && c.origen === where.origen && (c.nota ?? "").includes(where.nota.contains) && c.creadoEn >= where.creadoEn.gte,
+      ).length,
+  },
+  // La medición de la semana: los chats sin etapa ("Contact" + "Message"); las demás consultas, vacías.
+  $queryRaw: async (partes) => {
+    const sql = partes.join("?");
+    if (sql.includes('"Message"')) {
+      if (db.sinEtapa instanceof Error) throw db.sinEtapa;
+      return [{ total: BigInt(db.sinEtapa.total), sin_etapa: BigInt(db.sinEtapa.sin_etapa) }];
+    }
+    return [];
+  },
   $executeRaw: async (_s, ...valores) => {
     db.oficial.push(valores);
     return 1;
@@ -94,6 +117,8 @@ function reiniciar(etapa = "NUEVO") {
   db.seguimientos = 0;
   db.ia.length = 0;
   db.respuestaIA = "NADA";
+  db.cambios.length = 0;
+  db.sinEtapa = { total: 0, sin_etapa: 0 };
 }
 const leer = (texto, extra = {}) =>
   servicio.etapaPorLectura({ workspaceId: "ws", source: "agent", conversationId: "cv", texto, cuando: CUANDO, ...extra });
@@ -520,10 +545,104 @@ await prueba("los enganches existen: las dos entradas de WhatsApp, el enfriamien
   assert.ok(archivo("src/app/api/webhooks/evolution/route.ts").includes("etapaPorLectura("));
   assert.ok(archivo("src/lib/official-api-crm-stage.ts").includes("etapaPorLectura("));
   assert.ok(archivo("src/features/crm/services/bajada-por-inactividad.ts").includes("'recontactarEl'"));
-  assert.ok(archivo("src/lib/mcp/que-es-esta-aplicacion.ts").includes("etapa_por_lectura: await estadoDeEtapaPorLectura("));
+  const mcp = archivo("src/lib/mcp/que-es-esta-aplicacion.ts");
+  assert.ok(mcp.includes("await estadoDeEtapaPorLectura(workspaceId)"));
+  assert.ok(mcp.includes("etapa_por_lectura: lectura"));
+  assert.ok(mcp.includes("barrido_de_etapas: estadoDelBarrido("));
+  // La nota del manual usa la misma clave que automatizaciones().
+  const nota = archivo("docs/cambios-pendientes/ffk92sdj.md");
+  assert.match(nota, /## Automatizaciones\n- `barrido_de_etapas`:/);
+  assert.match(nota, /## Advertencias de operación\n- `barrido_de_etapas_ganado`:.*crm:etapa-automatica:ganado:<negocio>/);
+  // La tarjeta del informe.
+  assert.ok(archivo("src/app/cliente/direccion/informe/page.tsx").includes("<CalientesDelDiaCard"));
   // Leer un mensaje no le manda nada al cliente: el servicio no envía mensajes.
   const fuente = archivo("src/features/crm/services/etapa-por-lectura.ts");
   assert.ok(!/sendMessage|sendText|enviarMensaje|evolution|graph\.facebook/i.test(fuente));
+});
+
+// ── Los números del dueño (estadoDeEtapaPorLectura) ───────────────────────────────────────────
+
+const AHORA = new Date("2026-11-04T15:00:00Z"); // miércoles 4-nov, 10 a. m. en Bogotá
+const medir = () => servicio.estadoDeEtapaPorLectura("ws", { ahora: AHORA });
+
+await prueba("un Caliente de hoy y otro de hace 3 días: calientes_hoy = 1 y 7 días", async () => {
+  db.cambios.push(
+    { contactId: "a", etapaNueva: "NEGOCIACION", origen: "AUTOMATICO", nota: "x", creadoEn: new Date("2026-11-04T13:00:00Z") },
+    { contactId: "b", etapaNueva: "NEGOCIACION", origen: "ASESORA", nota: null, creadoEn: new Date("2026-11-01T20:00:00Z") },
+    // Anoche a las 11 p. m. de Colombia (ya 4-nov en UTC): cuenta para ayer, no para hoy.
+    { contactId: "c", etapaNueva: "NEGOCIACION", origen: "AUTOMATICO", nota: "x", creadoEn: new Date("2026-11-04T04:00:00Z") },
+    // El mismo contacto dos veces el mismo día cuenta una vez.
+    { contactId: "b", etapaNueva: "NEGOCIACION", origen: "AUTOMATICO", nota: "x", creadoEn: new Date("2026-11-01T21:00:00Z") },
+    // Hace 8 días: fuera de la semana.
+    { contactId: "d", etapaNueva: "NEGOCIACION", origen: "AUTOMATICO", nota: "x", creadoEn: new Date("2026-10-27T15:00:00Z") },
+  );
+  const estado = await medir();
+  assert.equal(estado.calientes_hoy, 1);
+  assert.equal(estado.calientes_por_dia.length, 7);
+  assert.deepEqual(estado.calientes_por_dia, [
+    { fecha: "2026-10-29", calientes: 0 },
+    { fecha: "2026-10-30", calientes: 0 },
+    { fecha: "2026-10-31", calientes: 0 },
+    { fecha: "2026-11-01", calientes: 1 },
+    { fecha: "2026-11-02", calientes: 0 },
+    { fecha: "2026-11-03", calientes: 1 },
+    { fecha: "2026-11-04", calientes: 1 },
+  ]);
+  assert.deepEqual(estado.no_se_pudo_leer, []);
+});
+
+await prueba("1 chat sin etapa de 10 da 10 %", async () => {
+  db.sinEtapa = { total: 10, sin_etapa: 1 };
+  const estado = await medir();
+  assert.equal(estado.porcentaje_sin_etapa_semana, 10);
+  assert.deepEqual(estado.sin_etapa_semana, { sin_etapa: 1, total: 10 });
+  assert.equal(estado.meta_sin_etapa, "menos de 10 %");
+  // Sin chats en la semana: 0 %, no un número raro.
+  db.sinEtapa = { total: 0, sin_etapa: 0 };
+  assert.equal((await medir()).porcentaje_sin_etapa_semana, 0);
+});
+
+await prueba("el estado del barrido: prendido, Ganado, chats leídos y Ganado de Gestión de hoy", async () => {
+  db.settings.set("crm:barrido-de-etapas:ia-del-dia:ws", JSON.stringify({ dia: "2026-11-04", usados: 37 }));
+  db.cambios.push(
+    { contactId: "a", etapaNueva: "GANADO", origen: "AUTOMATICO", nota: "Etapa automática: [gestion] cotización COT-1", creadoEn: new Date("2026-11-04T14:00:00Z") },
+    { contactId: "b", etapaNueva: "GANADO", origen: "ASESORA", nota: null, creadoEn: new Date("2026-11-04T14:00:00Z") },
+    { contactId: "c", etapaNueva: "GANADO", origen: "AUTOMATICO", nota: "[gestion] venta pagada", creadoEn: new Date("2026-11-03T14:00:00Z") },
+  );
+  let estado = await medir();
+  assert.deepEqual(estado.barrido, { prendido: true, ganado_automatico_prendido: true, chats_leidos_por_ia_hoy: 37, ganados_de_gestion_hoy: 1 });
+  assert.match(estado.estado, /^activa/);
+
+  // El contador de ayer no cuenta; el Ganado apagado se ve.
+  db.settings.set("crm:barrido-de-etapas:ia-del-dia:ws", JSON.stringify({ dia: "2026-11-03", usados: 300 }));
+  db.settings.set("crm:etapa-automatica:ganado:ws", "off");
+  estado = await medir();
+  assert.equal(estado.barrido.chats_leidos_por_ia_hoy, 0);
+  assert.equal(estado.barrido.ganado_automatico_prendido, false);
+
+  // Todo apagado: el estado lo dice y los números salen igual.
+  db.settings.set("crm:etapa-automatica:ws", "off");
+  estado = await medir();
+  assert.match(estado.estado, /^apagada/);
+  assert.equal(estado.barrido.prendido, false);
+  assert.equal(estado.calientes_por_dia.length, 7);
+});
+
+await prueba("si una consulta de la medición falla, queda en el registro y el resto sale igual", async () => {
+  db.sinEtapa = Object.assign(new Error("\nInvalid `prisma.$queryRaw()` invocation:\n\nTimed out"), { code: "P2024" });
+  db.cambios.push({ contactId: "a", etapaNueva: "NEGOCIACION", origen: "AUTOMATICO", nota: "x", creadoEn: new Date("2026-11-04T13:00:00Z") });
+  let estado;
+  const lineas = await registroDe(async () => {
+    estado = await medir();
+  });
+  assert.equal(estado.porcentaje_sin_etapa_semana, null);
+  assert.equal(estado.calientes_hoy, 1);
+  assert.deepEqual(estado.no_se_pudo_leer, ["los chats sin etapa de la semana"]);
+  assert.ok(lineas.some((l) => /no leyó los chats sin etapa de la semana .*causa=base-P2024/.test(l)), lineas.join(" | "));
+  for (const linea of lineas) {
+    assert.ok(!LINEA_DE_FALLA.test(linea), linea);
+    assert.ok(!linea.includes("\n"), linea);
+  }
 });
 
 console.log(`\n${pruebas} pruebas ok`);
