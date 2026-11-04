@@ -12,13 +12,13 @@ const emanuel = "emanuel";
 const miembrosActivos = [dueno, administrador, monitora, ingrid, emanuel];
 
 test("chat asignado a Ingrid: oye solo Ingrid", () => {
-  const excluidos = excluidosDelAviso({ miembrosActivos, asignadoA: ingrid });
+  const excluidos = excluidosDelAviso({ miembrosActivos, asignadoA: [ingrid] });
   assert.deepEqual(excluidos.sort(), [administrador, dueno, emanuel, monitora].sort());
   assert.ok(!excluidos.includes(ingrid));
 });
 
 test("a Emanuel, al jefe y a la monitora no les suena un chat ajeno", () => {
-  const excluidos = excluidosDelAviso({ miembrosActivos, asignadoA: ingrid });
+  const excluidos = excluidosDelAviso({ miembrosActivos, asignadoA: [ingrid] });
   assert.ok(excluidos.includes(emanuel));
   assert.ok(excluidos.includes(dueno));
   assert.ok(excluidos.includes(administrador));
@@ -26,9 +26,14 @@ test("a Emanuel, al jefe y a la monitora no les suena un chat ajeno", () => {
 });
 
 test("chat sin asignar: no le suena a nadie", () => {
-  assert.deepEqual(excluidosDelAviso({ miembrosActivos, asignadoA: null }), miembrosActivos);
+  assert.deepEqual(excluidosDelAviso({ miembrosActivos, asignadoA: [] }), miembrosActivos);
 });
 
 test("chat asignado a alguien que ya no esta activo: no oye nadie mas", () => {
-  assert.deepEqual(excluidosDelAviso({ miembrosActivos, asignadoA: "ex-asesora" }), miembrosActivos);
+  assert.deepEqual(excluidosDelAviso({ miembrosActivos, asignadoA: ["ex-asesora"] }), miembrosActivos);
+});
+
+test("chat con principal Ingrid y segundo Emanuel: oyen los dos y nadie mas", () => {
+  const excluidos = excluidosDelAviso({ miembrosActivos, asignadoA: [ingrid, emanuel] });
+  assert.deepEqual(excluidos.sort(), [administrador, dueno, monitora].sort());
 });

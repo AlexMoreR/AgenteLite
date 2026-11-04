@@ -79,3 +79,13 @@ test("con ?conversacion= una linea que no se ve sigue cerrada para la asesora", 
   assert.equal(puedeAbrirChat(chat(administrativa, "maria"), asesora), false);
   assert.equal(puedeAbrirChat(chat(ventas, "maria"), asesora), true);
 });
+
+test("el segundo asesor (que no es jefe) puede abrir el chat", () => {
+  const compartido = { ...chat(ventas, "ingrid"), segundoAsesorId: "maria" };
+  assert.equal(puedeAbrirChat(compartido, asesora), true);
+});
+
+test("quien no es jefe ni asignado (ni principal ni segundo) no puede abrirlo", () => {
+  const compartido = { ...chat(ventas, "ingrid"), segundoAsesorId: "emanuel" };
+  assert.equal(puedeAbrirChat(compartido, asesora), false);
+});

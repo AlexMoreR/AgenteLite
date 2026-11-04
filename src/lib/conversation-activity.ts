@@ -11,6 +11,9 @@ export type ConversationActivityKind =
   | "tag_added"
   | "tag_removed"
   | "stage_changed"
+  // Segundo asesor del chat (ver chats-asignacion-compartida.ts).
+  | "segundo_asesor_agregado"
+  | "segundo_asesor_quitado"
   // Nota interna que escribe una asesora. No se envia al cliente: vive solo en el chat.
   | "note";
 
@@ -38,7 +41,8 @@ export async function recordConversationActivity(input: {
   */
   actorUserId?: string | null;
   /**
-   * A QUIEN se le asigno el chat, como dato (solo en "assigned"). Antes solo estaba en el texto
+   * A QUIEN se le asigno el chat, como dato (en "assigned"; en las del segundo asesor, a quien se
+   * agrego o quito). Antes solo estaba en el texto
    * ("Magilus asigno a Genesis Moreno") y para contar "asignados hoy" por vendedora habia que
    * adivinar por el nombre (Alex, 02-10-2026).
    */
@@ -84,6 +88,20 @@ export async function recordConversationActivity(input: {
   } catch {
     // El registro de actividad nunca debe romper la acción principal.
   }
+}
+
+/**
+ * Texto de la actividad del segundo asesor, con el mismo estilo que la de asignacion
+ * ("Magilus asignó a Maria"): "Magilus agregó a Maria al chat" / "Magilus quitó a Maria del chat".
+ */
+export function textoDeSegundoAsesor(
+  kind: "segundo_asesor_agregado" | "segundo_asesor_quitado",
+  actorName: string,
+  asesorName: string,
+): string {
+  return kind === "segundo_asesor_agregado"
+    ? `${actorName} agregó a ${asesorName} al chat`
+    : `${actorName} quitó a ${asesorName} del chat`;
 }
 
 // Detecta si un payload corresponde a una actividad (no a una llamada u otro SYSTEM).
