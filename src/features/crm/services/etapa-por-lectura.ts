@@ -5,6 +5,7 @@ import {
   causaCorta,
   claveInterruptorDescarteAutomatico,
   claveInterruptorEtapaAutomatica,
+  claveInterruptorGanadoAutomatico,
   etapaAutomaticaPrendida,
   etapaQueSePuedeLeer,
   moverEtapaAutomatica,
@@ -19,6 +20,7 @@ import {
   type IntencionDeLaIA,
   type LecturaDelMensaje,
 } from "@/features/crm/domain/intencion-del-cliente";
+import { claveContadorDeIA } from "@/features/crm/services/barrido-de-etapas";
 import type { CrmStage } from "@/features/crm/types";
 
 /**
@@ -155,15 +157,171 @@ const DIAS_DE_MEDICION = 7;
 /** Si las asesoras revierten más que esto de los descartes automáticos, hay que endurecer la regla. */
 const TOPE_DE_REVERSIONES = 0.05;
 
-export async function estadoDeEtapaPorLectura(workspaceId: string): Promise<string> {
-  const [general, descarte] = await Promise.all([
-    prisma.appSetting.findUnique({ where: { key: claveInterruptorEtapaAutomatica(workspaceId) }, select: { value: true } }),
-    prisma.appSetting.findUnique({ where: { key: claveInterruptorDescarteAutomatico(workspaceId) }, select: { value: true } }),
+/** La meta del dueño: menos de este porcentaje de los chats de la semana sigue sin etapa ("---"). */
+export const META_SIN_ETAPA = 10;
+
+export type EstadoDelBarrido = {
+  /** El barrido corre (crm:etapa-automatica:<negocio> no está en off). */
+  prendido: boolean;
+  /** El Ganado desde Gestión (crm:etapa-automatica:ganado:<negocio> no está en off). */
+  ganado_automatico_prendido: boolean;
+  /** Chats que leyó la IA del barrido hoy (hora de Colombia). null si no se pudo leer. */
+  chats_leidos_por_ia_hoy: number | null;
+  /** Leads que el barrido pasó a Ganado hoy desde las ventas de Gestión. null si no se pudo leer. */
+  ganados_de_gestion_hoy: number | null;
+};
+
+export type EstadoDeEtapaPorLectura = {
+  /** La frase de siempre: si está prendida y la medición de 7 días. */
+  estado: string;
+  /** Contactos que pasaron a Caliente hoy (hora de Colombia). null si no se pudo leer. */
+  calientes_hoy: number | null;
+  /** Los 7 últimos días, del más viejo a hoy. null si no se pudo leer. */
+  calientes_por_dia: Array<{ fecha: string; calientes: number }> | null;
+  /** De los chats de ventas con un mensaje del cliente en 7 días, qué % sigue en "---". null si no se pudo leer. */
+  porcentaje_sin_etapa_semana: number | null;
+  meta_sin_etapa: number;
+  barrido: EstadoDelBarrido;
+  /** Las mediciones que fallaron (la causa quedó en el registro). */
+  no_se_pudo_leer?: string[];
+};
+
+/** El día en hora de Colombia (AAAA-MM-DD). Colombia no tiene horario de verano: siempre UTC-5. */
+function diaDeColombia(cuando: Date): string {
+  return new Date(cuando.getTime() - 5 * 3_600_000).toISOString().slice(0, 10);
+}
+
+/** Las 00:00 de un día de Colombia, en UTC. */
+function inicioDelDia(dia: string): Date {
+  return new Date(`${dia}T05:00:00.000Z`);
+}
+
+export async function estadoDeEtapaPorLectura(workspaceId: string, ahora: Date = new Date()): Promise<EstadoDeEtapaPorLectura> {
+  const fallas: string[] = [];
+  /** Cada consulta por separado: si falla, queda en el registro con una causa corta y no lanza. */
+  const medir = async <T,>(nombre: string, consulta: () => Promise<T>): Promise<T | null> => {
+    try {
+      return await consulta();
+    } catch (falla) {
+      fallas.push(nombre);
+      console.info(`[etapa-por-lectura] no midió ${nombre} workspaceId=${workspaceId} causa=${causaCorta(falla)}`);
+      return null;
+    }
+  };
+
+  const hoy = diaDeColombia(ahora);
+  const inicioDeHoy = inicioDelDia(hoy);
+  const dias = Array.from({ length: DIAS_DE_MEDICION }, (_, i) =>
+    diaDeColombia(new Date(inicioDeHoy.getTime() - (DIAS_DE_MEDICION - 1 - i) * 86_400_000)),
+  );
+  const desdeLaSemana = inicioDelDia(dias[0]);
+  const desde = new Date(ahora.getTime() - DIAS_DE_MEDICION * 86_400_000);
+
+  const [general, descarte, ganado, contador, calientes, sinEtapa, ganadosHoy] = await Promise.all([
+    medir("el interruptor", () =>
+      prisma.appSetting.findUnique({ where: { key: claveInterruptorEtapaAutomatica(workspaceId) }, select: { value: true } }),
+    ),
+    medir("el interruptor del descarte", () =>
+      prisma.appSetting.findUnique({ where: { key: claveInterruptorDescarteAutomatico(workspaceId) }, select: { value: true } }),
+    ),
+    medir("el interruptor del Ganado", () =>
+      prisma.appSetting.findUnique({ where: { key: claveInterruptorGanadoAutomatico(workspaceId) }, select: { value: true } }),
+    ),
+    medir("los chats leídos por la IA hoy", () =>
+      prisma.appSetting.findUnique({ where: { key: claveContadorDeIA(workspaceId) }, select: { value: true } }),
+    ),
+    // Calientes: cada cambio a Caliente (NEGOCIACION) del historial, de cualquier origen, desde las 00:00 de
+    // hace 6 días. Un contacto cuenta una vez por día.
+    medir("los Calientes del día", () =>
+      prisma.historialEtapa.findMany({
+        where: { workspaceId, etapaNueva: "NEGOCIACION", creadoEn: { gte: desdeLaSemana } },
+        select: { contactId: true, creadoEn: true },
+      }),
+    ),
+    // Sin etapa: los contactos de la línea de ventas (sin los "fuera del CRM") con un mensaje del cliente
+    // en los últimos 7 días, y cuántos de ellos siguen en "---" (NUEVO). Los mismos que lee el barrido.
+    medir("los chats sin etapa", () =>
+      prisma.$queryRaw<Array<{ total: bigint; sin_etapa: bigint }>>`
+        SELECT COUNT(DISTINCT c."id") AS total,
+               COUNT(DISTINCT c."id") FILTER (WHERE c."crmStage"::text = 'NUEVO') AS sin_etapa
+        FROM "Contact" c
+        JOIN "Conversation" v ON v."contactId" = c."id" AND v."workspaceId" = ${workspaceId}
+        JOIN "WhatsAppChannel" w ON w."id" = v."channelId" AND w."purpose" = 'SALES'
+        WHERE c."workspaceId" = ${workspaceId} AND c."excludedFromCrm" = false AND v."lastMessageAt" >= ${desde}
+          AND EXISTS (
+            SELECT 1 FROM "Message" m
+            WHERE m."conversationId" = v."id" AND m."direction"::text = 'INBOUND'
+              AND m."isStatusBroadcast" = false AND m."createdAt" >= ${desde}
+          )
+      `,
+    ),
+    // Ganados de Gestión de hoy: la marca "[gestion]" que deja marcarGanadoPorGestion en el historial.
+    medir("los Ganados de Gestión de hoy", () =>
+      prisma.historialEtapa.count({
+        where: {
+          workspaceId,
+          origen: "AUTOMATICO",
+          etapaNueva: "GANADO",
+          creadoEn: { gte: inicioDeHoy },
+          nota: { contains: "[gestion]" },
+        },
+      }),
+    ),
   ]);
-  if (general?.value?.trim().toLowerCase() === "off") {
-    return "apagada (crm:etapa-automatica:<negocio> = off): no lee los mensajes del cliente";
+
+  const apagada = (fila: { value: string | null } | null) => fila?.value?.trim().toLowerCase() === "off";
+  const prendida = !apagada(general);
+
+  let calientesPorDia: EstadoDeEtapaPorLectura["calientes_por_dia"] = null;
+  if (calientes) {
+    const porDia = new Map<string, Set<string>>(dias.map((dia) => [dia, new Set()]));
+    for (const fila of calientes) porDia.get(diaDeColombia(fila.creadoEn))?.add(fila.contactId);
+    calientesPorDia = dias.map((fecha) => ({ fecha, calientes: porDia.get(fecha)?.size ?? 0 }));
   }
-  const desde = new Date(Date.now() - DIAS_DE_MEDICION * 86_400_000);
+
+  let porcentajeSinEtapa: number | null = null;
+  if (sinEtapa) {
+    const total = Number(sinEtapa[0]?.total ?? 0);
+    const sin = Number(sinEtapa[0]?.sin_etapa ?? 0);
+    porcentajeSinEtapa = total > 0 ? Math.round((sin / total) * 100) : 0;
+  }
+
+  let leidosHoy: number | null = null;
+  if (contador !== null) {
+    try {
+      const valor = JSON.parse(contador?.value ?? "{}") as { dia?: string; usados?: number };
+      leidosHoy = valor.dia === hoy && Number.isFinite(valor.usados) ? Number(valor.usados) : 0;
+    } catch {
+      leidosHoy = 0;
+    }
+  }
+
+  const texto = prendida
+    ? await medicionDeLaSemana(workspaceId, desde, apagada(descarte)).catch((falla) => {
+        fallas.push("la medición de 7 días");
+        console.info(`[etapa-por-lectura] no midió la semana workspaceId=${workspaceId} causa=${causaCorta(falla)}`);
+        return "activa (no se pudo leer la medición de 7 días)";
+      })
+    : "apagada (crm:etapa-automatica:<negocio> = off): no lee los mensajes del cliente";
+
+  return {
+    estado: texto,
+    calientes_hoy: calientesPorDia ? calientesPorDia[calientesPorDia.length - 1].calientes : null,
+    calientes_por_dia: calientesPorDia,
+    porcentaje_sin_etapa_semana: porcentajeSinEtapa,
+    meta_sin_etapa: META_SIN_ETAPA,
+    barrido: {
+      prendido: prendida,
+      ganado_automatico_prendido: prendida && !apagada(ganado),
+      chats_leidos_por_ia_hoy: leidosHoy,
+      ganados_de_gestion_hoy: ganadosHoy,
+    },
+    ...(fallas.length > 0 ? { no_se_pudo_leer: fallas } : {}),
+  };
+}
+
+/** La medición de 7 días de siempre: leads nuevos con etapa, movidos por frase o IA, descartes revertidos. */
+async function medicionDeLaSemana(workspaceId: string, desde: Date, descarteApagado: boolean): Promise<string> {
   const prefijo = `${NOTA_ETAPA_AUTOMATICA}:%`;
 
   const [leads, porMetodo, reversiones] = await Promise.all([
@@ -202,7 +360,6 @@ export async function estadoDeEtapaPorLectura(workspaceId: string): Promise<stri
     descartados > 0 && revertidos / descartados > TOPE_DE_REVERSIONES
       ? ` ALERTA: las asesoras revirtieron más del ${Math.round(TOPE_DE_REVERSIONES * 100)} % de los descartes automáticos; hay que endurecer las frases o apagar crm:etapa-automatica:descarte:<negocio>.`
       : "";
-  const descarteApagado = descarte?.value?.trim().toLowerCase() === "off";
 
   return (
     `activa: lee cada mensaje del cliente y pasa a Frío (solo desde "---"), Caliente, Tibio${descarteApagado ? "" : " o Descartado"}` +
