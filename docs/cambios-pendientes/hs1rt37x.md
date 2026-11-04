@@ -1,2 +1,0 @@
-## Advertencias de operación
-- `reuniones_altavoz`: el botón «Altavoz» de la sala de reuniones cambia el sonido entre altavoz y auricular. En Chrome de Android lo hace escogiendo el «micrófono» Speakerphone o Headset earpiece (depende de la marca del teléfono: hay que probarlo en el aparato); en el computador sale solo si hay más de un parlante. En iPhone (Safari) no se puede cambiar la salida desde el navegador: el botón solo muestra un aviso para usar los controles del teléfono. La elección se guarda en cada aparato (`localStorage`), no en la base.
