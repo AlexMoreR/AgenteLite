@@ -82,6 +82,7 @@ import {
 } from "@/lib/actualizacion-automatica";
 import { ACCEPT_DOCUMENTOS_CHAT, revisarArchivoAntesDeSubir } from "@/lib/chat-envio-seguro";
 import { ContactAvatar } from "@/components/chats/contact-avatar";
+import { imagenesDelPortapapeles } from "@/components/chats/imagenes-del-portapapeles";
 import {
   getContactDetailsAction,
   generateSuggestedReplyAction,
@@ -269,52 +270,6 @@ async function copiarArchivosAMemoria(
     }
   }
   return { archivos, ilegible: null };
-}
-
-/*
-  Imagenes que trae el portapapeles. En Android Chrome y iPhone Safari la imagen pegada suele
-  venir en `clipboardData.files` y no en `items`; en computador viene en `items`. Se mira en los
-  dos y se quitan repetidos. Si falta el nombre (vacio o `image.png` generico) o el tipo, se
-  completan para que la vista previa y el envio funcionen igual que con "Fotos y videos".
-*/
-function imagenesDelPortapapeles(datos: DataTransfer | null | undefined): File[] {
-  if (!datos) {
-    return [];
-  }
-  const candidatos: File[] = [];
-  for (const item of Array.from(datos.items ?? [])) {
-    if (item.kind === "file" && (item.type === "" || item.type.startsWith("image/"))) {
-      const archivo = item.getAsFile();
-      if (archivo) {
-        candidatos.push(archivo);
-      }
-    }
-  }
-  candidatos.push(...Array.from(datos.files ?? []));
-  const vistos = new Set<string>();
-  const imagenes: File[] = [];
-  for (const archivo of candidatos) {
-    const tipo = archivo.type || "image/png";
-    if (!tipo.startsWith("image/")) {
-      continue;
-    }
-    const huella = `${archivo.size}:${archivo.lastModified}:${tipo}`;
-    if (vistos.has(huella)) {
-      continue;
-    }
-    vistos.add(huella);
-    const extension = tipo.split("/")[1]?.split("+")[0] || "png";
-    const sinNombre = !archivo.name || /^image\.\w+$/i.test(archivo.name);
-    imagenes.push(
-      sinNombre || !archivo.type
-        ? new File([archivo], `imagen-pegada-${Date.now()}-${imagenes.length + 1}.${extension}`, {
-            type: tipo,
-            lastModified: archivo.lastModified,
-          })
-        : archivo,
-    );
-  }
-  return imagenes;
 }
 
 /** Si la barra de primera accion del celular quedo escondida ("no") o visible ("si"). */
