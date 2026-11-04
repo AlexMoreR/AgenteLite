@@ -1,14 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
-import { FileText, SendHorizonal } from "lucide-react";
+import { FileText, SendHorizonal, X } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { quitarArchivo } from "@/components/chats/quitar-archivo-de-la-vista-previa";
 
 type Props = {
   files: File[];
   onCancel: () => void;
   // Envía los archivos con el texto/caption escrito (puede ir vacío).
   onSend: (caption: string) => void;
+  // Saca de la selección el archivo en esa posición. Si no queda ninguno, la bandeja cierra la ventana.
+  onRemove: (index: number) => void;
 };
 
 type MediaKind = "image" | "video" | "audio" | "file";
@@ -27,7 +30,7 @@ function formatSize(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function MediaPreviewDialog({ files, onCancel, onSend }: Props) {
+export function MediaPreviewDialog({ files, onCancel, onSend, onRemove }: Props) {
   const [caption, setCaption] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
 
@@ -44,9 +47,16 @@ export function MediaPreviewDialog({ files, onCancel, onSend }: Props) {
     };
   }, [previews]);
 
-  const active = previews[Math.min(activeIndex, previews.length - 1)] ?? previews[0];
+  const activePosition = Math.max(0, Math.min(activeIndex, previews.length - 1));
+  const active = previews[activePosition];
 
   const handleSend = () => onSend(caption.trim());
+
+  // Quita un archivo y deja en grande el que toca (la siguiente, o la anterior si era la última).
+  const handleRemove = (index: number) => {
+    setActiveIndex(quitarArchivo(previews, index, activePosition).activo);
+    onRemove(index);
+  };
 
   const handleCaptionKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey) {
@@ -72,7 +82,21 @@ export function MediaPreviewDialog({ files, onCancel, onSend }: Props) {
 
         <div className="flex min-h-0 flex-1 flex-col">
           {/* Vista previa principal */}
-          <div className="flex min-h-[180px] flex-1 items-center justify-center overflow-hidden bg-muted/40 p-3">
+          <div className="relative flex min-h-[180px] flex-1 items-center justify-center overflow-hidden bg-muted/40 p-3">
+            {active ? (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleRemove(activePosition);
+                }}
+                className="absolute top-2 right-2 z-10 inline-flex size-11 items-center justify-center rounded-full bg-black/60 text-white shadow-md transition hover:bg-black/75"
+                aria-label="Quitar este archivo"
+                title="Quitar este archivo"
+              >
+                <X className="size-5" />
+              </button>
+            ) : null}
             {active?.kind === "image" ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={active.url} alt={active.file.name} className="max-h-[44vh] max-w-full rounded-lg object-contain" />
@@ -93,26 +117,44 @@ export function MediaPreviewDialog({ files, onCancel, onSend }: Props) {
             )}
           </div>
 
-          {/* Tira de miniaturas cuando hay varios archivos */}
+          {/* Tira de miniaturas cuando hay varios archivos. pt-3 y gap-3 dejan lugar para la X, que
+              sale por fuera de la esquina de cada miniatura. */}
           {previews.length > 1 ? (
-            <div className="flex shrink-0 gap-2 overflow-x-auto border-t border-border px-3 py-2">
+            <div className="flex shrink-0 gap-3 overflow-x-auto border-t border-border px-3 pt-3 pb-2">
               {previews.map((preview, index) => (
-                <button
-                  key={preview.url}
-                  type="button"
-                  onClick={() => setActiveIndex(index)}
-                  className={`flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-lg border transition ${
-                    index === activeIndex ? "border-[var(--primary)] ring-1 ring-[var(--primary)]" : "border-border opacity-70 hover:opacity-100"
-                  }`}
-                  title={preview.file.name}
-                >
-                  {preview.kind === "image" ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={preview.url} alt={preview.file.name} className="h-full w-full object-cover" />
-                  ) : (
-                    <FileText className="size-5 text-muted-foreground" />
-                  )}
-                </button>
+                <div key={preview.url} className="relative shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setActiveIndex(index)}
+                    className={`flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-lg border transition ${
+                      index === activeIndex ? "border-[var(--primary)] ring-1 ring-[var(--primary)]" : "border-border opacity-70 hover:opacity-100"
+                    }`}
+                    title={preview.file.name}
+                  >
+                    {preview.kind === "image" ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={preview.url} alt={preview.file.name} className="h-full w-full object-cover" />
+                    ) : (
+                      <FileText className="size-5 text-muted-foreground" />
+                    )}
+                  </button>
+                  {/* El área que se toca es de 32 px; el círculo que se ve es más chico. Sale por fuera de
+                      la esquina para no tapar el centro de la miniatura, que es para verla en grande. */}
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleRemove(index);
+                    }}
+                    className="absolute -top-3 -right-3 z-10 inline-flex size-8 items-center justify-center"
+                    aria-label="Quitar este archivo"
+                    title="Quitar este archivo"
+                  >
+                    <span className="inline-flex size-5 items-center justify-center rounded-full bg-black/70 text-white shadow ring-1 ring-white/80">
+                      <X className="size-3" />
+                    </span>
+                  </button>
+                </div>
               ))}
             </div>
           ) : null}

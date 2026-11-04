@@ -112,6 +112,7 @@ import { SendFlowDialog, enviarFlujoAlChat } from "@/components/chats/send-flow-
 import { InternalNoteDialog } from "@/components/chats/internal-note-dialog";
 import { FollowUpDialog } from "@/components/chats/follow-up-dialog";
 import { MediaPreviewDialog } from "@/components/chats/media-preview-dialog";
+import { quitarArchivo } from "@/components/chats/quitar-archivo-de-la-vista-previa";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -3020,6 +3021,8 @@ export const ConversationPanel = memo(function ConversationPanel({
           <MediaPreviewDialog
             files={pendingMediaFiles}
             onCancel={() => setPendingMediaFiles([])}
+            // Saca un archivo de la selección; si no queda ninguno, la ventana se cierra sola.
+            onRemove={(index) => setPendingMediaFiles((prev) => quitarArchivo(prev, index, 0).archivos)}
             onSend={(caption) => {
               const files = pendingMediaFiles;
               setPendingMediaFiles([]);
