@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { BookOpen, ChartNoAxesCombined, ChevronDown, Gauge, KanbanSquare, Sun, type LucideIcon } from "lucide-react";
+import { BookOpen, ChartNoAxesCombined, ChevronDown, Gauge, KanbanSquare, Palette, Sun, type LucideIcon } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -18,7 +18,7 @@ import {
   SidebarMenuSubItem,
 } from "@/components/ui/sidebar";
 
-type CrmView = "mi-dia" | "registro" | "kanban" | "tablero" | "guiones";
+type CrmView = "mi-dia" | "registro" | "kanban" | "tablero" | "guiones" | "carta-de-colores";
 
 const crmViews: Array<{
   title: string;
@@ -30,6 +30,8 @@ const crmViews: Array<{
   { title: "Mi día", view: "mi-dia", icon: Sun },
   // Registro ya no está en el menú (Alex, 26-10-2026): la pantalla y los datos siguen, solo se esconde el botón.
   { title: "Kanban", view: "kanban", icon: KanbanSquare },
+  // La ve todo el equipo (las asesoras solo para ver); cambiarla es de dueño, administrador o supervisora.
+  { title: "Carta de colores", view: "carta-de-colores", icon: Palette },
   // Tablero y Guiones: solo dueño o administrador; las demás cuentas ven solo Mi día y Kanban.
   // Solo para quien supervisa: es como viene CADA asesora, no el trabajo de una.
   { title: "Tablero", view: "tablero", icon: Gauge, soloJefes: true },

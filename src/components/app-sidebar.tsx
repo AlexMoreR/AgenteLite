@@ -193,7 +193,9 @@ export function AppSidebar({
                         ? "registro"
                         : pathname.startsWith("/cliente/crm/guiones")
                           ? "guiones"
-                          : "mi-dia"
+                          : pathname.startsWith("/cliente/crm/carta-de-colores")
+                            ? "carta-de-colores"
+                            : "mi-dia"
                 }
                 isCrmRoute={pathname.startsWith("/cliente/crm")}
                 esJefe={esJefeDelNegocio}
