@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { pesos } from "@/lib/contraentrega";
+import { diaEnBogota } from "@/lib/en-linea-reglas";
 import { llaveDelHeader, variantesDeTelefono } from "@/lib/origen-de-venta";
 
 /**
@@ -11,6 +12,9 @@ import { llaveDelHeader, variantesDeTelefono } from "@/lib/origen-de-venta";
  *
  * Nace APAGADO. En PRUEBA le llega solo al teléfono de prueba (el del dueño, guardado en AppSetting,
  * nunca escrito en el código). Para ACTIVO alguien tiene que guardar el modo a mano.
+ *
+ * Parte 2: en ACTIVO, cuando el recibo sale bien, el contacto queda con la etiqueta Cliente y en GANADO
+ * (ver `debeMarcarClienteGanado`). Si eso falla, el recibo sigue enviado y queda una alerta MEDIA aparte.
  *
  * Este archivo es lógica pura (sin red ni base): la prueba es `npm run test:recibo-de-caja`. El envío
  * de verdad (base, WhatsApp, alertas) vive en `recibo-de-caja-envio.ts` y se le pasa aquí como funciones.
@@ -153,6 +157,10 @@ export const claveTelefonoDePrueba = (workspaceId: string) => `recibo-caja:telef
 export const claveReciboEnviado = (workspaceId: string, reciboId: string) => `recibo-caja:enviado:${workspaceId}:${reciboId}`;
 /** Una sola alerta por recibo: si vuelve a fallar se refresca la misma. */
 export const claveAlertaDelRecibo = (reciboId: string) => `recibo-caja:fallo:${reciboId}`;
+/** La alerta MEDIA cuando el recibo SÍ salió pero no se pudo marcar al cliente como Cliente/GANADO. */
+export const claveAlertaDelMarcado = (reciboId: string) => `recibo-caja:marcar:${reciboId}`;
+/** El comienzo de todas las marcas de envío de un negocio (para el resumen del MCP). */
+export const prefijoReciboEnviado = (workspaceId: string) => `recibo-caja:enviado:${workspaceId}:`;
 
 /** El teléfono como lo guarda el CRM ("573001234567"): 10 dígitos que empiezan por 3 → con 57 adelante. */
 export function telefonoParaWhatsApp(valor: string | null | undefined): string | null {
@@ -219,6 +227,17 @@ export function marcaFrenaElEnvio(marca: MarcaDeEnvio | null, modo: ModoDelRecib
 
 export type EstadoDelRecibo = "enviado" | "ya_enviado" | "apagado" | "fallo";
 
+/**
+ * ¿Se marca al cliente como Cliente/GANADO? Solo si el recibo de verdad le llegó a él: modo ACTIVO y
+ * envío OK. En PRUEBA le llegó al dueño (el contacto es el suyo), y "ya_enviado" ya se marcó la primera vez.
+ */
+export function debeMarcarClienteGanado(modo: ModoDelRecibo, estado: EstadoDelRecibo): boolean {
+  return modo === "ACTIVO" && estado === "enviado";
+}
+
+/** A quién le llegó el recibo en el CRM: el contacto y su conversación en la línea Admin. */
+export type DestinoDelEnvio = { contactId: string; conversationId: string };
+
 export type DependenciasDelEnvio = {
   /** Lee una AppSetting (null si no existe). */
   leerAjuste: (clave: string) => Promise<string | null>;
@@ -232,9 +251,13 @@ export type DependenciasDelEnvio = {
   /** Suelta el apartado después de una falla, para que un reintento de Gestión lo vuelva a probar. */
   soltar: (clave: string, valorApartado: string) => Promise<void>;
   /** Manda el PDF con el texto por la línea Admin y lo guarda en el chat. Lanza si no salió. */
-  enviar: (pedido: { telefono: string; texto: string; recibo: ReciboDeCaja; modo: ModoDelRecibo }) => Promise<void>;
+  enviar: (pedido: { telefono: string; texto: string; recibo: ReciboDeCaja; modo: ModoDelRecibo }) => Promise<DestinoDelEnvio>;
   /** Alerta ALTA en el área Gestión (una por recibo). */
   alertar: (pedido: { clave: string; titulo: string; detalle: string }) => Promise<void>;
+  /** Le pone al contacto la etiqueta Cliente y la etapa GANADO (salvo "fuera del CRM"). Lanza si falla. */
+  marcarCliente: (pedido: DestinoDelEnvio & { recibo: ReciboDeCaja }) => Promise<void>;
+  /** Alerta MEDIA en el área Gestión: el recibo salió, pero el marcado falló. */
+  alertarMedia: (pedido: { clave: string; titulo: string; detalle: string }) => Promise<void>;
   ahora?: () => Date;
 };
 
@@ -280,8 +303,9 @@ export async function procesarRecibo(workspaceId: string, recibo: ReciboDeCaja, 
 
   const textoBase = textoDelRecibo(recibo);
   const texto = modo === "PRUEBA" ? textoDePrueba(textoBase, telefonoDelCliente ?? recibo.cliente.telefono) : textoBase;
+  let destino: DestinoDelEnvio;
   try {
-    await deps.enviar({ telefono, texto, recibo, modo });
+    destino = await deps.enviar({ telefono, texto, recibo, modo });
   } catch (error) {
     // No queda marcado: un reintento de Gestión lo vuelve a probar.
     await deps.soltar(clave, apartado).catch(() => undefined);
@@ -294,7 +318,48 @@ export async function procesarRecibo(workspaceId: string, recibo: ReciboDeCaja, 
   } catch {
     // El WhatsApp YA salió: se contesta "enviado" igual. El apartado (ENVIANDO) frena un reintento por 10 minutos.
   }
+
+  if (debeMarcarClienteGanado(modo, "enviado")) {
+    try {
+      await deps.marcarCliente({ ...destino, recibo });
+    } catch (error) {
+      // El recibo YA le llegó: no se borra el "enviado" (no se reenvía). Solo queda la alerta MEDIA aparte.
+      try {
+        await deps.alertarMedia({
+          clave: claveAlertaDelMarcado(recibo.reciboId),
+          titulo: `El recibo ${recibo.ventaCodigo} salió, pero el cliente no quedó como Cliente/GANADO`,
+          detalle: `Recibo ${recibo.reciboId}: ${taparNumeros(error instanceof Error ? error.message : String(error))}. Ponle a mano la etiqueta Cliente y la etapa Ganado en el chat de la línea Admin.`,
+        });
+      } catch {
+        // La alerta nunca tumba la respuesta.
+      }
+    }
+  }
   return { estado: "enviado", modo };
+}
+
+/* ───────────── El resumen para el MCP (cuántos salieron hoy y el último) ───────────── */
+
+export type ResumenDeEnvios = { enviadosHoy: number; ultimo: { fecha: string; modo: ModoDelRecibo } | null };
+
+/**
+ * Resume las marcas `recibo-caja:enviado:*`: cuenta solo las ENVIADO de hoy (día de Bogotá) e ignora
+ * los apartados (ENVIANDO) y los datos rotos. Nunca devuelve el teléfono.
+ */
+export function resumenDeEnvios(valores: (string | null | undefined)[], ahora: Date): ResumenDeEnvios {
+  const hoy = diaEnBogota(ahora);
+  let enviadosHoy = 0;
+  let ultimo: { fecha: string; modo: ModoDelRecibo; ms: number } | null = null;
+  for (const valor of valores) {
+    const marca = leerMarcaDeEnvio(valor);
+    if (marca?.estado !== "ENVIADO") continue;
+    const ms = Date.parse(marca.fecha);
+    if (!Number.isFinite(ms)) continue;
+    const fecha = new Date(ms);
+    if (diaEnBogota(fecha) === hoy) enviadosHoy += 1;
+    if (!ultimo || ms > ultimo.ms) ultimo = { fecha: fecha.toISOString(), modo: marca.modo, ms };
+  }
+  return { enviadosHoy, ultimo: ultimo ? { fecha: ultimo.fecha, modo: ultimo.modo } : null };
 }
 
 /* ───────────── La puerta (POST /api/gestion/recibo-de-caja) ───────────── */

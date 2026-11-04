@@ -15,7 +15,7 @@ import { resumenDeAvisosAlEquipo } from "@/features/tableros-inteligentes/servic
 import { MOTIVO_TERMINADA, terminadasPrendidas } from "@/features/tableros-inteligentes/services/avisos-de-terminadas";
 import { tieneAccesoAlDrive } from "@/features/cerebro/services/conexion";
 import { estadoDeEtapaPorLectura, type EstadoDeEtapaPorLectura } from "@/features/crm/services/etapa-por-lectura";
-import { claveModoDelRecibo, claveTelefonoDePrueba, modoDelRecibo, telefonoParaWhatsApp } from "@/lib/recibo-de-caja";
+import { claveModoDelRecibo, claveTelefonoDePrueba, modoDelRecibo, prefijoReciboEnviado, resumenDeEnvios, telefonoParaWhatsApp } from "@/lib/recibo-de-caja";
 
 /**
  * "¿QUE ES ESTA APLICACION?" PARA UN ASESOR DE IA.
@@ -359,17 +359,28 @@ async function bandera(clave: string) {
   return fila?.value ?? null;
 }
 
-/** El recibo de caja por WhatsApp (Gestión → línea Admin): el modo y si hay teléfono de prueba (sin mostrarlo). */
+/**
+ * El recibo de caja por WhatsApp (Gestión → línea Admin): el modo, si hay teléfono de prueba (sin
+ * mostrarlo), cuántos salieron hoy (día de Bogotá) y el último, leído de `recibo-caja:enviado:<negocio>:*`.
+ */
 async function estadoDelReciboDeCaja(workspaceId: string) {
-  const [modo, telefono] = await Promise.all([bandera(claveModoDelRecibo(workspaceId)), bandera(claveTelefonoDePrueba(workspaceId))]);
+  const [modo, telefono, marcas] = await Promise.all([
+    bandera(claveModoDelRecibo(workspaceId)),
+    bandera(claveTelefonoDePrueba(workspaceId)),
+    prisma.appSetting.findMany({ where: { key: { startsWith: prefijoReciboEnviado(workspaceId) } }, select: { value: true } }),
+  ]);
   const actual = modoDelRecibo(modo);
-  if (actual === "APAGADO") return "APAGADO (recibo-caja:modo:<negocio> sin guardar o distinto de PRUEBA/ACTIVO): Gestión recibe 'apagado' y no sale nada";
+  const resumen = resumenDeEnvios(marcas.map((marca) => marca.value), new Date());
+  const envios = `; ${resumen.enviadosHoy} enviados hoy${resumen.ultimo ? `; último: ${resumen.ultimo.fecha} (${resumen.ultimo.modo})` : "; ninguno enviado todavía"}`;
+  if (actual === "APAGADO") {
+    return `APAGADO (recibo-caja:modo:<negocio> sin guardar o distinto de PRUEBA/ACTIVO): Gestión recibe 'apagado' y no sale nada${envios}`;
+  }
   if (actual === "PRUEBA") {
     return telefonoParaWhatsApp(telefono)
-      ? "PRUEBA: cada recibo le llega solo al teléfono de prueba por la línea Admin, nunca al cliente"
-      : "PRUEBA sin teléfono de prueba guardado (recibo-caja:telefono-prueba:<negocio>): no sale nada y Gestión recibe 'fallo'";
+      ? `PRUEBA: cada recibo le llega solo al teléfono de prueba por la línea Admin, nunca al cliente, y no se marca a nadie${envios}`
+      : `PRUEBA sin teléfono de prueba guardado (recibo-caja:telefono-prueba:<negocio>): no sale nada y Gestión recibe 'fallo'${envios}`;
   }
-  return "ACTIVO: cada abono de Gestión le manda al cliente su recibo de caja en PDF por la línea Admin";
+  return `ACTIVO: cada abono de Gestión le manda al cliente su recibo de caja en PDF por la línea Admin y lo deja con la etiqueta Cliente y en GANADO${envios}`;
 }
 
 /** El coach de ventas: si corre solo cada noche y de cuando es el ultimo informe. */

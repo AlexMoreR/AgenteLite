@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { Prisma } from "@prisma/client";
 
 import { registrarAlerta } from "@/features/alertas/servicios/alertas";
@@ -5,6 +7,7 @@ import { getPublicBaseUrl } from "@/lib/app-url";
 import { persistChatMediaFromDataUrl } from "@/lib/chat-media-storage";
 import { sendEvolutionDocumentMessage, sendEvolutionMediaBase64 } from "@/lib/evolution";
 import { persistEvolutionMessage } from "@/lib/evolution-envio";
+import { registrarCambioDeEtapa } from "@/lib/historial-etapa";
 import { variantesDeTelefono } from "@/lib/origen-de-venta";
 import { prisma } from "@/lib/prisma";
 import {
@@ -12,6 +15,7 @@ import {
   taparNumeros,
   telefonoTapado,
   type DependenciasDelEnvio,
+  type DestinoDelEnvio,
   type ModoDelRecibo,
   type ReciboDeCaja,
   type ResultadoDelEnvio,
@@ -134,7 +138,7 @@ async function conversacionEnLaLinea(input: { workspaceId: string; channelId: st
 async function enviarPorLaLineaAdmin(
   workspaceId: string,
   pedido: { telefono: string; texto: string; recibo: ReciboDeCaja; modo: ModoDelRecibo },
-): Promise<void> {
+): Promise<DestinoDelEnvio> {
   const { recibo, telefono, texto } = pedido;
   const canal = await prisma.whatsAppChannel.findFirst({
     where: { id: LINEA_ADMIN_RECIBOS, workspaceId },
@@ -223,6 +227,82 @@ async function enviarPorLaLineaAdmin(
       detalle: error instanceof Error ? taparNumeros(error.message).slice(0, 200) : "desconocido",
     });
   }
+  return { contactId: contacto.id, conversationId: conversacion.id };
+}
+
+/** La etiqueta que dice "ya compró". Si el negocio no la tiene, se crea. */
+const ETIQUETA_CLIENTE = { slug: "cliente", nombre: "Cliente", color: "#059669" };
+
+async function etiquetaCliente(workspaceId: string): Promise<{ id: string }> {
+  const buscar = () =>
+    prisma.tag.findFirst({
+      where: { workspaceId, OR: [{ slug: ETIQUETA_CLIENTE.slug }, { name: { equals: ETIQUETA_CLIENTE.nombre, mode: "insensitive" } }] },
+      orderBy: { createdAt: "asc" },
+      select: { id: true },
+    });
+  const existente = await buscar();
+  if (existente) return existente;
+  try {
+    return await prisma.tag.create({
+      data: {
+        id: randomUUID(),
+        workspaceId,
+        name: ETIQUETA_CLIENTE.nombre,
+        slug: ETIQUETA_CLIENTE.slug,
+        color: ETIQUETA_CLIENTE.color,
+        updatedAt: new Date(),
+      },
+      select: { id: true },
+    });
+  } catch (error) {
+    // Dos recibos al mismo tiempo la crearon a la vez: se usa la que quedó.
+    if (esDuplicado(error)) {
+      const creada = await buscar();
+      if (creada) return creada;
+    }
+    throw error;
+  }
+}
+
+/**
+ * Parte 2: el recibo SÍ le llegó al cliente (modo ACTIVO). Al contacto de la conversación de la línea
+ * Admin se le pone la etiqueta Cliente y la etapa GANADO (salvo "fuera del CRM"), con su fila en el
+ * historial de etapas. Es la única excepción a "Ganado lo pone una persona" (ver `marcarCierreDeCompra`):
+ * es plata ya registrada en Gestión por una asesora. Lanza si algo falla (y queda la alerta MEDIA).
+ */
+async function marcarClienteGanado(workspaceId: string, pedido: DestinoDelEnvio & { recibo: ReciboDeCaja }): Promise<void> {
+  const contacto = await prisma.contact.findFirst({
+    where: { id: pedido.contactId, workspaceId },
+    select: { id: true, crmStage: true, excludedFromCrm: true, wonAt: true },
+  });
+  if (!contacto) throw new Error("El contacto del recibo no existe en este negocio");
+
+  // Igual que contact-default-tags.ts: createMany con skipDuplicates (si ya la tiene, no pasa nada).
+  const etiqueta = await etiquetaCliente(workspaceId);
+  await prisma.contactTag.createMany({
+    data: [{ contactId: contacto.id, tagId: etiqueta.id, workspaceId }],
+    skipDuplicates: true,
+  });
+
+  // "Fuera del CRM" lleva la etiqueta, pero no se le toca la etapa.
+  if (contacto.excludedFromCrm || contacto.crmStage === "GANADO") return;
+
+  // Solo si sigue en la etapa leída (igual que marcarGanadoPorGestion): si alguien lo movió en el medio, no se pisa.
+  const guardado = await prisma.contact.updateMany({
+    where: { id: contacto.id, workspaceId, crmStage: contacto.crmStage },
+    data: { crmStage: "GANADO", lostReason: null, ...(contacto.wonAt ? {} : { wonAt: new Date() }) },
+  });
+  if (guardado.count === 0) throw new Error("La etapa del contacto cambió mientras se marcaba GANADO");
+
+  await registrarCambioDeEtapa({
+    workspaceId,
+    contactId: contacto.id,
+    conversationId: pedido.conversationId,
+    etapaAnterior: contacto.crmStage,
+    etapaNueva: "GANADO",
+    origen: "AUTOMATICO",
+    nota: `[recibo de caja] venta ${pedido.recibo.ventaCodigo}`,
+  });
 }
 
 /** Las piezas de verdad para `procesarRecibo`. */
@@ -235,6 +315,10 @@ export function dependenciasDelEnvio(workspaceId: string): DependenciasDelEnvio 
     enviar: (pedido) => enviarPorLaLineaAdmin(workspaceId, pedido),
     alertar: async ({ clave, titulo, detalle }) => {
       await registrarAlerta({ workspaceId, clave, prioridad: "ALTA", titulo, detalle, origen: ORIGEN_ALERTA });
+    },
+    marcarCliente: (pedido) => marcarClienteGanado(workspaceId, pedido),
+    alertarMedia: async ({ clave, titulo, detalle }) => {
+      await registrarAlerta({ workspaceId, clave, prioridad: "MEDIA", titulo, detalle, origen: ORIGEN_ALERTA });
     },
   };
 }

@@ -195,6 +195,10 @@ export const CLAVE_CIERRE_PENDIENTE = "cierrePendienteEn";
  * "Ganado" lo sigue poniendo una persona, a proposito: una venta es plata recibida, no una
  * direccion escrita. Marcarla sola cambiaria un numero que miente por abajo por uno que miente
  * por arriba, y ese es peor -queda trabado y alimenta las vistas de plata-.
+ *
+ * La unica excepcion es el recibo de caja (src/lib/recibo-de-caja-envio.ts): cuando el recibo le
+ * llega al cliente en modo ACTIVO, el contacto queda en Ganado solo, porque es plata ya registrada
+ * en Gestion por una asesora. Asi se respeta la regla: Ganado sigue saliendo de plata recibida.
  */
 export async function marcarCierreDeCompra(input: {
   workspaceId: string;
