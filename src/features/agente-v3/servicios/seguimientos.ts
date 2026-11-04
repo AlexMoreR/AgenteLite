@@ -13,6 +13,10 @@ import { revisarFrenoDeAutomatico } from "@/lib/freno-de-automaticos";
 import { apagarSiCorresponde } from "@/features/seguimientos/services/follows";
 import { revisarConvivencia } from "@/features/seguimiento-inteligente/servicios/convivencia";
 import { limpiarFrasesProhibidas } from "@/lib/reglas-de-redaccion";
+import {
+  marcaDelSeguimiento,
+  redactarSeguimientoQueEscucha,
+} from "@/features/seguimientos/services/seguimiento-que-escucha";
 
 import { cumpleLasCondiciones } from "../motor/decidir";
 import { elV3AtendioLaCharla, guardarEstado, leerEstado } from "../motor/estado";
@@ -68,6 +72,13 @@ const CUANTOS_POR_VUELTA = 10;
  * comían los 10 cupos y los de más atrás no se miraban nunca.
  */
 const CUANTOS_A_MIRAR = 200;
+
+/** "15m", "1h", "1h30m": para el registro del redactor. */
+function etiquetaDelPaso(minutos: number): string {
+  const horas = Math.floor(minutos / 60);
+  const resto = minutos % 60;
+  return horas ? `${horas}h${resto ? `${resto}m` : ""}` : `${resto}m`;
+}
 
 export async function ejecutarSeguimientosV3(
   ahora = new Date(),
@@ -284,8 +295,42 @@ export async function ejecutarSeguimientosV3(
         continue;
       }
 
+      /*
+        Seguimientos que escuchan al cliente (parte 3): el texto de la regla del libro pasa por el
+        redactor, que lee el chat completo (y los audios) y escribe uno que habla de lo que dijo ESTE
+        cliente. El texto de la regla es el respaldo y lo que sale con el interruptor
+        `seguimientos-que-escuchan:apagado`. No cambia cuándo sale ni cuántos: solo qué dice.
+        Las reglas del libro no se tocan.
+      */
+      const pasoDelSeguimiento = delPaso.filter((fila) => fila.minutos <= toca.minutos).length;
+      const redactado = await redactarSeguimientoQueEscucha({
+        conversationId: conversacion.id,
+        workspaceId: canal.workspaceId,
+        textoFijo: textos.join("\n\n"),
+        paso: pasoDelSeguimiento,
+        origen: `v3-${etiquetaDelPaso(toca.minutos)}`,
+      });
+      if (!redactado.enviar) {
+        frenados += 1;
+        anotar(redactado.motivo);
+        // Ningún texto pasó la revisión: se da por visto, para no pedirle a la IA lo mismo cada minuto.
+        // Con el tope de la vuelta lleno no se marca: sale en la vuelta siguiente.
+        if (!redactado.reprogramar) {
+          const vistos = delPaso.filter((fila) => fila.minutos <= toca.minutos).map((fila) => fila.minutos);
+          await guardarEstado(conversacion.id, {
+            ...estado,
+            seguimientosEnviados: [...new Set([...yaSalieron, ...vistos])],
+          });
+        }
+        continue;
+      }
+      const marca = marcaDelSeguimiento(redactado);
+      // Si salió el texto de la regla tal cual, salen sus mensajes como siempre; si no, uno solo.
+      const aEnviar = marca ? [redactado.texto] : textos;
+      const source = redactado.deIA ? "agente-v3-seguimiento-ia" : "agente-v3-seguimiento";
+
       try {
-        for (const texto of textos) {
+        for (const texto of aEnviar) {
           const resultado = await sendEvolutionTextMessageWithReconnect({
             instanceName: canal.evolutionInstanceName,
             phoneNumber: telefono,
@@ -303,7 +348,7 @@ export async function ejecutarSeguimientosV3(
               status: "SENT",
               content: texto,
               sentAt: new Date(),
-              rawPayload: { source: "agente-v3-seguimiento", evolution: resultado } as never,
+              rawPayload: { source, evolution: resultado, ...(marca ?? {}) } as never,
             },
           });
         }
@@ -342,7 +387,7 @@ export async function ejecutarSeguimientosV3(
           productoV3: estado.productoActivo,
           reglaId: toca.regla.id,
           reglaNombre: toca.regla.nombre,
-          datos: { minutos: toca.minutos, mensajes: textos.length },
+          datos: { minutos: toca.minutos, mensajes: aEnviar.length, deIA: redactado.deIA },
         });
       } catch (error) {
         console.error("[agente-v3] no se pudo enviar el seguimiento", {

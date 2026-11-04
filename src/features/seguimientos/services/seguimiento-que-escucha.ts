@@ -407,6 +407,9 @@ function aLineas(mensajes: MensajeLeido[]): Linea[] {
     .filter((linea) => linea.texto);
 }
 
+/** Los origenes de los seguimientos automaticos de texto: los follows y los del reloj del V3 (parte 3). */
+const ORIGENES_DE_SEGUIMIENTO = ["follow", "agente-v3-seguimiento", "agente-v3-seguimiento-ia"];
+
 /** Los seguimientos que ya le llegaron a este chat (texto y fecha). */
 async function seguimientosYaEnviados(conversationId: string) {
   const filas = await prisma.message.findMany({
@@ -414,7 +417,7 @@ async function seguimientosYaEnviados(conversationId: string) {
       conversationId,
       direction: "OUTBOUND",
       deletedAt: null,
-      rawPayload: { path: ["source"], equals: "follow" },
+      OR: ORIGENES_DE_SEGUIMIENTO.map((source) => ({ rawPayload: { path: ["source"], equals: source } })),
     },
     orderBy: { createdAt: "asc" },
     take: 100,
