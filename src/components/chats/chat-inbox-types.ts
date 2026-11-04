@@ -35,6 +35,9 @@ export type SharedInboxConversationItem = {
    * fila, sin esperar a /live. Salen de la misma consulta de la lista: 0 consultas mas.
    */
   assignedToUserId?: string | null;
+  /** El segundo asesor del chat (null = no tiene; undefined = la fila no lo trae). */
+  segundoAsesorId?: string | null;
+  segundoAsesorNombre?: string | null;
   automationPaused?: boolean | null;
   // Etapa del CRM del contacto, para mostrar el badge de etapa en la fila de la lista.
   crmStage?: string | null;
@@ -96,6 +99,9 @@ export type SharedInboxSelectedConversation = {
   channelName?: string | null;
   status?: "OPEN" | "PENDING" | "CLOSED" | "ARCHIVED" | null;
   assignedTo?: { id: string; name: string | null; email: string | null } | null;
+  /** El segundo asesor (ver chats-asignacion-compartida). undefined = no vino y se conserva el de antes. */
+  segundoAsesorId?: string | null;
+  segundoAsesorNombre?: string | null;
   canImportHistory?: boolean;
   loadMoreHref?: string | null;
   loadMoreCursor?: string | null;

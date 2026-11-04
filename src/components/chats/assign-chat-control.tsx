@@ -2,16 +2,20 @@
 
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Check, ChevronDown, UserCheck, UserPlus } from "lucide-react";
+import { Check, ChevronDown, UserCheck, UserPlus, Users, X } from "lucide-react";
 import {
+  asignarSegundoAsesorAction,
   assignChatAction,
   getAssignableMembersAction,
   type AssignableMember,
 } from "@/app/actions/chats-actions";
 import {
+  olvidarSegundoSiYaLlego,
   olvidarSiYaLlego,
   recordarAsignacion,
+  recordarSegundoAsesor,
   useAsignadoMostrado,
+  useSegundoAsesorMostrado,
 } from "@/components/chats/asignacion-optimista";
 
 type AssignChatControlProps = {
@@ -21,6 +25,11 @@ type AssignChatControlProps = {
   source?: "agent" | "official";
   /** Barra del celular: solo el icono (verde si tiene asesora); el nombre va en el title. */
   compacto?: boolean;
+  /**
+   * El segundo asesor del chat (null = no tiene). Si no se pasa (undefined), no se muestra el
+   * bloque "Agregar asesor": la barra compacta y la API oficial no lo tienen.
+   */
+  segundoAsesor?: { id: string; name: string | null } | null;
 };
 
 /*
@@ -58,6 +67,7 @@ export function AssignChatControl({
   assignee: asignadoDelServidor,
   source = "agent",
   compacto = false,
+  segundoAsesor: segundoDelServidor,
 }: AssignChatControlProps) {
   /*
     Quien lo tiene AHORA, sin esperar al servidor.
@@ -84,8 +94,21 @@ export function AssignChatControl({
   useEffect(() => {
     olvidarSiYaLlego(conversationId, asignadoDelServidor);
   }, [conversationId, asignadoDelServidor]);
+  // El segundo asesor, con la misma marca optimista que el principal (ver asignacion-optimista).
+  const conSegundoAsesor = !compacto && source === "agent" && segundoDelServidor !== undefined;
+  const segundoAsesor = useSegundoAsesorMostrado(conversationId, segundoDelServidor ?? null);
+  const segundoDelServidorId = segundoDelServidor?.id ?? null;
+  const traeSegundo = segundoDelServidor !== undefined;
+  useEffect(() => {
+    if (!traeSegundo) return;
+    olvidarSegundoSiYaLlego(conversationId, segundoDelServidorId ? { id: segundoDelServidorId, name: null } : null);
+  }, [conversationId, traeSegundo, segundoDelServidorId]);
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
+  const segundoRef = useRef<HTMLDivElement>(null);
+  const [segundoOpen, setSegundoOpen] = useState(false);
+  const [segundoError, setSegundoError] = useState<string | null>(null);
+  const [segundoPending, startSegundoTransition] = useTransition();
   const [open, setOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [members, setMembers] = useState<AssignableMember[]>([]);
@@ -130,6 +153,53 @@ export function AssignChatControl({
     return () => document.removeEventListener("mousedown", onPointerDown);
   }, [open]);
 
+  // La lista de "Agregar asesor" se cierra al tocar afuera, igual que la de "Asignar".
+  useEffect(() => {
+    if (!segundoOpen) return;
+    function onPointerDown(event: MouseEvent) {
+      if (segundoRef.current && !segundoRef.current.contains(event.target as Node)) {
+        setSegundoOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [segundoOpen]);
+
+  /*
+    Agrega (userId) o quita (null) al segundo asesor. El principal no cambia. Mismo patron que
+    "Asignar": se ve de una cuando el servidor lo guardo, y el refresco va aparte, sin esperarlo.
+  */
+  const handleSegundo = useCallback(
+    (targetUserId: string | null) => {
+      if ((segundoAsesor?.id ?? null) === targetUserId) {
+        setSegundoOpen(false);
+        return;
+      }
+      setSegundoError(null);
+      startSegundoTransition(async () => {
+        const result = await asignarSegundoAsesorAction({ conversationId, userId: targetUserId }).catch(
+          () => ({ error: "No se pudo guardar. Revisa la conexión y vuelve a intentarlo." }) as Awaited<
+            ReturnType<typeof asignarSegundoAsesorAction>
+          >,
+        );
+        if (result?.error) {
+          setSegundoError(result.error);
+          return;
+        }
+        const elegido = targetUserId ? (members.find((miembro) => miembro.id === targetUserId) ?? null) : null;
+        recordarSegundoAsesor(
+          conversationId,
+          targetUserId
+            ? { id: targetUserId, name: elegido ? memberLabel(elegido) : (result.segundoAsesor?.name ?? null) }
+            : null,
+        );
+        setSegundoOpen(false);
+      });
+      router.refresh();
+    },
+    [conversationId, members, router, segundoAsesor?.id],
+  );
+
   const handleAssign = useCallback(
     (targetUserId: string | null) => {
       /*
@@ -163,6 +233,10 @@ export function AssignChatControl({
           asi el chip nunca queda en blanco si al usuario le falta el nombre y solo tiene correo.
         */
         const elegido = targetUserId ? (members.find((miembro) => miembro.id === targetUserId) ?? null) : null;
+        // Si el nuevo principal era el segundo asesor, el servidor ya lo quito de segundo.
+        if (targetUserId && segundoAsesor?.id === targetUserId) {
+          recordarSegundoAsesor(conversationId, null);
+        }
         recordarAsignacion(
           conversationId,
           elegido
@@ -181,7 +255,7 @@ export function AssignChatControl({
       */
       router.refresh();
     },
-    [assignee?.id, conversationId, members, router, source],
+    [assignee?.id, conversationId, members, router, segundoAsesor?.id, source],
   );
 
   const assignedToMe = Boolean(assignee && currentUserId && assignee.id === currentUserId);
@@ -191,7 +265,89 @@ export function AssignChatControl({
   const puedeTraspasar = !assignee || assignedToMe;
   const companeras = members.filter((member) => member.id !== currentUserId);
 
+  // "Agregar asesor": lo usa el jefe o el dueño del chat. El segundo asesor solo puede quitarse.
+  const puedeManejarSegundo = isManager || assignedToMe;
+  const soyElSegundo = Boolean(segundoAsesor && currentUserId && segundoAsesor.id === currentUserId);
+  const candidatosSegundo = members.filter((member) => member.id !== assignee?.id);
+  const nombreSegundo = segundoAsesor
+    ? (() => {
+        const miembro = members.find((member) => member.id === segundoAsesor.id);
+        return miembro ? memberLabel(miembro) : segundoAsesor.name?.trim() || "Otro asesor";
+      })()
+    : "";
+
+  const bloqueSegundo =
+    conSegundoAsesor && loaded ? (
+      segundoAsesor ? (
+        puedeManejarSegundo || soyElSegundo ? (
+          <div className="space-y-1">
+            <div className="inline-flex h-9 max-w-full items-center gap-1.5 rounded-md border border-emerald-500/20 bg-emerald-500/10 pl-3 text-[13px] font-medium text-emerald-600">
+              <Users className="h-4 w-4 shrink-0" />
+              <span className="min-w-0 truncate">
+                {nombreSegundo}
+                {soyElSegundo ? " (tú)" : ""}
+              </span>
+              <button
+                type="button"
+                disabled={segundoPending}
+                onClick={() => handleSegundo(null)}
+                className="inline-flex size-9 shrink-0 items-center justify-center rounded-md transition hover:bg-emerald-500/20 disabled:opacity-50"
+                title={soyElSegundo ? "Quitarme de este chat" : `Quitar a ${nombreSegundo} del chat`}
+                aria-label={soyElSegundo ? "Quitarme de este chat" : `Quitar a ${nombreSegundo} del chat`}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            {segundoError ? <div className="text-[12px] text-red-500">{segundoError}</div> : null}
+          </div>
+        ) : null
+      ) : assignee && puedeManejarSegundo ? (
+        <div ref={segundoRef} className="relative space-y-1">
+          <button
+            type="button"
+            disabled={segundoPending}
+            onClick={() => setSegundoOpen((value) => !value)}
+            className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-card px-3 text-[13px] font-medium text-foreground transition hover:bg-muted disabled:opacity-50"
+            aria-haspopup="menu"
+            aria-expanded={segundoOpen}
+          >
+            <UserPlus className="h-4 w-4 shrink-0" />
+            Agregar asesor
+          </button>
+          {segundoError ? <div className="text-[12px] text-red-500">{segundoError}</div> : null}
+          {segundoOpen ? (
+            <div className="absolute left-0 z-50 mt-1 w-60 overflow-hidden rounded-xl border border-border bg-popover shadow-[0_18px_50px_-24px_rgba(15,23,42,0.35)]">
+              <div className="border-b border-border px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Agregar asesor
+              </div>
+              <div className="max-h-72 overflow-y-auto py-1">
+                {candidatosSegundo.length === 0 ? (
+                  <div className="px-3 py-2 text-[12px] text-muted-foreground">No hay nadie mas en el equipo.</div>
+                ) : (
+                  candidatosSegundo.map((member) => (
+                    <button
+                      key={member.id}
+                      type="button"
+                      disabled={segundoPending}
+                      onClick={() => handleSegundo(member.id)}
+                      className="flex min-h-10 w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-foreground transition hover:bg-muted disabled:opacity-50"
+                    >
+                      <span className="min-w-0 truncate">
+                        {memberLabel(member)}
+                        {member.id === currentUserId ? " (tú)" : ""}
+                      </span>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null
+    ) : null;
+
   return (
+    <>
     <div ref={containerRef} className="relative">
       {compacto ? (
         <button
@@ -341,5 +497,7 @@ export function AssignChatControl({
         </div>
       ) : null}
     </div>
+    {bloqueSegundo}
+    </>
   );
 }

@@ -478,6 +478,9 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
         se volvia a pedir la lista entera. Ahora viaja en cada refresco del chat abierto.
       */
       assignedTo: conversation.assignedTo ?? null,
+      // El segundo asesor, para el boton "Agregar asesor" de la ficha.
+      segundoAsesorId: conversation.segundoAsesorId ?? null,
+      segundoAsesorNombre: conversation.segundoAsesorNombre ?? null,
       // undefined = no se pidio (sin conLlamada=1): el JSON no la lleva y el navegador conserva la
       // que ya tenia.
       ...(ultimaLlamada !== undefined ? { ultimaLlamada } : {}),

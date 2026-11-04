@@ -499,6 +499,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         status: true,
         assignedToUserId: true,
         assignedTo: { select: { id: true, name: true, email: true } },
+        segundoAsesorId: true,
+        segundoAsesor: { select: { id: true, name: true } },
         activeProductContext: true,
         contact: {
           select: {
@@ -528,6 +530,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
             status: true,
             assignedToUserId: true,
             assignedTo: { select: { id: true, name: true, email: true } },
+            segundoAsesorId: true,
+            segundoAsesor: { select: { id: true, name: true } },
             activeProductContext: true,
             contact: {
               select: { id: true, name: true, phoneNumber: true, avatarUrl: true, crmStage: true },
@@ -1455,6 +1459,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
               key={`panel-assign:${selectedConversation.id}`}
               conversationId={selectedConversation.id}
               assignee={selectedAgentConversation?.assignedTo ?? null}
+              segundoAsesor={selectedAgentConversation ? (selectedAgentConversation.segundoAsesor ?? null) : undefined}
             />
           ) : selectedUnified?.source === "official" && selectedConversation ? (
             // Mismo selector que el canal viejo: el equipo se reparte los chats de Ventas 2

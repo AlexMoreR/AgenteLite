@@ -27,6 +27,9 @@ export type LoadedAgentConversationDetail = {
   automationPaused: boolean;
   /** Quien tiene el chat. Viaja al cliente para que la fila de la bandeja se entere de los cambios. */
   assignedTo: { id: string; name: string | null; email: string | null } | null;
+  /** El segundo asesor del chat, si lo tiene (ver chats-asignacion-compartida.ts). */
+  segundoAsesorId: string | null;
+  segundoAsesorNombre: string | null;
   /** Abierto o resuelto: de aca sale si la cabecera dice "Resolver" o "Reabrir". */
   status: "OPEN" | "PENDING" | "CLOSED" | "ARCHIVED";
   contact: {
@@ -157,6 +160,8 @@ export async function loadAgentConversationDetail(input: {
         status: true,
         assignedToUserId: true,
         assignedTo: { select: { id: true, name: true, email: true } },
+        segundoAsesorId: true,
+        segundoAsesor: { select: { id: true, name: true } },
         contact: {
           select: {
             id: true,
@@ -262,6 +267,9 @@ export async function loadAgentConversationDetail(input: {
     // Se selecciona arriba y hasta ahora no salia de aca: sin esto la fila de la bandeja no podia
     // enterarse de un cambio de dueño sin recargar la lista entera.
     assignedTo: conversation.assignedTo,
+    // El segundo asesor: la ficha muestra su nombre con la "x" para quitarlo.
+    segundoAsesorId: conversation.segundoAsesorId ?? null,
+    segundoAsesorNombre: conversation.segundoAsesor?.name?.trim() || null,
     // Lo mismo con el estado: se leia y no salia, y la cabecera caia en "OPEN" por defecto. Un
     // chat resuelto mostraba "Resolver" en vez de "Reabrir" (Alex, 02-10-2026).
     status: conversation.status,

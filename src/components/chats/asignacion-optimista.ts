@@ -67,3 +67,38 @@ export function useAsignadoMostrado(conversationId: string, delServidor: Asignad
   );
   return version !== undefined ? version : delServidor;
 }
+
+/*
+  EL SEGUNDO ASESOR, con el mismo truco: se ve el cambio apenas el servidor lo guarda, sin esperar
+  a que se rehaga la pantalla, y la marca sobrevive si el control se desmonta en el refresco.
+*/
+export type SegundoAsesorOptimista = { id: string; name: string | null } | null;
+
+const segundoPorConversacion = new Map<string, SegundoAsesorOptimista>();
+
+export function recordarSegundoAsesor(conversationId: string, valor: SegundoAsesorOptimista) {
+  segundoPorConversacion.set(conversationId, valor);
+  avisar();
+}
+
+/** El servidor ya dice lo mismo: se suelta la marca (si no, un cambio hecho desde otro lado no se veria). */
+export function olvidarSegundoSiYaLlego(conversationId: string, delServidor: SegundoAsesorOptimista) {
+  const guardado = segundoPorConversacion.get(conversationId);
+  if (guardado === undefined) {
+    return;
+  }
+  if ((guardado?.id ?? null) === (delServidor?.id ?? null)) {
+    segundoPorConversacion.delete(conversationId);
+    avisar();
+  }
+}
+
+/** Lo que hay que mostrar del segundo asesor: la marca si existe, y si no lo que dice el servidor. */
+export function useSegundoAsesorMostrado(conversationId: string, delServidor: SegundoAsesorOptimista) {
+  const version = useSyncExternalStore(
+    suscribir,
+    () => segundoPorConversacion.get(conversationId),
+    () => undefined,
+  );
+  return version !== undefined ? version : delServidor;
+}
