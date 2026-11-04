@@ -1,5 +1,5 @@
 // Pruebas de SEGUIMIENTOS QUE ESCUCHAN AL CLIENTE: el revisor (parte 1) y el redactor con la IA y la base
-// simuladas (parte 2). Sin base ni red.
+// simuladas (parte 2), y el reloj de los seguimientos del V3 que pasa por el redactor (parte 3). Sin base ni red.
 // Correr: npm run test:seguimiento-que-escucha
 import assert from "node:assert/strict";
 
@@ -439,6 +439,178 @@ await prueba("follows.ts: pide el texto al redactor antes de los 2 envíos de te
   // enviar:false no se manda: se cancela o se corre a la vuelta siguiente, y se anota.
   assert.match(codigo, /if \(redactado && !redactado\.enviar\) throw new FrenoDelRedactor\(redactado\);/);
   assert.match(codigo, /error instanceof FrenoDelRedactor/);
+});
+
+/* ----------------------------------------------------------------------------------------------
+   Parte 3: los seguimientos de 15 min y 1 h del V3 pasan por el redactor (base, WhatsApp e IA simulados)
+---------------------------------------------------------------------------------------------- */
+
+const AHORA_V3 = new Date(TF.getTime() + 120 * 60_000);
+const TEXTO_15 = "¡Hola, Laura! ¿Te ayudo con el envío o con la forma de pago? 😊";
+const TEXTO_60 = "Laura, ¿te muestro otras fotos de la silla? 😊";
+const v3 = { mandados: [], creados: [], estados: [], frenados: [], ultimoEn: null, estado: null };
+function reiniciarV3() {
+  v3.mandados = [];
+  v3.creados = [];
+  v3.estados = [];
+  v3.frenados = [];
+  v3.estado = { seguimientosEnviados: [], flujosEnviados: [], pasoActual: null, productoActivo: null };
+}
+// El último mensaje nuestro fue hace 20 minutos: vence el de 15, no el de 1 h.
+v3.ultimoEn = new Date(AHORA_V3.getTime() - 20 * 60_000);
+
+// Lo que el reloj del V3 lee y escribe, sobre la misma base de mentira del redactor.
+prismaFalso.whatsAppChannel = {
+  findMany: async () => [{ id: "canal-1", workspaceId: "ws-1", evolutionInstanceName: "ventas-1" }],
+};
+prismaFalso.conversation.findMany = async () => [
+  { id: "conv-1", lastMessageAt: v3.ultimoEn, contactId: "contacto-1", contact: { phoneNumber: "573001112233" } },
+];
+prismaFalso.message.findFirst = async () => ({ direction: "OUTBOUND", createdAt: v3.ultimoEn });
+prismaFalso.message.create = async ({ data }) => {
+  v3.creados.push(data);
+  return data;
+};
+
+const reglaV3 = (id, minutos, texto) => ({
+  id,
+  nombre: `Sin respuesta ${minutos} min`,
+  activa: true,
+  cuando: { tipo: "sin_respuesta", minutos },
+  entonces: [{ tipo: "mensaje", texto }],
+});
+
+const relojV3 = cargar("src/features/agente-v3/servicios/seguimientos.ts", {
+  "@/lib/prisma": { prisma: prismaFalso },
+  "@/features/embudo/servicios/eventos": { registrarSeguimientoEnviado: () => {} },
+  "@/lib/chat-resuelto-sql": { WHERE_CHAT_ABIERTO: {} },
+  "@/lib/evolution": {
+    sendEvolutionTextMessageWithReconnect: async (envio) => {
+      v3.mandados.push(envio.text);
+      return { ok: true };
+    },
+  },
+  "@/lib/anti-bloqueo/servicio": {
+    anotarFrenado: (fila) => v3.frenados.push(fila.motivo),
+    leerConfigAntiBloqueo: async () => ({ horario: { activo: false } }),
+    marcarEnvioAutomatico: async () => {},
+    revisarAntiBloqueo: async () => ({ enviar: true }),
+  },
+  "@/lib/freno-de-automaticos": { revisarFrenoDeAutomatico: async () => ({ enviar: true }) },
+  "@/features/seguimientos/services/follows": { apagarSiCorresponde: async () => null },
+  "@/features/seguimiento-inteligente/servicios/convivencia": { revisarConvivencia: async () => null },
+  "../motor/estado": {
+    elV3AtendioLaCharla: async () => true,
+    leerEstado: async () => ({ ...v3.estado }),
+    guardarEstado: async (_id, estado) => v3.estados.push(estado),
+  },
+  "./almacen": { leerLibro: async () => ({ reglas: [reglaV3("r15", 15, TEXTO_15), reglaV3("r60", 60, TEXTO_60)] }) },
+});
+
+async function correrRelojV3() {
+  redactor.reiniciarTopeDeLaVuelta();
+  return relojV3.ejecutarSeguimientosV3(AHORA_V3);
+}
+
+await prueba("V3, 15 min: el cliente dijo 'color beige me interesa' y el seguimiento habla de la beige (origen -ia, con la marca)", async () => {
+  reiniciarBase();
+  reiniciarV3();
+  base.enviados = [];
+  base.mensajes = [
+    msg("m1", "INBOUND", "TEXT", "Hola, vi el anuncio de la silla", 0),
+    msg("m2", "OUTBOUND", "IMAGE", "Silla Isabela", 1, { mediaUrl: "https://x/foto.jpg" }),
+    msg("m3", "INBOUND", "TEXT", "color beige me interesa", 10),
+    msg("m4", "OUTBOUND", "TEXT", "¡Claro! La Silla Isabela vale 450.000", 11),
+  ].reverse();
+  const BEIGE = "Laura, la silla Isabela en beige queda divina 🙌 ¿Te la separo?";
+  reiniciarIa([BEIGE]);
+  const r = await correrRelojV3();
+  assert.equal(r.enviados, 1);
+  // La IA leyó lo que dijo el cliente y supo que es el seguimiento número 1 (el de 15 min).
+  const contexto = ia.pedidos[0].messages.find((m) => m.role === "user").content;
+  assert.match(contexto, /Cliente: color beige me interesa/);
+  assert.match(contexto, /SEGUIMIENTO NÚMERO: 1/);
+  // Salió UN mensaje, el de la IA, que menciona la beige.
+  assert.deepEqual(v3.mandados, [BEIGE]);
+  assert.match(v3.mandados[0], /beige/i);
+  assert.equal(v3.creados.length, 1);
+  assert.equal(v3.creados[0].rawPayload.source, "agente-v3-seguimiento-ia");
+  assert.deepEqual(v3.creados[0].rawPayload.seguimientoQueEscucha, { deIA: true, textoReemplazado: TEXTO_15 });
+  // Queda marcado el de 15 (no el de 1 h, que todavía no venció).
+  assert.deepEqual(v3.estados.at(-1).seguimientosEnviados, [15]);
+});
+
+await prueba("V3: el cliente que solo mandó el anuncio recibe la pregunta del producto", async () => {
+  reiniciarBase();
+  reiniciarV3();
+  base.mensajes = [msg("m1", "INBOUND", "TEXT", "Hola, vi el anuncio de la silla", 0)];
+  // El texto del libro ya le llegó y la IA no responde: sale la pregunta del producto del anuncio.
+  base.enviados = [{ content: TEXTO_15, createdAt: new Date(TF.getTime() + 5 * 60_000) }];
+  reiniciarIa();
+  ia.falla = true;
+  const r = await correrRelojV3();
+  assert.equal(r.enviados, 1);
+  assert.match(ia.pedidos[0].messages[0].content, /solo mandó el texto del anuncio/);
+  assert.deepEqual(v3.mandados, ["¿Te comparto fotos y medidas de Silla Isabela?"]);
+  // No lo escribió la IA: queda el origen de siempre, con la marca de lo que se cambió.
+  assert.equal(v3.creados[0].rawPayload.source, "agente-v3-seguimiento");
+  assert.deepEqual(v3.creados[0].rawPayload.seguimientoQueEscucha, { deIA: false, textoReemplazado: TEXTO_15 });
+});
+
+await prueba("V3 con el interruptor apagado: sale el texto de la regla del libro sin cambios", async () => {
+  reiniciarBase();
+  reiniciarV3();
+  base.apagado = "si";
+  reiniciarIa(["Laura, la silla Isabela en beige queda divina 🙌 ¿Te la separo?"]);
+  const r = await correrRelojV3();
+  assert.equal(r.enviados, 1);
+  assert.equal(ia.pedidos.length, 0);
+  assert.deepEqual(v3.mandados, [TEXTO_15]);
+  assert.equal(v3.creados[0].rawPayload.source, "agente-v3-seguimiento");
+  assert.equal(v3.creados[0].rawPayload.seguimientoQueEscucha, undefined);
+});
+
+await prueba("V3: si ningún texto pasa, no se manda nada, se anota el motivo y no se vuelve a pedir cada minuto", async () => {
+  reiniciarBase();
+  reiniciarV3();
+  base.enviados = [{ content: TEXTO_15, createdAt: new Date(TF.getTime() + 5 * 60_000) }];
+  reiniciarIa();
+  ia.falla = true;
+  const original = prismaFalso.product.findFirst;
+  prismaFalso.product.findFirst = async () => null;
+  const r = await correrRelojV3();
+  prismaFalso.product.findFirst = original;
+  assert.equal(r.enviados, 0);
+  assert.equal(r.frenados, 1);
+  assert.deepEqual(v3.mandados, []);
+  assert.deepEqual(v3.frenados, [redactor.MOTIVO_SIN_TEXTO]);
+  assert.deepEqual(v3.estados.at(-1).seguimientosEnviados, [15]);
+});
+
+await prueba("V3: con el tope de la vuelta lleno no sale ni se marca: va en la vuelta siguiente", async () => {
+  reiniciarBase();
+  reiniciarV3();
+  redactor.reiniciarTopeDeLaVuelta();
+  for (let i = 0; i < redactor.REDACCIONES_POR_VUELTA; i += 1) {
+    reiniciarIa([BUENA]);
+    await redactor.redactarSeguimientoQueEscucha(ENTRADA);
+  }
+  reiniciarIa([BUENA]);
+  const r = await relojV3.ejecutarSeguimientosV3(AHORA_V3);
+  assert.equal(r.enviados, 0);
+  assert.deepEqual(v3.mandados, []);
+  assert.deepEqual(v3.frenados, [redactor.MOTIVO_TOPE_DE_LA_VUELTA]);
+  assert.equal(v3.estados.length, 0);
+});
+
+await prueba("seguimientos.ts del V3: el redactor va después del anti-bloqueo y del freno, y antes del envío", async () => {
+  const fs = await import("node:fs");
+  const codigo = fs.readFileSync(new URL("../src/features/agente-v3/servicios/seguimientos.ts", import.meta.url), "utf8");
+  const enRedactor = codigo.indexOf("await redactarSeguimientoQueEscucha({");
+  assert.ok(enRedactor > codigo.indexOf("revisarFrenoDeAutomatico({"));
+  assert.ok(enRedactor > codigo.indexOf("revisarAntiBloqueo({"));
+  assert.ok(enRedactor < codigo.indexOf("sendEvolutionTextMessageWithReconnect({"));
+  assert.match(codigo, /redactado\.deIA \? "agente-v3-seguimiento-ia" : "agente-v3-seguimiento"/);
 });
 
 console.info = consolaOriginal.info;
