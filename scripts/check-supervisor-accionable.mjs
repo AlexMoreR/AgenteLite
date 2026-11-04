@@ -1407,4 +1407,162 @@ await prueba("acuse: cierre corto (\"Ok\" tras la asesora, sin pregunta ni prome
   assert.equal(det.detectarAtencion([chat], AHORA_REAL).some((h) => h.clave === "ATENCION:caliente-esperando:maria"), false);
 });
 
+/* ------------------------------------------------------------------ espera real (4-nov-2026) */
+
+const esperaRealMod = cargar("src/features/supervisor/dominio/espera-real.ts", mocks);
+// Miércoles 4-nov-2026, horas de Bogotá (UTC-5).
+const bogNov = (hhmm) => new Date(`2026-11-04T${String(Number(hhmm.slice(0, 2)) + 5).padStart(2, "0")}:${hhmm.slice(3)}:00Z`);
+const evN = (direccion, hhmm, texto, extra = {}) => ({ direccion, tipo: "TEXT", origen: null, texto, en: bogNov(hhmm), ...extra });
+const notaN = (hhmm, texto) => evN("OUT", hhmm, texto, { tipo: "SYSTEM", origen: "activity" });
+/** El chat cv7ea1f09d7ae1996754d3bba2 (Yair, 4-nov), sin teléfono: el bot sí siguió atendiendo. */
+const CHARLA_YAIR = [
+  evN("IN", "13:20", "Hola, me interesa el combo de camilla"),
+  evN("OUT", "13:21", "¡Hola! Te cuento del combo de camilla 😊 ¿En qué ciudad estás?"),
+  evN("IN", "13:30", "Cómo hago para separar la camilla?"),
+  evN("OUT", "13:31", "Se separa con el 50 % y el otro 50 % cuando esté terminado."),
+  notaN("13:34", "El agente pide un asesor: confirmarle el envío y la forma de pago"),
+  evN("IN", "13:35", "Medellín"),
+  evN("IN", "13:35", "O también me sirve Aquibdo"),
+  notaN("13:36", "El agente pide un asesor: El agente iba a repetir un mensaje que ya envió y no tiene nada nuevo que decir"),
+  evN("IN", "13:36", "La foto para mirarlo completo"),
+  evN("OUT", "13:37", null, { tipo: "IMAGE" }),
+  evN("OUT", "13:37", null, { tipo: "IMAGE" }),
+  evN("OUT", "13:37", null, { tipo: "IMAGE" }),
+  evN("OUT", "13:37", null, { tipo: "IMAGE" }),
+  evN("OUT", "13:37", null, { tipo: "VIDEO" }),
+  evN("OUT", "13:37", "¿Para cuándo lo necesitas?"),
+  evN("OUT", "13:52", "¡Hola! ¿Pudiste ver las fotos? 😊", { origen: "agente-v3-seguimiento" }),
+];
+function chatNov(mensajes, extra = {}) {
+  const delCliente = mensajes.filter((m) => m.direccion === "IN");
+  return maria({
+    conversationId: "cv7ea1f09d7ae1996754d3bba2",
+    etapa: "NEGOCIACION",
+    nombreCliente: "Yair",
+    asignadaEn: null,
+    ultimoClienteEn: delCliente.at(-1).en,
+    ultimaRespuestaHumanaEn: null,
+    textosPendientes: delCliente.map((m) => m.texto ?? ""),
+    textosDelCliente: delCliente.map((m) => m.texto ?? ""),
+    mensajes,
+    ...extra,
+  });
+}
+
+await prueba("espera real (caso Yair 4-nov): el bot pidió asesor a las 13:34 y 13:36 y siguió atendiendo → no espera, no es candidata y la acción abierta pasa a YA_NO_APLICA", () => {
+  const yair = chatNov(CHARLA_YAIR);
+  const e = det.estadoDeEspera(yair, bogNov("13:53"));
+  assert.equal(e.esperando, false, "el bot contestó la foto: no espera");
+  assert.equal(e.minutos, 0);
+  assert.equal(e.real.motivo, "respondio_el_bot");
+  assert.equal(e.real.ultimoDelCliente.texto, "La foto para mirarlo completo");
+  // El detector de día no lo ve (ni a las 13:53 ni a las 14:18) y no sale como candidata.
+  for (const hora of ["13:53", "14:18"]) {
+    const hallazgos = det.detectarAtencion([yair], bogNov(hora));
+    assert.equal(hallazgos.some((h) => h.evidencia.chats.includes(yair.conversationId) && r.tipoDeLaClave(h.clave)), false, `sin alerta a las ${hora}`);
+    assert.equal(r.candidatasDeLaVuelta({ hallazgos, chats: [yair], ahora: bogNov(hora), supervisora: INGRID }).length, 0);
+  }
+  // Una acción ya abierta (el aviso de las 13:53 de antes del cambio) se cierra: sin segundo aviso ni escalada.
+  const abierto = chatNov(CHARLA_YAIR.slice(0, 9));
+  const antes = vuelta(r.estadoVacio(), { chats: [abierto], hallazgos: [hallazgo(CALIENTE, [abierto.conversationId], { asesoraId: "maria" })], ahora: bogNov("13:53") });
+  assert.equal(antes.estado.acciones[yair.conversationId].estado, "AVISADA");
+  for (const hora of ["14:10", "14:18"]) {
+    const res = vuelta(antes.estado, { chats: [yair], ahora: bogNov(hora) });
+    assert.equal(res.estado.acciones[yair.conversationId].estado, "YA_NO_APLICA", `a las ${hora}`);
+    assert.equal(res.eventos.length, 0, "ni segundo aviso ni escalada");
+  }
+});
+
+await prueba("espera real: sin ninguna respuesta espera desde su mensaje; dos pedidos de asesor sin atención → desde el segundo; el bot respondió sin pedir asesor → no espera", () => {
+  // (a) Nadie respondió (el seguimiento automático no cuenta).
+  const sola = [evN("IN", "10:00", "Hola, ¿cuánto vale el envío a Cali?"), evN("OUT", "10:20", "¿Pudiste ver?", { origen: "follow" })];
+  let e = det.estadoDeEspera(chatNov(sola), bogNov("10:30"));
+  assert.equal(e.esperando, true);
+  assert.equal(e.real.motivo, "sin_respuesta");
+  assert.equal(e.desde.toISOString(), bogNov("10:00").toISOString());
+  assert.equal(e.minutos, 30);
+  // (c) El bot pidió asesor dos veces y nadie lo atendió después: desde el SEGUNDO pedido.
+  const dos = [
+    evN("IN", "10:00", "Quiero el combo, ¿me lo envían a Medellín?"),
+    evN("OUT", "10:01", "¡Claro! Ya te confirmo el envío."),
+    notaN("10:01", "El agente pide un asesor: confirmar envío a Medellín"),
+    evN("OUT", "10:10", "En un momento te escribe la asesora."),
+    notaN("10:10", "El agente pide un asesor: confirmar envío a Medellín y la forma de pago"),
+  ];
+  e = det.estadoDeEspera(chatNov(dos), bogNov("10:40"));
+  assert.equal(e.esperando, true);
+  assert.equal(e.real.motivo, "bot_pidio_asesor");
+  assert.equal(e.desde.toISOString(), bogNov("10:10").toISOString(), "desde el último pedido, no el primero");
+  assert.equal(e.minutos, 30);
+  assert.equal(e.real.motivoDelBot, "confirmar envío a Medellín y la forma de pago");
+  // Un pedido vigente y después el cliente escribe sin respuesta: sigue desde el pedido.
+  e = det.estadoDeEspera(chatNov([...dos, evN("IN", "10:20", "¿Hola?")]), bogNov("10:40"));
+  assert.equal(e.esperando, true);
+  assert.equal(e.desde.toISOString(), bogNov("10:10").toISOString());
+  // (b) El bot respondió y no pidió asesor.
+  const bot = [evN("IN", "10:00", "Hola, ¿qué colores tienen?"), evN("OUT", "10:01", "Tenemos crema, rosado y blanco 😊 ¿Cuál te gusta?")];
+  e = det.estadoDeEspera(chatNov(bot), bogNov("10:40"));
+  assert.equal(e.esperando, false);
+  assert.equal(e.real.motivo, "respondio_el_bot");
+  // Respondió una persona después del pedido: el pedido ya no cuenta.
+  const persona = [...dos.slice(0, 3), evN("OUT", "10:05", "Hola, ya te confirmo 🙌", { origen: "manual" })];
+  assert.equal(esperaRealMod.esperaReal(persona).esperando, false);
+  // Sin mensajes (datos viejos): como antes.
+  e = det.estadoDeEspera(chatNov(bot, { mensajes: null, ultimoClienteEn: bogNov("10:00") }), bogNov("10:40"));
+  assert.equal(e.esperando, true);
+  assert.equal(e.real, null);
+  assert.equal(e.minutos, 40);
+});
+
+await prueba("espera real: un pago con respuesta solo del bot sigue avisando y escalando", () => {
+  const pago = chatNov([evN("IN", "10:00", "Ya pagué, te mando el comprobante"), evN("OUT", "10:01", "¡Gracias! Lo reviso 😊")], { conversationId: "pago-bot" });
+  const h = hallazgo("ATENCION:pago-sin-respuesta:maria", ["pago-bot"], { asesoraId: "maria" });
+  const cand = r.candidatasDeLaVuelta({ hallazgos: [h], chats: [pago], ahora: bogNov("10:05"), supervisora: INGRID });
+  assert.equal(cand[0].tipo, "pago");
+  assert.equal(cand[0].esperandoDesde.toISOString(), bogNov("10:00").toISOString());
+  let res = vuelta(r.estadoVacio(), { chats: [pago], hallazgos: [h], ahora: bogNov("10:05") });
+  assert.deepEqual(res.eventos.map((x) => x.tipo), ["avisar"]);
+  res = vuelta(res.estado, { chats: [pago], hallazgos: [h], ahora: bogNov("10:20") });
+  assert.equal(res.estado.acciones["pago-bot"].estado, "ESCALADA", "un pago siempre necesita una persona");
+});
+
+await prueba("espera real: la tarjeta y la push traen 'Último del cliente' y 'El bot pidió asesor'; la caja corta sigue con el motivo", () => {
+  const pidio = chatNov(
+    [
+      evN("IN", "10:00", "Me sirve para Medellín, ¿cuánto sale el envío?"),
+      evN("OUT", "10:01", "¡Claro! Ya te confirmo."),
+      notaN("10:01", "El agente pide un asesor: confirmar envío a Medellín"),
+    ],
+    { conversationId: "c-motivo" },
+  );
+  const h = hallazgo(CALIENTE, ["c-motivo"], { asesoraId: "maria" });
+  const res = vuelta(r.estadoVacio(), { chats: [pidio], hallazgos: [h], ahora: bogNov("10:20") });
+  const a = res.estado.acciones["c-motivo"];
+  assert.equal(a.esperandoDesde, bogNov("10:01").toISOString(), "desde el pedido de asesor");
+  assert.equal(a.motivoDelBot, "confirmar envío a Medellín");
+  assert.equal(a.ultimoDelCliente, "Me sirve para Medellín, ¿cuánto sale el envío?");
+  const t = r.tarjetaDeAccion(a, bogNov("10:20"));
+  assert.match(t.quePaso, /^Cliente caliente esperando respuesta hace 19 min/);
+  assert.match(t.quePaso, /Último del cliente: «Me sirve para Medellín, ¿cuánto sale el envío\?»\./);
+  assert.match(t.quePaso, /El bot pidió asesor: «confirmar envío a Medellín»\./);
+  const caja = cargar("src/features/supervisor-accionable/dominio/caja-corta.ts", mocks);
+  assert.equal(caja.fraseSencilla(t), "👤 Cliente caliente sin respuesta.");
+  const push = r.pushParaLaAsesora([a], false, false, bogNov("10:20"));
+  assert.match(push.body, /Último del cliente: «Me sirve para Medellín, ¿cuán…»\./);
+  assert.match(push.body, /El bot pidió asesor: «confirmar envío a Medellín»/);
+  // Una acción vieja (sin esos datos) se ve como antes.
+  const vieja = { ...a, motivoDelBot: undefined, ultimoDelCliente: undefined };
+  assert.doesNotMatch(r.tarjetaDeAccion(vieja, bogNov("10:20")).quePaso, /Último del cliente|El bot pidió/);
+});
+
+await prueba("sugerido (4-nov): el cliente solo pidió la foto y antes habló de separar → no sale 'separar con el 50 %'", () => {
+  const charla = [...CHARLA_YAIR.slice(0, 4), evN("IN", "13:36", "La foto para mirarlo completo")];
+  const s = det.sugeridoParaElChat(chatNov(charla), bogNov("13:53"), "Yair");
+  assert.doesNotMatch(s, /50 %|separar/i);
+  assert.match(s, /fotos/);
+  // Sin nada sin responder ni pedido de asesor → neutro (ya no cae a "toda la conversación").
+  const neutro = det.sugeridoParaElChat(chatNov(CHARLA_YAIR), bogNov("13:53"), null);
+  assert.equal(neutro, "¡Hola! ¿Te quedó alguna duda? Con gusto te ayudo 😊");
+});
+
 console.log(`\n${pruebas} pruebas OK`);

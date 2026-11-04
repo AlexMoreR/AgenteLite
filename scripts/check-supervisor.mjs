@@ -301,6 +301,21 @@ prueba("atención: de madrugada no corre el reloj laboral; con respuesta humana 
   assert.equal(atencion.minutosLaborales(new Date(LUNES_10AM - 60 * M), new Date(LUNES_10AM)), 60);
 });
 
+prueba("atención (espera real, 4-nov): el bot contestó sin pedir asesor → no avisa; pidió asesor → avisa y cuenta desde el pedido", () => {
+  const ahora = new Date(LUNES_10AM);
+  const ev = (direccion, min, texto, extra = {}) => ({ direccion, tipo: "TEXT", origen: null, texto, en: new Date(LUNES_10AM - min * M), ...extra });
+  const base = { conversationId: "a", asesoraId: "u1", asesoraNombre: "Ingrid", etapa: "NEGOCIACION", ultimoClienteEn: new Date(LUNES_10AM - 40 * M), ultimaRespuestaHumanaEn: null, textosPendientes: ["Color negro"] };
+  const contesto = { ...base, mensajes: [ev("IN", 40, "Color negro"), ev("OUT", 39, "¡Listo! Te muestro la camilla en negro 📸")] };
+  assert.equal(atencion.detectarAtencion([contesto], ahora).length, 0, "el bot contestó: no espera");
+  const pidio = { ...contesto, mensajes: [...contesto.mensajes, ev("OUT", 20, "El agente pide un asesor: confirmar el color negro", { tipo: "SYSTEM", origen: "activity" })] };
+  const h = atencion.detectarAtencion([pidio], ahora);
+  assert.equal(h.length, 1);
+  assert.equal(h[0].desde.getTime(), LUNES_10AM - 20 * M, "desde el pedido de asesor");
+  assert.match(h[0].que, /lleva 20 min laborales/);
+  // Sin mensajes (datos viejos): como antes, desde el último mensaje del cliente.
+  assert.match(atencion.detectarAtencion([base], ahora)[0].que, /lleva 40 min laborales/);
+});
+
 prueba("atención: señal sin dueña y oportunidad a retomar", () => {
   const ahora = new Date(LUNES_10AM);
   const sinDuena = { conversationId: "s", asesoraId: null, etapa: "NUEVO", ultimoClienteEn: new Date(LUNES_10AM - 12 * M), ultimaRespuestaHumanaEn: null, textosPendientes: ["cuánto vale el envío a Cali"] };
