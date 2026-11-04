@@ -32,7 +32,8 @@ const FILAS = COLORES_POR_IMAGEN / COLUMNAS;
 const ESPACIO_COLUMNAS = 40;
 const ESPACIO_FILAS = 28;
 const LADO_FOTO = Math.floor((ANCHO - MARGEN * 2 - ESPACIO_COLUMNAS * (COLUMNAS - 1)) / COLUMNAS);
-const ALTO_TEXTO = 84;
+// Código y hasta dos líneas de nombre, con letra que se lea en el celular (la imagen se ve a ~1/3).
+const ALTO_TEXTO = 136;
 const ALTO_ENCABEZADO = 250;
 const ALTO =
   ALTO_ENCABEZADO + FILAS * (LADO_FOTO + ALTO_TEXTO) + (FILAS - 1) * ESPACIO_FILAS + MARGEN;
@@ -163,16 +164,16 @@ export async function dibujarPaginaDeCarta({
                     paddingTop: 8,
                   }}
                 >
-                  <div style={{ display: "flex", fontSize: 34, fontWeight: 700 }}>{color.codigo}</div>
+                  <div style={{ display: "flex", fontSize: 38, fontWeight: 700 }}>{color.codigo}</div>
                   <div
                     style={{
-                      display: "flex",
-                      fontSize: 24,
+                      display: "block",
+                      fontSize: 30,
+                      lineHeight: 1.2,
                       color: "#4b5563",
                       maxWidth: LADO_FOTO,
-                      overflow: "hidden",
-                      whiteSpace: "nowrap",
-                      textOverflow: "ellipsis",
+                      textAlign: "center",
+                      lineClamp: 2,
                     }}
                   >
                     {color.nombre}
