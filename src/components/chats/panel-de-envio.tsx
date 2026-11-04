@@ -19,7 +19,15 @@ import type { EstadoDeEnvio, ProductoDeEnvio, UbicacionDeGestion } from "@/lib/e
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+} from "@/components/ui/combobox";
+import { coincideProducto, etiquetaDeProducto, SEPARADOR_CODIGO_NOMBRE } from "@/lib/buscar-producto-de-envio";
 import { cn } from "@/lib/utils";
 
 /**
@@ -537,20 +545,7 @@ export function PanelDeEnvio({
   return (
     <div className="space-y-2">
       {productos && productos.length > 0 ? (
-        <NativeSelect
-          size="sm"
-          className="w-full"
-          value={productoCodigo}
-          onChange={(event) => cambiarProducto(event.target.value)}
-          aria-label="Producto"
-        >
-          <NativeSelectOption value="">Sin producto</NativeSelectOption>
-          {productos.map((producto) => (
-            <NativeSelectOption key={producto.codigo} value={producto.codigo}>
-              {producto.nombre}
-            </NativeSelectOption>
-          ))}
-        </NativeSelect>
+        <SelectorDeProducto productos={productos} codigo={productoCodigo} onCambiar={cambiarProducto} />
       ) : null}
 
       {elegido ? (
@@ -767,6 +762,82 @@ export function PanelDeEnvio({
         </>
       )}
     </div>
+  );
+}
+
+const SIN_PRODUCTO: ProductoParaEnvio = { codigo: "", nombre: "Sin producto", categoria: null };
+
+/**
+ * Selector del producto con buscador: cada producto sale como "CMB005 · Combo Camilla Diván" (el
+ * código primero, en negrita) y se filtra por código o por nombre, sin importar mayúsculas ni tildes
+ * (`lib/buscar-producto-de-envio.ts`). Los nombres largos se leen completos en la lista, en varias
+ * líneas; ya elegido, el cuadro muestra "código · nombre" y al pasar el mouse sale completo.
+ */
+function SelectorDeProducto({
+  productos,
+  codigo,
+  onCambiar,
+}: {
+  productos: ProductoParaEnvio[];
+  codigo: string;
+  onCambiar: (codigo: string) => void;
+}) {
+  const opciones = useMemo(() => [SIN_PRODUCTO, ...productos], [productos]);
+  const elegido = useMemo(
+    () => (codigo ? productos.find((producto) => producto.codigo === codigo) ?? null : null) ?? SIN_PRODUCTO,
+    [productos, codigo],
+  );
+  const etiquetaElegida = etiquetaDeProducto(elegido);
+
+  return (
+    <Combobox
+      items={opciones}
+      value={elegido}
+      onValueChange={(producto) => {
+        if (producto && producto.codigo !== codigo) onCambiar(producto.codigo);
+      }}
+      itemToStringLabel={(producto) => etiquetaDeProducto(producto)}
+      itemToStringValue={(producto) => producto.codigo}
+      isItemEqualToValue={(a, b) => a.codigo === b.codigo}
+      // Con el cuadro mostrando lo elegido se ve toda la lista; al escribir, se filtra.
+      filter={(producto, texto) => texto === etiquetaElegida || coincideProducto(producto, texto)}
+      autoHighlight
+    >
+      <ComboboxInput
+        aria-label="Producto"
+        title={etiquetaElegida}
+        placeholder="Código o nombre del producto"
+        onFocus={(event) => event.currentTarget.select()}
+        className="h-8 truncate rounded-lg border-input bg-transparent px-2.5 text-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 placeholder:text-muted-foreground dark:bg-input/30"
+      />
+      <ComboboxContent className="min-w-64 border-border bg-popover text-popover-foreground shadow-lg">
+        <ComboboxEmpty className="not-sr-only block px-3 text-sm text-muted-foreground empty:p-0 [&:not(:empty)]:py-3">
+          Ningún producto con ese código o nombre
+        </ComboboxEmpty>
+        <ComboboxList className="p-1">
+          {(producto: ProductoParaEnvio) => (
+            <ComboboxItem
+              key={producto.codigo || "sin-producto"}
+              value={producto}
+              title={etiquetaDeProducto(producto)}
+              className="items-start text-foreground data-[highlighted]:bg-muted aria-selected:bg-muted aria-selected:text-foreground"
+            >
+              <span className="block min-w-0 leading-snug break-words">
+                {producto.codigo ? (
+                  <>
+                    <span className="font-semibold tabular-nums">{producto.codigo}</span>
+                    {SEPARADOR_CODIGO_NOMBRE}
+                    {producto.nombre}
+                  </>
+                ) : (
+                  <span className="text-muted-foreground">{producto.nombre}</span>
+                )}
+              </span>
+            </ComboboxItem>
+          )}
+        </ComboboxList>
+      </ComboboxContent>
+    </Combobox>
   );
 }
 
