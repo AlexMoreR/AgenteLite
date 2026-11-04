@@ -19,6 +19,7 @@ import { acuerdoDeCompra, mensajeDelAcuerdo, soloAcusaReciboDeUnAcuerdo, type Ac
 import { detectarPausaAcordada, type PausaAcordada } from "./pausa-acordada";
 import { senalPrincipal } from "../../seguimiento-inteligente/dominio/mensajes";
 import { esAgradecimientoSinPendiente, normalizarParaCierre } from "../../../lib/cierre-de-conversacion";
+import { esperaReal, type EsperaReal } from "./espera-real";
 
 export { esAgradecimientoSinPendiente };
 
@@ -205,14 +206,26 @@ export type EstadoDeEspera = {
   senal: boolean;
   caliente: boolean;
   frase: string | null;
+  /** Desde cuándo espera de verdad (espera-real.ts); null si no espera. */
+  desde: Date | null;
+  /**
+   * La espera real leída de los mensajes y notas del chat (espera-real.ts, 4-nov-2026): si el bot
+   * contestó sin pedir asesor, no espera; si pidió asesor, desde el último pedido vigente. null = el
+   * chat no trae mensajes (datos viejos) y todo sigue como antes.
+   */
+  real: EsperaReal | null;
 };
 
 export function estadoDeEspera(chat: ChatAbierto, ahora: Date, horario = HORARIO_POR_DEFECTO): EstadoDeEspera {
+  const real = esperaReal(chat.mensajes);
   const esperando =
     Boolean(chat.ultimoClienteEn) &&
     (!chat.ultimaRespuestaHumanaEn || (chat.ultimoClienteEn as Date).getTime() > chat.ultimaRespuestaHumanaEn.getTime()) &&
     // Con el interruptor del turno: si el bot (o una persona) ya respondió y esperamos al cliente, no espera.
-    !esTurnoDelCliente(chat);
+    !esTurnoDelCliente(chat) &&
+    // Espera real (4-nov-2026): si el bot contestó lo último del cliente y no pidió asesor, no espera.
+    (real ? real.esperando : true);
+  const desde = esperando ? (real?.desde ?? (chat.ultimoClienteEn as Date)) : null;
   const senales = chat.textosPendientes.flatMap((t) => detectarSenales(t).map((s) => ({ ...s, texto: t })));
   const fuerte = senales.find((s) => s.grupo === "fuerte");
   const cualquiera = senales.find(esSenalDeCompra);
@@ -224,12 +237,14 @@ export function estadoDeEspera(chat: ChatAbierto, ahora: Date, horario = HORARIO
     cierre: esperando && (ultimoEsCierre(chat) || Boolean(acuse) || Boolean(pausa)),
     acuse,
     pausa,
-    minutos: esperando ? Math.floor((ahora.getTime() - (chat.ultimoClienteEn as Date).getTime()) / MIN) : 0,
-    minutosLaborales: esperando ? minutosLaborales(chat.ultimoClienteEn as Date, ahora, horario) : 0,
+    minutos: desde ? Math.max(0, Math.floor((ahora.getTime() - desde.getTime()) / MIN)) : 0,
+    minutosLaborales: desde ? minutosLaborales(desde, ahora, horario) : 0,
     senalFuerte: Boolean(fuerte),
     senal: Boolean(cualquiera),
     caliente: esCaliente(chat, senales.some((s) => s.grupo === "negativa")),
     frase: (fuerte ?? cualquiera)?.fragmento ?? null,
+    desde,
+    real,
   };
 }
 
@@ -323,7 +338,7 @@ export function detectarAtencion(
         severidad: critico ? "CRITICO" : "IMPORTANTE",
         titulo: `${lista.length} chat(s) caliente(s) esperando respuesta de ${nombre}${saturada ? " (saturada)" : ""}`,
         que: `El más antiguo lleva ${peor.minutosLaborales} min laborales sin respuesta humana${peor.frase ? ` ("${peor.frase}")` : ""}.`,
-        desde: peor.chat.ultimoClienteEn as Date,
+        desde: peor.desde ?? (peor.chat.ultimoClienteEn as Date),
         asesoraId: asesora === "sin-duena" ? null : asesora,
         leadsAfectados: lista.length,
         evidencia: { chats: orden.slice(0, 10).map((e) => e.chat.conversationId), reglas: [], versiones: [] },
@@ -352,7 +367,7 @@ export function detectarAtencion(
         severidad: enHorario(ahora, horario) ? "IMPORTANTE" : "OBSERVACION",
         titulo: `${sinDuena.length} chat(s) con señal de compra sin asesora asignada`,
         que: `El más antiguo lleva ${peor.minutos} min${peor.frase ? ` ("${peor.frase}")` : ""}.`,
-        desde: peor.chat.ultimoClienteEn as Date,
+        desde: peor.desde ?? (peor.chat.ultimoClienteEn as Date),
         leadsAfectados: sinDuena.length,
         evidencia: { chats: sinDuena.slice(0, 10).map((e) => e.chat.conversationId), reglas: [], versiones: [] },
         metrica: "Chats con señal sin dueña",
@@ -431,7 +446,10 @@ export function interesDelLead(chat: ChatAbierto, ahora: Date): InteresDelLead {
 /**
  * EL MENSAJE SUGERIDO para un cliente que espera (Supervisor de día, fuera de horario y accionable).
  * Criterio (11-10-2026): nunca afirmar algo que el cliente no dijo.
- *  - Se responde a lo que dijo DESDE la última respuesta (pendientes); si ahí no hay señal, a toda la charla.
+ *  - Se responde SOLO a lo que el cliente dijo y nadie le contestó (4-nov-2026, espera-real.ts), más el
+ *    motivo por el que el bot pidió asesor si lo pidió. Sin mensajes del chat (datos viejos): a lo que
+ *    dijo desde la última respuesta humana (pendientes). Ya NO se cae a las señales de toda la charla:
+ *    así salía "sepáralo con el 50 %" a un cliente que solo pidió fotos.
  *  - Producto = `productoDelChat` (si pidió "solo la camilla", es la camilla, no el combo; si no, el más reciente).
  *  - "¡Excelente elección! … en color X" solo con color elegido de verdad y producto claro.
  *  - Sin señal útil → neutro: "¡Hola! ¿Te quedó alguna duda? Con gusto te ayudo 😊".
@@ -443,18 +461,18 @@ export function sugeridoParaElChat(chat: ChatAbierto, ahora: Date, nombre: strin
   const delCliente = chat.textosDelCliente ?? [];
   const producto = nombreEnSingular(productoDelChat(chat.textosPendientes, delCliente));
   const en = chat.ultimoClienteEn ?? ahora;
-  const pendientes = chat.textosPendientes.filter((t) => t && t.trim());
-  const { senales: dePendientes } = calificar({ mensajes: pendientes.map((texto) => ({ texto, en })), ahora: en, productoInteres: null, etapaCrm: null });
-  const util = dePendientes.some(
+  const real = esperaReal(chat.mensajes);
+  const pendientes = (real ? [...real.sinRespuesta, ...(real.motivoDelBot ? [real.motivoDelBot] : [])] : chat.textosPendientes).filter((t) => t && t.trim());
+  const { senales } = calificar({ mensajes: pendientes.map((texto) => ({ texto, en })), ahora: en, productoInteres: null, etapaCrm: null });
+  const util = senales.some(
     (s) => s.grupo !== "negativa" && s.tipo !== "dijo_servicio" && (s.tipo !== "eligio_color" || Boolean(s.valor && producto)),
   );
-  const senales = util ? dePendientes : interesDelLead(chat, ahora).calificacion.senales;
   if (!util || senalPrincipal(senales, producto, true)?.tipo === "pide_cotizacion") {
     const acuerdo = acuerdoDeCompra(chat);
     const retomar = acuerdo ? mensajeDelAcuerdo(acuerdo, nombre) : null;
     if (retomar) return retomar;
   }
-  return mensajePorSenales({ nombre, producto, senales, esperando: true });
+  return mensajePorSenales({ nombre, producto, senales: util ? senales : [], esperando: true });
 }
 
 /**

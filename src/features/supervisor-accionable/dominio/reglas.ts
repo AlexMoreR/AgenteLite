@@ -150,6 +150,10 @@ export type Accion = {
   nocturnaEn?: string | null;
   /** La asesora dueña del chat cuando la tomó la supervisora fuera de horario (null = la propia supervisora). */
   duenaNombre?: string | null;
+  /** Por qué el bot pidió asesor ("confirmarle el envío…"), si lo pidió (4-nov-2026; las viejas no lo traen). */
+  motivoDelBot?: string | null;
+  /** El último mensaje real del cliente, recortado (4-nov-2026; las viejas no lo traen). */
+  ultimoDelCliente?: string | null;
 };
 
 /** Lo que queda de una acción cerrada (para medir y para el patrón semanal). */
@@ -366,6 +370,10 @@ export type Candidata = {
   mensajeSugerido: string | null;
   riesgo: Riesgo;
   esperandoDesde: Date;
+  /** Por qué el bot pidió asesor, si lo pidió y el pedido sigue en pie. */
+  motivoDelBot?: string | null;
+  /** El último mensaje real del cliente (recortado). */
+  ultimoDelCliente?: string | null;
 };
 
 /** Datos extra del chat que no trae ChatAbierto (cotización / anticipo del embudo). */
@@ -421,19 +429,46 @@ function mensajeSugerido(tipo: TipoDeAccion, chat: ChatAbierto, h: Hallazgo | nu
 function motivoDe(tipo: TipoDeAccion, chat: ChatAbierto, ahora: Date): { motivo: string; frase: string | null; desde: Date } {
   const espera = estadoDeEspera(chat, ahora);
   const desdeCliente = chat.ultimoClienteEn ?? ahora;
+  // Espera real (4-nov-2026): desde el mensaje que quedó sin respuesta o el último pedido de asesor
+  // vigente. El pago sigue contando desde el último mensaje del cliente (siempre necesita una persona).
+  const desdeReal = espera.desde ?? desdeCliente;
   switch (tipo) {
     case "pago":
       return { motivo: "Dice que ya pagó / mandó comprobante y nadie le ha respondido", frase: recortar(espera.frase ?? chat.textosPendientes.at(-1)), desde: desdeCliente };
     case "caliente":
-      return { motivo: espera.caliente ? "Cliente caliente esperando respuesta" : "Señal fuerte de compra esperando respuesta", frase: recortar(espera.frase ?? chat.textosPendientes.at(-1)), desde: desdeCliente };
+      return { motivo: espera.caliente ? "Cliente caliente esperando respuesta" : "Señal fuerte de compra esperando respuesta", frase: recortar(espera.frase ?? chat.textosPendientes.at(-1)), desde: desdeReal };
     case "asignado": {
       const interes = interesDelLead(chat, ahora);
       return { motivo: `Lead ${interes.nivel === "con interés" ? "con interés" : interes.nivel.toLowerCase()} asignado y nadie le ha escrito`, frase: recortar(interes.frase ?? chat.textosPendientes.at(-1)), desde: chat.asignadaEn ?? desdeCliente };
     }
     case "sin_duena":
     default:
-      return { motivo: "Chat con señal de compra sin asesora asignada", frase: recortar(espera.frase ?? chat.textosPendientes.at(-1)), desde: desdeCliente };
+      return { motivo: "Chat con señal de compra sin asesora asignada", frase: recortar(espera.frase ?? chat.textosPendientes.at(-1)), desde: desdeReal };
   }
+}
+
+/** Lo que muestra el aviso además del motivo: por qué el bot pidió asesor y lo último del cliente. */
+function contextoDelChat(chat: ChatAbierto, ahora: Date): { motivoDelBot: string | null; ultimoDelCliente: string | null } {
+  const real = estadoDeEspera(chat, ahora).real;
+  return {
+    motivoDelBot: recortar(real?.motivoDelBot, 100),
+    ultimoDelCliente: recortar(real ? real.ultimoDelCliente.texto : chat.textosPendientes.at(-1), 100),
+  };
+}
+
+/**
+ * "Último del cliente: «…». El bot pidió asesor: «…»." (4-nov-2026). Vacío si la acción no trae esos
+ * datos (las viejas). Va DESPUÉS de "<motivo> hace …": `caja-corta.ts` parte el texto por " hace ".
+ */
+export function contextoDelAviso(a: Pick<Accion, "motivoDelBot" | "ultimoDelCliente">, largo = 100): string {
+  const ultimo = recortar(a.ultimoDelCliente, largo);
+  const motivo = recortar(a.motivoDelBot, largo);
+  return [
+    ultimo ? `Último del cliente: «${ultimo}».` : null,
+    motivo ? `El bot pidió asesor: «${motivo}».` : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 function riesgoDe(tipo: TipoDeAccion, chat: ChatAbierto, extras: ExtrasDelChat | undefined, ahora: Date): Riesgo {
@@ -560,6 +595,7 @@ export function candidatasDeLaVuelta(input: {
         mensajeSugerido: mensajeSugerido("caliente", chat, null, input.ahora),
         riesgo: riesgoDe("caliente", chat, input.extras?.get(chat.conversationId), input.ahora),
         esperandoDesde: desde,
+        ...contextoDelChat(chat, input.ahora),
       });
     }
   }
@@ -588,6 +624,7 @@ export function candidatasDeLaVuelta(input: {
         mensajeSugerido: mensajeSugerido(tipo, chat, h, input.ahora),
         riesgo: riesgoDe(tipo, chat, input.extras?.get(id), input.ahora),
         esperandoDesde: desde,
+        ...contextoDelChat(chat, input.ahora),
       });
     }
   }
@@ -692,6 +729,8 @@ function nuevaAccion(c: Candidata, ahora: Date, config: ConfigAccionable, numero
     mensajeSugerido: c.mensajeSugerido,
     riesgo: c.riesgo,
     esperandoDesde: c.esperandoDesde.toISOString(),
+    motivoDelBot: c.motivoDelBot ?? null,
+    ultimoDelCliente: c.ultimoDelCliente ?? null,
     plazoMin: plazo,
     estado: "AVISADA",
     detectadaEn: iso,
@@ -711,6 +750,19 @@ function nuevaAccion(c: Candidata, ahora: Date, config: ConfigAccionable, numero
     incumplida: false,
     vistoEn: iso,
   };
+}
+
+/**
+ * Una acción abierta que vuelve a salir: el contexto sigue a lo último (motivo del bot, último del
+ * cliente) y, si el bot volvió a pedir asesor, la espera cuenta desde ese último pedido (4-nov-2026).
+ * El pago no cambia su espera.
+ */
+function refrescarContexto(previa: Accion, c: Candidata) {
+  if (c.ultimoDelCliente !== undefined) previa.ultimoDelCliente = c.ultimoDelCliente;
+  if (c.motivoDelBot !== undefined) previa.motivoDelBot = c.motivoDelBot;
+  if (previa.tipo === c.tipo && c.tipo !== "pago" && c.esperandoDesde.getTime() > Date.parse(previa.esperandoDesde)) {
+    previa.esperandoDesde = c.esperandoDesde.toISOString();
+  }
 }
 
 function escalar(a: Accion, ahora: Date, motivo: string, eventos: Evento[]) {
@@ -809,6 +861,13 @@ export function avanzar(input: {
     if (a.tipo !== "pago") {
       const espera = estadoDeEspera(chat, ahora);
       if (espera.acuse || espera.pausa) {
+        a.estado = "YA_NO_APLICA";
+        continue;
+      }
+      // Espera real (4-nov-2026): el bot ya contestó lo último del cliente y no hay un pedido de asesor
+      // en pie → un caliente o un sin dueña ya no espera: sin segundo aviso ni escalada. Solo con los
+      // mensajes del chat (sin ellos no se sabe y sigue como antes).
+      if ((a.tipo === "caliente" || a.tipo === "sin_duena") && espera.real && !espera.esperando) {
         a.estado = "YA_NO_APLICA";
         continue;
       }
@@ -911,6 +970,7 @@ export function avanzar(input: {
       if (previa && ESTADOS_ACTIVOS.includes(previa.estado)) {
         previa.vistoEn = iso;
         previa.frase = c.frase ?? previa.frase;
+        refrescarContexto(previa, c);
         // El sugerido sigue a lo último que dijo el cliente (el segundo aviso no repite uno viejo).
         if (previa.tipo === c.tipo) previa.mensajeSugerido = c.mensajeSugerido ?? previa.mensajeSugerido;
         // Ya la tiene la supervisora, está escalada o es un pago: sigue su camino.
@@ -945,6 +1005,7 @@ export function avanzar(input: {
     if (previa && ESTADOS_ACTIVOS.includes(previa.estado)) {
       previa.vistoEn = iso;
       previa.frase = c.frase ?? previa.frase;
+      refrescarContexto(previa, c);
       // El sugerido sigue a lo último que dijo el cliente (el segundo aviso no repite uno viejo).
       if (previa.tipo === c.tipo) previa.mensajeSugerido = c.mensajeSugerido ?? previa.mensajeSugerido;
       const sube = previa.tipo in FUERZA_DEL_TIPO && FUERZA_DEL_TIPO[c.tipo] > FUERZA_DEL_TIPO[previa.tipo as TipoDeAccion];
@@ -1189,7 +1250,9 @@ export function pushParaLaAsesora(
   const prefijo = fueraDeHorario ? "🌙 Fuera de horario: " : "";
   const title = (prefijo + (segundo ? "⏰ Segundo aviso: responde ya" : acciones.length > 1 ? `${acciones.length} clientes te esperan` : `${ICONO_DEL_TIPO[a.tipo]} ${a.cliente} te espera`)).slice(0, 60);
   const plazo = `Plazo: ${textoDelPlazo(a, ahora, { segundo, fueraDeHorario, segundaOportunidadMin })}.`;
-  const body = (acciones.length > 1 ? `${acciones.map((x) => x.cliente).slice(0, 4).join(", ")}. ${plazo}` : `${a.motivo}. ${plazo}${a.mensajeSugerido ? ` Sugerido: ${a.mensajeSugerido}` : ""}`).slice(0, 180);
+  // La push es corta (180): el contexto va recortado para que quepan los dos datos.
+  const contexto = contextoDelAviso(a, 30);
+  const body = (acciones.length > 1 ? `${acciones.map((x) => x.cliente).slice(0, 4).join(", ")}. ${plazo}` : `${a.motivo}. ${plazo}${contexto ? ` ${contexto}` : ""}${a.mensajeSugerido ? ` Sugerido: ${a.mensajeSugerido}` : ""}`).slice(0, 180);
   return { title, body };
 }
 
@@ -1401,7 +1464,7 @@ export function tarjetaDeAccion(a: Accion, ahora: Date, estado?: EstadoAccionabl
     id: a.id,
     gravedad: a.gravedadEscalada ?? "IMPORTANTE",
     riesgoOrden: a.riesgo,
-    quePaso: esPatron ? a.motivo : `${a.motivo} hace ${espera}${a.frase ? ` («${a.frase}»)` : ""}.`,
+    quePaso: esPatron ? a.motivo : [`${a.motivo} hace ${espera}${a.frase ? ` («${a.frase}»)` : ""}.`, contextoDelAviso(a)].filter(Boolean).join(" "),
     cliente: esPatron ? a.cliente : `${a.cliente}${a.telefono && a.telefono !== a.cliente ? ` (${a.telefono})` : ""}`,
     responsable: a.responsableId ? `${a.responsableNombre}${a.responsableEsSupervisora ? " (supervisora; el chat no tiene asesora)" : ""}` : "Nadie asignado",
     intentos,
