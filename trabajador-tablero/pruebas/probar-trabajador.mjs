@@ -3223,6 +3223,81 @@ try {
     });
   }
 
+  // ── 4-nov-2026: el contenedor del CRM no está en el servidor configurado (se movió o se apagó) ──
+  // Un ssh falso que, las primeras SIN_CONTENEDOR lecturas de logs, contesta como Docker cuando la búsqueda del
+  // contenedor sale vacía ("requires exactly 1 argument"); después le pasa todo al ssh falso de siempre.
+  const sshSinContenedor = path.join(T, "ssh-sin-contenedor.mjs");
+  fs.writeFileSync(
+    sshSinContenedor,
+    `import fs from "node:fs";
+import { spawnSync } from "node:child_process";
+const [, remoto] = process.argv.slice(2);
+let entrada = "";
+for await (const pedazo of process.stdin) entrada += pedazo;
+if (remoto.startsWith("logs-falso")) {
+  const conteo = process.env.SSH_SIN_CONTENEDOR_CONTEO;
+  const llamada = fs.existsSync(conteo) ? Number(fs.readFileSync(conteo, "utf8")) : 0;
+  fs.writeFileSync(conteo, String(llamada + 1));
+  if (llamada < Number(process.env.SSH_SIN_CONTENEDOR ?? 0)) {
+    console.error(process.env.SSH_SIN_CONTENEDOR_VACIO === "1" ? "" : "\\"docker logs\\" requires exactly 1 argument.\\nSee 'docker logs --help'.");
+    process.exit(1);
+  }
+}
+const real = spawnSync(process.execPath, [${JSON.stringify(falso("ssh-falso.mjs"))}, ...process.argv.slice(2)], { input: entrada, stdio: ["pipe", "inherit", "inherit"] });
+process.exit(real.status ?? 1);
+`,
+  );
+  const conteoSinContenedor = path.join(T, "ssh-sin-contenedor.conteo");
+  const configSinContenedor = () => {
+    const c = configSolas();
+    c.ssh = { ...c.ssh, comando: [node, sshSinContenedor] };
+    return c;
+  };
+  const conSinContenedor = async (fallas, vacio, hacer) => {
+    fs.rmSync(conteoSinContenedor, { force: true });
+    Object.assign(process.env, { SSH_SIN_CONTENEDOR: String(fallas), SSH_SIN_CONTENEDOR_CONTEO: conteoSinContenedor, SSH_SIN_CONTENEDOR_VACIO: vacio ? "1" : "0", TRABAJADOR_FOTO_ESPERA_MS: "50" });
+    try {
+      return await hacer();
+    } finally {
+      for (const clave of ["SSH_SIN_CONTENEDOR", "SSH_SIN_CONTENEDOR_CONTEO", "SSH_SIN_CONTENEDOR_VACIO", "TRABAJADOR_FOTO_ESPERA_MS"]) delete process.env[clave];
+    }
+  };
+
+  for (const [etiqueta, vacio] of [["Docker se queja de que falta el nombre", false], ["el ssh no devuelve nada", true]]) {
+    await prueba(`zonas que suben solas: sin contenedor del CRM en el servidor (${etiqueta}) no sube y dice "no está corriendo en el servidor configurado"`, async () => {
+      reiniciarLogs();
+      const id = nueva("Cambio de chats sin contenedor [solas-chats]", "PLAN_APROBADO", { plan: "El plan" });
+      assert.equal((await vuelta(configSolas())).ok, true);
+      assert.equal(tarjetas.get(id).estado, "SUBIENDO");
+      const mainAntes = shaDe("main");
+      const resultado = await conSinContenedor(99, vacio, () => vuelta(configSinContenedor()));
+      assert.equal(resultado.ok, false);
+      const t = tarjetas.get(id);
+      assert.notEqual(t.estado, "HECHO");
+      assert.match(t.resultado.error.motivo, /no está corriendo en el servidor configurado \(¿se movió o está apagado\?\); revisa ssh\.destino\/ssh\.logs/);
+      assert.match(t.resultado.error.motivo, /No se pudieron leer los logs del servidor \(ssh\) antes de subir \(3 intentos\)/, "el comienzo de siempre: el diagnóstico lo reconoce");
+      assert.equal(Number(fs.readFileSync(conteoSinContenedor, "utf8")), 3, "3 intentos");
+      assert.equal(shaDe("main"), mainAntes, "no se creó ningún commit en main");
+      sinRestos();
+    });
+  }
+
+  await prueba("zonas que suben solas: los logs fallan dos veces y a la tercera responden: toma la foto y sube con vigilancia", async () => {
+    reiniciarLogs();
+    const id = nueva("Cambio de chats con reinicio [solas-chats]", "PLAN_APROBADO", { plan: "El plan" });
+    assert.equal((await vuelta(configSolas())).ok, true);
+    assert.equal(tarjetas.get(id).estado, "SUBIENDO");
+    const mainAntes = shaDe("main");
+    const subida = await conSinContenedor(2, false, () => vuelta(configSinContenedor()));
+    assert.equal(subida.ok, true, subida.motivo);
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "HECHO");
+    assert.notEqual(shaDe("main"), mainAntes);
+    assert.equal(t.resultado.subida.vigilancia.ok, true);
+    assert.ok(Number(fs.readFileSync(conteoSinContenedor, "utf8")) >= 4, "2 fallas, la foto a la 3ª y después la vigilancia");
+    sinRestos();
+  });
+
   await prueba("zonas que suben solas: Meta Ads con daily_budget / ACTIVE queda POR_REVISAR esperando el sí (gasto)", async () => {
     const id = nueva("Subir presupuesto [solas-ads-gasto]", "PLAN_APROBADO", { plan: "El plan" });
     const mainAhora = shaDe("main");

@@ -2117,12 +2117,40 @@ async function estadoDelContenedor(config, senal) {
   return calce ? { corre: calce[1] === "true", reinicios: Number(calce[2]) } : null;
 }
 
+// 4-nov-2026: antes de subir se intenta leer los logs hasta 3 veces, separadas por 20 segundos, por si el contenedor del
+// CRM se está reiniciando. La espera se puede acortar con TRABAJADOR_FOTO_ESPERA_MS (solo las pruebas lo usan).
+const INTENTOS_DE_LA_FOTO = 3;
+const esperaEntreIntentosDeLaFoto = () => {
+  const ms = Number(process.env.TRABAJADOR_FOTO_ESPERA_MS);
+  return Number.isFinite(ms) && ms >= 0 ? ms : 20_000;
+};
+
+/**
+ * Docker no encontró el contenedor del CRM: el nombre quedó vacío (la búsqueda del contenedor no devolvió nada y
+ * `docker logs` se queja de que le falta el argumento), no existe o no corre. Sin salida también cuenta así.
+ */
+const faltaElContenedor = (salida) =>
+  !salida.trim() || /requires exactly 1 argument|No such container|is not running|container .* not found/i.test(salida);
+
 /** Lo que había en los logs ANTES de subir: los errores que ya existían no cuentan como nuevos. */
 async function fotoDelServidor(contexto) {
-  const { config } = contexto;
-  const logs = await leerDelServidor(config, config.ssh.logs, contexto.senal);
+  const { config, registro } = contexto;
+  let logs;
+  for (let intento = 1; intento <= INTENTOS_DE_LA_FOTO; intento += 1) {
+    if (contexto.senal?.aborted) throw new ErrorDeEtapa("La tarjeta venció en el CRM mientras se leían los logs del servidor antes de subir.");
+    logs = await leerDelServidor(config, config.ssh.logs, contexto.senal);
+    if (logs.ok) break;
+    if (intento < INTENTOS_DE_LA_FOTO) {
+      registro?.info?.(`no se pudieron leer los logs del servidor antes de subir (intento ${intento} de ${INTENTOS_DE_LA_FOTO}): se reintenta`);
+      await dormir(esperaEntreIntentosDeLaFoto());
+    }
+  }
   if (!logs.ok) {
-    throw new ErrorDeEtapa(`No se pudieron leer los logs del servidor (ssh) antes de subir: una tarjeta de zona que sube sola no sube sin poder vigilarla. No se subió nada.\nDetalle técnico: ${ultimasLineas(logs.salida, 8)}`);
+    // El comienzo «No se pudieron leer los logs del servidor (ssh)» no cambia: diagnostico.mjs lo reconoce como servidor caído.
+    const causa = faltaElContenedor(logs.salida)
+      ? " el contenedor del CRM no está corriendo en el servidor configurado (¿se movió o está apagado?); revisa ssh.destino/ssh.logs en la configuración del Coordinador."
+      : "";
+    throw new ErrorDeEtapa(`No se pudieron leer los logs del servidor (ssh) antes de subir (${INTENTOS_DE_LA_FOTO} intentos):${causa} Una tarjeta de zona que sube sola no sube sin poder vigilarla. No se subió nada.\nDetalle técnico: ${ultimasLineas(logs.salida, 8)}`);
   }
   return { errores: erroresDeLog(logs.salida), envios: enviosDeLog(logs.salida, undefined, minutosDeLaVentana(config.ssh.logs)), estado: await estadoDelContenedor(config, contexto.senal) };
 }
