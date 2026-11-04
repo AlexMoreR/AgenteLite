@@ -9,6 +9,8 @@ import {
   claveModoDelRecibo,
   claveReciboEnviado,
   claveTelefonoDePrueba,
+  CUERPO_DEMASIADO_GRANDE,
+  leerCuerpoConTope,
   modoDelRecibo,
   nombreDeArchivoSeguro,
   procesarRecibo,
@@ -286,15 +288,38 @@ test("la puerta: 401 con llave mala, 400 con cuerpo inválido, 200 con el estado
     workspacePorLlave: async (llave: string) => (llave === "buena" ? WS : null),
     procesar: async () => ({ estado: "apagado" as const, modo: "APAGADO" as const }),
   };
-  assert.equal((await responderReciboDeCaja({ autorizacion: null, cuerpo: cuerpoBueno() }, deps)).status, 401);
-  assert.equal((await responderReciboDeCaja({ autorizacion: "Bearer mala", cuerpo: cuerpoBueno() }, deps)).status, 401);
-  const malo = await responderReciboDeCaja({ autorizacion: "Bearer buena", cuerpo: { ...cuerpoBueno(), pdfBase64: "" } }, deps);
+  let lecturas = 0;
+  const cuerpo = (valor: unknown) => async () => {
+    lecturas += 1;
+    return valor;
+  };
+  assert.equal((await responderReciboDeCaja({ autorizacion: null, leerCuerpo: cuerpo(cuerpoBueno()) }, deps)).status, 401);
+  assert.equal((await responderReciboDeCaja({ autorizacion: "Bearer mala", leerCuerpo: cuerpo(cuerpoBueno()) }, deps)).status, 401);
+  // Sin llave buena no se lee el cuerpo.
+  assert.equal(lecturas, 0);
+  const malo = await responderReciboDeCaja({ autorizacion: "Bearer buena", leerCuerpo: cuerpo({ ...cuerpoBueno(), pdfBase64: "" }) }, deps);
   assert.equal(malo.status, 400);
   assert.equal(malo.body.error, "cuerpo_invalido");
-  const bueno = await responderReciboDeCaja({ autorizacion: "Bearer buena", cuerpo: cuerpoBueno() }, deps);
+  const grande = await responderReciboDeCaja({ autorizacion: "Bearer buena", leerCuerpo: cuerpo(CUERPO_DEMASIADO_GRANDE) }, deps);
+  assert.equal(grande.status, 400);
+  const bueno = await responderReciboDeCaja({ autorizacion: "Bearer buena", leerCuerpo: cuerpo(cuerpoBueno()) }, deps);
   assert.equal(bueno.status, 200);
   assert.equal(bueno.body.estado, "apagado");
   // Nunca devuelve el PDF ni el teléfono.
   assert.ok(!JSON.stringify(bueno.body).includes(PDF));
   assert.ok(!JSON.stringify(bueno.body).includes("3001234567"));
+});
+
+test("leerCuerpoConTope: corta un cuerpo grande aunque no traiga content-length, y JSON roto es null", async () => {
+  const flujo = (...trozos: string[]) =>
+    new ReadableStream<Uint8Array>({
+      start(control) {
+        for (const trozo of trozos) control.enqueue(new TextEncoder().encode(trozo));
+        control.close();
+      },
+    });
+  assert.deepEqual(await leerCuerpoConTope(flujo('{"a":', "1}"), 100), { a: 1 });
+  assert.equal(await leerCuerpoConTope(flujo("x".repeat(60), "x".repeat(60)), 100), CUERPO_DEMASIADO_GRANDE);
+  assert.equal(await leerCuerpoConTope(flujo("{roto"), 100), null);
+  assert.equal(await leerCuerpoConTope(null, 100), null);
 });

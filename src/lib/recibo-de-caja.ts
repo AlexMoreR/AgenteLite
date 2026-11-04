@@ -301,9 +301,44 @@ export async function procesarRecibo(workspaceId: string, recibo: ReciboDeCaja, 
 
 export type RespuestaDeLaPuerta = { status: number; body: Record<string, unknown> };
 
-/** Lógica del POST con las dependencias inyectadas. Nunca devuelve la llave, el teléfono ni el PDF. */
+/** Señal de `leerCuerpoConTope`: el cuerpo pasó del tope. */
+export const CUERPO_DEMASIADO_GRANDE = Symbol("cuerpo-demasiado-grande");
+
+/**
+ * Lee el cuerpo JSON por partes y corta apenas pasa de `maximo` bytes (sirve aunque el pedido no traiga
+ * content-length, por ejemplo en trozos). JSON roto o vacío → null (y la validación contesta 400).
+ */
+export async function leerCuerpoConTope(
+  cuerpo: ReadableStream<Uint8Array> | null,
+  maximo: number,
+): Promise<unknown | typeof CUERPO_DEMASIADO_GRANDE> {
+  if (!cuerpo) return null;
+  const lector = cuerpo.getReader();
+  const partes: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await lector.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maximo) {
+      await lector.cancel().catch(() => undefined);
+      return CUERPO_DEMASIADO_GRANDE;
+    }
+    partes.push(value);
+  }
+  try {
+    return JSON.parse(Buffer.concat(partes).toString("utf8"));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Lógica del POST con las dependencias inyectadas. Primero la llave y DESPUÉS se lee el cuerpo: sin llave
+ * buena no se lee ni un byte del PDF. Nunca devuelve la llave, el teléfono ni el PDF.
+ */
 export async function responderReciboDeCaja(
-  input: { autorizacion: string | null; cuerpo: unknown },
+  input: { autorizacion: string | null; leerCuerpo: () => Promise<unknown> },
   deps: {
     workspacePorLlave: (llave: string) => Promise<string | null>;
     procesar: (workspaceId: string, recibo: ReciboDeCaja) => Promise<ResultadoDelEnvio>;
@@ -313,7 +348,11 @@ export async function responderReciboDeCaja(
   const workspaceId = llave ? await deps.workspacePorLlave(llave) : null;
   if (!workspaceId) return { status: 401, body: { error: "no_autorizado" } };
 
-  const validacion = validarRecibo(input.cuerpo);
+  const cuerpo = await input.leerCuerpo();
+  if (cuerpo === CUERPO_DEMASIADO_GRANDE) {
+    return { status: 400, body: { error: "cuerpo_invalido", detalle: "pdfBase64: El PDF pasa de 10 MB" } };
+  }
+  const validacion = validarRecibo(cuerpo);
   if (!validacion.ok) return { status: 400, body: { error: "cuerpo_invalido", detalle: validacion.error } };
 
   const resultado = await deps.procesar(workspaceId, validacion.recibo);
