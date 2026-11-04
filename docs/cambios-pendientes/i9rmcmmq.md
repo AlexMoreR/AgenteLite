@@ -1,0 +1,2 @@
+## Advertencias de operación
+- `carta_de_colores_imagenes`: las imágenes de la carta de colores (`public/uploads/carta-colores/*.png`) y las fotos de cada color (`public/uploads/carta-colores/fotos/`) viven en el disco del contenedor, como las otras subidas; si ese disco no es persistente se pierden al redesplegar y hay que volver a subir las fotos y tocar «Rehacer imagen». Cada cambio de un color (crear, editar, ocultar) vuelve a armar las imágenes de su material.
