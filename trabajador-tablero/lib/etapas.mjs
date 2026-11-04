@@ -2117,12 +2117,32 @@ async function estadoDelContenedor(config, senal) {
   return calce ? { corre: calce[1] === "true", reinicios: Number(calce[2]) } : null;
 }
 
+// 4-nov-2026: la foto de antes de subir se intenta 3 veces, 20 s entre una y otra, por si el contenedor se está
+// reiniciando por otra subida. `ssh.esperaEntreIntentosMs` existe solo para que las pruebas no esperen 20 s.
+const INTENTOS_DE_LA_FOTO = 3;
+const ESPERA_ENTRE_INTENTOS_DE_LA_FOTO_MS = 20_000;
+// Docker sin contenedor: el nombre quedó vacío (`docker logs` sin argumento) o el contenedor no existe. Una salida
+// vacía con falla también cuenta: ssh, cuando no llega al servidor, siempre dice algo.
+const CONTENEDOR_NO_ESTA = /requires (?:exactly|at least) 1 argument|No such container|No such object/i;
+
 /** Lo que había en los logs ANTES de subir: los errores que ya existían no cuentan como nuevos. */
 async function fotoDelServidor(contexto) {
-  const { config } = contexto;
-  const logs = await leerDelServidor(config, config.ssh.logs, contexto.senal);
+  const { config, registro } = contexto;
+  const esperaMs = config.ssh.esperaEntreIntentosMs ?? ESPERA_ENTRE_INTENTOS_DE_LA_FOTO_MS;
+  let logs;
+  for (let intento = 1; ; intento += 1) {
+    logs = await leerDelServidor(config, config.ssh.logs, contexto.senal);
+    if (logs.ok || intento >= INTENTOS_DE_LA_FOTO) break;
+    registro?.info?.(`no se pudieron leer los logs del servidor antes de subir (intento ${intento} de ${INTENTOS_DE_LA_FOTO}); se reintenta en ${Math.round(esperaMs / 1000)} s`);
+    if (contexto.senal?.aborted) break;
+    await dormir(esperaMs);
+  }
   if (!logs.ok) {
-    throw new ErrorDeEtapa(`No se pudieron leer los logs del servidor (ssh) antes de subir: una tarjeta de zona que sube sola no sube sin poder vigilarla. No se subió nada.\nDetalle técnico: ${ultimasLineas(logs.salida, 8)}`);
+    const sinContenedor = !logs.salida.trim() || CONTENEDOR_NO_ESTA.test(logs.salida);
+    const causa = sinContenedor
+      ? "el contenedor del CRM no está corriendo en el servidor configurado (¿se movió o está apagado?); revisa ssh.destino/ssh.logs en la configuración del Coordinador"
+      : "una tarjeta de zona que sube sola no sube sin poder vigilarla";
+    throw new ErrorDeEtapa(`No se pudieron leer los logs del servidor (ssh) antes de subir (${INTENTOS_DE_LA_FOTO} intentos): ${causa}. No se subió nada.\nDetalle técnico: ${ultimasLineas(logs.salida, 8) || "(sin salida)"}`);
   }
   return { errores: erroresDeLog(logs.salida), envios: enviosDeLog(logs.salida, undefined, minutosDeLaVentana(config.ssh.logs)), estado: await estadoDelContenedor(config, contexto.senal) };
 }

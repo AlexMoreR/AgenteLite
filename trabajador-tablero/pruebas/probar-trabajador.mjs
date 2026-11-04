@@ -3223,6 +3223,87 @@ try {
     });
   }
 
+  // ── 4-nov-2026: el contenedor del CRM no está en el servidor configurado (se movió o se apagó) ──
+  // Un ssh que envuelve al falso de siempre: "sin-contenedor" hace lo que hace Docker con el nombre vacío, "vacio" falla
+  // sin decir nada y "falla-dos" falla las 2 primeras lecturas de logs y después lee como siempre.
+  const sshEnvoltorio = path.join(T, "ssh-envoltorio.mjs");
+  fs.writeFileSync(
+    sshEnvoltorio,
+    `import fs from "node:fs";
+import { spawnSync } from "node:child_process";
+const [destino, remoto] = process.argv.slice(2);
+const modo = process.env.SSH_ENVOLTORIO_MODO;
+const conteo = process.env.SSH_FALSO_LOG + ".conteo-envoltorio";
+if (remoto === "logs-falso") {
+  const llamada = fs.existsSync(conteo) ? Number(fs.readFileSync(conteo, "utf8")) : 0;
+  fs.writeFileSync(conteo, String(llamada + 1));
+  if (modo === "sin-contenedor" || (modo === "falla-dos" && llamada < 2)) {
+    console.error('"docker logs" requires exactly 1 argument.');
+    process.exit(1);
+  }
+  if (modo === "vacio") process.exit(1);
+}
+const hijo = spawnSync(process.execPath, [${JSON.stringify(falso("ssh-falso.mjs"))}, destino, remoto], { input: "", stdio: ["pipe", "inherit", "inherit"] });
+process.exit(hijo.status ?? 1);
+`,
+  );
+  const configSinContenedor = (modo) => {
+    fs.rmSync(`${LOGS.ssh}.conteo-envoltorio`, { force: true });
+    process.env.SSH_ENVOLTORIO_MODO = modo;
+    const otra = configSolas();
+    otra.ssh = { ...otra.ssh, comando: [node, sshEnvoltorio], esperaEntreIntentosMs: 50 };
+    return otra;
+  };
+  const lecturasDeLogs = () => Number(fs.existsSync(`${LOGS.ssh}.conteo-envoltorio`) ? fs.readFileSync(`${LOGS.ssh}.conteo-envoltorio`, "utf8") : 0);
+
+  for (const modo of ["sin-contenedor", "vacio"]) {
+    await prueba(`4-nov: sin el contenedor del CRM (${modo}) no sube: 3 intentos, aviso claro y main sin commits`, async () => {
+      reiniciarLogs();
+      const id = nueva(`Chats sin contenedor ${modo} [solas-chats]`, "PLAN_APROBADO", { plan: "El plan" });
+      assert.equal((await vuelta(configSolas())).ok, true);
+      assert.equal(tarjetas.get(id).estado, "SUBIENDO");
+      g(REPO, "fetch", "origin");
+      const mainAntes = shaDe("main");
+      let subida;
+      try {
+        subida = await vuelta(configSinContenedor(modo));
+      } finally {
+        delete process.env.SSH_ENVOLTORIO_MODO;
+      }
+      assert.equal(subida.hizo, "subir");
+      assert.equal(subida.ok, false);
+      assert.match(subida.motivo, /no está corriendo en el servidor configurado/);
+      assert.match(subida.motivo, /revisa ssh\.destino\/ssh\.logs/);
+      assert.match(subida.motivo, /^No se pudieron leer los logs del servidor \(ssh\)/, "sigue siendo una causa 'Servidor:'");
+      assert.equal(lecturasDeLogs(), 3, "3 intentos de leer los logs");
+      g(REPO, "fetch", "origin");
+      assert.equal(shaDe("main"), mainAntes, "no se creó ningún commit en main");
+      assert.notEqual(tarjetas.get(id).estado, "HECHO");
+      sinRestos();
+    });
+  }
+
+  await prueba("4-nov: si los logs fallan 2 veces y a la 3ª se leen, se toma la foto y la subida sigue con su vigilancia", async () => {
+    reiniciarLogs();
+    const id = nueva("Chats con contenedor que se reinicia [solas-chats]", "PLAN_APROBADO", { plan: "El plan" });
+    assert.equal((await vuelta(configSolas())).ok, true);
+    assert.equal(tarjetas.get(id).estado, "SUBIENDO");
+    const mainAntes = shaDe("main");
+    let subida;
+    try {
+      subida = await vuelta(configSinContenedor("falla-dos"));
+    } finally {
+      delete process.env.SSH_ENVOLTORIO_MODO;
+    }
+    assert.equal(subida.ok, true, subida.motivo);
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "HECHO");
+    assert.notEqual(shaDe("main"), mainAntes);
+    assert.equal(t.resultado.subida.vigilancia.ok, true);
+    assert.ok(lecturasDeLogs() >= 4, "2 fallas, la foto y al menos una lectura de la vigilancia");
+    sinRestos();
+  });
+
   await prueba("zonas que suben solas: Meta Ads con daily_budget / ACTIVE queda POR_REVISAR esperando el sí (gasto)", async () => {
     const id = nueva("Subir presupuesto [solas-ads-gasto]", "PLAN_APROBADO", { plan: "El plan" });
     const mainAhora = shaDe("main");
