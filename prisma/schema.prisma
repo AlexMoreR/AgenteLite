@@ -114,6 +114,8 @@ model Workspace {
   categoryPlaybooks     CategoryPlaybook[]
   productSpecs          ProductSpec[]
   funnelStates          ConversationFunnelState[]
+  materialesDeColores   MaterialDeColores[]
+  coloresDeCarta        ColorDeCarta[]
 
   @@index([ownerId])
 }
@@ -2700,4 +2702,48 @@ model AvisoTarjetaEquipo {
 
   @@unique([tarjetaId, motivo])
   @@index([workspaceId, estado])
+}
+
+/// Carta de colores digital (src/lib/carta-de-colores.ts): un material (Cuerotex, Prana, Corsos, Telas)
+/// con sus colores. imagenesUrl guarda las imágenes ya armadas de la carta (12 colores por imagen).
+enum TipoMaterialDeColor {
+  CUERO
+  TELA
+}
+
+model MaterialDeColores {
+  id                  String              @id @default(cuid())
+  workspaceId         String
+  nombre              String
+  tipo                TipoMaterialDeColor
+  orden               Int                 @default(0)
+  /// Imágenes de la carta ya armadas, en orden (una por cada 12 colores visibles).
+  imagenesUrl         String[]            @default([])
+  imagenActualizadaEn DateTime?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  workspace           Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  colores             ColorDeCarta[]
+
+  @@unique([workspaceId, nombre])
+}
+
+/// Un color de la carta: el código que el cliente escribe en el chat, su nombre y su foto.
+model ColorDeCarta {
+  id          String            @id @default(cuid())
+  workspaceId String
+  materialId  String
+  codigo      String
+  nombre      String
+  fotoUrl     String?
+  /// Oculto = no sale en la carta que se manda (p. ej. agotado), pero no se borra.
+  oculto      Boolean           @default(false)
+  orden       Int               @default(0)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  material    MaterialDeColores @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  workspace   Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([materialId, codigo])
+  @@index([workspaceId, materialId])
 }
