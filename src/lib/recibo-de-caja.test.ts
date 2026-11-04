@@ -48,54 +48,55 @@ const textoBase = { cliente: { nombre: "Ana" }, producto: "camilla", valorAbonad
 
 /* ───────────── El texto ───────────── */
 
+// Textos exactos aprobados por el dueño el 3-nov-2026 (🛠️ lleva el selector invisible U+FE0F).
+const CON_SALDO =
+  "Hola, *Ana* 😊\n\n✅ Recibimos tu pago de *$500.000*.\n📄 Te adjunto tu recibo de caja.\n\n💰 Saldo pendiente: *$250.000*\n🛠️ Tu pedido ya entró a fabricación.\n🚚 Te avisamos cuando esté listo para despacho.\n\n¡Gracias por confiar en Magilus! 💜";
+const PAGO_COMPLETO =
+  "Hola, *Ana* 😊\n\n✅ Recibimos tu pago de *$500.000*.\n📄 Te adjunto tu recibo de caja.\n\n💰 Saldo pendiente: *$0*\n🎉 *Pago completo*\n🚚 Te avisamos cuando tu pedido esté listo para despacho.\n\n¡Gracias por confiar en Magilus! 💜";
+const CON_SALDO_YA_SALIO =
+  "Hola, *Ana* 😊\n\n✅ Recibimos tu pago de *$500.000*.\n📄 Te adjunto tu recibo de caja.\n\n💰 Saldo pendiente: *$250.000*\n\n¡Gracias por confiar en Magilus! 💜";
+const PAGO_COMPLETO_YA_SALIO =
+  "Hola, *Ana* 😊\n\n✅ Recibimos tu pago de *$500.000*.\n📄 Te adjunto tu recibo de caja.\n\n💰 Saldo pendiente: *$0*\n🎉 *Pago completo*\n\n¡Gracias por confiar en Magilus! 💜";
+
 test("con saldo > 0 y en fabricación: el texto exacto aprobado", () => {
-  assert.equal(
-    textoDelRecibo({ ...textoBase, saldo: 250000, estadoPedido: "FABRICACION" }),
-    "Hola, Ana 😊 Recibimos tu pago de $500.000 por tu camilla. Adjunto tu recibo de caja.\n" +
-      "Saldo pendiente: $250.000.\n" +
-      "Tu pedido ya entró a fabricación y te avisamos cuando esté listo para despacho.\n" +
-      "Gracias por confiar en Magilus.",
-  );
+  assert.equal(textoDelRecibo({ ...textoBase, saldo: 250000, estadoPedido: "FABRICACION" }), CON_SALDO);
+  // El emoji 🛠️ es el mismo que mandó el dueño, con su carácter invisible.
+  assert.ok(CON_SALDO.includes("🛠️ Tu pedido"));
 });
 
 test("pago completo (saldo 0): el texto exacto aprobado", () => {
-  assert.equal(
-    textoDelRecibo({ ...textoBase, saldo: 0, estadoPedido: "FABRICACION" }),
-    "Hola, Ana 😊 Recibimos tu pago de $500.000 por tu camilla. Adjunto tu recibo de caja.\n" +
-      "Pago completo ✅\n" +
-      "Te avisamos cuando tu pedido esté listo para despacho.\n" +
-      "Gracias por confiar en Magilus.",
-  );
+  assert.equal(textoDelRecibo({ ...textoBase, saldo: 0, estadoPedido: "FABRICACION" }), PAGO_COMPLETO);
 });
 
-test("DESPACHADO: se quita la línea de fabricación (con saldo) y la de despacho (pago completo)", () => {
-  assert.equal(
-    textoDelRecibo({ ...textoBase, saldo: 250000, estadoPedido: "DESPACHADO" }),
-    "Hola, Ana 😊 Recibimos tu pago de $500.000 por tu camilla. Adjunto tu recibo de caja.\nSaldo pendiente: $250.000.\nGracias por confiar en Magilus.",
-  );
-  assert.equal(
-    textoDelRecibo({ ...textoBase, saldo: 0, estadoPedido: "despachado" }),
-    "Hola, Ana 😊 Recibimos tu pago de $500.000 por tu camilla. Adjunto tu recibo de caja.\nPago completo ✅\nGracias por confiar en Magilus.",
-  );
+test("DESPACHADO: sin la línea 🛠️ ni la 🚚, con saldo y con pago completo (y en minúscula da lo mismo)", () => {
+  assert.equal(textoDelRecibo({ ...textoBase, saldo: 250000, estadoPedido: "DESPACHADO" }), CON_SALDO_YA_SALIO);
+  assert.equal(textoDelRecibo({ ...textoBase, saldo: 0, estadoPedido: "DESPACHADO" }), PAGO_COMPLETO_YA_SALIO);
+  assert.equal(textoDelRecibo({ ...textoBase, saldo: 250000, estadoPedido: "despachado" }), CON_SALDO_YA_SALIO);
+  assert.equal(textoDelRecibo({ ...textoBase, saldo: 0, estadoPedido: "despachado" }), PAGO_COMPLETO_YA_SALIO);
 });
 
-test("ENTREGADO: igual que despachado, sin línea de fabricación ni de despacho", () => {
-  assert.equal(
-    textoDelRecibo({ ...textoBase, saldo: 0, estadoPedido: "ENTREGADO" }),
-    "Hola, Ana 😊 Recibimos tu pago de $500.000 por tu camilla. Adjunto tu recibo de caja.\nPago completo ✅\nGracias por confiar en Magilus.",
-  );
-  assert.ok(!textoDelRecibo({ ...textoBase, saldo: 10, estadoPedido: "ENTREGADO" }).includes("fabricación"));
+test("ENTREGADO: igual que despachado, sin línea 🛠️ ni 🚚", () => {
+  assert.equal(textoDelRecibo({ ...textoBase, saldo: 250000, estadoPedido: "ENTREGADO" }), CON_SALDO_YA_SALIO);
+  assert.equal(textoDelRecibo({ ...textoBase, saldo: 0, estadoPedido: "ENTREGADO" }), PAGO_COMPLETO_YA_SALIO);
+  assert.equal(textoDelRecibo({ ...textoBase, saldo: 0, estadoPedido: " entregado " }), PAGO_COMPLETO_YA_SALIO);
 });
 
 test("otro estado del pedido se trata como en fabricación", () => {
-  assert.ok(textoDelRecibo({ ...textoBase, saldo: 1, estadoPedido: "PENDIENTE" }).includes("ya entró a fabricación"));
+  assert.equal(textoDelRecibo({ ...textoBase, saldo: 250000, estadoPedido: "PENDIENTE" }), CON_SALDO);
+  assert.equal(textoDelRecibo({ ...textoBase, saldo: 0, estadoPedido: "PENDIENTE" }), PAGO_COMPLETO);
 });
 
-test("los montos salen con pesos()", () => {
+test("los montos salen con pesos() y en negrita", () => {
   const texto = textoDelRecibo({ ...textoBase, valorAbonado: 1234567, saldo: 89000, estadoPedido: "FABRICACION" });
-  assert.ok(texto.includes(pesos(1234567)));
-  assert.ok(texto.includes(`Saldo pendiente: ${pesos(89000)}.`));
+  assert.ok(texto.includes(`✅ Recibimos tu pago de *${pesos(1234567)}*.`));
+  assert.ok(texto.includes(`💰 Saldo pendiente: *${pesos(89000)}*`));
   assert.equal(pesos(1234567), "$1.234.567");
+});
+
+test("el texto no menciona el producto y al nombre se le quitan los espacios de los bordes", () => {
+  const texto = textoDelRecibo({ ...textoBase, cliente: { nombre: "  Ana  " }, saldo: 250000, estadoPedido: "FABRICACION" });
+  assert.ok(!texto.includes("camilla"));
+  assert.equal(texto, CON_SALDO);
 });
 
 /* ───────────── La validación ───────────── */
@@ -218,7 +219,7 @@ test("PRUEBA: manda al teléfono de prueba, nunca al del cliente, y marca enviad
   assert.equal(r.estado, "enviado");
   assert.equal(f.enviados.length, 1);
   assert.equal(f.enviados[0].telefono, "573109998877");
-  assert.ok(f.enviados[0].texto.startsWith("[PRUEBA] para 573001234567\nHola, Ana 😊"));
+  assert.ok(f.enviados[0].texto.startsWith("[PRUEBA] para 573001234567\nHola, *Ana* 😊"));
   const marca = JSON.parse(f.ajustes[claveReciboEnviado(WS, "RC-1001")]);
   assert.equal(marca.estado, "ENVIADO");
   assert.equal(marca.modo, "PRUEBA");
