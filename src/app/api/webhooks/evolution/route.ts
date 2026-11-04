@@ -53,6 +53,7 @@ import {
   sendAndPersistEvolutionFlowStepResilient,
 } from "@/lib/evolution-envio";
 import { recordConversationActivity } from "@/lib/conversation-activity";
+import { aplicarReglaDeAnuncio } from "@/lib/reparto-por-anuncio";
 import { etapaAlAsignar } from "@/lib/etapa-automatica-crm";
 import { prisma } from "@/lib/prisma";
 import { avisarAsesorPorWhatsApp, esNumeroDelEquipo } from "@/features/agente-v3/servicios/avisos";
@@ -1745,6 +1746,10 @@ export async function POST(request: NextRequest) {
     });
   }
 
+  // Reparto por anuncio con "Sin bienvenida": el bot queda en pausa y en ESTE mensaje tampoco sale
+  // el acuse de pausa (ver src/lib/reparto-por-anuncio.ts y el bloque del V3 más abajo).
+  let reglaDelAnuncioSinBienvenida = false;
+
   // Auto-asignación round-robin: en un mensaje entrante, si la conversación está sin
   // asignar, se asigna al siguiente colaborador del canal. No toca las ya asignadas.
   if (direction === "INBOUND" && !messageWasEdited && !messageWasDeleted && conversation.id) {
@@ -1810,7 +1815,33 @@ export async function POST(request: NextRequest) {
         La red: si un chat lleva media hora sin dueño y con el cliente esperando, el reloj lo
         reparte igual. Ver `rescatarChatsHuerfanos`.
       */
-      if (adLeadOrigin) {
+      /*
+        Reparto por ANUNCIO o CAMPAÑA de Meta (dueño, 3-nov-2026): si el anuncio tiene regla con una
+        asesora, el chat es de ella ya, sin pasar por el reparto normal, y el reparto por palabras de
+        abajo no corre. Se ESPERA aquí, antes del bot, para que "Sin bienvenida" lo encuentre en
+        pausa. Sin reglas guardadas no hace nada (y no le pregunta nada a Meta).
+      */
+      const reglaDelAnuncio =
+        adLeadOrigin && !fromMe && !isCallEvent
+          ? await aplicarReglaDeAnuncio({
+              workspaceId: channel.workspaceId,
+              channelId: channel.id,
+              conversationId: conversation.id,
+              contactId: contact.id,
+              anuncio: {
+                id: adLeadOrigin.sourceId,
+                titulo: adLeadOrigin.title,
+                red: adLeadOrigin.sourceApp,
+                ctwaClid: adLeadOrigin.ctwaClid,
+              },
+              cliente: contact.name?.trim() || phoneNumber,
+              telefonoDelCliente: phoneNumber,
+              enSegundoPlano: (tarea) => after(tarea),
+            })
+          : null;
+      reglaDelAnuncioSinBienvenida = reglaDelAnuncio?.aplicada === true && reglaDelAnuncio.sinBienvenida;
+
+      if (adLeadOrigin && !reglaDelAnuncio?.aplicada) {
         await assignAdLeadByCampaign({
           conversationId: conversation.id,
           channelId: channel.id,
@@ -2912,7 +2943,15 @@ export async function POST(request: NextRequest) {
     Sale UN solo acuse por pausa, y solo si la asesora todavia no escribio. Si ya escribio, quien
     contesta es ella y un mensaje automatico encima sobraria.
   */
-  if (pausaV3 === "pausado" && channel.evolutionInstanceName && !fromMe && !isCallEvent) {
+  // Con "Sin bienvenida" (reparto por anuncio) el chat se pausó en ESTE mensaje: no sale el acuse;
+  // contesta la asesora. Desde el segundo mensaje vuelve el acuse de siempre.
+  if (
+    pausaV3 === "pausado" &&
+    !reglaDelAnuncioSinBienvenida &&
+    channel.evolutionInstanceName &&
+    !fromMe &&
+    !isCallEvent
+  ) {
     console.log("[EVOLUTION] v3_chat_pausado", { conversationId: conversation.id });
     const instanciaPausa = channel.evolutionInstanceName;
     after(async () => {

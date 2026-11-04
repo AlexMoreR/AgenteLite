@@ -10,7 +10,8 @@ import { origenDeLinea, type LineaDelChat, type MapaDeLineas } from "@/lib/orige
  * (`armarOrigenDeVenta`) le da prioridad a la línea; no se cambia. Un cliente de anuncio que escribe
  * a la línea de Marketplace sale "anuncio" acá y "MARKETPLACE" en Gestión.
  *
- * Evolution entrega el anuncio (id, título, link, red) pero NO la campaña.
+ * Evolution entrega el anuncio (id, título, link, red) pero NO la campaña. La campaña sale de la fila
+ * de OrigenDePauta del cliente (la llena el reparto por anuncio o el informe diario de pauta).
  */
 
 export const TIPOS_DE_ORIGEN = ["anuncio", "marketplace", "organico"] as const;
@@ -27,7 +28,12 @@ export type OrigenDelCliente = {
   anuncioId: string | null;
   anuncioUrl: string | null;
   red: string | null;
+  /** La campaña de Meta, si el CRM ya la conoce (OrigenDePauta). */
+  campanaId: string | null;
+  campanaNombre: string | null;
 };
+
+const SIN_CAMPANA = { campanaId: null, campanaNombre: null } as const;
 
 function objeto(valor: unknown): Record<string, unknown> {
   return valor && typeof valor === "object" && !Array.isArray(valor) ? (valor as Record<string, unknown>) : {};
@@ -57,6 +63,8 @@ export function origenDelCliente(input: {
   metadataContacto: unknown;
   linea?: LineaDelChat | null;
   mapa?: MapaDeLineas;
+  /** La fila de OrigenDePauta del cliente, si hay. */
+  pauta?: { campanaId?: string | null; campanaNombre?: string | null } | null;
 }): OrigenDelCliente {
   const meta = objeto(input.metadataContacto);
   const vinoDeAnuncio = Boolean(texto(meta.adCapturedAt)) || texto(meta.source)?.toLowerCase() === "meta ads";
@@ -72,6 +80,8 @@ export function origenDelCliente(input: {
       anuncioId: texto(meta.adSourceId),
       anuncioUrl: enlaceSeguro(meta.adSourceUrl),
       red,
+      campanaId: texto(input.pauta?.campanaId),
+      campanaNombre: texto(input.pauta?.campanaNombre),
     };
   }
 
@@ -79,8 +89,8 @@ export function origenDelCliente(input: {
     texto(objeto(meta.origen).canal)?.toLowerCase() === "marketplace" ||
     origenDeLinea(input.linea ?? null, input.mapa) === "MARKETPLACE";
   if (vinoDeMarketplace) {
-    return { tipo: "marketplace", etiqueta: "Marketplace", anuncioTitulo: null, anuncioId: null, anuncioUrl: null, red: null };
+    return { tipo: "marketplace", etiqueta: "Marketplace", anuncioTitulo: null, anuncioId: null, anuncioUrl: null, red: null, ...SIN_CAMPANA };
   }
 
-  return { tipo: "organico", etiqueta: "Orgánico / desconocido", anuncioTitulo: null, anuncioId: null, anuncioUrl: null, red: null };
+  return { tipo: "organico", etiqueta: "Orgánico / desconocido", anuncioTitulo: null, anuncioId: null, anuncioUrl: null, red: null, ...SIN_CAMPANA };
 }

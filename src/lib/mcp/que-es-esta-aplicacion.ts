@@ -16,6 +16,7 @@ import { MOTIVO_TERMINADA, terminadasPrendidas } from "@/features/tableros-intel
 import { tieneAccesoAlDrive } from "@/features/cerebro/services/conexion";
 import { estadoDeEtapaPorLectura, type EstadoDeEtapaPorLectura } from "@/features/crm/services/etapa-por-lectura";
 import { claveModoDelRecibo, claveTelefonoDePrueba, modoDelRecibo, prefijoReciboEnviado, resumenDeEnvios, telefonoParaWhatsApp } from "@/lib/recibo-de-caja";
+import { claveDeReglas, leerReglasDeTexto } from "@/lib/reparto-por-anuncio";
 
 /**
  * "¿QUE ES ESTA APLICACION?" PARA UN ASESOR DE IA.
@@ -587,6 +588,22 @@ function estadoDelBarrido(etapaAuto: string | null, lectura: EstadoDeEtapaPorLec
   );
 }
 
+/**
+ * El reparto por anuncio (Equipo → Reparto por anuncio): cuántas reglas hay y cuántas están prendidas,
+ * leído de `reparto-por-anuncio:reglas:<negocio>`.
+ */
+async function estadoDelRepartoPorAnuncio(workspaceId: string) {
+  const reglas = leerReglasDeTexto(await bandera(claveDeReglas(workspaceId)));
+  const prendidas = reglas.filter((regla) => regla.activa);
+  if (prendidas.length === 0) {
+    return reglas.length === 0
+      ? "sin reglas: todos los chats de anuncio siguen el reparto normal"
+      : `apagada: ${reglas.length} reglas guardadas, ninguna prendida`;
+  }
+  const sinBienvenida = prendidas.filter((regla) => regla.sinBienvenida).length;
+  return `activa: ${prendidas.length} reglas prendidas (${prendidas.filter((regla) => regla.tipo === "anuncio").length} por anuncio, ${prendidas.filter((regla) => regla.tipo === "campana").length} por campaña; ${sinBienvenida} sin bienvenida del bot)`;
+}
+
 async function automatizaciones(
   workspaceId: string,
   descritas: Map<string, string>,
@@ -633,6 +650,8 @@ async function automatizaciones(
     // Corre en cada mensaje de la clienta (webhook), no en el reloj. Se gobierna desde Equipo
     // (pausa de reparto y horario por vendedora), no con una bandera.
     reparto_por_turno: sinInterruptor,
+    // Corre en el webhook, en el primer mensaje de un chat que llega de un anuncio de Meta.
+    reparto_por_anuncio: await estadoDelRepartoPorAnuncio(workspaceId).catch(() => "no se pudo leer"),
     sincronizacion_gestion:
       (await negociosConGestion().catch(() => [])).length > 0
         ? "activa: una vez al día (3 a. m.) y con el botón de Productos; no corre hasta aprobar el emparejamiento"

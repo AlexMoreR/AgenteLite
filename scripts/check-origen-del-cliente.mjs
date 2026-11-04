@@ -35,6 +35,23 @@ prueba("datos de anuncio -> anuncio con título, id y red", () => {
   assert.match(o.etiqueta, /Anuncio de Meta · Instagram · «Camillas Cali»/);
 });
 
+prueba("con fila en OrigenDePauta, la ficha trae la campaña", () => {
+  const o = origenDelCliente({
+    metadataContacto: { source: "meta ads", adTitle: "Salón Cali", adSourceId: "120210000000000001" },
+    pauta: { campanaId: "120210000000000900", campanaNombre: "Salones y almacenes" },
+  });
+  assert.equal(o.tipo, "anuncio");
+  assert.equal(o.campanaNombre, "Salones y almacenes");
+  assert.equal(o.campanaId, "120210000000000900");
+});
+
+prueba("sin fila en OrigenDePauta, sin campaña", () => {
+  const o = origenDelCliente({ metadataContacto: { source: "meta ads" } });
+  assert.equal(o.campanaNombre, null);
+  assert.equal(o.campanaId, null);
+  assert.equal(origenDelCliente({ metadataContacto: {}, pauta: { campanaNombre: "X" } }).campanaNombre, null);
+});
+
 prueba("un link que no es web no se ofrece", () => {
   const o = origenDelCliente({ metadataContacto: { source: "meta ads", adSourceUrl: "javascript:alert(1)" } });
   assert.equal(o.anuncioUrl, null);
@@ -77,6 +94,12 @@ prueba("la ficha lee el origen con permiso de chats y solo lectura", () => {
   const accion = fs.readFileSync(path.join(RAIZ, "src/app/actions/origen-del-contacto-actions.ts"), "utf8");
   assert.match(accion, /requireClientWorkspaceAccess\("chats"\)/);
   assert.doesNotMatch(accion, /\.(create|update|delete|upsert)\(/);
+  assert.match(accion, /origenDePauta[\s\S]*workspaceId: access\.workspaceId, contactId/);
+});
+
+prueba("la ficha muestra «Campaña: <nombre>» en computador y celular", () => {
+  const panel = fs.readFileSync(path.join(RAIZ, "src/components/chats/chat-conversation-panel.tsx"), "utf8");
+  assert.equal((panel.match(/Campaña: \{contactOrigin\.campanaNombre\}/g) ?? []).length, 2);
 });
 
 console.log(`\n${pruebas} pruebas ok`);

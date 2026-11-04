@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
+import Link from "next/link";
+import { Megaphone } from "lucide-react";
 import { ClientTeamWorkspace, type EstadoDeLinea } from "@/components/client-team-workspace";
 import { NegocioEquipoTabs } from "@/components/negocio-equipo-tabs";
+import { buttonVariants } from "@/components/ui/button";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { leerColaboradores, leerMonitores, leerPausadosDeReparto } from "@/lib/channel-collaborators";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
@@ -102,6 +105,14 @@ export default async function ClienteEquipoPage({ searchParams }: PageProps) {
         okTitle="Equipo actualizado"
         errorTitle="No se pudo actualizar el equipo"
       />
+
+      {/* Reparto por anuncio: campaña o anuncio de Meta → asesora (dueño, 3-nov-2026). */}
+      <div className="flex justify-end">
+        <Link href="/cliente/equipo/reparto-por-anuncio" className={buttonVariants({ variant: "outline", size: "sm" })}>
+          <Megaphone />
+          Reparto por anuncio
+        </Link>
+      </div>
 
       <ClientTeamWorkspace
         employees={employees.map((employee) => {

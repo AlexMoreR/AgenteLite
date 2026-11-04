@@ -1582,6 +1582,14 @@ export const ConversationPanel = memo(function ConversationPanel({
               </span>
             </p>
           ) : null}
+          {contactOrigin?.campanaNombre ? (
+            <p className="flex items-center gap-1 text-xs text-muted-foreground">
+              <span className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              <span className="min-w-0 truncate" title={`Campaña: ${contactOrigin.campanaNombre}`}>
+                Campaña: {contactOrigin.campanaNombre}
+              </span>
+            </p>
+          ) : null}
         </div>
       </div>
 
@@ -3185,6 +3193,14 @@ export const ConversationPanel = memo(function ConversationPanel({
                         ) : (
                           contactOrigin.etiqueta
                         )}
+                      </span>
+                    </p>
+                  ) : null}
+                  {contactOrigin?.campanaNombre ? (
+                    <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <span className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                      <span className="min-w-0 truncate" title={`Campaña: ${contactOrigin.campanaNombre}`}>
+                        Campaña: {contactOrigin.campanaNombre}
                       </span>
                     </p>
                   ) : null}
