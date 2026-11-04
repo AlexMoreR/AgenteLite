@@ -270,7 +270,9 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
               Genesis, cada mensaje se marcaba leido al instante y a ella el globo verde le aparecia y
               se le borraba sin haberlo visto. Un chat sin dueña lo marca cualquiera, como siempre.
             */
-            conversation: { OR: [{ assignedToUserId: null }, { assignedToUserId: quienMira }] },
+            conversation: {
+              OR: [{ assignedToUserId: null }, { assignedToUserId: quienMira }, { segundoAsesorId: quienMira }],
+            },
           },
           data: { readAt: new Date() },
         });

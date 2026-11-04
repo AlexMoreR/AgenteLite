@@ -47,6 +47,7 @@ import { isSnoozed } from "@/lib/lead-snooze";
 import { estadoQueAplica, hayBusqueda, whereDeBusquedaDeChats } from "@/lib/busqueda-de-chats";
 import { syncLeadLifecycleForContacts } from "@/lib/contact-default-tags";
 import { tieneCierrePendiente } from "@/lib/crm-stage-sync";
+import { whereEsMio } from "@/lib/chats-asignacion-compartida";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -326,7 +327,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   }
   const filtroDeAsignacion: Prisma.ConversationWhereInput =
     assignedFilter === "mine"
-      ? { assignedToUserId: access.userId }
+      ? whereEsMio(access.userId)
       : assignedFilter === "unassigned"
         ? { assignedToUserId: null }
         : assignedFilter.startsWith("user:")
@@ -678,7 +679,9 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
             direction: "INBOUND",
             readAt: null,
             // Solo la dueña del chat lo marca leido (ver /api/cliente/chats/live).
-            conversation: { OR: [{ assignedToUserId: null }, { assignedToUserId: access.userId }] },
+            conversation: {
+              OR: [{ assignedToUserId: null }, { assignedToUserId: access.userId }, { segundoAsesorId: access.userId }],
+            },
           },
           data: { readAt: new Date() },
         });
