@@ -40,8 +40,15 @@ import {
   cada acción. La foto se achica y se pasa a JPG en el aparato antes de subirla.
 */
 
-// Lado de la foto achicada: sobra para el cuadro de la carta y queda muy por debajo de los 3 MB de la ruta.
-const LADO_FOTO = 800;
+/*
+  Foto de cada color: 1200 px por el lado más largo y JPG con calidad 0,92, para que la muestra de la carta
+  (hasta ~960 px cuando hay un solo color) se vea igual a la foto real, con su color y su textura.
+  Si aun así pasa de los 3 MB que acepta la ruta, se intenta una vez más con calidad 0,85.
+*/
+const LADO_FOTO = 1200;
+const CALIDAD_FOTO = 0.92;
+const CALIDAD_FOTO_LIVIANA = 0.85;
+const TAMANO_MAXIMO_FOTO = 3 * 1024 * 1024;
 const ERROR_RED = "No se pudo guardar. Revisa la conexión e intenta de nuevo.";
 
 type EditorDeColor = {
@@ -58,7 +65,13 @@ type EditorDeColor = {
 type EditorDeMaterial = { nombre: string; tipo: TipoMaterialDeColor };
 
 async function subirFoto(file: File): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
-  const jpg = await generarMiniaturaDeImagen(file, LADO_FOTO);
+  let jpg = await generarMiniaturaDeImagen(file, LADO_FOTO, CALIDAD_FOTO);
+  if (jpg && jpg.size > TAMANO_MAXIMO_FOTO) {
+    jpg = await generarMiniaturaDeImagen(file, LADO_FOTO, CALIDAD_FOTO_LIVIANA);
+  }
+  if (jpg && jpg.size > TAMANO_MAXIMO_FOTO) {
+    return { ok: false, error: "La foto pesa demasiado. Prueba con otra foto." };
+  }
   if (!jpg) return { ok: false, error: "No se pudo leer esa foto. Prueba con otra foto JPG o PNG." };
 
   const formData = new FormData();

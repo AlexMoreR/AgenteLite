@@ -1,7 +1,21 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
+import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { inflateSync } from "node:zlib";
 
-import { dibujarPaginaDeCarta, rutaEnDisco, slugDeMaterial, type LeerArchivoPublico } from "./imagen-de-carta-de-colores";
+import {
+  VERSION_DEL_DISENO,
+  dibujarPaginaDeCarta,
+  esImagenDeCarta,
+  imagenesConDisenoActual,
+  medidasDePagina,
+  rehacerImagenesDeMaterial,
+  rutaEnDisco,
+  slugDeMaterial,
+  type LeerArchivoPublico,
+} from "./imagen-de-carta-de-colores";
 
 /*
   Arma un JPG de 8×8 de un solo color, sin librerías: una sola cuadra por canal (Y, Cb, Cr), con la
@@ -115,4 +129,180 @@ test("el nombre del material queda listo para un archivo", () => {
   assert.equal(slugDeMaterial("Cuerotex"), "cuerotex");
   assert.equal(slugDeMaterial("Telas Piña"), "telas-pina");
   assert.equal(slugDeMaterial("¡¡!!"), "material");
+});
+
+/** Ancho y alto de un PNG (vienen en el bloque IHDR, justo después de la firma). */
+function medidasDelPng(png: Buffer) {
+  return { ancho: png.readUInt32BE(16), alto: png.readUInt32BE(20) };
+}
+
+/** Color de un punto del PNG (8 bits, RGB o RGBA, sin entrelazado), sin librerías: zlib + los 5 filtros. */
+function colorEnElPng(png: Buffer, x: number, y: number): [number, number, number] {
+  const { ancho, alto } = medidasDelPng(png);
+  assert.equal(png[24], 8, "8 bits por canal");
+  const canales = png[25] === 6 ? 4 : png[25] === 2 ? 3 : 0;
+  assert.ok(canales > 0, "PNG RGB o RGBA");
+  const partes: Buffer[] = [];
+  for (let i = 8; i < png.length; ) {
+    const largo = png.readUInt32BE(i);
+    const tipo = png.toString("ascii", i + 4, i + 8);
+    if (tipo === "IDAT") partes.push(png.subarray(i + 8, i + 8 + largo));
+    i += 12 + largo;
+  }
+  const crudo = inflateSync(Buffer.concat(partes));
+  const fila = ancho * canales;
+  let anterior = Buffer.alloc(fila);
+  for (let f = 0; f <= y && f < alto; f += 1) {
+    const filtro = crudo[f * (fila + 1)];
+    const datos = crudo.subarray(f * (fila + 1) + 1, (f + 1) * (fila + 1));
+    const actual = Buffer.alloc(fila);
+    for (let i = 0; i < fila; i += 1) {
+      const a = i >= canales ? actual[i - canales] : 0;
+      const b = anterior[i];
+      const c = i >= canales ? anterior[i - canales] : 0;
+      let prediccion = 0;
+      if (filtro === 1) prediccion = a;
+      else if (filtro === 2) prediccion = b;
+      else if (filtro === 3) prediccion = (a + b) >> 1;
+      else if (filtro === 4) {
+        const p = a + b - c;
+        const pa = Math.abs(p - a);
+        const pb = Math.abs(p - b);
+        const pc = Math.abs(p - c);
+        prediccion = pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
+      }
+      actual[i] = (datos[i] + prediccion) & 0xff;
+    }
+    anterior = actual;
+  }
+  const inicio = x * canales;
+  return [anterior[inicio], anterior[inicio + 1], anterior[inicio + 2]];
+}
+
+function coloresDePrueba(cantidad: number) {
+  return Array.from({ length: cantidad }, (_, i) => ({
+    codigo: `C${i + 1}`,
+    nombre: `Color ${i + 1}`,
+    fotoUrl: "/uploads/carta-colores/fotos/rojo.jpg",
+  }));
+}
+
+const leerConRojo: LeerArchivoPublico = async (ruta) =>
+  ruta === "/magilus-logo.svg"
+    ? LOGO_DE_PRUEBA
+    : ruta === "/uploads/carta-colores/fotos/rojo.jpg"
+      ? jpgDeUnColor(200, 30, 30)
+      : null;
+
+test("con 1 color la muestra ocupa casi todo el ancho y la imagen no queda alta y vacía", async () => {
+  const medidas = medidasDePagina(1);
+  assert.equal(medidas.columnas, 1);
+  assert.ok(medidas.ladoFoto >= 900, `la muestra mide ${medidas.ladoFoto} px`);
+
+  const png = await dibujarPaginaDeCarta({
+    material: { nombre: "Lila Cuerotex" },
+    colores: coloresDePrueba(1),
+    pagina: 1,
+    totalPaginas: 1,
+    leerArchivo: leerConRojo,
+  });
+  const { ancho, alto } = medidasDelPng(png);
+  assert.equal(ancho, 1080);
+  assert.ok(alto < 1500, `alto ${alto} px`);
+
+  // Cerca del borde derecho de la muestra (x = 1000) y en su mitad, el punto es de la foto (rojo).
+  const [r, g, b] = colorEnElPng(png, 1000, 250 + Math.floor(medidas.ladoFoto / 2));
+  assert.ok(r > 150 && g < 90 && b < 90, `el punto es rojo: ${r},${g},${b}`);
+});
+
+test("con 2 a 4 colores salen 2 columnas y con 5 o más, 3", () => {
+  for (const cantidad of [2, 3, 4]) {
+    const medidas = medidasDePagina(cantidad);
+    assert.equal(medidas.columnas, 2, `${cantidad} colores`);
+    assert.ok(medidas.ladoFoto >= 450, `muestra de ${medidas.ladoFoto} px`);
+  }
+  assert.equal(medidasDePagina(3).filas, 2, "3 colores van en 2 filas");
+  for (const cantidad of [5, 9, 12]) assert.equal(medidasDePagina(cantidad).columnas, 3, `${cantidad} colores`);
+  // El alto crece solo con las filas que se usan.
+  assert.ok(medidasDePagina(1).alto < medidasDePagina(12).alto);
+  assert.ok(medidasDePagina(5).alto < medidasDePagina(12).alto);
+});
+
+test("con 12 colores mantiene 3 columnas y el alto de antes", async () => {
+  const medidas = medidasDePagina(12);
+  assert.equal(medidas.columnas, 3);
+  assert.equal(medidas.filas, 4);
+  assert.equal(medidas.ladoFoto, 293);
+  // El alto de siempre: 250 + 4 × (293 + 136) + 3 × 28 + 60.
+  assert.equal(medidas.alto, 2110);
+
+  const png = await dibujarPaginaDeCarta({
+    material: { nombre: "Cuerotex" },
+    colores: coloresDePrueba(12),
+    pagina: 1,
+    totalPaginas: 1,
+    leerArchivo: leerConRojo,
+  });
+  assert.deepEqual(medidasDelPng(png), { ancho: 1080, alto: 2110 });
+  assert.ok(medidasDelPng(png).alto > 1.4 * 1406, "con 1 color el alto es mucho menor");
+});
+
+test("los nombres con la versión del diseño siguen siendo imágenes de la carta", () => {
+  assert.equal(VERSION_DEL_DISENO, "d2");
+  assert.ok(esImagenDeCarta("/uploads/carta-colores/cuerotex-0123456789ab-d2-1.png"));
+  assert.ok(esImagenDeCarta("/uploads/carta-colores/cuerotex-0123456789ab-1.png"), "las viejas también, para borrarlas");
+  assert.equal(esImagenDeCarta("/uploads/carta-colores/fotos/a.jpg"), false);
+  assert.equal(esImagenDeCarta("/uploads/otra/cuerotex-d2-1.png"), false);
+
+  assert.ok(imagenesConDisenoActual([]), "sin imágenes no hay nada que rehacer");
+  assert.ok(imagenesConDisenoActual(["/uploads/carta-colores/cuerotex-0123456789ab-d2-1.png"]));
+  assert.equal(imagenesConDisenoActual(["/uploads/carta-colores/cuerotex-0123456789ab-1.png"]), false);
+  assert.equal(
+    imagenesConDisenoActual([
+      "/uploads/carta-colores/cuerotex-0123456789ab-d2-1.png",
+      "/uploads/carta-colores/cuerotex-0123456789ab-2.png",
+    ]),
+    false,
+  );
+});
+
+test("rehacer un material con la imagen del diseño viejo la cambia por una con -d2- y borra la vieja", async () => {
+  const carpeta = path.join(process.cwd(), "public", "uploads", "carta-colores");
+  const yaExistia = existsSync(carpeta);
+  const antes = yaExistia ? new Set(await readdir(carpeta)) : new Set<string>();
+  const vieja = "/uploads/carta-colores/prueba-rehacer-000000000000-1.png";
+  await mkdir(carpeta, { recursive: true });
+  await writeFile(path.join(carpeta, "prueba-rehacer-000000000000-1.png"), Buffer.from(FIRMA_PNG));
+
+  let guardado = null as { imagenesUrl: string[] } | null;
+  const prisma = {
+    materialDeColores: {
+      findUnique: async () => ({
+        id: "m1",
+        nombre: "Prueba Rehacer",
+        imagenesUrl: [vieja],
+        colores: [{ id: "c1", codigo: "01", nombre: "Lila 01", fotoUrl: "/uploads/carta-colores/fotos/rojo.jpg", oculto: false, orden: 0 }],
+      }),
+      update: async ({ data }: { data: { imagenesUrl: string[] } }) => {
+        guardado = data;
+        return data;
+      },
+    },
+  } as unknown as Parameters<typeof rehacerImagenesDeMaterial>[0];
+
+  try {
+    const nuevas = await rehacerImagenesDeMaterial(prisma, "m1", leerConRojo);
+    assert.equal(nuevas.length, 1);
+    assert.match(nuevas[0], /^\/uploads\/carta-colores\/prueba-rehacer-[0-9a-f]{12}-d2-1\.png$/);
+    assert.deepEqual(guardado?.imagenesUrl, nuevas);
+    assert.ok(imagenesConDisenoActual(nuevas));
+    assert.equal(existsSync(path.join(carpeta, "prueba-rehacer-000000000000-1.png")), false, "la vieja se borró");
+    assert.ok(existsSync(rutaEnDisco(nuevas[0]) ?? ""), "la nueva quedó en el disco");
+  } finally {
+    // Deja la carpeta como estaba: solo se borra lo que creó esta prueba.
+    for (const archivo of await readdir(carpeta)) {
+      if (archivo.startsWith("prueba-rehacer-") && !antes.has(archivo)) await rm(path.join(carpeta, archivo));
+    }
+    if (!yaExistia) await rm(carpeta, { recursive: true, force: true });
+  }
 });

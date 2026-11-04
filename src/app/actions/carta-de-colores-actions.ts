@@ -9,7 +9,7 @@ import {
   type TipoMaterialDeColor,
 } from "@/lib/carta-de-colores";
 import { requireClientWorkspaceAccess, type ClientWorkspaceAccess } from "@/lib/client-workspace-access";
-import { rehacerImagenesDeMaterial } from "@/lib/imagen-de-carta-de-colores";
+import { imagenesConDisenoActual, rehacerImagenesDeMaterial } from "@/lib/imagen-de-carta-de-colores";
 import { puedeSupervisar } from "@/lib/permisos-del-equipo";
 import { prisma } from "@/lib/prisma";
 
@@ -149,6 +149,18 @@ export async function listarCartaDeColoresAction(): Promise<{
     }),
     puedeSupervisar(access),
   ]);
+
+  // Las imágenes armadas con un diseño anterior se rehacen acá, una por una. Si una falla, se anota y la
+  // pantalla carga igual con la imagen vieja (se vuelve a intentar la próxima vez que se abra).
+  for (const material of materiales) {
+    if (imagenesConDisenoActual(material.imagenesUrl)) continue;
+    try {
+      material.imagenesUrl = await rehacerImagenesDeMaterial(prisma, material.id);
+      material.imagenActualizadaEn = new Date();
+    } catch (error) {
+      console.error("[carta-de-colores] no se pudo rehacer la imagen con el diseño nuevo", material.id, error);
+    }
+  }
 
   return {
     puedeEditar,

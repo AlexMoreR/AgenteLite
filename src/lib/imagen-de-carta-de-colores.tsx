@@ -9,8 +9,10 @@ import { COLORES_POR_IMAGEN, huellaDeMaterial, partirEnPaginas, type ColorParaCa
 /*
   Imagen PNG de la carta de colores (parte 2 de «Carta de colores digital dentro del CRM»).
 
-  Cada material sale en una o más imágenes de 12 colores (3 columnas × 4 filas): arriba el logo de
-  Magilus y el nombre del material, y en cada casilla la foto del color con su código y su nombre debajo.
+  Cada material sale en una o más imágenes de hasta 12 colores: arriba el logo de Magilus y el nombre del
+  material, y en cada casilla la foto del color con su código y su nombre debajo. Las columnas dependen de
+  cuántos colores tiene la página (1 → 1, 2 a 4 → 2, 5 o más → 3) y el alto sale de las filas que se usan:
+  con pocos colores la muestra sale grande (se ve la textura) y no queda una hoja casi vacía.
   Se dibuja con `ImageResponse` de `next/og` (el mismo de los íconos de la app): no hace falta sharp ni canvas.
 
   Las imágenes quedan en public/uploads/carta-colores/ y las sirve src/app/uploads/[...path]/route.ts,
@@ -24,19 +26,40 @@ export const CARPETA_FOTOS_DE_COLORES = "carta-colores/fotos";
 
 const RUTA_DEL_LOGO = "/magilus-logo.svg";
 
+/*
+  Versión del diseño de la imagen. Va en el nombre del archivo ("cuerotex-<huella>-d2-1.png"): las imágenes
+  guardadas con un diseño anterior no la llevan y se rehacen solas al abrir la pantalla de la carta.
+  Si se vuelve a cambiar el dibujo, se sube a "d3".
+*/
+export const VERSION_DEL_DISENO = "d2";
+
 // Medidas de la imagen (pensada para verse bien en el celular del cliente).
 const ANCHO = 1080;
 const MARGEN = 60;
-const COLUMNAS = 3;
-const FILAS = COLORES_POR_IMAGEN / COLUMNAS;
 const ESPACIO_COLUMNAS = 40;
 const ESPACIO_FILAS = 28;
-const LADO_FOTO = Math.floor((ANCHO - MARGEN * 2 - ESPACIO_COLUMNAS * (COLUMNAS - 1)) / COLUMNAS);
 // Código y hasta dos líneas de nombre, con letra que se lea en el celular (la imagen se ve a ~1/3).
 const ALTO_TEXTO = 136;
 const ALTO_ENCABEZADO = 250;
-const ALTO =
-  ALTO_ENCABEZADO + FILAS * (LADO_FOTO + ALTO_TEXTO) + (FILAS - 1) * ESPACIO_FILAS + MARGEN;
+
+export type MedidasDePagina = {
+  ancho: number;
+  alto: number;
+  columnas: number;
+  filas: number;
+  /** Lado de la muestra (cuadrada), en px. */
+  ladoFoto: number;
+};
+
+/** Columnas, lado de la muestra y alto de la imagen según cuántos colores lleva la página. */
+export function medidasDePagina(cantidadDeColores: number): MedidasDePagina {
+  const cantidad = Math.min(COLORES_POR_IMAGEN, Math.max(1, Math.floor(cantidadDeColores) || 1));
+  const columnas = cantidad === 1 ? 1 : cantidad <= 4 ? 2 : 3;
+  const filas = Math.ceil(cantidad / columnas);
+  const ladoFoto = Math.floor((ANCHO - MARGEN * 2 - ESPACIO_COLUMNAS * (columnas - 1)) / columnas);
+  const alto = ALTO_ENCABEZADO + filas * (ladoFoto + ALTO_TEXTO) + (filas - 1) * ESPACIO_FILAS + MARGEN;
+  return { ancho: ANCHO, alto, columnas, filas, ladoFoto };
+}
 
 /** Lee un archivo de public/ por su ruta pública ("/uploads/..."). Devuelve null si no está. */
 export type LeerArchivoPublico = (rutaPublica: string) => Promise<Buffer | null>;
@@ -84,6 +107,7 @@ export async function dibujarPaginaDeCarta({
     comoDataUri(leerArchivo, RUTA_DEL_LOGO),
     Promise.all(colores.map((color) => comoDataUri(leerArchivo, color.fotoUrl))),
   ]);
+  const { ancho, alto, ladoFoto } = medidasDePagina(colores.length);
   const titulo = totalPaginas > 1 ? `${material.nombre} ${pagina}/${totalPaginas}` : material.nombre;
 
   const respuesta = new ImageResponse(
@@ -128,14 +152,14 @@ export async function dibujarPaginaDeCarta({
             return (
               <div
                 key={`${color.codigo}-${indice}`}
-                style={{ display: "flex", flexDirection: "column", width: LADO_FOTO }}
+                style={{ display: "flex", flexDirection: "column", width: ladoFoto }}
               >
                 {foto ? (
                   // eslint-disable-next-line @next/next/no-img-element, jsx-a11y/alt-text
                   <img
                     src={foto}
-                    width={LADO_FOTO}
-                    height={LADO_FOTO}
+                    width={ladoFoto}
+                    height={ladoFoto}
                     style={{ objectFit: "cover", borderRadius: 18, border: "1px solid #e5e7eb" }}
                   />
                 ) : (
@@ -144,8 +168,8 @@ export async function dibujarPaginaDeCarta({
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
-                      width: LADO_FOTO,
-                      height: LADO_FOTO,
+                      width: ladoFoto,
+                      height: ladoFoto,
                       borderRadius: 18,
                       background: "#f3f4f6",
                       color: "#9ca3af",
@@ -171,7 +195,7 @@ export async function dibujarPaginaDeCarta({
                       fontSize: 30,
                       lineHeight: 1.2,
                       color: "#4b5563",
-                      maxWidth: LADO_FOTO,
+                      maxWidth: ladoFoto,
                       textAlign: "center",
                       lineClamp: 2,
                     }}
@@ -185,7 +209,7 @@ export async function dibujarPaginaDeCarta({
         </div>
       </div>
     ),
-    { width: ANCHO, height: ALTO },
+    { width: ancho, height: alto },
   );
 
   return Buffer.from(await respuesta.arrayBuffer());
@@ -237,8 +261,13 @@ export function slugDeMaterial(nombre: string): string {
 }
 
 /** Solo se borran imágenes de la carta: nunca algo fuera de su carpeta. */
-function esImagenDeCarta(rutaPublica: string) {
+export function esImagenDeCarta(rutaPublica: string) {
   return new RegExp(`^/uploads/${CARPETA_CARTA_DE_COLORES}/[a-z0-9-]+\\.png$`).test(rutaPublica);
+}
+
+/** true si las imágenes del material ya están armadas con el diseño de hoy (o no tiene ninguna). */
+export function imagenesConDisenoActual(imagenesUrl: readonly string[]): boolean {
+  return imagenesUrl.every((ruta) => ruta.includes(`-${VERSION_DEL_DISENO}-`));
 }
 
 /**
@@ -270,7 +299,7 @@ export async function rehacerImagenesDeMaterial(
   if (paginas.length > 0) {
     const carpeta = path.join(carpetaPublica(), "uploads", ...CARPETA_CARTA_DE_COLORES.split("/"));
     await mkdir(carpeta, { recursive: true });
-    const base = `${slugDeMaterial(material.nombre)}-${huellaDeMaterial(material.colores)}`;
+    const base = `${slugDeMaterial(material.nombre)}-${huellaDeMaterial(material.colores)}-${VERSION_DEL_DISENO}`;
 
     for (const [indice, colores] of paginas.entries()) {
       const png = await dibujarPaginaDeCarta({
