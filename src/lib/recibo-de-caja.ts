@@ -107,7 +107,7 @@ export function validarRecibo(cuerpo: unknown): ResultadoDeValidacion {
   return { ok: true, recibo: { ...datos, nombreArchivo: nombreDeArchivoSeguro(datos.nombreArchivo, datos.ventaCodigo) } };
 }
 
-/* ───────────── El texto (aprobado por el dueño el 2-nov-2026) ───────────── */
+/* ───────────── El texto (aprobado por el dueño el 3-nov-2026) ───────────── */
 
 export type DatosDelTexto = Pick<ReciboDeCaja, "producto" | "valorAbonado" | "saldo" | "estadoPedido"> & {
   cliente: { nombre: string };
@@ -119,18 +119,28 @@ function pedidoYaSalio(estadoPedido: string): boolean {
   return estado === "DESPACHADO" || estado === "ENTREGADO";
 }
 
+/**
+ * Líneas cortas con emoji; el nombre y los montos en negrita de WhatsApp (*...*). El producto se sigue
+ * recibiendo pero no va en el texto. Cada "" es una línea en blanco.
+ */
 export function textoDelRecibo(datos: DatosDelTexto): string {
   const nombre = datos.cliente.nombre.trim();
-  const lineas = [`Hola, ${nombre} 😊 Recibimos tu pago de ${pesos(datos.valorAbonado)} por tu ${datos.producto.trim()}. Adjunto tu recibo de caja.`];
   const yaSalio = pedidoYaSalio(datos.estadoPedido);
+  const lineas = [
+    `Hola, *${nombre}* 😊`,
+    "",
+    `✅ Recibimos tu pago de *${pesos(datos.valorAbonado)}*.`,
+    "📄 Te adjunto tu recibo de caja.",
+    "",
+    `💰 Saldo pendiente: *${pesos(datos.saldo)}*`,
+  ];
   if (datos.saldo > 0) {
-    lineas.push(`Saldo pendiente: ${pesos(datos.saldo)}.`);
-    if (!yaSalio) lineas.push("Tu pedido ya entró a fabricación y te avisamos cuando esté listo para despacho.");
+    if (!yaSalio) lineas.push("🛠️ Tu pedido ya entró a fabricación.", "🚚 Te avisamos cuando esté listo para despacho.");
   } else {
-    lineas.push("Pago completo ✅");
-    if (!yaSalio) lineas.push("Te avisamos cuando tu pedido esté listo para despacho.");
+    lineas.push("🎉 *Pago completo*");
+    if (!yaSalio) lineas.push("🚚 Te avisamos cuando tu pedido esté listo para despacho.");
   }
-  lineas.push("Gracias por confiar en Magilus.");
+  lineas.push("", "¡Gracias por confiar en Magilus! 💜");
   return lineas.join("\n");
 }
 
