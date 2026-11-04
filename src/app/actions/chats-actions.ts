@@ -21,7 +21,7 @@ import {
 
 import { retomarConversacionV3 } from "@/features/agente-v3/servicios/retomar";
 import { getConversationAutomationPaused, setConversationAutomationPaused } from "@/lib/conversation-automation";
-import { recordConversationActivity } from "@/lib/conversation-activity";
+import { recordConversationActivity, textoDeSegundoAsesor } from "@/lib/conversation-activity";
 import { notifyRealtimeUpdate } from "@/lib/realtime-notify";
 import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 import { persistAvatarUrl } from "@/lib/contact-avatar-refresh";
@@ -2242,7 +2242,7 @@ export async function assignChatAction(input: {
 
   const conversation = await prisma.conversation.findFirst({
     where: { id: conversationId, workspaceId: membership.workspace.id },
-    select: { id: true, assignedToUserId: true, channelId: true, contactId: true, status: true },
+    select: { id: true, assignedToUserId: true, segundoAsesorId: true, channelId: true, contactId: true, status: true },
   });
   if (!conversation) return { error: "Conversacion no encontrada" };
 
@@ -2286,11 +2286,17 @@ export async function assignChatAction(input: {
   */
   const reabrir = targetUserId !== null && conversation.status !== "OPEN" && conversation.status !== "PENDING";
 
+  // Si el nuevo principal era el segundo asesor, deja de ser segundo en la misma escritura: un
+  // chat no puede tener a la misma persona en los dos puestos.
+  const subeElSegundo = targetUserId !== null && conversation.segundoAsesorId === targetUserId;
+
   await prisma.conversation.update({
     where: { id: conversation.id },
-    data: reabrir
-      ? { assignedToUserId: targetUserId, status: "OPEN", closedAt: null }
-      : { assignedToUserId: targetUserId },
+    data: {
+      assignedToUserId: targetUserId,
+      ...(reabrir ? { status: "OPEN" as const, closedAt: null } : {}),
+      ...(subeElSegundo ? { segundoAsesorId: null } : {}),
+    },
   });
 
   // Registro de actividad de asignación.
@@ -2337,6 +2343,113 @@ export async function assignChatAction(input: {
 
   revalidatePath("/cliente/chats");
   return { ok: true, assignedTo };
+}
+
+/**
+ * Agrega (userId) o quita (null) al SEGUNDO asesor de un chat. Para el segundo el chat tambien es
+ * "Mío": lo abre y le suena el aviso (ver chats-asignacion-compartida.ts).
+ *
+ * Permisos, los mismos de assignChatAction: el jefe (dueño, administrador o supervisora) o el
+ * asesor principal del chat. Ademas, el propio segundo asesor se puede quitar a si mismo.
+ * Solo chats de WhatsApp normal: la API oficial no tiene segundo asesor.
+ */
+export async function asignarSegundoAsesorAction(input: {
+  conversationId: string;
+  userId: string | null;
+}): Promise<{
+  ok?: boolean;
+  error?: string;
+  segundoAsesor?: { id: string; name: string | null } | null;
+}> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
+    return { error: "No autorizado" };
+  }
+  await requireClientWorkspaceAccess("chats");
+
+  const conversationId = typeof input?.conversationId === "string" ? input.conversationId.trim() : "";
+  const targetUserId = typeof input?.userId === "string" && input.userId.trim() ? input.userId.trim() : null;
+  if (!conversationId) return { error: "Datos invalidos" };
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) return { error: "Workspace no encontrado" };
+
+  const conversation = await prisma.conversation.findFirst({
+    where: { id: conversationId, workspaceId: membership.workspace.id },
+    select: { id: true, assignedToUserId: true, segundoAsesorId: true, channelId: true, contactId: true },
+  });
+  if (!conversation) return { error: "Conversacion no encontrada" };
+
+  const isManager =
+    membership.role === "OWNER" ||
+    membership.role === "ADMIN" ||
+    (await esSupervisora(membership.workspace.id, session.user.id));
+  const esElPrincipal = conversation.assignedToUserId !== null && conversation.assignedToUserId === session.user.id;
+  const seQuitaASiMismo = targetUserId === null && conversation.segundoAsesorId === session.user.id;
+  if (!isManager && !esElPrincipal && !seQuitaASiMismo) {
+    return { error: "Ese chat es de otra persona. Pidele a un administrador que lo mueva." };
+  }
+
+  if (targetUserId !== null) {
+    if (!conversation.assignedToUserId) {
+      return { error: "Primero asigna el chat a un asesor principal." };
+    }
+    if (targetUserId === conversation.assignedToUserId) {
+      return { error: "Esa persona ya es el asesor principal del chat." };
+    }
+  }
+
+  // Sin cambio: no se escribe ni se anota nada.
+  if ((conversation.segundoAsesorId ?? null) === targetUserId) {
+    return { ok: true };
+  }
+
+  // A quien se agrega (tiene que ser miembro activo) o a quien se quita (solo para el texto).
+  const afectadoId = targetUserId ?? conversation.segundoAsesorId;
+  let afectado: { id: string; name: string | null } | null = null;
+  if (afectadoId) {
+    const miembro = await prisma.workspaceMember.findFirst({
+      where: {
+        workspaceId: membership.workspace.id,
+        userId: afectadoId,
+        ...(targetUserId ? { isActive: true } : {}),
+      },
+      select: { user: { select: { id: true, name: true } } },
+    });
+    if (targetUserId && !miembro) return { error: "El usuario no pertenece al equipo" };
+    afectado = miembro?.user ?? null;
+  }
+
+  // El filtro repite el principal y el segundo leidos: si alguien los cambio mientras tanto, no
+  // se escribe a ciegas.
+  const actualizadas = await prisma.conversation.updateMany({
+    where: {
+      id: conversation.id,
+      assignedToUserId: conversation.assignedToUserId,
+      segundoAsesorId: conversation.segundoAsesorId,
+    },
+    data: { segundoAsesorId: targetUserId },
+  });
+  if (actualizadas.count === 0) {
+    return { error: "El chat cambio de asesor mientras tanto. Vuelve a intentarlo." };
+  }
+
+  const kind = targetUserId ? "segundo_asesor_agregado" : "segundo_asesor_quitado";
+  const actorName = session.user.name?.trim() || "Alguien";
+  await recordConversationActivity({
+    workspaceId: membership.workspace.id,
+    conversationId: conversation.id,
+    channelId: conversation.channelId,
+    contactId: conversation.contactId,
+    kind,
+    actorUserId: session.user.id,
+    assigneeUserId: afectadoId,
+    dispositivo: leerDispositivo((await headers()).get("user-agent")),
+    text: textoDeSegundoAsesor(kind, actorName, afectado?.name?.trim() || "un colaborador"),
+  });
+
+  revalidatePath("/cliente/chats");
+  return { ok: true, segundoAsesor: targetUserId ? afectado : null };
 }
 
 export async function toggleContactTagAction(

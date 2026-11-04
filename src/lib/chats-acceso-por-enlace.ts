@@ -1,3 +1,5 @@
+import { esDeQuien } from "@/lib/chats-asignacion-compartida";
+
 /**
  * ¿Esta persona puede abrir ESTE chat con un enlace (?chatKey=agent:<id> / official:<id>)?
  *
@@ -7,7 +9,8 @@
  *
  *  - Dueño, administrador y supervisora: cualquier chat de las lineas que ven.
  *  - Quien monitorea: solo los chats de las lineas que monitorea (los numeros se tapan aparte).
- *  - Asesora comun: solo los chats asignados a ella, de una linea que pueda ver.
+ *  - Asesora comun: solo los chats asignados a ella (de principal o de segundo asesor), de una linea
+ *    que pueda ver.
  *  - Chats de la API oficial (no tienen linea): el jefe y quien monitorea los abren; la asesora
  *    solo el que tiene asignado.
  *
@@ -19,6 +22,8 @@ export type ChatParaAcceso = {
   /** Linea del chat. Solo aplica a `agent`; null = chat sin linea. */
   channelId: string | null;
   assignedToUserId: string | null;
+  /** Segundo asesor del chat (tambien lo abre). La API oficial no tiene: queda null. */
+  segundoAsesorId?: string | null;
 };
 
 export type QuienAbre = {
@@ -37,7 +42,7 @@ export function puedeAbrirChat(chat: ChatParaAcceso, quien: QuienAbre): boolean 
   if (chat.fuente === "official") {
     // El canal oficial no tiene linea: lo ven el jefe y quien monitorea; la asesora, solo el suyo.
     if (quien.esJefe || modoMonitoreo) return true;
-    return chat.assignedToUserId === quien.userId;
+    return esDeQuien(chat, quien.userId);
   }
 
   // Igual que la lista: `channelId IN (visibles)` deja afuera a los chats sin linea.
@@ -53,7 +58,7 @@ export function puedeAbrirChat(chat: ChatParaAcceso, quien: QuienAbre): boolean 
     return chat.channelId !== null && quien.canalesMonitoreados.includes(chat.channelId);
   }
 
-  return chat.assignedToUserId === quien.userId;
+  return esDeQuien(chat, quien.userId);
 }
 
 /**
@@ -75,7 +80,7 @@ export async function puedeAbrirChatPorClave(input: {
   if (input.fuente === "agent") {
     const fila = await prisma.conversation.findFirst({
       where: { id: input.conversationId, workspaceId: input.workspaceId },
-      select: { channelId: true, assignedToUserId: true },
+      select: { channelId: true, assignedToUserId: true, segundoAsesorId: true },
     });
     chat = fila ? { fuente: "agent", ...fila } : null;
   } else {
@@ -83,7 +88,9 @@ export async function puedeAbrirChatPorClave(input: {
       where: { id: input.conversationId, config: { workspaceId: input.workspaceId } },
       select: { assignedToUserId: true },
     });
-    chat = fila ? { fuente: "official", channelId: null, assignedToUserId: fila.assignedToUserId } : null;
+    chat = fila
+      ? { fuente: "official", channelId: null, assignedToUserId: fila.assignedToUserId, segundoAsesorId: null }
+      : null;
   }
   if (!chat) return false;
 

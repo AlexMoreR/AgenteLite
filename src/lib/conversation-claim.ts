@@ -62,17 +62,21 @@ export async function claimConversationIfUnassigned(input: {
     } else {
       const conversacion = await prisma.conversation.findFirst({
         where: { id: input.conversationId, workspaceId: input.workspaceId, assignedToUserId: null },
-        select: { id: true, channelId: true, contactId: true },
+        select: { id: true, channelId: true, contactId: true, segundoAsesorId: true },
       });
       if (!conversacion) {
         return;
       }
 
+      // Si la que contesta era el segundo asesor de este chat sin principal, pasa a principal y
+      // deja de ser segunda: la misma persona no puede estar en los dos puestos.
+      const eraLaSegunda = conversacion.segundoAsesorId === userId;
+
       // updateMany con el filtro de "sin dueño" otra vez: si dos asesoras contestan a la vez,
       // se lo queda la primera y la segunda no se lo pisa.
       const actualizadas = await prisma.conversation.updateMany({
         where: { id: conversacion.id, assignedToUserId: null },
-        data: { assignedToUserId: userId },
+        data: eraLaSegunda ? { assignedToUserId: userId, segundoAsesorId: null } : { assignedToUserId: userId },
       });
       if (actualizadas.count === 0) {
         return;

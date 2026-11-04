@@ -1,3 +1,4 @@
+import { asignadosDelChat } from "@/lib/chats-asignacion-compartida";
 import { prisma } from "@/lib/prisma";
 
 /**
@@ -7,7 +8,8 @@ import { prisma } from "@/lib/prisma";
  * tiene ese chat asignado. Antes los jefes (OWNER y ADMIN) y quien monitoreaba la linea oian todo,
  * aunque el chat no fuera suyo: a Emanuel le pitaba el CRM sin tener ningun chat asignado.
  *
- *  - Chat asignado: solo oye esa persona; el resto del equipo queda fuera, jefes y monitoras tambien.
+ *  - Chat asignado: solo oyen sus asesores (el principal y, si hay, el segundo); el resto del equipo
+ *    queda fuera, jefes y monitoras tambien.
  *  - Chat sin asignar: no le suena a nadie (lo cubre el rescate de chats huerfanos).
  *
  * Esto NO cambia que chats ve cada uno en su bandeja: solo a quien le suena.
@@ -17,9 +19,10 @@ import { prisma } from "@/lib/prisma";
  */
 export function excluidosDelAviso(input: {
   miembrosActivos: string[];
-  asignadoA: string | null;
+  /** Asesores del chat (principal y segundo). Vacio = chat sin asignar. */
+  asignadoA: string[];
 }): string[] {
-  return input.miembrosActivos.filter((userId) => userId !== input.asignadoA);
+  return input.miembrosActivos.filter((userId) => !input.asignadoA.includes(userId));
 }
 
 export async function quienesNoSeEnteran(input: {
@@ -36,13 +39,13 @@ export async function quienesNoSeEnteran(input: {
     input.conversationId
       ? prisma.conversation.findUnique({
           where: { id: input.conversationId },
-          select: { assignedToUserId: true },
+          select: { assignedToUserId: true, segundoAsesorId: true },
         })
       : Promise.resolve(null),
   ]);
 
   return excluidosDelAviso({
     miembrosActivos: miembros.map((miembro) => miembro.userId),
-    asignadoA: conversacion?.assignedToUserId ?? null,
+    asignadoA: conversacion ? asignadosDelChat(conversacion) : [],
   });
 }
