@@ -5,20 +5,25 @@ import { pesos } from "@/lib/contraentrega";
 import {
   APARTADO_VENCE_MS,
   PDF_MAXIMO_BYTES,
+  claveAlertaDelMarcado,
   claveAlertaDelRecibo,
   claveModoDelRecibo,
   claveReciboEnviado,
   claveTelefonoDePrueba,
   CUERPO_DEMASIADO_GRANDE,
+  debeMarcarClienteGanado,
   leerCuerpoConTope,
   modoDelRecibo,
   nombreDeArchivoSeguro,
   procesarRecibo,
   responderReciboDeCaja,
+  resumenDeEnvios,
   taparNumeros,
   textoDelRecibo,
   validarRecibo,
   type DependenciasDelEnvio,
+  type EstadoDelRecibo,
+  type ModoDelRecibo,
   type ReciboDeCaja,
 } from "@/lib/recibo-de-caja";
 
@@ -160,9 +165,11 @@ function recibo(): ReciboDeCaja {
   return r.recibo;
 }
 
-function falsas(ajustes: Record<string, string>, opciones: { fallaEnvio?: boolean } = {}) {
+function falsas(ajustes: Record<string, string>, opciones: { fallaEnvio?: boolean; fallaMarcado?: boolean } = {}) {
   const enviados: { telefono: string; texto: string }[] = [];
   const alertas: { clave: string; titulo: string; detalle: string }[] = [];
+  const alertasMedias: { clave: string; titulo: string; detalle: string }[] = [];
+  const marcados: { contactId: string; conversationId: string; reciboId: string }[] = [];
   const deps: DependenciasDelEnvio = {
     leerAjuste: async (clave) => ajustes[clave] ?? null,
     apartar: async (clave, anterior, nuevo) => {
@@ -179,12 +186,20 @@ function falsas(ajustes: Record<string, string>, opciones: { fallaEnvio?: boolea
     enviar: async ({ telefono, texto }) => {
       if (opciones.fallaEnvio) throw new Error("gateway caído para 573001234567");
       enviados.push({ telefono, texto });
+      return { contactId: `contacto-${telefono}`, conversationId: `chat-admin-${telefono}` };
     },
     alertar: async (a) => {
       alertas.push(a);
     },
+    marcarCliente: async ({ contactId, conversationId, recibo }) => {
+      if (opciones.fallaMarcado) throw new Error("la base no respondió al marcar 573001234567");
+      marcados.push({ contactId, conversationId, reciboId: recibo.reciboId });
+    },
+    alertarMedia: async (a) => {
+      alertasMedias.push(a);
+    },
   };
-  return { deps, enviados, alertas, ajustes };
+  return { deps, enviados, alertas, alertasMedias, marcados, ajustes };
 }
 
 const WS = "ws1";
@@ -275,6 +290,97 @@ test("si el envío falla: alerta ALTA por recibo, no queda marcado y el reintent
   // Reintento: el gateway ya volvió.
   const g = falsas(f.ajustes);
   assert.equal((await procesarRecibo(WS, recibo(), g.deps)).estado, "enviado");
+});
+
+/* ───────────── Parte 2: Cliente/GANADO ───────────── */
+
+test("debeMarcarClienteGanado: solo con modo ACTIVO y estado enviado (todas las combinaciones)", () => {
+  const modos: ModoDelRecibo[] = ["APAGADO", "PRUEBA", "ACTIVO"];
+  const estados: EstadoDelRecibo[] = ["enviado", "ya_enviado", "apagado", "fallo"];
+  for (const modo of modos) {
+    for (const estado of estados) {
+      assert.equal(debeMarcarClienteGanado(modo, estado), modo === "ACTIVO" && estado === "enviado", `${modo} + ${estado}`);
+    }
+  }
+});
+
+test("ACTIVO y enviado: marca Cliente/GANADO una vez, al contacto y la conversación Admin a los que salió", async () => {
+  const f = falsas({ [claveModoDelRecibo(WS)]: "ACTIVO" });
+  assert.equal((await procesarRecibo(WS, recibo(), f.deps)).estado, "enviado");
+  assert.deepEqual(f.marcados, [{ contactId: "contacto-573001234567", conversationId: "chat-admin-573001234567", reciboId: "RC-1001" }]);
+  assert.equal(f.alertasMedias.length, 0);
+  // El mismo recibo otra vez (ya_enviado): no se vuelve a marcar.
+  assert.equal((await procesarRecibo(WS, recibo(), f.deps)).estado, "ya_enviado");
+  assert.equal(f.marcados.length, 1);
+});
+
+test("PRUEBA: el recibo sale al dueño y NO se marca Cliente/GANADO a nadie", async () => {
+  const f = falsas({ [claveModoDelRecibo(WS)]: "PRUEBA", [claveTelefonoDePrueba(WS)]: "3109998877" });
+  assert.equal((await procesarRecibo(WS, recibo(), f.deps)).estado, "enviado");
+  assert.equal(f.marcados.length, 0);
+});
+
+test("APAGADO, fallo del envío o ya_enviado: no se marca Cliente/GANADO", async () => {
+  const apagado = falsas({});
+  await procesarRecibo(WS, recibo(), apagado.deps);
+  assert.equal(apagado.marcados.length, 0);
+
+  const falla = falsas({ [claveModoDelRecibo(WS)]: "ACTIVO" }, { fallaEnvio: true });
+  assert.equal((await procesarRecibo(WS, recibo(), falla.deps)).estado, "fallo");
+  assert.equal(falla.marcados.length, 0);
+
+  const ya = falsas({
+    [claveModoDelRecibo(WS)]: "ACTIVO",
+    [claveReciboEnviado(WS, "RC-1001")]: JSON.stringify({ fecha: new Date().toISOString(), telefono: "x", modo: "ACTIVO", estado: "ENVIADO" }),
+  });
+  assert.equal((await procesarRecibo(WS, recibo(), ya.deps)).estado, "ya_enviado");
+  assert.equal(ya.marcados.length, 0);
+});
+
+test("si marcar Cliente/GANADO falla: sigue enviado, queda la marca ENVIADO y va la alerta MEDIA (no la ALTA)", async () => {
+  const f = falsas({ [claveModoDelRecibo(WS)]: "ACTIVO" }, { fallaMarcado: true });
+  const r = await procesarRecibo(WS, recibo(), f.deps);
+  assert.equal(r.estado, "enviado");
+  assert.equal(JSON.parse(f.ajustes[claveReciboEnviado(WS, "RC-1001")]).estado, "ENVIADO");
+  assert.equal(f.alertas.length, 0);
+  assert.equal(f.alertasMedias.length, 1);
+  assert.equal(f.alertasMedias[0].clave, claveAlertaDelMarcado("RC-1001"));
+  assert.equal(f.alertasMedias[0].clave, "recibo-caja:marcar:RC-1001");
+  assert.ok(!f.alertasMedias[0].detalle.includes("573001234567"));
+  // No se reenvía.
+  assert.equal((await procesarRecibo(WS, recibo(), f.deps)).estado, "ya_enviado");
+  assert.equal(f.enviados.length, 1);
+});
+
+test("si la alerta MEDIA también falla: la respuesta sigue siendo enviado", async () => {
+  const f = falsas({ [claveModoDelRecibo(WS)]: "ACTIVO" }, { fallaMarcado: true });
+  f.deps.alertarMedia = async () => {
+    throw new Error("sin base");
+  };
+  assert.equal((await procesarRecibo(WS, recibo(), f.deps)).estado, "enviado");
+});
+
+test("resumenDeEnvios: cuenta solo los ENVIADO de hoy en Bogotá, ignora ENVIANDO y datos rotos, y da el último", () => {
+  // 4-nov-2026 10:00 en Bogotá = 15:00 UTC.
+  const ahora = new Date("2026-11-04T15:00:00.000Z");
+  const marca = (fecha: string, modo: string, estado = "ENVIADO") => JSON.stringify({ fecha, telefono: "573001234567", modo, estado });
+  const r = resumenDeEnvios(
+    [
+      marca("2026-11-04T05:30:00.000Z", "ACTIVO"), // 00:30 del 4-nov en Bogotá: hoy
+      marca("2026-11-04T14:00:00.000Z", "PRUEBA"), // hoy, en PRUEBA
+      marca("2026-11-04T04:59:00.000Z", "ACTIVO"), // 23:59 del 3-nov en Bogotá: ayer
+      marca("2026-11-04T14:30:00.000Z", "ACTIVO", "ENVIANDO"), // apartado: no cuenta
+      "{roto",
+      null,
+      marca("no es fecha", "ACTIVO"),
+    ],
+    ahora,
+  );
+  assert.equal(r.enviadosHoy, 2);
+  assert.equal(r.enviadosHoyEnPrueba, 1);
+  assert.deepEqual(r.ultimo, { fecha: "2026-11-04T14:00:00.000Z", modo: "PRUEBA" });
+  assert.ok(!JSON.stringify(r).includes("573001234567"));
+  assert.deepEqual(resumenDeEnvios([], ahora), { enviadosHoy: 0, enviadosHoyEnPrueba: 0, ultimo: null });
 });
 
 test("taparNumeros deja solo los últimos 4 dígitos", () => {

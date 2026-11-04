@@ -1,10 +1,13 @@
+import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 
 import { registrarAlerta } from "@/features/alertas/servicios/alertas";
 import { getPublicBaseUrl } from "@/lib/app-url";
 import { persistChatMediaFromDataUrl } from "@/lib/chat-media-storage";
 import { sendEvolutionDocumentMessage, sendEvolutionMediaBase64 } from "@/lib/evolution";
+import { ganadoAutomaticoPrendido } from "@/lib/etapa-automatica-crm";
 import { persistEvolutionMessage } from "@/lib/evolution-envio";
+import { registrarCambioDeEtapa } from "@/lib/historial-etapa";
 import { variantesDeTelefono } from "@/lib/origen-de-venta";
 import { prisma } from "@/lib/prisma";
 import {
@@ -12,6 +15,7 @@ import {
   taparNumeros,
   telefonoTapado,
   type DependenciasDelEnvio,
+  type DestinoDelRecibo,
   type ModoDelRecibo,
   type ReciboDeCaja,
   type ResultadoDelEnvio,
@@ -19,8 +23,8 @@ import {
 
 /**
  * EL ENVÍO DEL RECIBO DE CAJA (del servidor). La decisión (modo, teléfono de prueba, no mandar dos
- * veces, alerta si falla) está en `recibo-de-caja.ts`; aquí solo están las piezas de verdad: la base,
- * el WhatsApp de la línea Admin y la alerta.
+ * veces, alerta si falla, cuándo se marca Cliente/GANADO) está en `recibo-de-caja.ts`; aquí solo están
+ * las piezas de verdad: la base, el WhatsApp de la línea Admin, el marcado del contacto y las alertas.
  *
  * Nunca escribe en el log la llave, el PDF ni el teléfono completo.
  */
@@ -134,7 +138,7 @@ async function conversacionEnLaLinea(input: { workspaceId: string; channelId: st
 async function enviarPorLaLineaAdmin(
   workspaceId: string,
   pedido: { telefono: string; texto: string; recibo: ReciboDeCaja; modo: ModoDelRecibo },
-): Promise<void> {
+): Promise<DestinoDelRecibo> {
   const { recibo, telefono, texto } = pedido;
   const canal = await prisma.whatsAppChannel.findFirst({
     where: { id: LINEA_ADMIN_RECIBOS, workspaceId },
@@ -223,6 +227,85 @@ async function enviarPorLaLineaAdmin(
       detalle: error instanceof Error ? taparNumeros(error.message).slice(0, 200) : "desconocido",
     });
   }
+  return { contactId: contacto.id, conversationId: conversacion.id };
+}
+
+/* ───────────── Parte 2: el cliente que recibió su recibo queda Cliente / GANADO ───────────── */
+
+const ETIQUETA_CLIENTE = { slug: "cliente", nombre: "Cliente", color: "#16a34a" } as const;
+
+/** La etiqueta "Cliente" del negocio; si no existe se crea (si dos la crean a la vez, se usa la que ganó). */
+async function etiquetaCliente(workspaceId: string): Promise<{ id: string }> {
+  const buscar = () => prisma.tag.findFirst({ where: { workspaceId, slug: ETIQUETA_CLIENTE.slug }, select: { id: true } });
+  const existente = await buscar();
+  if (existente) return existente;
+  try {
+    return await prisma.tag.create({
+      data: {
+        id: randomUUID(),
+        workspaceId,
+        name: ETIQUETA_CLIENTE.nombre,
+        slug: ETIQUETA_CLIENTE.slug,
+        color: ETIQUETA_CLIENTE.color,
+        updatedAt: new Date(),
+      },
+      select: { id: true },
+    });
+  } catch (error) {
+    if (esDuplicado(error)) {
+      const creada = await buscar();
+      if (creada) return creada;
+    }
+    throw error;
+  }
+}
+
+/**
+ * Solo se llama en ACTIVO y con el recibo ya entregado (ver `debeMarcarClienteGanado`). Lanza si algo
+ * no quedó: `procesarRecibo` lo convierte en una alerta MEDIA y el recibo sigue contado como enviado.
+ *
+ * - Etiqueta "Cliente": siempre (también si el contacto está fuera del CRM). createMany con
+ *   skipDuplicates, como `contact-default-tags.ts`: si ya la tiene no pasa nada ni ensucia el log.
+ * - Etapa GANADO: se salta si el contacto tiene `excludedFromCrm`, si ya está en GANADO o si el
+ *   interruptor del Ganado automático está apagado (`crm:etapa-automatica:ganado:<negocio>` = off,
+ *   el mismo del barrido "Ganado desde Gestión": un solo interruptor apaga todo el Ganado automático).
+ *   Es la única excepción a "Ganado lo pone una persona" (ver `marcarCierreDeCompra`): el recibo es
+ *   plata ya registrada en Gestión por una asesora.
+ */
+async function marcarClienteGanado(workspaceId: string, pedido: DestinoDelRecibo & { recibo: ReciboDeCaja }): Promise<void> {
+  const contacto = await prisma.contact.findFirst({
+    where: { id: pedido.contactId, workspaceId },
+    select: { crmStage: true, excludedFromCrm: true, wonAt: true },
+  });
+  if (!contacto) throw new Error("el contacto del recibo ya no existe");
+
+  const etiqueta = await etiquetaCliente(workspaceId);
+  await prisma.contactTag.createMany({
+    data: [{ contactId: pedido.contactId, tagId: etiqueta.id, workspaceId }],
+    skipDuplicates: true,
+  });
+
+  if (contacto.excludedFromCrm || contacto.crmStage === "GANADO") return;
+  if (!(await ganadoAutomaticoPrendido(workspaceId))) return;
+
+  const anterior = contacto.crmStage;
+  // Solo si sigue en la etapa leída (igual que `marcarGanadoPorGestion`): si alguien lo movió en el medio, no se pisa.
+  const guardado = await prisma.contact.updateMany({
+    where: { id: pedido.contactId, workspaceId, crmStage: anterior },
+    // La fecha de la venta solo si no tenía (no se pisa una puesta a mano).
+    data: { crmStage: "GANADO", lostReason: null, ...(contacto.wonAt ? {} : { wonAt: new Date() }) },
+  });
+  if (guardado.count === 0) throw new Error("la etapa cambió mientras se marcaba GANADO");
+
+  await registrarCambioDeEtapa({
+    workspaceId,
+    contactId: pedido.contactId,
+    conversationId: pedido.conversationId,
+    etapaAnterior: anterior,
+    etapaNueva: "GANADO",
+    origen: "AUTOMATICO",
+    nota: `[recibo de caja] venta ${pedido.recibo.ventaCodigo}`,
+  });
 }
 
 /** Las piezas de verdad para `procesarRecibo`. */
@@ -235,6 +318,10 @@ export function dependenciasDelEnvio(workspaceId: string): DependenciasDelEnvio 
     enviar: (pedido) => enviarPorLaLineaAdmin(workspaceId, pedido),
     alertar: async ({ clave, titulo, detalle }) => {
       await registrarAlerta({ workspaceId, clave, prioridad: "ALTA", titulo, detalle, origen: ORIGEN_ALERTA });
+    },
+    marcarCliente: (pedido) => marcarClienteGanado(workspaceId, pedido),
+    alertarMedia: async ({ clave, titulo, detalle }) => {
+      await registrarAlerta({ workspaceId, clave, prioridad: "MEDIA", titulo, detalle, origen: ORIGEN_ALERTA });
     },
   };
 }
