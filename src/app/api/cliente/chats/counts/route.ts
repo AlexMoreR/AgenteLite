@@ -22,6 +22,7 @@ import {
   whereDeBusquedaDeChats,
   whereDeBusquedaDeChatsOficiales,
 } from "@/lib/busqueda-de-chats";
+import { whereEsMio } from "@/lib/chats-asignacion-compartida";
 
 export const dynamic = "force-dynamic";
 
@@ -306,7 +307,7 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
   if (monitoreados.length > 0) {
     const deSusLineas: Prisma.ConversationWhereInput = { AND: [baseWhere, { channelId: { in: monitoreados } }] };
     const [mine, unassigned, all] = await Promise.all([
-      prisma.conversation.count({ where: { AND: [deSusLineas, { assignedToUserId: session.user.id }] } }),
+      prisma.conversation.count({ where: { AND: [deSusLineas, whereEsMio(session.user.id)] } }),
       prisma.conversation.count({ where: { AND: [deSusLineas, { assignedToUserId: null }] } }),
       prisma.conversation.count({ where: deSusLineas }),
     ]);
@@ -324,7 +325,7 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
   // Los empleados solo cuentan sus chats asignados.
   if (!isManager) {
     const mine = await prisma.conversation.count({
-      where: { AND: [baseWhere, { assignedToUserId: session.user.id }] },
+      where: { AND: [baseWhere, whereEsMio(session.user.id)] },
     });
 
     return NextResponse.json({
@@ -335,7 +336,7 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
   }
 
   const [mine, unassigned, all] = await Promise.all([
-    prisma.conversation.count({ where: { AND: [baseWhere, { assignedToUserId: session.user.id }] } }),
+    prisma.conversation.count({ where: { AND: [baseWhere, whereEsMio(session.user.id)] } }),
     prisma.conversation.count({ where: { AND: [baseWhere, { assignedToUserId: null }] } }),
     prisma.conversation.count({ where: baseWhere }),
   ]);

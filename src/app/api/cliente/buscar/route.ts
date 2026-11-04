@@ -92,7 +92,13 @@ export async function GET(request: Request) {
             ...(canalesVisibles ? { channelId: { in: canalesVisibles } } : {}),
             // Una asesora que no es jefa solo ve lo suyo y lo que no tiene dueño, igual que en la
             // bandeja: el buscador no puede ser la puerta de atras a los chats de otra.
-            ...(veTodosLosChats ? {} : { OR: [{ assignedToUserId: session.user.id }, { assignedToUserId: null }] }),
+            ...(veTodosLosChats ? {} : {
+                  OR: [
+                    { assignedToUserId: session.user.id },
+                    { segundoAsesorId: session.user.id },
+                    { assignedToUserId: null },
+                  ],
+                }),
             AND: [
               {
                 OR: [

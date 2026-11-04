@@ -34,6 +34,7 @@ import {
   type FilaUltimoMensaje,
   type MessageTypeDeFila,
 } from "@/lib/ultimo-mensaje-de-chats";
+import { whereEsMio } from "@/lib/chats-asignacion-compartida";
 
 type UnifiedConversation = {
   key: string;
@@ -195,7 +196,7 @@ async function getAgentConversationList(input: {
   */
   const filtroDeAsignacion: Prisma.ConversationWhereInput =
     input.assignedFilter === "mine"
-      ? { assignedToUserId: input.currentUserId }
+      ? whereEsMio(input.currentUserId)
       : input.assignedFilter === "unassigned"
         ? { assignedToUserId: null }
         : input.assignedFilter.startsWith("user:")

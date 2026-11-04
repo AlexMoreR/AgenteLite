@@ -7,6 +7,7 @@ import { DIAS_DE_MENSAJES_EN_LA_BUSQUEDA } from "@/lib/busqueda-de-chats";
 import { canalesQueMonitorea, enmascararSiEsTelefono, enmascararTelefono } from "@/lib/modo-monitoreo";
 import { esSupervisora } from "@/lib/permisos-del-equipo";
 import { prisma } from "@/lib/prisma";
+import { whereEsMio } from "@/lib/chats-asignacion-compartida";
 
 /*
   LOS MENSAJES QUE CONTIENEN LO BUSCADO, como la seccion "Mensajes" del buscador de WhatsApp
@@ -68,7 +69,7 @@ export async function GET(request: Request) {
     ? { channelId: { in: monitoreadas } }
     : esManager
       ? {}
-      : { assignedToUserId: session.user.id };
+      : whereEsMio(session.user.id);
 
   const desde = new Date(Date.now() - DIAS_DE_MENSAJES_EN_LA_BUSQUEDA * 24 * 60 * 60 * 1000);
   const filas = await prisma.message.findMany({
