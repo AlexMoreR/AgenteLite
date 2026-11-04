@@ -13,6 +13,7 @@ import {
   validarCodigo,
   type ColorParaCarta,
 } from "./carta-de-colores";
+import { ELECCION_TODOS, imagenesParaMandar, mandarEnOrden } from "./carta-de-colores-chat";
 
 function color(numero: number, cambios: Partial<ColorParaCarta> = {}): ColorParaCarta {
   return {
@@ -129,4 +130,58 @@ test("la huella es corta, estable y cambia solo si cambia lo que se ve", () => {
   const conOculto = [...lista, color(99, { oculto: true })];
   assert.equal(huellaDeMaterial(conOculto), huella);
   assert.equal(huellaDeMaterial(conOculto.map((c) => (c.id === "c99" ? { ...c, nombre: "X" } : c))), huella);
+});
+
+const CARTA = [
+  { id: "m1", nombre: "Cuerotex", imagenesUrl: ["/uploads/a-1.png", "/uploads/a-2.png"] },
+  { id: "m2", nombre: "Prana", imagenesUrl: [] },
+  { id: "m3", nombre: "Telas", imagenesUrl: ["/uploads/t-1.png"] },
+];
+
+test("un material: salen sus imágenes en orden y solo la última lleva el texto", () => {
+  assert.deepEqual(imagenesParaMandar(CARTA, "m1"), [
+    { url: "/uploads/a-1.png" },
+    { url: "/uploads/a-2.png", texto: TEXTO_CARTA_DE_COLORES },
+  ]);
+});
+
+test("Todos junta las de cada material en orden y se salta los que no tienen", () => {
+  const lista = imagenesParaMandar(CARTA, ELECCION_TODOS);
+  assert.deepEqual(lista.map((i) => i.url), ["/uploads/a-1.png", "/uploads/a-2.png", "/uploads/t-1.png"]);
+  assert.deepEqual(lista.map((i) => i.texto), [undefined, undefined, TEXTO_CARTA_DE_COLORES]);
+});
+
+test("sin imágenes o con un id que no existe no sale nada", () => {
+  assert.deepEqual(imagenesParaMandar(CARTA, "m2"), []);
+  assert.deepEqual(imagenesParaMandar(CARTA, "no-existe"), []);
+  assert.deepEqual(imagenesParaMandar([], ELECCION_TODOS), []);
+});
+
+test("mandarEnOrden espera cada envío y manda todas si salen bien", async () => {
+  const vistas: string[] = [];
+  const resultado = await mandarEnOrden(imagenesParaMandar(CARTA, ELECCION_TODOS), async (imagen) => {
+    await new Promise((listo) => setTimeout(listo, 1));
+    vistas.push(imagen.url);
+    return { ok: true };
+  });
+  assert.deepEqual(resultado, { enviadas: 3 });
+  assert.deepEqual(vistas, ["/uploads/a-1.png", "/uploads/a-2.png", "/uploads/t-1.png"]);
+});
+
+test("mandarEnOrden se para en la primera que falla y devuelve su error", async () => {
+  const vistas: string[] = [];
+  const resultado = await mandarEnOrden(imagenesParaMandar(CARTA, ELECCION_TODOS), async (imagen, indice) => {
+    vistas.push(imagen.url);
+    return indice === 1 ? { error: "Fuera de la ventana de 24 h" } : { ok: true };
+  });
+  assert.deepEqual(resultado, { enviadas: 1, error: "Fuera de la ventana de 24 h" });
+  assert.equal(vistas.length, 2);
+});
+
+test("mandarEnOrden se para si el envío se cae", async () => {
+  const resultado = await mandarEnOrden(imagenesParaMandar(CARTA, "m1"), async () => {
+    throw new Error("red");
+  });
+  assert.equal(resultado.enviadas, 0);
+  assert.ok(resultado.error);
 });
