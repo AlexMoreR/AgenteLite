@@ -1,4 +1,4 @@
-import type { EstadoDeEnvio } from "@/lib/envios-gestion";
+import type { ContraentregaDeGestion, EstadoDeEnvio } from "@/lib/envios-gestion";
 
 /**
  * LAS DOS FORMAS DE PAGO DEL PANEL DE ENVÍO: 50 % de anticipo o contraentrega.
@@ -222,4 +222,29 @@ export function opcionContraentrega(input: {
       `¡Sí! Con contraentrega pagas solo el envío por adelantado: *${pesos(envio)}*, y tu *${producto.nombre}* ` +
       `(*${pesos(producto.precio)}*) lo pagas al recibirlo en *${lugar}*. Total: *${pesos(total)}*.${otraOpcion}`,
   };
+}
+
+/**
+ * Línea de contraentrega debajo de cada lugar de la LISTA del panel de envío (pedido del 4-nov).
+ * Solo información para la asesora: no se inserta en el chat ni se manda al cliente.
+ *
+ * El dato lo manda Gestión por lugar (`contraentrega`), con sus reglas `isCamillasCombo` y
+ * `contraentregaShippingFee`; aquí no se copia la regla ni se inventa un valor:
+ * - "No llegamos", sin dato de Gestión o `aplica` distinto de true → null (no se muestra nada).
+ * - Con valor de envío válido → "Contraentrega: envío $X (paga al recibir $Y)".
+ * - Sin valor de envío (o inválido) → "Contraentrega: se cotiza".
+ */
+export function lineaContraentregaDeLista(ubicacion: {
+  envio: EstadoDeEnvio;
+  contraentrega?: ContraentregaDeGestion | null;
+}): string | null {
+  if (ubicacion.envio === "NO_LLEGA") return null;
+  const dato = ubicacion.contraentrega;
+  if (!dato || typeof dato !== "object" || dato.aplica !== true) return null;
+  const envio = typeof dato.envio === "number" ? validarEnvioContraentrega(dato.envio) : null;
+  if (!envio || !envio.ok) return "Contraentrega: se cotiza";
+  const alRecibir = typeof dato.alRecibir === "number" && Number.isFinite(dato.alRecibir) && dato.alRecibir > 0 ? dato.alRecibir : null;
+  return alRecibir === null
+    ? `Contraentrega: envío ${pesos(envio.valor)}`
+    : `Contraentrega: envío ${pesos(envio.valor)} (paga al recibir ${pesos(alRecibir)})`;
 }

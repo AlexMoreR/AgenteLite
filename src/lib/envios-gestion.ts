@@ -31,6 +31,21 @@ export type UbicacionDeGestion = {
   pendienteRevision: boolean;
   exacta: boolean;
   cotizacion: { tipo: string | null; envio: number | null; total: number | null } | null;
+  /**
+   * Contraentrega de ESTE lugar para el producto buscado, calculada por Gestión con sus reglas
+   * (`isCamillasCombo` y `contraentregaShippingFee`). Dato opcional: si Gestión no lo manda o llega
+   * mal formado, queda null y la lista se ve como antes (pedido del 4-nov).
+   */
+  contraentrega: ContraentregaDeGestion | null;
+};
+
+export type ContraentregaDeGestion = {
+  /** true solo si el producto buscado lleva contraentrega según Gestión. */
+  aplica: boolean;
+  /** Valor del envío en contraentrega; null = Gestión no tiene el dato (se cotiza). */
+  envio: number | null;
+  /** Lo que el cliente paga al recibir (el precio del producto en Gestión). */
+  alRecibir: number | null;
 };
 
 export type ProductoDeEnvio = {
@@ -82,6 +97,16 @@ const ubicacionSchema = z.object({
     .catch(null)
     .optional()
     .transform((valor) => valor ?? null),
+  contraentrega: z
+    .object({
+      aplica: z.boolean(),
+      envio: numeroONull,
+      alRecibir: numeroONull,
+    })
+    .nullable()
+    .catch(null)
+    .optional()
+    .transform((valor) => valor ?? null),
 });
 
 const productoSchema = z
@@ -106,6 +131,14 @@ const agregarSchema = z.object({
   id: idFlexible,
   nombre: textoSuave,
 });
+
+/** Lee un lugar de la respuesta de Gestión; si no se entiende o no tiene nombre, null (se salta). */
+export function leerUbicacionDeGestion(crudo: unknown): UbicacionDeGestion | null {
+  const fila = ubicacionSchema.safeParse(crudo);
+  if (!fila.success || !fila.data.nombre) return null;
+  const { cotizacion, contraentrega, ...resto } = fila.data;
+  return { ...resto, cotizacion: cotizacion ?? null, contraentrega: contraentrega ?? null };
+}
 
 async function baseDeGestion(workspaceId: string): Promise<{ origen: string; llave: string } | null> {
   try {
@@ -152,10 +185,8 @@ export async function buscarUbicaciones(
     }
     const resultados: UbicacionDeGestion[] = [];
     for (const crudo of datos.data.resultados) {
-      const fila = ubicacionSchema.safeParse(crudo);
-      if (!fila.success || !fila.data.nombre) continue;
-      const { cotizacion, ...resto } = fila.data;
-      resultados.push({ ...resto, cotizacion: cotizacion ?? null });
+      const fila = leerUbicacionDeGestion(crudo);
+      if (fila) resultados.push(fila);
     }
     return { ok: true, resultados, producto: datos.data.producto ?? null };
   } catch (error) {

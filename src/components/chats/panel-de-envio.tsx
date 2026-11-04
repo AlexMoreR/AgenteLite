@@ -14,7 +14,13 @@ import {
   listarProductosParaEnvioAction,
   type ProductoParaEnvio,
 } from "@/app/actions/envio-actions";
-import { opcionAnticipo, opcionContraentrega, pesos, type EnvioContraentregaGuardado } from "@/lib/contraentrega";
+import {
+  lineaContraentregaDeLista,
+  opcionAnticipo,
+  opcionContraentrega,
+  pesos,
+  type EnvioContraentregaGuardado,
+} from "@/lib/contraentrega";
 import type { EstadoDeEnvio, ProductoDeEnvio, UbicacionDeGestion } from "@/lib/envios-gestion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -531,6 +537,7 @@ export function PanelDeEnvio({
         pendienteRevision: resultado.creado,
         exacta: true,
         cotizacion: null,
+        contraentrega: null,
       };
       setAgregando(false);
       setCiudadElegida(null);
@@ -872,7 +879,10 @@ function ListaDeUbicaciones({
   }
   return (
     <ul className="max-h-80 divide-y divide-border overflow-x-hidden overflow-y-auto rounded-lg border border-border">
-      {busqueda.resultados.map((ubicacion) => (
+      {busqueda.resultados.map((ubicacion) => {
+        // Solo información para la asesora: el valor lo calcula Gestión (ver lineaContraentregaDeLista).
+        const lineaContraentrega = busqueda.producto ? lineaContraentregaDeLista(ubicacion) : null;
+        return (
         <li key={`${ubicacion.tipo}:${ubicacion.id}`}>
           <button
             type="button"
@@ -885,11 +895,17 @@ function ListaDeUbicaciones({
                 {ubicacion.departamento}
                 {ubicacion.pendienteRevision ? " · pendiente de revisar" : ""}
               </span>
+              {lineaContraentrega ? (
+                <span className="block text-xs leading-snug font-medium break-words text-foreground">
+                  {lineaContraentrega}
+                </span>
+              ) : null}
             </span>
             <InsigniaDeEnvio estado={ubicacion.envio} />
           </button>
         </li>
-      ))}
+        );
+      })}
     </ul>
   );
 }

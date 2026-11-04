@@ -20,7 +20,26 @@ new Function("exports", "require", "module", "__filename", "__dirname", transpil
   sourcePath,
   path.dirname(sourcePath),
 );
+// envios-gestion.ts se carga igual, con la conexión a Gestión de mentira (no se usa: solo se lee un lugar).
+const gestionPath = path.resolve("src/lib/envios-gestion.ts");
+const gestionJs = ts.transpileModule(fs.readFileSync(gestionPath, "utf8"), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  fileName: gestionPath,
+});
+const gestion = { exports: {} };
+const requireGestion = (nombre) =>
+  nombre === "@/lib/sincronizacion-gestion" ? { leerConexionConGestion: async () => null } : require(nombre);
+new Function("exports", "require", "module", "__filename", "__dirname", gestionJs.outputText)(
+  gestion.exports,
+  requireGestion,
+  gestion,
+  gestionPath,
+  path.dirname(gestionPath),
+);
+const { leerUbicacionDeGestion } = gestion.exports;
+
 const {
+  lineaContraentregaDeLista,
   esComboDeCamilla,
   envioContraentrega,
   opcionAnticipo,
@@ -169,6 +188,74 @@ prueba("50 % anticipo sin total o sin producto: ofrece cotizar; no llega: lo dic
   const no = opcionAnticipo({ estado: "NO_LLEGA", lugar: "Leticia", producto: "Silla", total: null, precio: 1 });
   assert.equal(no.estado, "NO_LLEGA");
   assert.match(no.texto, /no tenemos envío a \*Leticia\*/);
+});
+
+// Línea de contraentrega de la LISTA (pedido del 4-nov): el dato lo manda Gestión por lugar.
+prueba("lista 1: combo + envío $100.000 + precio $989.000 → línea con envío y lo que paga al recibir", () => {
+  assert.equal(
+    lineaContraentregaDeLista({ envio: "GRATIS", contraentrega: { aplica: true, envio: 100000, alRecibir: 989000 } }),
+    "Contraentrega: envío $100.000 (paga al recibir $989.000)",
+  );
+});
+
+prueba("lista 2: combo sin valor de envío en Gestión → se cotiza", () => {
+  assert.equal(
+    lineaContraentregaDeLista({ envio: "COTIZAR", contraentrega: { aplica: true, envio: null, alRecibir: 989000 } }),
+    "Contraentrega: se cotiza",
+  );
+});
+
+prueba("lista 3: producto sin contraentrega (silla, lavacabezas) → nada", () => {
+  assert.equal(lineaContraentregaDeLista({ envio: "GRATIS", contraentrega: { aplica: false, envio: 100000, alRecibir: 300000 } }), null);
+});
+
+prueba("lista 4: lugar \"No llegamos\" → nada, aunque Gestión diga que aplica", () => {
+  assert.equal(lineaContraentregaDeLista({ envio: "NO_LLEGA", contraentrega: { aplica: true, envio: 150000, alRecibir: 989000 } }), null);
+});
+
+prueba("lista 5: Gestión sin el dato nuevo → nada, y el lugar se lee igual que hoy con contraentrega null", () => {
+  assert.equal(lineaContraentregaDeLista({ envio: "GRATIS" }), null);
+  assert.equal(lineaContraentregaDeLista({ envio: "GRATIS", contraentrega: null }), null);
+  const lugar = leerUbicacionDeGestion({
+    tipo: "ciudad",
+    id: 11001,
+    cityId: 11001,
+    nombre: "Bogotá, D.C.",
+    ciudad: "Bogotá, D.C.",
+    departamento: "Cundinamarca",
+    envio: "gratis",
+    pendienteRevision: false,
+    exacta: true,
+    cotizacion: { tipo: "GRATIS", envio: 0, total: 989000 },
+  });
+  assert.deepEqual(lugar, {
+    tipo: "ciudad",
+    id: "11001",
+    cityId: "11001",
+    nombre: "Bogotá, D.C.",
+    ciudad: "Bogotá, D.C.",
+    departamento: "Cundinamarca",
+    envio: "GRATIS",
+    pendienteRevision: false,
+    exacta: true,
+    cotizacion: { tipo: "GRATIS", envio: 0, total: 989000 },
+    contraentrega: null,
+  });
+  const conDato = leerUbicacionDeGestion({ id: 1, cityId: 1, nombre: "Bogotá", envio: "GRATIS", contraentrega: { aplica: true, envio: "100000", alRecibir: 989000 } });
+  assert.deepEqual(conDato.contraentrega, { aplica: true, envio: 100000, alRecibir: 989000 });
+  assert.equal(lineaContraentregaDeLista(conDato), "Contraentrega: envío $100.000 (paga al recibir $989.000)");
+});
+
+prueba("lista 6: dato mal formado → nada, y el lugar no se cae de la lista", () => {
+  for (const malo of ["sí", 1, [], { aplica: "true", envio: 100000 }, { envio: 100000 }]) {
+    const lugar = leerUbicacionDeGestion({ id: 2, cityId: 2, nombre: "Cali", envio: "GRATIS", contraentrega: malo });
+    assert.ok(lugar, `el lugar debería seguir con contraentrega=${JSON.stringify(malo)}`);
+    assert.equal(lugar.contraentrega, null);
+    assert.equal(lineaContraentregaDeLista(lugar), null);
+    assert.equal(lineaContraentregaDeLista({ envio: "GRATIS", contraentrega: malo }), null);
+  }
+  // Valor de envío imposible (negativo o enorme): no se muestra la cifra, se cotiza.
+  assert.equal(lineaContraentregaDeLista({ envio: "GRATIS", contraentrega: { aplica: true, envio: -5, alRecibir: 989000 } }), "Contraentrega: se cotiza");
 });
 
 console.log(`\n${pruebas} pruebas OK`);
