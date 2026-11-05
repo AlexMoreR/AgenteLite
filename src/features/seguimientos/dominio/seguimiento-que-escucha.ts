@@ -14,6 +14,8 @@
 
 import type { Linea } from "@/lib/sugerencia-de-respuesta";
 import { problemasDeSeguimiento } from "@/lib/reglas-de-redaccion";
+import { buscarPorReglas, type TurnoDelChat } from "@/features/cotizaciones/services/datos-de-cotizacion";
+import { clienteConfirmoCompra, type MensajeDelChat } from "@/features/seguimientos/dominio/confirmacion-de-compra";
 
 /** Lineas que puede tener un seguimiento en WhatsApp. */
 export const LINEAS_MAXIMAS = 2;
@@ -162,6 +164,263 @@ function quien(linea: Linea) {
   return linea.de === "cliente" ? "Cliente" : "Nosotros";
 }
 
+/* ----------------------------------------------------------------------------------------------
+   Lo que el cliente ya dijo: para que el seguimiento no le vuelva a preguntar la ciudad, el color o
+   para cuando lo necesita. Se mira TODA la conversacion (no solo las ultimas 30 lineas).
+---------------------------------------------------------------------------------------------- */
+
+export type LoQueDijoElCliente = {
+  /** La ciudad, como esta en la lista de ciudades ("Bogotá"). */
+  ciudad: string | null;
+  /** La ciudad es una a la que no hay envio asegurado (San Andrés, Leticia, Inírida, Mitú). */
+  ciudadSinCobertura: boolean;
+  color: string | null;
+  /** Para cuando lo necesita, como lo dijo (sin tildes): "para el viernes". */
+  fecha: string | null;
+  /** El servicio o negocio del cliente: "uñas", "barbería"... */
+  servicio: string | null;
+  yaCompro: boolean;
+  noLeInteresa: boolean;
+  pidioContraentrega: boolean;
+};
+
+/** Ciudades a las que no se le puede decir "te llega". */
+const CIUDADES_SIN_COBERTURA = ["san andres", "leticia", "inirida", "mitu"];
+
+/**
+ * Ciudades que tambien son palabras o nombres comunes ("muy bello", "Soledad", "un turbo"): solo
+ * cuentan si van con "soy de", "en", "para", "desde"... o con el departamento.
+ */
+const CIUDADES_AMBIGUAS = [
+  "bello",
+  "soledad",
+  "florencia",
+  "fundacion",
+  "candelaria",
+  "turbo",
+  "la estrella",
+  "pasto",
+  "garzon",
+];
+const ANTES_DE_LA_CIUDAD =
+  "soy de|somos de|vivo en|vivimos en|estoy en|estamos en|queda en|desde|para|en|a|hasta|ciudad de|municipio de";
+const DEPARTAMENTOS = "antioquia|atlantico|caqueta|magdalena|valle|cauca|narino|huila|tolima";
+
+function escaparRegex(texto: string): string {
+  return texto.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** ¿La ciudad ambigua aparece como ciudad ("soy de Bello", "para Bello Antioquia")? */
+function ciudadConContexto(textoNormal: string, ciudadNormal: string): boolean {
+  const c = escaparRegex(ciudadNormal);
+  return (
+    new RegExp(`(^| )(${ANTES_DE_LA_CIUDAD}) (la )?${c}( |$)`).test(textoNormal) ||
+    new RegExp(`(^| )${c} (${DEPARTAMENTOS})( |$)`).test(textoNormal)
+  );
+}
+
+/** "Cali" cuando el cliente pregunta donde queda el negocio ("¿están en Cali?", "la tienda en Cali"). */
+const CALI_DEL_NEGOCIO =
+  /\b(estan|ustedes|quedan|son|tienda|local|almacen|bodega|fabrica|sede|showroom|direccion|ubicados|ubicacion|voy|vamos|paso|pasar|ir)\b( \w+){0,2} (en|de|a|para|por) cali\b/;
+
+/** Una sola linea del cliente: la ciudad que nombra, o null. Si la hallada no cuenta, sigue buscando. */
+function ciudadDeLaLinea(linea: Linea): string | null {
+  let texto = linea.texto;
+  for (let intento = 0; intento < 6; intento += 1) {
+    const turno: TurnoDelChat = { direction: "INBOUND", type: "TEXT", content: texto, createdAt: linea.en };
+    const hallada = buscarPorReglas([turno]).city?.valor;
+    if (!hallada) return null;
+    const ciudadNormal = normalizar(hallada);
+    const textoNormal = normalizar(texto);
+    const descartada =
+      (CIUDADES_AMBIGUAS.includes(ciudadNormal) && !ciudadConContexto(textoNormal, ciudadNormal)) ||
+      (ciudadNormal === "cali" && CALI_DEL_NEGOCIO.test(textoNormal));
+    if (!descartada) return hallada;
+    // Se borra esa ciudad del texto y se busca otra en la misma linea ("muy bello, soy de Bogotá").
+    texto = textoNormal.replace(new RegExp(`(^| )${escaparRegex(ciudadNormal)}(?= |$)`, "g"), " ");
+  }
+  return null;
+}
+
+/** Colores, del mas largo al mas corto: "palo rosa" antes que "rosa". */
+const COLORES = [
+  "palo rosa",
+  "vino tinto",
+  "vinotinto",
+  "azul rey",
+  "azul oscuro",
+  "verde menta",
+  "verde oliva",
+  "gris oscuro",
+  "gris claro",
+  "beige",
+  "negro",
+  "negra",
+  "blanco",
+  "blanca",
+  "gris",
+  "cafe",
+  "marron",
+  "chocolate",
+  "rosado",
+  "rosada",
+  "rosa",
+  "rojo",
+  "roja",
+  "azul",
+  "verde",
+  "amarillo",
+  "amarilla",
+  "mostaza",
+  "morado",
+  "morada",
+  "lila",
+  "fucsia",
+  "dorado",
+  "dorada",
+  "plateado",
+  "plateada",
+  "crema",
+  "hueso",
+  "terracota",
+  "naranja",
+  "turquesa",
+  "nude",
+];
+
+function colorDelTexto(textoNormal: string): string | null {
+  return COLORES.find((c) => new RegExp(`(^| )${c}( |$)`).test(textoNormal)) ?? null;
+}
+
+const DIA_O_MES = `(${[...DIAS, ...MESES].join("|")})`;
+/** Para cuando lo necesita: "para el viernes", "para diciembre", "lo necesito para...". */
+const PATRONES_DE_FECHA = [
+  /\b(lo|la|los|las) (necesito|necesitamos) (para|antes de(l)?) ((?:\S+ ?){1,4})/,
+  new RegExp(`\\b(para|antes del?|el proximo|este) (el )?(\\d{1,2} de )?${DIA_O_MES}\\b`),
+  /\bpara (navidad|fin de ano|fin de mes|la quincena|la otra semana|la proxima semana|esta semana|este fin de semana|el fin de semana|manana|pasado manana|ya)\b/,
+];
+
+function fechaDelTexto(textoNormal: string): string | null {
+  for (const patron of PATRONES_DE_FECHA) {
+    const m = patron.exec(textoNormal);
+    if (m) return m[0].trim();
+  }
+  return null;
+}
+
+/** El servicio o negocio del cliente. "uñas" se busca con la ñ: sin ella es "unas" (unas sillas). */
+const SERVICIOS: { nombre: string; patron: RegExp; conEnie?: boolean }[] = [
+  { nombre: "uñas", patron: /uñas|\bmanicur|\bpedicur|\bnail/, conEnie: true },
+  { nombre: "barbería", patron: /\bbarber/ },
+  { nombre: "peluquería", patron: /\b(peluquer|estilista|salon de belleza)/ },
+  { nombre: "spa", patron: /\bspa\b/ },
+  { nombre: "pestañas", patron: /\b(pestanas|cejas|lashes)\b/ },
+  { nombre: "masajes", patron: /\b(masaje|masajes|masajista|masoterapia)\b/ },
+  { nombre: "estética", patron: /\b(estetica|cosmetolog\w*|facial|faciales)\b/ },
+  { nombre: "depilación", patron: /\bdepila/ },
+  { nombre: "tatuajes", patron: /\b(tatuaje|tatuajes|tattoo)/ },
+  { nombre: "maquillaje", patron: /\bmaquilla/ },
+  { nombre: "podología", patron: /\bpodolog/ },
+];
+
+function servicioDelTexto(texto: string, textoNormal: string): string | null {
+  const minusculas = texto.toLowerCase();
+  return SERVICIOS.find((s) => s.patron.test(s.conEnie ? `${minusculas} ${textoNormal}` : textoNormal))?.nombre ?? null;
+}
+
+/** Frases de "no me interesa" (cada frase del mensaje por separado: "no me interesa el negro" no cuenta). */
+const NO_LE_INTERESA = [
+  /^(ya )?no me interesa(n)?( (mas|por ahora|gracias|eso|ya))*$/,
+  /^(no|ya no) (estoy|estamos) interesad[oa]s?( (por ahora|gracias))*$/,
+  /^no( muchas)? gracias$/,
+  /^(por ahora|de momento|por el momento) no( gracias)?$/,
+  /^no por (ahora|el momento)( gracias)?$/,
+  /\bya no (lo|la|los|las) (necesito|quiero|voy a comprar)\b/,
+  /\bya (lo |la )?(compre|consegui) en otr[oa] (lado|parte|tienda|lugar)\b/,
+  /\bno me (escribas|escriban|vuelvas a escribir|vuelvan a escribir)\b/,
+  /\b(dejemoslo|dejalo|dejemos) (asi|para otra ocasion)\b/,
+];
+
+function dijoQueNoLeInteresa(texto: string): boolean {
+  return texto
+    .split(/[.!?¿¡,;\n]+/)
+    .map((frase) => normalizar(frase))
+    .filter(Boolean)
+    .some((frase) => NO_LE_INTERESA.some((patron) => patron.test(frase)));
+}
+
+const CONTRAENTREGA = /\b(contraentrega|contra entrega|pago al recibir|pagar al recibir|pago cuando (me )?llegue|pagar cuando (me )?llegue|pago en casa|pagar en casa)\b/;
+
+function tipoDeLaLinea(texto: string): string {
+  const inicio = texto.trimStart().toLowerCase();
+  if (inicio.startsWith("[foto]")) return "IMAGE";
+  if (inicio.startsWith("[documento]")) return "DOCUMENT";
+  return "TEXT";
+}
+
+/**
+ * Lo que el cliente ya dijo en TODA la conversacion (sin recorte de lineas): ciudad, color, para
+ * cuando, servicio y si ya compro, no le interesa o pidio contraentrega. Codigo puro: el "ahora" es
+ * la hora de la ultima linea, no el reloj, para que el resultado no cambie con el tiempo.
+ * Las notas de voz ya llegan transcritas en el texto ("[nota de voz] ...").
+ */
+export function loQueDijoElCliente(lineas: Linea[]): LoQueDijoElCliente {
+  const delCliente = lineas.filter((l) => l.de === "cliente" && l.texto?.trim());
+  const resultado: LoQueDijoElCliente = {
+    ciudad: null,
+    ciudadSinCobertura: false,
+    color: null,
+    fecha: null,
+    servicio: null,
+    yaCompro: false,
+    noLeInteresa: false,
+    pidioContraentrega: false,
+  };
+
+  // Del mensaje mas nuevo al mas viejo: si corrigio un dato, vale el ultimo que dijo.
+  for (const linea of [...delCliente].reverse()) {
+    const textoNormal = normalizar(linea.texto);
+    if (!resultado.ciudad) resultado.ciudad = ciudadDeLaLinea(linea);
+    if (!resultado.color) resultado.color = colorDelTexto(textoNormal);
+    if (!resultado.fecha) resultado.fecha = fechaDelTexto(textoNormal);
+    if (!resultado.servicio) resultado.servicio = servicioDelTexto(linea.texto, textoNormal);
+    if (!resultado.noLeInteresa) resultado.noLeInteresa = dijoQueNoLeInteresa(linea.texto);
+    if (!resultado.pidioContraentrega) resultado.pidioContraentrega = CONTRAENTREGA.test(textoNormal);
+  }
+  resultado.ciudadSinCobertura = !!resultado.ciudad && CIUDADES_SIN_COBERTURA.includes(normalizar(resultado.ciudad));
+
+  // La confirmacion de compra mira tambien lo nuestro: un "sí" suelto vale si respondio "¿Te lo separo?".
+  const ultima = lineas.at(-1);
+  if (ultima) {
+    const mensajes: MensajeDelChat[] = lineas.map((l) => ({
+      direccion: l.de === "cliente" ? "IN" : "OUT",
+      tipo: tipoDeLaLinea(l.texto ?? ""),
+      texto: l.texto,
+      en: l.en,
+      origen: null,
+    }));
+    resultado.yaCompro = clienteConfirmoCompra(mensajes, ultima.en);
+  }
+  return resultado;
+}
+
+/** El bloque del contexto con lo que el cliente ya dijo (una linea por dato hallado). */
+function bloqueDeLoQueDijo(dicho: LoQueDijoElCliente): string[] {
+  const datos: string[] = [];
+  if (dicho.ciudad) {
+    datos.push(
+      `- Ciudad: ${dicho.ciudad}${dicho.ciudadSinCobertura ? " (no hay envío asegurado a esta ciudad: no le digas que le llega)" : ""}`,
+    );
+  }
+  if (dicho.color) datos.push(`- Color: ${dicho.color}`);
+  if (dicho.fecha) datos.push(`- Para cuándo lo necesita: ${dicho.fecha}`);
+  if (dicho.servicio) datos.push(`- Su servicio o negocio: ${dicho.servicio}`);
+  if (dicho.yaCompro) datos.push("- Ya confirmó la compra o el pago: no le pidas apartar");
+  if (dicho.noLeInteresa) datos.push("- Dijo que no le interesa: no le pidas apartar");
+  if (dicho.pidioContraentrega) datos.push("- Preguntó por el pago contraentrega");
+  return ["LO QUE EL CLIENTE YA DIJO (no lo vuelvas a preguntar):", ...(datos.length ? datos : ["(nada todavía)"])];
+}
+
 /**
  * Las instrucciones y el contexto para que la IA escriba el seguimiento de ESTE cliente.
  * `paso` es el numero del seguimiento (1 = el primero despues del silencio).
@@ -183,6 +442,15 @@ export function armarPedidoDeSeguimiento(input: {
     "No inventes precios, cifras ni fechas: solo puedes usar los que estén en la conversación o en los DATOS DEL NEGOCIO.",
     'Nunca escribas "pero" (usa "sin embargo"), "¿sigues interesada?", "cuando puedas me avisas", "¿pudiste ver lo que te envié?", "aquí estoy para ayudarte" ni "si te queda alguna duda". No trates de usted.',
     "No repitas ni parafrasees los SEGUIMIENTOS YA ENVIADOS.",
+    "Nunca preguntes lo que el cliente ya respondió (mira LO QUE EL CLIENTE YA DIJO): ni la ciudad, ni para cuándo lo necesita, ni el color, ni su servicio o negocio.",
+    'Si ya dio la ciudad, confírmala y termina pidiendo apartar. Por ejemplo, si dijo Bogotá: "A Bogotá te llega sin problema 🚚 ¿Te lo aparto con el 50 % para empezar a fabricarlo?"',
+    "Menciona algo concreto que dijo el cliente, no un mensaje genérico.",
+    "No des el valor del envío.",
+    "La contraentrega solo aplica al Combo: no la ofrezcas con otro producto.",
+    'Solo di "envío gratis" junto con su condición: apartando con el 50 %.',
+    'A San Andrés, Leticia, Inírida o Mitú no digas "te llega" ni prometas el envío.',
+    "No inventes nada: ni productos, ni colores, ni condiciones que no estén en la conversación o en los DATOS DEL NEGOCIO.",
+    "Si el cliente ya separó, ya pagó o dijo que no le interesa, no le pidas apartar.",
     "Responde solo con el texto del mensaje, sin comillas ni explicaciones.",
   ];
   if (input.soloMandoElAnuncio) {
@@ -199,6 +467,9 @@ export function armarPedidoDeSeguimiento(input: {
   const contexto = [
     `PRODUCTO QUE LE INTERESA: ${input.producto?.trim() || "(no se sabe)"}`,
     `SEGUIMIENTO NÚMERO: ${input.paso}`,
+    "",
+    // De TODA la conversacion: lo de mas de 30 lineas atras no esta abajo, pero sigue valiendo.
+    ...bloqueDeLoQueDijo(loQueDijoElCliente(input.lineas)),
     "",
     "CONVERSACIÓN (de la más vieja a la más nueva):",
     conversacion.length ? conversacion.join("\n") : "(sin mensajes)",

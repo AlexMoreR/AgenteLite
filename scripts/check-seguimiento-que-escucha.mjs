@@ -138,6 +138,109 @@ await prueba("el pedido para la IA lleva la conversación, lo ya enviado, el lib
   assert.match(pedido.contexto, /\$350\.000\. Envío a toda Colombia/);
 });
 
+/* ----------------------------------------------------------------------------------------------
+   Lo que el cliente ya dijo: la IA lo recibe para no volver a preguntarlo
+---------------------------------------------------------------------------------------------- */
+
+const pedidoCon = (lineas) =>
+  sq.armarPedidoDeSeguimiento({ lineas, producto: "Camilla plegable", paso: 1, yaEnviados: [], datosDelLibro: LIBRO, soloMandoElAnuncio: false });
+// Relleno de charla sin datos, para empujar un mensaje más allá de las últimas 30 líneas.
+const relleno = (n, desde) =>
+  Array.from({ length: n }, (_, i) => linea(i % 2 ? "negocio" : "cliente", i % 2 ? "Te cuento más detalles" : "ok", desde + i));
+
+await prueba("el cliente dijo 'Bogotá': el pedido a la IA la trae como ciudad ya dicha, con las reglas nuevas", () => {
+  const lineas = [
+    linea("cliente", "Hola, vi el anuncio de la camilla", 0),
+    linea("negocio", "¡Hola! ¿En qué ciudad estás?", 1),
+    linea("cliente", "Bogotá", 2),
+  ];
+  assert.equal(sq.loQueDijoElCliente(lineas).ciudad, "Bogotá");
+  const pedido = pedidoCon(lineas);
+  assert.match(pedido.contexto, /LO QUE EL CLIENTE YA DIJO \(no lo vuelvas a preguntar\):\n- Ciudad: Bogotá/);
+  assert.match(pedido.instrucciones, /Nunca preguntes lo que el cliente ya respondió/);
+  assert.match(pedido.instrucciones, /A Bogotá te llega sin problema 🚚 ¿Te lo aparto con el 50 % para empezar a fabricarlo\?/);
+  assert.match(pedido.instrucciones, /No des el valor del envío/);
+  assert.match(pedido.instrucciones, /contraentrega solo aplica al Combo/);
+  assert.match(pedido.instrucciones, /"envío gratis" junto con su condición: apartando con el 50 %/);
+  assert.match(pedido.instrucciones, /San Andrés, Leticia, Inírida o Mitú no digas "te llega"/);
+  assert.match(pedido.instrucciones, /ya separó, ya pagó o dijo que no le interesa, no le pidas apartar/);
+  // Sin datos, el bloque lo dice.
+  assert.match(pedidoCon([linea("cliente", "Hola", 0)]).contexto, /LO QUE EL CLIENTE YA DIJO \(no lo vuelvas a preguntar\):\n\(nada todavía\)/);
+});
+
+await prueba("la ciudad dicha a más de 30 líneas del final se encuentra, y también la de una nota de voz", () => {
+  const lejos = [linea("cliente", "Soy de Medellín", 0), ...relleno(40, 1)];
+  assert.equal(sq.loQueDijoElCliente(lejos).ciudad, "Medellín");
+  const pedido = pedidoCon(lejos);
+  // No está en la conversación recortada, pero sí en lo que ya dijo.
+  assert.doesNotMatch(pedido.contexto, /Cliente: Soy de Medellín/);
+  assert.match(pedido.contexto, /- Ciudad: Medellín/);
+
+  const voz = [linea("cliente", "Hola", 0), linea("cliente", "[nota de voz] La quiero en palo rosa, es para Montería", 1), ...relleno(35, 2)];
+  const dicho = sq.loQueDijoElCliente(voz);
+  assert.equal(dicho.ciudad, "Montería");
+  assert.equal(dicho.color, "palo rosa");
+});
+
+await prueba("'muy bello' no deja la ciudad Bello ni tapa un 'Bogotá' anterior; 'soy de Bello' sí cuenta", () => {
+  assert.equal(sq.loQueDijoElCliente([linea("cliente", "Muy bello ese color 😍", 0)]).ciudad, null);
+  const conBogota = [linea("cliente", "Es para Bogotá", 0), linea("negocio", "¡Listo! Mira la foto", 1), linea("cliente", "Muy bello", 2)];
+  assert.equal(sq.loQueDijoElCliente(conBogota).ciudad, "Bogotá");
+  // En el mismo mensaje también se sigue buscando.
+  assert.equal(sq.loQueDijoElCliente([linea("cliente", "Muy bello, lo necesito en Pereira", 0)]).ciudad, "Pereira");
+  assert.equal(sq.loQueDijoElCliente([linea("cliente", "Soy de Bello", 0)]).ciudad, "Bello");
+  assert.equal(sq.loQueDijoElCliente([linea("cliente", "Me llamo Soledad", 0)]).ciudad, null);
+  // "Cali" cuando pregunta dónde queda el negocio no es su ciudad.
+  assert.equal(sq.loQueDijoElCliente([linea("cliente", "¿Ustedes están en Cali?", 0)]).ciudad, null);
+  assert.equal(sq.loQueDijoElCliente([linea("cliente", "¿La tienda en Cali dónde queda?", 0)]).ciudad, null);
+  assert.equal(sq.loQueDijoElCliente([linea("cliente", "Vivo en Cali", 0)]).ciudad, "Cali");
+  // Lo que dijo el negocio no cuenta como ciudad del cliente.
+  assert.equal(sq.loQueDijoElCliente([linea("negocio", "Enviamos a Bogotá", 0)]).ciudad, null);
+});
+
+await prueba("ciudad sin cobertura, color, fecha, servicio, contraentrega y 'no me interesa'", () => {
+  const san = sq.loQueDijoElCliente([linea("cliente", "Soy de San Andrés", 0)]);
+  assert.equal(san.ciudad, "San Andrés");
+  assert.equal(san.ciudadSinCobertura, true);
+  assert.match(pedidoCon([linea("cliente", "Soy de San Andrés", 0)]).contexto, /- Ciudad: San Andrés \(no hay envío asegurado/);
+  assert.equal(sq.loQueDijoElCliente([linea("cliente", "Bogotá", 0)]).ciudadSinCobertura, false);
+
+  const dicho = sq.loQueDijoElCliente([
+    linea("cliente", "Tengo un salón de uñas, me gusta la beige", 0),
+    linea("cliente", "La necesito para el viernes", 1),
+    linea("cliente", "¿Manejan contraentrega?", 2),
+  ]);
+  assert.equal(dicho.color, "beige");
+  assert.equal(dicho.fecha, "la necesito para el viernes");
+  assert.equal(dicho.servicio, "uñas");
+  assert.equal(dicho.pidioContraentrega, true);
+  assert.equal(dicho.noLeInteresa, false);
+  assert.equal(sq.loQueDijoElCliente([linea("cliente", "Es para diciembre", 0)]).fecha, "para diciembre");
+  assert.equal(sq.loQueDijoElCliente([linea("cliente", "Tengo una barbería", 0)]).servicio, "barbería");
+  // "unas sillas" no es un salón de uñas.
+  assert.equal(sq.loQueDijoElCliente([linea("cliente", "Quiero unas sillas", 0)]).servicio, null);
+
+  assert.equal(sq.loQueDijoElCliente([linea("cliente", "Gracias, ya no me interesa", 0)]).noLeInteresa, true);
+  assert.equal(sq.loQueDijoElCliente([linea("cliente", "No me interesa el negro, sí la beige", 0)]).noLeInteresa, false);
+});
+
+await prueba("quien confirmó la compra queda con yaCompro (y el pedido lo dice)", () => {
+  const lineas = [
+    linea("cliente", "Me gusta la beige, soy de Cali", 0),
+    linea("negocio", "¡Perfecta elección! ¿Te la separo?", 1),
+    linea("cliente", "Sí", 2),
+  ];
+  assert.equal(sq.loQueDijoElCliente(lineas).yaCompro, true);
+  assert.match(pedidoCon(lineas).contexto, /- Ya confirmó la compra o el pago: no le pidas apartar/);
+  // El comprobante (una foto después de hablar del pago) también cuenta.
+  const conFoto = [linea("negocio", "Te paso la cuenta Bancolombia para el pago", 0), linea("cliente", "[foto] ", 1)];
+  assert.equal(sq.loQueDijoElCliente(conFoto).yaCompro, true);
+  assert.equal(sq.loQueDijoElCliente(CHARLA).yaCompro, false);
+  // El "ahora" es la hora de la última línea: una charla vieja da lo mismo hoy que mañana.
+  const vieja = lineas.map((l) => ({ ...l, en: new Date(l.en.getTime() - 400 * 86_400_000) }));
+  assert.equal(sq.loQueDijoElCliente(vieja).yaCompro, true);
+});
+
 await prueba("elegirTexto: la cadena de respaldo IA → texto fijo → pregunta del producto → no se manda", () => {
   const buena = "Laura, la beige para Pereira te llega en 2 a 4 días hábiles 🙌 ¿Te la separo?";
   const mala1 = "¿Pudiste ver lo que te envié?";
