@@ -20,16 +20,11 @@ import {
   aplicarConfig,
   contarTerminadasOcultas,
   diaDeBogota,
-  enOtrasPestanas,
   estadosPermitidos,
-  filasDePestana,
   filasDeTabla,
   motivoSinCambios,
   normalizar,
   opcionesDeColumna,
-  pestanaDeLaVista,
-  pestanaVigente,
-  pestanasDeTabla,
   type ClaveDeColumna,
   type ColumnaConOpciones,
   type ConfigDeTabla,
@@ -63,10 +58,6 @@ const CELDA_EDITABLE = "h-9 w-full min-w-0 rounded-md border border-transparent 
  * la columna, se filtra y se agrupa por cualquier columna, y el buscador mira el título, el detalle y el
  * código. Las vistas de fábrica ("Ideas", "Sistemas en curso") y las que guarda cada persona aplican
  * todo eso de un toque. Clic en una fila abre la tarjeta como página.
- *
- * Una pestaña por Área (3-nov-2026): la tabla muestra un área a la vez y las carpetas (Áreas) no salen
- * como filas. Cada tarjeta va al Área más cercana hacia arriba; las sueltas, a "Sin área". Si lo que se
- * busca o filtra está en otras áreas, el aviso "También hay en…" lleva a ellas.
  */
 export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas, alCambiarGuardadas, alAbrir, alCambiar }: Props) {
   const [config, setConfig] = useState<ConfigDeTabla>(CONFIG_VACIA);
@@ -78,18 +69,9 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
   const [revision, setRevision] = useState(0);
   const { pedir, cambiando, dialogo } = useCambioDeEstado(alCambiar);
 
-  // La pestaña (Área) que eligió la persona; si deja de existir, se ve la primera.
-  const [pestanaElegida, setPestanaElegida] = useState<string | null>(null);
-
-  // Todas las tarjetas, carpetas incluidas: de ellas salen el área heredada y las pestañas.
-  const todasLasFilas = useMemo(() => filasDeTabla(tarjetas, tipos), [tarjetas, tipos]);
-  const pestanas = useMemo(() => pestanasDeTabla(todasLasFilas), [todasLasFilas]);
-  const pestana = pestanaVigente(pestanas, pestanaElegida);
-  // Las filas de la pestaña (sin carpetas): búsqueda, filtros, orden, Agrupar y el contador van solo sobre estas.
-  const filas = useMemo(() => (pestana ? filasDePestana(todasLasFilas, pestana.clave) : []), [todasLasFilas, pestana]);
+  const filas = useMemo(() => filasDeTabla(tarjetas, tipos), [tarjetas, tipos]);
   const tipoPorId = useMemo(() => new Map(tipos.map((tipo) => [tipo.id, tipo])), [tipos]);
   const grupos = useMemo(() => aplicarConfig(filas, config), [filas, config]);
-  const enOtras = useMemo(() => enOtrasPestanas(todasLasFilas, pestanas, pestana?.clave ?? null, config), [todasLasFilas, pestanas, pestana, config]);
   const visibles = grupos.reduce((suma, grupo) => suma + grupo.filas.length, 0);
   // Las tarjetas en Hecho o Fallido que la tabla esconde (tras buscar y filtrar) mientras el filtro de Estado no las incluya.
   const ocultas = useMemo(() => contarTerminadasOcultas(filas, config), [filas, config]);
@@ -115,9 +97,6 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
   const elegirVista = (vista: VistaDeTabla | null) => {
     setConfig(vista ? vista.config : CONFIG_VACIA);
     setActiva(vista?.id ?? null);
-    // Una vista que filtra por un Área (como "Sistemas en curso") abre la pestaña de esa Área.
-    const destino = vista ? pestanaDeLaVista(todasLasFilas, pestanas, vista.config) : null;
-    if (destino) setPestanaElegida(destino);
   };
 
   const alternarFiltro = (columna: ColumnaConOpciones, clave: string) => {
@@ -394,31 +373,6 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
         )}
       </div>
 
-      {/* Una pestaña por Área: la tabla muestra un área a la vez. Se deslizan de lado en el celular. */}
-      {pestanas.length ? (
-        <div role="tablist" aria-label="Áreas" className="flex shrink-0 items-end gap-1 overflow-x-auto border-b border-border bg-card px-3 [scrollbar-width:none]">
-          {pestanas.map((opcion) => {
-            const elegida = opcion.clave === pestana?.clave;
-            return (
-              <button
-                key={opcion.clave}
-                type="button"
-                role="tab"
-                aria-selected={elegida}
-                onClick={() => setPestanaElegida(opcion.clave)}
-                className={cn(
-                  "-mb-px flex min-h-10 shrink-0 items-center gap-1.5 border-b-2 px-3 text-sm md:min-h-9",
-                  elegida ? "border-foreground font-medium text-foreground" : "border-transparent text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {opcion.nombre}
-                <span className="text-xs tabular-nums opacity-70">{opcion.cuantas}</span>
-              </button>
-            );
-          })}
-        </div>
-      ) : null}
-
       {/* Buscador, filtros y agrupar. */}
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-card px-3 py-2">
         <label className="relative min-w-0 flex-1 basis-48">
@@ -455,25 +409,6 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
           {ocultas > 0 ? ` · ${textoOcultas}` : ""}
         </span>
       </div>
-
-      {/* Lo que se busca o filtra también está en otras áreas: un toque abre esa pestaña, con lo mismo. */}
-      {enOtras.length ? (
-        <p className="flex shrink-0 flex-wrap items-center gap-x-1.5 gap-y-1 border-b border-border bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground">
-          También hay en:
-          {enOtras.map((otra, indice) => (
-            <span key={otra.clave}>
-              <button
-                type="button"
-                onClick={() => setPestanaElegida(otra.clave)}
-                className="min-h-8 font-medium text-foreground underline underline-offset-2 hover:no-underline"
-              >
-                {otra.nombre} ({otra.cuantas})
-              </button>
-              {indice < enOtras.length - 1 ? "," : ""}
-            </span>
-          ))}
-        </p>
-      ) : null}
 
       {verFiltros ? (
         <div className="max-h-[40dvh] shrink-0 space-y-2 overflow-y-auto border-b border-border bg-card px-3 py-2">
@@ -518,7 +453,7 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
       </datalist>
 
       <div className="min-h-0 flex-1 overflow-auto bg-background">
-        {!pestana || filas.length === 0 ? (
+        {filas.length === 0 ? (
           <p className="px-6 py-16 text-center text-sm text-muted-foreground">
             El tablero está vacío. Las ideas que anote Claude aparecen acá en unos segundos.
           </p>
@@ -526,8 +461,8 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
           ocultas > 0 ? (
             <div className="flex flex-col items-center gap-2 px-6 py-16 text-center text-sm text-muted-foreground">
               <span>
-                {config.busqueda.trim() || filtrosActivos ? "Con esta búsqueda o estos filtros, en" : "En"} {pestana.nombre} hay {textoOcultas}{" "}
-                (en Hecho o Fallido). Se ven marcando Hecho o Fallido en Filtros → Estado.
+                {config.busqueda.trim() || filtrosActivos ? "Con esta búsqueda o estos filtros hay" : "Hay"} {textoOcultas} (en Hecho o
+                Fallido). Se ven marcando Hecho o Fallido en Filtros → Estado.
               </span>
               <Button variant="outline" size="sm" onClick={() => cambiarConfig({ filtros: { ...config.filtros, estado: ["HECHO", "FALLIDO"] } })}>
                 Ver las terminadas
@@ -535,7 +470,7 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
             </div>
           ) : (
             <div className="flex flex-col items-center gap-2 px-6 py-16 text-center text-sm text-muted-foreground">
-              No hay tarjetas con esta búsqueda o estos filtros en {pestana.nombre}.
+              No hay tarjetas con esta búsqueda o estos filtros.
               <Button variant="outline" size="sm" onClick={() => elegirVista(null)}>
                 Ver todas
               </Button>
