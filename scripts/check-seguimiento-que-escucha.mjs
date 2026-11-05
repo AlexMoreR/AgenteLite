@@ -221,6 +221,7 @@ await prueba("ciudad sin cobertura, color, fecha, servicio, contraentrega y 'no 
   assert.equal(sq.loQueDijoElCliente([linea("cliente", "Quiero unas sillas", 0)]).servicio, null);
 
   assert.equal(sq.loQueDijoElCliente([linea("cliente", "Gracias, ya no me interesa", 0)]).noLeInteresa, true);
+  assert.equal(sq.loQueDijoElCliente([linea("cliente", "[nota de voz] No me interesa, gracias", 0)]).noLeInteresa, true);
   assert.equal(sq.loQueDijoElCliente([linea("cliente", "No me interesa el negro, sí la beige", 0)]).noLeInteresa, false);
 });
 

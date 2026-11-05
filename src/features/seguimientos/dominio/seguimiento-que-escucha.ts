@@ -342,7 +342,9 @@ const NO_LE_INTERESA = [
 ];
 
 function dijoQueNoLeInteresa(texto: string): boolean {
+  // Sin la marca del principio ("[nota de voz] No me interesa"): las frases van ancladas.
   return texto
+    .replace(/^\s*\[[^\]]*\]\s*/, "")
     .split(/[.!?¿¡,;\n]+/)
     .map((frase) => normalizar(frase))
     .filter(Boolean)
