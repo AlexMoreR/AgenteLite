@@ -287,7 +287,7 @@ export function TrabajoDeLaTarjeta({
         </div>
       ) : null}
 
-      {zonasQuePiden.length ? espera("Toca una zona protegida (chats): se aprueba solo en esta pantalla, y solo el dueño.") : null}
+      {zonasQuePiden.length ? espera("Toca una zona protegida que pide el sí del dueño en esta pantalla.") : null}
       {conZona && !zonasQuePiden.length
         ? espera("Zona protegida que sube sola: si compila y pasa las pruebas sube sin tu sí, y el Coordinador vigila 30 minutos. Lo que gasta plata en Meta Ads sí espera tu sí.")
         : null}
