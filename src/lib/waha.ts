@@ -939,6 +939,8 @@ export function traducirEventoWaha(
     hasMedia?: unknown;
     media?: unknown;
     participant?: unknown;
+    /** Ubicacion ya leida por WAHA (latitude, longitude, name/description, address). */
+    location?: unknown;
     _data?: unknown;
   };
 
@@ -1032,6 +1034,43 @@ export function traducirEventoWaha(
   })();
   const contextoDelMensaje = citaCruda ?? contextoDeAnuncio;
 
+  /*
+    Las UBICACIONES que manda el cliente (o la asesora desde el telefono) no aparecian en el chat.
+
+    No traen texto, y la miniatura del mapa hace que WAHA marque `hasMedia` sin archivo: o se
+    descartaban como "mensaje sin texto ni media" o quedaban como "un archivo que no se pudo
+    descargar". Por eso se leen ANTES que el texto y el archivo, y salen con el mismo nodo de
+    Evolution (`locationMessage` o `liveLocationMessage`) que la burbuja ya sabe dibujar como mapa.
+  */
+  const ubicacion = ubicacionDelMensaje(bloqueDelMensaje, mensaje.location);
+  if (ubicacion) {
+    return {
+      evolution: {
+        event: "messages.upsert",
+        instance: sesion,
+        data: {
+          ...(mensaje.source === "api" || mensaje.source === "app" ? { wahaSource: mensaje.source } : {}),
+          key: {
+            remoteJid: jidDeWaha(de),
+            fromMe: mensaje.fromMe === true,
+            id: typeof mensaje.id === "string" ? mensaje.id : null,
+            ...(typeof mensaje.participant === "string"
+              ? { participant: jidDeWaha(mensaje.participant) }
+              : {}),
+          },
+          message: {
+            [ubicacion.nodo]: {
+              ...ubicacion.datos,
+              ...(contextoDelMensaje ? { contextInfo: contextoDelMensaje } : {}),
+            },
+          },
+          pushName: nombreDeQuienEscribe(mensaje._data),
+          messageTimestamp: typeof mensaje.timestamp === "number" ? mensaje.timestamp : undefined,
+        },
+      },
+    };
+  }
+
   const textoVisible = texto.trim()
     ? texto
     : textoInteractivo.trim()
@@ -1112,13 +1151,6 @@ export function traducirEventoWaha(
             : {}),
         }
       : null;
-  const nombreDeQuienEscribe =
-    typeof datosCrudos.notifyName === "string"
-      ? datosCrudos.notifyName
-      : typeof datosCrudos.pushName === "string"
-        ? datosCrudos.pushName
-        : null;
-
   return {
     evolution: {
       event: "messages.upsert",
@@ -1165,7 +1197,7 @@ export function traducirEventoWaha(
             : contextoDelMensaje
             ? { extendedTextMessage: { text: textoVisible, contextInfo: contextoDelMensaje } }
             : { conversation: textoVisible },
-        pushName: nombreDeQuienEscribe,
+        pushName: nombreDeQuienEscribe(mensaje._data),
         messageTimestamp: typeof mensaje.timestamp === "number" ? mensaje.timestamp : undefined,
       },
     },
@@ -1179,6 +1211,107 @@ export function traducirEventoWaha(
         }
       : {}),
   };
+}
+
+/** El nombre con el que se presenta quien escribe (WAHA lo pone en `notifyName` o `pushName`). */
+function nombreDeQuienEscribe(datos: unknown): string | null {
+  const crudos = (datos ?? {}) as { notifyName?: unknown; pushName?: unknown };
+  return typeof crudos.notifyName === "string"
+    ? crudos.notifyName
+    : typeof crudos.pushName === "string"
+      ? crudos.pushName
+      : null;
+}
+
+// Largo maximo del nombre y la direccion de una ubicacion: son datos que escribe el otro, no se confian.
+const LARGO_MAXIMO_NOMBRE_UBICACION = 200;
+const LARGO_MAXIMO_DIRECCION_UBICACION = 300;
+
+/**
+ * La ubicacion de un mensaje de WAHA, en el formato de Evolution, o null si no es una ubicacion
+ * valida.
+ *
+ * Primero se busca el nodo crudo de WhatsApp (`locationMessage` o `liveLocationMessage`): whatsmeow
+ * usa mayuscula inicial (`DegreesLatitude`) y Baileys minuscula, igual que en
+ * `extractEvolutionLocation`. Si no esta, se usa el campo `location` que WAHA pone arriba del
+ * mensaje. La miniatura (`jpegThumbnail`) NO se guarda.
+ */
+function ubicacionDelMensaje(
+  bloque: Record<string, unknown> | null,
+  ubicacionDeWaha: unknown,
+): {
+  nodo: "locationMessage" | "liveLocationMessage";
+  datos: { degreesLatitude: number; degreesLongitude: number; name?: string; address?: string };
+} | null {
+  const numero = (valor: unknown): number | null => {
+    if (typeof valor === "number") {
+      return Number.isFinite(valor) ? valor : null;
+    }
+    if (typeof valor === "string" && valor.trim()) {
+      const leido = Number(valor);
+      return Number.isFinite(leido) ? leido : null;
+    }
+    return null;
+  };
+  const textoRecortado = (largoMaximo: number, ...valores: unknown[]): string | undefined => {
+    for (const valor of valores) {
+      if (typeof valor === "string" && valor.trim()) {
+        return valor.trim().slice(0, largoMaximo);
+      }
+    }
+    return undefined;
+  };
+  const armar = (
+    latitud: number | null,
+    longitud: number | null,
+    nombre: string | undefined,
+    direccion: string | undefined,
+  ) => {
+    if (latitud === null || longitud === null) {
+      return null;
+    }
+    if (latitud < -90 || latitud > 90 || longitud < -180 || longitud > 180) {
+      return null;
+    }
+    return {
+      degreesLatitude: latitud,
+      degreesLongitude: longitud,
+      ...(nombre ? { name: nombre } : {}),
+      ...(direccion ? { address: direccion } : {}),
+    };
+  };
+
+  for (const nodo of ["locationMessage", "liveLocationMessage"] as const) {
+    const crudo = bloque?.[nodo];
+    if (!crudo || typeof crudo !== "object" || Array.isArray(crudo)) {
+      continue;
+    }
+    const valor = crudo as Record<string, unknown>;
+    const datos = armar(
+      numero(valor.degreesLatitude) ?? numero(valor.DegreesLatitude),
+      numero(valor.degreesLongitude) ?? numero(valor.DegreesLongitude),
+      textoRecortado(LARGO_MAXIMO_NOMBRE_UBICACION, valor.name, valor.Name),
+      textoRecortado(LARGO_MAXIMO_DIRECCION_UBICACION, valor.address, valor.Address),
+    );
+    if (datos) {
+      return { nodo, datos };
+    }
+  }
+
+  if (ubicacionDeWaha && typeof ubicacionDeWaha === "object" && !Array.isArray(ubicacionDeWaha)) {
+    const valor = ubicacionDeWaha as Record<string, unknown>;
+    const datos = armar(
+      numero(valor.latitude),
+      numero(valor.longitude),
+      textoRecortado(LARGO_MAXIMO_NOMBRE_UBICACION, valor.name, valor.description),
+      textoRecortado(LARGO_MAXIMO_DIRECCION_UBICACION, valor.address),
+    );
+    if (datos) {
+      return { nodo: "locationMessage", datos };
+    }
+  }
+
+  return null;
 }
 
 /** Que fue lo que mando, cuando el archivo no se pudo bajar. */
