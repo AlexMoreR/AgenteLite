@@ -91,7 +91,7 @@ async function atender(pedido: Pedido, contexto: { workspaceId: string; userId: 
           "marcala hecha'; cambiar_estado_tarjeta con estado HECHO, texto_confirmacion (lo que dijo, tal cual) y nota (que se hizo; " +
           "commit opcional). Nunca por cuenta propia ni mientras el Coordinador la tiene. " +
           "Si toca Meta Ads, el bot de ventas, el libro V3 o los chats, marcar zona_protegida (Claude puede poner la zona, no " +
-          "quitarla): las de bot de ventas, Meta Ads y libro V3 tambien se aprueban por voz con aprobar_tarjeta; las de chats, solo en la pantalla. " +
+          "quitarla): las de bot de ventas, libro V3 y chats se aprueban por voz con aprobar_tarjeta, igual que en la pantalla; las de Meta Ads, para arrancar, en la pantalla. " +
           "CUAL TABLERO (se habla por voz y hay varios, por ejemplo 'Magilus General' de Alexander y 'Desarrollo " +
           "Emanuel'): si el negocio tiene mas de un tablero y la persona no nombro cual, preguntarle antes de actuar. " +
           "Antes de escribir, decir en voz alta el nombre del tablero ('Lo anoto en Magilus General, listo?'). Nunca " +

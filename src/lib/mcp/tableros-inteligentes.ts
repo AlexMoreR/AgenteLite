@@ -98,8 +98,10 @@ import {
     tarjeta que el trabajador o el dueño dejaron en ALTO.
   - Aprobar por su cuenta. Las únicas aprobaciones son las automáticas del servidor (reglas del dueño) y aprobar_tarjeta: el servidor exige un texto de
     confirmación de la persona ("sí, apruebo"), que el userId de la clave sea el dueño o un aprobador
-    con alcance, que el estado corresponda, y rechaza las tarjetas con zona protegida (esas, solo en la
-    pantalla). El sí final (subir) es solo del dueño. Ningún inputSchema de cambiar_estado_tarjeta
+    con alcance y que el estado corresponda. Desde el 5-nov-2026 (decisión del dueño) las tarjetas con zona
+    CHATS, BOT_VENTAS y LIBRO_V3 se aprueban por voz igual que en la pantalla (tarea, plan y sí final) y el
+    Coordinador las toma sin esperar; con Meta Ads, lo que gasta plata sigue pidiendo el sí del dueño y la
+    pantalla para arrancar. El sí final (subir) es solo del dueño. Ningún inputSchema de cambiar_estado_tarjeta
     ofrece APROBADO ni los estados del Coordinador.
   - Ejecutar algo sin aprobar: EN_CURSO solo sale de APROBADO (en tipos que piden aprobación); en
     tarjetas con repo, EN_CURSO, HECHO y los demás estados del Coordinador los pone solo el Coordinador.
@@ -524,8 +526,9 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
       "Úsala SOLO si la persona lo dijo explícitamente en esta conversación. Antes, léele el título y qué se aprueba, y espera que diga 'sí, apruebo'. Nunca apruebes por tu cuenta. Desde el 25-oct-2026 casi nunca hace falta para la tarea: toda tarea con repo pasa SOLA a APROBADO ('aprobada automáticamente (regla del dueño 25-oct)'; también CHATS y BOT_VENTAS). Solo se queda POR_APROBAR esperando este sí la que habla de dinero de Gestión (abonos, saldos, nómina, comisiones, facturación, pagos), de subir presupuesto, activar campañas o crear gasto en Meta Ads, o la de zona Meta Ads o libro V3, o cualquiera si el dueño apagó 'Aprobar tareas solo'. " +
       "momento: 'tarea' (una tarjeta POR_APROBAR; o reintentar desde ERROR, planeando de nuevo), 'plan' (el plan del Coordinador, PLAN_LISTO; o reintentar desde ERROR con el mismo plan; desde el 24-oct-2026 el plan pasa SOLO a construir al aprobar la tarea, y desde el 30-oct-2026 un solo sí del dueño, a la tarea, aprueba también el plan aunque toque dinero de Gestión; así que el sí del plan solo se pide si puede subir presupuesto, activar campañas o crear gasto en Meta Ads, si tiene preguntas abiertas o un NECESITO, si toca dinero de Gestión y la tarea pasó sola sin el sí del dueño, o si el dueño apagó 'Aprobar planes solo') o 'subir' (el sí final para subir a producción, POR_REVISAR con todo pasado; solo el dueño). " +
       "'subir' solo aplica a las tarjetas que tocan chats, a las de Meta Ads que gastan plata (presupuesto, prender campañas, conjuntos o anuncios, gasto nuevo) o a las que no pasaron las pruebas extra de su zona, y a las que ya estaban POR_REVISAR de antes: las demás las sube solo el Coordinador cuando todo pasa (quedan HECHO con el link del commit, o ERROR si algo falla). El bot de ventas, Meta Ads (sin gasto) y el libro V3 suben solos y el Coordinador los vigila 30 minutos. " +
-      "texto_confirmacion es lo que dijo la persona, tal cual (tiene que decir 'sí' y 'apruebo'). Una tarjeta con la zona protegida de chats no se aprueba acá: solo en la pantalla (las de bot de ventas, Meta Ads y libro V3 sí se aprueban por voz). " +
-      "PARA QUE ARRANQUE (regla del dueño 28-oct-2026, la misma que usa el Coordinador para tomarla): la tarea o el plan aprobados por voz cuentan igual que en la pantalla si la zona es SOLO chats y/o bot de ventas (o no hay zona). Si toca libro V3 o Meta Ads, la voz NO basta: queda aprobada pero el Coordinador no la toma hasta que el dueño la apruebe en la pantalla (la ficha muestra el botón 'Aprobar en pantalla' y queda una alerta del Coordinador). Avísale eso a la persona. " +
+      "texto_confirmacion es lo que dijo la persona, tal cual (tiene que decir 'sí' y 'apruebo'); el historial guarda 'aprobado por voz' con ese texto tal cual. " +
+      "ANTES DE APROBAR POR VOZ, léele al dueño en dos líneas qué cambia y qué riesgo tiene (ver_plan_y_resultado), y espera que diga 'sí, apruebo'. " +
+      "PARA QUE ARRANQUE (decisión del dueño 5-nov-2026, la misma regla que usa el Coordinador para tomarla): la tarea, el plan y el sí final de las tarjetas de chats, bot de ventas y libro V3 se aprueban por voz igual que en la pantalla, y el Coordinador las toma sin esperar 'Aprobar en pantalla'. Meta Ads queda igual: lo que gasta plata (presupuesto, prender campañas, gasto nuevo) pide el sí del dueño, y una tarjeta de Meta Ads aprobada por voz no arranca hasta que el dueño la apruebe en la pantalla (la ficha muestra el botón 'Aprobar en pantalla' y queda una alerta del Coordinador). Avísale eso a la persona. " +
       "Aprueba la cuenta que creó la clave de Claude (no la que mira la pantalla): la cuenta dueña de este negocio o, hasta el 29-nov-2026 (periodo de prueba), la de Emanuel como aprobador de Sistemas: él aprueba la tarea, el plan y el sí final SOLO de tarjetas de Tecnología (CRM Ventas, Gestión, CRM Marketplace, Coordinador, General) y nunca las que tocan dinero de Gestión o Meta Ads (responde 'la aprueba Alexander'). Si no es ninguna, el error dice qué cuenta llegó y por qué." +
       REGLA_DEL_TABLERO,
     inputSchema: {
@@ -578,10 +581,14 @@ function tipoParaClaude(tipo: TipoVista, nombres: Map<string, string>) {
 function queFalta(
   estado: string,
   conRepo: boolean,
-  conZona: boolean,
+  zonas: readonly string[],
   hechoAMano?: { nota: string; commit: string | null; quien: string; porSistemas?: boolean } | null,
 ): string {
-  const dondeAprobar = conZona ? "en la pantalla (tiene zona protegida)" : "en la pantalla o diciéndolo aquí";
+  const conZona = zonas.length > 0;
+  // 5-nov-2026: chats, bot de ventas y libro V3 se aprueban por voz igual que en la pantalla; solo Meta Ads pide la pantalla para arrancar.
+  const dondeAprobar = zonas.includes("META_ADS")
+    ? "por voz o en la pantalla (toca Meta Ads: para que arranque, en la pantalla)"
+    : "por voz o en la pantalla";
   switch (estado) {
     case "POR_APROBAR":
       return `Espera que el dueño apruebe la tarea, ${dondeAprobar}.`;
@@ -597,7 +604,7 @@ function queFalta(
       return conRepo ? "El Coordinador la está construyendo y probando." : "En curso.";
     case "POR_REVISAR":
       return conZona
-        ? "Lista en su rama: toca una zona protegida que pide el sí final (chats) o, en Meta Ads, algo que gasta plata (o le faltó una prueba extra de su zona), así que no sube sola. Espera el sí final del dueño; por voz con aprobar_tarjeta si es bot de ventas, Meta Ads o libro V3, en la pantalla si toca chats."
+        ? "Lista en su rama: toca una zona protegida y, en Meta Ads, algo que gasta plata (o le faltó una prueba extra de su zona), así que no sube sola. Espera el sí final del dueño, por voz con aprobar_tarjeta o en la pantalla."
         : "Lista en su rama: espera el sí final del dueño para subir a producción.";
     case "SUBIENDO":
       return "El Coordinador la está subiendo a producción (sube sola si pasó todo, o el dueño dio el sí final). Si el despliegue falla, la deshace y queda ERROR.";
@@ -666,7 +673,7 @@ export async function ejecutarHerramientaMcpTableros(
           : {}),
         estados: Object.entries(NOMBRE_DEL_ESTADO).map(([clave, texto]) => ({ clave, texto })),
         quien_aprueba:
-          "El dueño del negocio (o un aprobador que él agregó), en la pantalla o con aprobar_tarjeta cuando lo dice explícitamente; solo tarjetas de un tipo que pide aprobación. El sí final (subir a producción) lo da solo el dueño; hasta el 29-nov-2026 también Emanuel (aprobador de Sistemas, periodo de prueba) en tarjetas de Tecnología que no tocan dinero ni Meta Ads. Las de la zona protegida de chats, solo en la pantalla.",
+          "El dueño del negocio (o un aprobador que él agregó), en la pantalla o con aprobar_tarjeta cuando lo dice explícitamente; solo tarjetas de un tipo que pide aprobación. El sí final (subir a producción) lo da solo el dueño; hasta el 29-nov-2026 también Emanuel (aprobador de Sistemas, periodo de prueba) en tarjetas de Tecnología que no tocan dinero ni Meta Ads. Las de chats, bot de ventas y libro V3 se aprueban por voz igual que en la pantalla; las de Meta Ads, para que arranquen, en la pantalla.",
       };
     }
     case "crear_tablero": {
@@ -1105,7 +1112,7 @@ export async function ejecutarHerramientaMcpTableros(
           ...(aprobacion.automatica ? { aprobada_sola: true, motivo: aprobacion.motivo } : {}),
         })),
         ...(hechoAMano ? { hecho_a_mano: hechoAMano } : {}),
-        que_falta: queFalta(tarjeta.estado, Boolean(tarjeta.repo), tarjeta.zonaProtegida.length > 0, hechoAMano),
+        que_falta: queFalta(tarjeta.estado, Boolean(tarjeta.repo), tarjeta.zonaProtegida, hechoAMano),
         link: linkDeLaTarjeta(tarjeta.id),
       };
     }
@@ -1118,7 +1125,7 @@ export async function ejecutarHerramientaMcpTableros(
         via: "voz",
         textoConfirmacion: args.texto_confirmacion,
       });
-      // 28-oct-2026: con libro V3 o Meta Ads la voz no basta para que el Coordinador la tome: se dice de una vez.
+      // 5-nov-2026: con chats, bot de ventas y libro V3 la voz basta; solo con Meta Ads el Coordinador espera la pantalla: se dice de una vez.
       const esperaLaPantalla = await esperaLaPantallaDeLaTarjeta(contexto, args.tarjeta_id).catch(() => null);
       const codigo = await codigoDeLaTarjeta(contexto, args.tarjeta_id).catch(() => "");
       return {

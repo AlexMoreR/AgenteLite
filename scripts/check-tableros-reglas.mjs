@@ -6,6 +6,7 @@
 // dueño, que el MCP no quita la zona protegida y los contadores nuevos. No necesita base ni red.
 // Correr: npm run test:tableros
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { cargar } from "./supervisor-cargar.mjs";
 
 const reglas = cargar("src/features/tableros-inteligentes/services/reglas.ts");
@@ -2633,6 +2634,33 @@ prueba("esUrgente y EMPIEZA_URGENTE viven en reglas-trabajador y funcionan igual
   assert.equal(esUrgente({ urgente: false, titulo: "Algo urgente" }), false);
   assert.equal(esUrgente({ urgente: false, titulo: "Urgentemente" }), false);
   assert.equal(EMPIEZA_URGENTE.test("Urgente"), true);
+});
+
+// 5-nov-2026 (tarjeta h9a7yoyk): la regla ya dejaba aprobar por voz chats, bot de ventas y libro V3, pero los textos que lee
+// Claude decían lo contrario y lo mandaban a la pantalla. Se leen los archivos como texto (como la prueba del código T-123).
+prueba("los textos del MCP dicen que chats, bot de ventas y libro V3 se aprueban por voz; Meta Ads con gasto sigue igual", () => {
+  const leer = (ruta) => readFileSync(new URL(`../${ruta}`, import.meta.url), "utf8");
+  const mcp = leer("src/lib/mcp/tableros-inteligentes.ts");
+  const inicio = mcp.indexOf('name: "aprobar_tarjeta"');
+  assert.ok(inicio > 0, "existe aprobar_tarjeta");
+  const aprobar = mcp.slice(inicio, mcp.indexOf("inputSchema", inicio));
+  assert.doesNotMatch(aprobar, /no se aprueba acá: solo en la pantalla/);
+  assert.doesNotMatch(aprobar, /la voz NO basta/i);
+  assert.match(aprobar, /ANTES DE APROBAR POR VOZ, léele al dueño en dos líneas qué cambia y qué riesgo tiene/);
+  assert.match(aprobar, /'aprobado por voz' con ese texto tal cual/);
+  assert.match(aprobar, /chats, bot de ventas y libro V3 se aprueban por voz igual que en la pantalla/);
+  assert.match(aprobar, /Meta Ads queda igual: lo que gasta plata \(presupuesto, prender campañas, gasto nuevo\) pide el sí del dueño/);
+  assert.doesNotMatch(mcp, /zona protegida de chats, solo en la pantalla/);
+  assert.doesNotMatch(mcp, /en la pantalla si toca chats/);
+  assert.doesNotMatch(mcp, /"en la pantalla \(tiene zona protegida\)"/);
+  const instrucciones = leer("src/app/api/mcp/route.ts");
+  assert.doesNotMatch(instrucciones, /las de chats, solo en la pantalla/);
+  assert.match(instrucciones, /las de bot de ventas, libro V3 y chats se aprueban por voz con aprobar_tarjeta/);
+  assert.doesNotMatch(leer("src/features/tableros-inteligentes/components/TrabajoDeLaTarjeta.tsx"), /zona protegida \(chats\)/);
+  // La regla del servidor no cambia: la voz destraba las tres zonas y Meta Ads sigue esperando la pantalla.
+  assert.deepEqual([...trabajo.ZONAS_QUE_ARRANCAN_POR_VOZ].sort(), ["BOT_VENTAS", "CHATS", "LIBRO_V3"]);
+  for (const zona of ["CHATS", "BOT_VENTAS", "LIBRO_V3"]) assert.deepEqual(trabajo.zonasQueEsperanLaPantalla([zona], "voz"), [], zona);
+  assert.deepEqual(trabajo.zonasQueEsperanLaPantalla(["META_ADS"], "voz"), ["META_ADS"]);
 });
 
 console.log(`\n${pruebas} pruebas, todas bien`);
