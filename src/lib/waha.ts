@@ -947,7 +947,7 @@ export function traducirEventoWaha(
     _data?: unknown;
   };
 
-  const de =typeof mensaje.from === "string" ? mensaje.from : "";
+  const de = typeof mensaje.from === "string" ? mensaje.from : "";
   if (!de) {
     return { motivo: "el mensaje no dice de quien viene" };
   }
@@ -1045,33 +1045,37 @@ export function traducirEventoWaha(
     descargar". Por eso se leen ANTES que el texto y el archivo, y salen con el mismo nodo de
     Evolution (`locationMessage` o `liveLocationMessage`) que la burbuja ya sabe dibujar como mapa.
   */
+  // El sobre de Evolution de un mensaje sin archivo (ubicacion o contacto): mismo origen, clave,
+  // nombre y hora que los demas tipos.
+  const sinArchivo = (contenido: Record<string, unknown>) => ({
+    evolution: {
+      event: "messages.upsert",
+      instance: sesion,
+      data: {
+        ...(mensaje.source === "api" || mensaje.source === "app" ? { wahaSource: mensaje.source } : {}),
+        key: {
+          remoteJid: jidDeWaha(de),
+          fromMe: mensaje.fromMe === true,
+          id: typeof mensaje.id === "string" ? mensaje.id : null,
+          ...(typeof mensaje.participant === "string"
+            ? { participant: jidDeWaha(mensaje.participant) }
+            : {}),
+        },
+        message: contenido,
+        pushName: nombreDeQuienEscribe(mensaje._data),
+        messageTimestamp: typeof mensaje.timestamp === "number" ? mensaje.timestamp : undefined,
+      },
+    },
+  });
+
   const ubicacion = ubicacionDelMensaje(bloqueDelMensaje, mensaje.location);
   if (ubicacion) {
-    return {
-      evolution: {
-        event: "messages.upsert",
-        instance: sesion,
-        data: {
-          ...(mensaje.source === "api" || mensaje.source === "app" ? { wahaSource: mensaje.source } : {}),
-          key: {
-            remoteJid: jidDeWaha(de),
-            fromMe: mensaje.fromMe === true,
-            id: typeof mensaje.id === "string" ? mensaje.id : null,
-            ...(typeof mensaje.participant === "string"
-              ? { participant: jidDeWaha(mensaje.participant) }
-              : {}),
-          },
-          message: {
-            [ubicacion.nodo]: {
-              ...ubicacion.datos,
-              ...(contextoDelMensaje ? { contextInfo: contextoDelMensaje } : {}),
-            },
-          },
-          pushName: nombreDeQuienEscribe(mensaje._data),
-          messageTimestamp: typeof mensaje.timestamp === "number" ? mensaje.timestamp : undefined,
-        },
+    return sinArchivo({
+      [ubicacion.nodo]: {
+        ...ubicacion.datos,
+        ...(contextoDelMensaje ? { contextInfo: contextoDelMensaje } : {}),
       },
-    };
+    });
   }
 
   /*
@@ -1084,28 +1088,11 @@ export function traducirEventoWaha(
   */
   const contactos = contactosDelMensaje(bloqueDelMensaje, mensaje.vCards ?? mensaje.vcards);
   if (contactos) {
-    return {
-      evolution: {
-        event: "messages.upsert",
-        instance: sesion,
-        data: {
-          ...(mensaje.source === "api" || mensaje.source === "app" ? { wahaSource: mensaje.source } : {}),
-          key: {
-            remoteJid: jidDeWaha(de),
-            fromMe: mensaje.fromMe === true,
-            id: typeof mensaje.id === "string" ? mensaje.id : null,
-            ...(typeof mensaje.participant === "string"
-              ? { participant: jidDeWaha(mensaje.participant) }
-              : {}),
-          },
-          message: contextoDelMensaje
-            ? { extendedTextMessage: { text: contactos, contextInfo: contextoDelMensaje } }
-            : { conversation: contactos },
-          pushName: nombreDeQuienEscribe(mensaje._data),
-          messageTimestamp: typeof mensaje.timestamp === "number" ? mensaje.timestamp : undefined,
-        },
-      },
-    };
+    return sinArchivo(
+      contextoDelMensaje
+        ? { extendedTextMessage: { text: contactos, contextInfo: contextoDelMensaje } }
+        : { conversation: contactos },
+    );
   }
 
   const textoVisible = texto.trim()
