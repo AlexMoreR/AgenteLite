@@ -120,9 +120,17 @@ import {
   type RespuestaDelEnvio,
 } from "@/lib/chat-envio-reintento";
 
-const CONVERSATION_LIST_LOAD_BATCH_SIZE = 10;
+/*
+  Cuantos chats se piden al bajar por la lista. Eran 10: llegar al fondo de "Todas" (unos 2.500)
+  eran ~250 pedidos y cada uno re-dibujaba la lista. 40 es el maximo que ya acepta
+  /api/cliente/chats/list (ver su `limit`).
+*/
+const CONVERSATION_LIST_LOAD_BATCH_SIZE = 40;
 // Logs de depuración de la lista desactivados (ensuciaban la consola en desarrollo).
 const CHAT_LIST_DEBUG = false;
+// Siempre la MISMA lista vacia: un [] nuevo en cada dibujo obligaba a re-dibujar la barra lateral
+// (AppSidebar va memorizada) cada vez que cambiaba algo del chat abierto.
+const SIN_MENSAJES_ENCONTRADOS: MensajeEncontrado[] = [];
 // Buscador de chats: pausa al escribir antes de ir al servidor, y letras minimas para ir.
 const ESPERA_DEL_BUSCADOR_MS = 350;
 const LETRAS_PARA_IR_AL_SERVIDOR = 2;
@@ -1384,7 +1392,13 @@ export function SharedInbox({
     });
   }, [conversationItems, resueltasAca, searchInputValue, statusFilter]);
 
-  const loadMoreConversationItems = useCallback(async () => {
+  /*
+    "Cargar mas" ESTABLE (no cambia en cada pagina). Antes dependia del largo de la lista y de los
+    estados de carga: cada pagina nueva creaba otra funcion, la lista volvia a montar sus escuchas
+    del scroll y a revisar si estaba cerca del fondo, y se encadenaban pedidos uno tras otro. Ahora
+    la funcion de verdad vive en un ref y la lista recibe siempre la misma.
+  */
+  const loadMoreConversationItemsImpl = async () => {
     if (isLoadingMoreConversationItems || !hasMoreConversationItems) {
       return;
     }
@@ -1513,19 +1527,10 @@ export function SharedInbox({
     } finally {
       setIsLoadingMoreConversationItems(false);
     }
-  }, [
-    hrefDeFila,
-    conversationItems.length,
-    conversationListApiPath,
-    hasMoreConversationItems,
-    isLoadingMoreConversationItems,
-
-    searchQuery,
-    selectedConnectionKey,
-    assignedFilter,
-    statusFilter,
-    ponerFiltrosNuevos,
-  ]);
+  };
+  const loadMoreConversationItemsRef = useRef(loadMoreConversationItemsImpl);
+  loadMoreConversationItemsRef.current = loadMoreConversationItemsImpl;
+  const loadMoreConversationItems = useCallback(() => loadMoreConversationItemsRef.current(), []);
 
   const pendingConversation = usePendingConversationSelection();
 
@@ -3124,7 +3129,7 @@ export function SharedInbox({
   const mensajesDeLaBusqueda =
     searchInputValue.trim().length >= LETRAS_PARA_BUSCAR_MENSAJES && mensajesEncontrados.q === searchInputValue.trim()
       ? mensajesEncontrados.mensajes
-      : [];
+      : SIN_MENSAJES_ENCONTRADOS;
 
   /** Abre un chat desde el buscador (un mensaje encontrado o una busqueda reciente). */
   const abrirChatDesdeElBuscador = useCallback(
@@ -3486,73 +3491,25 @@ export function SharedInbox({
   }, [router]);
 
   /**
-   * Al llegar arriba, trae los mensajes anteriores solo.
+   * Al llegar arriba, trae los mensajes anteriores solo. UN solo camino (05-11-2026).
    *
-   * Se vigila un elemento invisible puesto arriba de todo: cuando entra en pantalla, se pide la
-   * pagina anterior. El navegador avisa por su cuenta, asi que no depende de cuanto se movio el
-   * dedo ni de que el scroll caiga dentro de una franja de pixeles —con el impulso de un celular
-   * eso se saltea, y por eso habia que apretar el boton—.
-   *
-   * El margen de 300px lo dispara ANTES de tocar el borde, para que los mensajes ya esten cuando
-   * uno llega.
+   * Eran dos: un sensor invisible arriba de todo (IntersectionObserver) y este escucha del scroll,
+   * "por si el sensor no avisa". Los dos pedian lo mismo y, cuando llegaba un mensaje nuevo y el
+   * cursor del historial se perdia (ver cursorDelHistorial en chat-history-cache), se encadenaban
+   * cargas repetidas y el chat brincaba. Queda el escucha del scroll, que es el que no falla: con el
+   * impulso del dedo en el celular el scroll termina quieto arriba igual, y preguntar "estas a
+   * menos de 300 px del tope?" es comparar dos numeros. El candado de "ya hay una carga en curso"
+   * deja pasar una sola carga a la vez.
    *
    * Se respeta la ventana de silencio de despues de abrir el chat: ahi el scroll lo mueve el
    * codigo (el pin al fondo) y sin eso cada apertura pediria historial sin que nadie lo pida.
    */
   useEffect(() => {
-    const centinela = loadMoreSentinelRef.current;
     const contenedor = messagesScrollRef.current;
-    if (!centinela || !contenedor) {
+    if (!contenedor) {
       return;
     }
 
-    const observador = new IntersectionObserver(
-      (entradas) => {
-        if (!entradas.some((entrada) => entrada.isIntersecting)) {
-          return;
-        }
-        if (suppressHistoryLoadUntilRef.current > Date.now() || loadMoreHistoryInFlightRef.current) {
-          return;
-        }
-
-        /*
-          Primero el camino liviano, y la navegacion como ultimo recurso.
-
-          Estaba al reves: al llegar arriba se hacia `router.replace`, o sea el servidor rearmaba
-          la PAGINA ENTERA -lista, panel, contadores- para traer veinte mensajes viejos. El otro
-          camino pide solo los mensajes y los agrega arriba conservando la posicion, que es lo que
-          uno espera al subir en una conversacion.
-
-          La navegacion queda por si algun chat llega sin cursor -no deberia, el bloque que dibuja
-          el centinela exige tenerlo- para no dejar el historial inalcanzable.
-        */
-        if (canLoadOlderMessagesRef.current) {
-          void loadOlderMessagesRef.current();
-          return;
-        }
-        const loadMoreHref = loadMoreHrefRef.current;
-        if (loadMoreHref && messageScrollBehaviorRef.current === "preserve") {
-          router.replace(loadMoreHref, { scroll: false });
-        }
-      },
-      { root: contenedor, rootMargin: "300px 0px 0px 0px" },
-    );
-
-    observador.observe(centinela);
-
-    /*
-      Ademas del centinela, un escucha del desplazamiento. Los dos, a proposito.
-
-      El centinela es un IntersectionObserver, y hay situaciones normales en las que no avisa: el
-      elemento se dibuja despues de armarlo, el contenedor todavia no tiene alto, la pestaña esta
-      en segundo plano -ahi el navegador colapsa el alto y no dispara nada- o simplemente lo
-      estrangula para ahorrar bateria. Cada una de esas es un "a veces no carga" para quien lo
-      usa, y no hay forma de distinguirlas desde afuera.
-
-      Preguntar "estas a menos de 300 px del tope?" en cada desplazamiento es tosco pero no falla,
-      y es barato: comparar dos numeros. Si los dos caminos coinciden no pasa nada, porque el
-      candado de "ya hay una carga en curso" deja entrar a uno solo.
-    */
     const alDesplazar = () => {
       if (contenedor.scrollTop > 300) {
         return;
@@ -3560,24 +3517,26 @@ export function SharedInbox({
       if (suppressHistoryLoadUntilRef.current > Date.now() || loadMoreHistoryInFlightRef.current) {
         return;
       }
+      /*
+        Primero el camino liviano, y la navegacion como ultimo recurso: pedir solo los mensajes y
+        agregarlos arriba conservando la posicion. La navegacion (el servidor rearma la pagina
+        entera) queda por si algun chat llega sin cursor, para no dejar el historial inalcanzable.
+      */
       if (canLoadOlderMessagesRef.current) {
         void loadOlderMessagesRef.current();
+        return;
+      }
+      const loadMoreHref = loadMoreHrefRef.current;
+      if (loadMoreHref && messageScrollBehaviorRef.current === "preserve") {
+        router.replace(loadMoreHref, { scroll: false });
       }
     };
     contenedor.addEventListener("scroll", alDesplazar, { passive: true });
 
     return () => {
-      observador.disconnect();
       contenedor.removeEventListener("scroll", alDesplazar);
     };
-    /*
-      Se rearma al cambiar de chat Y cuando aparece el centinela.
-
-      Lo segundo no estaba y por eso, al sacar el boton, algunos chats se quedaban sin historial:
-      el centinela recien se dibuja cuando llegan los datos de la conversacion -un instante
-      despues de abrirla-, asi que al correr este efecto todavia no existia y el observador no
-      quedaba vigilando nada. Antes el boton tapaba ese hueco; sin boton, subir no hacia nada.
-    */
+    // Se rearma al cambiar de chat y cuando el chat pasa a tener historial para pedir.
   }, [selectedConversationId, canLoadOlderMessages, router]);
 
   // Smart scroll: auto-scroll only when near bottom; count new messages when scrolled up.

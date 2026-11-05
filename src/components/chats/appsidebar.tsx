@@ -187,7 +187,12 @@ function ChapaDeFiltro({
 /** Cuanto hay que mantener presionada una lista para que aparezca su menu. */
 const TOQUE_LARGO_MS = 450;
 
-export function AppSidebar({
+/*
+  Memorizada: la bandeja (shared-inbox) se re-dibuja con cada cosa del chat abierto -un mensaje que
+  llega, el compositor, el estado de envio-, y sin memo eso re-dibujaba tambien toda la lista de
+  chats aunque nada de la lista hubiera cambiado. Las props que recibe son estables.
+*/
+export const AppSidebar = React.memo(function AppSidebar({
   conversationItems,
   selectedConversationId,
   searchAction,
@@ -779,7 +784,13 @@ export function AppSidebar({
           // Tocar la lista cierra las busquedas recientes.
           onPointerDown={recientesDesde ? () => setRecientesDesde(null) : undefined}
           ref={conversationListScrollRef}
-          className={`min-h-0 flex-1 overflow-y-auto overscroll-contain divide-y divide-border transition-opacity duration-150 [-webkit-overflow-scrolling:touch] ${
+          /*
+            [overflow-anchor:none]: la lista recorta las filas que no se ven y cambia los espacios de
+            arriba y abajo al bajar. Con el anclaje del navegador prendido, cada cambio "corregia" la
+            posicion, eso movia el scroll otra vez y la pantalla temblaba o se pegaba (05-11-2026).
+            Sin divide-y: la linea va en cada fila, que tiene alto fijo (ver conversation-list).
+          */
+          className={`min-h-0 flex-1 overflow-y-auto overscroll-contain transition-opacity duration-150 [-webkit-overflow-scrolling:touch] [overflow-anchor:none] ${
             listaAtenuada ? "pointer-events-none opacity-40" : ""
           }`}
         >
@@ -883,4 +894,4 @@ export function AppSidebar({
       </Dialog>
     </aside>
   );
-}
+});

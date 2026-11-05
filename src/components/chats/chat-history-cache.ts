@@ -28,10 +28,19 @@ const VISITED_STORAGE_KEY = "aglite:chat-visited:v1";
 // obligaba a pedirlo de nuevo al servidor.
 const MAX_CACHE_ENTRIES = 80;
 const MAX_VISITED_ENTRIES = 200;
-const CACHE_SAVE_DEBOUNCE_MS = 120;
+/*
+  Guardar en el navegador (05-11-2026, "la bandeja se pega"): antes se guardaba el chat ENTERO en
+  cada cambio -tambien en cada pagina de mensajes viejos- y con 120 ms de espera, en medio del
+  scroll. Ahora se guardan solo los ultimos MAX_MENSAJES_POR_CHAT, con mas espera entre guardados y
+  cuando el navegador esta desocupado (requestIdleCallback).
+*/
+const CACHE_SAVE_DEBOUNCE_MS = 600;
+const CACHE_SAVE_IDLE_TIMEOUT_MS = 2000;
+export const MAX_MENSAJES_POR_CHAT = 50;
 
 const pendingConversationSaves = new Map<string, SharedInboxSelectedConversation>();
 let pendingSaveTimer: number | null = null;
+let pendingIdleHandle: number | null = null;
 let cachedStore: ConversationCacheStore | null = null;
 let cachedVisitedStore: Record<string, number> | null = null;
 let storageListenerAttached = false;
@@ -266,6 +275,8 @@ function stripBase64Attachments(value: unknown, depth = 0): unknown {
 }
 
 function serializeConversation(conversation: SharedInboxSelectedConversation): CachedConversation {
+  // Se recorta ANTES de copiar: con 300 mensajes cargados no se copian los 300 para tirar 250.
+  conversation = recortarParaGuardar(conversation);
   return {
     ...conversation,
     messages: conversation.messages.map((message) => ({
@@ -504,6 +515,7 @@ export function mergeConversationSnapshots(
   return {
     ...existing,
     ...next,
+    ...cursorDelHistorial(existing, next),
     tags: mergedTags,
     messages: mergedMessages.sort((left, right) => {
       const leftAt = getMessageCreatedAtTime(left);
@@ -520,14 +532,102 @@ export function mergeConversationSnapshots(
 
 function mergeCachedConversations(existing: CachedConversation | null, next: CachedConversation): CachedConversation {
   if (!existing) {
-    return next;
+    return recortarParaGuardar(next);
   }
 
-  return {
+  return recortarParaGuardar({
     ...existing,
     ...next,
+    ...cursorDelHistorial(existing, next),
     messages: mergeCachedMessages(existing.messages, next.messages),
     cachedAt: Date.now(),
+  });
+}
+
+type ConMensajesYCursor = {
+  messages: Array<CachedMessageItem | SharedInboxSelectedConversation["messages"][number]>;
+  loadMoreCursor?: string | null;
+  loadMoreHref?: string | null;
+  hasMoreMessages?: boolean;
+};
+
+function mensajeMasViejo(conversation: ConMensajesYCursor) {
+  let masViejo = Number.POSITIVE_INFINITY;
+  for (const message of conversation.messages) {
+    const at = getMessageCreatedAtTime(message);
+    if (Number.isFinite(at) && at < masViejo) {
+      masViejo = at;
+    }
+  }
+  return masViejo;
+}
+
+/**
+ * Hasta donde ya se cargo el historial, al juntar dos copias del mismo chat.
+ *
+ * Antes ganaba siempre el cursor de la copia NUEVA. Cuando llegaba un mensaje, /live traia solo los
+ * mas recientes con su cursor, y ese cursor pisaba el de la copia que ya tenia los viejos cargados:
+ * al subir se volvian a pedir mensajes que ya estaban, se encadenaban cargas y el chat brincaba a
+ * una posicion vieja. Ahora el cursor es el de la copia que llega MAS atras en el tiempo.
+ */
+export function cursorDelHistorial(existing: ConMensajesYCursor, next: ConMensajesYCursor) {
+  const fuente = fuenteDelCursor(existing, next);
+  return {
+    loadMoreCursor: fuente.loadMoreCursor ?? null,
+    loadMoreHref: fuente.loadMoreHref ?? null,
+    // Con cursor y sin el dato, se supone que hay mas: si no hay, el servidor devuelve vacio.
+    hasMoreMessages: fuente.hasMoreMessages ?? Boolean(fuente.loadMoreCursor),
+  };
+}
+
+function fuenteDelCursor(existing: ConMensajesYCursor, next: ConMensajesYCursor) {
+  if (mensajeMasViejo(existing) >= mensajeMasViejo(next)) {
+    return next;
+  }
+  /*
+    La copia de antes llega mas atras, pero solo vale si las dos se TOCAN: el mensaje mas viejo de
+    la nueva tiene que estar en la de antes. Si no (una copia de hace dias y los ultimos de hoy),
+    entre las dos hay un hueco, y con el cursor viejo esos mensajes del medio no se pedirian nunca.
+  */
+  let primeroDeLaNueva: ConMensajesYCursor["messages"][number] | null = null;
+  for (const message of next.messages) {
+    if (!esMensajeDelServidor(message.id)) {
+      continue;
+    }
+    if (!primeroDeLaNueva || getMessageCreatedAtTime(message) < getMessageCreatedAtTime(primeroDeLaNueva)) {
+      primeroDeLaNueva = message;
+    }
+  }
+  if (!primeroDeLaNueva) {
+    return existing;
+  }
+  const idDelPrimero = primeroDeLaNueva.id;
+  return existing.messages.some((message) => message.id === idDelPrimero) ? existing : next;
+}
+
+/** Un id que el servidor reconoce como mensaje (no una llamada metida en el hilo ni uno optimista). */
+function esMensajeDelServidor(id: string) {
+  return Boolean(id) && !id.startsWith("llamada:") && !id.startsWith("optimistic");
+}
+
+/**
+ * La copia que se guarda en el navegador lleva como mucho MAX_MENSAJES_POR_CHAT mensajes: los mas
+ * nuevos. El cursor pasa a apuntar al mas viejo que quedo, asi al abrir el chat desde la copia y
+ * subir se piden justo los que se recortaron, sin saltear ninguno.
+ */
+export function recortarParaGuardar<T extends ConMensajesYCursor>(conversation: T): T {
+  if (conversation.messages.length <= MAX_MENSAJES_POR_CHAT) {
+    return conversation;
+  }
+  const messages = conversation.messages.slice(-MAX_MENSAJES_POR_CHAT);
+  const primeroDelServidor = messages.find((message) => esMensajeDelServidor(message.id));
+  return {
+    ...conversation,
+    messages,
+    loadMoreCursor: primeroDelServidor?.id ?? conversation.loadMoreCursor ?? null,
+    // El enlace viejo apuntaba a otra posicion del historial: con la copia recortada ya no sirve.
+    loadMoreHref: null,
+    hasMoreMessages: true,
   };
 }
 
@@ -541,6 +641,8 @@ function hydrateConversation(conversation: CachedConversation): SharedInboxSelec
     automationPaused: conversation.automationPaused,
     loadMoreHref: conversation.loadMoreHref ?? null,
     loadMoreCursor: conversation.loadMoreCursor ?? null,
+    // Sin esto, un chat abierto desde la copia no podia pedir mensajes viejos hasta que llegara /live.
+    hasMoreMessages: conversation.hasMoreMessages,
     messages: conversation.messages.map((message) => ({
       ...message,
       createdAt: new Date(message.createdAt),
@@ -569,45 +671,62 @@ export function saveConversationToCache(conversation: SharedInboxSelectedConvers
 
   pendingSaveTimer = window.setTimeout(() => {
     pendingSaveTimer = null;
-
-    if (pendingConversationSaves.size === 0) {
+    // Ya hay un guardado esperando que el navegador se desocupe: ese se lleva lo ultimo.
+    if (pendingIdleHandle !== null) {
       return;
     }
-
-    const store = readStore();
-    const visitedStore = readVisitedStore();
-    let storeChanged = false;
-    let visitedChanged = false;
-
-    for (const pendingConversation of pendingConversationSaves.values()) {
-      const cachedConversation = serializeConversation(pendingConversation);
-      const existingConversation = store.conversations[pendingConversation.id] ?? null;
-      const mergedConversation = mergeCachedConversations(existingConversation, cachedConversation);
-
-      if (!existingConversation || !areCachedConversationsEqual(existingConversation, mergedConversation)) {
-        store.conversations[pendingConversation.id] = mergedConversation;
-        storeChanged = true;
-      }
-
-      visitedStore[normalizeConversationStoreKey(pendingConversation.id)] = Date.now();
-      visitedChanged = true;
-
-      if (pendingConversation.cacheKey && pendingConversation.cacheKey !== pendingConversation.id) {
-        delete store.conversations[pendingConversation.cacheKey];
-        storeChanged = true;
-        visitedStore[normalizeConversationStoreKey(pendingConversation.cacheKey)] = Date.now();
-        visitedChanged = true;
-      }
+    if (typeof window.requestIdleCallback === "function") {
+      pendingIdleHandle = window.requestIdleCallback(
+        () => {
+          pendingIdleHandle = null;
+          guardarPendientes();
+        },
+        { timeout: CACHE_SAVE_IDLE_TIMEOUT_MS },
+      );
+      return;
     }
-
-    pendingConversationSaves.clear();
-    if (storeChanged) {
-      writeStore(trimStore(store));
-    }
-    if (visitedChanged) {
-      writeVisitedStore(trimVisitedStore(visitedStore));
-    }
+    guardarPendientes();
   }, CACHE_SAVE_DEBOUNCE_MS);
+}
+
+function guardarPendientes() {
+  if (pendingConversationSaves.size === 0) {
+    return;
+  }
+
+  const store = readStore();
+  const visitedStore = readVisitedStore();
+  let storeChanged = false;
+  let visitedChanged = false;
+
+  for (const pendingConversation of pendingConversationSaves.values()) {
+    const cachedConversation = serializeConversation(pendingConversation);
+    const existingConversation = store.conversations[pendingConversation.id] ?? null;
+    const mergedConversation = mergeCachedConversations(existingConversation, cachedConversation);
+
+    if (!existingConversation || !areCachedConversationsEqual(existingConversation, mergedConversation)) {
+      store.conversations[pendingConversation.id] = mergedConversation;
+      storeChanged = true;
+    }
+
+    visitedStore[normalizeConversationStoreKey(pendingConversation.id)] = Date.now();
+    visitedChanged = true;
+
+    if (pendingConversation.cacheKey && pendingConversation.cacheKey !== pendingConversation.id) {
+      delete store.conversations[pendingConversation.cacheKey];
+      storeChanged = true;
+      visitedStore[normalizeConversationStoreKey(pendingConversation.cacheKey)] = Date.now();
+      visitedChanged = true;
+    }
+  }
+
+  pendingConversationSaves.clear();
+  if (storeChanged) {
+    writeStore(trimStore(store));
+  }
+  if (visitedChanged) {
+    writeVisitedStore(trimVisitedStore(visitedStore));
+  }
 }
 
 // Si la caché supera este tiempo, no la usamos para el render inicial: evita mostrar

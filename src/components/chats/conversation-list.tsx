@@ -14,6 +14,7 @@ import { ContactAvatar } from "./contact-avatar";
 import { warmConversationCache } from "./chat-conversation-warmup";
 import { clearPendingConversationSelection, setPendingConversationSelection } from "./chat-selection-store";
 import { readConversationFromCache } from "./chat-history-cache";
+import { ALTO_DE_FILA, UMBRAL_PARA_RECORTAR, calcularVentanaDeLaLista, type VentanaDeLaLista } from "./ventana-de-la-lista";
 import { iniciarMedicion, terminarMedicionAlPintar } from "@/lib/metricas-chats";
 import { CRM_STAGE_META } from "@/features/crm/domain/crm-config";
 import type { CrmStage } from "@/features/crm/types";
@@ -156,12 +157,14 @@ function ConversationTagsRow({
 
   // La etapa NO va aca: vive debajo del avatar, alineada con esta misma fila. Estuvo un rato en
   // los dos lugares y se veia dos veces por conversacion.
+  // El lugar se reserva SIEMPRE (aunque no haya etiquetas): todas las filas miden lo mismo y la
+  // lista puede calcular sin medir que filas se ven (ver ventana-de-la-lista).
   if (!visibleTags.length) {
-    return null;
+    return <div className="h-[22px]" aria-hidden="true" />;
   }
 
   return (
-    <div className="pt-0.5">
+    <div className="h-[22px] pt-0.5">
       <div className="flex flex-nowrap items-center gap-1 overflow-hidden">
         {visibleTags.map((tag) => (
           <Badge
@@ -231,7 +234,13 @@ const ConversationListItem = memo(function ConversationListItem({
       }}
       onMouseEnter={() => onPrefetch(conversation)}
       onFocus={() => onPrefetch(conversation)}
-      className={`group relative grid w-full grid-cols-[68px_minmax(0,1fr)] items-start gap-2 overflow-hidden px-3 py-2.5 transition-[background-color,box-shadow,transform] duration-200 md:grid-cols-[68px_minmax(0,1fr)] md:px-3 md:py-3 ${
+      /*
+        Alto FIJO (ALTO_DE_FILA) y la linea divisoria va en la fila (antes era divide-y en la caja).
+        Asi la cuenta de que filas se ven es exacta y el navegador no corrige la posicion al bajar,
+        que era lo que hacia temblar o pegar la lista (05-11-2026).
+      */
+      style={ESTILO_DE_FILA}
+      className={`group relative grid w-full grid-cols-[68px_minmax(0,1fr)] items-start gap-2 overflow-hidden border-b border-border px-3 py-2.5 transition-[background-color,box-shadow,transform] duration-200 md:grid-cols-[68px_minmax(0,1fr)] md:px-3 ${
         isSelected
           ? "bg-primary/10"
           : "hover:bg-muted/50 hover:shadow-[inset_0_0_0_1px_rgba(16,185,129,0.08)]"
@@ -401,9 +410,9 @@ const ConversationListItem = memo(function ConversationListItem({
   );
 });
 
-const ESTIMATED_ROW_HEIGHT = 96;
-const VIRTUALIZATION_THRESHOLD = 36;
-const OVERSCAN_ROWS = 6;
+const ESTILO_DE_FILA = { height: ALTO_DE_FILA } as const;
+// A cuantos px del fondo se pide la pagina siguiente: unas 6 filas antes, para que llegue a tiempo.
+const DISTANCIA_PARA_CARGAR_MAS = 640;
 // Cuantos chats de arriba de la lista se precargan (ver el efecto de precarga).
 const CHATS_A_PRECARGAR = 5;
 
@@ -449,10 +458,11 @@ export function ConversationList({
     return [...arriba, ...conversacionesPorFecha.filter((fila) => !subidas.has(fila.id))];
   }, [conversacionesPorFecha, fijados]);
 
-  const [viewportHeight, setViewportHeight] = useState(0);
-  const [scrollTop, setScrollTop] = useState(0);
+  // Alto de la caja y primera fila visible. La fila solo cambia al cruzar una fila entera (108 px):
+  // la lista se re-dibuja una vez por fila, no en cada cuadro del scroll.
+  const [altoVisible, setAltoVisible] = useState(0);
+  const [primeraFila, setPrimeraFila] = useState(0);
   const scrollFrameRef = useRef<number | null>(null);
-  const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
   const prefetchedHrefsRef = useRef(new Set<string>());
   // Lista siempre fresca para el listener de popstate, sin re-suscribirlo en cada cambio.
   const conversationsRef = useRef(conversations);
@@ -609,6 +619,43 @@ export function ConversationList({
     return () => window.removeEventListener("popstate", syncSelectionFromUrl);
   }, [handlePreviewSelect]);
 
+  /*
+    Lo ultimo que se sabe de la carga de paginas, leido desde las escuchas del scroll sin tener que
+    volver a montarlas en cada pagina. Antes el efecto dependia del largo de la lista y de la
+    funcion de cargar: con cada pagina se desmontaba, se volvia a montar, revisaba el fondo otra vez
+    y podia pedir la siguiente sin que la asesora bajara (cargas encadenadas).
+  */
+  const cargaRef = useRef({ hasMoreConversations, isLoadingMoreConversations, onLoadMoreConversations });
+  useEffect(() => {
+    cargaRef.current = { hasMoreConversations, isLoadingMoreConversations, onLoadMoreConversations };
+  }, [hasMoreConversations, isLoadingMoreConversations, onLoadMoreConversations]);
+
+  /** Pide la pagina siguiente si la asesora esta cerca del fondo. Es el UNICO camino para pedirla. */
+  const revisarSiCargarMas = useCallback(() => {
+    const container = scrollContainerRef?.current;
+    const carga = cargaRef.current;
+    if (
+      !container ||
+      !carga.hasMoreConversations ||
+      carga.isLoadingMoreConversations ||
+      !carga.onLoadMoreConversations ||
+      loadMoreInFlightRef.current
+    ) {
+      return;
+    }
+    const distFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    if (distFromBottom > DISTANCIA_PARA_CARGAR_MAS) {
+      return;
+    }
+    debugConversationList("trigger load more", { distFromBottom });
+    iniciarMedicion("pagina");
+    loadMoreInFlightRef.current = true;
+    void Promise.resolve(carga.onLoadMoreConversations()).finally(() => {
+      loadMoreInFlightRef.current = false;
+    });
+  }, [scrollContainerRef]);
+
+  // Las escuchas del scroll y del alto se montan UNA vez.
   useEffect(() => {
     const container = scrollContainerRef?.current;
     if (!container) {
@@ -617,56 +664,29 @@ export function ConversationList({
 
     const scrollContainer = container;
 
-    function updateViewportHeight() {
+    function actualizarAlto() {
       const nextHeight = scrollContainer.clientHeight;
-      setViewportHeight((current) => (current === nextHeight ? current : nextHeight));
+      setAltoVisible((current) => (current === nextHeight ? current : nextHeight));
     }
 
-    function updateScrollTop() {
-    if (scrollFrameRef.current !== null) {
+    function alDesplazar() {
+      if (scrollFrameRef.current !== null) {
         return;
       }
 
       scrollFrameRef.current = window.requestAnimationFrame(() => {
         scrollFrameRef.current = null;
-        const nextScrollTop = scrollContainer.scrollTop;
-        setScrollTop((current) => (current === nextScrollTop ? current : nextScrollTop));
-
-        const distFromBottom = scrollContainer.scrollHeight - nextScrollTop - scrollContainer.clientHeight;
-        const nearBottom = distFromBottom <= 240;
-        if (nearBottom) {
-          debugConversationList("near bottom", {
-            distFromBottom,
-            count: conversations.length,
-            hasMoreConversations,
-            isLoadingMoreConversations,
-          });
-        }
-        if (
-          nearBottom &&
-          hasMoreConversations &&
-          !isLoadingMoreConversations &&
-          onLoadMoreConversations &&
-          !loadMoreInFlightRef.current
-        ) {
-          debugConversationList("trigger load more", {
-            count: conversations.length,
-            distFromBottom,
-          });
-          iniciarMedicion("pagina");
-          loadMoreInFlightRef.current = true;
-          void Promise.resolve(onLoadMoreConversations()).finally(() => {
-            loadMoreInFlightRef.current = false;
-          });
-        }
+        const fila = Math.max(0, Math.floor(scrollContainer.scrollTop / ALTO_DE_FILA));
+        setPrimeraFila((current) => (current === fila ? current : fila));
+        revisarSiCargarMas();
       });
     }
 
-    updateViewportHeight();
-    updateScrollTop();
-    scrollContainer.addEventListener("scroll", updateScrollTop, { passive: true });
+    actualizarAlto();
+    alDesplazar();
+    scrollContainer.addEventListener("scroll", alDesplazar, { passive: true });
 
-    const resizeObserver = new ResizeObserver(updateViewportHeight);
+    const resizeObserver = new ResizeObserver(actualizarAlto);
     resizeObserver.observe(scrollContainer);
 
     return () => {
@@ -675,103 +695,38 @@ export function ConversationList({
         scrollFrameRef.current = null;
       }
 
-      scrollContainer.removeEventListener("scroll", updateScrollTop);
+      scrollContainer.removeEventListener("scroll", alDesplazar);
       resizeObserver.disconnect();
     };
-  }, [conversations.length, hasMoreConversations, isLoadingMoreConversations, onLoadMoreConversations, scrollContainerRef]);
+  }, [revisarSiCargarMas, scrollContainerRef]);
 
+  // Llego una pagina o termino una carga: si la lista todavia no llena la caja (o la asesora sigue
+  // al fondo), se pide la siguiente. Si no, nada: la proxima la pide el scroll.
   useEffect(() => {
-    const container = scrollContainerRef?.current;
-    const sentinel = loadMoreSentinelRef.current;
+    revisarSiCargarMas();
+  }, [conversations.length, hasMoreConversations, isLoadingMoreConversations, revisarSiCargarMas]);
 
-    if (!container || !sentinel) {
-      return;
-    }
-
-    if (!hasMoreConversations || isLoadingMoreConversations || !onLoadMoreConversations) {
-      debugConversationList("sentinel skipped", {
-        hasMoreConversations,
-        isLoadingMoreConversations,
-        hasObserver: Boolean(onLoadMoreConversations),
-      });
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const entry = entries[0];
-        if (
-          entry?.isIntersecting &&
-          hasMoreConversations &&
-          !isLoadingMoreConversations &&
-          onLoadMoreConversations &&
-          !loadMoreInFlightRef.current
-        ) {
-          debugConversationList("sentinel intersected", {
-            count: conversations.length,
-            isIntersecting: entry.isIntersecting,
-          });
-          iniciarMedicion("pagina");
-          loadMoreInFlightRef.current = true;
-          void Promise.resolve(onLoadMoreConversations()).finally(() => {
-            loadMoreInFlightRef.current = false;
-          });
-        }
-      },
-      {
-        root: container,
-        rootMargin: "160px 0px 160px 0px",
-        threshold: 0,
-      },
-    );
-
-    observer.observe(sentinel);
-
-    return () => {
-      observer.disconnect();
-    };
-  }, [
-    conversations.length,
-    hasMoreConversations,
-    isLoadingMoreConversations,
-    onLoadMoreConversations,
-    scrollContainerRef,
-  ]);
-
-  const virtualizedWindow = useMemo(() => {
-    if (conversations.length <= VIRTUALIZATION_THRESHOLD || viewportHeight <= 0) {
-      return {
-        start: 0,
-        end: conversations.length,
-        topSpacer: 0,
-        bottomSpacer: 0,
-      };
-    }
-
-    const visibleCount = Math.ceil(viewportHeight / ESTIMATED_ROW_HEIGHT);
-    const baseStart = Math.max(0, Math.floor(scrollTop / ESTIMATED_ROW_HEIGHT) - OVERSCAN_ROWS);
-    const baseEnd = Math.min(conversations.length, baseStart + visibleCount + OVERSCAN_ROWS * 2);
-    return {
-      start: baseStart,
-      end: baseEnd,
-      topSpacer: baseStart * ESTIMATED_ROW_HEIGHT,
-      bottomSpacer: Math.max(0, (conversations.length - baseEnd) * ESTIMATED_ROW_HEIGHT),
-    };
-  }, [conversations, scrollTop, viewportHeight]);
+  const ventana: VentanaDeLaLista = useMemo(
+    () =>
+      calcularVentanaDeLaLista({
+        total: conversations.length,
+        scrollTop: primeraFila * ALTO_DE_FILA,
+        altoVisible,
+      }),
+    [altoVisible, conversations.length, primeraFila],
+  );
 
   const visibleConversations = useMemo(
-    () => conversations.slice(virtualizedWindow.start, virtualizedWindow.end),
-    [conversations, virtualizedWindow.end, virtualizedWindow.start],
+    () => (conversations.length > UMBRAL_PARA_RECORTAR ? conversations.slice(ventana.inicio, ventana.fin) : conversations),
+    [conversations, ventana.fin, ventana.inicio],
   );
 
   return (
     <>
-      {virtualizedWindow.topSpacer > 0 ? (
-        <div aria-hidden="true" style={{ height: virtualizedWindow.topSpacer }} />
-      ) : null}
+      {ventana.espacioArriba > 0 ? <div aria-hidden="true" style={{ height: ventana.espacioArriba }} /> : null}
 
-      {(conversations.length > VIRTUALIZATION_THRESHOLD ? visibleConversations : conversations).map((conversation) => (
-                <ConversationListItem
+      {visibleConversations.map((conversation) => (
+        <ConversationListItem
           key={conversation.id || conversation.href}
           conversation={conversation}
           isSelected={effectiveSelectedId === conversation.id}
@@ -781,19 +736,14 @@ export function ConversationList({
         />
       ))}
 
+      {ventana.espacioAbajo > 0 ? <div aria-hidden="true" style={{ height: ventana.espacioAbajo }} /> : null}
+
+      {/* El cargador va al final, despues de los espacios: entre ellos corria las filas de lugar. */}
       {isLoadingMoreConversations ? (
         <div className="flex items-center justify-center py-3" aria-live="polite" aria-label="Cargando más conversaciones">
           <LoaderCircle className="h-5 w-5 animate-spin text-muted-foreground" />
         </div>
       ) : null}
-
-      {virtualizedWindow.bottomSpacer > 0 ? (
-        <div aria-hidden="true" style={{ height: virtualizedWindow.bottomSpacer }} />
-      ) : null}
-
-      {hasMoreConversations ? <div ref={loadMoreSentinelRef} aria-hidden="true" className="h-px w-full" /> : null}
     </>
   );
 }
-
-

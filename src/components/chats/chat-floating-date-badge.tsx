@@ -148,7 +148,9 @@ export function ChatFloatingDateBadge({
       }`}
     >
       {/* Mismo estilo que el separador de dia de la burbuja: se lee igual en tema claro y oscuro. */}
-      <span className="rounded-full border border-border bg-muted px-3 py-1 text-[11px] font-medium text-foreground shadow-sm backdrop-blur">
+      {/* Sin backdrop-blur: el fondo ya es solido (bg-muted) y el vidrio esmerilado se recalculaba
+          en cada cuadro del scroll, lo mas caro de pintar en el celular (05-11-2026). */}
+      <span className="rounded-full border border-border bg-muted px-3 py-1 text-[11px] font-medium text-foreground shadow-sm">
         {etiqueta}
       </span>
     </div>

@@ -46,7 +46,12 @@ export function ContactAvatar({
 
   return (
     <Avatar className={className}>
-      {avatarUrl ? <AvatarImage src={avatarUrl} alt={safeLabel} /> : null}
+      {/*
+        Carga perezosa (05-11-2026): la foto se pide cuando la fila esta a la vista y se decodifica
+        fuera del hilo principal, para no trabar el scroll de la bandeja. La lista ademas solo monta
+        las filas visibles, asi que las fotos de los chats de mas abajo no se piden hasta llegar.
+      */}
+      {avatarUrl ? <AvatarImage src={avatarUrl} alt={safeLabel} loading="lazy" decoding="async" /> : null}
       <AvatarFallback
         className={cn(
           initials ? "font-semibold text-white" : "bg-muted text-muted-foreground",

@@ -497,6 +497,7 @@ function TarjetaDePdf({
           <img
             src={tapa.imagen}
             alt={`Primera página de ${nombre}`}
+            loading="lazy"
             decoding="async"
             className="h-full w-full object-cover object-top"
           />
@@ -1207,7 +1208,18 @@ export const MessageBubble = memo(function MessageBubble({
 
   return (
     <div
-      className="space-y-2.5 md:space-y-3"
+      /*
+        content-visibility (05-11-2026, "el chat se pega al bajar"): el navegador no dibuja los
+        mensajes que estan fuera de la pantalla, solo les guarda el lugar (contain-intrinsic-size;
+        "auto" recuerda el alto real una vez dibujado). Es el equivalente a virtualizar el hilo sin
+        otra libreria: en un chat de 200+ mensajes el scroll solo pinta lo que se ve.
+
+        - Solo donde el navegador corrige la posicion al cambiar el alto de lo de arriba
+          (overflow-anchor). Safari no lo hace y ahi el hilo brincaria al subir: se queda como antes.
+        - overflow-clip-margin: con content-visibility todo lo que sale de la caja se corta; asi no
+          se corta la reaccion del cliente, que cuelga debajo de la burbuja, ni la sombra.
+      */
+      className="space-y-2.5 md:space-y-3 supports-[overflow-anchor:auto]:[content-visibility:auto] supports-[overflow-anchor:auto]:[contain-intrinsic-size:auto_80px] supports-[overflow-anchor:auto]:[overflow-clip-margin:16px]"
       // La fecha flotante (ChatFloatingDateBadge) lee de aca el dia del mensaje que queda arriba.
       // `new Date` por si algun cache lo dejo como texto: aca un error tumbaria el chat entero.
       data-chat-ts={new Date(message.createdAt).getTime()}
@@ -1219,7 +1231,7 @@ export const MessageBubble = memo(function MessageBubble({
             fondo estampado del chat, y en tema oscuro un gris medio sobre gris oscuro no se leia.
             Es la unica referencia de "que dia es esto" en toda la conversacion.
           */}
-          <span className="rounded-full border border-border bg-muted px-3 py-1 text-[11px] font-medium text-foreground shadow-sm backdrop-blur">
+          <span className="rounded-full border border-border bg-muted px-3 py-1 text-[11px] font-medium text-foreground shadow-sm">
             {formatDateDivider(message.createdAt)}
           </span>
         </div>
@@ -1232,7 +1244,7 @@ export const MessageBubble = memo(function MessageBubble({
             <Tooltip>
               <TooltipTrigger
                 type="button"
-                className="cursor-default rounded-full border border-border bg-muted px-3 py-1 text-[11px] font-medium text-foreground shadow-sm backdrop-blur"
+                className="cursor-default rounded-full border border-border bg-muted px-3 py-1 text-[11px] font-medium text-foreground shadow-sm"
               >
                 {/* Las notas viejas quedaron guardadas con "la conversación": dentro del chat sobra. */}
                 {message.content?.replace(/ la conversación\b/g, "")}
@@ -1420,6 +1432,10 @@ export const MessageBubble = memo(function MessageBubble({
                       <img
                         src={isMediaSourceUrl(adPreview.thumbnailUrl) ? toProxiedMediaUrl(adPreview.thumbnailUrl) : ""}
                         alt={adPreview.title}
+                        loading="lazy"
+                        decoding="async"
+                        width={44}
+                        height={44}
                         className="h-full w-full object-cover"
                       />
                     ) : (
@@ -1466,6 +1482,10 @@ export const MessageBubble = memo(function MessageBubble({
                       <img
                         src={isMediaSourceUrl(adPreview.thumbnailUrl) ? toProxiedMediaUrl(adPreview.thumbnailUrl) : ""}
                         alt={adPreview.title}
+                        loading="lazy"
+                        decoding="async"
+                        width={44}
+                        height={44}
                         className="h-full w-full object-cover"
                       />
                     ) : (
@@ -1517,13 +1537,14 @@ export const MessageBubble = memo(function MessageBubble({
                     loading="lazy"
                     decoding="async"
                     onError={handleImageError}
-                    className="max-h-[260px] w-full rounded-xl object-cover transition duration-200 group-hover:scale-[1.01]"
+                    // Alto minimo reservado: mientras la foto carga ya ocupa su lugar y el hilo no salta.
+                    className="max-h-[260px] min-h-[120px] w-full rounded-xl bg-muted object-cover transition duration-200 group-hover:scale-[1.01]"
                   />
                   <span className="pointer-events-none absolute inset-0 rounded-xl ring-1 ring-inset ring-black/5 transition group-hover:bg-black/5" />
                 </button>
                 {showInlineImageTimestamp ? (
                   <div
-                    className={`absolute right-2 bottom-2 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] leading-none backdrop-blur-sm ${
+                    className={`absolute right-2 bottom-2 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] leading-none ${
                       outbound ? "bg-black/45 text-white" : "bg-black/45 text-white"
                     }`}
                   >
@@ -1646,15 +1667,20 @@ export const MessageBubble = memo(function MessageBubble({
           ) : videoUrl ? (
             <div className="space-y-2">
               <div className="relative w-fit max-w-full overflow-hidden rounded-xl">
+                {/*
+                  preload="none": el video no se baja hasta que la asesora le da play (antes cada
+                  video del hilo pedia sus datos al abrir el chat). Tamano fijo: con preload="none"
+                  el navegador no sabe cuanto mide, y asi el hilo no salta al cargarlo.
+                */}
                 <video
                   src={videoUrl}
                   controls
-                  preload="metadata"
-                  className="max-h-[320px] w-auto max-w-full rounded-xl bg-black"
+                  preload="none"
+                  className="h-[240px] w-[260px] max-w-full rounded-xl bg-black object-contain"
                 />
                 {/* Arriba y no abajo: el reproductor pone sus propios botones en el borde
                     inferior y la hora quedaría tapada por el play y el volumen. */}
-                <div className="pointer-events-none absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/45 px-1.5 py-0.5 text-[10px] leading-none text-white backdrop-blur-sm">
+                <div className="pointer-events-none absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/45 px-1.5 py-0.5 text-[10px] leading-none text-white">
                   {message.authorType === "bot" ? (
                     <Bot className="h-3 w-3" />
                   ) : (
