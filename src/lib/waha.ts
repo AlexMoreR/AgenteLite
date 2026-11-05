@@ -791,6 +791,168 @@ function resumenDelPedido(pedido: Record<string, unknown>): string {
   return partes.join("\n");
 }
 
+/** Un numero del payload crudo, venga como numero o como texto. */
+function numeroCrudo(valor: unknown): number | null {
+  if (typeof valor === "number" && Number.isFinite(valor)) {
+    return valor;
+  }
+  if (typeof valor === "string" && valor.trim() && Number.isFinite(Number(valor))) {
+    return Number(valor);
+  }
+  return null;
+}
+
+function textoCrudo(valor: unknown): string {
+  return typeof valor === "string" ? valor.trim() : "";
+}
+
+function esObjeto(valor: unknown): valor is Record<string, unknown> {
+  return Boolean(valor) && typeof valor === "object" && !Array.isArray(valor);
+}
+
+type UbicacionWaha = {
+  nodo: "locationMessage" | "liveLocationMessage";
+  latitud: number;
+  longitud: number;
+  nombre: string;
+  direccion: string;
+};
+
+function coordenadasValidas(latitud: number | null, longitud: number | null): boolean {
+  return (
+    latitud !== null &&
+    longitud !== null &&
+    Math.abs(latitud) <= 90 &&
+    Math.abs(longitud) <= 180
+  );
+}
+
+/**
+ * La ubicacion (fija o en tiempo real) que alguien mando por WhatsApp.
+ *
+ * No trae texto ni archivo, asi que se descartaba como "mensaje sin texto ni media": la clienta
+ * mandaba su ubicacion para el envio y la asesora no veia nada (Revisor, 5-nov-2026). El webhook y
+ * la burbuja ya saben dibujar el pin si llega como `locationMessage` o `liveLocationMessage`;
+ * lo que faltaba era leerla de WAHA.
+ *
+ * Primero el bloque de WhatsApp (`_data.Message`), con los nombres en mayuscula o minuscula segun
+ * el motor; si no esta, el campo `location` que WAHA arma arriba del mensaje.
+ */
+function leerUbicacionWaha(
+  bloque: Record<string, unknown> | null,
+  campoLocation: unknown,
+): UbicacionWaha | null {
+  for (const nodo of ["locationMessage", "liveLocationMessage"] as const) {
+    const crudo = bloque ? campoCrudo(bloque, nodo) : undefined;
+    if (!esObjeto(crudo)) {
+      continue;
+    }
+    const latitud = numeroCrudo(campoCrudo(crudo, "degreesLatitude"));
+    const longitud = numeroCrudo(campoCrudo(crudo, "degreesLongitude"));
+    if (!coordenadasValidas(latitud, longitud)) {
+      continue;
+    }
+    return {
+      nodo,
+      latitud: latitud as number,
+      longitud: longitud as number,
+      // La ubicacion en tiempo real no trae nombre: lo que la persona escribio va en el caption.
+      nombre: textoCrudo(campoCrudo(crudo, "name")) || textoCrudo(campoCrudo(crudo, "caption")),
+      direccion: textoCrudo(campoCrudo(crudo, "address")),
+    };
+  }
+
+  if (esObjeto(campoLocation)) {
+    const latitud = numeroCrudo(campoCrudo(campoLocation, "latitude"));
+    const longitud = numeroCrudo(campoCrudo(campoLocation, "longitude"));
+    if (coordenadasValidas(latitud, longitud)) {
+      return {
+        nodo: campoCrudo(campoLocation, "live") === true ? "liveLocationMessage" : "locationMessage",
+        latitud: latitud as number,
+        longitud: longitud as number,
+        nombre:
+          textoCrudo(campoCrudo(campoLocation, "name")) ||
+          textoCrudo(campoCrudo(campoLocation, "description")),
+        direccion: textoCrudo(campoCrudo(campoLocation, "address")),
+      };
+    }
+  }
+
+  return null;
+}
+
+/** Nombre y telefonos de una vCard ("FN:" y las lineas "TEL"). */
+function datosDeVcard(vcard: string): { nombre: string; telefonos: string[] } {
+  // Una linea larga se parte en varias que empiezan con espacio: se vuelven a juntar.
+  const lineas = vcard.replace(/\r\n/g, "\n").replace(/\n[ \t]/g, "").split("\n");
+  const desescapar = (valor: string) => valor.replace(/\\([,;\\])/g, "$1").replace(/\\n/gi, " ").trim();
+  let nombre = "";
+  const telefonos: string[] = [];
+  for (const linea of lineas) {
+    const dosPuntos = linea.indexOf(":");
+    if (dosPuntos <= 0) {
+      continue;
+    }
+    // "item1.TEL;waid=573001112233" -> "TEL"
+    const propiedad = linea.slice(0, dosPuntos).split(";")[0].split(".").pop()?.toUpperCase() ?? "";
+    const valor = desescapar(linea.slice(dosPuntos + 1));
+    if (propiedad === "FN" && valor && !nombre) {
+      nombre = valor;
+    } else if (propiedad === "TEL" && valor && !telefonos.includes(valor)) {
+      telefonos.push(valor);
+    }
+  }
+  return { nombre, telefonos };
+}
+
+/**
+ * Las tarjetas de contacto (vCard) que alguien comparte, como texto: una linea por contacto.
+ *
+ * Se descartaban igual que las ubicaciones. Van como texto y no como un tipo aparte porque el
+ * webhook y la burbuja todavia no saben dibujar un contacto; asi la asesora al menos ve el nombre
+ * y el numero. Devuelve "" si el mensaje no es un contacto.
+ */
+function textoDeContactosWaha(bloque: Record<string, unknown> | null, campoVCards: unknown): string {
+  const tarjetas: { nombre: string; vcard: string }[] = [];
+  const agregar = (nodo: unknown) => {
+    if (!esObjeto(nodo)) {
+      return;
+    }
+    tarjetas.push({
+      nombre: textoCrudo(campoCrudo(nodo, "displayName")),
+      vcard: typeof campoCrudo(nodo, "vcard") === "string" ? (campoCrudo(nodo, "vcard") as string) : "",
+    });
+  };
+
+  if (bloque) {
+    const varios = campoCrudo(bloque, "contactsArrayMessage");
+    const lista = esObjeto(varios) ? campoCrudo(varios, "contacts") : undefined;
+    if (Array.isArray(lista)) {
+      lista.forEach(agregar);
+    }
+    if (!tarjetas.length) {
+      agregar(campoCrudo(bloque, "contactMessage"));
+    }
+  }
+  if (!tarjetas.length && Array.isArray(campoVCards)) {
+    for (const vcard of campoVCards) {
+      if (typeof vcard === "string" && vcard.trim()) {
+        tarjetas.push({ nombre: "", vcard });
+      }
+    }
+  }
+
+  const lineas = tarjetas
+    .map(({ nombre, vcard }) => {
+      const datos = datosDeVcard(vcard);
+      const quien = datos.nombre || nombre;
+      const partes = [quien, datos.telefonos.join(", ")].filter(Boolean);
+      return partes.length ? `👤 Contacto: ${partes.join(" · ")}` : "";
+    })
+    .filter(Boolean);
+  return lineas.join("\n");
+}
+
 /** Un estado ("historia"), una lista de difusion o un canal: ninguno es un chat con alguien. */
 function esEstadoOCanal(jid: string): boolean {
   const valor = jid.trim().toLowerCase();
@@ -939,6 +1101,10 @@ export function traducirEventoWaha(
     hasMedia?: unknown;
     media?: unknown;
     participant?: unknown;
+    /** La ubicacion que WAHA arma arriba del mensaje (latitude, longitude, live, name, address). */
+    location?: unknown;
+    /** Las tarjetas de contacto compartidas, como texto vCard. */
+    vCards?: unknown;
     _data?: unknown;
   };
 
@@ -1032,7 +1198,22 @@ export function traducirEventoWaha(
   })();
   const contextoDelMensaje = citaCruda ?? contextoDeAnuncio;
 
-  const textoVisible = texto.trim()
+  /*
+    La ubicacion y las tarjetas de contacto se leen ANTES que el texto y el archivo.
+
+    En algunos motores el `body` de una ubicacion es su miniatura y el de un contacto es la vCard
+    cruda, y la miniatura puede venir marcada como archivo: leidos como texto o archivo, el pin
+    quedaria como un texto ilegible o como "archivo que no se pudo descargar".
+  */
+  const ubicacion = leerUbicacionWaha(bloqueDelMensaje, mensaje.location);
+  const textoDeContactos = ubicacion ? "" : textoDeContactosWaha(bloqueDelMensaje, mensaje.vCards);
+  const esUbicacionOContacto = Boolean(ubicacion || textoDeContactos);
+
+  const textoVisible = textoDeContactos
+    ? textoDeContactos
+    : ubicacion
+      ? ""
+      : texto.trim()
     ? texto
     : textoInteractivo.trim()
       ? textoInteractivo
@@ -1048,7 +1229,7 @@ export function traducirEventoWaha(
   const urlDelArchivo = typeof archivo.url === "string" ? archivo.url : "";
   const mimetype = typeof archivo.mimetype === "string" ? archivo.mimetype : "";
   const nombreDelArchivo = typeof archivo.filename === "string" ? archivo.filename : "";
-  const tieneMedia = mensaje.hasMedia === true && Boolean(urlDelArchivo);
+  const tieneMedia = !esUbicacionOContacto && mensaje.hasMedia === true && Boolean(urlDelArchivo);
 
   /*
     Un mensaje con media pero SIN archivo se guarda IGUAL.
@@ -1062,8 +1243,8 @@ export function traducirEventoWaha(
     chat no aparece ni una burbuja, y la asesora cree que no escribio. Una burbuja que dice "mando
     un audio y no se pudo descargar" es peor que el audio, pero muchisimo mejor que el silencio.
   */
-  const mediaSinArchivo = mensaje.hasMedia === true && !urlDelArchivo;
-  if (!tieneMedia && !mediaSinArchivo && !textoVisible.trim()) {
+  const mediaSinArchivo = !esUbicacionOContacto && mensaje.hasMedia === true && !urlDelArchivo;
+  if (!ubicacion && !tieneMedia && !mediaSinArchivo && !textoVisible.trim()) {
     /*
       Se dice QUE traia el mensaje que no supimos leer.
 
@@ -1142,7 +1323,18 @@ export function traducirEventoWaha(
             ? { participant: jidDeWaha(mensaje.participant) }
             : {}),
         },
-        message: tieneMedia || mediaSinArchivo
+        message: ubicacion
+          ? {
+              // La forma de WhatsApp que el webhook ya lee: tipo LOCATION y el pin con el mapa.
+              [ubicacion.nodo]: {
+                degreesLatitude: ubicacion.latitud,
+                degreesLongitude: ubicacion.longitud,
+                ...(ubicacion.nombre ? { name: ubicacion.nombre } : {}),
+                ...(ubicacion.direccion ? { address: ubicacion.direccion } : {}),
+                ...(contextoDelMensaje ? { contextInfo: contextoDelMensaje } : {}),
+              },
+            }
+          : tieneMedia || mediaSinArchivo
           ? {
               [nodoSegunMime(mimetype)]: {
                 ...(contextoDelMensaje ? { contextInfo: contextoDelMensaje } : {}),
