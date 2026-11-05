@@ -17,6 +17,8 @@ const estado = {
   metaRespuesta: null,
   metaTardaMs: 0,
   metaPreguntas: 0,
+  metaLista: null,
+  metaListas: 0,
   metaConfigurada: true,
   pausas: [],
   actividades: [],
@@ -34,6 +36,8 @@ function reiniciar() {
   estado.metaRespuesta = null;
   estado.metaTardaMs = 0;
   estado.metaPreguntas = 0;
+  estado.metaLista = null;
+  estado.metaListas = 0;
   estado.metaConfigurada = true;
   estado.pausas = [];
   estado.actividades = [];
@@ -58,6 +62,22 @@ const prisma = {
         creadas.set(where.key, new Date());
       }
       return {};
+    },
+    create: async ({ data }) => {
+      // Igual que Prisma: la clave repetida falla.
+      if (estado.settings.has(data.key)) throw new Error("Unique constraint failed");
+      estado.settings.set(data.key, data.value);
+      creadas.set(data.key, new Date());
+      return {};
+    },
+    updateMany: async ({ where, data }) => {
+      if (!estado.settings.has(where.key)) return { count: 0 };
+      const actual = estado.settings.get(where.key);
+      const cumple =
+        typeof where.value === "string" ? actual === where.value : where.value?.lt !== undefined ? actual < where.value.lt : true;
+      if (!cumple) return { count: 0 };
+      estado.settings.set(where.key, data.value);
+      return { count: 1 };
     },
   },
   conversation: {
@@ -90,6 +110,10 @@ const mocks = {
       estado.metaPreguntas += 1;
       if (estado.metaTardaMs) await new Promise((r) => setTimeout(r, estado.metaTardaMs));
       return estado.metaRespuesta;
+    },
+    listarAnunciosDeCampana: async () => {
+      estado.metaListas += 1;
+      return estado.metaLista;
     },
   },
   "@/lib/conversation-automation": {
@@ -128,6 +152,10 @@ const {
   claveDeCampanaDelAnuncio,
   claveDeUsoDeLaRegla,
   usoDeLasReglas,
+  aprenderAnunciosDeCampanas,
+  aprenderAnunciosDeCampanasConLimite,
+  anunciosConocidosPorCampana,
+  claveDeCampanasActualizadas,
   ESPERA_DE_META_MS,
 } = rpa;
 
@@ -376,6 +404,98 @@ await prueba("un anuncio sin id válido no hace nada", async () => {
   assert.equal((await aplicarReglaDeAnuncio(chat({ anuncio: { id: "", titulo: "", red: "", ctwaClid: "" } }))).aplicada, false);
 });
 
+// ── Aprender de Meta los anuncios de cada campaña con regla ────────────────────────────────────
+const LISTA = [
+  { anuncioId: ANUNCIO, anuncioNombre: "Foto Cali", campanaId: CAMPANA, campanaNombre: "Salones nov" },
+  { anuncioId: "120210000000000002", anuncioNombre: "Video", campanaId: CAMPANA, campanaNombre: "Salones nov" },
+];
+
+await prueba("después de aprender, la campaña del anuncio sale del recuerdo sin preguntarle a Meta por el anuncio", async () => {
+  estado.metaLista = LISTA;
+  const r = await aprenderAnunciosDeCampanas("ws", [regla(), regla({ activa: false, metaId: "99999999" }), regla({ tipo: "anuncio", metaId: ANUNCIO })]);
+  assert.deepEqual(r, { anuncios: 2, campanas: 1, campanasFallidas: 0 });
+  assert.equal(estado.metaListas, 1, "solo la campaña prendida");
+  const campana = await campanaDelAnuncio("ws", ANUNCIO, { esperaMs: 50 });
+  assert.equal(campana.campanaId, CAMPANA);
+  assert.equal(campana.campanaNombre, "Salones nov");
+  assert.equal(estado.metaPreguntas, 0);
+  assert.deepEqual(await anunciosConocidosPorCampana(), { [CAMPANA]: 2 });
+});
+
+await prueba("después de aprender, el chat de la campaña se asigna sin preguntarle a Meta por el anuncio", async () => {
+  estado.metaLista = LISTA;
+  await aprenderAnunciosDeCampanas("ws", [regla()]);
+  guardar([regla()]);
+  const r = await aplicarReglaDeAnuncio(chat());
+  await esperarAvisos();
+  assert.equal(r.aplicada, true);
+  assert.equal(estado.metaPreguntas, 0);
+});
+
+await prueba("dos chats seguidos leen la lista de Meta una sola vez (marca de 15 minutos)", async () => {
+  guardar([regla()]);
+  estado.metaLista = LISTA;
+  await aplicarReglaDeAnuncio(chat());
+  await esperarAvisos();
+  estado.conversacion = { assignedToUserId: null };
+  await aplicarReglaDeAnuncio(chat({ conversationId: "conv-2", contactId: "contacto-2" }));
+  await esperarAvisos();
+  assert.equal(estado.metaListas, 1);
+  assert.ok(estado.settings.has(claveDeCampanasActualizadas("ws")));
+  // Dos a la vez: solo uno pregunta.
+  estado.settings.delete(claveDeCampanasActualizadas("ws"));
+  const juntos = await Promise.all([
+    aprenderAnunciosDeCampanasConLimite("ws", [regla()]),
+    aprenderAnunciosDeCampanasConLimite("ws", [regla()]),
+  ]);
+  assert.deepEqual(juntos.sort(), [false, true]);
+  assert.equal(estado.metaListas, 2);
+  // Pasados los 15 minutos, vuelve a leer.
+  estado.settings.set(claveDeCampanasActualizadas("ws"), new Date(Date.now() - 16 * 60 * 1000).toISOString());
+  assert.equal(await aprenderAnunciosDeCampanasConLimite("ws", [regla()]), true);
+  assert.equal(estado.metaListas, 3);
+  // Otro negocio tiene su propia marca.
+  assert.equal(await aprenderAnunciosDeCampanasConLimite("otro-ws", [regla()]), true);
+});
+
+await prueba("aprender no cambia el resultado de la regla ni demora el chat", async () => {
+  guardar([regla({ tipo: "anuncio", metaId: ANUNCIO }), regla({ asignarA: "otra" })]);
+  estado.metaLista = LISTA;
+  const tareas = [];
+  const r = await aplicarReglaDeAnuncio(chat({ enSegundoPlano: (tarea) => tareas.push(tarea) }));
+  assert.equal(r.aplicada, true);
+  assert.equal(estado.metaListas, 0, "el aprendizaje queda para después");
+  assert.equal(tareas.length, 2, "aprender y los avisos van en segundo plano");
+  await Promise.all(tareas.map((t) => t()));
+  assert.equal(estado.metaListas, 1);
+});
+
+await prueba("sin llave de Meta: no se llama a la lista ni lanza", async () => {
+  guardar([regla()]);
+  estado.metaConfigurada = false;
+  estado.metaLista = LISTA;
+  assert.equal((await aplicarReglaDeAnuncio(chat())).aplicada, false);
+  await esperarAvisos();
+  assert.equal(await aprenderAnunciosDeCampanas("ws", [regla()]), null);
+  assert.equal(await aprenderAnunciosDeCampanasConLimite("ws", [regla()]), false);
+  assert.equal(estado.metaListas, 0);
+  assert.equal(estado.settings.has(claveDeCampanasActualizadas("ws")), false);
+});
+
+await prueba("si Meta falla al listar, no lanza y no guarda nada", async () => {
+  estado.metaLista = null;
+  assert.deepEqual(await aprenderAnunciosDeCampanas("ws", [regla()]), { anuncios: 0, campanas: 1, campanasFallidas: 1 });
+  assert.deepEqual(await anunciosConocidosPorCampana(), {});
+});
+
+await prueba("meta-ads-lectura.ts: solo GET, y la lista de anuncios de la campaña usa `leer`", () => {
+  const lectura = fs.readFileSync(path.join(RAIZ, "src/features/pauta/servicios/meta-ads-lectura.ts"), "utf8");
+  const metodos = lectura.match(/method:\s*["'`]?\w+/g) ?? [];
+  assert.ok(metodos.length > 0);
+  for (const metodo of metodos) assert.match(metodo, /method:\s*["'`]GET$/);
+  assert.match(lectura, /await leer\(`\$\{campanaId\}\/ads`, \{ fields: "id,name,campaign\{id,name\}", limit: "200" \}\)/);
+});
+
 // ── El webhook y la pantalla (lectura del código) ──────────────────────────────────────────────
 const webhook = fs.readFileSync(path.join(RAIZ, "src/app/api/webhooks/evolution/route.ts"), "utf8");
 
@@ -399,14 +519,14 @@ await prueba("pantalla y acciones: solo dueño y administradores", () => {
   assert.match(pagina, /requireClientWorkspaceAccess\("client_team", \{ ownerOnly: true \}\)/);
   const exportadas = acciones.match(/export async function \w+/g) ?? [];
   const protegidas = acciones.match(/requireClientWorkspaceAccess\("client_team", \{ ownerOnly: true \}\)/g) ?? [];
-  assert.equal(exportadas.length, 3);
+  assert.equal(exportadas.length, 4);
   assert.equal(protegidas.length, exportadas.length);
   assert.match(acciones, /if \(!esIdDeMeta\(metaId\)\) return \{ error:/);
 });
 
 await prueba("solo lectura de Meta: se usa buscarAnuncio sin otros métodos", () => {
   const fuente = fs.readFileSync(path.join(RAIZ, "src/lib/reparto-por-anuncio.ts"), "utf8");
-  assert.match(fuente, /import \{ buscarAnuncio, metaAdsConfigurado \} from "@\/features\/pauta\/servicios\/meta-ads-lectura";/);
+  assert.match(fuente, /import \{ buscarAnuncio, listarAnunciosDeCampana, metaAdsConfigurado \} from "@\/features\/pauta\/servicios\/meta-ads-lectura";/);
   assert.doesNotMatch(fuente, /graph\.facebook\.com|method:\s*"(POST|DELETE)"/);
 });
 

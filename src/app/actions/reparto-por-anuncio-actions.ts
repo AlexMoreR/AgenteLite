@@ -8,6 +8,7 @@ import { prisma } from "@/lib/prisma";
 import {
   MAXIMO_DE_REGLAS,
   TIPOS_DE_REGLA,
+  aprenderAnunciosDeCampanas,
   esIdDeMeta,
   guardarReglas,
   leerReglas,
@@ -48,6 +49,7 @@ export async function crearReglaDeAnuncioAction(input: {
   const channelId = texto(input?.channelId);
   const asignarA = texto(input?.asignarA) || null;
 
+  let nueva: ReglaDeAnuncio;
   try {
     const [linea, asesora, reglas] = await Promise.all([
       channelId
@@ -68,7 +70,7 @@ export async function crearReglaDeAnuncioAction(input: {
     }
     if (reglas.length >= MAXIMO_DE_REGLAS) return { error: `Máximo ${MAXIMO_DE_REGLAS} reglas: borra alguna.` };
 
-    const nueva: ReglaDeAnuncio = {
+    nueva = {
       id: randomUUID(),
       tipo: tipo as TipoDeRegla,
       metaId,
@@ -84,8 +86,37 @@ export async function crearReglaDeAnuncioAction(input: {
     console.error("[reparto-por-anuncio] no se pudo guardar la regla", error);
     return { error: "No se pudo guardar la regla. Intenta de nuevo." };
   }
+  // Regla de campaña: se intenta aprender ya sus anuncios de Meta (solo lectura). Si falla, la regla
+  // igual queda guardada y se aprenden con el próximo chat o con el botón "Actualizar anuncios".
+  if (nueva.tipo === "campana") {
+    await aprenderAnunciosDeCampanas(access.workspaceId, [nueva]).catch(() => null);
+  }
   revalidatePath(RUTA);
   return { ok: true };
+}
+
+/**
+ * Le pide ya a Meta (solo lectura) los anuncios de todas las campañas con regla prendida, sin esperar
+ * los 15 minutos del aprendizaje automático. Responde cuántos anuncios aprendió.
+ */
+export async function actualizarAnunciosDeCampanasAction(): Promise<{ ok: true; anuncios: number } | { error: string }> {
+  const access = await requireClientWorkspaceAccess("client_team", { ownerOnly: true });
+  try {
+    const reglas = await leerReglas(access.workspaceId);
+    if (!reglas.some((regla) => regla.activa && regla.tipo === "campana")) {
+      return { error: "No hay reglas de campaña prendidas." };
+    }
+    const resultado = await aprenderAnunciosDeCampanas(access.workspaceId, reglas);
+    if (!resultado) return { error: "Falta la llave de Meta en el servidor: no se pueden leer los anuncios." };
+    if (resultado.anuncios === 0 && resultado.campanasFallidas > 0) {
+      return { error: "Meta no contestó. Intenta de nuevo en un rato." };
+    }
+    revalidatePath(RUTA);
+    return { ok: true, anuncios: resultado.anuncios };
+  } catch (error) {
+    console.error("[reparto-por-anuncio] no se pudieron actualizar los anuncios", error);
+    return { error: "No se pudieron actualizar los anuncios. Intenta de nuevo." };
+  }
 }
 
 export async function cambiarReglaDeAnuncioAction(input: { id: string; activa: boolean }): Promise<Respuesta> {

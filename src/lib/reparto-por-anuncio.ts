@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { buscarAnuncio, metaAdsConfigurado } from "@/features/pauta/servicios/meta-ads-lectura";
+import { buscarAnuncio, listarAnunciosDeCampana, metaAdsConfigurado } from "@/features/pauta/servicios/meta-ads-lectura";
 import { setConversationAutomationPaused } from "@/lib/conversation-automation";
 import { recordConversationActivity } from "@/lib/conversation-activity";
 import { etapaAlAsignar } from "@/lib/etapa-automatica-crm";
@@ -17,6 +17,11 @@ import { avisarAsignacionPorPush } from "@/lib/reparto-de-leads";
  * - El mensaje de WhatsApp trae el anuncio, no la campaña: la campaña se busca en lo que el CRM ya sabe
  *   (OrigenDePauta, o el recuerdo `reparto-por-anuncio:campana:<anuncio>`) y, si no, se le pregunta a
  *   Meta con la función de SOLO LECTURA del informe de pauta, con un límite de 3 segundos.
+ * - Para no depender de esa pregunta en cada chat, el CRM APRENDE de Meta (solo lectura) los anuncios
+ *   de cada campaña con regla y los deja en ese mismo recuerdo: al guardar una regla de campaña, con el
+ *   botón "Actualizar anuncios", y en segundo plano cuando llega un chat de una línea con reglas de
+ *   campaña (como mucho una vez cada 15 minutos por negocio, con la marca
+ *   `reparto-por-anuncio:campanas-actualizadas:<negocio>`).
  * - Nunca le saca un chat a nadie: si ya tiene dueña, no se toca.
  * - Si la asesora de la regla ya no está activa en el equipo, el chat sigue el reparto normal.
  * - No le escribe nada al cliente. Cuando la regla le pasa el chat a una asesora, el bot SIEMPRE queda
@@ -283,6 +288,119 @@ export async function campanaDelAnuncio(
   return resultado;
 }
 
+// ── Aprender los anuncios de cada campaña con regla ────────────────────────────────────────────
+
+/** Cada cuánto, como mucho, se le vuelven a pedir a Meta los anuncios de las campañas (desde un chat). */
+export const CADA_CUANTO_SE_APRENDE_MS = 15 * 60 * 1000;
+
+/** La marca de la última vez que se le pidieron a Meta los anuncios de las campañas de ese negocio. */
+export function claveDeCampanasActualizadas(workspaceId: string): string {
+  return `reparto-por-anuncio:campanas-actualizadas:${workspaceId}`;
+}
+
+export type AnunciosAprendidos = { anuncios: number; campanas: number; campanasFallidas: number };
+
+/**
+ * Le pide a Meta (SOLO LECTURA) los anuncios de cada campaña con regla prendida y guarda cada uno en el
+ * recuerdo `reparto-por-anuncio:campana:<anuncio>`, así el próximo chat de ese anuncio ya sabe su
+ * campaña sin preguntar. null = no hay llave de Meta (no se llama a Meta). Nunca lanza.
+ */
+export async function aprenderAnunciosDeCampanas(
+  workspaceId: string,
+  reglas: ReglaDeAnuncio[],
+): Promise<AnunciosAprendidos | null> {
+  try {
+    if (!metaAdsConfigurado()) return null;
+    const campanas = [...new Set(reglas.filter((r) => r.activa && r.tipo === "campana").map((r) => r.metaId))];
+    const resultado: AnunciosAprendidos = { anuncios: 0, campanas: campanas.length, campanasFallidas: 0 };
+    for (const campanaId of campanas) {
+      const anuncios = await listarAnunciosDeCampana(campanaId);
+      if (!anuncios) {
+        resultado.campanasFallidas += 1;
+        continue;
+      }
+      for (const anuncio of anuncios) {
+        if (!esIdDeMeta(anuncio.anuncioId)) continue;
+        await guardarRecuerdo(anuncio.anuncioId, {
+          campanaId: anuncio.campanaId || campanaId,
+          campanaNombre: anuncio.campanaNombre,
+          anuncioNombre: anuncio.anuncioNombre,
+        });
+        resultado.anuncios += 1;
+      }
+    }
+    console.log("[reparto-por-anuncio] anuncios de las campañas aprendidos de Meta", { workspaceId, ...resultado });
+    return resultado;
+  } catch (error) {
+    console.warn("[reparto-por-anuncio] no se pudieron aprender los anuncios de las campañas", {
+      workspaceId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { anuncios: 0, campanas: 0, campanasFallidas: 0 };
+  }
+}
+
+/**
+ * Lo mismo, pero como mucho una vez cada 15 minutos por negocio (para llamarla desde cada chat). La marca
+ * se guarda ANTES de preguntar, así dos chats casi juntos no leen a Meta dos veces. Sin llave no se
+ * llama a Meta ni se toca la marca. Devuelve si le preguntó a Meta. Nunca lanza.
+ */
+export async function aprenderAnunciosDeCampanasConLimite(workspaceId: string, reglas: ReglaDeAnuncio[]): Promise<boolean> {
+  try {
+    if (!metaAdsConfigurado()) return false;
+    if (!reglas.some((regla) => regla.activa && regla.tipo === "campana")) return false;
+    const clave = claveDeCampanasActualizadas(workspaceId);
+    const ahora = new Date();
+    const corte = new Date(ahora.getTime() - CADA_CUANTO_SE_APRENDE_MS).toISOString();
+    const marca = await prisma.appSetting.findUnique({ where: { key: clave }, select: { value: true } });
+    if (!marca) {
+      // Si otro chat la creó al mismo tiempo, falla por clave repetida y este no pregunta.
+      const creada = await prisma.appSetting
+        .create({ data: { key: clave, value: ahora.toISOString() } })
+        .then(() => true)
+        .catch(() => false);
+      if (!creada) return false;
+    } else {
+      // Solo gana quien encuentra la marca vieja (o rota): la actualiza y pregunta; los demás no.
+      const marcaRota = Number.isNaN(Date.parse(marca.value));
+      const tomada = await prisma.appSetting.updateMany({
+        where: marcaRota ? { key: clave, value: marca.value } : { key: clave, value: { lt: corte } },
+        data: { value: ahora.toISOString() },
+      });
+      if (tomada.count === 0) return false;
+    }
+    await aprenderAnunciosDeCampanas(workspaceId, reglas);
+    return true;
+  } catch (error) {
+    console.warn("[reparto-por-anuncio] no se pudo revisar si toca aprender los anuncios", {
+      workspaceId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return false;
+  }
+}
+
+/** Cuántos anuncios conoce el CRM de cada campaña (por id de campaña), según los recuerdos. Nunca lanza. */
+export async function anunciosConocidosPorCampana(): Promise<Record<string, number>> {
+  try {
+    const filas = await prisma.appSetting.findMany({
+      where: { key: { startsWith: claveDeCampanaDelAnuncio("") } },
+      select: { value: true },
+    });
+    const cuenta: Record<string, number> = {};
+    for (const fila of filas) {
+      const recuerdo = leerRecuerdo(fila.value);
+      if (recuerdo) cuenta[recuerdo.campanaId] = (cuenta[recuerdo.campanaId] ?? 0) + 1;
+    }
+    return cuenta;
+  } catch (error) {
+    console.warn("[reparto-por-anuncio] no se pudieron contar los anuncios conocidos", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return {};
+  }
+}
+
 // ── Aplicar la regla al chat ───────────────────────────────────────────────────────────────────
 
 export type ResultadoDeLaRegla =
@@ -324,6 +442,14 @@ export async function aplicarReglaDeAnuncio(input: {
         });
       }
       return NO_APLICADA;
+    }
+
+    // En segundo plano (como mucho cada 15 minutos): aprender los anuncios de las campañas con regla.
+    // No se espera: no demora el webhook ni cambia el resultado de esta regla.
+    if (hayReglasDeCampanaEnLaLinea(reglas, input.channelId)) {
+      const aprender = () => aprenderAnunciosDeCampanasConLimite(input.workspaceId, reglas);
+      if (input.enSegundoPlano) input.enSegundoPlano(aprender);
+      else void aprender();
     }
 
     let campana: CampanaDelAnuncio | null = null;
