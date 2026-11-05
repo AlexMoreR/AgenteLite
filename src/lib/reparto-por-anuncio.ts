@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { buscarAnuncio, metaAdsConfigurado } from "@/features/pauta/servicios/meta-ads-lectura";
+import { buscarAnuncio, listarAnunciosDeCampana, metaAdsConfigurado } from "@/features/pauta/servicios/meta-ads-lectura";
 import { setConversationAutomationPaused } from "@/lib/conversation-automation";
 import { recordConversationActivity } from "@/lib/conversation-activity";
 import { etapaAlAsignar } from "@/lib/etapa-automatica-crm";
@@ -27,6 +27,11 @@ import { avisarAsignacionPorPush } from "@/lib/reparto-de-leads";
  *   (`reparto-por-anuncio:uso:<negocio>:<regla>:<chat>`) para contar cuántos chats tomó cada regla.
  * - Si una regla no se aplica, el registro dice por qué: sin llave de Meta, Meta no contestó a tiempo,
  *   Meta no conoce el anuncio, o la regla es de otra línea.
+ * - Los anuncios de cada campaña con regla se APRENDEN de Meta (solo lectura, `listarAnunciosDeCampana`)
+ *   y quedan en el mismo recuerdo `reparto-por-anuncio:campana:<anuncio>`, para que el chat no tenga que
+ *   esperar a Meta. Se aprenden al crear la regla, con el botón de la pantalla y, en segundo plano, cuando
+ *   llega un chat de anuncio a una línea con reglas de campaña: como mucho una vez cada 15 minutos por
+ *   negocio (marca `reparto-por-anuncio:campanas-actualizadas:<negocio>`).
  */
 
 export const TIPOS_DE_REGLA = ["campana", "anuncio"] as const;
@@ -93,6 +98,14 @@ export async function usoDeLasReglas(workspaceId: string): Promise<Record<string
 export function claveDeCampanaDelAnuncio(anuncioId: string): string {
   return `reparto-por-anuncio:campana:${anuncioId}`;
 }
+
+/** La marca de la última vez que se leyeron de Meta los anuncios de las campañas de un negocio. */
+export function claveDeCampanasActualizadas(workspaceId: string): string {
+  return `reparto-por-anuncio:campanas-actualizadas:${workspaceId}`;
+}
+
+/** Cada cuánto, como mucho, se le leen a Meta los anuncios de las campañas desde los chats. */
+export const ESPERA_ENTRE_LECTURAS_DE_CAMPANAS_MS = 15 * 60_000;
 
 /** Un id de Meta válido: solo números, de 5 a 25 cifras (igual que pide `buscarAnuncio`). */
 export function esIdDeMeta(valor: unknown): valor is string {
@@ -200,6 +213,8 @@ function leerRecuerdo(valor: string | null | undefined): CampanaDelAnuncio | nul
   }
 }
 
+const PREFIJO_DE_RECUERDOS = "reparto-por-anuncio:campana:";
+
 async function guardarRecuerdo(anuncioId: string, campana: CampanaDelAnuncio): Promise<void> {
   const clave = claveDeCampanaDelAnuncio(anuncioId);
   const valor = JSON.stringify(campana);
@@ -283,6 +298,117 @@ export async function campanaDelAnuncio(
   return resultado;
 }
 
+// ── Aprender los anuncios de cada campaña ──────────────────────────────────────────────────────
+
+export type ResultadoDeAprender =
+  | { estado: "sin llave" }
+  | { estado: "ok"; campanas: number; anuncios: number; campanasQueFallaron: number };
+
+/**
+ * Lee de Meta (solo lectura) los anuncios de cada campaña con regla prendida y guarda cada uno en el
+ * recuerdo `reparto-por-anuncio:campana:<anuncio>`. Sin llave no le pregunta nada a Meta. Si una
+ * campaña falla, sigue con las demás. Nunca lanza.
+ */
+export async function aprenderAnunciosDeCampanas(workspaceId: string, reglas: ReglaDeAnuncio[]): Promise<ResultadoDeAprender> {
+  if (!metaAdsConfigurado()) return { estado: "sin llave" };
+  const campanas = new Map<string, string>();
+  for (const regla of reglas) {
+    if (regla.activa && regla.tipo === "campana" && esIdDeMeta(regla.metaId) && !campanas.has(regla.metaId)) {
+      campanas.set(regla.metaId, regla.nombre);
+    }
+  }
+  let anuncios = 0;
+  let campanasQueFallaron = 0;
+  for (const [campanaId, nombreDeLaRegla] of campanas) {
+    try {
+      const lista = await listarAnunciosDeCampana(campanaId);
+      if (!lista) {
+        campanasQueFallaron += 1;
+        continue;
+      }
+      for (const anuncio of lista) {
+        if (!esIdDeMeta(anuncio.anuncioId)) continue;
+        await guardarRecuerdo(anuncio.anuncioId, {
+          campanaId: anuncio.campanaId && esIdDeMeta(anuncio.campanaId) ? anuncio.campanaId : campanaId,
+          campanaNombre: anuncio.campanaNombre ?? (nombreDeLaRegla || null),
+          anuncioNombre: anuncio.anuncioNombre,
+        });
+        anuncios += 1;
+      }
+    } catch (error) {
+      campanasQueFallaron += 1;
+      console.warn("[reparto-por-anuncio] no se pudieron aprender los anuncios de la campaña", {
+        workspaceId,
+        campanaId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  console.log("[reparto-por-anuncio] anuncios de campañas aprendidos de Meta", {
+    workspaceId,
+    campanas: campanas.size,
+    anuncios,
+    campanasQueFallaron,
+  });
+  return { estado: "ok", campanas: campanas.size, anuncios, campanasQueFallaron };
+}
+
+/**
+ * La versión que usan los chats: como mucho una lectura a Meta cada 15 minutos por negocio. La marca se
+ * toma ANTES de preguntar (y de forma atómica: si dos chats llegan juntos, solo uno lee). Sin llave no
+ * toca nada. Nunca lanza.
+ */
+export async function aprenderAnunciosDeCampanasConLimite(workspaceId: string, reglas: ReglaDeAnuncio[]): Promise<void> {
+  try {
+    if (!metaAdsConfigurado()) return;
+    if (!reglas.some((regla) => regla.activa && regla.tipo === "campana")) return;
+    const clave = claveDeCampanasActualizadas(workspaceId);
+    const ahora = new Date();
+    const corte = new Date(ahora.getTime() - ESPERA_ENTRE_LECTURAS_DE_CAMPANAS_MS).toISOString();
+    // La marca guarda la fecha en ISO: comparar el texto es comparar la fecha.
+    const tomada = await prisma.appSetting.updateMany({
+      where: { key: clave, value: { lt: corte } },
+      data: { value: ahora.toISOString() },
+    });
+    if (tomada.count === 0) {
+      // O no existe todavía, o se leyó hace menos de 15 minutos: crearla falla si ya existe.
+      const creada = await prisma.appSetting
+        .create({ data: { key: clave, value: ahora.toISOString() } })
+        .then(() => true)
+        .catch(() => false);
+      if (!creada) return;
+    }
+    await aprenderAnunciosDeCampanas(workspaceId, reglas);
+  } catch (error) {
+    console.warn("[reparto-por-anuncio] no se pudieron actualizar los anuncios de las campañas", {
+      workspaceId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/** Cuántos anuncios conoce el CRM de cada campaña (de los recuerdos), por id de campaña. Nunca lanza. */
+export async function anunciosConocidosPorCampana(): Promise<Record<string, number>> {
+  try {
+    const filas = await prisma.appSetting.findMany({
+      where: { key: { startsWith: PREFIJO_DE_RECUERDOS } },
+      select: { key: true, value: true },
+    });
+    const cuenta: Record<string, number> = {};
+    for (const fila of filas) {
+      const recuerdo = leerRecuerdo(fila.value);
+      if (!recuerdo) continue;
+      cuenta[recuerdo.campanaId] = (cuenta[recuerdo.campanaId] ?? 0) + 1;
+    }
+    return cuenta;
+  } catch (error) {
+    console.warn("[reparto-por-anuncio] no se pudieron contar los anuncios conocidos", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return {};
+  }
+}
+
 // ── Aplicar la regla al chat ───────────────────────────────────────────────────────────────────
 
 export type ResultadoDeLaRegla =
@@ -324,6 +450,18 @@ export async function aplicarReglaDeAnuncio(input: {
         });
       }
       return NO_APLICADA;
+    }
+
+    // Los anuncios de las campañas con regla se repasan en segundo plano (como mucho cada 15 minutos):
+    // no demora el chat ni cambia lo que decide la regla.
+    if (hayReglasDeCampanaEnLaLinea(reglas, input.channelId)) {
+      const aprender = () => aprenderAnunciosDeCampanasConLimite(input.workspaceId, reglas);
+      try {
+        if (input.enSegundoPlano) input.enSegundoPlano(aprender);
+        else void aprender();
+      } catch {
+        // Si no se pudo lanzar, la regla sigue igual: se aprenderá con el próximo chat.
+      }
     }
 
     let campana: CampanaDelAnuncio | null = null;

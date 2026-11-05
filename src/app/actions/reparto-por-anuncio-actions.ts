@@ -8,6 +8,7 @@ import { prisma } from "@/lib/prisma";
 import {
   MAXIMO_DE_REGLAS,
   TIPOS_DE_REGLA,
+  aprenderAnunciosDeCampanas,
   esIdDeMeta,
   guardarReglas,
   leerReglas,
@@ -19,6 +20,8 @@ import {
  * Reglas del REPARTO POR ANUNCIO (pantalla Equipo → Reparto por anuncio). Solo el dueño o un
  * administrador, igual que el resto de Equipo. Todo se valida contra el negocio de quien pide: la
  * línea y la asesora tienen que ser de ese negocio.
+ *
+ * Los anuncios de las campañas se leen de Meta en SOLO LECTURA (ver `aprenderAnunciosDeCampanas`).
  */
 
 const RUTA = "/cliente/equipo/reparto-por-anuncio";
@@ -48,6 +51,7 @@ export async function crearReglaDeAnuncioAction(input: {
   const channelId = texto(input?.channelId);
   const asignarA = texto(input?.asignarA) || null;
 
+  let nueva: ReglaDeAnuncio;
   try {
     const [linea, asesora, reglas] = await Promise.all([
       channelId
@@ -68,7 +72,7 @@ export async function crearReglaDeAnuncioAction(input: {
     }
     if (reglas.length >= MAXIMO_DE_REGLAS) return { error: `Máximo ${MAXIMO_DE_REGLAS} reglas: borra alguna.` };
 
-    const nueva: ReglaDeAnuncio = {
+    nueva = {
       id: randomUUID(),
       tipo: tipo as TipoDeRegla,
       metaId,
@@ -83,6 +87,11 @@ export async function crearReglaDeAnuncioAction(input: {
   } catch (error) {
     console.error("[reparto-por-anuncio] no se pudo guardar la regla", error);
     return { error: "No se pudo guardar la regla. Intenta de nuevo." };
+  }
+  // La regla ya quedó guardada: si es de campaña, se intenta aprender sus anuncios de Meta (solo
+  // lectura). Si falla o no hay llave, la regla sigue igual y se aprenden después.
+  if (nueva.tipo === "campana") {
+    await aprenderAnunciosDeCampanas(access.workspaceId, [nueva]).catch(() => null);
   }
   revalidatePath(RUTA);
   return { ok: true };
@@ -122,4 +131,29 @@ export async function borrarReglaDeAnuncioAction(input: { id: string }): Promise
   }
   revalidatePath(RUTA);
   return { ok: true };
+}
+
+type RespuestaDeAprender = { ok: true; anuncios: number; campanas: number } | { error: string };
+
+/**
+ * Lee ya mismo de Meta (solo lectura) los anuncios de todas las campañas con regla prendida, sin el
+ * límite de 15 minutos de los chats. Responde cuántos anuncios aprendió. El botón va en la pantalla.
+ */
+export async function actualizarAnunciosDeCampanasAction(): Promise<RespuestaDeAprender> {
+  const access = await requireClientWorkspaceAccess("client_team", { ownerOnly: true });
+  try {
+    const reglas = await leerReglas(access.workspaceId);
+    const resultado = await aprenderAnunciosDeCampanas(access.workspaceId, reglas);
+    if (resultado.estado === "sin llave") {
+      return { error: "Falta la llave de Meta en el servidor: no se pueden leer los anuncios de las campañas." };
+    }
+    if (resultado.campanas > 0 && resultado.campanasQueFallaron === resultado.campanas) {
+      return { error: "Meta no contestó. Intenta de nuevo en unos minutos." };
+    }
+    revalidatePath(RUTA);
+    return { ok: true, anuncios: resultado.anuncios, campanas: resultado.campanas };
+  } catch (error) {
+    console.error("[reparto-por-anuncio] no se pudieron actualizar los anuncios de las campañas", error);
+    return { error: "No se pudieron leer los anuncios. Intenta de nuevo." };
+  }
 }

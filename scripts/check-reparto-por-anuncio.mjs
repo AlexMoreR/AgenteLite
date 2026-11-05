@@ -18,6 +18,8 @@ const estado = {
   metaTardaMs: 0,
   metaPreguntas: 0,
   metaConfigurada: true,
+  metaAnunciosDeCampana: null,
+  metaListas: 0,
   pausas: [],
   actividades: [],
   avisos: [],
@@ -35,6 +37,8 @@ function reiniciar() {
   estado.metaTardaMs = 0;
   estado.metaPreguntas = 0;
   estado.metaConfigurada = true;
+  estado.metaAnunciosDeCampana = null;
+  estado.metaListas = 0;
   estado.pausas = [];
   estado.actividades = [];
   estado.avisos = [];
@@ -49,6 +53,19 @@ const prisma = {
       [...estado.settings.keys()]
         .filter((key) => key.startsWith(where.key.startsWith))
         .map((key) => ({ key, value: estado.settings.get(key), createdAt: creadas.get(key) ?? new Date(0) })),
+    // Solo lo que usa la marca de 15 minutos: `value: { lt }` compara el texto (fechas ISO).
+    updateMany: async ({ where, data }) => {
+      if (!estado.settings.has(where.key)) return { count: 0 };
+      if (where.value?.lt !== undefined && !(estado.settings.get(where.key) < where.value.lt)) return { count: 0 };
+      estado.settings.set(where.key, data.value);
+      return { count: 1 };
+    },
+    create: async ({ data }) => {
+      if (estado.settings.has(data.key)) throw new Error("Unique constraint failed");
+      estado.settings.set(data.key, data.value);
+      creadas.set(data.key, new Date());
+      return {};
+    },
     upsert: async ({ where, create, update }) => {
       if (estado.settings.has(where.key)) {
         // `update: {}` no cambia nada (igual que Prisma).
@@ -91,6 +108,10 @@ const mocks = {
       if (estado.metaTardaMs) await new Promise((r) => setTimeout(r, estado.metaTardaMs));
       return estado.metaRespuesta;
     },
+    listarAnunciosDeCampana: async () => {
+      estado.metaListas += 1;
+      return estado.metaAnunciosDeCampana;
+    },
   },
   "@/lib/conversation-automation": {
     setConversationAutomationPaused: async (input) => {
@@ -128,6 +149,9 @@ const {
   claveDeCampanaDelAnuncio,
   claveDeUsoDeLaRegla,
   usoDeLasReglas,
+  aprenderAnunciosDeCampanas,
+  anunciosConocidosPorCampana,
+  claveDeCampanasActualizadas,
   ESPERA_DE_META_MS,
 } = rpa;
 
@@ -376,6 +400,90 @@ await prueba("un anuncio sin id válido no hace nada", async () => {
   assert.equal((await aplicarReglaDeAnuncio(chat({ anuncio: { id: "", titulo: "", red: "", ctwaClid: "" } }))).aplicada, false);
 });
 
+// ── Aprender los anuncios de cada campaña (solo lectura de Meta) ───────────────────────────────
+const ANUNCIO_2 = "120210000000000002";
+const listaDeMeta = () => [
+  { anuncioId: ANUNCIO, anuncioNombre: "Foto Cali", campanaId: CAMPANA, campanaNombre: "Salones nov" },
+  { anuncioId: ANUNCIO_2, anuncioNombre: "Video", campanaId: CAMPANA, campanaNombre: "Salones nov" },
+  { anuncioId: "roto", anuncioNombre: null, campanaId: CAMPANA, campanaNombre: null },
+];
+
+await prueba("después de aprender, campanaDelAnuncio da la campaña sin preguntarle a Meta por el anuncio", async () => {
+  estado.metaAnunciosDeCampana = listaDeMeta();
+  const r = await aprenderAnunciosDeCampanas("ws", [regla(), regla({ activa: false, metaId: "120210000000000777" }), regla({ tipo: "anuncio", metaId: ANUNCIO })]);
+  assert.deepEqual(r, { estado: "ok", campanas: 1, anuncios: 2, campanasQueFallaron: 0 });
+  assert.equal(estado.metaListas, 1, "solo la campaña prendida");
+  const campana = await campanaDelAnuncio("ws", ANUNCIO_2, { esperaMs: 50 });
+  assert.equal(campana.campanaId, CAMPANA);
+  assert.equal(campana.anuncioNombre, "Video");
+  assert.equal(estado.metaPreguntas, 0);
+  assert.deepEqual(await anunciosConocidosPorCampana(), { [CAMPANA]: 2 });
+});
+
+await prueba("después de aprender, el chat de la campaña se asigna sin esperar a Meta", async () => {
+  guardar([regla()]);
+  estado.metaAnunciosDeCampana = listaDeMeta();
+  await aprenderAnunciosDeCampanas("ws", [regla()]);
+  const r = await aplicarReglaDeAnuncio(chat());
+  await esperarAvisos();
+  assert.equal(r.aplicada, true);
+  assert.equal(estado.metaPreguntas, 0);
+});
+
+await prueba("dos chats seguidos leen la lista de Meta una sola vez (marca de 15 minutos)", async () => {
+  guardar([regla()]);
+  estado.metaAnunciosDeCampana = listaDeMeta();
+  await aplicarReglaDeAnuncio(chat());
+  await esperarAvisos();
+  estado.conversacion = { assignedToUserId: null };
+  await aplicarReglaDeAnuncio(chat({ conversationId: "conv-2", contactId: "contacto-2" }));
+  await esperarAvisos();
+  assert.equal(estado.metaListas, 1);
+  assert.ok(estado.settings.has(claveDeCampanasActualizadas("ws")));
+  // Pasados los 15 minutos, se vuelve a leer.
+  estado.settings.set(claveDeCampanasActualizadas("ws"), new Date(Date.now() - 16 * 60_000).toISOString());
+  estado.conversacion = { assignedToUserId: null };
+  await aplicarReglaDeAnuncio(chat({ conversationId: "conv-3", contactId: "contacto-3" }));
+  await esperarAvisos();
+  assert.equal(estado.metaListas, 2);
+});
+
+await prueba("sin reglas de campaña en la línea, no se lee la lista de Meta", async () => {
+  guardar([regla({ tipo: "anuncio", metaId: ANUNCIO })]);
+  estado.metaAnunciosDeCampana = listaDeMeta();
+  await aplicarReglaDeAnuncio(chat());
+  await esperarAvisos();
+  assert.equal(estado.metaListas, 0);
+});
+
+await prueba("sin llave: no se llama a la lista, no lanza y no deja marca", async () => {
+  guardar([regla()]);
+  estado.metaConfigurada = false;
+  estado.metaAnunciosDeCampana = listaDeMeta();
+  assert.deepEqual(await aprenderAnunciosDeCampanas("ws", [regla()]), { estado: "sin llave" });
+  assert.equal((await aplicarReglaDeAnuncio(chat())).aplicada, false);
+  await esperarAvisos();
+  assert.equal(estado.metaListas, 0);
+  assert.equal(estado.settings.has(claveDeCampanasActualizadas("ws")), false);
+});
+
+await prueba("si Meta falla o la base falla al aprender, no lanza ni cambia la regla", async () => {
+  estado.metaAnunciosDeCampana = null;
+  assert.deepEqual(await aprenderAnunciosDeCampanas("ws", [regla()]), { estado: "ok", campanas: 1, anuncios: 0, campanasQueFallaron: 1 });
+  guardar([regla({ tipo: "anuncio", metaId: ANUNCIO }), regla()]);
+  const original = prisma.appSetting.updateMany;
+  prisma.appSetting.updateMany = async () => {
+    throw new Error("base caída");
+  };
+  try {
+    const r = await aplicarReglaDeAnuncio(chat());
+    await esperarAvisos();
+    assert.equal(r.aplicada, true);
+  } finally {
+    prisma.appSetting.updateMany = original;
+  }
+});
+
 // ── El webhook y la pantalla (lectura del código) ──────────────────────────────────────────────
 const webhook = fs.readFileSync(path.join(RAIZ, "src/app/api/webhooks/evolution/route.ts"), "utf8");
 
@@ -399,15 +507,23 @@ await prueba("pantalla y acciones: solo dueño y administradores", () => {
   assert.match(pagina, /requireClientWorkspaceAccess\("client_team", \{ ownerOnly: true \}\)/);
   const exportadas = acciones.match(/export async function \w+/g) ?? [];
   const protegidas = acciones.match(/requireClientWorkspaceAccess\("client_team", \{ ownerOnly: true \}\)/g) ?? [];
-  assert.equal(exportadas.length, 3);
+  assert.equal(exportadas.length, 4);
   assert.equal(protegidas.length, exportadas.length);
   assert.match(acciones, /if \(!esIdDeMeta\(metaId\)\) return \{ error:/);
 });
 
-await prueba("solo lectura de Meta: se usa buscarAnuncio sin otros métodos", () => {
+await prueba("solo lectura de Meta: se usan buscarAnuncio y listarAnunciosDeCampana sin otros métodos", () => {
   const fuente = fs.readFileSync(path.join(RAIZ, "src/lib/reparto-por-anuncio.ts"), "utf8");
-  assert.match(fuente, /import \{ buscarAnuncio, metaAdsConfigurado \} from "@\/features\/pauta\/servicios\/meta-ads-lectura";/);
+  assert.match(
+    fuente,
+    /import \{ buscarAnuncio, listarAnunciosDeCampana, metaAdsConfigurado \} from "@\/features\/pauta\/servicios\/meta-ads-lectura";/,
+  );
   assert.doesNotMatch(fuente, /graph\.facebook\.com|method:\s*"(POST|DELETE)"/);
+  const meta = fs.readFileSync(path.join(RAIZ, "src/features/pauta/servicios/meta-ads-lectura.ts"), "utf8");
+  const metodos = meta.match(/method:\s*["'`]?\w*/g) ?? [];
+  assert.ok(metodos.length > 0);
+  for (const metodo of metodos) assert.match(metodo, /method:\s*"GET$/, `en meta-ads-lectura solo GET: ${metodo}`);
+  assert.match(meta, /leer\(`\$\{campanaId\}\/ads`, \{ fields: "id,name,campaign\{id,name\}", limit: "200" \}\)/);
 });
 
 await prueba("que_es_esta_aplicacion muestra reparto_por_anuncio", () => {
