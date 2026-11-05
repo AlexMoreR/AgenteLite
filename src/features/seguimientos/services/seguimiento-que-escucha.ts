@@ -20,7 +20,7 @@ import {
  * voz del cliente y de la asesora ya pasadas a texto, fotos y catalogos enviados), los seguimientos
  * que ya le llegaron, el producto y el libro del V3, y le pide a la IA un mensaje que hable de lo que
  * ESE cliente dijo. Lo que proponga pasa por el revisor de la parte 1 (`elegirTexto`): si no pasa,
- * sale el texto fijo, o la pregunta del producto, o nada.
+ * sale el cierre de apartar (si ya dio la ciudad), o el texto fijo, o la pregunta del producto, o nada.
  *
  * Con el interruptor `seguimientos-que-escuchan:apagado` = "si", o sin la clave de OpenAI, devuelve
  * el texto fijo tal cual: el comportamiento de antes. No cambia cuando sale cada seguimiento ni
@@ -205,11 +205,15 @@ export async function redactarSeguimientoQueEscucha(input: {
       motivo:
         elegido.origen === "ia"
           ? "lo escribió la IA"
-          : elegido.origen === "fijo"
+          : elegido.origen === "cierre"
             ? propuestas.length
-              ? "la IA no pasó la revisión: texto fijo"
-              : "la IA no respondió: texto fijo"
-            : "pregunta del producto del anuncio",
+              ? "la IA no pasó la revisión: cierre de apartar"
+              : "la IA no respondió: cierre de apartar"
+            : elegido.origen === "fijo"
+              ? propuestas.length
+                ? "la IA no pasó la revisión: texto fijo"
+                : "la IA no respondió: texto fijo"
+              : "pregunta del producto del anuncio",
     };
   } catch (error) {
     // Nunca frena un envio por un error propio: sale el texto de antes.

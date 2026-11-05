@@ -6,16 +6,18 @@
  *  - el pedido para la IA: mencionar lo que ESE cliente dijo (color, producto, ciudad, para cuando,
  *    duda), traer algo nuevo o util y cerrar con una pregunta facil, en maximo 2 lineas;
  *  - la revision del texto que proponga: si no pasa, no sale;
- *  - la cadena de respaldo: propuesta de la IA -> texto fijo (si pasa la revision) -> pregunta del
- *    producto del anuncio -> no se manda nada.
+ *  - la cadena de respaldo: propuesta de la IA -> cierre de apartar (si ya dio la ciudad) -> texto
+ *    fijo (si pasa la revision) -> pregunta del producto del anuncio -> no se manda nada.
  *
- * Todavia no lo usa ningun envio (eso es la parte 2).
+ * El revisor tambien hace cumplir "lo que el cliente ya dijo": no se le vuelve a preguntar la ciudad,
+ * el color, la fecha ni el servicio, y si ya dio la ciudad el texto la nombra y pide apartar.
  */
 
 import type { Linea } from "@/lib/sugerencia-de-respuesta";
 import { problemasDeSeguimiento } from "@/lib/reglas-de-redaccion";
 import { buscarPorReglas, type TurnoDelChat } from "@/features/cotizaciones/services/datos-de-cotizacion";
 import { clienteConfirmoCompra, type MensajeDelChat } from "@/features/seguimientos/dominio/confirmacion-de-compra";
+import { preguntaLaCiudad } from "@/features/supervisor/dominio/lead";
 
 /** Lineas que puede tener un seguimiento en WhatsApp. */
 export const LINEAS_MAXIMAS = 2;
@@ -140,14 +142,89 @@ export function revisarSeguimiento(texto: string, contexto: RevisionDelSeguimien
   const repetido = contexto.yaEnviados.find((enviado) => enviado.trim() && parecido(limpio, enviado) >= PARECIDO_MAXIMO);
   if (repetido !== undefined) problemas.push(`se parece a un seguimiento ya enviado («${repetido.trim().slice(0, 60)}»)`);
 
+  // Lo que el cliente ya dijo: no se le vuelve a preguntar y, si dio la ciudad, se cierra pidiendo apartar.
+  problemas.push(...problemasConLoQueDijo(limpio, loQueDijoElCliente(contexto.conversacion)));
+
   const fuente = [contexto.textoDelLibro ?? "", ...contexto.conversacion.map((l) => l.texto)].join("\n");
   const indice = indiceDeLaFuente(fuente);
-  for (const dato of cifrasYFechas(limpio)) {
+  // El "50 %" del cierre de apartar es la regla del anticipo, no una cifra inventada. Solo esa forma:
+  // "50 mil" sigue siendo un precio y se revisa.
+  for (const dato of cifrasYFechas(limpio.replace(/\b50\s?%/g, " "))) {
     const esta = dato.variantes.some((v) => indice.digitos.has(v) || indice.palabras.has(v));
     if (!esta) problemas.push(`trae «${dato.muestra}», que no está ni en el libro ni en la conversación`);
   }
 
   return [...new Set(problemas)];
+}
+
+/** Las preguntas del texto, normalizadas: de cada oracion con "?", lo que va desde su "¿" (si lo tiene). */
+function preguntasDelTexto(texto: string): string[] {
+  return texto
+    .split(/(?<=[?.!\n])/)
+    .filter((parte) => parte.includes("?"))
+    .map((parte) => normalizar(parte.includes("¿") ? parte.slice(parte.lastIndexOf("¿")) : parte))
+    .filter(Boolean);
+}
+
+/** Pedir apartar o separar valen igual ("¿te lo aparto?", "¿te la separo?"). */
+const PIDE_APARTAR = /\b(apart|separ)\w*/;
+const PREGUNTA_EL_COLOR = /\b(que|cual) colou?r(es)?\b/;
+const PREGUNTA_LA_FECHA = /\b(para cuando|que fecha)\b/;
+const PREGUNTA_EL_SERVICIO = /\bque servicios?\b/;
+const PREGUNTA_A_DONDE = /\ba donde te (lo|la|los|las) (enviamos|mandamos)\b/;
+
+/**
+ * ¿Hay que cerrar pidiendo apartar? Solo si dio la ciudad y nada lo impide: a una ciudad sin envio
+ * asegurado, a quien ya compro, no le interesa o pidio contraentrega no se le exige (si se exigiera,
+ * esos chats perderian todas las propuestas).
+ */
+function tocaElCierre(dicho: LoQueDijoElCliente): dicho is LoQueDijoElCliente & { ciudad: string } {
+  return !!dicho.ciudad && !dicho.ciudadSinCobertura && !dicho.yaCompro && !dicho.noLeInteresa && !dicho.pidioContraentrega;
+}
+
+/** Los problemas del texto contra lo que el cliente ya dijo (los recibe la IA al reintentar). */
+function problemasConLoQueDijo(texto: string, dicho: LoQueDijoElCliente): string[] {
+  const problemas: string[] = [];
+  const preguntas = preguntasDelTexto(texto);
+  const pregunta = (patron: RegExp) => preguntas.some((p) => patron.test(p));
+
+  if (dicho.ciudad && (preguntaLaCiudad(texto) || pregunta(PREGUNTA_A_DONDE))) {
+    problemas.push(`vuelve a preguntar la ciudad: el cliente ya dijo que es ${dicho.ciudad}`);
+  }
+  if (dicho.color && pregunta(PREGUNTA_EL_COLOR)) {
+    problemas.push(`vuelve a preguntar el color: el cliente ya dijo ${dicho.color}`);
+  }
+  if (dicho.fecha && pregunta(PREGUNTA_LA_FECHA)) {
+    problemas.push(`vuelve a preguntar para cuándo lo necesita: el cliente ya dijo «${dicho.fecha}»`);
+  }
+  if (dicho.servicio && pregunta(PREGUNTA_EL_SERVICIO)) {
+    problemas.push(`vuelve a preguntar el servicio: el cliente ya dijo ${dicho.servicio}`);
+  }
+
+  if (tocaElCierre(dicho)) {
+    const ciudad = escaparRegex(normalizar(dicho.ciudad));
+    if (!new RegExp(`(^| )${ciudad}( |$)`).test(normalizar(texto))) {
+      problemas.push(`el cliente ya dijo la ciudad (${dicho.ciudad}): nómbrala en el mensaje`);
+    }
+    const ultima = preguntas.at(-1);
+    if (!ultima || !PIDE_APARTAR.test(ultima)) {
+      problemas.push(
+        `el cliente ya dijo la ciudad (${dicho.ciudad}): termina pidiendo apartar, por ejemplo «${cierreDeApartar(dicho.ciudad)}»`,
+      );
+    }
+  }
+
+  if ((dicho.yaCompro || dicho.noLeInteresa) && pregunta(PIDE_APARTAR)) {
+    problemas.push(
+      dicho.yaCompro ? "el cliente ya confirmó la compra: no le pidas apartar" : "el cliente dijo que no le interesa: no le pidas apartar",
+    );
+  }
+  return problemas;
+}
+
+/** El cierre fijo para quien ya dio la ciudad: si la IA no da un texto que pase, sale este. */
+export function cierreDeApartar(ciudad: string): string {
+  return `A ${ciudad} te llega sin problema 🚚 ¿Te lo aparto con el 50 % para empezar a fabricarlo?`;
 }
 
 /**
@@ -492,7 +569,7 @@ export type TextoElegido =
   | {
       enviar: true;
       texto: string;
-      origen: "ia" | "fijo" | "producto";
+      origen: "ia" | "cierre" | "fijo" | "producto";
       /** Lo que se descarto antes, con sus problemas (para el registro). */
       descartados: { texto: string; problemas: string[] }[];
     }
@@ -500,8 +577,10 @@ export type TextoElegido =
 
 /**
  * Decide que seguimiento sale, en orden: la primera propuesta de la IA que pase la revision (hasta 3
- * intentos); si ninguna pasa, el texto fijo, solo si tambien pasa; si no, la pregunta del producto
- * del anuncio; si no hay producto, no se manda nada.
+ * intentos); si ninguna pasa y el cliente ya dio la ciudad, el cierre de apartar (no si la ciudad no
+ * tiene cobertura, ya compro, no le interesa o pidio contraentrega; y tambien pasa por la revision:
+ * si ya se le mando, sigue); despues el texto fijo, solo si tambien pasa; si no, la pregunta del
+ * producto del anuncio; si no hay producto, no se manda nada.
  * `textoFijo` llega ya armado (con el nombre puesto).
  */
 export function elegirTexto(
@@ -523,6 +602,14 @@ export function elegirTexto(
     const problemas = revisarSeguimiento(propuesta, revision);
     if (!problemas.length) return { enviar: true, texto: propuesta.trim(), origen: "ia", descartados };
     descartados.push({ texto: propuesta, problemas });
+  }
+
+  const dicho = loQueDijoElCliente(input.conversacion);
+  if (tocaElCierre(dicho)) {
+    const cierre = cierreDeApartar(dicho.ciudad);
+    const problemas = revisarSeguimiento(cierre, revision);
+    if (!problemas.length) return { enviar: true, texto: cierre, origen: "cierre", descartados };
+    descartados.push({ texto: cierre, problemas });
   }
 
   if (input.textoFijo?.trim()) {
