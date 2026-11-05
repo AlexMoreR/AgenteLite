@@ -224,7 +224,8 @@ await db.exec(`
     ('zona', 'tab1', 'Toca el bot', 'APROBADO', 'u-dueno', '2026-10-20 06:00:00', 'tarea', 'aizencrm', NULL),
     ('borrada', 'tab1', 'Borrada', 'APROBADO', 'u-dueno', '2026-10-20 05:00:00', 'tarea', 'aizencrm', NULL),
     ('ajena', 'tab2', 'De otro negocio', 'APROBADO', 'u-dueno', '2026-10-20 04:00:00', 'tarea2', 'aizencrm', NULL);
-  UPDATE "TarjetaTablero" SET "zonaProtegida" = ARRAY['LIBRO_V3'] WHERE "id" = 'zona';
+  -- META_ADS: desde el 31-oct-2026 (05d6fbef) es la única zona que sigue pidiendo la pantalla; LIBRO_V3 ya arranca por voz.
+  UPDATE "TarjetaTablero" SET "zonaProtegida" = ARRAY['META_ADS'] WHERE "id" = 'zona';
   UPDATE "TarjetaTablero" SET "borradoEn" = '2026-10-20 05:30:00' WHERE "id" = 'borrada';
   INSERT INTO "HistorialTarjeta" ("id", "tarjetaId", "quien", "origen", "accion", "despues", "creadoEn") VALUES
     ('hz', 'zona', 'u-dueno', 'MCP', 'aprobar', '{"estado":"APROBADO","via":"voz"}', '2026-10-20 06:00:00');
@@ -292,9 +293,9 @@ await prueba("tomar: la más vieja con repo de la lista y tipo con aprobación; 
   );
 });
 
-await prueba("vía de la aprobación (28-oct): voz + CHATS o BOT_VENTAS entra; voz + LIBRO_V3 / META_ADS no y queda en SQL_FUERA_POR_LA_VIA", async () => {
-  // 'zona' (LIBRO_V3, aprobada por voz) no se tomó: es la única que espera la pantalla.
-  assert.deepEqual((await fueraPorLaVia()).map((f) => [f.id, f.estado, f.zonaProtegida, f.via]), [["zona", "APROBADO", ["LIBRO_V3"], "voz"]]);
+await prueba("vía de la aprobación (31-oct): voz + CHATS, BOT_VENTAS o LIBRO_V3 entra; voz + META_ADS no y queda en SQL_FUERA_POR_LA_VIA", async () => {
+  // 'zona' (META_ADS, aprobada por voz) no se tomó: es la única que espera la pantalla.
+  assert.deepEqual((await fueraPorLaVia()).map((f) => [f.id, f.estado, f.zonaProtegida, f.via]), [["zona", "APROBADO", ["META_ADS"], "voz"]]);
   assert.deepEqual(await fueraPorLaVia("ws2"), [], "no se ve desde otro negocio");
   await db.query("BEGIN");
   await db.exec(`
@@ -303,13 +304,14 @@ await prueba("vía de la aprobación (28-oct): voz + CHATS o BOT_VENTAS entra; v
       ('voz-bot', 'tab1', 'Bot por voz', 'PLAN_APROBADO', 'u-dueno', '2026-10-20 03:10:00', 'tarea', 'aizencrm', 'El plan', ARRAY['BOT_VENTAS']),
       ('voz-ambas', 'tab1', 'Chats y bot por voz', 'APROBADO', 'u-dueno', '2026-10-20 03:20:00', 'tarea', 'aizencrm', NULL, ARRAY['CHATS', 'BOT_VENTAS']),
       ('voz-meta', 'tab1', 'Meta por voz', 'PLAN_APROBADO', 'u-dueno', '2026-10-20 03:30:00', 'tarea', 'aizencrm', 'El plan', ARRAY['META_ADS']),
-      ('voz-mezcla', 'tab1', 'Chats y libro por voz', 'APROBADO', 'u-dueno', '2026-10-20 03:40:00', 'tarea', 'aizencrm', NULL, ARRAY['CHATS', 'LIBRO_V3']),
+      ('voz-mezcla', 'tab1', 'Chats y Meta por voz', 'APROBADO', 'u-dueno', '2026-10-20 03:40:00', 'tarea', 'aizencrm', NULL, ARRAY['CHATS', 'META_ADS']),
       ('pant-libro', 'tab1', 'Libro en pantalla', 'APROBADO', 'u-dueno', '2026-10-20 03:50:00', 'tarea', 'aizencrm', NULL, ARRAY['LIBRO_V3']),
+      ('voz-libro', 'tab1', 'Libro por voz', 'APROBADO', 'u-dueno', '2026-10-20 03:52:00', 'tarea', 'aizencrm', NULL, ARRAY['LIBRO_V3']),
       ('sin-aprob', 'tab1', 'Chats sin aprobación', 'APROBADO', 'u-dueno', '2026-10-20 03:55:00', 'tarea', 'aizencrm', NULL, ARRAY['CHATS']);
     -- 31-oct: SUBIENDO pendientes (trabajoVenceEn nulo) también avisan si la vía no alcanza; con candado ya se están subiendo.
     INSERT INTO "TarjetaTablero" ("id", "tableroId", "titulo", "estado", "creadoPor", "actualizadoEn", "tipoId", "repo", "plan", "zonaProtegida", "trabajoVenceEn") VALUES
-      ('sube-libro', 'tab1', 'Subir libro por voz', 'SUBIENDO', 'u-dueno', '2026-10-20 02:00:00', 'tarea', 'aizencrm', 'El plan', ARRAY['LIBRO_V3'], NULL),
-      ('sube-libro-ya', 'tab1', 'Libro subiendo por voz', 'SUBIENDO', 'u-dueno', '2026-10-20 02:10:00', 'tarea', 'aizencrm', 'El plan', ARRAY['LIBRO_V3'], '2099-01-01'),
+      ('sube-meta', 'tab1', 'Subir Meta por voz', 'SUBIENDO', 'u-dueno', '2026-10-20 02:00:00', 'tarea', 'aizencrm', 'El plan', ARRAY['META_ADS'], NULL),
+      ('sube-meta-ya', 'tab1', 'Meta subiendo por voz', 'SUBIENDO', 'u-dueno', '2026-10-20 02:10:00', 'tarea', 'aizencrm', 'El plan', ARRAY['META_ADS'], '2099-01-01'),
       ('sube-chats', 'tab1', 'Subir chats por voz', 'SUBIENDO', 'u-dueno', '2026-10-20 02:20:00', 'tarea', 'aizencrm', 'El plan', ARRAY['CHATS'], NULL);
     INSERT INTO "HistorialTarjeta" ("id", "tarjetaId", "quien", "origen", "accion", "despues", "creadoEn") VALUES
       ('hv1', 'voz-chats', 'u-dueno', 'MCP', 'aprobar', '{"estado":"APROBADO","via":"voz"}', '2026-10-20 03:00:00'),
@@ -320,28 +322,29 @@ await prueba("vía de la aprobación (28-oct): voz + CHATS o BOT_VENTAS entra; v
       -- la última manda: primero voz, después pantalla.
       ('hv6', 'pant-libro', 'u-dueno', 'MCP', 'aprobar', '{"estado":"APROBADO","via":"voz"}', '2026-10-20 03:45:00'),
       ('hv7', 'pant-libro', 'u-dueno', 'PANTALLA', 'aprobar', '{"estado":"APROBADO","via":"pantalla"}', '2026-10-20 03:50:00'),
-      ('hv8', 'sube-libro', 'u-dueno', 'MCP', 'aprobar', '{"estado":"PLAN_APROBADO","via":"voz"}', '2026-10-20 02:00:00'),
-      ('hv9', 'sube-libro-ya', 'u-dueno', 'MCP', 'aprobar', '{"estado":"PLAN_APROBADO","via":"voz"}', '2026-10-20 02:10:00'),
+      ('hv7b', 'voz-libro', 'u-dueno', 'MCP', 'aprobar', '{"estado":"APROBADO","via":"voz"}', '2026-10-20 03:52:00'),
+      ('hv8', 'sube-meta', 'u-dueno', 'MCP', 'aprobar', '{"estado":"PLAN_APROBADO","via":"voz"}', '2026-10-20 02:00:00'),
+      ('hv9', 'sube-meta-ya', 'u-dueno', 'MCP', 'aprobar', '{"estado":"PLAN_APROBADO","via":"voz"}', '2026-10-20 02:10:00'),
       ('hv10', 'sube-chats', 'u-dueno', 'MCP', 'aprobar', '{"estado":"PLAN_APROBADO","via":"voz"}', '2026-10-20 02:20:00');
   `);
   assert.deepEqual(
     (await candidatas()).map((f) => f.id),
-    ["sube-chats", "voz-chats", "voz-bot", "voz-ambas", "pant-libro"],
-    "SUBIENDO + voz + CHATS (primero, por ser SUBIENDO), voz + CHATS, voz + BOT_VENTAS, voz + ambas y pantalla + LIBRO_V3 entran; SUBIENDO + voz + LIBRO_V3 no",
+    ["sube-chats", "voz-chats", "voz-bot", "voz-ambas", "pant-libro", "voz-libro"],
+    "SUBIENDO + voz + CHATS (primero, por ser SUBIENDO), voz + CHATS, voz + BOT_VENTAS, voz + ambas, pantalla + LIBRO_V3 y voz + LIBRO_V3 (31-oct) entran; SUBIENDO + voz + META_ADS no",
   );
   assert.deepEqual(
     (await fueraPorLaVia()).map((f) => [f.id, f.via]),
     [
-      ["sube-libro", "voz"],
+      ["sube-meta", "voz"],
       ["voz-meta", "voz"],
       ["voz-mezcla", "voz"],
       ["sin-aprob", ""],
       ["zona", "voz"],
     ],
-    "SUBIENDO pendiente + voz + LIBRO_V3, voz + META_ADS, voz + CHATS y LIBRO_V3, sin aprobación y voz + LIBRO_V3 quedan fuera y avisan; la SUBIENDO con candado y la SUBIENDO + CHATS no",
+    "SUBIENDO pendiente + voz + META_ADS, voz + META_ADS, voz + CHATS y META_ADS, sin aprobación y voz + META_ADS quedan fuera y avisan; la SUBIENDO con candado y la SUBIENDO + CHATS no",
   );
-  const [sube] = (await fueraPorLaVia()).filter((f) => f.id === "sube-libro");
-  assert.deepEqual([sube.estado, sube.zonaProtegida], ["SUBIENDO", ["LIBRO_V3"]], "la SUBIENDO sale con su estado y su zona");
+  const [sube] = (await fueraPorLaVia()).filter((f) => f.id === "sube-meta");
+  assert.deepEqual([sube.estado, sube.zonaProtegida], ["SUBIENDO", ["META_ADS"]], "la SUBIENDO sale con su estado y su zona");
   const [tomada] = await tomar();
   assert.equal(tomada.id, "sube-chats", "SUBIENDO + voz + CHATS se toma de verdad (primero, por ser SUBIENDO)");
   const [siguiente] = await tomar();

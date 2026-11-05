@@ -118,7 +118,12 @@ await prueba("6. route.ts: los 3 lugares usan la lectura nueva y solo 'libre' de
   assert.match(route, /canalUsaV3 && !v3Pausado && channel\.evolutionInstanceName/);
   assert.match(route, /!conversationAutomationPaused/);
   // El aviso a la clienta exige pausa REAL, no una falla de lectura.
-  assert.match(route, /if \(pausaV3 === "pausado" && channel\.evolutionInstanceName && !fromMe && !isCallEvent\) \{/);
+  // El if quedo partido en varias lineas (1c69fa99), que ademas le sumo la regla "sin bienvenida"
+  // del reparto por anuncio: se aceptan espacios y saltos de linea y esa condicion opcional.
+  assert.match(
+    route,
+    /if\s*\(\s*pausaV3 === "pausado"\s*&&\s*(?:!reglaDelAnuncioSinBienvenida\s*&&\s*)?channel\.evolutionInstanceName\s*&&\s*!fromMe\s*&&\s*!isCallEvent\s*\)\s*\{/,
+  );
   assert.ok(route.includes("En un momento una de nuestras asesoras te contacta"));
 });
 
