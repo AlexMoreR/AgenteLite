@@ -270,6 +270,188 @@ test("6) el webhook lee la ubicacion traducida: mismas coordenadas y tipo LOCATI
 });
 
 /*
+  Los CONTACTOS (vCard) salen como texto "👤 Contacto: nombre · telefono", una linea por contacto,
+  porque el webhook y la burbuja todavia no leen contactos.
+*/
+const vcardJuan = [
+  "BEGIN:VCARD",
+  "VERSION:3.0",
+  "N:Pérez;Juan;;;",
+  "FN:Juan Pérez",
+  "item1.TEL;waid=573104445566:+57 310 4445566",
+  "item1.X-ABLabel:Celular",
+  "END:VCARD",
+].join("\n");
+
+const vcardMaria = [
+  "BEGIN:VCARD",
+  "VERSION:3.0",
+  "FN:María Gómez",
+  "TEL;type=CELL;waid=573205556677:+57 320 5556677",
+  "END:VCARD",
+].join("\n");
+
+function textoDe(resultado: ReturnType<typeof traducirEventoWaha>): string {
+  const mensaje = mensajeDe(resultado);
+  const texto = mensaje.conversation;
+  assert.equal(typeof texto, "string", "debia salir como conversation");
+  return texto as string;
+}
+
+test("8) un contacto (contactMessage) sale como texto con nombre y telefono", () => {
+  const resultado = traducirEventoWaha(
+    evento({
+      hasMedia: false,
+      _data: {
+        notifyName: "Ana",
+        Message: {
+          contactMessage: { displayName: "Juan", vcard: vcardJuan },
+        },
+      },
+    }),
+  );
+  const texto = textoDe(resultado);
+  assert.ok(texto.startsWith("👤 Contacto:"), texto);
+  assert.equal(texto, "👤 Contacto: Juan Pérez · +57 310 4445566");
+  assert.equal(resultado.media, undefined);
+  assert.equal(resultado.mediaFaltante, undefined);
+  const data = (resultado.evolution as { data: Record<string, unknown> }).data;
+  assert.equal(data.pushName, "Ana");
+  assert.equal(data.wahaSource, "app");
+});
+
+test("8b) acepta los nombres con mayuscula (whatsmeow) y usa displayName si no hay FN", () => {
+  const resultado = traducirEventoWaha(
+    evento({
+      hasMedia: false,
+      _data: {
+        Message: {
+          ContactMessage: {
+            DisplayName: "Pedro",
+            Vcard: "BEGIN:VCARD\nTEL;waid=573001234567:\nEND:VCARD",
+          },
+        },
+      },
+    }),
+  );
+  assert.equal(textoDe(resultado), "👤 Contacto: Pedro · +573001234567");
+});
+
+test("9) varios contactos (contactsArrayMessage) salen una linea por cada uno", () => {
+  const resultado = traducirEventoWaha(
+    evento({
+      hasMedia: false,
+      _data: {
+        Message: {
+          contactsArrayMessage: {
+            displayName: "2 contactos",
+            contacts: [
+              { displayName: "Juan", vcard: vcardJuan },
+              { displayName: "María", vcard: vcardMaria },
+            ],
+          },
+        },
+      },
+    }),
+  );
+  const lineas = textoDe(resultado).split("\n");
+  assert.deepEqual(lineas, [
+    "👤 Contacto: Juan Pérez · +57 310 4445566",
+    "👤 Contacto: María Gómez · +57 320 5556677",
+  ]);
+});
+
+test("10) solo el campo vCards de WAHA da el mismo resultado", () => {
+  const resultado = traducirEventoWaha(
+    evento({
+      hasMedia: false,
+      vCards: [vcardJuan, vcardMaria],
+      _data: { Message: {} },
+    }),
+  );
+  assert.deepEqual(textoDe(resultado).split("\n"), [
+    "👤 Contacto: Juan Pérez · +57 310 4445566",
+    "👤 Contacto: María Gómez · +57 320 5556677",
+  ]);
+});
+
+test("11) el contacto que manda la asesora conserva fromMe", () => {
+  const resultado = traducirEventoWaha(
+    evento({
+      fromMe: true,
+      source: "app",
+      hasMedia: false,
+      _data: { Message: { contactMessage: { vcard: vcardJuan } } },
+    }),
+  );
+  const data = (
+    resultado.evolution as { data: { key: { fromMe: boolean }; wahaSource: string } }
+  ).data;
+  assert.equal(data.key.fromMe, true);
+  assert.equal(data.wahaSource, "app");
+  assert.ok(textoDe(resultado).startsWith("👤 Contacto: Juan Pérez"));
+});
+
+test("11b) conserva la cita (contextInfo) del contacto", () => {
+  const contextInfo = {
+    stanzaId: "XYZ",
+    quotedMessage: { conversation: "¿Me pasas el número?" },
+  };
+  const resultado = traducirEventoWaha(
+    evento({
+      hasMedia: false,
+      _data: {
+        Message: { contactMessage: { vcard: vcardJuan, contextInfo } },
+      },
+    }),
+  );
+  assert.deepEqual(mensajeDe(resultado), {
+    extendedTextMessage: {
+      text: "👤 Contacto: Juan Pérez · +57 310 4445566",
+      contextInfo,
+    },
+  });
+});
+
+test("11c) limpia y recorta lo que escribe el otro", () => {
+  const vcard = [
+    "BEGIN:VCARD",
+    `FN:Juan\u0000\u202e  ${"n".repeat(5000)}`,
+    `TEL:+57<script>310${"9".repeat(500)}`,
+    "END:VCARD",
+  ].join("\n");
+  const resultado = traducirEventoWaha(
+    evento({
+      hasMedia: false,
+      _data: { Message: { contactMessage: { vcard } } },
+    }),
+  );
+  const texto = textoDe(resultado);
+  assert.ok(!/[\u0000-\u001f\u202e<>]/.test(texto), texto);
+  const [nombre, telefono] = texto.replace("👤 Contacto: ", "").split(" · ");
+  assert.ok(nombre.startsWith("Juan n"));
+  assert.ok(nombre.length <= 100);
+  assert.ok(telefono.length <= 40);
+  assert.ok(/^\+57/.test(telefono));
+});
+
+test("11d) una ubicacion sigue saliendo como ubicacion aunque traiga vCards vacio", () => {
+  const resultado = traducirEventoWaha(
+    evento({
+      vCards: [],
+      _data: {
+        Message: {
+          locationMessage: { degreesLatitude: 6.25, degreesLongitude: -75.56 },
+        },
+      },
+    }),
+  );
+  assert.deepEqual(mensajeDe(resultado), {
+    locationMessage: { degreesLatitude: 6.25, degreesLongitude: -75.56 },
+  });
+});
+
+/*
   Regresion: estas salidas se guardaron ANTES de agregar el lector de ubicacion. Un texto, una
   foto con URL, un pedido del catalogo y una tarjeta de anuncio tienen que salir exactamente igual.
 */

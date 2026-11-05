@@ -941,10 +941,13 @@ export function traducirEventoWaha(
     participant?: unknown;
     /** Ubicacion ya leida por WAHA (latitude, longitude, name/description, address). */
     location?: unknown;
+    /** Las tarjetas de contacto ya leidas por WAHA: una lista de textos vCard. */
+    vCards?: unknown;
+    vcards?: unknown;
     _data?: unknown;
   };
 
-  const de = typeof mensaje.from === "string" ? mensaje.from : "";
+  const de =typeof mensaje.from === "string" ? mensaje.from : "";
   if (!de) {
     return { motivo: "el mensaje no dice de quien viene" };
   }
@@ -1064,6 +1067,40 @@ export function traducirEventoWaha(
               ...(contextoDelMensaje ? { contextInfo: contextoDelMensaje } : {}),
             },
           },
+          pushName: nombreDeQuienEscribe(mensaje._data),
+          messageTimestamp: typeof mensaje.timestamp === "number" ? mensaje.timestamp : undefined,
+        },
+      },
+    };
+  }
+
+  /*
+    Los CONTACTOS (tarjetas vCard) que manda el cliente o la asesora tampoco aparecian en el chat:
+    no traen texto ni archivo y se descartaban como "mensaje sin texto ni media (contactMessage)".
+
+    Se mandan como TEXTO ("👤 Contacto: nombre · telefono", una linea por contacto) porque el
+    webhook y la burbuja todavia no saben leer contactos; asi no hay que tocarlos. El nombre y el
+    telefono los escribe el otro: se limpian, se recortan y se usan solo como datos.
+  */
+  const contactos = contactosDelMensaje(bloqueDelMensaje, mensaje.vCards ?? mensaje.vcards);
+  if (contactos) {
+    return {
+      evolution: {
+        event: "messages.upsert",
+        instance: sesion,
+        data: {
+          ...(mensaje.source === "api" || mensaje.source === "app" ? { wahaSource: mensaje.source } : {}),
+          key: {
+            remoteJid: jidDeWaha(de),
+            fromMe: mensaje.fromMe === true,
+            id: typeof mensaje.id === "string" ? mensaje.id : null,
+            ...(typeof mensaje.participant === "string"
+              ? { participant: jidDeWaha(mensaje.participant) }
+              : {}),
+          },
+          message: contextoDelMensaje
+            ? { extendedTextMessage: { text: contactos, contextInfo: contextoDelMensaje } }
+            : { conversation: contactos },
           pushName: nombreDeQuienEscribe(mensaje._data),
           messageTimestamp: typeof mensaje.timestamp === "number" ? mensaje.timestamp : undefined,
         },
@@ -1312,6 +1349,146 @@ function ubicacionDelMensaje(
   }
 
   return null;
+}
+
+// Largos maximos de un contacto: son datos que escribe el otro, no se confian.
+const LARGO_MAXIMO_VCARD = 10_000;
+const LARGO_MAXIMO_NOMBRE_CONTACTO = 100;
+const LARGO_MAXIMO_TELEFONO_CONTACTO = 40;
+const MAXIMO_DE_CONTACTOS = 20;
+
+/** Lee un campo aceptando el nombre con minuscula o con mayuscula inicial. */
+function campoSinMayusculas(valor: Record<string, unknown>, ...nombres: string[]): unknown {
+  for (const nombre of nombres) {
+    for (const variante of [nombre, nombre.charAt(0).toUpperCase() + nombre.slice(1)]) {
+      if (valor[variante] !== undefined && valor[variante] !== null) {
+        return valor[variante];
+      }
+    }
+  }
+  return undefined;
+}
+
+/** Quita caracteres de control, junta los espacios y recorta. */
+function textoLimpioDeContacto(valor: string, largoMaximo: number): string {
+  return valor
+    .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2066-\u2069\ufeff]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, largoMaximo)
+    .trim();
+}
+
+/**
+ * El nombre y el telefono de una tarjeta vCard, o null si no trae ninguno de los dos.
+ *
+ * Nombre: FN, o si no `nombreDeRespaldo` (el displayName de WhatsApp). Telefono: el primer TEL, o
+ * si no trae numero, su `waid`.
+ */
+function leerVCard(
+  vcard: unknown,
+  nombreDeRespaldo: unknown,
+): { nombre: string; telefono: string } | null {
+  const crudo = typeof vcard === "string" ? vcard.slice(0, LARGO_MAXIMO_VCARD) : "";
+  // Las lineas largas de un vCard siguen en la de abajo empezando con un espacio o un tab.
+  const lineas = crudo.replace(/\r?\n[ \t]/g, "").split(/\r?\n/);
+  const desescapar = (valor: string) => valor.replace(/\\([,;:\\])/g, "$1").replace(/\\n/gi, " ");
+
+  let nombre = "";
+  let telefono = "";
+  for (const linea of lineas) {
+    const separador = linea.indexOf(":");
+    if (separador <= 0) {
+      continue;
+    }
+    // "item1.TEL;type=CELL;waid=573104445566" -> propiedad "TEL" y sus parametros.
+    const cabeza = linea.slice(0, separador);
+    const [propiedadConGrupo, ...parametros] = cabeza.split(";");
+    const propiedad = propiedadConGrupo.split(".").pop()?.trim().toUpperCase() ?? "";
+    const valor = desescapar(linea.slice(separador + 1));
+
+    if (propiedad === "FN" && !nombre) {
+      nombre = textoLimpioDeContacto(valor, LARGO_MAXIMO_NOMBRE_CONTACTO);
+    } else if (propiedad === "TEL" && !telefono) {
+      telefono = textoLimpioDeContacto(
+        valor.replace(/[^0-9+()\-. ]/g, ""),
+        LARGO_MAXIMO_TELEFONO_CONTACTO,
+      );
+      if (!/\d/.test(telefono)) {
+        const waid = parametros
+          .map((parametro) => /^waid=(\d{5,20})$/i.exec(parametro.trim())?.[1])
+          .find(Boolean);
+        telefono = waid ? `+${waid}` : "";
+      }
+    }
+  }
+
+  if (!nombre && typeof nombreDeRespaldo === "string") {
+    nombre = textoLimpioDeContacto(nombreDeRespaldo, LARGO_MAXIMO_NOMBRE_CONTACTO);
+  }
+  return nombre || telefono ? { nombre, telefono } : null;
+}
+
+/**
+ * Las tarjetas de contacto de un mensaje de WAHA como texto ("👤 Contacto: nombre · telefono",
+ * una linea por contacto), o null si el mensaje no trae contactos.
+ *
+ * Se leen del nodo crudo de WhatsApp (`contactMessage` o `contactsArrayMessage.contacts[]`, con
+ * nombres en minuscula como Baileys o mayuscula como whatsmeow). Si no estan, del campo `vCards`
+ * que WAHA pone arriba del mensaje. Se usa una sola fuente para no repetir el mismo contacto.
+ */
+function contactosDelMensaje(
+  bloque: Record<string, unknown> | null,
+  vCardsDeWaha: unknown,
+): string | null {
+  const objeto = (valor: unknown): Record<string, unknown> | null =>
+    valor && typeof valor === "object" && !Array.isArray(valor)
+      ? (valor as Record<string, unknown>)
+      : null;
+
+  const leidos: { nombre: string; telefono: string }[] = [];
+  const agregar = (crudo: Record<string, unknown> | null) => {
+    if (!crudo) {
+      return;
+    }
+    const contacto = leerVCard(
+      campoSinMayusculas(crudo, "vcard", "vCard"),
+      campoSinMayusculas(crudo, "displayName"),
+    );
+    if (contacto) {
+      leidos.push(contacto);
+    }
+  };
+
+  if (bloque) {
+    agregar(objeto(campoSinMayusculas(bloque, "contactMessage")));
+    const lista = objeto(campoSinMayusculas(bloque, "contactsArrayMessage"));
+    const contactos = lista ? campoSinMayusculas(lista, "contacts") : undefined;
+    if (Array.isArray(contactos)) {
+      for (const contacto of contactos.slice(0, MAXIMO_DE_CONTACTOS)) {
+        agregar(objeto(contacto));
+      }
+    }
+  }
+
+  if (leidos.length === 0 && Array.isArray(vCardsDeWaha)) {
+    for (const vcard of vCardsDeWaha.slice(0, MAXIMO_DE_CONTACTOS)) {
+      const contacto = leerVCard(vcard, undefined);
+      if (contacto) {
+        leidos.push(contacto);
+      }
+    }
+  }
+
+  if (leidos.length === 0) {
+    return null;
+  }
+  return leidos
+    .slice(0, MAXIMO_DE_CONTACTOS)
+    .map(({ nombre, telefono }) =>
+      `👤 Contacto: ${[nombre, telefono].filter(Boolean).join(" · ")}`,
+    )
+    .join("\n");
 }
 
 /** Que fue lo que mando, cuando el archivo no se pudo bajar. */
