@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { buscarAnuncio } from "@/features/pauta/servicios/meta-ads-lectura";
+import { buscarAnuncio, metaAdsConfigurado } from "@/features/pauta/servicios/meta-ads-lectura";
 import { setConversationAutomationPaused } from "@/lib/conversation-automation";
 import { recordConversationActivity } from "@/lib/conversation-activity";
 import { etapaAlAsignar } from "@/lib/etapa-automatica-crm";
@@ -19,7 +19,14 @@ import { avisarAsignacionPorPush } from "@/lib/reparto-de-leads";
  *   Meta con la función de SOLO LECTURA del informe de pauta, con un límite de 3 segundos.
  * - Nunca le saca un chat a nadie: si ya tiene dueña, no se toca.
  * - Si la asesora de la regla ya no está activa en el equipo, el chat sigue el reparto normal.
- * - No le escribe nada al cliente. Con "Sin bienvenida" el bot queda en pausa en ese chat.
+ * - No le escribe nada al cliente. Cuando la regla le pasa el chat a una asesora, el bot SIEMPRE queda
+ *   en pausa en ese chat (desde el 5-nov-2026, para que el bot no le mande el combo a esos clientes).
+ *   La casilla "Sin bienvenida" ya no decide la pausa: solo decide si en ese primer mensaje sale o no
+ *   el acuse de pausa (lo usa el webhook). Las reglas de "reparto normal" no pausan nada.
+ * - Cada chat que una regla asigna deja una marca en AppSetting
+ *   (`reparto-por-anuncio:uso:<negocio>:<regla>:<chat>`) para contar cuántos chats tomó cada regla.
+ * - Si una regla no se aplica, el registro dice por qué: sin llave de Meta, Meta no contestó a tiempo,
+ *   Meta no conoce el anuncio, o la regla es de otra línea.
  */
 
 export const TIPOS_DE_REGLA = ["campana", "anuncio"] as const;
@@ -48,6 +55,39 @@ const MAXIMO_NOMBRE = 80;
 
 export function claveDeReglas(workspaceId: string): string {
   return `reparto-por-anuncio:reglas:${workspaceId}`;
+}
+
+/** La marca de que la regla `reglaId` asignó el chat `conversationId` (una por chat: sirve de contador). */
+export function claveDeUsoDeLaRegla(workspaceId: string, reglaId: string, conversationId: string): string {
+  return `reparto-por-anuncio:uso:${workspaceId}:${reglaId}:${conversationId}`;
+}
+
+export type UsoDeLaRegla = { chats: number; ultimo: Date };
+
+/**
+ * Cuántos chats asignó cada regla y cuándo fue el último, por id de regla. Se lee de las marcas de
+ * `claveDeUsoDeLaRegla` (un chat cuenta una sola vez aunque la regla se aplique dos veces).
+ */
+export async function usoDeLasReglas(workspaceId: string): Promise<Record<string, UsoDeLaRegla>> {
+  const prefijo = `reparto-por-anuncio:uso:${workspaceId}:`;
+  const filas = await prisma.appSetting.findMany({
+    where: { key: { startsWith: prefijo } },
+    select: { key: true, createdAt: true },
+  });
+  const uso: Record<string, UsoDeLaRegla> = {};
+  for (const fila of filas) {
+    const resto = fila.key.slice(prefijo.length);
+    const separador = resto.indexOf(":");
+    if (separador <= 0) continue;
+    const reglaId = resto.slice(0, separador);
+    const actual = uso[reglaId];
+    if (!actual) uso[reglaId] = { chats: 1, ultimo: fila.createdAt };
+    else {
+      actual.chats += 1;
+      if (fila.createdAt > actual.ultimo) actual.ultimo = fila.createdAt;
+    }
+  }
+  return uso;
 }
 
 export function claveDeCampanaDelAnuncio(anuncioId: string): string {
@@ -199,8 +239,17 @@ export async function campanaDelAnuncio(
     });
   }
 
+  if (!metaAdsConfigurado()) {
+    console.log("[reparto-por-anuncio] campaña desconocida: no hay llave de Meta (la regla por campaña no se aplica)", {
+      anuncioId,
+    });
+    return null;
+  }
+
+  let contesto = false;
   const pregunta = buscarAnuncio(anuncioId)
     .then(async (datos) => {
+      contesto = true;
       if (!datos?.campanaId) return null;
       const campana: CampanaDelAnuncio = {
         campanaId: datos.campanaId,
@@ -210,7 +259,10 @@ export async function campanaDelAnuncio(
       await guardarRecuerdo(anuncioId, campana);
       return campana;
     })
-    .catch(() => null);
+    .catch(() => {
+      contesto = true;
+      return null;
+    });
 
   let reloj: ReturnType<typeof setTimeout> | undefined;
   const limite = new Promise<null>((resolve) => {
@@ -219,7 +271,14 @@ export async function campanaDelAnuncio(
   const resultado = await Promise.race([pregunta, limite]);
   if (reloj) clearTimeout(reloj);
   if (!resultado) {
-    console.log("[reparto-por-anuncio] campaña desconocida (Meta no contestó a tiempo o no hay llave)", { anuncioId });
+    if (contesto) {
+      console.log("[reparto-por-anuncio] campaña desconocida: Meta no conoce el anuncio (o contestó con error)", { anuncioId });
+    } else {
+      console.log("[reparto-por-anuncio] campaña desconocida: Meta no contestó a tiempo", {
+        anuncioId,
+        esperaMs: opciones.esperaMs ?? ESPERA_DE_META_MS,
+      });
+    }
   }
   return resultado;
 }
@@ -256,7 +315,16 @@ export async function aplicarReglaDeAnuncio(input: {
     if (!anuncioId) return NO_APLICADA;
 
     const reglas = await leerReglas(input.workspaceId);
-    if (!hayReglasEnLaLinea(reglas, input.channelId)) return NO_APLICADA;
+    if (!hayReglasEnLaLinea(reglas, input.channelId)) {
+      if (reglas.some((regla) => regla.activa)) {
+        console.log("[reparto-por-anuncio] esta línea no tiene reglas: las reglas prendidas son de otra línea", {
+          channelId: input.channelId,
+          conversationId: input.conversationId,
+          anuncioId,
+        });
+      }
+      return NO_APLICADA;
+    }
 
     let campana: CampanaDelAnuncio | null = null;
     let regla = buscarReglaDelAnuncio({ reglas, channelId: input.channelId, anuncioId, campanaId: null });
@@ -296,9 +364,14 @@ export async function aplicarReglaDeAnuncio(input: {
     });
     if (asignado.count === 0) return NO_APLICADA;
 
-    if (regla.sinBienvenida) {
-      await setConversationAutomationPaused({ conversationId: input.conversationId, paused: true });
-    }
+    // Contador: una marca por chat asignado. Si falla, la asignación sigue igual.
+    const marca = claveDeUsoDeLaRegla(input.workspaceId, regla.id, input.conversationId);
+    await prisma.appSetting
+      .upsert({ where: { key: marca }, create: { key: marca, value: asesoraId }, update: {} })
+      .catch(() => undefined);
+
+    // El chat ya es de la asesora: el bot queda callado siempre (con o sin "Sin bienvenida").
+    await setConversationAutomationPaused({ conversationId: input.conversationId, paused: true });
 
     const persona = await prisma.user
       .findUnique({ where: { id: asesoraId }, select: { name: true, email: true } })

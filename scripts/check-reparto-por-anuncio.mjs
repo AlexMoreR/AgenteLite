@@ -7,6 +7,8 @@ import path from "node:path";
 import { cargar, RAIZ } from "./supervisor-cargar.mjs";
 
 // ── Base y servicios falsos ─────────────────────────────────────────────────────────────────────
+/** Cuándo se creó cada fila de AppSetting (para `createdAt`). */
+const creadas = new Map();
 const estado = {
   settings: new Map(),
   conversacion: { assignedToUserId: null },
@@ -15,6 +17,7 @@ const estado = {
   metaRespuesta: null,
   metaTardaMs: 0,
   metaPreguntas: 0,
+  metaConfigurada: true,
   pausas: [],
   actividades: [],
   avisos: [],
@@ -24,12 +27,14 @@ const estado = {
 
 function reiniciar() {
   estado.settings = new Map();
+  creadas.clear();
   estado.conversacion = { assignedToUserId: null };
   estado.miembrosActivos = new Set(["yair"]);
   estado.origenes = [];
   estado.metaRespuesta = null;
   estado.metaTardaMs = 0;
   estado.metaPreguntas = 0;
+  estado.metaConfigurada = true;
   estado.pausas = [];
   estado.actividades = [];
   estado.avisos = [];
@@ -40,8 +45,18 @@ function reiniciar() {
 const prisma = {
   appSetting: {
     findUnique: async ({ where }) => (estado.settings.has(where.key) ? { value: estado.settings.get(where.key) } : null),
+    findMany: async ({ where }) =>
+      [...estado.settings.keys()]
+        .filter((key) => key.startsWith(where.key.startsWith))
+        .map((key) => ({ key, value: estado.settings.get(key), createdAt: creadas.get(key) ?? new Date(0) })),
     upsert: async ({ where, create, update }) => {
-      estado.settings.set(where.key, estado.settings.has(where.key) ? update.value : create.value);
+      if (estado.settings.has(where.key)) {
+        // `update: {}` no cambia nada (igual que Prisma).
+        if ("value" in update) estado.settings.set(where.key, update.value);
+      } else {
+        estado.settings.set(where.key, create.value);
+        creadas.set(where.key, new Date());
+      }
       return {};
     },
   },
@@ -70,6 +85,7 @@ const prisma = {
 const mocks = {
   "@/lib/prisma": { prisma },
   "@/features/pauta/servicios/meta-ads-lectura": {
+    metaAdsConfigurado: () => estado.metaConfigurada,
     buscarAnuncio: async () => {
       estado.metaPreguntas += 1;
       if (estado.metaTardaMs) await new Promise((r) => setTimeout(r, estado.metaTardaMs));
@@ -110,6 +126,8 @@ const {
   campanaDelAnuncio,
   claveDeReglas,
   claveDeCampanaDelAnuncio,
+  claveDeUsoDeLaRegla,
+  usoDeLasReglas,
   ESPERA_DE_META_MS,
 } = rpa;
 
@@ -233,14 +251,16 @@ await prueba("regla por anuncio con asesora: asigna, pausa el bot, nota en el hi
   assert.deepEqual(estado.push, [{ conversationId: "conv-1", userId: "yair" }]);
 });
 
-await prueba("regla por campaña: pregunta la campaña a Meta, asigna y guarda el recuerdo y el origen", async () => {
+await prueba("regla por campaña: el chat solo trae el anuncio, Meta da la campaña, asigna, pausa el bot y guarda el recuerdo y el origen", async () => {
   guardar([regla({ sinBienvenida: false })]);
+  assert.equal(estado.origenes.length, 0, "el CRM no conoce la campaña: solo llega el ID del anuncio");
   estado.metaRespuesta = { anuncioNombre: "Foto Cali", conjuntoId: null, conjuntoNombre: null, campanaId: CAMPANA, campanaNombre: "Salones nov" };
   const r = await aplicarReglaDeAnuncio(chat());
   await esperarAvisos();
   assert.equal(r.aplicada, true);
   assert.equal(r.sinBienvenida, false);
-  assert.deepEqual(estado.pausas, [], "sin la casilla, el bot no se pausa");
+  assert.deepEqual(estado.asignaciones, ["yair"]);
+  assert.deepEqual(estado.pausas, [{ conversationId: "conv-1", paused: true }], "sin la casilla, el bot igual queda callado");
   assert.equal(estado.metaPreguntas, 1);
   assert.match(estado.settings.get(claveDeCampanaDelAnuncio(ANUNCIO)), /Salones nov/);
   assert.equal(estado.origenes[0].campanaNombre, "Salones nov");
@@ -300,6 +320,57 @@ await prueba("si Meta falla o no hay llave, sin campaña: reparto normal", async
   assert.equal((await aplicarReglaDeAnuncio(chat())).aplicada, false);
 });
 
+await prueba("contador: aplicar dos veces la regla al mismo chat cuenta 1", async () => {
+  const laRegla = regla({ tipo: "anuncio", metaId: ANUNCIO });
+  guardar([laRegla]);
+  assert.equal((await aplicarReglaDeAnuncio(chat())).aplicada, true);
+  // Otra vez el mismo chat (por ejemplo, la asignación se soltó y vuelve a entrar).
+  estado.conversacion = { assignedToUserId: null };
+  assert.equal((await aplicarReglaDeAnuncio(chat())).aplicada, true);
+  await esperarAvisos();
+  assert.ok(estado.settings.has(claveDeUsoDeLaRegla("ws", laRegla.id, "conv-1")));
+  const uso = await usoDeLasReglas("ws");
+  assert.equal(uso[laRegla.id].chats, 1);
+  assert.ok(uso[laRegla.id].ultimo instanceof Date);
+  // Otro negocio no ve este uso.
+  assert.deepEqual(await usoDeLasReglas("otro-ws"), {});
+});
+
+await prueba("contador: si la marca falla, la asignación sigue", async () => {
+  guardar([regla({ tipo: "anuncio", metaId: ANUNCIO })]);
+  const original = prisma.appSetting.upsert;
+  prisma.appSetting.upsert = async () => {
+    throw new Error("base caída");
+  };
+  try {
+    const r = await aplicarReglaDeAnuncio(chat());
+    await esperarAvisos();
+    assert.equal(r.aplicada, true);
+    assert.deepEqual(estado.pausas, [{ conversationId: "conv-1", paused: true }]);
+  } finally {
+    prisma.appSetting.upsert = original;
+  }
+});
+
+await prueba("sin llave de Meta: nada lanza, no se le pregunta a Meta y la regla por campaña no se aplica", async () => {
+  guardar([regla()]);
+  estado.metaConfigurada = false;
+  estado.metaRespuesta = { anuncioNombre: null, conjuntoId: null, conjuntoNombre: null, campanaId: CAMPANA, campanaNombre: "X" };
+  const r = await aplicarReglaDeAnuncio(chat());
+  assert.equal(r.aplicada, false);
+  assert.equal(estado.metaPreguntas, 0);
+  assert.equal(await campanaDelAnuncio("ws", ANUNCIO, { esperaMs: 50 }), null);
+  assert.deepEqual(estado.asignaciones, []);
+  assert.deepEqual(estado.pausas, []);
+});
+
+await prueba("regla de otra línea: no se aplica ni le pregunta a Meta", async () => {
+  guardar([regla({ channelId: "ventas-2" })]);
+  estado.metaRespuesta = { anuncioNombre: null, conjuntoId: null, conjuntoNombre: null, campanaId: CAMPANA, campanaNombre: "X" };
+  assert.equal((await aplicarReglaDeAnuncio(chat())).aplicada, false);
+  assert.equal(estado.metaPreguntas, 0);
+});
+
 await prueba("un anuncio sin id válido no hace nada", async () => {
   guardar([regla({ tipo: "anuncio", metaId: ANUNCIO })]);
   assert.equal((await aplicarReglaDeAnuncio(chat({ anuncio: { id: "", titulo: "", red: "", ctwaClid: "" } }))).aplicada, false);
@@ -335,7 +406,7 @@ await prueba("pantalla y acciones: solo dueño y administradores", () => {
 
 await prueba("solo lectura de Meta: se usa buscarAnuncio sin otros métodos", () => {
   const fuente = fs.readFileSync(path.join(RAIZ, "src/lib/reparto-por-anuncio.ts"), "utf8");
-  assert.match(fuente, /import \{ buscarAnuncio \} from "@\/features\/pauta\/servicios\/meta-ads-lectura";/);
+  assert.match(fuente, /import \{ buscarAnuncio, metaAdsConfigurado \} from "@\/features\/pauta\/servicios\/meta-ads-lectura";/);
   assert.doesNotMatch(fuente, /graph\.facebook\.com|method:\s*"(POST|DELETE)"/);
 });
 

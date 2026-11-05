@@ -1,0 +1,5 @@
+## Automatizaciones
+- `reparto_por_anuncio`: desde el 05-11-2026, cuando una regla le pasa el chat a una asesora, el bot SIEMPRE queda en pausa en ese chat (aunque la regla no tenga «Sin bienvenida»), para que no le mande el combo a esos clientes; en líneas V3 sale solo el acuse de pausa de siempre y en V2 el chat queda callado. «Sin bienvenida» ahora solo quita ese acuse en el primer mensaje. Las reglas de «reparto normal» no pausan. Cada chat asignado deja una marca en AppSetting `reparto-por-anuncio:uso:<negocio>:<regla>:<chat>` (cuenta una vez por chat; `usoDeLasReglas` da por regla los chats y el último). El registro dice por qué una regla no se aplicó: sin llave de Meta, Meta no contestó a tiempo, Meta no conoce el anuncio o la regla es de otra línea.
+
+## Advertencias de operación
+- `reparto_por_anuncio`: sin la llave de Meta (META_ADS_ACCESS_TOKEN y META_ADS_ACCOUNT_ID) las reglas por CAMPAÑA no funcionan, salvo que la campaña del anuncio ya esté en OrigenDePauta o en el recuerdo; el registro lo dice como "no hay llave de Meta". Las reglas por ANUNCIO sí funcionan sin la llave.
