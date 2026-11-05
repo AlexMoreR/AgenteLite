@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import type { ActiveProductContext } from "@/lib/agent-product-flow";
 import { esNotaInternaDelAgente } from "@/lib/notas-internas-del-agente";
 import { leerLibro } from "@/features/agente-v3/servicios/almacen";
+import { catalogoActivo, nombreLegible, type ProductoDelCatalogoV3 } from "@/features/agente-v3/servicios/catalogo";
 import { flujosParaSugerir, mismaDireccion, type FlujoParaSugerir } from "@/lib/flujos-para-sugerir";
 import { frasesProhibidas, limpiarFrasesProhibidas, terminaEnPregunta } from "@/lib/reglas-de-redaccion";
 
@@ -20,6 +21,9 @@ import { frasesProhibidas, limpiarFrasesProhibidas, terminaEnPregunta } from "@/
  *  - Que fotos, videos, documentos y flujos ya se le enviaron, para no repetirlos.
  *  - El producto activo con su descripcion para el agente, y el texto "Como hablamos" del libro del
  *    V3 (fuente de las formas de pago y los datos fijos).
+ *  - El catalogo de productos activos (nombre, codigo, categoria, precio y descripcion recortada),
+ *    el mismo que lista `listar_productos`. Sin precio mayorista ni costo (05-11-2026: sin el
+ *    catalogo, el bot le dijo a una clienta que la camilla "no se vende por separado", y si se vende).
  *
  * Las reglas de Alex se COMPRUEBAN en el texto que sale -largo, una sola pregunta, nada inventado,
  * nada repetido- y si algo no cumple se le devuelve al modelo con el detalle.
@@ -39,7 +43,9 @@ const REGLAS = `REGLAS DE LA RESPUESTA (todas obligatorias):
 - Responde a lo ÚLTIMO que escribió la clienta. No repitas lo que ya se le dijo en la conversación (precio, fotos, garantía, formas de pago): si ya lo sabe, avanza.
 - La garantía y la fabricación personalizada SOLO si la clienta pregunta por calidad, materiales o confianza.
 - Español de Colombia. Tutea (tú, nunca vos ni usted).
-- Si hablas de precio, envío o pago, con el valor exacto. Si es la primera vez que se habla de pago, menciona las dos formas (anticipo 50% con envío gratis a ciudades principales, o contraentrega pagando solo el envío antes) en una sola frase.
+- Si hablas de precio, envío o pago, con el valor exacto. Las formas de pago, solo las que diga «Cómo hablamos»: nunca otras.
+- NUNCA afirmes una política (qué se vende o no, si algo viene solo en combo, envíos, pagos, plazos, garantías) que no esté escrita en «Cómo hablamos» o en el catálogo. Si no lo sabes, escribe "Déjame confirmarlo con una asesora" y marca falta_dato true.
+- Cada producto del catálogo se vende por separado a su precio: si una pieza de un combo (camilla, butaco, carrito, escalera…) aparece en el catálogo, se vende suelta a ese precio.
 - Nunca escribas la palabra "pero" (usa "sin embargo"), ni "¿sigues interesada?", ni "cuando puedas me avisas".
 - No inventes precios, medidas, materiales ni tiempos. El valor del envío a una ciudad y los tiempos de fabricación o entrega NO están en los datos: di que se los confirmas.
 - Nunca ofrezcas ni menciones precio al por mayor ni descuentos.
@@ -97,10 +103,12 @@ export async function generarSugerenciaDeRespuesta(input: {
     return { error: "Todavía no hay mensajes para sugerir una respuesta" };
   }
 
-  const [producto, libro, todosLosFlujos] = await Promise.all([
+  const [producto, libro, todosLosFlujos, catalogo] = await Promise.all([
     leerProducto(input.workspaceId, chat.productoId),
     leerLibro(input.workspaceId).catch(() => null),
     flujosParaSugerir(input.workspaceId),
+    // Si el catalogo no se puede leer, se redacta igual sin el: la regla dura manda a confirmar.
+    catalogoActivo(input.workspaceId).catch(() => [] as ProductoDelCatalogoV3[]),
   ]);
 
   // Solo los flujos del canal de ESTE chat: un flujo de otra linea no se puede mandar desde aca.
@@ -113,6 +121,7 @@ export async function generarSugerenciaDeRespuesta(input: {
     apiKey,
     comoHablamos: libro?.comoHablamos?.trim() || "",
     producto,
+    catalogo,
     lineas: chat.lineas,
     enviado: resumirLoEnviado(chat.archivosEnviados, flujos),
     flujos: input.conFlujos === false ? [] : flujos,
@@ -141,6 +150,33 @@ export type ProductoParaSugerir = {
   precioMayorista: number | null;
 };
 
+/** Lo que el redactor usa de cada producto del catalogo. El mayorista solo para comprobar que no se filtre. */
+export type ProductoDelCatalogoParaSugerir = Pick<
+  ProductoDelCatalogoV3,
+  "nombre" | "codigo" | "categoria" | "precio" | "precioMayorista" | "descripcion"
+>;
+
+/** "Unas 300 letras" por producto: con 200 productos el mensaje a la IA no se vuelve lento. */
+const LETRAS_POR_DESCRIPCION = 300;
+
+/**
+ * El catalogo como lo lee la IA, una linea por producto. A proposito SIN precio mayorista ni costo:
+ * esos los negocia una asesora (Alex, 03-10-2026).
+ */
+export function textoDelCatalogo(catalogo: ProductoDelCatalogoParaSugerir[]) {
+  if (catalogo.length === 0) return "";
+  const lineas = catalogo.map((producto) => {
+    const precio = producto.precio > 0 ? `$${Math.round(producto.precio).toLocaleString("es-CO")}` : "sin precio en el catálogo (no lo des)";
+    const descripcion = producto.descripcion?.replace(/\s+/g, " ").trim();
+    const corta =
+      descripcion && descripcion.length > LETRAS_POR_DESCRIPCION
+        ? `${descripcion.slice(0, LETRAS_POR_DESCRIPCION).trimEnd()}…`
+        : descripcion;
+    return `- *${nombreLegible(producto.nombre)}*${producto.codigo ? ` (${producto.codigo})` : ""}${producto.categoria ? ` · ${producto.categoria}` : ""} · ${precio}${corta ? ` — ${corta}` : ""}`;
+  });
+  return `CATÁLOGO DE PRODUCTOS ACTIVOS (fuente de verdad de qué se vende y a qué precio; cada producto se vende por separado a su precio):\n${lineas.join("\n")}`;
+}
+
 export type LoEnviado = {
   /** "3 fotos, 1 video, documentos: COMBO DE CAMILLAS.pdf". */
   resumen: string;
@@ -153,6 +189,8 @@ export async function redactarSugerencia(input: {
   apiKey: string;
   comoHablamos: string;
   producto: ProductoParaSugerir | null;
+  /** Los productos activos de Gestion: lo que se vende y a que precio. */
+  catalogo?: ProductoDelCatalogoParaSugerir[];
   lineas: Linea[];
   enviado: LoEnviado;
   flujos: FlujoParaSugerir[];
@@ -162,14 +200,20 @@ export async function redactarSugerencia(input: {
 }): Promise<{ texto: string; flujo: FlujoSugerido | null; faltaDato: boolean; problemas: string[] } | null> {
   const { apiKey, comoHablamos, producto, lineas, enviado } = input;
   const flujosDisponibles = input.flujos.filter((flujo) => !enviado.flujosEnviados.has(flujo.id));
+  const catalogo = input.catalogo ?? [];
+  const delCatalogo = textoDelCatalogo(catalogo);
+  const delProducto = producto
+    ? `PRODUCTO DEL QUE SE ESTÁ HABLANDO:\n*${producto.nombre}*${producto.codigo ? ` (${producto.codigo})` : ""}\nPrecio: ${producto.precio}\n${producto.descripcion ? `Descripción para el agente:\n${producto.descripcion}` : "Sin descripción: no inventes características."}`
+    : delCatalogo
+      ? "No hay un producto identificado en esta conversación: si la clienta pregunta por uno, búscalo en el catálogo; si no está claro cuál es, pregúntale cuál, sin inventar precios."
+      : "No hay un producto identificado en esta conversación: si la clienta pregunta por uno, pregunta cuál, sin inventar precios.";
 
   const sistema = [
     "Eres una vendedora experta de Magilus que le escribe por WhatsApp a una clienta. Redactas la PRÓXIMA respuesta de la vendedora en esta conversación.",
     REGLAS,
     comoHablamos ? `DATOS DEL NEGOCIO Y FORMA DE HABLAR (fuente de verdad: precios, pagos, envíos, materiales):\n${comoHablamos}` : "",
-    producto
-      ? `PRODUCTO DEL QUE SE ESTÁ HABLANDO:\n*${producto.nombre}*${producto.codigo ? ` (${producto.codigo})` : ""}\nPrecio: ${producto.precio}\n${producto.descripcion ? `Descripción para el agente:\n${producto.descripcion}` : "Sin descripción: no inventes características."}`
-      : "No hay un producto identificado en esta conversación: si la clienta pregunta por uno, pregunta cuál, sin inventar precios.",
+    delProducto,
+    delCatalogo,
     flujosDisponibles.length > 0
       ? `${REGLAS_DEL_FLUJO}\nFlujos disponibles (id | nombre | para qué):\n${flujosDisponibles.map((flujo) => `- ${flujo.id} | ${flujo.titulo}${flujo.paraQue ? ` | ${flujo.paraQue}` : ""}`).join("\n")}`
       : "",
@@ -214,9 +258,16 @@ export async function redactarSugerencia(input: {
   const contexto = [sistema, conversacion].join("\n");
   const ultimoDeLaClienta = [...lineas].reverse().find((linea) => linea.de === "cliente")?.texto ?? "";
   const nuestros = lineas.filter((linea) => linea.de === "negocio").map((linea) => linea.texto).join("\n");
+  // Lo unico que puede decir que se vende o no se vende: el libro, el producto y el catalogo (no las reglas).
+  const politicas = [comoHablamos, delProducto, delCatalogo].join("\n");
+  const preciosMayoristas = catalogo.map((item) => item.precioMayorista);
+  const preciosDeVenta = catalogo.map((item) => item.precio);
   const revisar = (texto: string) =>
     problemasDeLaSugerencia(texto, {
       precioMayorista: producto?.precioMayorista ?? null,
+      preciosMayoristas,
+      preciosDeVenta,
+      politicas,
       contexto,
       ultimoDeLaClienta,
       yaDijimos: nuestros,
@@ -467,7 +518,7 @@ function leerRespuesta(
     texto: limpio,
     flujo: flujo ? { id: flujo.id, titulo: flujo.titulo } : null,
     // Si el texto dice "te confirmo", falta un dato aunque el modelo no lo haya marcado.
-    faltaDato: faltaDato || /te (lo |la |los |las )?confirm|confirmarte|lo confirmo|verifico|te averiguo/i.test(limpio),
+    faltaDato: faltaDato || /te (lo |la |los |las )?confirm|confirmarte|confirmarl[oa]s?\b|lo confirmo|verifico|te averiguo/i.test(limpio),
   };
 }
 
@@ -483,13 +534,46 @@ function arreglosSeguros(texto: string) {
 const PREGUNTA_POR_PRECIO = /precio|cu[aá]nto|valor|vale|cuesta|cost/i;
 const PREGUNTA_POR_CALIDAD = /calidad|garant|confi|material|dura|resist|segur|estafa|real|fabric|buen[ao]s?\b|aguanta|soporta/i;
 
+/**
+ * "No se vende por separado", "solo se venden juntas": una politica de venta. Solo puede salir si
+ * esta escrita en el libro, el producto o el catalogo (caso del 05-11-2026: era falso).
+ */
+const NO_SE_VENDE_SUELTO =
+  /\bno\s+(se\s+)?(vende|venden|vendemos|maneja|manejan|manejamos|ofrece|ofrecen|ofrecemos)\s+(por\s+separado|suelt[oa]s?|individual(mente)?|aparte|por\s+aparte)|\bsolo\s+(se\s+)?(vende|venden|vendemos)\s+(junt[oa]s?|en\s+(el\s+)?combo|complet[oa]s?)|\bsolo\s+(las\s+|los\s+)?(piezas|partes)\s+junt[oa]s|\bno\s+(viene|vienen)\s+(por\s+separado|suelt[oa]s?)/;
+
+function sinTildes(fuente: string) {
+  return fuente.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+}
+
+/** Las cifras del texto, con o sin "$": "450.000", "$450000", "450,000". */
+function cifras(fuente: string) {
+  return [...fuente.matchAll(/\d{1,3}(?:[.,]\d{3})+|\d{4,}/g)].map((m) => Number(m[0].replace(/[.,]/g, "")));
+}
+
 export function problemasDeLaSugerencia(
   texto: string,
-  datos: { precioMayorista: number | null; contexto: string; ultimoDeLaClienta: string; yaDijimos: string },
+  datos: {
+    precioMayorista: number | null;
+    /** Los mayoristas de TODO el catalogo: ninguno puede salir. */
+    preciosMayoristas?: number[];
+    /** Los precios de venta del catalogo: si un mayorista coincide con uno, esa cifra si se puede decir. */
+    preciosDeVenta?: number[];
+    /** Libro, producto y catalogo: lo unico que puede afirmar una politica de venta. */
+    politicas?: string;
+    contexto: string;
+    ultimoDeLaClienta: string;
+    yaDijimos: string;
+  },
 ) {
   const { precioMayorista } = datos;
   const problemas: string[] = [];
   problemas.push(...datosInventados(texto, datos.contexto));
+
+  if (NO_SE_VENDE_SUELTO.test(sinTildes(texto)) && !NO_SE_VENDE_SUELTO.test(sinTildes(datos.politicas ?? datos.contexto))) {
+    problemas.push(
+      'Dice que algo no se vende por separado, y eso no está en los datos: cada producto del catálogo se vende suelto a su precio. Si no lo sabes, escribe "Déjame confirmarlo con una asesora".',
+    );
+  }
 
   const palabras = texto.split(/\s+/).filter(Boolean).length;
   if (palabras > PALABRAS_MAXIMAS) problemas.push(`Tiene ${palabras} palabras: máximo unas 35, en 2 frases cortas.`);
@@ -502,6 +586,15 @@ export function problemasDeLaSugerencia(
   problemas.push(...frasesProhibidas(texto).map((motivo) => `El mensaje ${motivo}: corrígelo.`));
   if (/mayoris|al por mayor|por mayor/i.test(texto)) problemas.push("Menciona el precio al por mayor: está prohibido.");
   if (precioMayorista && mencionaElValor(texto, precioMayorista)) problemas.push("Incluye el precio mayorista: está prohibido.");
+  else {
+    const deVenta = new Set((datos.preciosDeVenta ?? []).map((valor) => Math.round(valor)));
+    const mayoristas = new Set(
+      (datos.preciosMayoristas ?? []).map((valor) => Math.round(valor)).filter((valor) => valor > 0 && !deVenta.has(valor)),
+    );
+    if (cifras(texto).some((cifra) => mayoristas.has(cifra))) {
+      problemas.push("Incluye el precio mayorista de un producto del catálogo: está prohibido.");
+    }
+  }
   if (/descuento/i.test(texto)) problemas.push("Menciona descuentos: no se ofrecen.");
 
   // Nada de repetir: un precio que ya se dijo, salvo que la clienta lo este preguntando ahora.
@@ -542,7 +635,6 @@ function datosInventados(texto: string, contexto: string) {
     );
   }
 
-  const sinTildes = (fuente: string) => fuente.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
   const contextoPlano = sinTildes(contexto);
   const plazos = sinTildes(texto).match(/\d+(\s*(a|-|y)\s*\d+)?\s*(dias|semanas|horas|meses)(\s+habiles)?/g) ?? [];
   const plazosInventados = plazos.filter((plazo) => !contextoPlano.includes(plazo));

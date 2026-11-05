@@ -24,6 +24,7 @@
     "test:reenviar": "node scripts/check-reenviar.mjs",
     "test:chat-envio-reintento": "npx tsx --test src/lib/chat-envio-reintento.test.ts",
     "test:carta-de-colores": "npx tsx --test src/lib/carta-de-colores.test.ts src/lib/imagen-de-carta-de-colores.test.tsx",
+    "test:sugerencia-catalogo": "npx tsx --test src/lib/sugerencia-de-respuesta.test.ts",
     "test:sugerencia-otro-chat": "npx tsx --test src/components/chats/destino-de-la-sugerencia.test.ts",
     "test:pegar-imagen": "npx tsx --test src/components/chats/imagenes-del-portapapeles.test.ts",
     "test:agente-v3-foto": "node scripts/check-agente-v3-foto.mjs",
