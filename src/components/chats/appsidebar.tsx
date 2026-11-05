@@ -788,7 +788,7 @@ export const AppSidebar = React.memo(function AppSidebar({
             [overflow-anchor:none]: la lista recorta las filas que no se ven y cambia los espacios de
             arriba y abajo al bajar. Con el anclaje del navegador prendido, cada cambio "corregia" la
             posicion, eso movia el scroll otra vez y la pantalla temblaba o se pegaba (05-11-2026).
-            Sin divide-y: la linea va en cada fila, que tiene alto fijo (ver conversation-list).
+            La linea entre filas ya no la pone la caja: va en cada fila, que tiene alto fijo (ver conversation-list).
           */
           className={`min-h-0 flex-1 overflow-y-auto overscroll-contain transition-opacity duration-150 [-webkit-overflow-scrolling:touch] [overflow-anchor:none] ${
             listaAtenuada ? "pointer-events-none opacity-40" : ""
