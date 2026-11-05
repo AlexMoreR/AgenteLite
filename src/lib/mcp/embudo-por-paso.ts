@@ -8,7 +8,8 @@ import { puedeVerElSupervisor } from "@/lib/mcp/supervisor";
   EMBUDO POR PASO DESDE CLAUDE (solo lectura).
 
   Devuelve lo mismo que la pantalla /cliente/direccion/embudo-por-paso: por producto y rango de
-  fechas, cuántos chats llegaron a cada paso del bot (Presentación, Producto, Objeciones, Cierre),
+  fechas, cuántos clientes llegaron a cada paso (Escribió, Vio el producto, Preguntó cómo comprar,
+  Compró; Compró = el bot lo puso en Cierre o quedó en Ganado del CRM con la venta en el periodo),
   cuántos se quedaron en cada uno (más de 24 h sin responder), la tasa de paso a paso y el tiempo
   promedio en cada paso. Los chats que tomó una asesora salen aparte. Usa EL MISMO cálculo que la
   pantalla (features/embudo/dominio/por-paso.ts).
@@ -28,7 +29,7 @@ export const HERRAMIENTAS_MCP_EMBUDO_POR_PASO = [
     name: "embudo_por_paso",
     title: "Embudo por paso del bot",
     description:
-      "En que paso del bot se queda la gente. Por producto y rango de fechas (dia en que entro el chat): cuantos chats LLEGARON a cada paso (Presentacion, Producto, Objeciones, Cierre), cuantos SE QUEDARON en cada uno (es su paso actual y llevan mas de 24 horas sin escribir), la tasa de paso a paso (ej. 60 % de Presentacion pasa a Producto), el paso donde mas se cae y el tiempo promedio en cada paso. Los chats que tomo una asesora (IA en pausa o chat asignado) salen aparte en 'tomados_por_asesora' para no mezclarlos con los del bot. Trae 'resumen_para_decir' con una frase para la reunion de las 8:00 y avisa 'pocos_datos' si un paso tiene menos de 30 chats. Solo lectura: no cambia el bot ni manda mensajes.",
+      "En que paso se queda la gente. Por producto y rango de fechas (dia en que entro el chat, o en que se vendio): cuantos clientes LLEGARON a cada paso (Escribió, Vio el producto, Preguntó cómo comprar, Compró), cuantos SE QUEDARON en cada uno (es su paso actual y llevan mas de 24 horas sin escribir), la tasa de paso a paso (ej. 60 % de Escribió pasa a Vio el producto), el paso donde mas se cae y el tiempo promedio en cada paso. Compró = el bot lo puso en Cierre o el contacto quedo en Ganado del CRM con la venta (wonAt) en el periodo; quien compro cuenta tambien en los pasos anteriores. Un mismo cliente que escribio por dos lineas cuenta una vez. Los chats que tomo una asesora (IA en pausa o chat asignado) salen aparte en 'tomados_por_asesora' para no mezclarlos con los del bot. Trae 'resumen_para_decir' con una frase para la reunion de las 8:00 y avisa 'pocos_datos' si un paso tiene menos de 30 chats. Solo lectura: no cambia el bot ni manda mensajes.",
     inputSchema: {
       type: "object",
       properties: {

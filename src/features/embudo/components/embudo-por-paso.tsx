@@ -15,8 +15,8 @@ import { textoPct } from "../dominio/semanal";
  * LA PANTALLA "EMBUDO POR PASO": en qué paso del bot se queda la gente. Solo presenta: los números
  * llegan armados (dominio/por-paso.ts, el mismo cálculo del MCP). Sin JavaScript del lado del cliente.
  *
- * Mobile-first: todo en una columna. Dos bloques: los chats que atendió solo el bot y, aparte, los
- * que tomó una asesora. En cada uno, barras de "llegaron" y de "se quedaron" por paso, la tasa de
+ * Mobile-first: todo en una columna. Cuenta clientes (los chats de un mismo contacto cuentan uno).
+ * Dos bloques: los clientes que atendió solo el bot y, aparte, los que tomó una asesora. En cada uno, barras de "llegaron" y de "se quedaron" por paso, la tasa de
  * paso a paso (el paso donde más se cae, en rojo) y el tiempo promedio en cada paso.
  */
 
@@ -37,13 +37,13 @@ function GrupoDelEmbudo({ titulo, descripcion, grupo }: { titulo: string; descri
       <CardHeader>
         <CardTitle className="flex flex-wrap items-center gap-2 text-lg font-extrabold">
           {titulo}
-          <Badge variant="outline">{grupo.chats.toLocaleString("es-CO")} chats</Badge>
+          <Badge variant="outline">{grupo.chats.toLocaleString("es-CO")} clientes</Badge>
         </CardTitle>
         <p className="text-sm text-muted-foreground">{descripcion}</p>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
         {grupo.conPaso === 0 ? (
-          <p className="text-sm text-muted-foreground">Todavía no hay chats con un paso registrado en este rango.</p>
+          <p className="text-sm text-muted-foreground">Todavía no hay clientes con un paso registrado en este rango.</p>
         ) : (
           <>
             <section aria-label="Cuántos llegaron a cada paso" className="flex flex-col gap-3">
@@ -134,6 +134,7 @@ export function EmbudoPorPasoVista(props: EmbudoPorPasoVistaProps) {
         <p className="text-sm text-muted-foreground">
           {props.nombreProducto} · {props.etiquetaRango}. En qué paso del bot se queda la gente.
         </p>
+        <p className="text-sm font-semibold text-foreground">Cuenta cuántos clientes pasaron por cada paso; el rojo es dónde se quedan</p>
       </header>
 
       {props.filtros}
@@ -152,7 +153,7 @@ export function EmbudoPorPasoVista(props: EmbudoPorPasoVistaProps) {
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <GrupoDelEmbudo
               titulo="Solo el bot"
-              descripcion="Chats que atendió el bot de principio a fin (sin asesora)."
+              descripcion="Clientes que atendió el bot de principio a fin (sin asesora)."
               grupo={props.embudo.bot}
             />
             <GrupoDelEmbudo
@@ -162,9 +163,10 @@ export function EmbudoPorPasoVista(props: EmbudoPorPasoVistaProps) {
             />
           </div>
           <p className="text-xs text-muted-foreground">
-            Cada chat cuenta una vez por paso aunque vuelva atrás. «Se quedó» = es su paso actual y lleva más de {HORAS_PARA_QUEDARSE} h sin escribir
-            (si vuelve a escribir, deja de contar; los que ya compraron no cuentan). Identificación se cuenta dentro de Presentación. Con menos de{" "}
-            {MINIMO_POR_PASO} chats en un paso los porcentajes pueden engañar. Los tiempos salen de los últimos 10 cambios de paso de cada chat.
+            Cada cliente cuenta una vez por paso aunque vuelva atrás o escriba por dos líneas. «Compró» = el bot lo puso en Cierre o
+            quedó en Ganado del CRM con la venta en estas fechas (cuenta también en los pasos anteriores). «Se quedó» = es su paso actual y lleva más de {HORAS_PARA_QUEDARSE} h sin escribir
+            (si vuelve a escribir, deja de contar; los que ya compraron no cuentan). Identificación se cuenta dentro de Escribió. Con menos de{" "}
+            {MINIMO_POR_PASO} clientes en un paso los porcentajes pueden engañar. Los tiempos salen de los últimos 10 cambios de paso de cada cliente.
           </p>
         </>
       )}

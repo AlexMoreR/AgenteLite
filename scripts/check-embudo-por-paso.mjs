@@ -198,9 +198,60 @@ prueba("sin chats todo queda en cero y el texto lo dice", () => {
 prueba("la frase para la reunión nombra los pasos y la mayor caída", () => {
   const embudo = porPaso.armarEmbudoPorPaso([...flujo, ...muchos(3, { conAsesora: true })], AHORA);
   const frase = porPaso.textoDelEmbudoPorPaso({ producto: "Combo camilla", desde: "2026-10-01", hasta: "2026-10-27", embudo });
-  assert.ok(frase.includes("Presentación 111"));
-  assert.ok(frase.includes("entre Objeciones y Cierre"));
-  assert.ok(frase.includes("3 chats los tomó una asesora"));
+  assert.ok(frase.includes("Escribió 111"));
+  assert.ok(frase.includes("entre Preguntó cómo comprar y Compró"));
+  assert.ok(frase.includes("a 3 clientes los tomó una asesora"));
+});
+
+prueba("los pasos se llaman en palabras del negocio", () => {
+  assert.deepEqual(porPaso.PASOS_DEL_REPORTE.map((p) => p.nombre), ["Escribió", "Vio el producto", "Preguntó cómo comprar", "Compró"]);
+  assert.deepEqual(porPaso.armarEmbudoPorPaso([], AHORA).bot.pasos.map((p) => p.nombre), ["Escribió", "Vio el producto", "Preguntó cómo comprar", "Compró"]);
+});
+
+prueba("un chat con asesora en PRODUCTO y en Ganado con venta en el periodo cuenta en Compró y en los pasos anteriores", () => {
+  const leads = [lead({ conAsesora: true, pasoActual: "PRODUCTO", pasoMaximo: "PRODUCTO", ultimoClienteEn: hace(60), compro: true, ganoEnElPeriodo: true })];
+  const { asesora } = porPaso.armarEmbudoPorPaso(leads, AHORA);
+  assert.deepEqual(asesora.pasos.map((p) => p.llegaron), [1, 1, 1, 1]);
+  // Ya compró: no cuenta como "se quedó" en Vio el producto.
+  assert.deepEqual(asesora.pasos.map((p) => p.seQuedaron), [0, 0, 0, 0]);
+  assert.equal(asesora.conPaso, 1);
+});
+
+prueba("un Ganado sin ningún paso del bot también cuenta en los 4 pasos", () => {
+  const { asesora } = porPaso.armarEmbudoPorPaso([lead({ conAsesora: true, pasoActual: null, pasoMaximo: null, compro: true, ganoEnElPeriodo: true })], AHORA);
+  assert.deepEqual(asesora.pasos.map((p) => p.llegaron), [1, 1, 1, 1]);
+});
+
+prueba("un Ganado con la venta fuera del periodo no suma en Compró", () => {
+  // compro = true (ya compró alguna vez) pero la venta no es de este periodo: ganoEnElPeriodo = false.
+  const { asesora } = porPaso.armarEmbudoPorPaso([lead({ conAsesora: true, pasoActual: "PRODUCTO", pasoMaximo: "PRODUCTO", compro: true, ganoEnElPeriodo: false })], AHORA);
+  assert.deepEqual(asesora.pasos.map((p) => p.llegaron), [1, 1, 0, 0]);
+});
+
+prueba("dos chats del mismo contacto en dos líneas cuentan una sola vez", () => {
+  const admin = lead({ contactId: "k-ruby", canalId: "ADMIN", pasoActual: "PRESENTACION", pasoMaximo: "PRESENTACION", ultimoClienteEn: hace(3) });
+  const ventas = lead({ contactId: "k-ruby", canalId: "VENTAS1", pasoActual: "OBJECIONES", pasoMaximo: "OBJECIONES", ultimoClienteEn: hace(30) });
+  const embudo = porPaso.armarEmbudoPorPaso([admin, ventas, lead({ contactId: "otro" })], AHORA);
+  assert.equal(embudo.total, 2);
+  assert.equal(embudo.bot.chats, 2);
+  // Vale el paso más alto de sus dos chats; su paso actual es el del chat que se movió último (escribió hace 3 h: en curso).
+  assert.deepEqual(embudo.bot.pasos.map((p) => p.llegaron), [2, 1, 1, 0]);
+  assert.equal(embudo.bot.pasos[0].enCurso, 2);
+  assert.equal(embudo.bot.pasos[2].seQuedaron, 0);
+});
+
+prueba("si uno de sus chats lo tomó una asesora y compró, el cliente va a «Lo tomó una asesora» y cuenta en Compró", () => {
+  const bot = lead({ contactId: "k-ingrid", pasoActual: "PRESENTACION", pasoMaximo: "PRESENTACION", ultimoClienteEn: hace(1) });
+  const conAsesora = lead({ contactId: "k-ingrid", conAsesora: true, pasoActual: "PRODUCTO", pasoMaximo: "PRODUCTO", ultimoClienteEn: hace(40), compro: true, ganoEnElPeriodo: true });
+  const embudo = porPaso.armarEmbudoPorPaso([bot, conAsesora], AHORA);
+  assert.equal(embudo.bot.chats, 0);
+  assert.equal(embudo.asesora.chats, 1);
+  assert.deepEqual(embudo.asesora.pasos.map((p) => p.llegaron), [1, 1, 1, 1]);
+});
+
+prueba("sin contacto, cada chat es un cliente", () => {
+  const embudo = porPaso.armarEmbudoPorPaso([lead({ contactId: null }), lead({ contactId: null })], AHORA);
+  assert.equal(embudo.total, 2);
 });
 
 console.log(`\n${pruebas} pruebas ok, ${fallas.length} con falla`);

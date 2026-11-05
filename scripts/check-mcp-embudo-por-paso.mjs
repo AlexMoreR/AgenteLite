@@ -107,20 +107,48 @@ await prueba("devuelve los 4 pasos del combo con llegaron y se quedaron", async 
   const r = await ejecutar({});
   assert.equal(r.producto, "Combo camilla");
   const pasos = r.solo_el_bot.pasos;
-  assert.deepEqual(pasos.map((p) => p.paso), ["Presentación", "Producto", "Objeciones", "Cierre"]);
+  assert.deepEqual(pasos.map((p) => p.paso), ["Escribió", "Vio el producto", "Preguntó cómo comprar", "Compró"]);
   assert.deepEqual(pasos.map((p) => p.llegaron), [88, 48, 18, 8]);
   assert.deepEqual(pasos.map((p) => p.se_quedaron), [40, 30, 10, 8]);
   assert.equal(pasos[0].pct_que_pasa_al_siguiente, 54.5);
-  assert.equal(r.solo_el_bot.paso_donde_mas_se_cae.entre, "Producto y Objeciones");
+  assert.equal(r.solo_el_bot.paso_donde_mas_se_cae.entre, "Vio el producto y Preguntó cómo comprar");
   assert.equal(r.tomados_por_asesora.chats, 4);
   assert.equal(r.solo_el_bot.chats, 88);
-  assert.ok(r.resumen_para_decir.includes("Presentación 88"));
+  assert.ok(r.resumen_para_decir.includes("Escribió 88"));
 });
 
 await prueba("solo lee y usa el negocio de la clave", () => {
   assert.deepEqual(db.escrituras, []);
   assert.ok(db.consultas.length > 0 && db.consultas.every((c) => c.valores.includes(WS)));
   assert.ok(db.consultas.every((c) => /^\s*SELECT/i.test(c.texto)));
+});
+
+await prueba("la consulta lee la fecha real de la venta y el contacto, y suma los Ganado del periodo", () => {
+  const consulta = db.consultas[0].texto;
+  assert.ok(consulta.includes('ct."wonAt"'));
+  assert.ok(consulta.includes('ct."id"'));
+  assert.ok(consulta.includes('el."workspaceId" ='));
+  assert.ok(/GANADO/.test(consulta));
+});
+
+await prueba("un Ganado con venta en el periodo tomado por asesora cuenta en Compró; dos chats del mismo contacto cuentan uno", async () => {
+  const antes = filas.length;
+  const enElPeriodo = dias(1);
+  filas.push(fila(0, "PRODUCTO", { contactId: "k-ingrid", automationPaused: true, crmStage: "GANADO", wonAt: enElPeriodo }));
+  filas.push(fila(1, "PRESENTACION", { contactId: "k-ingrid", canal: "Admin" }));
+  filas.push(fila(2, "PRODUCTO", { contactId: "k-viejo", automationPaused: true, crmStage: "GANADO", wonAt: dias(400) }));
+  try {
+    // Otro rango (otra clave del caché) para que lea las filas nuevas.
+    const hoy = new Date();
+    const dia = (d) => new Date(d.getTime() - 5 * 3_600_000).toISOString().slice(0, 10);
+    const r = await ejecutar({ desde: dia(dias(20)), hasta: dia(hoy) });
+    // Antes: 4 con asesora en Cierre. Ahora +1 (Ingrid, juntada con su chat de Admin) que compró y +1 (Ganado viejo) que no.
+    assert.equal(r.tomados_por_asesora.chats, 6);
+    assert.deepEqual(r.tomados_por_asesora.pasos.map((p) => p.llegaron), [6, 6, 5, 5]);
+    assert.equal(r.solo_el_bot.chats, 88);
+  } finally {
+    filas.length = antes;
+  }
 });
 
 await prueba("otro producto filtra por familia", async () => {

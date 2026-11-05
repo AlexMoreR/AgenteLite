@@ -13,8 +13,10 @@ import { bogotaHoy, sumarDiasBogota } from "./leer-comparacion";
 /**
  * Lo que lee "Embudo por paso" (pantalla y MCP). SOLO LEE. Las cuentas están en dominio/por-paso.ts.
  *
- * UNA consulta por rango de fechas (índice EmbudoLead[workspaceId, entradaEn]); la familia de
- * producto se filtra en memoria. "Se quedó aquí" depende de la hora, por eso el caché es corto
+ * UNA consulta por rango de fechas (índice EmbudoLead[workspaceId, entradaEn]): los chats que
+ * entraron en el periodo y, además, los que compraron en el periodo aunque hayan entrado antes
+ * (contacto en GANADO con Contact.wonAt en el rango, o EmbudoLead.ventaEn si wonAt falta). La familia
+ * de producto se filtra en memoria; juntar los chats de un mismo cliente lo hace dominio/por-paso.ts. "Se quedó aquí" depende de la hora, por eso el caché es corto
  * (2 minutos) y la cuenta se hace con la hora de cada lectura.
  */
 
@@ -25,6 +27,8 @@ const cache = new CacheConTtl<LeadPorPaso[]>({ ttlMs: 2 * 60_000, maxEntradas: 3
 
 type FilaPorPaso = {
   id: string;
+  contactId: string | null;
+  wonAt: Date | null;
   canalId: string | null;
   canal: string | null;
   entradaEn: Date;
@@ -55,7 +59,7 @@ async function cargar(workspaceId: string, desde: string, hasta: string): Promis
   const inicio = new Date(`${desde}T00:00:00.000-05:00`);
   const fin = new Date(`${sumarDiasBogota(hasta, 1)}T00:00:00.000-05:00`);
   const filas = await prisma.$queryRaw<FilaPorPaso[]>(Prisma.sql`
-    SELECT el."conversationId" AS "id", el."channelId" AS "canalId", w."name" AS "canal", el."entradaEn",
+    SELECT el."conversationId" AS "id", ct."id" AS "contactId", ct."wonAt", el."channelId" AS "canalId", w."name" AS "canal", el."entradaEn",
            el."anuncioTitulo", el."productoEntrada", el."productoActual", el."productoInteres",
            el."pasoActual", el."pasoMaximo", el."pasoAnterior", el."pasoDesde", el."pasoHistorial",
            el."ultimoClienteEn", el."ventaEn", el."transferencia", el."asignadaA", el."primeraRespuestaAsesoraEn",
@@ -65,15 +69,29 @@ async function cargar(workspaceId: string, desde: string, hasta: string): Promis
     LEFT JOIN "Conversation" cv ON cv."id" = el."conversationId"
     LEFT JOIN "WhatsAppChannel" w ON w."id" = el."channelId"
     WHERE el."workspaceId" = ${workspaceId}
-      AND el."entradaEn" >= ${inicio} AND el."entradaEn" < ${fin}
+      AND (
+        (el."entradaEn" >= ${inicio} AND el."entradaEn" < ${fin})
+        OR (
+          ct."crmStage"::text = 'GANADO'
+          AND COALESCE(ct."wonAt", el."ventaEn") >= ${inicio}
+          AND COALESCE(ct."wonAt", el."ventaEn") < ${fin}
+        )
+      )
       AND el."exterior" = false
       AND ct."excludedFromCrm" = false
   `);
 
+  const dentro = (cuando: Date) => cuando.getTime() >= inicio.getTime() && cuando.getTime() < fin.getTime();
   return filas.map((fila): LeadPorPaso => {
     const esMarketplace = PATRON_LINEA_MARKETPLACE.test(fila.canal ?? "");
+    const ganado = fila.crmStage === "GANADO";
+    // La fecha real de la venta: Contact.wonAt; si falta, la del embudo. Un Ganado viejo sin ninguna
+    // de las dos cuenta solo si el chat entró en el periodo (no se pierde ni se arrastra a todos).
+    const fechaDeVenta = fila.wonAt ?? fila.ventaEn;
+    const ganoEnElPeriodo = ganado && (fechaDeVenta ? dentro(new Date(fechaDeVenta)) : dentro(new Date(fila.entradaEn)));
     return {
       conversationId: fila.id,
+      contactId: fila.contactId,
       entradaEn: fila.entradaEn,
       familia: familiaDelLead({
         esMarketplace,
@@ -89,7 +107,8 @@ async function cargar(workspaceId: string, desde: string, hasta: string): Promis
       pasoDesde: fila.pasoDesde,
       pasoHistorial: Array.isArray(fila.pasoHistorial) ? (fila.pasoHistorial as CambioDePaso[]) : null,
       ultimoClienteEn: fila.ultimoClienteEn,
-      compro: fila.crmStage === "GANADO" || Boolean(fila.ventaEn),
+      compro: ganado || Boolean(fila.ventaEn),
+      ganoEnElPeriodo,
       // Lo tomó una asesora: IA en pausa, chat asignado, escalado/asignado en el embudo o ya le respondió una persona.
       conAsesora: Boolean(
         fila.automationPaused ||

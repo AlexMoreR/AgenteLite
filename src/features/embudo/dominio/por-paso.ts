@@ -3,9 +3,15 @@
  * en código puro: sin base ni Next. La pantalla y el MCP usan ESTAS funciones, así que nunca dan
  * números distintos. Se prueba con `npm run test:embudo-por-paso` (scripts/check-embudo-por-paso.mjs).
  *
- * QUÉ SE CUENTA (de la foto del lead, EmbudoLead):
- *  - Llegaron a un paso: el paso más alto que alcanzó el chat (`pasoMaximo`) es ese o uno posterior.
- *    Volver a un paso anterior NO suma otra vez: es un embudo, cada chat cuenta una vez por paso.
+ * QUÉ SE CUENTA (de la foto del lead, EmbudoLead), POR CLIENTE:
+ *  - Un cliente cuenta una vez: si el mismo contacto escribió por dos líneas (Admin y Ventas 1) del
+ *    mismo producto, sus chats se juntan (`juntarPorCliente`): vale el paso más alto, compró si
+ *    cualquiera compró y va con asesora si a cualquiera lo tomó una asesora.
+ *  - Llegaron a un paso: el paso más alto que alcanzó (`pasoMaximo`) es ese o uno posterior.
+ *    Volver a un paso anterior NO suma otra vez: es un embudo, cada cliente cuenta una vez por paso.
+ *  - Compró: el bot lo puso en CIERRE o el contacto quedó en GANADO del CRM con la venta en el periodo
+ *    (`ganoEnElPeriodo`). Quien llegó a Ganado cuenta también en los pasos anteriores, aunque el bot
+ *    lo haya dejado más atrás (por ejemplo, una asesora lo vendió desde Producto).
  *  - Se quedaron aquí: su paso actual es ese y lleva MÁS de 24 horas sin escribir. Se calcula al
  *    mirar (con `ahora`), así que nunca queda desactualizado; si el cliente vuelve a escribir, deja
  *    de contar. Quien ya compró no cuenta como "se quedó".
@@ -13,9 +19,10 @@
  *  - Tiempo en cada paso: del historial corto (últimos 10 cambios), de cuando entró al paso a
  *    cuando entró al siguiente. El paso en que está ahora no tiene tiempo todavía.
  *
- * LOS 4 PASOS DEL REPORTE: Presentación, Producto, Objeciones y Cierre. Identificación (que el
- * registro también conoce) se cuenta dentro de Presentación: llegar a Identificación es haber
- * pasado Presentación, y quedarse en Identificación es seguir en la parte de conocer al cliente.
+ * LOS 4 PASOS DEL REPORTE, en palabras del negocio: Escribió (PRESENTACION), Vio el producto
+ * (PRODUCTO), Preguntó cómo comprar (OBJECIONES) y Compró (CIERRE). Identificación (que el registro
+ * también conoce) se cuenta dentro de Escribió: llegar a Identificación es haber pasado Presentación,
+ * y quedarse en Identificación es seguir en la parte de conocer al cliente.
  *
  * DOS GRUPOS que no se mezclan: los chats que atendió solo el bot y los que tomó una asesora (IA en
  * pausa o chat asignado), porque en estos últimos el paso ya no lo mueve el bot.
@@ -31,16 +38,18 @@ export const HORAS_PARA_QUEDARSE = 24;
 export const MINIMO_POR_PASO = 30;
 
 export const PASOS_DEL_REPORTE = [
-  { clave: "PRESENTACION", nombre: "Presentación" },
-  { clave: "PRODUCTO", nombre: "Producto" },
-  { clave: "OBJECIONES", nombre: "Objeciones" },
-  { clave: "CIERRE", nombre: "Cierre" },
+  { clave: "PRESENTACION", nombre: "Escribió" },
+  { clave: "PRODUCTO", nombre: "Vio el producto" },
+  { clave: "OBJECIONES", nombre: "Preguntó cómo comprar" },
+  { clave: "CIERRE", nombre: "Compró" },
 ] as const;
 export type ClaveDePasoDelReporte = (typeof PASOS_DEL_REPORTE)[number]["clave"];
 
 /** Lo que se necesita de cada chat. La lectura de la base lo arma (servicios/leer-embudo-por-paso.ts). */
 export type LeadPorPaso = {
   conversationId: string;
+  /** El contacto del CRM (uno por teléfono en cada negocio): junta los chats de un mismo cliente. */
+  contactId?: string | null;
   entradaEn: Date | string;
   familia: ClaveDeFamilia;
   canalId: string | null;
@@ -50,8 +59,13 @@ export type LeadPorPaso = {
   pasoDesde: Date | string | null;
   pasoHistorial: CambioDePaso[] | null;
   ultimoClienteEn: Date | string | null;
-  /** Ya compró (Ganado en el CRM o EmbudoLead.ventaEn). */
+  /** Ya compró alguna vez (Ganado en el CRM o EmbudoLead.ventaEn): no cuenta como "se quedó". */
   compro: boolean;
+  /**
+   * Está en GANADO del CRM con la venta en el periodo (Contact.wonAt, o EmbudoLead.ventaEn si falta):
+   * cuenta en Compró y en los pasos anteriores. Lo calcula la lectura de la base.
+   */
+  ganoEnElPeriodo?: boolean;
   /** Lo tomó una asesora: IA en pausa, chat asignado o ya le respondió una persona. */
   conAsesora: boolean;
 };
@@ -75,7 +89,7 @@ export function horasSinResponder(lead: Pick<LeadPorPaso, "ultimoClienteEn" | "p
 
 /** ¿Se quedó en su paso actual? Más de 24 h sin escribir, sin haber comprado. */
 export function seQuedoAqui(lead: LeadPorPaso, ahora: Date): boolean {
-  if (lead.compro || !pasoDelReporte(lead.pasoActual)) return false;
+  if (lead.compro || lead.ganoEnElPeriodo || !pasoDelReporte(lead.pasoActual)) return false;
   const horas = horasSinResponder(lead, ahora);
   return horas !== null && horas > HORAS_PARA_QUEDARSE;
 }
@@ -112,9 +126,9 @@ export type CaidaMayorPorPaso = {
 };
 
 export type GrupoPorPaso = {
-  /** Chats del grupo (con o sin paso registrado). */
+  /** Clientes del grupo (con o sin paso registrado; los chats de un mismo contacto cuentan uno). */
   chats: number;
-  /** Chats del grupo con algún paso registrado. */
+  /** Clientes del grupo con algún paso registrado (o que compraron en el periodo). */
   conPaso: number;
   pasos: PasoDelEmbudoPorPaso[];
   mayorCaida: CaidaMayorPorPaso | null;
@@ -129,6 +143,55 @@ export type EmbudoPorPaso = {
 };
 
 const indiceDelPaso = (clave: ClaveDePasoDelReporte) => PASOS_DEL_REPORTE.findIndex((item) => item.clave === clave);
+const ULTIMO_PASO = PASOS_DEL_REPORTE.length - 1;
+
+/** El índice del paso más alto que alcanzó el chat (-1 si no tiene paso y no compró en el periodo). */
+function alturaDelLead(lead: LeadPorPaso): number {
+  if (lead.ganoEnElPeriodo) return ULTIMO_PASO;
+  const actual = pasoDelReporte(lead.pasoActual);
+  const maximo = pasoDelReporte(lead.pasoMaximo);
+  return Math.max(maximo ? indiceDelPaso(maximo) : -1, actual ? indiceDelPaso(actual) : -1);
+}
+
+/** Cuándo se movió el chat por última vez (para elegir el chat "vivo" de un cliente con dos chats). */
+function ultimaActividad(lead: LeadPorPaso): number {
+  const cuando = lead.ultimoClienteEn ?? lead.pasoDesde ?? lead.entradaEn;
+  const tiempo = cuando ? ms(cuando) : Number.NaN;
+  return Number.isFinite(tiempo) ? tiempo : 0;
+}
+
+/**
+ * Junta los chats de un mismo cliente (mismo contacto; sin contacto, cada chat es uno). Del cliente
+ * queda el chat que se movió por última vez (su paso actual y cuándo escribió), con el paso más alto
+ * de todos sus chats; compró, ganó en el periodo y con asesora si cualquiera de sus chats lo dice.
+ */
+export function juntarPorCliente(leads: ReadonlyArray<LeadPorPaso>): LeadPorPaso[] {
+  const porCliente = new Map<string, LeadPorPaso[]>();
+  for (const lead of leads) {
+    const clave = lead.contactId ? `k:${lead.contactId}` : `c:${lead.conversationId}`;
+    const lista = porCliente.get(clave);
+    if (lista) lista.push(lead);
+    else porCliente.set(clave, [lead]);
+  }
+  const clientes: LeadPorPaso[] = [];
+  for (const chats of porCliente.values()) {
+    if (chats.length === 1) {
+      clientes.push(chats[0]);
+      continue;
+    }
+    const vivo = chats.reduce((mejor, chat) => (ultimaActividad(chat) > ultimaActividad(mejor) ? chat : mejor));
+    const altura = Math.max(...chats.map((chat) => alturaDelLead({ ...chat, ganoEnElPeriodo: false })));
+    const alturaDelVivo = alturaDelLead({ ...vivo, ganoEnElPeriodo: false });
+    clientes.push({
+      ...vivo,
+      pasoMaximo: altura > alturaDelVivo && altura >= 0 ? PASOS_DEL_REPORTE[altura].clave : vivo.pasoMaximo,
+      compro: chats.some((chat) => chat.compro),
+      ganoEnElPeriodo: chats.some((chat) => chat.ganoEnElPeriodo),
+      conAsesora: chats.some((chat) => chat.conAsesora),
+    });
+  }
+  return clientes;
+}
 
 /** Las horas que pasó cada lead en cada paso, del historial corto (de la entrada al paso a la entrada al siguiente). */
 function duracionesDelLead(lead: LeadPorPaso): Array<{ paso: ClaveDePasoDelReporte; horas: number }> {
@@ -174,14 +237,14 @@ export function resumirGrupo(leads: ReadonlyArray<LeadPorPaso>, ahora: Date): Gr
 
   for (const lead of leads) {
     // Hasta dónde llegó: el más alto entre el máximo y el actual (una fila vieja puede traer solo uno).
+    // Si quedó en Ganado con la venta en el periodo, llegó a Compró (y por eso a los pasos anteriores).
     const actual = pasoDelReporte(lead.pasoActual);
-    const maximo = pasoDelReporte(lead.pasoMaximo);
-    if (!actual && !maximo) continue;
+    const altura = alturaDelLead(lead);
+    if (altura < 0) continue;
     conPaso += 1;
-    const altura = Math.max(maximo ? indiceDelPaso(maximo) : 0, actual ? indiceDelPaso(actual) : 0);
     for (let i = 0; i <= altura; i += 1) llegaron[i] += 1;
 
-    if (actual && !lead.compro) {
+    if (actual && !lead.compro && !lead.ganoEnElPeriodo) {
       if (seQuedoAqui(lead, ahora)) seQuedaron[indiceDelPaso(actual)] += 1;
       else enCurso[indiceDelPaso(actual)] += 1;
     }
@@ -209,18 +272,19 @@ export function resumirGrupo(leads: ReadonlyArray<LeadPorPaso>, ahora: Date): Gr
   return { chats: leads.length, conPaso, pasos, mayorCaida: mayorCaidaDe(pasos) };
 }
 
-/** Separa los chats del bot de los que tomó una asesora y arma el embudo de cada grupo. */
+/** Junta los chats de cada cliente, separa los del bot de los que tomó una asesora y arma el embudo de cada grupo. */
 export function armarEmbudoPorPaso(leads: ReadonlyArray<LeadPorPaso>, ahora: Date): EmbudoPorPaso {
+  const clientes = juntarPorCliente(leads);
   return {
     bot: resumirGrupo(
-      leads.filter((lead) => !lead.conAsesora),
+      clientes.filter((lead) => !lead.conAsesora),
       ahora,
     ),
     asesora: resumirGrupo(
-      leads.filter((lead) => lead.conAsesora),
+      clientes.filter((lead) => lead.conAsesora),
       ahora,
     ),
-    total: leads.length,
+    total: clientes.length,
   };
 }
 
@@ -237,10 +301,10 @@ export function textoDelEmbudoPorPaso(input: { producto: string; desde: string; 
   const { bot, asesora } = input.embudo;
   const encabezado = `${input.producto}, del ${input.desde} al ${input.hasta}`;
   if (!bot.conPaso) {
-    return `${encabezado}: todavía no hay chats del bot con un paso registrado en ese rango.`;
+    return `${encabezado}: todavía no hay clientes del bot con un paso registrado en ese rango.`;
   }
   const llegaron = bot.pasos.map((paso) => `${paso.nombre} ${paso.llegaron}`).join(", ");
-  const partes = [`${encabezado}: ${bot.conPaso} chats del bot con paso. Llegaron: ${llegaron}.`];
+  const partes = [`${encabezado}: ${bot.conPaso} clientes del bot con paso. Llegaron: ${llegaron}.`];
   const caida = bot.mayorCaida;
   if (caida) {
     partes.push(
@@ -253,7 +317,7 @@ export function textoDelEmbudoPorPaso(input: { producto: string; desde: string; 
     partes.push(`Llevan más de ${HORAS_PARA_QUEDARSE} h sin responder (se quedaron): ${mayorQuedada.seQuedaron} en ${mayorQuedada.nombre}.`);
   }
   if (asesora.chats) {
-    partes.push(`Aparte, ${asesora.chats} chats los tomó una asesora y no se mezclan con estos.`);
+    partes.push(`Aparte, a ${asesora.chats} clientes los tomó una asesora y no se mezclan con estos.`);
   }
   return partes.join(" ");
 }
