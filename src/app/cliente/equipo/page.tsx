@@ -1,15 +1,18 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Megaphone } from "lucide-react";
+import { guardarLiderDeVentasAction } from "@/app/actions/equipo-actions";
 import { ClientTeamWorkspace, type EstadoDeLinea } from "@/components/client-team-workspace";
 import { NegocioEquipoTabs } from "@/components/negocio-equipo-tabs";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { leerColaboradores, leerMonitores, leerPausadosDeReparto } from "@/lib/channel-collaborators";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { sanitizeClientModuleAccess } from "@/lib/client-workspace-modules";
 import { horarioSiempre, leerHorariosDeReparto } from "@/lib/horario-de-reparto";
-import { leerSupervisoras } from "@/lib/permisos-del-equipo";
+import { leerLiderDeVentasElegido, leerSupervisoras } from "@/lib/permisos-del-equipo";
 import { prisma } from "@/lib/prisma";
 import { leerConfigDeAvisos, numeroDeAvisosDe } from "@/features/agente-v3/servicios/avisos";
 
@@ -42,7 +45,7 @@ export default async function ClienteEquipoPage({ searchParams }: PageProps) {
 
   // Muestra empleados (AGENT/EMPLEADO) Y administradores (ADMIN) del negocio. El dueno
   // (OWNER) no se lista aqui: es el titular de la cuenta, no un miembro gestionable.
-  const [employees, canales, supervisoras, horarios, configDeAvisos] = await Promise.all([
+  const [employees, canales, supervisoras, horarios, configDeAvisos, liderElegido] = await Promise.all([
     prisma.workspaceMember.findMany({
       where: {
         workspaceId: access.workspaceId,
@@ -76,7 +79,13 @@ export default async function ClienteEquipoPage({ searchParams }: PageProps) {
     leerSupervisoras(access.workspaceId),
     leerHorariosDeReparto(access.workspaceId),
     leerConfigDeAvisos(access.workspaceId).catch(() => null),
+    leerLiderDeVentasElegido(access.workspaceId),
   ]);
+
+  // Para elegir al lider de ventas solo sirven las personas activas del equipo.
+  const activos = employees.filter((employee) => employee.isActive);
+  // Si el elegido ya no esta activo, el select muestra "Sin elegir": es lo que pasa de verdad.
+  const liderEnLista = activos.some((employee) => employee.user.id === liderElegido) ? liderElegido : null;
 
   /*
     Que hace cada persona en cada linea, leido de la misma metadata que usa Conexion: son la misma
@@ -113,6 +122,32 @@ export default async function ClienteEquipoPage({ searchParams }: PageProps) {
           Reparto por anuncio
         </Link>
       </div>
+
+      {/* Lider de ventas: le llega el aviso "Listo para pagar" si nadie escribe a tiempo. */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Líder de ventas</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <p className="text-sm text-muted-foreground">
+            Le llega el aviso 🔥 Listo para pagar cuando nadie escribe en 5 minutos, en horario de trabajo. Necesita su
+            número de avisos para recibirlo por WhatsApp; si no lo tiene, le llega solo la notificación del CRM.
+          </p>
+          <form action={guardarLiderDeVentasAction} className="flex flex-wrap items-center gap-2">
+            <NativeSelect name="lider" defaultValue={liderEnLista ?? ""} aria-label="Líder de ventas">
+              <NativeSelectOption value="">Sin elegir (primera supervisora)</NativeSelectOption>
+              {activos.map((employee) => (
+                <NativeSelectOption key={employee.user.id} value={employee.user.id}>
+                  {employee.user.name ?? employee.user.email}
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+            <Button type="submit" size="sm">
+              Guardar
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
 
       <ClientTeamWorkspace
         employees={employees.map((employee) => {

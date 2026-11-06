@@ -8,7 +8,7 @@ import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { sanitizeClientModuleAccess } from "@/lib/client-workspace-modules";
 import { guardarAsesoraDeRespaldo } from "@/lib/en-linea";
 import { guardarHorarioDeReparto, normalizarHorario } from "@/lib/horario-de-reparto";
-import { guardarSupervisoras, leerSupervisoras } from "@/lib/permisos-del-equipo";
+import { guardarLiderDeVentas, guardarSupervisoras, leerSupervisoras } from "@/lib/permisos-del-equipo";
 import { prisma } from "@/lib/prisma";
 import {
   guardarConfigDeAvisos,
@@ -37,6 +37,27 @@ export async function guardarAsesoraDeRespaldoAction(formData: FormData): Promis
   }
   await guardarAsesoraDeRespaldo(access.workspaceId, pedido || null);
   revalidatePath("/cliente/equipo/actividad");
+}
+
+/**
+ * El lider de ventas: a quien le llega el aviso "Listo para pagar" cuando nadie le escribe al
+ * cliente a tiempo. Vacío = sin elegir: hace de lider la primera supervisora. Solo el dueño o un
+ * administrador.
+ */
+export async function guardarLiderDeVentasAction(formData: FormData): Promise<void> {
+  const access = await requireClientWorkspaceAccess("client_team", { ownerOnly: true });
+  const pedido = String(formData.get("lider") ?? "").trim();
+  if (pedido) {
+    const miembro = await prisma.workspaceMember.findFirst({
+      where: { workspaceId: access.workspaceId, userId: pedido, isActive: true },
+      select: { userId: true },
+    });
+    if (!miembro) {
+      return;
+    }
+  }
+  await guardarLiderDeVentas(access.workspaceId, pedido || null);
+  revalidatePath("/cliente/equipo");
 }
 
 /**
