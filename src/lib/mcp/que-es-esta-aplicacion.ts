@@ -647,6 +647,8 @@ async function automatizaciones(
     aviso_cliente_esperando: v3.hayLineasConV3 ? sinInterruptor : "no aplica: ninguna linea usa el Agente V3",
     // Sin interruptor desde el 11-10-2026: la bandera agente-v3:rescate se ignora aunque diga off.
     rescate_de_mensajes_v3: v3.hayLineasConV3 ? sinInterruptor : "no aplica: ninguna linea usa el Agente V3",
+    // Cron cada minuto: aviso "Listo para pagar" sin respuesta humana en 5 min (en horario) → líder de ventas.
+    listo_para_pagar: v3.hayLineasConV3 ? sinInterruptor : "no aplica: ninguna linea usa el Agente V3",
     rescate_de_chats_huerfanos: sinInterruptor,
     // Corre en cada mensaje de la clienta (webhook), no en el reloj. Se gobierna desde Equipo
     // (pausa de reparto y horario por vendedora), no con una bandera.

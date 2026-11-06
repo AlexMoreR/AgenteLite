@@ -52,3 +52,73 @@ export function armarEncabezadoDelAviso(input: { cliente: string; telefono: stri
     `📌 ${input.motivo}`,
   ];
 }
+
+/* ------------------------------------------------------------------------------------------------
+   LISTO PARA PAGAR (parte 3): si nadie del equipo le escribe al cliente en 5 minutos, en horario de
+   trabajo, el aviso le llega al líder de ventas. Aquí solo la decisión y el texto; la base y los
+   envíos están en `servicios/listo-para-pagar.ts`.
+------------------------------------------------------------------------------------------------ */
+
+/** Cómo va la marca de un aviso "Listo para pagar". */
+export type EstadoDeLaMarca = "pendiente" | "escalado" | "atendido" | "cerrado" | "sin_destino";
+
+/** Lo que hay que hacer con una marca en esta vuelta del reloj. */
+export type DecisionDeLaMarca = "nada" | "atendido" | "cerrar" | "escalar";
+
+/** Minutos sin respuesta humana antes de avisarle al líder. */
+export const MINUTOS_PARA_ESCALAR = 5;
+/** Pasado esto la marca ya no sirve: se cierra sin avisar. */
+export const HORAS_DE_VIDA_DE_LA_MARCA = 24;
+
+export const TITULO_PARA_EL_LIDER = "🔥 LISTO PARA PAGAR — sin respuesta en 5 min";
+
+/**
+ * Qué hacer con una marca. El orden importa: una marca que no está pendiente no se toca; si alguien
+ * del equipo ya escribió, queda atendida; vieja (más de 24 h), se cierra; fuera de horario sigue
+ * pendiente (sale al abrir); con menos de 5 minutos todavía se espera; si no, se escala.
+ */
+export function decidirMarca(input: {
+  estado: string;
+  avisadoEn: Date;
+  ahora: Date;
+  huboRespuestaHumana: boolean;
+  enHorario: boolean;
+}): DecisionDeLaMarca {
+  if (input.estado !== "pendiente") {
+    return "nada";
+  }
+  if (input.huboRespuestaHumana) {
+    return "atendido";
+  }
+  const transcurrido = input.ahora.getTime() - input.avisadoEn.getTime();
+  if (transcurrido > HORAS_DE_VIDA_DE_LA_MARCA * 60 * 60_000) {
+    return "cerrar";
+  }
+  if (!input.enHorario) {
+    return "nada";
+  }
+  if (transcurrido < MINUTOS_PARA_ESCALAR * 60_000) {
+    return "nada";
+  }
+  return "escalar";
+}
+
+/** El WhatsApp (o el cuerpo del push) para el líder de ventas. */
+export function armarAvisoParaElLider(input: {
+  cliente: string;
+  asesora: string | null;
+  enlace: string;
+  cierre: string;
+}): string {
+  return [
+    `*${TITULO_PARA_EL_LIDER}*`,
+    "",
+    `👤 ${input.cliente}`,
+    `*Asignado a:* ${input.asesora ?? "nadie todavía"}`,
+    "",
+    input.enlace,
+    "",
+    "Mensaje de cierre:",
+    input.cierre,
+  ].join("\n");
+}
