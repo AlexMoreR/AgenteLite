@@ -16,7 +16,9 @@ import { limpiarFrasesProhibidas } from "@/lib/reglas-de-redaccion";
 import {
   marcaDelSeguimiento,
   redactarSeguimientoQueEscucha,
+  type SeguimientoRedactado,
 } from "@/features/seguimientos/services/seguimiento-que-escucha";
+import { elClienteRespondioLaBienvenida } from "@/features/seguimientos/services/sin-respuesta-a-la-bienvenida";
 
 import { cumpleLasCondiciones } from "../motor/decidir";
 import { elV3AtendioLaCharla, guardarEstado, leerEstado } from "../motor/estado";
@@ -302,14 +304,33 @@ export async function ejecutarSeguimientosV3(
         `seguimientos-que-escuchan:apagado`. No cambia cuándo sale ni cuántos: solo qué dice.
         Las reglas del libro no se tocan.
       */
-      const pasoDelSeguimiento = delPaso.filter((fila) => fila.minutos <= toca.minutos).length;
-      const redactado = await redactarSeguimientoQueEscucha({
-        conversationId: conversacion.id,
+      /*
+        Sin IA si el cliente no respondió la bienvenida: si no ha escrito nada después de nuestro primer
+        mensaje, no hay nada que "escuchar" y sale el texto de la regla del libro tal cual (origen
+        `agente-v3-seguimiento`, sin marca, sin gastar el cupo de la vuelta). Solo con `false`: con
+        `null` (chat no encontrado o falla de lectura) se sigue como antes, con la IA.
+      */
+      const respondioLaBienvenida = await elClienteRespondioLaBienvenida({
         workspaceId: canal.workspaceId,
-        textoFijo: textos.join("\n\n"),
-        paso: pasoDelSeguimiento,
-        origen: `v3-${etiquetaDelPaso(toca.minutos)}`,
+        conversationId: conversacion.id,
       });
+      const pasoDelSeguimiento = delPaso.filter((fila) => fila.minutos <= toca.minutos).length;
+      const redactado: SeguimientoRedactado =
+        respondioLaBienvenida === false
+          ? {
+              enviar: true,
+              texto: textos.join("\n\n"),
+              deIA: false,
+              textoReemplazado: null,
+              motivo: "el cliente no respondió la bienvenida: sale el texto de la regla, sin IA",
+            }
+          : await redactarSeguimientoQueEscucha({
+              conversationId: conversacion.id,
+              workspaceId: canal.workspaceId,
+              textoFijo: textos.join("\n\n"),
+              paso: pasoDelSeguimiento,
+              origen: `v3-${etiquetaDelPaso(toca.minutos)}`,
+            });
       if (!redactado.enviar) {
         frenados += 1;
         anotar(redactado.motivo);

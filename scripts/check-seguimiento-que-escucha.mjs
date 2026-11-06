@@ -877,21 +877,133 @@ await prueba("V3, 15 min: el cliente dijo 'color beige me interesa' y el seguimi
   assert.deepEqual(v3.estados.at(-1).seguimientosEnviados, [15]);
 });
 
-await prueba("V3: el cliente que solo mandó el anuncio recibe la pregunta del producto", async () => {
+/*
+  Reemplaza a propósito la prueba "V3: el cliente que solo mandó el anuncio recibe la pregunta del producto":
+  si el cliente no respondió la bienvenida, los seguimientos de 15 min y 1 h salen con el texto de la regla
+  del libro tal cual, sin IA.
+*/
+const bienvenida = cargar("src/features/seguimientos/dominio/sin-respuesta-a-la-bienvenida.ts");
+const fila = (direction, type, min) => ({ direction, type, createdAt: new Date(TF.getTime() + min * 60_000) });
+
+await prueba("bienvenida: responde solo un mensaje del cliente (texto, audio o foto) después de nuestro primero", () => {
+  const { clienteRespondioLaBienvenida: respondio } = bienvenida;
+  // Solo el anuncio y nuestra bienvenida: no respondió.
+  assert.equal(respondio([fila("INBOUND", "TEXT", 0), fila("OUTBOUND", "TEXT", 1)]), false);
+  // Escribió después de nuestro primer mensaje, aunque sea al minuto (no se usan los 2 minutos del anuncio).
+  assert.equal(respondio([fila("INBOUND", "TEXT", 0), fila("OUTBOUND", "TEXT", 1), fila("INBOUND", "TEXT", 1.5)]), true);
+  assert.equal(respondio([fila("OUTBOUND", "TEXT", 1), fila("INBOUND", "AUDIO", 5)]), true);
+  assert.equal(respondio([fila("OUTBOUND", "TEXT", 1), fila("INBOUND", "IMAGE", 5)]), true);
+  // Un sticker o una ubicación no cuentan como respuesta.
+  assert.equal(respondio([fila("OUTBOUND", "TEXT", 1), fila("INBOUND", "STICKER", 5), fila("INBOUND", "LOCATION", 6)]), false);
+  // Chat sin ningún mensaje nuestro (o vacío): no respondido.
+  assert.equal(respondio([fila("INBOUND", "TEXT", 0), fila("INBOUND", "TEXT", 3)]), false);
+  assert.equal(respondio([]), false);
+  // Los de tipo SYSTEM no cuentan como nuestro primer mensaje.
+  assert.equal(respondio([fila("OUTBOUND", "SYSTEM", 0), fila("INBOUND", "TEXT", 0.5), fila("OUTBOUND", "TEXT", 1)]), false);
+  assert.equal(respondio([fila("SYSTEM", "SYSTEM", 0), fila("OUTBOUND", "TEXT", 1)]), false);
+  // No depende del orden de la lista: el primero nuestro es el OUTBOUND más antiguo.
+  const desordenada = [fila("OUTBOUND", "TEXT", 20), fila("INBOUND", "TEXT", 10), fila("OUTBOUND", "TEXT", 1), fila("INBOUND", "TEXT", 0)];
+  assert.equal(respondio(desordenada), true);
+  assert.equal(respondio([...desordenada].reverse()), true);
+  assert.equal(respondio([fila("OUTBOUND", "TEXT", 20), fila("INBOUND", "TEXT", 0), fila("OUTBOUND", "TEXT", 1)]), false);
+});
+
+await prueba("V3, 15 min: el cliente que solo mandó el anuncio recibe el texto de la regla tal cual, sin IA", async () => {
   reiniciarBase();
   reiniciarV3();
-  base.mensajes = [msg("m1", "INBOUND", "TEXT", "Hola, vi el anuncio de la silla", 0)];
-  // El texto del libro ya le llegó y la IA no responde: sale la pregunta del producto del anuncio.
-  base.enviados = [{ content: TEXTO_15, createdAt: new Date(TF.getTime() + 5 * 60_000) }];
-  reiniciarIa();
-  ia.falla = true;
+  base.mensajes = [
+    msg("m1", "INBOUND", "TEXT", "Hola, vi el anuncio de la silla", 0),
+    msg("m2", "OUTBOUND", "TEXT", "¡Hola! Te comparto la información de la silla", 0.5),
+    msg("m3", "SYSTEM", "SYSTEM", "aviso del sistema", 1),
+  ].reverse();
+  reiniciarIa(["Laura, la silla Isabela en beige queda divina 🙌 ¿Te la separo?"]);
   const r = await correrRelojV3();
   assert.equal(r.enviados, 1);
-  assert.match(ia.pedidos[0].messages[0].content, /solo mandó el texto del anuncio/);
-  assert.deepEqual(v3.mandados, ["¿Te comparto fotos y medidas de Silla Isabela?"]);
-  // No lo escribió la IA: queda el origen de siempre, con la marca de lo que se cambió.
+  assert.equal(ia.pedidos.length, 0);
+  assert.deepEqual(v3.mandados, [TEXTO_15]);
   assert.equal(v3.creados[0].rawPayload.source, "agente-v3-seguimiento");
-  assert.deepEqual(v3.creados[0].rawPayload.seguimientoQueEscucha, { deIA: false, textoReemplazado: TEXTO_15 });
+  assert.equal(v3.creados[0].rawPayload.seguimientoQueEscucha, undefined);
+  assert.deepEqual(v3.estados.at(-1).seguimientosEnviados, [15]);
+});
+
+await prueba("V3, 1 h: el cliente que solo mandó el anuncio recibe el texto de la regla tal cual, sin IA", async () => {
+  reiniciarBase();
+  reiniciarV3();
+  base.mensajes = [msg("m1", "INBOUND", "TEXT", "Hola, vi el anuncio de la silla", 0), msg("m2", "OUTBOUND", "TEXT", "¡Hola!", 0.5)].reverse();
+  reiniciarIa(["Laura, la silla Isabela en beige queda divina 🙌 ¿Te la separo?"]);
+  // Más de 60 minutos callado: vence el de 1 h. Las demás pruebas comparten `v3.ultimoEn`: se deja como estaba.
+  const antes = v3.ultimoEn;
+  v3.ultimoEn = new Date(AHORA_V3.getTime() - 70 * 60_000);
+  try {
+    const r = await correrRelojV3();
+    assert.equal(r.enviados, 1);
+  } finally {
+    v3.ultimoEn = antes;
+  }
+  assert.equal(ia.pedidos.length, 0);
+  assert.deepEqual(v3.mandados, [TEXTO_60]);
+  assert.equal(v3.creados[0].rawPayload.source, "agente-v3-seguimiento");
+  assert.equal(v3.creados[0].rawPayload.seguimientoQueEscucha, undefined);
+  assert.deepEqual([...v3.estados.at(-1).seguimientosEnviados].sort((a, b) => a - b), [15, 60]);
+});
+
+await prueba("V3: el cliente escribió después de nuestro primer mensaje (aunque sea al minuto): pasa por la IA", async () => {
+  reiniciarBase();
+  reiniciarV3();
+  base.enviados = [];
+  base.mensajes = [
+    msg("m1", "INBOUND", "TEXT", "Hola, vi el anuncio de la silla", 0),
+    msg("m2", "OUTBOUND", "TEXT", "¡Hola! Te comparto la información de la silla", 0.5),
+    msg("m3", "INBOUND", "TEXT", "color beige me interesa", 1),
+  ].reverse();
+  const BEIGE = "Laura, la silla Isabela en beige queda divina 🙌 ¿Te la separo?";
+  reiniciarIa([BEIGE]);
+  const r = await correrRelojV3();
+  assert.equal(r.enviados, 1);
+  assert.ok(ia.pedidos.length >= 1);
+  assert.deepEqual(v3.mandados, [BEIGE]);
+  assert.equal(v3.creados[0].rawPayload.source, "agente-v3-seguimiento-ia");
+});
+
+await prueba("V3: si falla la lectura de la bienvenida, el seguimiento sigue como antes (con la IA)", async () => {
+  reiniciarBase();
+  reiniciarV3();
+  // Solo el anuncio: con la lectura sana saldría sin IA. Falla solo la lectura de la revisión (sin producto).
+  base.mensajes = [msg("m1", "INBOUND", "TEXT", "Hola, vi el anuncio de la silla", 0), msg("m2", "OUTBOUND", "TEXT", "¡Hola!", 0.5)].reverse();
+  const BEIGE = "Laura, la silla Isabela en beige queda divina 🙌 ¿Te la separo?";
+  reiniciarIa([BEIGE]);
+  const original = prismaFalso.conversation.findFirst;
+  let fallas = 0;
+  prismaFalso.conversation.findFirst = async (args) => {
+    if (!args.select?.activeProductContext) {
+      fallas += 1;
+      throw new Error("base caída");
+    }
+    return original(args);
+  };
+  let r;
+  try {
+    r = await correrRelojV3();
+  } finally {
+    prismaFalso.conversation.findFirst = original;
+  }
+  assert.equal(fallas, 1);
+  assert.equal(r.enviados, 1);
+  assert.ok(ia.pedidos.length >= 1);
+  assert.deepEqual(v3.mandados, [BEIGE]);
+  assert.equal(v3.creados[0].rawPayload.source, "agente-v3-seguimiento-ia");
+});
+
+await prueba("bienvenida: el servicio devuelve null si el chat no existe, y lee el chat completo sin tope", async () => {
+  const servicio = cargar("src/features/seguimientos/services/sin-respuesta-a-la-bienvenida.ts", { "@/lib/prisma": { prisma: prismaFalso } });
+  reiniciarBase();
+  assert.equal(await servicio.elClienteRespondioLaBienvenida({ workspaceId: "ws-1", conversationId: "conv-1" }), true);
+  assert.equal(await servicio.elClienteRespondioLaBienvenida({ workspaceId: "otro", conversationId: "conv-1" }), null);
+  const fs = await import("node:fs");
+  const codigo = fs.readFileSync(new URL("../src/features/seguimientos/services/sin-respuesta-a-la-bienvenida.ts", import.meta.url), "utf8");
+  assert.match(codigo, /where: \{ id: input\.conversationId, workspaceId: input\.workspaceId \}/);
+  assert.match(codigo, /where: \{ deletedAt: null \}/);
+  assert.doesNotMatch(codigo, /\btake:/);
 });
 
 await prueba("V3 con el interruptor apagado: sale el texto de la regla del libro sin cambios", async () => {
@@ -950,6 +1062,15 @@ await prueba("seguimientos.ts del V3: el redactor va después del anti-bloqueo y
   assert.ok(enRedactor > codigo.indexOf("revisarAntiBloqueo({"));
   assert.ok(enRedactor < codigo.indexOf("sendEvolutionTextMessageWithReconnect({"));
   assert.match(codigo, /redactado\.deIA \? "agente-v3-seguimiento-ia" : "agente-v3-seguimiento"/);
+  // La revisión de la bienvenida va después de todos los frenos y antes del redactor; solo `false` lo salta.
+  const enBienvenida = codigo.indexOf("await elClienteRespondioLaBienvenida({");
+  assert.ok(enBienvenida > 0);
+  assert.ok(enBienvenida > codigo.indexOf("revisarConvivencia({"));
+  assert.ok(enBienvenida > codigo.indexOf("apagarSiCorresponde({"));
+  assert.ok(enBienvenida > codigo.indexOf("revisarAntiBloqueo({"));
+  assert.ok(enBienvenida > codigo.indexOf("revisarFrenoDeAutomatico({"));
+  assert.ok(enBienvenida < enRedactor);
+  assert.match(codigo, /respondioLaBienvenida === false\s*\?/);
 });
 
 console.info = consolaOriginal.info;
