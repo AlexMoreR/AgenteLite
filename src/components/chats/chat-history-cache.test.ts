@@ -227,3 +227,99 @@ test("i) precarga: un chat oficial no hace ningun pedido", async () => {
   await precarga.warmConversationCache("official:chat-6");
   assert.equal(pedidosDe("official:chat-6"), 0);
 });
+
+test("j) precarga en camino: se ve mientras viene y deja de verse al terminar, sin pedir nada extra", async () => {
+  let soltar: (() => void) | null = null;
+  respuestaFalsa = () =>
+    new Response(JSON.stringify({ ok: true, conversation: { ...copia(1, 10, { id: "agent:chat-7" }) } }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  // El pedido queda colgado hasta soltarlo, como una precarga que todavia viene en camino.
+  const fetchDeVerdad = globalThis.fetch;
+  (globalThis as unknown as { fetch: typeof fetch }).fetch = (async (url: string | URL) => {
+    pedidos.push(String(url));
+    await new Promise<void>((listo) => {
+      soltar = listo;
+    });
+    return respuestaFalsa();
+  }) as typeof fetch;
+  try {
+    assert.equal(precarga.precargaEnCamino("agent:chat-7"), null, "antes de pedirla no hay nada en camino");
+    const pedida = precarga.warmConversationCache("agent:chat-7");
+    const enCamino = precarga.precargaEnCamino("agent:chat-7");
+    assert.ok(enCamino, "mientras viene, se ve");
+    assert.equal(enCamino, pedida, "es la misma promesa de la precarga");
+    assert.equal(precarga.precargaEnCamino(" agent:chat-7 "), enCamino, "tambien con espacios en la clave");
+    assert.equal(readConversationFromCache("agent:chat-7"), null, "todavia no hay copia");
+
+    await new Promise((listo) => setTimeout(listo, 0));
+    soltar!();
+    await enCamino;
+    assert.equal(precarga.precargaEnCamino("agent:chat-7"), null, "al terminar ya no esta en camino");
+    assert.equal(readConversationFromCache("agent:chat-7")?.messages.length, 10, "y la copia ya se lee");
+    assert.equal(pedidosDe("agent:chat-7"), 1, "mirar no hace ningun pedido");
+  } finally {
+    (globalThis as unknown as { fetch: typeof fetch }).fetch = fetchDeVerdad;
+  }
+});
+
+/*
+  La copia guardada (hasta 50) con el /live de apertura (los ultimos 10), por el mismo camino que la
+  bandeja: copiaComoBase decide la base y mergeConversationSnapshotIfChanged (que usa
+  mergeConversationSnapshots) junta.
+*/
+function abrirConLive(guardada: SharedInboxSelectedConversation, live: SharedInboxSelectedConversation, paginaAnterior = false) {
+  return cache.mergeConversationSnapshots(cache.copiaComoBase(guardada, live, { paginaAnterior }), live)!;
+}
+
+test("k) copia de 50 + /live de 10 que se tocan: quedan todos los mensajes y el cursor en el mas viejo de la copia", () => {
+  const guardada = cache.recortarParaGuardar(copia(1, 300)); // 251..300, cursor en el 251
+  assert.equal(guardada.messages.length, MAX_MENSAJES_POR_CHAT);
+  // /live: los ultimos 10, con dos nuevos que la copia no tenia (293..302).
+  const live = copia(293, 302);
+  assert.equal(cache.copiasSeTocan(guardada, live), true);
+
+  const junta = abrirConLive(guardada, live);
+  assert.equal(junta.messages.length, 52, "del 251 al 302: no se pierde ninguno de la copia");
+  assert.equal(junta.messages[0]?.id, mensaje(251).id);
+  assert.equal(junta.messages.at(-1)?.id, mensaje(302).id);
+  assert.equal(new Set(junta.messages.map((item) => item.id)).size, junta.messages.length, "sin repetidos");
+  assert.equal(junta.loadMoreCursor, mensaje(251).id, "el cursor sigue en el mas viejo de la copia");
+  assert.equal(junta.hasMoreMessages, true);
+});
+
+test("l) copia y /live con hueco entre las dos: se usa solo el /live y su cursor", () => {
+  const guardada = cache.recortarParaGuardar(copia(1, 100)); // 51..100
+  const live = copia(291, 300); // faltan del 101 al 290
+  assert.equal(cache.copiasSeTocan(guardada, live), false);
+  assert.equal(cache.copiaComoBase(guardada, live), null);
+
+  const junta = abrirConLive(guardada, live);
+  assert.deepEqual(
+    junta.messages.map((item) => item.id),
+    live.messages.map((item) => item.id),
+    "nada de la copia: tendria mensajes faltantes en el medio",
+  );
+  assert.equal(junta.loadMoreCursor, mensaje(291).id, "cursor del /live, para traer los del medio");
+  assert.equal(junta.hasMoreMessages, true);
+});
+
+test("m) pedir mensajes anteriores antes del /live: la pagina se pone debajo de la copia, sin borrarla", () => {
+  const guardada = cache.recortarParaGuardar(copia(1, 300)); // 251..300
+  // La pagina de antes del cursor (221..250) no comparte mensajes con la copia, pero empalma.
+  const pagina = copia(221, 250);
+  assert.equal(cache.copiasSeTocan(guardada, pagina), false);
+  const junta = abrirConLive(guardada, pagina, true);
+  assert.equal(junta.messages.length, 80, "del 221 al 300");
+  assert.equal(junta.loadMoreCursor, mensaje(221).id, "el cursor baja a la pagina nueva");
+});
+
+test("n) una copia sin mensajes del servidor no sirve de base", () => {
+  const live = copia(1, 10);
+  assert.equal(cache.copiaComoBase(null, live), null);
+  const soloOptimista = copia(1, 0, {
+    messages: [{ ...mensaje(11), id: "optimistic:1" }],
+  } as Partial<SharedInboxSelectedConversation>);
+  assert.equal(cache.copiasSeTocan(soloOptimista, live), false);
+});

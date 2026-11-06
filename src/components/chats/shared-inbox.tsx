@@ -21,10 +21,12 @@ import {
 import type { MensajeEncontrado } from "./chat-inbox-types";
 import { BadgeCheck, ChevronRight, MessageCircle, MessageSquareText } from "lucide-react";
 import {
+  copiaComoBase,
   mergeConversationSnapshots,
   readConversationFromCache,
   saveConversationToCache,
 } from "@/components/chats/chat-history-cache";
+import { precargaEnCamino } from "@/components/chats/chat-conversation-warmup";
 import { EditContactModal } from "@/components/chats/edit-contact-modal";
 import {
   resetConversationSelection,
@@ -1662,6 +1664,49 @@ export function SharedInbox({
     };
   }, []);
 
+  /*
+    La ventana de apertura (suppressHistoryLoadUntilRef) dura 0,7 s desde que se pinta el chat. En
+    un celular con mala senal el /live de apertura, o la precarga, puede llegar despues, y entonces
+    sus mensajes bajaban animados justo donde mas se nota. Cuando llega uno de los dos se vuelve a
+    abrir otros 0,7 s, SOLO si la asesora sigue al final: si subio, el observador de tamano la
+    bajaria a la fuerza mientras lee.
+  */
+  const reabrirVentanaDeApertura = useCallback(() => {
+    if (!isNearBottomRef.current) {
+      return;
+    }
+    suppressHistoryLoadUntilRef.current = Math.max(suppressHistoryLoadUntilRef.current, Date.now() + 700);
+  }, []);
+
+  /*
+    Precarga que llega despues del toque (chats, parte 2). Si la asesora toca un chat cuya precarga
+    todavia viene en camino, la copia de abajo se lee antes de que exista y quedaba la vista previa
+    hasta el /live de apertura. Cuando esa precarga termina, se vuelve a leer la copia por el mismo
+    camino (validado por id, y con el /live por delante si ya llego). Si la asesora ya cambio de
+    chat, el aviso se descarta.
+  */
+  const [lecturaDeLaCopia, setLecturaDeLaCopia] = useState(0);
+  useEffect(() => {
+    if (!selectedConversationKey) {
+      return;
+    }
+    const enCamino = precargaEnCamino(selectedConversationKey);
+    if (!enCamino) {
+      return;
+    }
+    let vigente = true;
+    void enCamino.then(() => {
+      if (!vigente) {
+        return;
+      }
+      reabrirVentanaDeApertura();
+      setLecturaDeLaCopia((actual) => actual + 1);
+    });
+    return () => {
+      vigente = false;
+    };
+  }, [selectedConversationKey, reabrirVentanaDeApertura]);
+
   // Clave efectiva del chat activo. Sirve para sincronizar el panel y para
   // evitar que el listado se reordene cuando el evento pertenece al chat abierto.
   const selectedConversationCache = useMemo(
@@ -1669,7 +1714,9 @@ export function SharedInbox({
       hasHydrated && selectedConversationKey
         ? readConversationFromCache(selectedConversationKey, { ignoreFreshness: true })
         : null,
-    [hasHydrated, selectedConversationKey],
+    // lecturaDeLaCopia: volver a leer cuando termina la precarga del chat abierto (ver arriba).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [hasHydrated, selectedConversationKey, lecturaDeLaCopia],
   );
   const selectedConversationMatchesCurrentKey =
     Boolean(selectedConversation && conversationIdMatchesKey(selectedConversationKey, selectedConversation.id));
@@ -1681,6 +1728,43 @@ export function SharedInbox({
     selectedConversationCache && conversationIdMatchesKey(selectedConversationKey, selectedConversationCache.id)
       ? selectedConversationCache
       : null;
+  const copiaDelChatAbiertoRef = useRef<SharedInboxSelectedConversation | null>(null);
+  copiaDelChatAbiertoRef.current = cachedConversationForCurrentSelection;
+
+  /*
+    Sobre que se mezcla un snapshot del chat abierto. UN solo lugar para los cuatro caminos que traen
+    mensajes: el /live de apertura, el segundo /live, el tiempo real y el historial.
+
+    La base SOLO puede ser una conversacion cuyo id COINCIDA con el snapshot; si ninguna coincide, es
+    `null` y se arranca limpio con el snapshot. Antes, en algunos caminos, caia en la conversacion
+    anterior y le mezclaba el snapshot nuevo encima: los mensajes de un chat quedaban bajo otro (el
+    cruce real: mis-amores bajo Vanessa/Karen).
+
+    Orden: lo que ya llego del servidor en esta apertura, el chat que pinto la pagina y, por ultimo,
+    la copia guardada, solo si empalma con el snapshot (ver copiaComoBase). Sin la copia como base, el
+    /live de 10 mensajes reemplazaba a la copia de 50.
+  */
+  const baseParaMezclar = useCallback(
+    (
+      current: SharedInboxSelectedConversation | null,
+      snapshot: SharedInboxSelectedConversation,
+      opciones?: { paginaAnterior?: boolean },
+    ) => {
+      if (current && conversationIdMatchesKey(current.id, snapshot.id)) {
+        return current;
+      }
+      const delServidor = selectedConversationRef.current;
+      if (delServidor && conversationIdMatchesKey(delServidor.id, snapshot.id)) {
+        return delServidor;
+      }
+      const copia = copiaDelChatAbiertoRef.current;
+      if (!copia || !conversationIdMatchesKey(copia.id, snapshot.id)) {
+        return null;
+      }
+      return copiaComoBase(copia, snapshot, opciones);
+    },
+    [],
+  );
   useEffect(() => {
     if (!pendingConversation?.id) {
       return;
@@ -1825,18 +1909,8 @@ export function SharedInbox({
         chatAbierto: true,
       });
 
-      setLiveConversation((current) => {
-        // Si current pertenece a una conversación diferente (liveConversation nunca se
-        // resetea al navegar), usarlo como base haría que mergeCachedMessages concatene
-        // mensajes de dos chats distintos. Solo se usa una base cuyo id COINCIDA con el snapshot;
-        // el fallback también se valida (antes caía en la conversación anterior → mismo cruce).
-        const base = (current && current.id === snapshot.id)
-          ? current
-          : (selectedConversationRef.current && selectedConversationRef.current.id === snapshot.id
-              ? selectedConversationRef.current
-              : null);
-        return mergeConversationSnapshotIfChanged(base, snapshot);
-      });
+      // Base validada por id (ver baseParaMezclar): nunca la conversacion de otro chat.
+      setLiveConversation((current) => mergeConversationSnapshotIfChanged(baseParaMezclar(current, snapshot), snapshot));
       // El detalle (setLiveConversation, arriba) SI se actualiza aunque haya busqueda; solo
       // la LISTA se congela para que el resultado no cambie de preview/orden en vivo.
       if (!isSearchActiveRef.current) {
@@ -1850,7 +1924,7 @@ export function SharedInbox({
 
     window.addEventListener("chat-live-update", handleLiveUpdate as EventListener);
     return () => window.removeEventListener("chat-live-update", handleLiveUpdate as EventListener);
-  }, [normalizeRealtimeConversationItem, selectedConversationKey]);
+  }, [baseParaMezclar, normalizeRealtimeConversationItem, selectedConversationKey]);
 
   // Canal que se esta viendo (filtro "connection"). Vacio = bandeja unificada.
   const selectedChannelIdFilter = selectedConnectionKey.trim().startsWith("channel:")
@@ -2069,24 +2143,14 @@ export function SharedInbox({
             return;
           }
 
-          setLiveConversation((current) => {
-            // La base para mergear el snapshot de /live SOLO puede ser una conversación cuyo id
-            // COINCIDA con el snapshot. Si ni la actual ni la seleccionada coinciden, la base es
-            // `null` (arranca limpio con solo el snapshot). Antes caía en
-            // `selectedConversationRef.current` (la conversación ANTERIOR) y le mergeaba el snapshot
-            // nuevo encima → los mensajes del chat viejo quedaban bajo el chat nuevo (el cruce real:
-            // mis-amores bajo Vanessa/Karen). El servidor devolvía bien; el mix era este merge.
-            const base = current && conversationIdMatchesKey(current.id, snapshot.id)
-              ? current
-              : (selectedConversationRef.current && conversationIdMatchesKey(selectedConversationRef.current.id, snapshot.id)
-                  ? selectedConversationRef.current
-                  : null);
-            return mergeConversationSnapshotIfChanged(base, snapshot);
-          });
+          // Base validada por id (ver baseParaMezclar): nunca la conversacion de otro chat.
+          setLiveConversation((current) =>
+            mergeConversationSnapshotIfChanged(baseParaMezclar(current, snapshot), snapshot),
+          );
         })
         .catch(() => null);
     }, 2500);
-  }, []);
+  }, [baseParaMezclar]);
 
   useEffect(() => {
     const normalizedSelectedConversationId = selectedConversationKey;
@@ -2154,16 +2218,10 @@ export function SharedInbox({
         necesitaSegundo = Boolean(payload.mediosPendientes);
         cargo = true;
 
-        setLiveConversation((current) => {
-          // Base = solo una conversación cuyo id coincide con el snapshot; si no, `null` (limpio).
-          // Antes caía en la conversación anterior y le mergeaba el snapshot nuevo → cruce.
-          const base = current && conversationIdMatchesKey(current.id, snapshot.id)
-            ? current
-            : (selectedConversationRef.current && conversationIdMatchesKey(selectedConversationRef.current.id, snapshot.id)
-                ? selectedConversationRef.current
-                : null);
-          return mergeConversationSnapshotIfChanged(base, snapshot);
-        });
+        // Si la asesora sigue al final, lo que traiga entra sin bajada animada (ver la funcion).
+        reabrirVentanaDeApertura();
+        // Base validada por id (ver baseParaMezclar): nunca la conversacion de otro chat.
+        setLiveConversation((current) => mergeConversationSnapshotIfChanged(baseParaMezclar(current, snapshot), snapshot));
       } catch {
         // Si falla, la vista cacheada/preview sigue siendo usable; abajo se marca el fallo.
       } finally {
@@ -2196,9 +2254,10 @@ export function SharedInbox({
     // selección pendiente, el efecto se re-ejecutaría con la MISMA clave efectiva: el
     // cleanup abortaría el fetch en curso y la nueva corrida saldría por el guard de
     // in-flight, dejando el historial sin cargar hasta un segundo click.
-    // (programarSegundoLive es estable: no vuelve a correr el efecto.)
+    // (programarSegundoLive, baseParaMezclar y reabrirVentanaDeApertura son estables: no vuelven a
+    // correr el efecto.)
     // reintentoCargaDelChat solo cambia cuando la asesora toca "Reintentar" en un chat que no cargo.
-  }, [selectedConversationKey, programarSegundoLive, reintentoCargaDelChat]);
+  }, [selectedConversationKey, programarSegundoLive, reintentoCargaDelChat, baseParaMezclar, reabrirVentanaDeApertura]);
 
   const effectiveLiveConversation =
     liveConversation && conversationIdMatchesKey(selectedConversationId, liveConversation.id) ? liveConversation : null;
@@ -2423,16 +2482,11 @@ export function SharedInbox({
       }
 
       shouldRestoreScroll = true;
-      setLiveConversation((current) => {
-        // Base = solo una conversación cuyo id coincide con el snapshot; si no, `null` (no mergear
-        // sobre la conversación anterior, que era el cruce).
-        const base = current && conversationIdMatchesKey(current.id, snapshot.id)
-          ? current
-          : (selectedConversationRef.current && conversationIdMatchesKey(selectedConversationRef.current.id, snapshot.id)
-              ? selectedConversationRef.current
-              : null);
-        return mergeConversationSnapshotIfChanged(base, snapshot);
-      });
+      // Base validada por id (ver baseParaMezclar). La pagina se pidio con el cursor de lo que se ve:
+      // empalma con la copia aunque todavia no haya llegado el /live de apertura.
+      setLiveConversation((current) =>
+        mergeConversationSnapshotIfChanged(baseParaMezclar(current, snapshot, { paginaAnterior: true }), snapshot),
+      );
     } catch {
       // Ignore loading failures so scroll never gets blocked.
     } finally {
@@ -2442,7 +2496,7 @@ export function SharedInbox({
       loadMoreHistoryInFlightRef.current = false;
       setIsLoadingOlderMessages(false);
     }
-  }, [renderedConversation, selectedConversation, selectedConversationId]);
+  }, [baseParaMezclar, renderedConversation, selectedConversation, selectedConversationId]);
 
   // El mensaje optimista lleva el texto que la persona escribio; el persistido puede tener la
   // firma del usuario agregada ARRIBA en el servidor (prependUserChatSignature). Por eso no se
@@ -3657,7 +3711,12 @@ export function SharedInbox({
       typeof lastMessage?.id === "string" && lastMessage.id.startsWith("optimistic:");
 
     if (lastMessageIsOwnDraft || isNearBottomRef.current) {
-      jumpToBottom(true);
+      /*
+        En la ventana de apertura, lo que trae el refresco (/live o la precarga con mensajes que la
+        copia no tenia) entra de golpe: animado, la vista quedaba varios cuadros fuera del final
+        justo al abrir. Fuera de la ventana, el mensaje nuevo baja animado como siempre.
+      */
+      jumpToBottom(!(suppressHistoryLoadUntilRef.current > Date.now()));
       return;
     }
 

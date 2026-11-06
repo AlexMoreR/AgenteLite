@@ -47,6 +47,15 @@ function normalizeSelectedConversation(value: unknown): SharedInboxSelectedConve
   };
 }
 
+/**
+ * La precarga de ese chat, si todavia viene en camino; si no, null. Solo mira: no pide nada al
+ * servidor. Sirve para que, si la asesora toco el chat antes de que terminara, la bandeja lo
+ * muestre en cuanto llegue en vez de esperar al /live de apertura.
+ */
+export function precargaEnCamino(chatKey: string): Promise<void> | null {
+  return inflightWarmups.get(chatKey.trim()) ?? null;
+}
+
 export function warmConversationCache(chatKey: string) {
   const normalizedChatKey = chatKey.trim();
   if (!normalizedChatKey || readConversationFromCache(normalizedChatKey) || inflightWarmups.has(normalizedChatKey)) {

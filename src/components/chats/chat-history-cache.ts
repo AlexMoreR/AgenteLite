@@ -605,6 +605,58 @@ function fuenteDelCursor(existing: ConMensajesYCursor, next: ConMensajesYCursor)
   return existing.messages.some((message) => message.id === idDelPrimero) ? existing : next;
 }
 
+function mensajeMasViejoDelServidor(conversation: ConMensajesYCursor) {
+  let masViejo: ConMensajesYCursor["messages"][number] | null = null;
+  for (const message of conversation.messages) {
+    if (!esMensajeDelServidor(message.id)) {
+      continue;
+    }
+    if (!masViejo || getMessageCreatedAtTime(message) < getMessageCreatedAtTime(masViejo)) {
+      masViejo = message;
+    }
+  }
+  return masViejo;
+}
+
+/**
+ * Dos copias del mismo chat se TOCAN si el mensaje mas viejo de una esta en la otra: juntas forman
+ * un historial seguido, sin mensajes faltantes en el medio.
+ */
+export function copiasSeTocan(una: ConMensajesYCursor, otra: ConMensajesYCursor) {
+  const masViejoDeOtra = mensajeMasViejoDelServidor(otra);
+  if (masViejoDeOtra && una.messages.some((message) => message.id === masViejoDeOtra.id)) {
+    return true;
+  }
+  const masViejoDeUna = mensajeMasViejoDelServidor(una);
+  return Boolean(masViejoDeUna && otra.messages.some((message) => message.id === masViejoDeUna.id));
+}
+
+/**
+ * Sobre que copia guardada se pone lo que trae /live (chats, parte 2, 06-11-2026).
+ *
+ * La copia tiene hasta MAX_MENSAJES_POR_CHAT mensajes y el /live de apertura solo los ultimos 10.
+ * Antes el /live la reemplazaba: el chat pasaba de 50 a 10 mensajes en pantalla, la vista saltaba
+ * y, si esos 10 median poco, se disparaba sola una carga de historial. Ahora, si las dos copias se
+ * tocan, la copia es la base y se juntan (el cursor queda en el mas viejo de la copia, ver
+ * cursorDelHistorial). Si hay un hueco entre las dos, no hay base y se usa solo el /live, como
+ * antes: mejor 10 mensajes que un historial con mensajes faltantes.
+ *
+ * `paginaAnterior`: la pagina se pidio con el cursor de lo que se ve, asi que empalma justo antes
+ * del mensaje mas viejo de la copia aunque no compartan ninguno.
+ *
+ * Quien llama tiene que haber comprobado que las dos son del MISMO chat.
+ */
+export function copiaComoBase<T extends ConMensajesYCursor>(
+  copia: T | null,
+  live: ConMensajesYCursor,
+  opciones?: { paginaAnterior?: boolean },
+): T | null {
+  if (!copia) {
+    return null;
+  }
+  return opciones?.paginaAnterior || copiasSeTocan(copia, live) ? copia : null;
+}
+
 /** Un id que el servidor reconoce como mensaje (no una llamada metida en el hilo ni uno optimista). */
 function esMensajeDelServidor(id: string) {
   return Boolean(id) && !id.startsWith("llamada:") && !id.startsWith("optimistic");
