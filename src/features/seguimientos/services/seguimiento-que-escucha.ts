@@ -280,12 +280,15 @@ async function pedirPropuestas(
   return propuestas;
 }
 
-/** Sin comillas alrededor ni negrita doble. */
+/**
+ * Sin comillas alrededor y con la negrita de WhatsApp: cualquier grupo de 2 o mas asteriscos queda en
+ * uno ("**camilla**" y "***50 %***" salen como "*camilla*" y "*50 %*").
+ */
 function limpiarRespuesta(texto: string): string {
   return texto
     .trim()
     .replace(/^["“'«]+|["”'»]+$/g, "")
-    .replace(/\*\*(.+?)\*\*/g, "*$1*")
+    .replace(/\*{2,}/g, "*")
     .trim();
 }
 
