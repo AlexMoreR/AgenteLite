@@ -95,14 +95,94 @@ export async function destinoWhatsAppCritico(
   workspaceId: string,
   config: ConfigGravedad,
 ): Promise<{ numero: string; canalId: string; instancia: string } | null> {
+  const destino = await leerDestinoWhatsApp(workspaceId, config);
+  return destino.problema === null && destino.numero && destino.linea
+    ? { numero: destino.numero, canalId: destino.linea.canalId, instancia: destino.linea.instancia }
+    : null;
+}
+
+const MOTIVO_APAGADO = "El WhatsApp de los avisos críticos a Alexander está apagado en el ajuste de avisos por gravedad.";
+
+/** "…2277": el número nunca sale completo en un motivo ni en un log. */
+const finDelNumero = (numero: string) => `…${numero.slice(-4)}`;
+
+/**
+ * La lectura del destino del WhatsApp a Alexander con el PORQUÉ cuando no hay. Es la única fuente
+ * de las reglas: la usan `destinoWhatsAppCritico`, el envío y el estado que ve el MCP.
+ */
+async function leerDestinoWhatsApp(
+  workspaceId: string,
+  config: ConfigGravedad,
+): Promise<{ numero: string | null; linea: { canalId: string; instancia: string } | null; problema: string | null }> {
   const avisos = await leerAvisosCrudos(workspaceId);
   const numerosDelEquipo = new Set((avisos.destinos ?? []).map((d) => (d.numero ?? "").replace(/\D/g, "")).filter(Boolean));
   const administrador = (avisos.destinos ?? []).find((d) => d.soloDe === null || d.soloDe === undefined);
-  const numero = config.whatsapp.numero ?? (administrador?.numero ?? "").replace(/\D/g, "");
-  if (!numero || numero.length < 10 || !numerosDelEquipo.has(numero)) return null;
+  const leido = config.whatsapp.numero ?? (administrador?.numero ?? "").replace(/\D/g, "");
+  const numero = leido && leido.length >= 10 ? leido : null;
   const linea = await lineaInterna(workspaceId, config, avisos);
-  if (!linea) return null;
-  return { numero, canalId: linea.canalId, instancia: linea.instancia };
+  let problema: string | null = null;
+  if (!numero) problema = "No hay número de WhatsApp de Alexander: falta el número de avisos del administrador en Mi empresa → Equipo.";
+  else if (!numerosDelEquipo.has(numero))
+    problema = `El número terminado en ${finDelNumero(numero)} no está en la lista de avisos de Mi empresa → Equipo.`;
+  else if (!linea) problema = "No hay línea interna conectada para mandar el WhatsApp (la de avisos de Mi empresa → Equipo).";
+  return { numero, linea, problema };
+}
+
+/** Lo que se ve desde el MCP (solo lectura): si el WhatsApp a Alexander saldría y, si no, por qué. */
+export async function estadoWhatsAppDeAlexander(
+  workspaceId: string,
+  config: ConfigGravedad,
+): Promise<{ prendido: boolean; numeroTerminaEn: string | null; linea: string | null; problema: string | null }> {
+  const destino = await leerDestinoWhatsApp(workspaceId, config);
+  return {
+    prendido: config.whatsapp.activo,
+    numeroTerminaEn: destino.numero ? destino.numero.slice(-4) : null,
+    linea: destino.linea?.instancia ?? null,
+    problema: config.whatsapp.activo ? destino.problema : MOTIVO_APAGADO,
+  };
+}
+
+/** Un error del gateway puede traer el número: se tapa cualquier número largo. */
+function sinNumeros(texto: string): string {
+  return texto.replace(/\d{7,}/g, (numero) => finDelNumero(numero));
+}
+
+export type ResultadoWhatsAppAAlexander = { ok: true } | { ok: false; motivo: string; apagado?: boolean };
+
+/**
+ * WhatsApp a Alexander por la línea interna, con el motivo cuando no sale. `evitarCanalId`: la línea
+ * caída. `limiteMs`: tiempo límite con el gateway (sin él, como siempre).
+ */
+export async function intentarWhatsAppAAlexander(input: {
+  workspaceId: string;
+  config: ConfigGravedad;
+  texto: string;
+  evitarCanalId?: string | null;
+  limiteMs?: number;
+}): Promise<ResultadoWhatsAppAAlexander> {
+  if (!input.config.whatsapp.activo) return { ok: false, motivo: MOTIVO_APAGADO, apagado: true };
+  const destino = await leerDestinoWhatsApp(input.workspaceId, input.config);
+  if (destino.problema || !destino.numero || !destino.linea) {
+    console.warn("[avisos-gravedad] sin línea interna o número para el WhatsApp crítico");
+    return { ok: false, motivo: destino.problema ?? "No hay número o línea interna para el WhatsApp." };
+  }
+  if (destino.linea.canalId === input.evitarCanalId) {
+    console.warn("[avisos-gravedad] sin línea interna o número para el WhatsApp crítico");
+    return { ok: false, motivo: "La línea interna es la misma que está caída: no se puede avisar por ella." };
+  }
+  try {
+    await sendEvolutionTextMessageWithReconnect({
+      instanceName: destino.linea.instancia,
+      phoneNumber: destino.numero,
+      text: input.texto,
+      ...(input.limiteMs ? { limiteMs: input.limiteMs } : {}),
+    });
+    return { ok: true };
+  } catch (error) {
+    const mensaje = sinNumeros(error instanceof Error ? error.message : String(error));
+    console.warn("[avisos-gravedad] no salió el WhatsApp crítico", { numero: finDelNumero(destino.numero), error: mensaje });
+    return { ok: false, motivo: `No salió el WhatsApp por la línea ${destino.linea.instancia}: ${mensaje || "error sin mensaje"}` };
+  }
 }
 
 /**
@@ -153,22 +233,9 @@ export async function whatsAppAAlexander(input: {
   texto: string;
   evitarCanalId?: string | null;
 }): Promise<boolean> {
-  if (!input.config.whatsapp.activo) return false;
-  const destino = await destinoWhatsAppCritico(input.workspaceId, input.config);
-  if (!destino || destino.canalId === input.evitarCanalId) {
-    console.warn("[avisos-gravedad] sin línea interna o número para el WhatsApp crítico");
-    return false;
-  }
-  try {
-    await sendEvolutionTextMessageWithReconnect({ instanceName: destino.instancia, phoneNumber: destino.numero, text: input.texto });
-    return true;
-  } catch (error) {
-    console.warn("[avisos-gravedad] no salió el WhatsApp crítico", {
-      numero: `…${destino.numero.slice(-4)}`,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return false;
-  }
+  // Sin límite de tiempo: los envíos de incidentes, embudo y línea caída quedan como siempre.
+  const resultado = await intentarWhatsAppAAlexander(input);
+  return resultado.ok;
 }
 
 /* ------------------------------------------------------------------------------------------------
