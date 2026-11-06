@@ -768,7 +768,7 @@ await prueba("follows.ts: pide el texto al redactor antes de los 2 envíos de te
   const fs = await import("node:fs");
   const codigo = fs.readFileSync(new URL("../src/features/seguimientos/services/follows.ts", import.meta.url), "utf8");
   // Solo los automáticos, y después de todos los frenos (el redactor se arma tras el freno de 3 seguidos).
-  assert.match(codigo, /const redactar = clase === "automatico" \? redactorDelFollow\(follow\) : null;/);
+  assert.match(codigo, /const redactar = clase === "automatico" \? redactorDelFollow\(follow, actions\) : null;/);
   assert.ok(codigo.indexOf("const redactar = clase") > codigo.indexOf("revisarFrenoDeAutomatico({"));
   // Los dos envíos (el flujo y el texto) guardan la marca, y el rawPayload la lleva.
   assert.equal(codigo.match(/marca: marcaDelSeguimiento\(redactado\)/g)?.length, 2);

@@ -42,6 +42,7 @@ import {
   type MotivoDelRedactor,
   type SeguimientoRedactado,
 } from "@/features/seguimientos/services/seguimiento-que-escucha";
+import { resolverSinRespuesta, sinRepetirElCombo } from "@/features/seguimientos/services/sin-respuesta-a-la-bienvenida";
 
 export type FollowSourceType = "FLOW" | "PRODUCT" | "TAG" | "CRM_STAGE" | "MANUAL" | "AGENT_NODE";
 export type FollowTimeType = "MINUTES" | "HOURS" | "DAYS";
@@ -1853,9 +1854,17 @@ class FrenoDelRedactor extends Error {
 /**
  * Seguimientos que escuchan al cliente (parte 2): el texto de un seguimiento AUTOMÁTICO lo escribe el
  * redactor leyendo la conversación. Si el contacto no tiene chat, devuelve null y sale el texto agendado.
+ *
+ * Si el cliente NO respondió la bienvenida, sale sin IA (sin-respuesta-a-la-bienvenida.ts): el texto
+ * del Combo Camillas en su día siguiente, o el agendado. El del combo sale UNA sola vez por Follow:
+ * si tiene varias acciones de puro texto, reemplaza solo a la primera y las demás salen con su texto.
  */
-function redactorDelFollow(follow: ClaimedFollowRow): RedactorDelFollow {
+function redactorDelFollow(follow: ClaimedFollowRow, actions: FollowActionRecord[]): RedactorDelFollow {
   let conversationId: string | null | undefined;
+  // Si una acción de texto ya salió en una vuelta anterior, el combo ya tuvo su turno.
+  let comboYaSalio = actions.some(
+    (accion) => accion.status === "EXECUTED" && !accion.flowId && accion.messageType === "TEXT",
+  );
   return async (textoFijo, origen) => {
     if (conversationId === undefined) {
       const charla = await prisma.conversation
@@ -1868,6 +1877,18 @@ function redactorDelFollow(follow: ClaimedFollowRow): RedactorDelFollow {
       conversationId = charla?.id ?? null;
     }
     if (!conversationId) return null;
+    const sinRespuesta = await resolverSinRespuesta({
+      workspaceId: follow.workspaceId,
+      conversationId,
+      follow: { name: follow.name, timeType: follow.timeType, timeValue: follow.timeValue },
+      textoFijo,
+      origen,
+    });
+    if (sinRespuesta) {
+      const unaVez = sinRepetirElCombo(sinRespuesta, comboYaSalio, textoFijo);
+      comboYaSalio = unaVez.comboYaSalio;
+      return unaVez.redactado;
+    }
     return redactarSeguimientoQueEscucha({
       conversationId,
       workspaceId: follow.workspaceId,
@@ -2027,7 +2048,7 @@ async function executeFollowRecord(follow: ClaimedFollowRow) {
     Seguimientos que escuchan al cliente: ya pasaron TODOS los frenos de arriba. Solo los automáticos;
     los de una persona, las campañas y las automatizaciones salen con su texto de siempre.
   */
-  const redactar = clase === "automatico" ? redactorDelFollow(follow) : null;
+  const redactar = clase === "automatico" ? redactorDelFollow(follow, actions) : null;
 
   for (const action of actions) {
     if (action.status !== "PENDING") {

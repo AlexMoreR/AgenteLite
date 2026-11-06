@@ -426,6 +426,176 @@ prueba("y al revés: 'Tras asesora' solo actúa con el chat pausado, donde el d�
 });
 
 /* ================================================================================================
+   6. SIN RESPUESTA A LA BIENVENIDA: los Follow automáticos salen sin IA (y el texto del combo)
+================================================================================================ */
+
+const bv = cargar("src/features/seguimientos/dominio/sin-respuesta-a-la-bienvenida.ts");
+const COMBO = bv.PRODUCTO_COMBO_CAMILLAS_ID;
+const TEXTO_COMBO = "¿Quieres el combo completo de camilla, escalera, silla y carrito o prefieres solo algunas piezas?";
+const AGENDADO = "¡Hola! 😊 Te escribo por el *Combo Camillas*…";
+const DIA1 = { name: "Etapa Presentación del producto · día siguiente", timeType: "MINUTES", timeValue: 1 };
+const ETAPA_1_DE_1_DIA = { name: "Etapa Presentación del producto · 1", timeType: "DAYS", timeValue: 1 };
+const SIN_RESPONDER = [{ direction: "INBOUND", type: "TEXT", createdAt: en(0) }, { direction: "OUTBOUND", type: "TEXT", createdAt: en(1) }];
+const RESPONDIO = [...SIN_RESPONDER, { direction: "INBOUND", type: "TEXT", createdAt: en(5) }];
+
+prueba("sin respuesta: constantes y cuál es el día siguiente", () => {
+  assert.equal(COMBO, "cmp7lojx700bj2hn6z2vrv0i9");
+  assert.equal(bv.TEXTO_COMBO_DIA_SIGUIENTE, TEXTO_COMBO);
+  assert.equal(bv.esDelDiaSiguiente(DIA1), true);
+  assert.equal(bv.esDelDiaSiguiente(ETAPA_1_DE_1_DIA), true);
+  assert.equal(bv.esDelDiaSiguiente({ name: "Etapa Presentación del producto · 2", timeType: "HOURS", timeValue: 24 }), true);
+  assert.equal(bv.esDelDiaSiguiente({ name: "Etapa Presentación del producto · 1", timeType: "MINUTES", timeValue: 15 }), false);
+  assert.equal(bv.esDelDiaSiguiente({ name: "Etapa Presentación del producto · 3", timeType: "DAYS", timeValue: 3 }), false);
+  assert.equal(bv.esDelDiaSiguiente({ name: "Tras asesora: 24 h", timeType: "DAYS", timeValue: 1 }), false);
+  assert.equal(bv.esDelDiaSiguiente({ name: null, timeType: "DAYS", timeValue: 1 }), false);
+  assert.deepEqual(bv.textoSinRespuesta({ productoId: COMBO, delDiaSiguiente: true, esFlujo: false, textoFijo: "x" }), { texto: TEXTO_COMBO, esElDelCombo: true });
+  assert.deepEqual(bv.textoSinRespuesta({ productoId: COMBO, delDiaSiguiente: true, esFlujo: true, textoFijo: "x" }), { texto: "x", esElDelCombo: false });
+  assert.deepEqual(bv.textoSinRespuesta({ productoId: "otro", delDiaSiguiente: true, esFlujo: false, textoFijo: "x" }), { texto: "x", esElDelCombo: false });
+  assert.deepEqual(bv.textoSinRespuesta({ productoId: COMBO, delDiaSiguiente: false, esFlujo: false, textoFijo: "x" }), { texto: "x", esElDelCombo: false });
+});
+
+function cargarSinRespuesta({ mensajes, productoActivo = COMBO, activeProductContext = null, existe = true, estadoExplota = false }) {
+  const ruta = path.join(RAIZ, "src/features/seguimientos/services/sin-respuesta-a-la-bienvenida.ts");
+  const lecturas = { estado: 0 };
+  const prisma = {
+    conversation: {
+      findFirst: async ({ where }) => (existe && where.id === "cv1" && where.workspaceId === "ws" ? { activeProductContext, messages: mensajes } : null),
+    },
+  };
+  const sv = cargarSinCache(ruta, {
+    "@/lib/prisma": { prisma },
+    "@/features/agente-v3/motor/estado": {
+      leerEstado: async () => {
+        lecturas.estado += 1;
+        if (estadoExplota) throw new Error("se cayó la base");
+        return { productoActivo, pasoActual: "PRESENTACION", flujosEnviados: [], seguimientosEnviados: [] };
+      },
+    },
+  });
+  return { sv, lecturas };
+}
+
+// Sin IA: si alguien llama a la red (OpenAI), la prueba falla.
+async function sinRed(fn) {
+  const fetchReal = globalThis.fetch;
+  globalThis.fetch = async () => {
+    throw new Error("no debía llamar a la IA");
+  };
+  try {
+    return await fn();
+  } finally {
+    globalThis.fetch = fetchReal;
+  }
+}
+
+const pedir = (follow, origen = "follow", textoFijo = AGENDADO) => ({ workspaceId: "ws", conversationId: "cv1", follow, textoFijo, origen });
+
+pruebaAsync("sin respuesta: el combo en su día siguiente ('· día siguiente' y '· 1' de 1 día) sale con el texto exacto, sin IA", async () => {
+  await sinRed(async () => {
+    for (const follow of [DIA1, ETAPA_1_DE_1_DIA]) {
+      const { sv } = cargarSinRespuesta({ mensajes: SIN_RESPONDER });
+      const r = await sv.resolverSinRespuesta(pedir(follow));
+      assert.equal(r.enviar, true);
+      assert.equal(r.texto, TEXTO_COMBO);
+      assert.equal(r.deIA, false);
+      assert.equal(r.textoReemplazado, AGENDADO);
+    }
+  });
+});
+
+pruebaAsync("sin respuesta: el producto sale del chat (activeProductContext) si el V3 no lo tiene o falla", async () => {
+  await sinRed(async () => {
+    const a = cargarSinRespuesta({ mensajes: SIN_RESPONDER, productoActivo: null, activeProductContext: { productId: COMBO } });
+    assert.equal((await a.sv.resolverSinRespuesta(pedir(DIA1))).texto, TEXTO_COMBO);
+    const b = cargarSinRespuesta({ mensajes: SIN_RESPONDER, estadoExplota: true, activeProductContext: { productId: COMBO } });
+    assert.equal((await b.sv.resolverSinRespuesta(pedir(DIA1))).texto, TEXTO_COMBO);
+    const c = cargarSinRespuesta({ mensajes: SIN_RESPONDER, productoActivo: null, activeProductContext: null });
+    const r = await c.sv.resolverSinRespuesta(pedir(DIA1));
+    assert.deepEqual([r.texto, r.deIA, r.textoReemplazado], [AGENDADO, false, null]);
+  });
+});
+
+pruebaAsync("sin respuesta: otro producto, o un automático que no es del día siguiente, sale con su texto agendado, sin IA", async () => {
+  await sinRed(async () => {
+    const otro = cargarSinRespuesta({ mensajes: SIN_RESPONDER, productoActivo: "otro-producto" });
+    const r1 = await otro.sv.resolverSinRespuesta(pedir(DIA1));
+    assert.deepEqual({ enviar: r1.enviar, texto: r1.texto, deIA: r1.deIA, textoReemplazado: r1.textoReemplazado }, { enviar: true, texto: AGENDADO, deIA: false, textoReemplazado: null });
+    for (const follow of [
+      { name: "Tras asesora: 24 h", timeType: "DAYS", timeValue: 1 },
+      { name: "Inteligente: cotización", timeType: "HOURS", timeValue: 3 },
+      { name: "Etapa Presentación del producto · 3", timeType: "DAYS", timeValue: 3 },
+    ]) {
+      const { sv, lecturas } = cargarSinRespuesta({ mensajes: SIN_RESPONDER });
+      const r = await sv.resolverSinRespuesta(pedir(follow, "follow", "Texto agendado"));
+      assert.deepEqual([r.enviar, r.texto, r.deIA, r.textoReemplazado], [true, "Texto agendado", false, null]);
+      assert.equal(lecturas.estado, 0, "fuera del día siguiente no hace falta leer el producto");
+    }
+  });
+});
+
+pruebaAsync("sin respuesta: si el cliente ya respondió (o el chat no existe) devuelve null y sigue el redactor", async () => {
+  const { sv } = cargarSinRespuesta({ mensajes: RESPONDIO });
+  assert.equal(await sv.resolverSinRespuesta(pedir(DIA1)), null);
+  const noExiste = cargarSinRespuesta({ mensajes: SIN_RESPONDER, existe: false });
+  assert.equal(await noExiste.sv.resolverSinRespuesta(pedir(DIA1)), null);
+});
+
+pruebaAsync("sin respuesta: el texto del combo sale sin OPENAI_API_KEY y con el interruptor apagado (no los lee)", async () => {
+  const claveAntes = process.env.OPENAI_API_KEY;
+  delete process.env.OPENAI_API_KEY;
+  try {
+    await sinRed(async () => {
+      const { sv } = cargarSinRespuesta({ mensajes: SIN_RESPONDER });
+      // El mock de prisma no tiene appSetting: si leyera "seguimientos-que-escuchan:apagado", explotaría.
+      const r = await sv.resolverSinRespuesta(pedir(DIA1));
+      assert.equal(r.texto, TEXTO_COMBO);
+    });
+  } finally {
+    if (claveAntes !== undefined) process.env.OPENAI_API_KEY = claveAntes;
+  }
+  const codigo = fs.readFileSync(path.join(RAIZ, "src/features/seguimientos/services/sin-respuesta-a-la-bienvenida.ts"), "utf8");
+  assert.doesNotMatch(codigo, /process\.env|\.appSetting|"seguimientos-que-escuchan/);
+});
+
+pruebaAsync("sin respuesta: un flujo del día siguiente del combo sale con sus textos tal cual (nunca el del combo)", async () => {
+  await sinRed(async () => {
+    const { sv } = cargarSinRespuesta({ mensajes: SIN_RESPONDER });
+    for (const paso of ["Paso 1 del flujo", "Paso 2 del flujo"]) {
+      const r = await sv.resolverSinRespuesta(pedir(DIA1, "flujo", paso));
+      assert.deepEqual([r.enviar, r.texto, r.deIA, r.textoReemplazado], [true, paso, false, null]);
+    }
+  });
+});
+
+pruebaAsync("sin respuesta: con varias acciones de texto el combo sale solo en la primera; las demás con su texto", async () => {
+  const { sv } = cargarSinRespuesta({ mensajes: SIN_RESPONDER });
+  let yaSalio = false;
+  const salidas = [];
+  for (const textoFijo of ["Acción 1", "Acción 2", "Acción 3"]) {
+    const r = await sv.resolverSinRespuesta(pedir(DIA1, "follow", textoFijo));
+    const unaVez = sv.sinRepetirElCombo(r, yaSalio, textoFijo);
+    yaSalio = unaVez.comboYaSalio;
+    salidas.push([unaVez.redactado.texto, unaVez.redactado.deIA, unaVez.redactado.textoReemplazado]);
+  }
+  assert.deepEqual(salidas, [[TEXTO_COMBO, false, "Acción 1"], ["Acción 2", false, null], ["Acción 3", false, null]]);
+  // Un texto agendado (no el combo) no gasta el turno del combo.
+  const agendado = { enviar: true, texto: "x", deIA: false, textoReemplazado: null, motivo: "m" };
+  assert.deepEqual(sv.sinRepetirElCombo(agendado, false, "x"), { redactado: agendado, comboYaSalio: false });
+});
+
+prueba("sin respuesta: follows.ts consulta la regla antes del redactor, y solo en los automáticos", () => {
+  const codigo = fs.readFileSync(path.join(RAIZ, "src/features/seguimientos/services/follows.ts"), "utf8");
+  const inicio = codigo.indexOf("function redactorDelFollow(");
+  const cuerpo = codigo.slice(inicio, codigo.indexOf("\n}\n", inicio));
+  const iSin = cuerpo.indexOf("resolverSinRespuesta(");
+  const iIa = cuerpo.indexOf("redactarSeguimientoQueEscucha(");
+  const iChat = cuerpo.indexOf("if (!conversationId) return null;");
+  assert.ok(iChat > 0 && iSin > iChat && iIa > iSin, "orden: chat → sin respuesta → redactor");
+  assert.match(cuerpo, /sinRepetirElCombo\(/);
+  assert.match(codigo, /clase === "automatico" \? redactorDelFollow\(follow, actions\) : null/);
+});
+
+/* ================================================================================================
    BASE DE MENTIRA para el servicio
 ================================================================================================ */
 
