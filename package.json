@@ -22,6 +22,7 @@
     "test:audio-de-llamada": "node scripts/check-audio-de-llamada.mjs",
     "test:editar-mensaje": "node scripts/check-editar-mensaje.mjs",
     "test:reenviar": "node scripts/check-reenviar.mjs",
+    "test:comprimir-foto": "npx tsx --test src/lib/comprimir-foto.test.ts",
     "test:subir-por-pedazos": "npx tsx --test src/lib/subir-archivo-por-pedazos.test.ts src/lib/chat-upload-pedazos.test.ts",
     "test:chat-envio-reintento": "npx tsx --test src/lib/chat-envio-reintento.test.ts",
     "test:carta-de-colores": "npx tsx --test src/lib/carta-de-colores.test.ts src/lib/imagen-de-carta-de-colores.test.tsx",

@@ -28,8 +28,10 @@ import { indiceDePedazoValido, recibirPedazo } from "@/lib/chat-upload-pedazos";
  * Partido en trozos de ~1 MB, cada peticion dura segundos: ninguna vive lo suficiente como para
  * que la corten. Y si la señal se cae, se reintenta SOLO ese trozo en vez de los 15 MB.
  *
- * El archivo llega intacto: no se recomprime nada. Era la condicion, porque un catalogo con las
- * fotos machacadas vende menos que uno que tarda.
+ * Esta ruta no recomprime nada: guarda el archivo tal como llega. PDF, documentos y la Biblioteca
+ * llegan intactos, porque un catalogo con las fotos machacadas vende menos que uno que tarda. Las
+ * fotos sueltas del compositor de Chats si llegan achicadas (1600 px, unos 400 KB): las achica el
+ * compositor antes de subirlas (`src/lib/comprimir-foto.ts`), no esta ruta.
  */
 export async function POST(request: Request) {
   const session = await auth();

@@ -98,6 +98,7 @@ import { QuickRepliesDialog } from "@/components/chats/quick-replies-dialog";
 import { MediaLibraryDialog } from "@/components/chats/media-library-dialog";
 import { CartaDeColoresDialog } from "@/components/chats/carta-de-colores-dialog";
 import { subirArchivoPorPedazos } from "@/lib/subir-archivo-por-pedazos";
+import { comprimirFotoParaEnviar } from "@/lib/comprimir-foto";
 import { cuandoEsteLibre } from "@/lib/cuando-este-libre";
 import {
   MENSAJE_SIN_CONEXION_ENVIO,
@@ -796,6 +797,9 @@ export const ConversationPanel = memo(function ConversationPanel({
       if (revision.mime !== file.type) {
         file = new File([file], file.name, { type: revision.mime, lastModified: file.lastModified });
       }
+      // Fotos (JPEG, PNG, WEBP) a 1600 px y unos 400 KB: suben en una fraccion del tiempo. Va despues
+      // de corregir el tipo para reconocer la foto. Si no se puede comprimir, sale la original.
+      file = await comprimirFotoParaEnviar(file);
 
       const trimmedCaption = caption?.trim() || "";
       let optimisticId: string | null = null;
