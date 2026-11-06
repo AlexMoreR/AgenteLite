@@ -7,7 +7,9 @@ import { filaDelChat, idsDeChatsDeLaAlerta, type DatosDelChat } from "@/features
 import { ETIQUETA_DE_SEVERIDAD, type Hallazgo } from "@/features/supervisor/dominio/tipos";
 import { leerAlertasRecientes } from "@/features/supervisor/servicios/almacen-alertas";
 import { leerDatosDeChats } from "@/features/supervisor/servicios/chats-de-alertas";
-import { puedeSupervisar } from "@/lib/permisos-del-equipo";
+import { numeroDeAvisosDeLaPersona } from "@/features/avisos-gravedad/servicios/enrutador";
+import { esJefeDelNegocio } from "@/lib/permisos-del-crm";
+import { esSupervisora, leerLiderDeVentasElegido, puedeSupervisar } from "@/lib/permisos-del-equipo";
 import { prisma } from "@/lib/prisma";
 
 /*
@@ -415,16 +417,52 @@ export function armarRespuesta(entrada: EntradaArmado) {
 // Lecturas de la base (todas filtradas por el negocio de la clave)
 // ---------------------------------------------------------------------------------------------
 
-/** El mismo permiso de la pantalla, con el rol de la persona DENTRO del negocio de la clave. */
-export async function puedeVerElSupervisor(contexto: Contexto): Promise<boolean> {
+/** El rol de la persona DENTRO del negocio de la clave (null = no es miembro activo). */
+async function accesoDelMiembro(contexto: Contexto) {
   const miembro = await prisma.workspaceMember.findFirst({
     where: { workspaceId: contexto.workspaceId, userId: contexto.userId, isActive: true },
     select: { role: true, user: { select: { role: true } }, workspace: { select: { ownerId: true } } },
   });
-  if (!miembro) return false;
+  if (!miembro) return null;
   const rol = miembro.user?.role ?? "";
   const isOwner = rol === "CLIENTE" && (miembro.role === "OWNER" || miembro.workspace?.ownerId === contexto.userId);
-  return puedeSupervisar({ workspaceId: contexto.workspaceId, userId: contexto.userId, isOwner, role: rol, membershipRole: miembro.role });
+  return { workspaceId: contexto.workspaceId, userId: contexto.userId, isOwner, role: rol, membershipRole: miembro.role };
+}
+
+/** El mismo permiso de la pantalla, con el rol de la persona DENTRO del negocio de la clave. */
+export async function puedeVerElSupervisor(contexto: Contexto): Promise<boolean> {
+  const acceso = await accesoDelMiembro(contexto);
+  return acceso ? puedeSupervisar(acceso) : false;
+}
+
+/**
+ * El líder de ventas que recibe el WhatsApp cuando una asesora no responde ni el aviso ni el segundo
+ * aviso (6-nov-2026), y si el aviso le llega completo: número de avisos y permiso para abrir el chat.
+ */
+async function leerLiderDeVentas(workspaceId: string, miembros: Miembro[]) {
+  const id = await leerLiderDeVentasElegido(workspaceId);
+  if (!id) return { elegido: false as const, nombre: null, activo: false, tiene_numero_de_avisos: false, puede_abrir_chats_de_otras: false, alcance: null };
+  const [acceso, numero] = await Promise.all([accesoDelMiembro({ workspaceId, userId: id }), numeroDeAvisosDeLaPersona(workspaceId, id).catch(() => null)]);
+  const jefe = acceso ? esJefeDelNegocio(acceso) : false;
+  const supervisora = acceso && !jefe ? await esSupervisora(workspaceId, id) : false;
+  return {
+    elegido: true as const,
+    nombre: miembros.find((m) => m.id === id)?.nombre ?? id,
+    activo: Boolean(acceso),
+    tiene_numero_de_avisos: Boolean(numero),
+    puede_abrir_chats_de_otras: jefe || supervisora,
+    alcance: jefe ? "todas las líneas" : supervisora ? "solo los chats de sus líneas (es supervisora)" : "solo sus propios chats",
+  };
+}
+
+function advertenciasDelLider(lider: Awaited<ReturnType<typeof leerLiderDeVentas>>): string[] {
+  if (!lider.elegido) return ["No hay Líder de ventas elegido en Mi empresa → Equipo: si una asesora no responde ni el segundo aviso, la escalada solo le llega a Alexander."];
+  if (!lider.activo) return [`El Líder de ventas (${lider.nombre}) ya no está activo en el equipo: no recibe el aviso de las escaladas.`];
+  const salida: string[] = [];
+  if (!lider.tiene_numero_de_avisos) salida.push(`El Líder de ventas (${lider.nombre}) no tiene número de avisos: de las escaladas le llega solo la notificación del CRM, sin WhatsApp.`);
+  if (!lider.puede_abrir_chats_de_otras) salida.push(`El Líder de ventas (${lider.nombre}) no es jefe ni supervisora: el link de la escalada lo lleva a la bandeja y no al chat de la asesora.`);
+  else if (lider.alcance?.startsWith("solo los chats de sus líneas")) salida.push(`El Líder de ventas (${lider.nombre}) es supervisora: solo abre los chats de las líneas que tiene asignadas.`);
+  return salida;
 }
 
 /** Chats Caliente/Tibio con más de 24 h sin mensaje de una persona. La regla final la aplica `chatOlvidado`. */
@@ -528,11 +566,14 @@ async function verSupervisor(args: Argumentos, contexto: Contexto) {
     advertencias.push("Se leyeron las 100 alertas más recientes (el mismo tope de la pantalla): puede haber avisos más viejos por fuera.");
   }
   advertencias.push("Los avisos se recalculan cada 5 minutos: si la asesora acaba de responder, el aviso puede seguir saliendo hasta la siguiente revisión. Los chats de más de 24 h se leen en vivo.");
+  const lider = await intentar("líder de ventas", () => leerLiderDeVentas(ws, miembros), null);
+  if (lider) advertencias.push(...advertenciasDelLider(lider));
 
   return {
     generado_en: hora(ahora),
     filtros: { asesora: filtros.asesora, desde: typeof args.desde === "string" ? args.desde : null, hasta: typeof args.hasta === "string" ? args.hasta : null },
     accionable_activo: accionableActivo,
+    lider_de_ventas: lider,
     ...armarRespuesta({ ahora, filtros, alertas: abiertas, datosPorChat, estado, atendidas, candidatos, miembros }),
     advertencias,
     ...(noSePudoLeer.length ? { no_se_pudo_leer: noSePudoLeer } : {}),
