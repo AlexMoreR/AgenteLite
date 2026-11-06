@@ -92,6 +92,7 @@
     "test:seguimientos-apagados-migracion": "node scripts/check-seguimientos-apagados-migracion.mjs",
     "test:seguimientos-apagados": "node scripts/check-seguimientos-apagados.mjs",
     "test:avisos-gravedad": "node scripts/check-avisos-gravedad.mjs",
+    "test:listo-para-pagar": "npx tsx --test src/features/listo-para-pagar/dominio/senal.test.ts",
     "test:supervisor-accionable": "node scripts/check-supervisor-accionable.mjs",
     "test:mcp-supervisor": "node scripts/check-mcp-supervisor.mjs",
     "test:rescate-mensajes": "node scripts/check-rescate-mensajes.mjs",
