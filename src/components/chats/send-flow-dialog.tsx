@@ -21,12 +21,15 @@ export function SendFlowDialog({
   source,
   conversationId,
   agentId,
+  onEnviado,
 }: {
   open: boolean;
   onClose: () => void;
   source: "agent" | "official";
   conversationId: string;
   agentId?: string;
+  /** El servidor termino de mandar el flujo: la bandeja trae los mensajes de ese chat. */
+  onEnviado?: (envio: { conversationId: string }) => void;
 }) {
   const [flujos, setFlujos] = React.useState<FlowChoice[]>([]);
   const [cargando, setCargando] = React.useState(false);
@@ -66,7 +69,7 @@ export function SendFlowDialog({
      * aviso de abajo cuenta como termino.
      */
     onClose();
-    enviarFlujoAlChat({ source, conversationId, flowId: flujo.id, titulo: flujo.title, agentId });
+    enviarFlujoAlChat({ source, conversationId, flowId: flujo.id, titulo: flujo.title, agentId, alTerminar: onEnviado });
   };
 
   return (
@@ -126,6 +129,12 @@ export function enviarFlujoAlChat(input: {
   flowId: string;
   titulo: string;
   agentId?: string;
+  /*
+    Se llama cuando el servidor termino (aunque algun paso haya fallado: los que salieron hay que
+    mostrarlos). Antes la revalidacion de los pasos con archivo rearmaba la pantalla; ahora la
+    bandeja trae los mensajes de ese chat con /live.
+  */
+  alTerminar?: (envio: { conversationId: string }) => void;
 }) {
   const aviso = toast.loading(`Enviando "${input.titulo}"…`);
 
@@ -134,6 +143,12 @@ export function enviarFlujoAlChat(input: {
       if (!resultado.ok) {
         toast.error(resultado.error, { id: aviso });
         return;
+      }
+
+      try {
+        input.alTerminar?.({ conversationId: input.conversationId });
+      } catch {
+        // El refresco es de respaldo: si falla, el aviso de abajo igual cuenta como termino.
       }
 
       if (resultado.fallidos > 0 || resultado.omitidos > 0) {

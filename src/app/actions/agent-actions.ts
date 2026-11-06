@@ -3352,17 +3352,9 @@ async function enviarNotaDeVoz(
     paused: true,
   });
 
-  const safeReturnTo = normalizeInternalPath(parsed.data.returnTo ?? "", "");
-  if (safeReturnTo) {
-    revalidatePath(safeReturnTo.split("?")[0]);
-  }
-  // Sin agente esto armaba /cliente/agentes/undefined/chats. No rompia el envio, pero es la
-  // misma inconsistencia que el resto: el agente es opcional en todo este camino.
-  const revalidateAgentId = parsed.data.agentId?.trim() || conversation.agentId;
-  if (revalidateAgentId) {
-    revalidatePath(`/cliente/agentes/${revalidateAgentId}/chats`);
-  }
-
+  // Exito: sin revalidatePath, igual que sendManualAgentReplyAction. Next rearma la pagina abierta
+  // con CUALQUIER ruta revalidada y la respuesta de la accion traia la bandeja entera (se sentia
+  // como recarga). La bandeja trae el mensaje real con /live (onEnvioTerminado del panel).
   return { ok: true };
 }
 
@@ -3451,7 +3443,7 @@ async function sendOfficialApiChatFile(input: {
     return { error: result.error };
   }
 
-  revalidatePath("/cliente/chats");
+  // Sin revalidatePath("/cliente/chats"): rearmaba la bandeja entera en cada foto o nota de voz.
   return { ok: true };
 }
 
@@ -3647,15 +3639,7 @@ export async function sendChatMediaReplyAction(input: {
       conversationId: conversation.id,
       paused: true,
     });
-
-    const safeReturnTo = normalizeInternalPath(parsed.data.returnTo ?? "", "");
-    if (safeReturnTo) {
-      revalidatePath(safeReturnTo.split("?")[0]);
-    }
-    const revalidateAgentId = parsed.data.agentId?.trim() || conversation.agentId;
-    if (revalidateAgentId) {
-      revalidatePath(`/cliente/agentes/${revalidateAgentId}/chats`);
-    }
+    // Sin revalidatePath: igual que el audio y el texto (ver sendManualAgentReplyAction).
   } catch (persistError) {
     console.error("[chats] el archivo SI se envio pero no se pudo guardar en el chat", {
       conversationId: conversation.id,
@@ -3835,11 +3819,7 @@ export async function sendChatLocationReplyAction(input: {
 
   await setConversationAutomationPaused({ conversationId: conversation.id, paused: true });
 
-  const safeReturnTo = normalizeInternalPath(input.returnTo ?? "", "");
-  if (safeReturnTo) {
-    revalidatePath(safeReturnTo.split("?")[0]);
-  }
-
+  // Sin revalidatePath: igual que el audio y el texto (ver sendManualAgentReplyAction).
   return { ok: true };
 }
 

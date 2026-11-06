@@ -460,5 +460,79 @@ await prueba("consultas: cambiar canales, supervisoras o miembros desde la app s
   assert.equal((await pedir(url)).consultas, base, "y despues vuelve a la cache");
 });
 
+/* ------------------------------------------------------------------------------------------------
+   4. Enviar no recarga la bandeja (parte 4 de "enviar fotos rapido")
+
+   Cada revalidatePath en una accion de envio y cada router.refresh() del panel tras enviar rearmaba
+   /cliente/chats entero. Se leen las funciones como texto: si vuelve una, la prueba falla.
+------------------------------------------------------------------------------------------------ */
+function cuerpoDeFuncion(fuente, inicio, archivo) {
+  const desde = fuente.indexOf(inicio);
+  assert.ok(desde >= 0, `no se encontro "${inicio}" en ${archivo}`);
+  // Hasta la primera llave de cierre al inicio de una linea (fin de una funcion de primer nivel)
+  // o, dentro del componente, hasta la proxima declaracion "const ... = useCallback(".
+  const resto = fuente.slice(desde + inicio.length);
+  const finPrimerNivel = resto.search(/\n\}\n/);
+  const siguienteCallback = resto.search(/\n {2}const \w+ = useCallback\(/);
+  const candidatos = [finPrimerNivel, siguienteCallback].filter((n) => n >= 0);
+  return resto.slice(0, candidatos.length ? Math.min(...candidatos) : undefined);
+}
+const sinComentarios = (texto) => texto.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+
+await prueba("envios: las acciones de audio, archivos y ubicacion no llaman revalidatePath", async () => {
+  const archivo = "src/app/actions/agent-actions.ts";
+  const fuente = fs.readFileSync(archivo, "utf8");
+  for (const inicio of [
+    "export async function sendChatAudioReplyAction(",
+    // La nota de voz se manda aca (sendChatAudioReplyAction solo junta los reintentos).
+    "async function enviarNotaDeVoz(",
+    "async function sendOfficialApiChatFile(",
+    "export async function sendChatMediaReplyAction(",
+    "export async function sendChatLocationReplyAction(",
+  ]) {
+    const cuerpo = sinComentarios(cuerpoDeFuncion(fuente, inicio, archivo));
+    assert.ok(cuerpo.length > 200, `cuerpo muy corto para ${inicio}`);
+    assert.ok(!/revalidatePath\(/.test(cuerpo), `${inicio} volvio a llamar revalidatePath`);
+  }
+});
+
+await prueba("envios: el panel no hace router.refresh() tras enviar y avisa a la bandeja", async () => {
+  const archivo = "src/components/chats/chat-conversation-panel.tsx";
+  const fuente = fs.readFileSync(archivo, "utf8");
+  for (const inicio of [
+    "const handleSendLocation = useCallback(",
+    "const sendSingleMediaFile = useCallback(",
+    "const enviarFoto = useCallback(",
+    "const reintentarFoto = useCallback(",
+    "const uploadAndSendMediaFiles = useCallback(",
+    "const uploadAndSendAudio = useCallback(",
+  ]) {
+    const cuerpo = sinComentarios(cuerpoDeFuncion(fuente, inicio, archivo));
+    assert.ok(!/\.refresh\(\)/.test(cuerpo), `${inicio} volvio a recargar con router.refresh()`);
+  }
+  // El unico refresh que queda es el de la foto de perfil.
+  const refrescos = sinComentarios(fuente).match(/composerRouter\.refresh\(\)/g) ?? [];
+  assert.equal(refrescos.length, 1, `composerRouter.refresh() deberia quedar solo en la foto de perfil: ${refrescos.length}`);
+  const avisos = sinComentarios(fuente).match(/avisarEnvioTerminado\(\{/g) ?? [];
+  // Ubicacion, archivo, foto, nota de voz, biblioteca y carta de colores (el flujo lo pasa como funcion).
+  assert.ok(avisos.length >= 6, `faltan avisos de envio terminado: ${avisos.length}`);
+  assert.match(fuente, /alTerminar: avisarEnvioTerminado/);
+  assert.match(fuente, /onEnviado=\{avisarEnvioTerminado\}/);
+});
+
+await prueba("envios: la bandeja sube la fila y refresca el chat abierto, tambien los oficiales", async () => {
+  const archivo = "src/components/chats/shared-inbox.tsx";
+  const fuente = fs.readFileSync(archivo, "utf8");
+  assert.match(fuente, /onEnvioTerminado=\{handleEnvioTerminado\}/);
+  const manejador = sinComentarios(cuerpoDeFuncion(fuente, "const handleEnvioTerminado = useCallback(", archivo));
+  assert.match(manejador, /"chat-list-update"/);
+  assert.match(manejador, /local: true/);
+  assert.match(manejador, /scheduleConversationRefreshAfterSend\(\)/);
+  const refresco = sinComentarios(
+    cuerpoDeFuncion(fuente, "const refreshSelectedConversationFromServer = useCallback(", archivo),
+  );
+  assert.match(refresco, /official:/, "los chats oficiales tambien piden /live");
+});
+
 console.log(`\n${pruebas} pruebas ok`);
 process.exit(0);
