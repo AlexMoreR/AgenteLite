@@ -13,7 +13,12 @@ const MIEMBROS = [
   { userId: "alex", role: "OWNER", isActive: true, name: "Magilus" },
   { userId: "ingrid", role: "MEMBER", isActive: true, name: "Ingrid Sanchez" },
   { userId: "maria", role: "MEMBER", isActive: true, name: "Maria Bautista" },
+  { userId: "yair", role: "MEMBER", isActive: true, name: "Yair Silvera" },
+  { userId: "pedro", role: "MEMBER", isActive: true, name: "Pedro Sin Numero" },
+  { userId: "viejo", role: "MEMBER", isActive: false, name: "Lider Inactivo" },
 ];
+/** El contacto de cada chat (para el teléfono completo del aviso al líder). Sin fila = el teléfono normal. */
+const CONTACTOS = new Map();
 const prisma = {
   appSetting: {
     findUnique: async ({ where }) => (settings.has(where.key) ? { key: where.key, value: settings.get(where.key) } : null),
@@ -33,7 +38,7 @@ const prisma = {
   },
   conversation: {
     findMany: async ({ where }) => where.id.in.map((id, i) => ({ id, numero: 1000 + i })),
-    findFirst: async ({ where }) => ({ numero: 4321, id: where.id }),
+    findFirst: async ({ where }) => ({ numero: 4321, id: where.id, contact: CONTACTOS.get(where.id) ?? { phoneNumber: "573001234567", metadata: null } }),
   },
   embudoLead: { findMany: async () => [] },
   whatsAppChannel: { findFirst: async ({ where }) => ({ id: where.id, evolutionInstanceName: "admin" }) },
@@ -644,6 +649,198 @@ await prueba("servicio: Mi Día muestra a la asesora sus pedidos (y nada con el 
   assert.equal(pedidos.length, 1);
   assert.equal(pedidos[0].cliente, "Laura Gómez");
   assert.equal((await servicio.leerPedidosDelSupervisor(WS, "genesis")).length, 0);
+});
+
+/* ------------------------------------------------------------------ aviso al líder de ventas (6-nov-2026) */
+
+const NUM_YAIR = "573000003333";
+const NUMEROS_DEL_EQUIPO = new Set(["573000002277", "573000001111", NUM_YAIR]);
+
+/** Servicio con líder: Yair con su número de avisos en los destinos de la línea interna. */
+function reiniciarConLider(lider = "yair") {
+  reiniciar();
+  CONTACTOS.clear();
+  settings.set("supervisor:accionable:ws1", JSON.stringify({ activo: true }));
+  settings.set(
+    "agente-v3:avisos:ws1",
+    JSON.stringify({ canalId: "linea-admin", destinos: [{ numero: "573000002277", soloDe: null }, { numero: "573000001111", soloDe: "maria", userId: "maria" }, { numero: NUM_YAIR, soloDe: "yair", userId: "yair" }] }),
+  );
+  if (lider) settings.set("equipo:lider-ventas:ws1", lider);
+}
+function limpiarEnvios() {
+  enviados.push.length = 0;
+  enviados.whatsapp.length = 0;
+}
+/** Caliente de María: aviso (T0) → segundo aviso (+15) → escalada (+25). Devuelve lo enviado en la vuelta de la escalada. */
+async function hastaLaEscalada(c = maria(), h = [hallazgo(CALIENTE, ["c1"])]) {
+  servicio.olvidarConfigAccionable();
+  const config = await servicio.leerConfigAccionable(WS);
+  await servicio.gestionarAcciones({ workspaceId: WS, hallazgos: h, chats: [c], ahora: T0, config });
+  await servicio.gestionarAcciones({ workspaceId: WS, hallazgos: h, chats: [c], ahora: mas(T0, 15), config });
+  limpiarEnvios();
+  await servicio.gestionarAcciones({ workspaceId: WS, hallazgos: [], chats: [c], ahora: mas(T0, 25), config });
+  return { config, push: [...enviados.push], whatsapp: [...enviados.whatsapp] };
+}
+
+await prueba("líder: la asesora no respondió ni el aviso ni el segundo → UN WhatsApp al líder con cliente, teléfono completo, último mensaje, espera y link; Alexander igual que hoy", async () => {
+  reiniciarConLider();
+  const { push, whatsapp } = await hastaLaEscalada();
+  assert.deepEqual(push.map((p) => p.userId), ["alex"], "Alexander recibe su push como hoy; el líder no recibe push si le llegó el WhatsApp");
+  assert.equal(whatsapp.length, 1, "un solo WhatsApp, al líder");
+  assert.equal(whatsapp[0].phoneNumber, NUM_YAIR);
+  const texto = whatsapp[0].text;
+  for (const parte of ["Laura Gómez", "+573001234567", "separar el combo", "Lleva esperando 45 min", "app.aizenbot.com/c/1000", "Maria Bautista", "aviso (10:00)", "segundo aviso (10:15)", "Tú decides si lo tomas"]) {
+    assert.ok(texto.includes(parte), `el WhatsApp al líder trae "${parte}":\n${texto}`);
+  }
+  assert.ok(!texto.includes("https://"), "el link va sin https:// (sin vista previa)");
+  const estado = JSON.parse(settings.get("supervisor:accionable:estado:ws1"));
+  assert.equal(estado.acciones.c1.liderNombre, "Yair Silvera");
+  assert.ok(!settings.get("supervisor:accionable:estado:ws1").includes("3001234567"), "el teléfono completo no se guarda en el estado");
+});
+
+await prueba("líder: la vuelta siguiente no repite, ningún envío va al número del cliente y no se escribe la conversación", async () => {
+  reiniciarConLider();
+  const { config } = await hastaLaEscalada();
+  limpiarEnvios();
+  for (const min of [30, 35, 60]) await servicio.gestionarAcciones({ workspaceId: WS, hallazgos: [hallazgo(CALIENTE, ["c1"])], chats: [maria()], ahora: mas(T0, min), config });
+  assert.equal(enviados.whatsapp.length + enviados.push.length, 0, "no se repite");
+  // Toda la secuencia otra vez, mirando a quién va cada WhatsApp.
+  reiniciarConLider();
+  const config2 = await servicio.leerConfigAccionable(WS);
+  const h = [hallazgo(CALIENTE, ["c1"])];
+  for (const min of [0, 15, 25, 30]) await servicio.gestionarAcciones({ workspaceId: WS, hallazgos: min < 25 ? h : [], chats: [maria()], ahora: mas(T0, min), config: config2 });
+  assert.ok(enviados.whatsapp.length > 0);
+  for (const w of enviados.whatsapp) assert.ok(NUMEROS_DEL_EQUIPO.has(w.phoneNumber), `solo números del equipo (salió a ${w.phoneNumber})`);
+  assert.ok(!enviados.whatsapp.some((w) => w.phoneNumber.includes("3001234567")));
+  // El mock de prisma no tiene conversation.update/updateMany: cualquier escritura (assignedToUserId) habría fallado.
+  assert.equal(prisma.conversation.update, undefined);
+  assert.equal(prisma.conversation.updateMany, undefined);
+  const estado = JSON.parse(settings.get("supervisor:accionable:estado:ws1"));
+  assert.equal(estado.acciones.c1.responsableId, "maria", "el chat sigue siendo de María");
+});
+
+await prueba("líder: si la responsable ES el líder, no sale nada a su número y Alexander recibe su escalada", async () => {
+  reiniciarConLider("maria");
+  const { push, whatsapp } = await hastaLaEscalada();
+  assert.deepEqual(push.map((p) => p.userId), ["alex"]);
+  assert.equal(whatsapp.length, 0, "ni al líder ni a nadie (caliente sin plata: Alexander sin WhatsApp)");
+});
+
+await prueba("líder: sin líder elegido o con el líder inactivo no sale WhatsApp ni push extra a nadie (tampoco a la supervisora)", async () => {
+  for (const lider of [null, "viejo"]) {
+    reiniciarConLider(lider);
+    const { push, whatsapp } = await hastaLaEscalada();
+    assert.deepEqual(push.map((p) => p.userId), ["alex"], `lider=${lider}`);
+    assert.equal(whatsapp.length, 0, `lider=${lider}`);
+    const estado = JSON.parse(settings.get("supervisor:accionable:estado:ws1"));
+    assert.equal(estado.acciones.c1.liderAvisadoEn ?? null, null);
+  }
+});
+
+await prueba("líder: sin número de avisos le llega la notificación del CRM y no sale WhatsApp", async () => {
+  reiniciarConLider("pedro");
+  const { push, whatsapp } = await hastaLaEscalada();
+  assert.deepEqual(push.map((p) => p.userId).sort(), ["alex", "pedro"]);
+  assert.equal(whatsapp.length, 0);
+  const alLider = push.find((p) => p.userId === "pedro");
+  assert.match(alLider.title, /Laura Gómez sin respuesta/);
+  assert.equal(alLider.url, "/c/1000");
+  assert.ok(!`${alLider.title} ${alLider.body}`.includes("3001234567"), "la notificación no lleva el teléfono");
+});
+
+await prueba("líder: contacto con identificador de WhatsApp (no teléfono) → número descubierto o 'sin número real'; nunca el identificador", async () => {
+  reiniciarConLider();
+  CONTACTOS.set("c1", { phoneNumber: "175775932239983", metadata: { whatsappLid: true, discoveredPhoneNumber: "573005551234" } });
+  let { whatsapp } = await hastaLaEscalada(maria({ telefono: "175775932239983" }));
+  assert.equal(whatsapp.length, 1);
+  assert.ok(whatsapp[0].text.includes("+573005551234"));
+  assert.ok(!whatsapp[0].text.includes("175775932239983"));
+  reiniciarConLider();
+  CONTACTOS.set("c1", { phoneNumber: "175775932239983", metadata: { whatsappLid: true } });
+  ({ whatsapp } = await hastaLaEscalada(maria({ telefono: "175775932239983" })));
+  assert.equal(whatsapp.length, 1);
+  assert.ok(whatsapp[0].text.includes("sin número real"));
+  assert.ok(whatsapp[0].text.includes("app.aizenbot.com/c/1000"), "queda el link");
+  assert.ok(!whatsapp[0].text.includes("175775932239983"));
+  assert.equal(r.telefonoParaElLider("175775932239983"), "sin número real");
+  assert.equal(r.telefonoParaElLider(null), "sin número real");
+});
+
+const YAIR = { id: "yair", nombre: "Yair Silvera" };
+function vueltaConLider(estado, { chats, hallazgos = [], ahora, supervisora = INGRID, config = CONFIG, lider = YAIR }) {
+  const candidatas = r.candidatasDeLaVuelta({ hallazgos, chats, ahora, supervisora });
+  return r.avanzar({ estado, candidatas, chats, atendidas: {}, ahora, config, supervisora, lider });
+}
+
+await prueba("líder: no se avisa en patrones, en chats sin responsable ni en pagos fuera de horario; un pago en horario sí", () => {
+  const eventosDelLider = (eventos) => eventos.filter((e) => e.tipo === "avisar_lider");
+  // Chat sin asesora y sin supervisora: escala a Alexander, no al líder.
+  let res = vueltaConLider(r.estadoVacio(), { chats: [chat({ asesoraId: null, asesoraNombre: null })], hallazgos: [hallazgo("ATENCION:caliente-esperando:sin-duena", ["c1"])], ahora: T0, supervisora: null });
+  assert.ok(res.eventos.some((e) => e.tipo === "escalar"));
+  assert.equal(eventosDelLider(res.eventos).length, 0);
+  // Chat sin dueña con la supervisora como responsable: tampoco.
+  const h = [hallazgo("ATENCION:caliente-esperando:sin-duena", ["c1"])];
+  const sinDuena = chat({ asesoraId: null, asesoraNombre: null });
+  res = vueltaConLider(r.estadoVacio(), { chats: [sinDuena], hallazgos: h, ahora: T0 });
+  res = vueltaConLider(res.estado, { chats: [sinDuena], hallazgos: h, ahora: mas(T0, 15) });
+  res = vueltaConLider(res.estado, { chats: [sinDuena], hallazgos: [], ahora: mas(T0, 25) });
+  assert.ok(res.eventos.some((e) => e.tipo === "escalar"));
+  assert.equal(eventosDelLider(res.eventos).length, 0);
+  // Patrón de repetición: nunca.
+  const patron = { ...res.estado.acciones.c1, id: "patron:dia:maria:2026-10-06", tipo: "patron_dia", conversationId: null, responsableId: "maria", responsableEsSupervisora: false };
+  assert.equal(r.avisaAlLider(patron, T0, YAIR), false);
+  // Pago fuera de horario (21:00): escala a Alexander, no al líder.
+  const pago = [hallazgo("ATENCION:pago-sin-respuesta:maria", ["c1"])];
+  const cPago = maria({ textosPendientes: ["ya pagué"], ultimoClienteEn: mas(NOCHE, -5) });
+  res = vueltaConLider(r.estadoVacio(), { chats: [cPago], hallazgos: pago, ahora: NOCHE });
+  res = vueltaConLider(res.estado, { chats: [cPago], hallazgos: pago, ahora: mas(NOCHE, 10) });
+  assert.ok(res.eventos.some((e) => e.tipo === "escalar"));
+  assert.equal(eventosDelLider(res.eventos).length, 0);
+  // Pago en horario: la asesora no respondió el único aviso → sí.
+  const cPagoDia = maria({ textosPendientes: ["ya pagué"] });
+  res = vueltaConLider(r.estadoVacio(), { chats: [cPagoDia], hallazgos: pago, ahora: T0 });
+  res = vueltaConLider(res.estado, { chats: [cPagoDia], hallazgos: pago, ahora: mas(T0, 10) });
+  assert.deepEqual(eventosDelLider(res.eventos).map((e) => e.liderId), ["yair"]);
+});
+
+await prueba("medición: una escalada respondida guarda los minutos hasta la respuesta (también en el historial) y metricasDelDia da la mediana", () => {
+  const h = [hallazgo(CALIENTE, ["c1"])];
+  let res = vueltaConLider(r.estadoVacio(), { chats: [maria()], hallazgos: h, ahora: T0 });
+  res = vueltaConLider(res.estado, { chats: [maria()], hallazgos: h, ahora: mas(T0, 15) });
+  res = vueltaConLider(res.estado, { chats: [maria()], hallazgos: [], ahora: mas(T0, 25) });
+  assert.equal(res.estado.acciones.c1.estado, "ESCALADA");
+  assert.equal(r.metricasDelDia(res.estado, mas(T0, 26)).medianaTrasEscalarMin, null, "sin respuesta todavía no hay medición");
+  const respondido = maria({ ultimaRespuestaHumanaEn: mas(T0, 37) });
+  res = vueltaConLider(res.estado, { chats: [respondido], hallazgos: [], ahora: mas(T0, 40) });
+  assert.equal(res.estado.acciones.c1.estado, "RESUELTA_TRAS_ESCALAR");
+  assert.equal(res.estado.acciones.c1.minutosTrasEscalar, 12, "de las 10:25 (escalada) a las 10:37 (respuesta)");
+  // Otra escalada del mismo día respondida a los 30 min (otro chat), en el historial.
+  const otra = { id: "c2", tipo: "caliente", responsableId: "maria", responsableNombre: "Maria Bautista", estado: "RESUELTA_TRAS_ESCALAR", detectadaEn: mas(T0, 60).toISOString(), avisadaEn: mas(T0, 60).toISOString(), cerradaEn: mas(T0, 120).toISOString(), minutosHastaResolver: 60, incumplida: true, escalada: true, minutosTrasEscalar: 30 };
+  const tercera = { ...otra, id: "c3", minutosTrasEscalar: 4 };
+  const conHistorial = { acciones: res.estado.acciones, historial: [otra, tercera] };
+  assert.equal(r.metricasDelDia(conHistorial, mas(T0, 130)).medianaTrasEscalarMin, 12, "mediana de 4, 12 y 30");
+  // Al pasar al historial (24 h después) la medición se conserva.
+  const despues = vueltaConLider(res.estado, { chats: [respondido], hallazgos: [], ahora: mas(T0, 40 + 25 * 60) });
+  const enHistorial = despues.estado.historial.find((x) => x.id === "c1");
+  assert.equal(enHistorial.minutosTrasEscalar, 12);
+  assert.equal(r.metricasDelDia(despues.estado, mas(T0, 60)).medianaTrasEscalarMin, 12);
+});
+
+await prueba("líder: el texto y la push salen de las reglas puras (sin el teléfono en la push)", () => {
+  const h = [hallazgo(CALIENTE, ["c1"])];
+  let res = vueltaConLider(r.estadoVacio(), { chats: [maria()], hallazgos: h, ahora: T0 });
+  res = vueltaConLider(res.estado, { chats: [maria()], hallazgos: h, ahora: mas(T0, 15) });
+  res = vueltaConLider(res.estado, { chats: [maria()], hallazgos: [], ahora: mas(T0, 25) });
+  assert.deepEqual(res.eventos.filter((e) => e.tipo === "avisar_lider"), [{ tipo: "avisar_lider", accionId: "c1", liderId: "yair" }]);
+  const a = res.estado.acciones.c1;
+  const texto = r.textoParaElLider({ accion: a, telefono: "573001234567", enlace: "app.aizenbot.com/c/77", ahora: mas(T0, 25) });
+  assert.match(texto, /📱 \+573001234567/);
+  assert.match(texto, /👉 app\.aizenbot\.com\/c\/77/);
+  const push = r.pushParaElLider(a, mas(T0, 25));
+  assert.ok(!push.body.includes("3001234567"));
+  // Una segunda vuelta con la acción ya escalada no vuelve a pedir el aviso.
+  const otra = vueltaConLider(res.estado, { chats: [maria()], hallazgos: [], ahora: mas(T0, 30) });
+  assert.equal(otra.eventos.filter((e) => e.tipo === "avisar_lider").length, 0);
 });
 
 /* ------------------------------------------------------------------ fuera de horario → Ingrid (11-10-2026) */

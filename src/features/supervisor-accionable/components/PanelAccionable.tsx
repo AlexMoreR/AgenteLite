@@ -37,9 +37,9 @@ function detalleDelEstado(a: Accion): string {
     case "RESUELTA_ABAJO":
       return `Resuelta por ${a.resueltaPorNombre ?? a.responsableNombre} en ${a.minutosHastaResolver ?? "?"} min`;
     case "ESCALADA":
-      return `Escalada ${horaBogota(a.escaladaEn)} (${a.gravedadEscalada ? ETIQUETA_DE_GRAVEDAD[a.gravedadEscalada].toLowerCase() : "importante"})`;
+      return `Escalada ${horaBogota(a.escaladaEn)} (${a.gravedadEscalada ? ETIQUETA_DE_GRAVEDAD[a.gravedadEscalada].toLowerCase() : "importante"})${a.liderNombre ? ` · avisado ${a.liderNombre}` : ""}`;
     case "RESUELTA_TRAS_ESCALAR":
-      return `Respondida ${horaBogota(a.resueltaEn)}, después de escalar`;
+      return `Respondida ${horaBogota(a.resueltaEn)}, ${typeof a.minutosTrasEscalar === "number" ? `${a.minutosTrasEscalar} min ` : ""}después de escalar`;
     case "ATENDIDA_POR_ALEXANDER":
       return `Atendida por Alexander ${horaBogota(a.atendidaEn)}`;
     default:
@@ -150,6 +150,7 @@ export function PanelAccionableView({ panel }: { panel: PanelAccionable }) {
           <p className="text-muted-foreground">
             Avisos: {metricas.avisadas} · resueltos por ellas: {metricas.resueltasAbajo}
             {metricas.medianaMinutos !== null ? ` (mediana ${metricas.medianaMinutos} min)` : ""} · escalados: {metricas.escaladas}
+            {metricas.medianaTrasEscalarMin !== null ? ` (respondidos ${metricas.medianaTrasEscalarMin} min después de escalar, mediana)` : ""}
             {metricas.porAsesora.length
               ? ` · ${metricas.porAsesora.map((p) => `${p.nombre}: ${p.resueltas}/${p.avisadas} resueltos, ${p.incumplidas} plazos vencidos`).join(" · ")}`
               : ""}

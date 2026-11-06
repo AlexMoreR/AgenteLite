@@ -154,6 +154,12 @@ export type Accion = {
   motivoDelBot?: string | null;
   /** El último mensaje real del cliente, recortado (4-nov-2026; las viejas no lo traen). */
   ultimoDelCliente?: string | null;
+  /** Cuándo se le avisó al líder de ventas porque la asesora no respondió (6-nov-2026). */
+  liderAvisadoEn?: string | null;
+  /** A quién (nombre del líder), para mostrarlo. */
+  liderNombre?: string | null;
+  /** Minutos desde la escalada hasta el primer mensaje humano en el chat (la medición del aviso al líder). */
+  minutosTrasEscalar?: number | null;
 };
 
 /** Lo que queda de una acción cerrada (para medir y para el patrón semanal). */
@@ -171,6 +177,8 @@ export type AccionCerrada = {
   escalada: boolean;
   /** La tomó la supervisora fuera de horario (cuándo). */
   nocturnaEn?: string;
+  /** Minutos desde la escalada hasta el primer mensaje humano (si se escaló y alguien respondió). */
+  minutosTrasEscalar?: number;
 };
 
 export type EstadoAccionable = {
@@ -677,6 +685,8 @@ export type Evento =
   | { tipo: "avisar"; responsableId: string; accionIds: string[]; fueraDeHorario?: boolean }
   | { tipo: "segundo_aviso"; responsableId: string; supervisoraId: string | null; accionIds: string[]; fueraDeHorario?: boolean }
   | { tipo: "escalar"; accionId: string; gravedad: GravedadDeEscalada }
+  /** La asesora no respondió ni al aviso ni al segundo aviso: WhatsApp al líder de ventas (no reasigna nada). */
+  | { tipo: "avisar_lider"; accionId: string; liderId: string }
   | { tipo: "resuelta_abajo"; accionId: string }
   | { tipo: "resuelta_tras_escalar"; accionId: string };
 
@@ -707,6 +717,7 @@ function cerrada(a: Accion, en: Date): AccionCerrada {
     incumplida: a.incumplida,
     escalada: Boolean(a.escaladaEn),
     ...(a.nocturnaEn ? { nocturnaEn: a.nocturnaEn } : {}),
+    ...(typeof a.minutosTrasEscalar === "number" ? { minutosTrasEscalar: a.minutosTrasEscalar } : {}),
   };
 }
 
@@ -774,6 +785,30 @@ function escalar(a: Accion, ahora: Date, motivo: string, eventos: Evento[]) {
 }
 
 /**
+ * ¿Se le avisa al líder de ventas de esta escalada? (6-nov-2026, pedido de Alexander: una clienta
+ * esperó casi 4 h porque la escalada solo le llegó a él.) Solo cuando una ASESORA fue avisada y no
+ * respondió, con un líder elegido que no sea ella misma. No en patrones, chats sin dueña o sin
+ * responsable, ni en pagos fuera de horario (esos siguen solo con Alexander). Una vez por escalada.
+ */
+export function avisaAlLider(a: Accion, ahora: Date, lider: Persona | null | undefined): boolean {
+  if (!lider || a.liderAvisadoEn) return false;
+  if (!a.conversationId || !a.responsableId || a.responsableEsSupervisora) return false;
+  if (a.tipo === "patron_dia" || a.tipo === "patron_semana" || a.tipo === "sin_duena") return false;
+  if (a.responsableId === lider.id) return false;
+  if (a.tipo === "pago" && !enHorario(ahora)) return false;
+  return true;
+}
+
+/** Escala a Alexander (como siempre) y, si toca, deja el aviso al líder de ventas. */
+function escalarPorNoResponder(a: Accion, ahora: Date, motivo: string, eventos: Evento[], lider: Persona | null | undefined) {
+  escalar(a, ahora, motivo, eventos);
+  if (!lider || !avisaAlLider(a, ahora, lider)) return;
+  a.liderAvisadoEn = ahora.toISOString();
+  a.liderNombre = lider.nombre;
+  eventos.push({ tipo: "avisar_lider", accionId: a.id, liderId: lider.id });
+}
+
+/**
  * Una vuelta: verifica las acciones abiertas, crea las nuevas, vence plazos, escala lo que toca y
  * detecta patrones de repetición. No manda nada: devuelve los EVENTOS que el servicio ejecuta.
  */
@@ -790,6 +825,8 @@ export function avanzar(input: {
   numeros?: Map<string, number>;
   /** Turno con `asignadoSinRespuesta: "siempre"`: un "asignado" abierto no se cierra por turno del cliente. */
   asignadoIgnoraTurno?: boolean;
+  /** El líder de ventas elegido en Equipo (activo). null = no se le avisa a nadie más. */
+  lider?: Persona | null;
 }): { estado: EstadoAccionable; eventos: Evento[] } {
   const { ahora, config } = input;
   const iso = ahora.toISOString();
@@ -834,6 +871,10 @@ export function avanzar(input: {
       a.resueltaPor = chat.asesoraId ?? a.responsableId;
       a.resueltaPorNombre = chat.asesoraNombre?.trim() || a.responsableNombre;
       a.minutosHastaResolver = Math.max(0, Math.round((humana.getTime() - avisadaEn.getTime()) / MIN));
+      if (a.estado === "ESCALADA" && a.escaladaEn) {
+        // La medición del aviso al líder: de la escalada al primer mensaje humano que ve la revisión.
+        a.minutosTrasEscalar = Math.max(0, Math.round((humana.getTime() - Date.parse(a.escaladaEn)) / MIN));
+      }
       if (a.estado === "ESCALADA") {
         a.estado = "RESUELTA_TRAS_ESCALAR";
         eventos.push({ tipo: "resuelta_tras_escalar", accionId: a.id });
@@ -931,16 +972,23 @@ export function avanzar(input: {
         a.segundoAvisoA = supervisora?.nombre ?? null;
         anotarAviso(segundos, a.responsableId as string, a.id);
       } else {
-        escalar(a, ahora, a.tipo === "pago" ? `Hay un pago de por medio y ${a.responsableNombre} no respondió en ${a.plazoMin} min tras el aviso.` : `${a.responsableNombre} no respondió en el plazo de ${a.plazoMin} min tras el aviso.`, eventos);
+        escalarPorNoResponder(
+          a,
+          ahora,
+          a.tipo === "pago" ? `Hay un pago de por medio y ${a.responsableNombre} no respondió en ${a.plazoMin} min tras el aviso.` : `${a.responsableNombre} no respondió en el plazo de ${a.plazoMin} min tras el aviso.`,
+          eventos,
+          input.lider,
+        );
       }
       continue;
     }
     if (a.estado === "SEGUNDO_AVISO" && a.segundoAvisoEn && vencioElPlazo(a.tipo, new Date(a.segundoAvisoEn), ahora, config.segundaOportunidadMin)) {
-      escalar(
+      escalarPorNoResponder(
         a,
         ahora,
         `${a.responsableNombre} no respondió ni con el aviso (${horaBogota(a.avisadaEn)}) ni con el segundo aviso (${horaBogota(a.segundoAvisoEn)})${a.segundoAvisoA ? `, y ${a.segundoAvisoA} también fue avisada` : ""}.`,
         eventos,
+        input.lider,
       );
     }
   }
@@ -1262,6 +1310,50 @@ export function pushParaLaSupervisora(acciones: Accion[]): { title: string; body
   return {
     title: `Apoyo: ${a.responsableNombre} no respondió`.slice(0, 60),
     body: `${acciones.length > 1 ? `${acciones.length} clientes` : a.cliente}: ${a.motivo}. Plazo vencido a las ${horaBogota(a.venceEn)}. Ayúdala o reasígnalo antes de que llegue a Alexander.`.slice(0, 180),
+  };
+}
+
+/* ------------------------------------------------------------------------------------------------
+   3b. LO QUE LE LLEGA AL LÍDER DE VENTAS (6-nov-2026)
+   La asesora no respondió ni al aviso ni al segundo aviso: WhatsApp por la línea interna con lo
+   necesario para decidir si toma el chat. Es el ÚNICO aviso del Supervisor con el teléfono completo
+   (lo pidió Alexander); no se guarda en el estado: el servicio lo busca al momento de enviar.
+------------------------------------------------------------------------------------------------ */
+
+/** "+573001234567" o "sin número real" (contactos con identificador de WhatsApp en vez de teléfono). */
+export function telefonoParaElLider(telefono: string | null | undefined): string {
+  const digitos = (telefono ?? "").replace(/\D/g, "");
+  return digitos.length >= 7 && digitos.length <= 13 ? `+${digitos}` : "sin número real";
+}
+
+/**
+ * El WhatsApp al líder. `enlace` va SIN "https://" (como el de la asesora) para que WhatsApp no arme
+ * la vista previa. No reasigna nada: el líder decide si toma el chat.
+ */
+export function textoParaElLider(input: { accion: Accion; telefono: string | null; enlace: string; ahora: Date }): string {
+  const { accion: a, ahora } = input;
+  const asesora = a.responsableNombre;
+  const avisos = a.segundoAvisoEn
+    ? `no respondió el aviso (${horaBogota(a.avisadaEn)}) ni el segundo aviso (${horaBogota(a.segundoAvisoEn)})`
+    : `no respondió el aviso (${horaBogota(a.avisadaEn)})`;
+  const ultimo = recortar(a.ultimoDelCliente ?? a.frase, 160);
+  return [
+    "🚨 *SUPERVISOR · cliente sin respuesta*",
+    `👤 ${clienteSeguro(a.cliente)} · 📱 ${telefonoParaElLider(input.telefono)}`,
+    `👩‍💼 ${asesora} ${avisos}.`,
+    ultimo ? `💬 Lo último que dijo: «${ultimo}»` : "💬 Lo último que dijo: (sin texto)",
+    `⏳ Lleva esperando ${duracion(minutosDesde(a.esperandoDesde, ahora))}.`,
+    `👉 ${input.enlace}`,
+    "",
+    `El chat sigue asignado a ${primerNombre(asesora) ?? asesora}. Tú decides si lo tomas.`,
+  ].join("\n");
+}
+
+/** La notificación del CRM al líder cuando no hay WhatsApp (sin número de avisos o falló el envío). Sin teléfono. */
+export function pushParaElLider(a: Accion, ahora: Date): { title: string; body: string } {
+  return {
+    title: `🚨 ${clienteSeguro(a.cliente)} sin respuesta`.slice(0, 60),
+    body: `${a.responsableNombre} no respondió los avisos. Espera hace ${duracion(minutosDesde(a.esperandoDesde, ahora))}. Tú decides si lo tomas.`.slice(0, 180),
   };
 }
 
@@ -1668,6 +1760,8 @@ export type MetricasDelDia = {
   medianaMinutos: number | null;
   escaladas: number;
   resueltasTrasEscalar: number;
+  /** Mediana de minutos desde la escalada hasta el primer mensaje humano (las escaladas respondidas del día). */
+  medianaTrasEscalarMin: number | null;
   porAsesora: Array<{ nombre: string; avisadas: number; resueltas: number; escaladas: number; incumplidas: number }>;
 };
 
@@ -1683,12 +1777,14 @@ export function metricasDelDia(estado: EstadoAccionable, ahora: Date): MetricasD
       minutosHastaResolver: a.minutosHastaResolver,
       incumplida: a.incumplida,
       escalada: Boolean(a.escaladaEn),
+      minutosTrasEscalar: typeof a.minutosTrasEscalar === "number" ? a.minutosTrasEscalar : undefined,
     })),
     ...estado.historial,
   ].filter((a) => fechaBogota(new Date(a.detectadaEn)) === hoy && a.tipo !== "patron_dia" && a.tipo !== "patron_semana");
   const unicas = [...new Map(filas.map((f) => [`${f.id}:${f.detectadaEn}`, f])).values()];
   const resueltas = unicas.filter((f) => f.estado === "RESUELTA_ABAJO");
   const minutos = resueltas.map((f) => f.minutosHastaResolver ?? 0).sort((a, b) => a - b);
+  const trasEscalar = unicas.flatMap((f) => (typeof f.minutosTrasEscalar === "number" ? [f.minutosTrasEscalar] : [])).sort((a, b) => a - b);
   const porNombre = new Map<string, { nombre: string; avisadas: number; resueltas: number; escaladas: number; incumplidas: number }>();
   for (const f of unicas) {
     const fila = porNombre.get(f.responsableNombre) ?? { nombre: f.responsableNombre, avisadas: 0, resueltas: 0, escaladas: 0, incumplidas: 0 };
@@ -1704,6 +1800,7 @@ export function metricasDelDia(estado: EstadoAccionable, ahora: Date): MetricasD
     medianaMinutos: minutos.length ? minutos[Math.floor((minutos.length - 1) / 2)] : null,
     escaladas: unicas.filter((f) => f.escalada).length,
     resueltasTrasEscalar: unicas.filter((f) => f.estado === "RESUELTA_TRAS_ESCALAR").length,
+    medianaTrasEscalarMin: trasEscalar.length ? trasEscalar[Math.floor((trasEscalar.length - 1) / 2)] : null,
     porAsesora: [...porNombre.values()].sort((a, b) => b.avisadas - a.avisadas),
   };
 }
