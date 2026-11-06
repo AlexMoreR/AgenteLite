@@ -9,6 +9,7 @@ import { purgeOldWebhookEventLogs } from "@/lib/webhook-log-retention";
 import { ejecutarSeguimientosV3 } from "@/features/agente-v3/servicios/seguimientos";
 import { avisarClientesEsperando } from "@/features/agente-v3/servicios/cliente-esperando";
 import { rescatarMensajesSinDecidir } from "@/features/agente-v3/servicios/rescate-de-mensajes";
+import { revisarListoParaPagar } from "@/features/listo-para-pagar/servicios/listo-para-pagar";
 import { rescatarChatsHuerfanos } from "@/lib/rescate-de-chats-huerfanos";
 import { repartirChatsDeMadrugada } from "@/lib/reparto-de-madrugada";
 import { transcribirAudiosPendientes } from "@/lib/transcripcion-de-audios";
@@ -112,6 +113,18 @@ async function handleCron(request: Request) {
     mensajesRescatados = await rescatarMensajesSinDecidir();
   } catch (error) {
     console.error("[cron/follows] rescate de mensajes error", error);
+  }
+
+  /*
+    LISTO PARA PAGAR: si nadie del equipo escribio en el chat a los 5 minutos del aviso, en horario
+    de trabajo, el aviso le llega al lider de ventas (una sola vez por aviso; maximo 5 por vuelta).
+    En cada vuelta, sin el throttle de 2 minutos: el umbral es de 5. Al cliente no le escribe nada.
+  */
+  let listoParaPagar: { revisadas: number; escaladas: number; atendidas: number; cerradas: number } | null = null;
+  try {
+    listoParaPagar = await revisarListoParaPagar();
+  } catch (error) {
+    console.error("[cron/follows] listo para pagar error", error);
   }
 
   /*
@@ -416,6 +429,7 @@ async function handleCron(request: Request) {
     clientesEsperando,
     descartados,
     mensajesRescatados,
+    listoParaPagar,
     rescatados,
     deMadrugada,
   });

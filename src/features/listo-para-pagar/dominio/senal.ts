@@ -52,3 +52,68 @@ export function armarEncabezadoDelAviso(input: { cliente: string; telefono: stri
     `📌 ${input.motivo}`,
   ];
 }
+
+/*
+  LISTO PARA PAGAR (parte 3): si nadie del equipo escribe en el chat a los 5 minutos del aviso, en
+  horario de trabajo, el aviso le llega al líder de ventas. Aquí está la decisión, sin base de datos.
+*/
+
+/** Cuánto se espera a que alguien del equipo escriba antes de pasarle el aviso al líder. */
+export const ESPERA_PARA_ESCALAR_MS = 5 * 60_000;
+/** Después de esto la marca se cierra sola: ya no tiene sentido avisarle a nadie. */
+export const VIDA_DE_LA_MARCA_MS = 24 * 60 * 60_000;
+
+export type EstadoDeLaMarca = "pendiente" | "escalado" | "atendido" | "cerrado" | "sin_destino";
+export type DecisionDeLaMarca = "nada" | "atendido" | "cerrar" | "escalar";
+
+/**
+ * Qué hacer con una marca "Listo para pagar". El orden importa: una respuesta del equipo gana
+ * siempre, y fuera de horario la marca sigue pendiente (al abrir el horario se escala).
+ */
+export function decidirMarca(input: {
+  estado: string;
+  avisadoEn: Date;
+  ahora: Date;
+  huboRespuestaHumana: boolean;
+  enHorario: boolean;
+}): DecisionDeLaMarca {
+  if (input.estado !== "pendiente") {
+    return "nada";
+  }
+  if (input.huboRespuestaHumana) {
+    return "atendido";
+  }
+  const espera = input.ahora.getTime() - input.avisadoEn.getTime();
+  if (!Number.isFinite(espera) || espera > VIDA_DE_LA_MARCA_MS) {
+    return "cerrar";
+  }
+  if (!input.enHorario) {
+    return "nada";
+  }
+  if (espera < ESPERA_PARA_ESCALAR_MS) {
+    return "nada";
+  }
+  return "escalar";
+}
+
+/** El título del aviso al líder (push y primera línea del WhatsApp). */
+export const TITULO_PARA_EL_LIDER = "🔥 LISTO PARA PAGAR — sin respuesta en 5 min";
+
+/** El WhatsApp al líder: cliente, asesora, enlace al chat y el mensaje de cierre. */
+export function armarTextoParaElLider(input: {
+  cliente: string;
+  asesora: string | null;
+  enlace: string;
+  cierre: string;
+}): string {
+  return [
+    `*${TITULO_PARA_EL_LIDER}*`,
+    "",
+    `👤 ${input.cliente}`,
+    `*Asignado a:* ${input.asesora ?? "nadie todavía"}`,
+    "",
+    input.enlace,
+    "",
+    `Mensaje de cierre: ${input.cierre}`,
+  ].join("\n");
+}
