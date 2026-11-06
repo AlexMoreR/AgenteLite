@@ -7,7 +7,7 @@ import { marcarPrioridadAtendidaAction } from "@/app/actions/supervisor-accionab
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 import { cajaCorta, textoDeRecordatorios } from "../dominio/caja-corta";
-import { ETIQUETA_DE_GRAVEDAD, anclaDePrioridad, type ChatDelPatron, type Tarjeta } from "../dominio/reglas";
+import { ETIQUETA_DE_GRAVEDAD, WHATSAPP_NO_SALIO, anclaDePrioridad, type ChatDelPatron, type Tarjeta } from "../dominio/reglas";
 
 const COLOR_DE_CAJA: Record<Tarjeta["gravedad"], string> = {
   CRITICO: "border-red-500/60 bg-red-500/5",
@@ -105,6 +105,13 @@ export function CajaDePrioridad({ tarjeta }: { tarjeta: Tarjeta }) {
         <span className="block text-sm text-foreground/80">👤 Responsable: {caja.responsable}</span>
         {caja.desde ? <span className="block text-sm text-foreground/80">📅 Desde: {caja.desde}</span> : null}
         {caja.recordatorios !== null ? <span className="block text-sm text-foreground/80">{textoDeRecordatorios(caja.recordatorios)}</span> : null}
+        {tarjeta.whatsappAlexander ? (
+          <span
+            className={`block text-sm ${tarjeta.whatsappAlexander.startsWith(WHATSAPP_NO_SALIO) ? "font-semibold text-red-600" : "text-foreground/80"}`}
+          >
+            📱 {tarjeta.whatsappAlexander}
+          </span>
+        ) : null}
       </button>
 
       <Dialog open={abierta} onOpenChange={setAbierta}>

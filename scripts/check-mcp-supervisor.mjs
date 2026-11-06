@@ -903,6 +903,40 @@ await prueba("ver_supervisor: si el WhatsApp de Alexander no se puede leer, sale
   }
 });
 
+await prueba("ver_supervisor: whatsapp_a_alexander en una escalada con el dato; null en una vieja; sin escribir nada", async () => {
+  escenario();
+  db.escrituras = [];
+  // ACCION_C1 es una escalada vieja: no trae el dato.
+  let q = grupo(await ver(), MARIA).avisos.find((a) => a.conversacion_id === "c1").que_hizo_el_supervisor;
+  assert.equal(q.whatsapp_a_alexander, null, "escalada vieja: null");
+  const enviada = {
+    ...ACCION_C1,
+    whatsappAlexander: { estado: "ENVIADO", intentos: 1, enviadoEn: "2026-10-23T15:23:00.000Z", motivo: null },
+  };
+  db.settings.set(`supervisor:accionable:estado:${WS}`, JSON.stringify({ acciones: { c1: enviada }, historial: [] }));
+  q = grupo(await ver(), MARIA).avisos.find((a) => a.conversacion_id === "c1").que_hizo_el_supervisor;
+  assert.deepEqual(q.whatsapp_a_alexander, {
+    estado: "ENVIADO",
+    intentos: 1,
+    enviado_en: "2026-10-23 10:23",
+    motivo: null,
+    resumen: "WhatsApp enviado 10:23",
+  });
+  const noSalio = { ...ACCION_C1, whatsappAlexander: { estado: "NO_SALIO", intentos: 6, enviadoEn: null, motivo: "la línea está desconectada" } };
+  db.settings.set(`supervisor:accionable:estado:${WS}`, JSON.stringify({ acciones: { c1: noSalio }, historial: [] }));
+  q = grupo(await ver(), MARIA).avisos.find((a) => a.conversacion_id === "c1").que_hizo_el_supervisor;
+  assert.deepEqual(q.whatsapp_a_alexander, {
+    estado: "NO_SALIO",
+    intentos: 6,
+    enviado_en: null,
+    motivo: "la línea está desconectada",
+    resumen: "WhatsApp no salió: la línea está desconectada",
+  });
+  assert.deepEqual(db.escrituras.map((e) => `${e.modelo}.${e.metodo}`), [], "ver_supervisor no escribe ni manda nada");
+  assert.match(mcp.HERRAMIENTAS_MCP_SUPERVISOR[0].description, /whatsapp_a_alexander/);
+  assert.match(mcp.HERRAMIENTAS_MCP_SUPERVISOR[0].description, /whatsapp_de_alexander/);
+});
+
 await prueba("la herramienta no escribe nada en la base ni manda nada", async () => {
   // Las pruebas anteriores también pasaron por la herramienta: no debería haber nada anotado.
   assert.deepEqual(db.escrituras.map((e) => `${e.modelo}.${e.metodo}`), [], "nada escrito en las pruebas anteriores");

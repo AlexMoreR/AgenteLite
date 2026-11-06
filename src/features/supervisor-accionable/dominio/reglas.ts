@@ -817,6 +817,22 @@ export function whatsappsPendientes(estado: EstadoAccionable, ahora: Date): Acci
 }
 
 /**
+ * Cómo va el WhatsApp de una escalada a Alexander, en una línea para la pantalla y el MCP.
+ * null si la acción no trae el dato (escaladas de antes del 6-nov-2026). Solo lee: no cambia envíos.
+ */
+/** Así empieza la etiqueta cuando el WhatsApp no salió (la pantalla la pinta en rojo). */
+export const WHATSAPP_NO_SALIO = "WhatsApp no salió";
+
+export function etiquetaWhatsAppDeAlexander(a: Pick<Accion, "whatsappAlexander">): string | null {
+  const w = a.whatsappAlexander;
+  if (!w) return null;
+  if (w.estado === "ENVIADO") return `WhatsApp enviado ${horaBogota(w.enviadoEn)}`;
+  if (w.estado === "NO_SALIO") return `${WHATSAPP_NO_SALIO}: ${w.motivo ?? "sin motivo anotado"}`;
+  if (w.intentos <= 0) return "WhatsApp pendiente";
+  return `WhatsApp pendiente (intento ${w.intentos} de ${MAX_INTENTOS_WHATSAPP}${w.motivo ? `: ${w.motivo}` : ""})`;
+}
+
+/**
  * Anota el resultado de un intento: con éxito, ENVIADO con la hora; con falla, un intento más y el
  * motivo; al llegar a MAX_INTENTOS_WHATSAPP, NO_SALIO. Devuelve una acción nueva (no toca la de entrada).
  */
@@ -1436,6 +1452,8 @@ export type Tarjeta = {
   grupo?: string;
   /** Cuántas tarjetas del mismo problema se juntaron en esta ("×N"); ausente = 1. */
   repeticiones?: number;
+  /** Cómo va el WhatsApp a Alexander ("WhatsApp enviado 10:23"); ausente en incidentes y escaladas viejas. */
+  whatsappAlexander?: string;
 };
 
 /** Un chat de una tarjeta de patrón, listo para pintar. Nunca lleva el teléfono completo. */
@@ -1600,6 +1618,7 @@ export function tarjetaDeAccion(a: Accion, ahora: Date, estado?: EstadoAccionabl
   }
   // Sin chat (patrón): a la tarjeta misma en la pantalla del Supervisor, nunca a la página "a secas".
   const enlace = a.conversationId ? enlaceAlChat(a.conversationId) : `${RUTA_DEL_SUPERVISOR}#${anclaDePrioridad(a.id)}`;
+  const whatsapp = etiquetaWhatsAppDeAlexander(a);
   return {
     id: a.id,
     gravedad: a.gravedadEscalada ?? "IMPORTANTE",
@@ -1618,6 +1637,7 @@ export function tarjetaDeAccion(a: Accion, ahora: Date, estado?: EstadoAccionabl
     conversationId: a.conversationId,
     grupo: `accion:${a.conversationId ?? a.id}:${a.tipo}`,
     ...(esPatron && estado ? { chats: chatsDelPatron(a, estado, ahora) } : {}),
+    ...(whatsapp ? { whatsappAlexander: whatsapp } : {}),
   };
 }
 
