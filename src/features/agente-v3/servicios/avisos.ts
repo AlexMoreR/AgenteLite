@@ -331,8 +331,8 @@ export async function avisarAsesorPorWhatsApp(input: {
       numero (no deberia pasar: la base lo pone al crearlo), va el link largo de siempre.
     */
     const enlace = conversacion?.numero
-      ? `https://app.aizenbot.com/c/${conversacion.numero}`
-      : `https://app.aizenbot.com/cliente/chats?chatKey=agent:${input.conversationId}&assigned=all`;
+      ? `https://crm.magilus.com/c/${conversacion.numero}`
+      : `https://crm.magilus.com/cliente/chats?chatKey=agent:${input.conversationId}&assigned=all`;
     /*
       Al ADMINISTRADOR se le dice a quien le toco; a la asesora no hace falta.
 

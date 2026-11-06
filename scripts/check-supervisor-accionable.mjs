@@ -1207,7 +1207,7 @@ await prueba("tarjeta de incidente: lleva a la alerta concreta (?alerta=<clave>#
   assert.equal(t.claveAlerta, inc.clave);
   assert.equal(t.enlace, `/cliente/direccion/supervisor?alerta=${encodeURIComponent(inc.clave)}#alerta-INC-libro-v187-combo-camilla`);
   assert.equal(r.anclaDeAlerta(inc.clave), "alerta-INC-libro-v187-combo-camilla");
-  assert.ok(r.textoWhatsAppDeLaTarjeta(t).includes(`https://app.aizenbot.com/cliente/direccion/supervisor?alerta=`));
+  assert.ok(r.textoWhatsAppDeLaTarjeta(t).includes(`https://crm.magilus.com/cliente/direccion/supervisor?alerta=`));
 
   // El panel completo: patrón escalado + incidente crítico.
   settings.clear();
