@@ -11,6 +11,7 @@ import {
   personaPuedeMarcarHechoAMano,
 } from "@/features/tableros-inteligentes/services/reglas-trabajador";
 import { nivelDeLaTarjeta } from "@/features/tableros-inteligentes/services/niveles";
+import { diaValido } from "@/features/tableros-inteligentes/services/archivadas";
 import {
   RUTA_TABLEROS,
   aTableroDelInicio,
@@ -58,6 +59,8 @@ const uno = (valor: string | string[] | undefined) => (Array.isArray(valor) ? va
   para los demás se ignora).
   ?vista=hoy abre la pestaña "Hoy" (lo que terminó, falló o espera al dueño): es el link de los WhatsApp.
   ?vista=terminados abre la pestaña "Trabajos terminados" (las tarjetas archivadas; solo el dueño o el ADMIN).
+  ?vista=terminados&dia=AAAA-MM-DD (6-nov-2026, el link del resumen de las 6 p. m.) la abre filtrada en lo que terminó
+  ese día de Bogotá, archivado o no. Una fecha mal escrita abre la lista normal.
   Un tablero abre en la última vista de la persona (Tabla, Tablero, Calendario o Mapa; la primera vez,
   Tabla), guardada en AppSetting `tablero-ia:vistas:<userId>`. Un link con ?area= es de un nivel del
   mapa: abre en Mapa.
@@ -103,6 +106,7 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
         cuentas={cuentas}
         asignadas={await asignadasA(alcance, access.userId)}
         vistaInicial={vistaPedida(uno(parametros.vista))}
+        diaInicial={vistaPedida(uno(parametros.vista)) === "terminados" ? diaValido(uno(parametros.dia)) : null}
       />
     );
   }

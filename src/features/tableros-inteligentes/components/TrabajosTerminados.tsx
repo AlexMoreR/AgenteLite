@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { ExternalLink, Loader2, Search } from "lucide-react";
 import { toast } from "sonner";
 
@@ -9,12 +10,17 @@ import { Input } from "@/components/ui/input";
 import { desarchivarTarjetaAction, trabajosTerminadosAction } from "@/app/actions/tableros-inteligentes-actions";
 import type { ArchivadaVista } from "../services/archivadas";
 import { NOMBRE_DEL_ESTADO } from "../services/reglas";
+import { linkDeLaTarjetaEnPantalla } from "./DialogoDeTablero";
 
 /*
   La pestaña "Trabajos terminados" de Tablero IA (/cliente/tablero-ia?vista=terminados): las tarjetas ARCHIVADAS de
   todos los tableros (las HECHO y FALLIDO salen solas del tablero 3 días después de terminar; services/archivadas.ts).
   Cada una con su código, título, tablero, la fecha en que terminó, el repo y el link al commit. Buscador por código,
   título o repo, y el botón Desarchivar, que la devuelve a su tablero. Solo el dueño o el ADMIN (como "Hoy").
+
+  6-nov-2026: con `&dia=AAAA-MM-DD` en el link (el del resumen de las 6 p. m.) muestra lo que terminó ESE día, archivado
+  o no, con la fecha arriba y el botón "Ver todos" para volver a la lista completa. Una tarjeta sin archivar no tiene
+  "Desarchivar" (ya está en su tablero): trae "Ver tarjeta".
 */
 
 const ESPERA_BUSQUEDA_MS = 300;
@@ -25,6 +31,10 @@ const CUANDO = new Intl.DateTimeFormat("es-CO", {
   month: "short",
   year: "numeric",
 });
+
+// El día del filtro (AAAA-MM-DD) ya es una fecha de Bogotá: se muestra tal cual, leído a mediodía UTC.
+const DIA_LARGO = new Intl.DateTimeFormat("es-CO", { timeZone: "UTC", weekday: "long", day: "numeric", month: "long", year: "numeric" });
+const nombreDelDia = (dia: string) => DIA_LARGO.format(new Date(`${dia}T12:00:00Z`));
 
 function Fila({ tarjeta, ocupada, alDesarchivar }: { tarjeta: ArchivadaVista; ocupada: boolean; alDesarchivar: () => void }) {
   return (
@@ -58,21 +68,37 @@ function Fila({ tarjeta, ocupada, alDesarchivar }: { tarjeta: ArchivadaVista; oc
           ) : null}
         </p>
       </div>
-      <Button
-        variant="outline"
-        className="h-11 shrink-0 md:h-9"
-        disabled={ocupada}
-        onClick={alDesarchivar}
-        aria-label={`Desarchivar ${tarjeta.codigo || tarjeta.titulo}`}
-      >
-        {ocupada ? <Loader2 className="animate-spin" aria-hidden /> : null}
-        Desarchivar
-      </Button>
+      {tarjeta.archivadaEn ? (
+        <Button
+          variant="outline"
+          className="h-11 shrink-0 md:h-9"
+          disabled={ocupada}
+          onClick={alDesarchivar}
+          aria-label={`Desarchivar ${tarjeta.codigo || tarjeta.titulo}`}
+        >
+          {ocupada ? <Loader2 className="animate-spin" aria-hidden /> : null}
+          Desarchivar
+        </Button>
+      ) : (
+        // Sin archivar: todavía está en su tablero, así que se abre ahí (desarchivar daría error).
+        <Button asChild variant="outline" className="h-11 shrink-0 md:h-9">
+          <Link href={linkDeLaTarjetaEnPantalla(tarjeta.id)} aria-label={`Ver tarjeta ${tarjeta.codigo || tarjeta.titulo}`}>
+            Ver tarjeta
+          </Link>
+        </Button>
+      )}
     </li>
   );
 }
 
-export function TrabajosTerminados() {
+type Props = {
+  /** (6-nov-2026) El día del link del resumen (AAAA-MM-DD, ya validado por la página) o null para la lista completa. */
+  dia?: string | null;
+  /** Quita el filtro por día ("Ver todos"). */
+  alVerTodos?: () => void;
+};
+
+export function TrabajosTerminados({ dia = null, alVerTodos }: Props) {
   const [buscar, setBuscar] = useState("");
   const [tarjetas, setTarjetas] = useState<ArchivadaVista[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -85,7 +111,7 @@ export function TrabajosTerminados() {
     let vigente = true;
     setCargando(true);
     const reloj = setTimeout(() => {
-      void trabajosTerminadosAction(buscar)
+      void trabajosTerminadosAction(buscar, dia)
         .then((respuesta) => {
           if (!vigente) return;
           if (respuesta.ok) {
@@ -106,7 +132,7 @@ export function TrabajosTerminados() {
       vigente = false;
       clearTimeout(reloj);
     };
-  }, [buscar, vuelta]);
+  }, [buscar, dia, vuelta]);
 
   const desarchivar = useCallback(async (tarjeta: ArchivadaVista) => {
     setOcupada(tarjeta.id);
@@ -116,14 +142,21 @@ export function TrabajosTerminados() {
         toast.error(respuesta.error);
         return;
       }
-      setTarjetas((lista) => (lista ? lista.filter((otra) => otra.id !== tarjeta.id) : lista));
+      // En la lista de un día sigue saliendo (terminó ese día), ya sin archivar; en la lista completa, sale de la lista.
+      setTarjetas((lista) =>
+        lista
+          ? dia
+            ? lista.map((otra) => (otra.id === tarjeta.id ? { ...otra, archivadaEn: null } : otra))
+            : lista.filter((otra) => otra.id !== tarjeta.id)
+          : lista,
+      );
       toast.success(`${tarjeta.codigo || "La tarjeta"} volvió al tablero ${tarjeta.tableroNombre}.`);
     } catch {
       toast.error("No se pudo desarchivar. Intenta otra vez.");
     } finally {
       setOcupada(null);
     }
-  }, []);
+  }, [dia]);
 
   const busqueda = buscar.trim();
 
@@ -133,10 +166,23 @@ export function TrabajosTerminados() {
         <h1 id="titulo-terminados" className="text-lg font-semibold">
           Trabajos terminados
         </h1>
-        <p className="text-sm text-muted-foreground">
-          Las tarjetas Hechas o Fallidas salen solas del tablero 3 días después de terminar y quedan aquí, con todo su
-          historial. Ya no cuentan para el límite de 300.
-        </p>
+        {dia ? (
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-2">
+            <p className="text-sm text-muted-foreground">
+              Lo que terminó el <span className="font-medium text-foreground">{nombreDelDia(dia)}</span>, archivado o no.
+            </p>
+            {alVerTodos ? (
+              <Button variant="outline" className="h-11 md:h-9" onClick={alVerTodos}>
+                Ver todos
+              </Button>
+            ) : null}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Las tarjetas Hechas o Fallidas salen solas del tablero 3 días después de terminar y quedan aquí, con todo su
+            historial. Ya no cuentan para el límite de 300.
+          </p>
+        )}
       </div>
 
       <div className="relative">
@@ -185,8 +231,10 @@ export function TrabajosTerminados() {
             {cargando
               ? "Buscando…"
               : busqueda
-                ? `No hay trabajos terminados que coincidan con «${busqueda}».`
-                : "Todavía no hay trabajos archivados. Las tarjetas terminadas pasan aquí solas a los 3 días."}
+                ? `No hay trabajos terminados que coincidan con «${busqueda}»${dia ? " ese día" : ""}.`
+                : dia
+                  ? "Ese día no terminó ninguna tarjeta."
+                  : "Todavía no hay trabajos archivados. Las tarjetas terminadas pasan aquí solas a los 3 días."}
           </p>
         )
       ) : null}

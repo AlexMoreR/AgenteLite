@@ -455,9 +455,9 @@ async function estadoDeAprobarPlanesSolo(workspaceId: string) {
     : `APAGADA: todos los planes piden el sí del dueño (${esperando} en PLAN_LISTO ahora)`;
 }
 
-/** Tablero IA: el resumen del día ya no sale por WhatsApp (26-oct-2026): solo se ve en el tablero. */
+/** Tablero IA: el resumen del día (resumen-diario.ts): por WhatsApp una vez al día desde el 30-oct-2026, con link desde el 6-nov. */
 async function estadoDelResumenDiario() {
-  return "solo en el tablero: la caja \"Resumen de hoy\" y la pestaña \"Hoy\"; ya no se manda por WhatsApp (decisión del dueño, 26-oct-2026)";
+  return "sale por WhatsApp al dueño una vez al día, entre las 6 y las 9 p. m. de Bogotá, por la línea Admin (interruptor tablero:resumen-diario:activo:<negocio>), con hasta 7 líneas: qué se arregló, qué falló, qué está pendiente, los cupos y, desde el 6-nov-2026, al final el link a la pestaña \"Trabajos terminados\" filtrada por ese día (es lo único que le llega de lo terminado: ya no hay WhatsApp por cada tarea). La caja \"Resumen de hoy\" del tablero muestra el mismo texto, sin el link. Un día sin movimiento no manda nada";
 }
 
 /** Tablero IA: los avisos de WhatsApp al dueño (solo Sistemas detenido o que lo necesita): interruptor, número y último aviso. */
@@ -482,7 +482,7 @@ async function estadoDeAvisosAlEquipo(workspaceId: string) {
     : `APAGADA: interruptor tablero:avisos-equipo:<negocio> apagado (empieza apagado), no sale nada${cola}${fallo}`;
 }
 
-/** Aviso al dueño de cada tarea terminada: interruptor propio + el general, último aviso enviado y cuántos quedaron FALLIDO. */
+/** Aviso de cada tarea terminada (sin WhatsApp desde el 6-nov-2026): interruptores, último WhatsApp que salió y FALLIDO viejos. */
 /** La alarma de cupos sin usar (31-oct-2026): la manda el Coordinador y el CRM la pasa solo al WhatsApp de Emanuel. */
 async function estadoDeLaAlarmaDeCupos(workspaceId: string) {
   const [general, sistemas, telefono] = await Promise.all([avisosPrendidos(workspaceId), sistemasPrendido(workspaceId), telefonoDeSistemasGuardado(workspaceId)]);
@@ -501,12 +501,13 @@ async function estadoDeAvisosDeTerminadas(workspaceId: string) {
     prisma.avisoTarjetaEquipo.count({ where: { ...donde, estado: "FALLIDO" } }),
   ]);
   const cola = ultimo?.enviadoEn
-    ? `; último aviso enviado: ${ultimo.enviadoEn.toISOString().slice(0, 16).replace("T", " ")} UTC${ultimo.detalle ? ` (${ultimo.detalle})` : ""}`
-    : "; todavía no ha salido ninguno";
-  const fallo = `; ${fallidos} quedaron FALLIDO`;
-  if (!general) return `APAGADA: el interruptor general de avisos al dueño está apagado (Mi empresa → Claude), no sale nada${cola}${fallo}`;
-  if (!propio) return `APAGADA: interruptor tablero:avisos-dueno:terminadas:<negocio> en false, no sale nada${cola}${fallo}`;
-  return `PRENDIDA: el reloj revisa cada minuto y avisa por la línea Admin cuando el Coordinador deja una tarjeta en HECHO (silencio de 9 p. m. a 7 a. m.)${cola}${fallo}`;
+    ? `; último WhatsApp que salió (antes del 6-nov-2026): ${ultimo.enviadoEn.toISOString().slice(0, 16).replace("T", " ")} UTC`
+    : "";
+  const fallo = fallidos ? `; ${fallidos} quedaron FALLIDO antes del 6-nov-2026` : "";
+  const sinWhatsApp = "ya NO manda WhatsApp (decisión del dueño, 6-nov-2026): lo terminado le llega solo en el resumen de las 6 p. m., con el link a la lista de ese día";
+  if (!general) return `APAGADA: el interruptor general de avisos al dueño está apagado (Mi empresa → Claude), no deja alertas; ${sinWhatsApp}${cola}${fallo}`;
+  if (!propio) return `APAGADA: interruptor tablero:avisos-dueno:terminadas:<negocio> en false, no deja alertas; ${sinWhatsApp}${cola}${fallo}`;
+  return `PRENDIDA, solo en la campanita: el reloj revisa cada minuto y deja una alerta BAJA en /cliente/alertas cuando el Coordinador deja una tarjeta en HECHO; ${sinWhatsApp}${cola}${fallo}`;
 }
 
 /** Agente de Ventas: el interruptor y cuándo se guardó el último resumen (corre en aizen1). */

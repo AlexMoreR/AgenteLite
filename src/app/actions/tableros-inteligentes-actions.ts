@@ -54,7 +54,9 @@ import {
 import { resumenDeHoyParaLaPantalla, vistaDeHoy, type VistaDeHoy } from "@/features/tableros-inteligentes/services/resumen-diario";
 import {
   desarchivarTarjeta,
+  diaValido,
   listarArchivadas,
+  terminadasDelDia,
   type ArchivadaVista,
 } from "@/features/tableros-inteligentes/services/archivadas";
 import type { MomentoDeAprobacion } from "@/features/tableros-inteligentes/services/reglas-trabajador";
@@ -398,14 +400,21 @@ export async function vistaDeHoyAction(): Promise<{ ok: true; vista: VistaDeHoy 
   }
 }
 
-/** "Trabajos terminados": las archivadas de todos los tableros, con buscador. Solo el dueño o el ADMIN. */
+/**
+ * "Trabajos terminados": las archivadas de todos los tableros, con buscador. Con `dia` (AAAA-MM-DD, el link del resumen de
+ * las 6 p. m.), lo que terminó ese día, archivado o no; una fecha mal escrita da la lista normal. Solo el dueño o el ADMIN.
+ */
 export async function trabajosTerminadosAction(
   buscar?: string,
+  dia?: string | null,
 ): Promise<{ ok: true; tarjetas: ArchivadaVista[] } | { ok: false; error: string }> {
   const access = await accesoDelDueno();
   if (!access) return { ok: false, error: "Los trabajos terminados los ve solo el dueño del negocio." };
   try {
-    return { ok: true, tarjetas: await listarArchivadas(alcanceDe(access), { buscar: typeof buscar === "string" ? buscar : null }) };
+    const filtro = { buscar: typeof buscar === "string" ? buscar : null };
+    const delDia = diaValido(dia);
+    if (delDia) return { ok: true, tarjetas: await terminadasDelDia(alcanceDe(access), delDia, filtro) };
+    return { ok: true, tarjetas: await listarArchivadas(alcanceDe(access), filtro) };
   } catch (fallo) {
     return { ok: false, error: mensaje(fallo, "No se pudieron leer los trabajos terminados") };
   }
