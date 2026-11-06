@@ -161,7 +161,6 @@ import { AvisoDeLlamada } from "./aviso-de-llamada";
 import { BotonDeMapaDeCaminos } from "./boton-mapa-de-caminos";
 import { dondeVaLaSugerencia } from "./destino-de-la-sugerencia";
 import { textoTraeElTotal } from "@/lib/etapa-automatica-crm-texto";
-import { useHayMasALaDerecha } from "./use-hay-mas-a-la-derecha";
 
 // El panel de envio se baja recien cuando se abre la ficha del contacto: no pesa en la carga del chat.
 const PanelDeEnvio = dynamic(() => import("./panel-de-envio").then((modulo) => modulo.PanelDeEnvio), {
@@ -468,9 +467,6 @@ export const ConversationPanel = memo(function ConversationPanel({
     chat. Arranca visible y se lee despues de montar, porque el servidor no sabe que eligio.
   */
   const [barraVisible, setBarraVisible] = useState(true);
-  // La barra del celular se desliza de lado: si queda algo escondido a la derecha, Resolver (fijo)
-  // muestra una flechita a su izquierda. Callback ref: la barra se monta y desmonta segun el chat.
-  const [refBarraQueSeDesliza, hayMasEnLaBarra] = useHayMasALaDerecha();
   useEffect(() => {
     try {
       if (window.localStorage.getItem(CLAVE_BARRA_VISIBLE) === "no") setBarraVisible(false);
@@ -2206,16 +2202,7 @@ export const ConversationPanel = memo(function ConversationPanel({
             esta arriba, en linea.
           */}
           {(hasSettledConversation || barraAnticipada) && seleccionados.length === 0 && barraVisible && (headerBar || mediaConfig) ? (
-            /*
-              Sin padding a la derecha cuando esta la barra del chat: Resolver va fijo (sticky) contra
-              ese borde y trae su propio espacio; con pr-3 en la fila quedaba un hueco por donde se
-              veian pasar los botones (pr-0). Sin barra (solo nota, seguimiento y etiquetas) lo conserva.
-            */
-            <div
-              ref={refBarraQueSeDesliza}
-              data-hay-mas={hayMasEnLaBarra}
-              className={`group/barra flex min-w-0 shrink-0 items-center gap-1.5 overflow-x-auto border-b border-border bg-card px-3 py-1.5 @min-[520px]/chathdr:hidden ${headerBar ? "pr-0" : ""}`}
-            >
+            <div className="flex min-w-0 shrink-0 items-center gap-1.5 overflow-x-auto border-b border-border bg-card px-3 py-1.5 @min-[520px]/chathdr:hidden">
               {headerBar}
               {!mediaConfig && barraAnticipada ? (
                 // Nota, seguimiento y etiquetas, en silueta hasta que el chat este cargado.
