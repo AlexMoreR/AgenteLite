@@ -1,7 +1,7 @@
 // Pruebas de las tarjetas archivadas del Tablero IA (services/archivadas.ts) con un prisma FALSO, sin base ni red:
 // cuándo se archiva una tarjeta (HECHO o FALLIDO de más de 3 días, sin hijas abiertas), el "ya corrió hoy", las tandas,
-// la semana de lunes a domingo, el link del commit y que el límite de 300 y las listas de todos los días no cuenten
-// las archivadas.
+// la semana de lunes a domingo, el link del commit, que el límite de 300 y las listas de todos los días no cuenten
+// las archivadas, y el filtro por día del link del resumen de las 6 p. m. (terminadasDelDia, 6-nov-2026).
 // Correr: npm run test:tablero-archivadas
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -306,6 +306,105 @@ await prueba("el Coordinador NO filtra las archivadas (una parte archivada sigue
     const ruta = path.join(RAIZ, "src/features/tableros-inteligentes/services", archivo);
     if (!fs.existsSync(ruta)) continue;
     assert.ok(!fs.readFileSync(ruta, "utf8").includes("archivadaEn"), `${archivo} no debe mirar archivadaEn`);
+  }
+});
+
+/* ------------------------------------------------------------------ el filtro por día (6-nov-2026) */
+
+// Un where de prisma con relaciones (tarjeta → tablero), OR, rangos, `in`, `contains` y el path de un Json.
+const TABLEROS = [
+  { id: "tab1", workspaceId: "ws1", duenoUserId: "u1" },
+  { id: "tab2", workspaceId: "ws1", duenoUserId: "u2" },
+  { id: "otro", workspaceId: "ws2", duenoUserId: "u9" },
+];
+function coincideProfundo(fila, where) {
+  return Object.entries(where).every(([clave, valor]) => {
+    if (clave === "OR") return valor.some((o) => coincideProfundo(fila, o));
+    if (clave === "tarjeta") {
+      const t = estado.tarjetas.find((x) => x.id === fila.tarjetaId);
+      return Boolean(t) && coincideProfundo(t, valor);
+    }
+    if (clave === "tablero") {
+      const tab = TABLEROS.find((x) => x.id === fila.tableroId);
+      return Boolean(tab) && coincideProfundo(tab, valor);
+    }
+    const actual = fila[clave];
+    if (valor === null) return actual === null || actual === undefined;
+    if (valor && typeof valor === "object" && !(valor instanceof Date)) {
+      if ("path" in valor) return (actual ?? {})[valor.path[0]] === valor.equals;
+      if ("in" in valor) return valor.in.includes(actual);
+      if ("contains" in valor) return String(actual ?? "").toLowerCase().includes(valor.contains.toLowerCase());
+      if ("not" in valor) return valor.not === null ? actual !== null && actual !== undefined : actual !== valor.not;
+      return (!("gte" in valor) || actual >= valor.gte) && (!("lt" in valor) || actual < valor.lt);
+    }
+    return actual === valor;
+  });
+}
+
+await prueba("diaValido y rangoDeUnDia: AAAA-MM-DD que exista; el día de Bogotá va de 05:00Z a 05:00Z", async () => {
+  assert.equal(archivadas.diaValido("2026-11-06"), "2026-11-06");
+  assert.equal(archivadas.diaValido(" 2026-11-06 "), "2026-11-06");
+  for (const malo of ["2026-02-30", "06/11/2026", "hoy", "", "2026-11-6", "cualquier-cosa", null, undefined, 20261106, ["2026-11-06"]]) {
+    assert.equal(archivadas.diaValido(malo), null, String(malo));
+  }
+  const rango = archivadas.rangoDeUnDia("2026-11-06");
+  assert.equal(rango.desde.toISOString(), "2026-11-06T05:00:00.000Z");
+  assert.equal(rango.hasta.toISOString(), "2026-11-07T05:00:00.000Z");
+  assert.equal(archivadas.rangoDeUnDia("x"), null);
+});
+
+await prueba("terminadasDelDia: HECHO y FALLIDO de ese día de Bogotá, archivadas o no, solo del negocio", async () => {
+  const historialOriginal = falso.historialTarjeta.findMany;
+  const tarjetasOriginal = falso.tarjetaTablero.findMany;
+  const consultas = [];
+  falso.historialTarjeta.findMany = async (args) => {
+    consultas.push(args);
+    return estado.historial.filter((h) => coincideProfundo(h, args.where)).sort((a, b) => a.creadoEn - b.creadoEn);
+  };
+  falso.tarjetaTablero.findMany = async ({ where }) => estado.tarjetas.filter((t) => coincideProfundo(t, where)).map((t) => ({ ...t }));
+  try {
+    const HOY = "2026-11-06";
+    const t = (id, extra = {}) => {
+      const fila = { id, numero: Number(id.replace(/\D/g, "")) || null, titulo: `Tarea ${id}`, tableroId: "tab1", estado: "HECHO", repo: "aizencrm", resultado: null, borradoEn: null, archivadaEn: null, terminadaEn: null, actualizadoEn: new Date("2026-11-06T20:00:00Z"), tablero: { id: extra.tableroId ?? "tab1", nombre: "Empresa" }, ...extra };
+      estado.tarjetas.push(fila);
+      return fila;
+    };
+    const cambio = (tarjetaId, creadoEn, est = "HECHO", extra = {}) =>
+      estado.historial.push({ tarjetaId, accion: "estado", despues: { estado: est }, creadoEn: new Date(creadoEn), deshechoEn: null, ...extra });
+
+    t("t1"); cambio("t1", "2026-11-06T15:00:00Z"); // 10 a. m. de hoy, sin archivar
+    t("t2", { estado: "FALLIDO" }); cambio("t2", "2026-11-06T22:00:00Z", "FALLIDO"); // 5 p. m., fallida
+    t("t3", { archivadaEn: new Date("2026-11-06T23:00:00Z"), terminadaEn: new Date("2026-11-06T16:00:00Z") }); cambio("t3", "2026-11-06T16:00:00Z"); // archivada
+    t("t4"); cambio("t4", "2026-11-07T04:59:00Z"); // 11:59 p. m. de hoy en Bogotá
+    t("t5"); cambio("t5", "2026-11-07T05:00:00Z"); // 12:00 a. m. de mañana: otro día
+    t("t6"); cambio("t6", "2026-11-06T04:59:00Z"); // 11:59 p. m. de ayer: otro día
+    t("t7"); cambio("t7", "2026-11-06T15:00:00Z", "HECHO", { deshechoEn: new Date("2026-11-06T15:05:00Z") }); // deshecho
+    t("t8", { estado: "EN_CURSO" }); cambio("t8", "2026-11-06T15:00:00Z"); // se reabrió después
+    t("t9", { tableroId: "otro", tablero: { id: "otro", nombre: "Ajeno" } }); cambio("t9", "2026-11-06T15:00:00Z"); // otro negocio
+    t("t10", { borradoEn: new Date("2026-11-06T18:00:00Z") }); cambio("t10", "2026-11-06T15:00:00Z"); // borrada
+    t("t11"); estado.historial.push({ tarjetaId: "t11", accion: "editar", despues: { titulo: "x" }, creadoEn: new Date("2026-11-06T15:00:00Z"), deshechoEn: null }); // no terminó hoy
+    t("t12"); cambio("t12", "2026-11-06T13:00:00Z", "FALLIDO"); cambio("t12", "2026-11-06T21:00:00Z"); // falló y luego quedó HECHO: una vez, con la última hora
+
+    const lista = await archivadas.terminadasDelDia({ workspaceId: "ws1", soloDe: null }, HOY);
+    assert.deepEqual(lista.map((x) => x.id), ["t4", "t2", "t12", "t3", "t1"], "de la última a la primera");
+    assert.equal(lista.find((x) => x.id === "t1").archivadaEn, null, "la sin archivar sale con archivadaEn null");
+    assert.ok(lista.find((x) => x.id === "t3").archivadaEn, "la archivada también sale");
+    assert.equal(lista.find((x) => x.id === "t12").terminadaEn, "2026-11-06T21:00:00.000Z");
+    assert.equal(lista.find((x) => x.id === "t2").estado, "FALLIDO");
+    // La consulta va filtrada por el negocio y sin deshacer.
+    assert.deepEqual(consultas[0].where.tarjeta.tablero, { workspaceId: "ws1" });
+    assert.equal(consultas[0].where.deshechoEn, null);
+
+    // El buscador sigue dentro del día; una asesora (soloDe) ve solo sus tableros.
+    assert.deepEqual((await archivadas.terminadasDelDia({ workspaceId: "ws1", soloDe: null }, HOY, { buscar: "T-12" })).map((x) => x.id), ["t12"]);
+    assert.deepEqual((await archivadas.terminadasDelDia({ workspaceId: "ws1", soloDe: null }, HOY, { buscar: "tarea t1" })).map((x) => x.id).sort(), ["t1", "t12"], "por título: t10 y t11 coinciden pero no terminaron hoy");
+    assert.deepEqual(await archivadas.terminadasDelDia({ workspaceId: "ws1", soloDe: "u2" }, HOY), [], "no ve los tableros de otro");
+    // Un día sin nada da la lista vacía, y una fecha mal escrita lanza (la acción la convierte en la lista normal).
+    assert.deepEqual(await archivadas.terminadasDelDia({ workspaceId: "ws1", soloDe: null }, "2026-11-01"), []);
+    await assert.rejects(() => archivadas.terminadasDelDia({ workspaceId: "ws1", soloDe: null }, "cualquier-cosa"), /AAAA-MM-DD/);
+  } finally {
+    falso.historialTarjeta.findMany = historialOriginal;
+    falso.tarjetaTablero.findMany = tarjetasOriginal;
   }
 });
 

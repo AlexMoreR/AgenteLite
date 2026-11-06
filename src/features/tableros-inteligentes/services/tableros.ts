@@ -154,6 +154,15 @@ export function linkDeHoy() {
   return `${URL_APP}${RUTA_TABLEROS}?vista=hoy`;
 }
 
+/**
+ * Abre la pestaña "Trabajos terminados" filtrada en un día de Bogotá (AAAA-MM-DD): las tarjetas que quedaron HECHO o
+ * FALLIDO ese día, archivadas o no. Es el link del final del resumen de las 6 p. m. (6-nov-2026). Lleva la fecha y no
+ * "hoy", para que abierto días después siga mostrando ese día.
+ */
+export function linkDeTerminadosDelDia(dia: string) {
+  return `${URL_APP}${RUTA_TABLEROS}?vista=terminados&dia=${encodeURIComponent(dia)}`;
+}
+
 /** Abre el tablero en la pestaña "Coordinador en vivo". */
 export function linkDelCoordinador() {
   return `${URL_APP}${RUTA_TABLEROS}?vista=coordinador`;

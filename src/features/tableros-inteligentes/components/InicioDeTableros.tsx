@@ -76,9 +76,11 @@ type Props = {
   asignadas: AsignadaVista[];
   /** Con qué pestaña abre (?vista=hoy, ?vista=coordinador o ?vista=terminados). Sin permiso de administrar siempre es "tableros". */
   vistaInicial?: VistaDelInicio;
+  /** (6-nov-2026) Con ?vista=terminados&dia=AAAA-MM-DD (el link del resumen de las 6 p. m.): el día ya validado, o null. */
+  diaInicial?: string | null;
 };
 
-export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar, cuentas, asignadas, vistaInicial = "tableros" }: Props) {
+export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar, cuentas, asignadas, vistaInicial = "tableros", diaInicial = null }: Props) {
   const router = useRouter();
   // Se actualiza sola (tableros nuevos, contadores, nombres) mientras la pestaña está a la vista.
   const { tableros: lista, setTableros } = useListaDeTableros(iniciales, firma);
@@ -95,8 +97,11 @@ export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar,
   const enCoordinador = puedeAdministrar && vista === "coordinador";
   const enTerminados = puedeAdministrar && vista === "terminados";
   const aparte = enHoy || enCoordinador || enTerminados;
+  // El filtro por día de "Trabajos terminados" (solo viene en el link); cambiar de pestaña o "Ver todos" lo quita.
+  const [diaDeTerminados, setDiaDeTerminados] = useState<string | null>(vistaInicial === "terminados" ? diaInicial : null);
   const elegirVista = (nueva: VistaDelInicio) => {
     setVista(nueva);
+    setDiaDeTerminados(null);
     // El link se queda con la pestaña (recargar o compartir vuelve a ella) sin recargar la página.
     window.history.replaceState(null, "", nueva === "tableros" ? RUTA_DEL_INICIO : `${RUTA_DEL_INICIO}?vista=${nueva}`);
   };
@@ -133,7 +138,7 @@ export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar,
 
       {enCoordinador ? <CoordinadorEnVivo /> : null}
 
-      {enTerminados ? <TrabajosTerminados /> : null}
+      {enTerminados ? <TrabajosTerminados dia={diaDeTerminados} alVerTodos={() => elegirVista("terminados")} /> : null}
 
       {!aparte && asignadas.length > 0 ? (
         <section aria-labelledby="titulo-asignadas" className="space-y-3">
