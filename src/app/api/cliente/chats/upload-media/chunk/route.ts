@@ -1,4 +1,3 @@
-import { appendFile, mkdir, rename, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
@@ -16,6 +15,7 @@ import {
   resolveMediaType,
   sanitizeUploadId,
 } from "@/lib/chat-upload";
+import { indiceDePedazoValido, recibirPedazo } from "@/lib/chat-upload-pedazos";
 
 /**
  * SUBIDA POR PEDAZOS.
@@ -55,7 +55,8 @@ export async function POST(request: Request) {
   const nombreOriginal = String(formData?.get("fileName") ?? "").trim();
   const mimeDeclarado = String(formData?.get("mimeType") ?? "").split(";")[0].trim().toLowerCase();
 
-  if (!(chunk instanceof File) || !uploadId || !Number.isInteger(indice) || !Number.isInteger(total) || total < 1) {
+  // El indice forma parte de una ruta de archivo: fuera de 0..total-1 se rechaza antes de tocar el disco.
+  if (!(chunk instanceof File) || !uploadId || !indiceDePedazoValido(indice, total)) {
     return NextResponse.json({ ok: false, error: "Pedido invalido." }, { status: 400 });
   }
 
@@ -67,40 +68,43 @@ export async function POST(request: Request) {
   }
 
   const tmpDir = path.join(process.cwd(), ...CHAT_MEDIA_TMP_DIR);
-  await mkdir(tmpDir, { recursive: true });
-  const parcial = path.join(tmpDir, `${uploadId}.part`);
+  const uploadDir = path.join(process.cwd(), ...CHAT_MEDIA_DIR);
+  const ext = getExtensionForMime(mimeDeclarado, nombreOriginal);
+  const fileName = `${Date.now()}-${randomUUID()}${ext}`;
 
-  // El trozo 0 arranca de cero: si un intento anterior quedo a medias, reintentar desde el
-  // principio tiene que empezar limpio y no pegarse atras de la basura del intento fallido.
-  if (indice === 0) {
-    await unlink(parcial).catch(() => {});
+  // Cada pedazo se guarda aparte y el archivo se arma con el ultimo, comprobando que esten todos
+  // (ver chat-upload-pedazos). Asi se pueden mandar varios a la vez sin desordenar el archivo.
+  let resultado;
+  try {
+    resultado = await recibirPedazo({
+      tmpDir,
+      destinoDir: uploadDir,
+      uploadId,
+      indice,
+      total,
+      datos: Buffer.from(await chunk.arrayBuffer()),
+      maxBytes: MAX_FILE_SIZE_BYTES,
+      maxMb: MAX_FILE_SIZE_MB,
+      nombreFinal: fileName,
+    });
+  } catch (error) {
+    console.error("[chat-upload] no se pudo guardar un pedazo", {
+      uploadId,
+      indice,
+      total,
+      motivo: error instanceof Error ? error.message : String(error),
+    });
+    return NextResponse.json({ ok: false, error: "No se pudo guardar el archivo. Volvé a enviarlo." }, { status: 500 });
   }
 
-  const bytes = Buffer.from(await chunk.arrayBuffer());
-  await appendFile(parcial, bytes);
-
-  const acumulado = await stat(parcial).then((info) => info.size).catch(() => 0);
-  if (acumulado > MAX_FILE_SIZE_BYTES) {
-    await unlink(parcial).catch(() => {});
-    return NextResponse.json(
-      { ok: false, error: `El archivo supera los ${MAX_FILE_SIZE_MB} MB.` },
-      { status: 400 },
-    );
+  if (resultado.estado === "error") {
+    return NextResponse.json({ ok: false, error: resultado.error }, { status: resultado.status });
   }
 
   // Todavia faltan trozos: se avisa cuanto va para que la pantalla pueda mostrar el avance.
-  if (indice < total - 1) {
-    return NextResponse.json({ ok: true, recibido: indice, bytes: acumulado });
+  if (resultado.estado === "guardado") {
+    return NextResponse.json({ ok: true, recibido: resultado.recibido, bytes: resultado.bytes });
   }
-
-  const uploadDir = path.join(process.cwd(), ...CHAT_MEDIA_DIR);
-  await mkdir(uploadDir, { recursive: true });
-
-  const ext = getExtensionForMime(mimeDeclarado, nombreOriginal);
-  const fileName = `${Date.now()}-${randomUUID()}${ext}`;
-  // rename y no copiar: mover dentro del mismo volumen es instantaneo y no duplica 15 MB en
-  // disco, que en este servidor (93% ocupado) importa.
-  await rename(parcial, path.join(uploadDir, fileName));
 
   const relativeUrl = `/uploads/chat-media/${fileName}`;
   const baseUrl = getBaseUrl(request);

@@ -14,6 +14,10 @@ export type ArchivoSubido = {
  *
  * En trozos de 512 KB cada peticion dura segundos: ninguna vive lo suficiente como para que la
  * corten, y si la señal se cae se reintenta SOLO ese trozo en vez del archivo entero.
+ *
+ * Los trozos viajan de a PEDAZOS_A_LA_VEZ y el ultimo sale solo cuando los demas entraron: el
+ * servidor guarda cada uno aparte y arma el archivo en orden recien con el ultimo
+ * (src/lib/chat-upload-pedazos.ts).
  */
 
 // 512 KB: con 15 KB/s un trozo tarda ~35 segundos. Mas grande empieza a parecerse al problema que
@@ -64,12 +68,39 @@ function generarId() {
     : `sub-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+/*
+  Hasta 3 pedazos viajan a la vez. Con buena señal la subida dura casi un tercio; con mala, tres
+  pedazos de 512 KB siguen siendo peticiones cortas. Mas de 3 ya no gana nada en un celular y
+  multiplica los pedidos que el servidor tiene que atender por cada asesora.
+*/
+export const PEDAZOS_A_LA_VEZ = 3;
+
+type RespuestaDelServidor = {
+  ok?: boolean;
+  completo?: boolean;
+  error?: string;
+  url?: string;
+  fileName?: string;
+  mimeType?: string;
+  mediaType?: string;
+};
+
+type ResultadoDelTrozo =
+  | { tipo: "entregado"; datos: RespuestaDelServidor }
+  /** El servidor dijo que no (400/401/403/409): reintentar solo hace esperar el mismo no. */
+  | { tipo: "rechazado"; error: string; status: number }
+  /** Se gastaron los reintentos. */
+  | { tipo: "agotado"; error: string }
+  /** Otro pedazo fallo y este se dejo de mandar. */
+  | { tipo: "cancelado" };
+
 async function mandarTrozo(input: {
   endpoint: string;
   uploadId: string;
   file: File;
   indice: number;
   total: number;
+  senal: AbortSignal;
 }): Promise<Response> {
   const desde = input.indice * TAMANO_TROZO;
   const trozo = input.file.slice(desde, desde + TAMANO_TROZO);
@@ -82,14 +113,76 @@ async function mandarTrozo(input: {
   formData.append("fileName", input.file.name);
   formData.append("mimeType", input.file.type);
 
-  return fetch(input.endpoint, { method: "POST", body: formData });
+  return fetch(input.endpoint, { method: "POST", body: formData, signal: input.senal });
+}
+
+const esperarDeVerdad = (ms: number) => new Promise<void>((listo) => setTimeout(listo, ms));
+
+/** Manda UN trozo con sus propios reintentos, cada vez esperando un poco mas. */
+async function mandarTrozoConReintentos(input: {
+  endpoint: string;
+  uploadId: string;
+  file: File;
+  indice: number;
+  total: number;
+  senal: AbortSignal;
+  esperar: (ms: number) => Promise<void>;
+}): Promise<ResultadoDelTrozo> {
+  let ultimoError = "";
+
+  for (let intento = 1; intento <= REINTENTOS_POR_TROZO; intento += 1) {
+    if (input.senal.aborted) {
+      return { tipo: "cancelado" };
+    }
+
+    try {
+      const respuesta = await mandarTrozo(input);
+      const datos = (await respuesta.json().catch(() => null)) as RespuestaDelServidor | null;
+
+      if (input.senal.aborted) {
+        return { tipo: "cancelado" };
+      }
+
+      // Un rechazo del servidor (formato, tamaño, permisos) no se reintenta: reintentarlo solo
+      // hace esperar de gusto para volver a recibir el mismo no. El 409 (faltan pedazos) tampoco:
+      // los que faltan ya no van a aparecer.
+      if ([400, 401, 403, 409].includes(respuesta.status)) {
+        return {
+          tipo: "rechazado",
+          status: respuesta.status,
+          error: datos?.error || "El servidor rechazó el archivo.",
+        };
+      }
+
+      if (respuesta.ok && datos?.ok) {
+        return { tipo: "entregado", datos };
+      }
+
+      ultimoError = datos?.error || "Se cortó la subida.";
+    } catch (error) {
+      if (input.senal.aborted) {
+        return { tipo: "cancelado" };
+      }
+      // Cortes de red: es justamente el caso para el que existe el reintento.
+      ultimoError = error instanceof Error ? error.message : "Se cortó la subida.";
+    }
+
+    // Se espera antes del proximo intento, cada vez un poco mas.
+    if (intento < REINTENTOS_POR_TROZO) {
+      await input.esperar(ESPERA_BASE_MS * 2 ** (intento - 1));
+    }
+  }
+
+  return { tipo: "agotado", error: ultimoError };
 }
 
 export async function subirArchivoPorPedazos(input: {
   file: File;
   endpoint: string;
-  /** Avance de 0 a 1, para poder mostrarlo mientras dura. */
+  /** Avance de 0 a 1, para poder mostrarlo mientras dura. Nunca retrocede. */
   onAvance?: (avance: number) => void;
+  /** Solo para las pruebas: reemplaza la espera entre reintentos. */
+  esperar?: (ms: number) => Promise<void>;
 }): Promise<{ archivo?: ArchivoSubido; error?: string }> {
   /*
     Antes de empezar, se comprueba que el archivo se pueda LEER.
@@ -123,93 +216,124 @@ export async function subirArchivoPorPedazos(input: {
 
   const uploadId = generarId();
   const total = Math.max(1, Math.ceil(input.file.size / TAMANO_TROZO));
+  const esperar = input.esperar ?? esperarDeVerdad;
+  const cancelar = new AbortController();
 
-  for (let indice = 0; indice < total; indice += 1) {
-    let ultimoError = "";
-    let entregado = false;
+  let terminados = 0;
+  let fallo: { indice: number; resultado: Extract<ResultadoDelTrozo, { tipo: "rechazado" | "agotado" }> } | null =
+    null;
 
-    for (let intento = 1; intento <= REINTENTOS_POR_TROZO; intento += 1) {
-      try {
-        const respuesta = await mandarTrozo({
-          endpoint: input.endpoint,
-          uploadId,
-          file: input.file,
-          indice,
-          total,
-        });
+  const mandar = (indice: number) =>
+    mandarTrozoConReintentos({
+      endpoint: input.endpoint,
+      uploadId,
+      file: input.file,
+      indice,
+      total,
+      senal: cancelar.signal,
+      esperar,
+    });
 
-        const datos = (await respuesta.json().catch(() => null)) as
-          | { ok?: boolean; completo?: boolean; error?: string; url?: string; fileName?: string; mimeType?: string; mediaType?: string }
-          | null;
-
-        // Un rechazo del servidor (formato, tamaño) no se reintenta: reintentarlo solo hace
-        // esperar de gusto para volver a recibir el mismo no.
-        if (respuesta.status === 400 || respuesta.status === 401 || respuesta.status === 403) {
-          return { error: datos?.error || "El servidor rechazó el archivo." };
+  /*
+    Todos menos el ultimo, hasta PEDAZOS_A_LA_VEZ en camino. Cada "carril" toma el siguiente
+    pedazo libre apenas termina el suyo. Si uno se agota o es rechazado, no sale ninguno mas y se
+    cancelan los que iban en camino: seguir subiendo un archivo que ya no se va a armar solo gasta
+    los datos de la asesora.
+  */
+  let siguiente = 0;
+  const carril = async () => {
+    while (fallo === null && siguiente < total - 1) {
+      const indice = siguiente;
+      siguiente += 1;
+      const resultado = await mandar(indice);
+      if (resultado.tipo === "cancelado") return;
+      if (resultado.tipo !== "entregado") {
+        if (fallo === null) {
+          fallo = { indice, resultado };
+          cancelar.abort();
         }
-
-        if (!respuesta.ok || !datos?.ok) {
-          ultimoError = datos?.error || "Se cortó la subida.";
-          continue;
-        }
-
-        if (datos.completo) {
-          if (!datos.url || !datos.mediaType) {
-            return { error: "La subida terminó pero el servidor no devolvió el archivo." };
-          }
-          input.onAvance?.(1);
-          return {
-            archivo: {
-              url: datos.url,
-              fileName: datos.fileName || input.file.name,
-              mimeType: datos.mimeType || input.file.type,
-              mediaType: datos.mediaType as ArchivoSubido["mediaType"],
-            },
-          };
-        }
-
-        entregado = true;
-        break;
-      } catch (error) {
-        // Cortes de red: es justamente el caso para el que existe el reintento.
-        ultimoError = error instanceof Error ? error.message : "Se cortó la subida.";
+        return;
       }
-
-      // Se espera antes del proximo intento, cada vez un poco mas.
-      if (intento < REINTENTOS_POR_TROZO) {
-        await new Promise((listo) => setTimeout(listo, ESPERA_BASE_MS * 2 ** (intento - 1)));
-      }
+      terminados += 1;
+      input.onAvance?.(terminados / total);
     }
+  };
+  await Promise.all(Array.from({ length: Math.min(PEDAZOS_A_LA_VEZ, total - 1) }, carril));
 
-    if (!entregado) {
-      const enviado = Math.round((indice / total) * 100);
-      /*
-        Se avisa al servidor que la subida se corto.
+  /*
+    El ultimo va solo y al final, cuando todos los demas ya entraron: es el que le pide al
+    servidor que arme el archivo, y el servidor lo arma solo si estan todos.
+  */
+  if (fallo === null) {
+    const resultado = await mandar(total - 1);
 
-        Sin esto el fallo era invisible del lado de aca: la asesora veia un aviso que se desvanecia
-        y en el servidor no quedaba NADA. Reportaron "a veces manda fotos y a veces no" y no habia
-        forma de saber si pasaba una vez al dia o veinte, ni en que trozo se cortaba.
-
-        Va sin await y tragandose el error: es telemetria, no puede demorar ni romper el aviso que
-        de verdad le importa a quien esta esperando.
-      */
-      avisarQueSeCorto({
-        endpoint: input.endpoint,
-        file: input.file,
-        trozo: indice,
-        total,
-        motivo: ultimoError,
-      });
-
+    if (resultado.tipo === "entregado") {
+      const datos = resultado.datos;
+      if (!datos.completo) {
+        return { error: "La subida no llegó a completarse." };
+      }
+      if (!datos.url || !datos.mediaType) {
+        return { error: "La subida terminó pero el servidor no devolvió el archivo." };
+      }
+      input.onAvance?.(1);
       return {
-        error: ultimoError
-          ? `Se cortó la subida (${enviado}% enviado). Revisá la señal y reintentá.`
-          : "Se cortó la subida.",
+        archivo: {
+          url: datos.url,
+          fileName: datos.fileName || input.file.name,
+          mimeType: datos.mimeType || input.file.type,
+          mediaType: datos.mediaType as ArchivoSubido["mediaType"],
+        },
       };
     }
 
-    input.onAvance?.((indice + 1) / total);
+    if (resultado.tipo !== "cancelado") {
+      fallo = { indice: total - 1, resultado };
+    }
   }
 
-  return { error: "La subida no llegó a completarse." };
+  // TypeScript no sigue las asignaciones hechas dentro de los carriles: se lee de nuevo aca.
+  const fallido = fallo as typeof fallo;
+  if (!fallido) {
+    return { error: "La subida no llegó a completarse." };
+  }
+
+  if (fallido.resultado.tipo === "rechazado") {
+    // 400/401/403 son un no del servidor por el archivo o la sesion: como antes, sin aviso. El
+    // 409 si es una subida que se corto en el medio, y conviene que quede registrada.
+    if (fallido.resultado.status === 409) {
+      avisarQueSeCorto({
+        endpoint: input.endpoint,
+        file: input.file,
+        trozo: fallido.indice,
+        total,
+        motivo: fallido.resultado.error,
+      });
+    }
+    return { error: fallido.resultado.error };
+  }
+
+  const enviado = Math.round((terminados / total) * 100);
+  /*
+    Se avisa al servidor que la subida se corto (una sola vez, aunque hubiera otros en camino).
+
+    Sin esto el fallo era invisible del lado de aca: la asesora veia un aviso que se desvanecia
+    y en el servidor no quedaba NADA. Reportaron "a veces manda fotos y a veces no" y no habia
+    forma de saber si pasaba una vez al dia o veinte, ni en que trozo se cortaba.
+
+    Va sin await y tragandose el error: es telemetria, no puede demorar ni romper el aviso que
+    de verdad le importa a quien esta esperando.
+  */
+  avisarQueSeCorto({
+    endpoint: input.endpoint,
+    file: input.file,
+    trozo: fallido.indice,
+    total,
+    motivo: fallido.resultado.error,
+  });
+
+  return {
+    error: fallido.resultado.error
+      ? `Se cortó la subida (${enviado}% enviado). Revisá la señal y reintentá.`
+      : "Se cortó la subida.",
+  };
 }
