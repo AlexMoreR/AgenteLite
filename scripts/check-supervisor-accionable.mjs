@@ -590,7 +590,7 @@ await prueba("servicio: caliente → push + WhatsApp (línea interna) a la aseso
   await servicio.gestionarAcciones({ workspaceId: WS, hallazgos: h, chats: [maria()], ahora: T0, config });
   assert.deepEqual(enviados.push.map((p) => p.userId), ["maria"]);
   assert.deepEqual(enviados.whatsapp.map((w) => w.phoneNumber), ["573000001111"]);
-  assert.match(enviados.whatsapp[0].text, /app\.aizenbot\.com\/c\/1000/);
+  assert.match(enviados.whatsapp[0].text, /crm\.magilus\.com\/c\/1000/);
   enviados.push.length = 0;
   enviados.whatsapp.length = 0;
   await servicio.gestionarAcciones({ workspaceId: WS, hallazgos: h, chats: [maria()], ahora: mas(T0, 15), config });
@@ -622,7 +622,7 @@ await prueba("servicio: 'ya pagué' que vence → push + UN WhatsApp a Alexander
   assert.deepEqual(enviados.push.map((p) => p.userId), ["alex"]);
   assert.equal(enviados.whatsapp.length, 1);
   assert.equal(enviados.whatsapp[0].phoneNumber, "573000002277");
-  for (const parte of ["CRÍTICO", "Laura Gómez", "Maria Bautista", "Aviso a Maria Bautista a las 10:00", "Tu acción", "app.aizenbot.com/c/1000"]) {
+  for (const parte of ["CRÍTICO", "Laura Gómez", "Maria Bautista", "Aviso a Maria Bautista a las 10:00", "Tu acción", "crm.magilus.com/c/1000"]) {
     assert.ok(enviados.whatsapp[0].text.includes(parte), `el WhatsApp trae "${parte}"`);
   }
   assert.ok(!enviados.whatsapp[0].text.includes("3001234567"));
@@ -871,7 +871,7 @@ await prueba("servicio fuera de horario: push + WhatsApp (línea interna) a Ingr
   assert.match(enviados.push[0].title, /Fuera de horario/);
   assert.deepEqual(enviados.whatsapp.map((w) => w.phoneNumber), ["573000003333"]);
   assert.match(enviados.whatsapp[0].text, /fuera de horario/);
-  assert.match(enviados.whatsapp[0].text, /app\.aizenbot\.com\/c\/1000/);
+  assert.match(enviados.whatsapp[0].text, /crm\.magilus\.com\/c\/1000/);
   assert.ok(!enviados.whatsapp[0].text.includes("3001234567"));
   const pedidos = await servicio.leerPedidosDelSupervisor(WS, "ingrid");
   assert.equal(pedidos.length, 1);
