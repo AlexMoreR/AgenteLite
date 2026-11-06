@@ -85,7 +85,7 @@ import {
   mergeConversationSnapshotIfChanged,
   updateConversationItemByContact,
 } from "./chat-inbox-conversation-utils";
-import { ConversationPanel } from "./chat-conversation-panel";
+import { ConversationPanel, type EnvioTerminado } from "./chat-conversation-panel";
 import { BarraDeAccionesDelChat, BarraDeAccionesEnSilueta, ChatHeaderActions } from "./chat-header-actions";
 import { MenuDelContacto } from "./menu-del-contacto";
 import { AssignChatControl } from "./assign-chat-control";
@@ -1822,7 +1822,13 @@ export function SharedInbox({
 
   const refreshSelectedConversationFromServer = useCallback(async () => {
     const chatKey = selectedConversationKey;
-    if (!chatKey.startsWith("agent:")) {
+    /*
+      Los chats "official:" tambien: su aviso en tiempo real no trae el mensaje (solo avisa), y el
+      router.refresh() que lo traia tras enviar una foto o una nota de voz ya no esta. /live los
+      soporta; /summary no, asi que ahi solo se pide /live (la fila ya subio con el aviso local).
+    */
+    const esOficial = chatKey.startsWith("official:");
+    if (!chatKey.startsWith("agent:") && !esOficial) {
       return;
     }
 
@@ -1832,10 +1838,12 @@ export function SharedInbox({
           credentials: "same-origin",
           cache: "no-store",
         }),
-        fetch(`/api/cliente/chats/summary?chatKey=${encodeURIComponent(chatKey)}`, {
-          credentials: "same-origin",
-          cache: "no-store",
-        }),
+        esOficial
+          ? Promise.resolve(null)
+          : fetch(`/api/cliente/chats/summary?chatKey=${encodeURIComponent(chatKey)}`, {
+              credentials: "same-origin",
+              cache: "no-store",
+            }),
       ]);
 
       if (liveResponse.ok) {
@@ -1855,7 +1863,7 @@ export function SharedInbox({
         }
       }
 
-      if (summaryResponse.ok) {
+      if (summaryResponse?.ok) {
         const summaryPayload = (await summaryResponse.json().catch(() => null)) as
           | { ok?: boolean; conversation?: unknown }
           | null;
@@ -1880,11 +1888,33 @@ export function SharedInbox({
     cada uno con /live + /summary). El mensaje real llega igual por el altavoz; esto solo cubre un
     aviso perdido.
   */
-  const scheduleConversationRefreshAfterSend = useCallback(() => {
-    window.setTimeout(() => {
-      void refreshSelectedConversationFromServer();
-    }, 1500);
+  /*
+    Varios envios seguidos (10 fotos) se juntan en UN refresco: cada envio reinicia el temporizador,
+    asi no salen 10 pedidos a /live. Se lee la funcion desde una referencia para que el temporizador
+    use la del chat abierto cuando dispara.
+  */
+  const refreshSelectedConversationFromServerRef = useRef(refreshSelectedConversationFromServer);
+  useEffect(() => {
+    refreshSelectedConversationFromServerRef.current = refreshSelectedConversationFromServer;
   }, [refreshSelectedConversationFromServer]);
+  const refrescoTrasEnviarRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (refrescoTrasEnviarRef.current) {
+        clearTimeout(refrescoTrasEnviarRef.current);
+      }
+    },
+    [],
+  );
+  const scheduleConversationRefreshAfterSend = useCallback(() => {
+    if (refrescoTrasEnviarRef.current) {
+      clearTimeout(refrescoTrasEnviarRef.current);
+    }
+    refrescoTrasEnviarRef.current = setTimeout(() => {
+      refrescoTrasEnviarRef.current = null;
+      void refreshSelectedConversationFromServerRef.current();
+    }, 1500);
+  }, []);
 
   // Mientras hay busqueda activa, los resultados se CONGELAN: el realtime no debe mutar la
   // lista. El filtro de busqueda incluye por ULTIMO MENSAJE, asi que un mensaje nuevo
@@ -2665,6 +2695,46 @@ export function SharedInbox({
       }
     },
     [scheduleConversationRefreshAfterSend],
+  );
+
+  /*
+    Fin de un envio bueno desde el panel (foto, archivo, nota de voz, ubicacion, biblioteca, carta
+    de colores, flujo). Reemplaza al router.refresh() del panel y al revalidatePath de las acciones,
+    que rearmaban /cliente/chats entero en cada envio.
+
+    - Con `tipo`: la fila del chat DESTINO sube al instante con el mismo aviso local del texto.
+    - Si el destino es el chat abierto: /live de ese chat a los 1,5 s (ver arriba), que trae el
+      mensaje real aunque se pierda el aviso en tiempo real.
+  */
+  const handleEnvioTerminado = useCallback(
+    (envio: EnvioTerminado) => {
+      const conversationId = envio.conversationId?.trim();
+      if (!conversationId) {
+        return;
+      }
+      if (envio.tipo) {
+        window.dispatchEvent(
+          new CustomEvent("chat-list-update", {
+            detail: {
+              conversation: {
+                id: conversationId,
+                incomingCount: 0,
+                lastMessage: envio.texto ?? null,
+                lastMessageType: envio.tipo,
+                lastMessageDirection: "OUTBOUND" as const,
+                lastMessageAt: new Date(),
+              },
+              // Fila armada aca: no debe pedir /list al servidor (ver handleListUpdate).
+              local: true,
+            },
+          }),
+        );
+      }
+      if (conversationIdMatchesKey(selectedConversationKey, conversationId)) {
+        scheduleConversationRefreshAfterSend();
+      }
+    },
+    [scheduleConversationRefreshAfterSend, selectedConversationKey],
   );
 
   /*
@@ -3935,6 +4005,7 @@ export function SharedInbox({
         // hacer click y el pin al fondo queda estable.
         key={mobileConversationActive ? (selectedConversationKey || "selected") : "empty"}
         canDeleteTags={isManager}
+        onEnvioTerminado={handleEnvioTerminado}
         chatSignature={chatSignature}
         backHref={backHrefActual}
         composer={effectiveComposer}

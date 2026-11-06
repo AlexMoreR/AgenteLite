@@ -116,6 +116,7 @@ import {
   quitarFotos,
   useArchivosFallidos,
   useFotosEnEnvio,
+  VIDA_DE_FOTO_ENVIADA_MS,
   type DestinoDeFoto,
   type FotoEnEnvio,
 } from "@/components/chats/fotos-en-envio";
@@ -252,6 +253,23 @@ type ConversationPanelProps = {
    */
   contactPanelHeaderActions?: ReactNode;
   canDeleteTags: boolean;
+  /**
+   * Se llama tras un envio BUENO de foto, archivo, nota de voz, ubicacion, biblioteca, carta de
+   * colores o flujo. Reemplaza al router.refresh() que rearmaba la bandeja entera: la bandeja sube
+   * la fila al instante (si viene `tipo`) y trae el mensaje real con /live solo de ese chat.
+   *
+   * `conversationId` es el chat DESTINO del envio, no el abierto: en computador el panel no se
+   * vuelve a montar al cambiar de chat y una foto puede terminar de salir con otro chat abierto.
+   */
+  onEnvioTerminado?: (envio: EnvioTerminado) => void;
+};
+
+export type EnvioTerminado = {
+  conversationId: string;
+  /** Lo que se mando, para la fila de la lista. Sin tipo (un flujo) solo se refresca el chat. */
+  tipo?: SharedInboxMessageItem["type"];
+  /** Texto de la fila cuando el tipo no tiene uno propio (la ubicacion). */
+  texto?: string;
 };
 
 /*
@@ -336,7 +354,19 @@ export const ConversationPanel = memo(function ConversationPanel({
   contactPanelActions,
   contactPanelHeaderActions,
   canDeleteTags,
+  onEnvioTerminado,
 }: ConversationPanelProps) {
+  /*
+    Se lee desde una referencia: enviarFoto se crea una sola vez (useCallback sin dependencias) y
+    con la prop directa se quedaria con la de la primera vez.
+  */
+  const onEnvioTerminadoRef = useRef(onEnvioTerminado);
+  useEffect(() => {
+    onEnvioTerminadoRef.current = onEnvioTerminado;
+  }, [onEnvioTerminado]);
+  const avisarEnvioTerminado = useCallback((envio: EnvioTerminado) => {
+    onEnvioTerminadoRef.current?.(envio);
+  }, []);
   /**
    * Ya se respondio la pregunta del cierre en esta pantalla.
    *
@@ -656,6 +686,16 @@ export const ConversationPanel = memo(function ConversationPanel({
   // cuando llega el mensaje real (se deduplican por mediaUrl en el render).
   const [optimisticMediaMessages, setOptimisticMediaMessages] = useState<SharedInboxMessageItem[]>([]);
   /*
+    Burbuja de archivo o nota de voz ya enviada cuyo mensaje real no llega: se retira sola a los 5
+    minutos (igual que las fotos, VIDA_DE_FOTO_ENVIADA_MS). Sin la recarga de antes no hay nada
+    que la saque si se pierde el aviso, y no puede quedarse girando para siempre.
+  */
+  const retirarBurbujaSiNoLlega = useCallback((idDeBurbuja: string) => {
+    window.setTimeout(() => {
+      setOptimisticMediaMessages((prev) => prev.filter((message) => message.id !== idDeBurbuja));
+    }, VIDA_DE_FOTO_ENVIADA_MS);
+  }, []);
+  /*
     Las fotos en envio (fotos-en-envio.ts): aparecen al tocar Enviar con la vista previa local y
     viven fuera del panel, para sobrevivir al cambio de chat. Aca solo se muestran las de ESTE chat.
   */
@@ -817,13 +857,14 @@ export const ConversationPanel = memo(function ConversationPanel({
         return;
       }
       toast.success("Ubicación enviada");
+      avisarEnvioTerminado({ conversationId, tipo: "LOCATION", texto: "Ubicación" });
       onScrollToBottom?.();
     } catch {
       toast.error("No se pudo enviar la ubicación");
     } finally {
       setIsSendingLocation(false);
     }
-  }, [mediaConfig, audioConfig, isSendingLocation, onScrollToBottom]);
+  }, [mediaConfig, audioConfig, isSendingLocation, onScrollToBottom, avisarEnvioTerminado]);
 
   /*
     Sube y envia UN archivo. Devuelve el MOTIVO del fallo, no solo que fallo.
@@ -917,6 +958,8 @@ export const ConversationPanel = memo(function ConversationPanel({
         });
 
         if (result && "ok" in result && result.ok) {
+          avisarEnvioTerminado({ conversationId: destino.conversationId, tipo: data.mediaType });
+          retirarBurbujaSiNoLlega(optimisticId);
           return null;
         }
 
@@ -952,7 +995,7 @@ export const ConversationPanel = memo(function ConversationPanel({
         return motivo;
       }
     },
-    [mediaConfig, onScrollToBottom],
+    [mediaConfig, onScrollToBottom, avisarEnvioTerminado, retirarBurbujaSiNoLlega],
   );
 
   /*
@@ -1026,6 +1069,7 @@ export const ConversationPanel = memo(function ConversationPanel({
       });
       if (result && "ok" in result && result.ok) {
         marcarFotoEnviada(id);
+        avisarEnvioTerminado({ conversationId: destino.conversationId, tipo: subida.mediaType });
         return true;
       }
       const motivo = (result && "error" in result && result.error) || `No se pudo enviar "${nombre}".`;
@@ -1051,7 +1095,7 @@ export const ConversationPanel = memo(function ConversationPanel({
       fallar(motivo);
       return false;
     }
-  }, []);
+  }, [avisarEnvioTerminado]);
 
   // Reintentar desde la burbuja: solo con el toque explicito de la asesora y solo si esta fallida.
   const reintentarFoto = useCallback(
@@ -1063,13 +1107,10 @@ export const ConversationPanel = memo(function ConversationPanel({
       }
       // Se saca de "fallida" ANTES de empezar: un segundo toque ya no la reintenta.
       actualizarFoto(id, decision === "solo-enviar" ? { estado: "enviando", motivo: null } : { estado: "subiendo", motivo: null, avance: 0 });
-      void enviarFoto(id).then((salio) => {
-        if (salio) {
-          composerRouter.refresh();
-        }
-      });
+      // Si sale, enviarFoto avisa a la bandeja (onEnvioTerminado): sin recargar la pagina.
+      void enviarFoto(id);
     },
-    [enviarFoto, composerRouter],
+    [enviarFoto],
   );
 
   const descartarFoto = useCallback((id: string) => {
@@ -1166,14 +1207,11 @@ export const ConversationPanel = memo(function ConversationPanel({
           });
         }
 
-        if (sentCount > 0) {
-          composerRouter.refresh();
-        }
-
+        // Sin router.refresh(): cada envio bueno ya aviso a la bandeja (onEnvioTerminado).
         setIsSendingMedia(false);
       }
     },
-    [mediaConfig, sendSingleMediaFile, enviarFoto, composerRouter, onScrollToBottom],
+    [mediaConfig, sendSingleMediaFile, enviarFoto, onScrollToBottom],
   );
 
   const stopRecordTracks = useCallback(() => {
@@ -1309,7 +1347,9 @@ export const ConversationPanel = memo(function ConversationPanel({
         });
 
         if (envio.ok) {
-          composerRouter.refresh();
+          // Sin router.refresh(): la bandeja trae el mensaje real con /live (onEnvioTerminado).
+          avisarEnvioTerminado({ conversationId: destino.conversationId, tipo: "AUDIO" });
+          retirarBurbujaSiNoLlega(optimisticId);
         } else {
           fallo(envio.falla.mensaje);
         }
@@ -1319,7 +1359,7 @@ export const ConversationPanel = memo(function ConversationPanel({
         setIsSendingAudio(false);
       }
     },
-    [audioConfig, composerRouter, onScrollToBottom],
+    [audioConfig, onScrollToBottom, avisarEnvioTerminado, retirarBurbujaSiNoLlega],
   );
 
   const startAudioRecording = useCallback(async () => {
@@ -2571,6 +2611,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                             flowId: flujoSugerido.id,
                             titulo: flujoSugerido.titulo,
                             agentId: mediaConfig.agentId ?? undefined,
+                            alTerminar: avisarEnvioTerminado,
                           });
                           if (flujoSugerido.sugerenciaId) {
                             void marcarFlujoDeSugerenciaAction(flujoSugerido.sugerenciaId);
@@ -3141,6 +3182,7 @@ export const ConversationPanel = memo(function ConversationPanel({
             source={mediaConfig.source === "official" ? "official" : "agent"}
             conversationId={mediaConfig.conversationId}
             agentId={mediaConfig.agentId ?? undefined}
+            onEnviado={avisarEnvioTerminado}
           />
         ) : null}
         {/* Montado solo mientras esta abierto: un modal que queda puesto y apagado puede dejar su
@@ -3162,6 +3204,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                 returnTo: mediaConfig.returnTo,
               });
               if (result && "ok" in result && result.ok) {
+                avisarEnvioTerminado({ conversationId: mediaConfig.conversationId, tipo: item.mediaType });
                 onScrollToBottom();
                 return true;
               }
@@ -3175,10 +3218,11 @@ export const ConversationPanel = memo(function ConversationPanel({
             open
             onClose={() => setIsCartaDeColoresOpen(false)}
             onEnviada={onScrollToBottom}
-            mandarImagen={(imagen) =>
-              mediaConfig.sendAction({
+            mandarImagen={async (imagen) => {
+              const conversationId = mediaConfig.conversationId;
+              const result = await mediaConfig.sendAction({
                 source: mediaConfig.source,
-                conversationId: mediaConfig.conversationId,
+                conversationId,
                 agentId: mediaConfig.agentId,
                 mediaUrl: imagen.url,
                 mediaType: "IMAGE",
@@ -3186,8 +3230,12 @@ export const ConversationPanel = memo(function ConversationPanel({
                 mimeType: "image/png",
                 caption: imagen.texto,
                 returnTo: mediaConfig.returnTo,
-              })
-            }
+              });
+              if (result && "ok" in result && result.ok) {
+                avisarEnvioTerminado({ conversationId, tipo: "IMAGE" });
+              }
+              return result;
+            }}
           />
         ) : null}
         <PlaybookPanelDialog
