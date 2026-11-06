@@ -298,3 +298,45 @@ export function esperaParaPersona(chats: ChatEnEspera[], quien: QuienMira): Espe
   }));
   return { mine: lista.filter((chat) => chat.mia).length, all: lista.length, chats: lista };
 }
+
+/**
+ * Las claves de la vista "Esperando respuesta" de /list, en el orden en que se muestran: el que mas
+ * lleva esperando primero y, a igual hora, por clave (para que dos paginas no se crucen).
+ *
+ * Es el mismo recorte por persona que /counts (esperaParaPersona), mas la pestaña de la bandeja con
+ * la misma regla que la lista: "mine" = principal o segunda; "unassigned" = sin asesora principal;
+ * "user:<ids>" = principal entre esas. Funcion pura.
+ */
+export function clavesEnEsperaParaLista(chats: ChatEnEspera[], quien: QuienMira, asignacion: string): string[] {
+  const deLaPestana = (chat: ChatEnEspera) => {
+    if (asignacion === "mine") return esDeQuien(chat, quien.userId);
+    if (asignacion === "unassigned") return chat.assignedToUserId === null;
+    if (asignacion.startsWith("user:")) {
+      const ids = asignacion.slice("user:".length).split(",");
+      return chat.assignedToUserId !== null && ids.includes(chat.assignedToUserId);
+    }
+    return true;
+  };
+  const desdePorClave = new Map(chats.map((chat) => [chat.key, chat.desde]));
+  return esperaParaPersona(chats.filter(deLaPestana), quien)
+    .chats.map((chat) => chat.key)
+    .sort((a, b) => (desdePorClave.get(a) ?? 0) - (desdePorClave.get(b) ?? 0) || (a < b ? -1 : a > b ? 1 : 0));
+}
+
+/**
+ * La pagina de una lista ya ordenada de claves: `offset` y `limit` sobre esa lista. Con `ids`
+ * (los fijados) no se pagina: solo los que ademas esten en la lista. Funcion pura.
+ */
+export function paginaDeClaves(claves: string[], input: { offset: number; limit: number; ids: string[] }) {
+  if (input.ids.length > 0) {
+    const pedidos = new Set(input.ids.map((id) => `agent:${id}`));
+    const pagina = claves.filter((clave) => pedidos.has(clave));
+    return { pagina, hasMore: false, nextOffset: 0 };
+  }
+  const pagina = claves.slice(input.offset, input.offset + input.limit);
+  return {
+    pagina,
+    hasMore: input.offset + pagina.length < claves.length,
+    nextOffset: input.offset + pagina.length,
+  };
+}

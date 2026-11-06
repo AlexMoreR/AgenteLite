@@ -416,6 +416,22 @@ await prueba("consultas: dueño, cache fria <= 11 y caliente <= 7 (antes eran 14
   assert.ok(!fria.sqls.some((s) => s.includes("_aggr_count_conversations")));
 });
 
+// Dato nuevo (parte 2 de "Esperando respuesta"): cuantas consultas hace la vista espera=1. Aca las
+// dos consultas de la espera no devuelven filas, asi que no se trae ninguna fila por id: es el piso.
+await prueba("consultas: dueño con espera=1 (dato nuevo; la espera se guarda 60 s)", async () => {
+  cargar("@/features/chats/services/espera-de-chats").vaciarCacheDeEspera();
+  permisos.vaciarCachesDePermisos();
+  const url = "http://x/api/cliente/chats/list?assigned=all&limit=20&espera=1";
+  const fria = await pedir(url);
+  const caliente = await pedir(url);
+  console.log(`   dueño espera=1: fria ${fria.consultas}, caliente ${caliente.consultas}`);
+  assert.equal(fria.cuerpo.espera, true);
+  assert.equal(fria.cuerpo.nextCursor, null);
+  assert.equal(fria.sqls.filter((s) => s.includes("WITH candidatas AS")).length, 2, "una del canal viejo y una de la oficial");
+  assert.equal(caliente.sqls.filter((s) => s.includes("WITH candidatas AS")).length, 0, "de la memoria");
+  assert.ok(caliente.consultas <= fria.consultas);
+});
+
 await prueba("consultas: asesora con linea elegida y scroll, caliente <= 7 (antes eran 17)", async () => {
   escenario.userRole = "EMPLEADO";
   escenario.memberRole = "AGENT";
