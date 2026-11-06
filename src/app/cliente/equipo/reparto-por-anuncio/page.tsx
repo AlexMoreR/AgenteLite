@@ -4,11 +4,22 @@ import Link from "next/link";
 import { RepartoPorAnuncioForm } from "@/components/reparto-por-anuncio-form";
 import { NegocioEquipoTabs } from "@/components/negocio-equipo-tabs";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
+import { metaAdsConfigurado } from "@/features/pauta/servicios/meta-ads-lectura";
 import { prisma } from "@/lib/prisma";
-import { leerReglas } from "@/lib/reparto-por-anuncio";
+import { anunciosConocidosPorCampana, leerReglas, usoDeLasReglas } from "@/lib/reparto-por-anuncio";
 
 export const metadata: Metadata = { robots: { index: false, follow: false } };
 export const dynamic = "force-dynamic";
+
+// La fecha del último chat se arma aquí (servidor) como texto, en hora de Colombia, para que el
+// navegador no la vuelva a formatear con otra zona y descuadre la hidratación.
+const FECHA_DEL_ULTIMO = new Intl.DateTimeFormat("es-CO", {
+  timeZone: "America/Bogota",
+  day: "numeric",
+  month: "short",
+  hour: "numeric",
+  minute: "2-digit",
+});
 
 /*
   REPARTO POR ANUNCIO (dueño, 3-nov-2026): campaña o anuncio de Meta → asesora (o "reparto normal").
@@ -18,8 +29,12 @@ export const dynamic = "force-dynamic";
 export default async function RepartoPorAnuncioPage() {
   const access = await requireClientWorkspaceAccess("client_team", { ownerOnly: true });
 
-  const [reglas, canales, miembros] = await Promise.all([
+  const metaConectado = metaAdsConfigurado();
+  // El contador y los anuncios conocidos son de ayuda: si fallan, la pantalla sale igual (en cero).
+  const [reglas, uso, anunciosConocidos, canales, miembros] = await Promise.all([
     leerReglas(access.workspaceId).catch(() => []),
+    usoDeLasReglas(access.workspaceId).catch(() => ({}) as Awaited<ReturnType<typeof usoDeLasReglas>>),
+    anunciosConocidosPorCampana().catch(() => ({}) as Record<string, number>),
     prisma.whatsAppChannel.findMany({
       where: { workspaceId: access.workspaceId },
       orderBy: { createdAt: "asc" },
@@ -51,9 +66,25 @@ export default async function RepartoPorAnuncioPage() {
         <p className="text-sm text-muted-foreground">
           Cada chat nuevo que llega de un anuncio de Meta se le asigna a la asesora de su regla, sin pasar por el reparto
           normal. La regla por anuncio gana sobre la de campaña. Si el anuncio no tiene regla, o la asesora no está activa,
-          el chat sigue el reparto normal. Con «Sin bienvenida» el bot no saluda: contesta la asesora.
+          el chat sigue el reparto normal. Cuando la regla le asigna el chat a una asesora, el bot queda en pausa en ese
+          chat y no manda el combo. Con «Sin bienvenida» el bot no escribe nada; sin esa casilla, en las líneas V3 sale
+          solo el aviso general de pausa.
         </p>
       </div>
+
+      {metaConectado ? (
+        <p className="text-sm">
+          Meta conectado: <span className="font-medium">sí</span>
+        </p>
+      ) : (
+        <p
+          className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+          role="alert"
+        >
+          <span className="font-medium">Meta conectado: no</span> — las reglas por campaña no pueden funcionar sin la
+          conexión de lectura de Meta. Las reglas por anuncio sí funcionan.
+        </p>
+      )}
 
       <RepartoPorAnuncioForm
         reglas={reglas.map((regla) => ({
@@ -65,6 +96,9 @@ export default async function RepartoPorAnuncioPage() {
           asignarA: regla.asignarA,
           sinBienvenida: regla.sinBienvenida,
           activa: regla.activa,
+          chats: uso[regla.id]?.chats ?? 0,
+          ultimoChat: uso[regla.id] ? FECHA_DEL_ULTIMO.format(uso[regla.id].ultimo) : null,
+          anunciosConocidos: regla.tipo === "campana" ? (anunciosConocidos[regla.metaId] ?? 0) : null,
         }))}
         lineas={canales.map((canal) => ({ id: canal.id, nombre: canal.name }))}
         asesoras={asesoras}

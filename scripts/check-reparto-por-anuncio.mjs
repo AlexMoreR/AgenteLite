@@ -524,6 +524,38 @@ await prueba("pantalla y acciones: solo dueño y administradores", () => {
   assert.match(acciones, /if \(!esIdDeMeta\(metaId\)\) return \{ error:/);
 });
 
+await prueba("pantalla: dice si Meta está conectado y avisa en rojo cuando no", () => {
+  const pagina = fs.readFileSync(path.join(RAIZ, "src/app/cliente/equipo/reparto-por-anuncio/page.tsx"), "utf8");
+  assert.match(pagina, /import \{ metaAdsConfigurado \} from "@\/features\/pauta\/servicios\/meta-ads-lectura";/);
+  assert.match(pagina, /const metaConectado = metaAdsConfigurado\(\);/);
+  assert.match(pagina, /Meta conectado: <span className="font-medium">sí<\/span>/);
+  assert.match(pagina, /Meta conectado: no<\/span>/);
+  assert.match(pagina, /text-destructive"\s+role="alert"/);
+  assert.match(pagina, /las reglas por campaña no pueden funcionar sin la\s+conexión de lectura de Meta/);
+  // El contador y los anuncios conocidos no tumban la pantalla si fallan.
+  assert.match(pagina, /usoDeLasReglas\(access\.workspaceId\)\.catch\(/);
+  assert.match(pagina, /anunciosConocidosPorCampana\(\)\.catch\(/);
+  // La fecha va armada en el servidor, en hora de Colombia, y los anuncios solo en reglas de campaña.
+  assert.match(pagina, /timeZone: "America\/Bogota"/);
+  assert.match(pagina, /ultimoChat: uso\[regla\.id\] \? FECHA_DEL_ULTIMO\.format\(uso\[regla\.id\]\.ultimo\) : null/);
+  assert.match(pagina, /anunciosConocidos: regla\.tipo === "campana" \? /);
+});
+
+await prueba("formulario: muestra los chats de cada regla y el botón llama la acción de actualizar anuncios", () => {
+  const formulario = fs.readFileSync(path.join(RAIZ, "src/components/reparto-por-anuncio-form.tsx"), "utf8");
+  assert.match(formulario, /chats: number;/);
+  assert.match(formulario, /ultimoChat: string \| null;/);
+  assert.match(formulario, /anunciosConocidos: number \| null;/);
+  assert.match(formulario, /`\$\{regla\.chats\} chats`/);
+  assert.match(formulario, /último: \$\{regla\.ultimoChat\}/);
+  assert.match(formulario, /anuncios conocidos/);
+  assert.match(formulario, /const resultado = await actualizarAnunciosDeCampanasAction\(\);/);
+  assert.match(formulario, /onClick=\{actualizarAnuncios\}/);
+  assert.match(formulario, /Actualizar anuncios de las campañas/);
+  const funcion = formulario.slice(formulario.indexOf("function actualizarAnuncios()"));
+  assert.match(funcion.slice(0, 600), /toast\.error\(resultado\.error\)[\s\S]*toast\.success\([\s\S]*router\.refresh\(\)/);
+});
+
 await prueba("solo lectura de Meta: se usa buscarAnuncio sin otros métodos", () => {
   const fuente = fs.readFileSync(path.join(RAIZ, "src/lib/reparto-por-anuncio.ts"), "utf8");
   assert.match(fuente, /import \{ buscarAnuncio, listarAnunciosDeCampana, metaAdsConfigurado \} from "@\/features\/pauta\/servicios\/meta-ads-lectura";/);

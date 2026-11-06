@@ -2,10 +2,11 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Trash2 } from "lucide-react";
+import { RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import {
+  actualizarAnunciosDeCampanasAction,
   borrarReglaDeAnuncioAction,
   cambiarReglaDeAnuncioAction,
   crearReglaDeAnuncioAction,
@@ -28,6 +29,12 @@ export type ReglaParaPantalla = {
   asignarA: string | null;
   sinBienvenida: boolean;
   activa: boolean;
+  /** Cuántos chats asignó esta regla (cada chat cuenta una vez). */
+  chats: number;
+  /** Cuándo asignó el último, ya en texto y en hora de Colombia (lo arma el servidor). */
+  ultimoChat: string | null;
+  /** Solo en reglas de campaña: cuántos anuncios de esa campaña conoce el CRM. */
+  anunciosConocidos: number | null;
 };
 
 type Opcion = { id: string; nombre: string };
@@ -49,6 +56,8 @@ export function RepartoPorAnuncioForm({
 }) {
   const router = useRouter();
   const [pendiente, empezar] = useTransition();
+  // Aparte, para que el botón diga "Actualizando…" solo cuando es él el que trabaja.
+  const [actualizando, empezarActualizar] = useTransition();
   const [tipo, setTipo] = useState<"campana" | "anuncio">("campana");
   const [metaId, setMetaId] = useState("");
   const [nombre, setNombre] = useState("");
@@ -91,6 +100,22 @@ export function RepartoPorAnuncioForm({
       router.refresh();
     });
   }
+
+  function actualizarAnuncios() {
+    empezarActualizar(async () => {
+      const resultado = await actualizarAnunciosDeCampanasAction();
+      if ("error" in resultado) {
+        toast.error(resultado.error);
+        return;
+      }
+      toast.success(
+        resultado.anuncios === 1 ? "Listo: 1 anuncio de las campañas" : `Listo: ${resultado.anuncios} anuncios de las campañas`,
+      );
+      router.refresh();
+    });
+  }
+
+  const hayReglasDeCampana = reglas.some((regla) => regla.tipo === "campana");
 
   function borrar(regla: ReglaParaPantalla) {
     if (!window.confirm(`¿Borrar la regla «${regla.nombre}»?`)) return;
@@ -190,7 +215,8 @@ export function RepartoPorAnuncioForm({
                   onCheckedChange={(valor) => setSinBienvenida(valor === true)}
                 />
                 <Label htmlFor="regla-sin-bienvenida" className="font-normal">
-                  Sin bienvenida del bot (contesta la asesora)
+                  Sin bienvenida: el bot no escribe nada en el primer mensaje (sin la casilla, en V3 sale solo el aviso de
+                  pausa)
                 </Label>
               </div>
               {error ? (
@@ -209,8 +235,14 @@ export function RepartoPorAnuncioForm({
       </Card>
 
       <Card>
-        <CardHeader className="pb-2">
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 pb-2">
           <CardTitle className="text-sm">Reglas guardadas</CardTitle>
+          {hayReglasDeCampana ? (
+            <Button type="button" variant="outline" size="sm" disabled={actualizando} onClick={actualizarAnuncios}>
+              <RefreshCw />
+              {actualizando ? "Actualizando…" : "Actualizar anuncios de las campañas"}
+            </Button>
+          ) : null}
         </CardHeader>
         <CardContent>
           {reglas.length === 0 ? (
@@ -235,6 +267,13 @@ export function RepartoPorAnuncioForm({
                           ? nombreDe(asesoras, regla.asignarA)
                           : `${nombres[regla.asignarA] ?? "Persona"} (no está activa: va al reparto normal)`
                         : "Reparto normal"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {regla.chats === 1 ? "1 chat" : `${regla.chats} chats`}
+                      {regla.ultimoChat ? ` · último: ${regla.ultimoChat}` : ""}
+                      {regla.anunciosConocidos !== null
+                        ? ` · ${regla.anunciosConocidos === 1 ? "1 anuncio conocido" : `${regla.anunciosConocidos} anuncios conocidos`}`
+                        : ""}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
