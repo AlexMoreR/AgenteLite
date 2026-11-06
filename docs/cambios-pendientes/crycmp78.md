@@ -1,0 +1,2 @@
+## Advertencias de operación
+- `sin_responder_en_bandeja`: la marca y la pastilla "Sin responder" de la bandeja de Chats cuentan al bot y a los seguimientos como respuesta (cualquier saliente que no sea nota ni haya fallado la quita); el dato `espera` de /counts ("Esperando respuesta") no sigue esta misma regla, porque ahí el bot no cuenta; con la pastilla puesta, un chat recién escrito por el cliente puede tardar hasta 1 min en aparecer (caché de 60 s del filtro).

@@ -95,6 +95,7 @@ import type { CrmStage } from "@/features/crm/types";
 import { resolveCallTarget } from "@/lib/whatsapp-lid";
 import { iniciarMedicion, terminarMedicion, terminarMedicionAlPintar } from "@/lib/metricas-chats";
 import { aplicarFirmaDelChat } from "@/lib/firma-del-chat";
+import { filaSeOcultaPorSinResponder, filtroSinResponderPuesto } from "@/features/chats/domain/sin-responder";
 import { EditarMensajeDialog } from "@/components/chats/editar-mensaje-dialog";
 import {
   agregarFallido,
@@ -3060,6 +3061,25 @@ export function SharedInbox({
     de la lista): con eso la barra se dibuja AL TOCAR, sin esperar a /live, que despues la corrige
     si algo cambio. 0 pedidos mas.
   */
+  /*
+    Con el filtro "Sin responder" puesto, lo ya respondido sale de la lista sin recargar: la asesora
+    contesta, el chat abierto se queda hasta que cambia de chat y ahi sale. Tambien tapa la cache de
+    60 s del filtro en el servidor (un chat recien contestado no reaparece). Un chat recien escrito
+    puede tardar hasta 1 min en entrar, y eso es lo esperado.
+  */
+  const sinResponderPuesto = filtroSinResponderPuesto(filtrosDeLaUrl);
+  const filasParaLaBarra = useMemo(() => {
+    if (!sinResponderPuesto) return displayedConversationItems;
+    return displayedConversationItems.filter(
+      (item) =>
+        !filaSeOcultaPorSinResponder({
+          filtroPuesto: true,
+          sinResponderDesde: item.sinResponderDesde,
+          esElChatAbierto: conversationIdMatchesKey(selectedConversationKey, item.id),
+        }),
+    );
+  }, [displayedConversationItems, selectedConversationKey, sinResponderPuesto]);
+
   const filaDelChatAbierto = useMemo(
     () =>
       selectedConversationKey.startsWith("agent:")
@@ -3968,7 +3988,7 @@ export function SharedInbox({
       ) : null}
 
       <AppSidebar
-        conversationItems={displayedConversationItems}
+        conversationItems={filasParaLaBarra}
         selectedConversationId={selectedConversationId}
         searchAction={searchAction}
         selectedConnectionKey={selectedConnectionKey}

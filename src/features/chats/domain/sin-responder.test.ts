@@ -3,12 +3,16 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  alternarFiltroSinResponder,
   colorSinResponder,
+  filaSeOcultaPorSinResponder,
+  filtroSinResponderPuesto,
   marcaSinResponder,
   minutosSinResponder,
   siguienteSinResponderDesde,
   textoSinResponder,
 } from "./sin-responder";
+import type { CondicionDeBandeja } from "./filtros-de-bandeja";
 import {
   areConversationListItemsEqual,
   buildConversationItemFromListSnapshot,
@@ -277,4 +281,39 @@ test("mezcla: tras un envio fallido, el refresco del servidor la devuelve", () =
   // Una fila del servidor sin el dato (undefined) no borra lo que ya habia.
   const sinDato = mergeConversationListItem({ ...delServidor, sinResponderDesde: undefined }, filaEsperando);
   assert.equal(sinDato.sinResponderDesde, ESPERA_DESDE);
+});
+
+test("la pastilla esta activa solo con sin_responder:si", () => {
+  assert.equal(filtroSinResponderPuesto({ condiciones: [] }), false);
+  assert.equal(filtroSinResponderPuesto({ condiciones: [{ campo: "sin_responder", operador: "no" }] }), false);
+  assert.equal(filtroSinResponderPuesto({ condiciones: [{ campo: "sin_responder", operador: "si" }] }), true);
+});
+
+test("tocar la pastilla agrega la condicion a las que ya hay y otra vez la quita", () => {
+  const etapa: CondicionDeBandeja = { campo: "etapa", operador: "es", valores: ["NUEVO"] };
+  const puesta = alternarFiltroSinResponder({ condiciones: [etapa] });
+  assert.deepEqual(puesta.condiciones, [etapa, { campo: "sin_responder", operador: "si" }]);
+  const quitada = alternarFiltroSinResponder(puesta);
+  assert.deepEqual(quitada.condiciones, [etapa]);
+});
+
+test("tocar la pastilla reemplaza una sin_responder:no", () => {
+  const puesta = alternarFiltroSinResponder({ condiciones: [{ campo: "sin_responder", operador: "no" }] });
+  assert.deepEqual(puesta.condiciones, [{ campo: "sin_responder", operador: "si" }]);
+});
+
+test("con el filtro puesto, una fila ya respondida sale salvo que sea el chat abierto", () => {
+  // Ya respondida (null), filtro puesto y otro chat abierto: sale.
+  assert.equal(filaSeOcultaPorSinResponder({ filtroPuesto: true, sinResponderDesde: null, esElChatAbierto: false }), true);
+  // Es el chat abierto: se queda hasta cambiar de chat.
+  assert.equal(filaSeOcultaPorSinResponder({ filtroPuesto: true, sinResponderDesde: null, esElChatAbierto: true }), false);
+  // Sigue esperando: se queda.
+  assert.equal(
+    filaSeOcultaPorSinResponder({ filtroPuesto: true, sinResponderDesde: haceMinutos(5), esElChatAbierto: false }),
+    false,
+  );
+  // Sin el dato (undefined): no se sabe, se deja.
+  assert.equal(filaSeOcultaPorSinResponder({ filtroPuesto: true, sinResponderDesde: undefined, esElChatAbierto: false }), false);
+  // Sin el filtro: nunca se oculta.
+  assert.equal(filaSeOcultaPorSinResponder({ filtroPuesto: false, sinResponderDesde: null, esElChatAbierto: false }), false);
 });

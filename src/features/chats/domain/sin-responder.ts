@@ -14,6 +14,8 @@
  * Ojo: no es lo mismo que "Esperando respuesta" (espera-de-chats.ts), donde el bot no cuenta.
  */
 
+import type { FiltrosDeBandeja } from "./filtros-de-bandeja";
+
 /** Hasta este minuto (inclusive) la marca va en amarillo; desde el siguiente, en rojo. */
 export const MINUTOS_EN_AMARILLO = 15;
 
@@ -86,4 +88,46 @@ export function siguienteSinResponderDesde<F>(actual: F | null, mensaje: Mensaje
   if (mensaje.tipo === "SYSTEM" || mensaje.status === "FAILED") return actual;
   if (mensaje.direccion === "OUTBOUND") return null;
   return actual ?? mensaje.fecha;
+}
+
+/** La pastilla "Sin responder" esta activa: hay una condicion `sin_responder` con operador `si`. */
+export function filtroSinResponderPuesto(filtros: FiltrosDeBandeja): boolean {
+  return filtros.condiciones.some((c) => c.campo === "sin_responder" && c.operador === "si");
+}
+
+/**
+ * Las condiciones despues de tocar la pastilla "Sin responder":
+ * - si ya estaba puesta, se quita (y nada mas);
+ * - si no, se agrega a las que ya hay, reemplazando una `sin_responder:no` si la habia.
+ * Las demas condiciones quedan igual y en el mismo orden ("Mias + Sin responder" = solo los mios).
+ */
+export function alternarFiltroSinResponder(filtros: FiltrosDeBandeja): FiltrosDeBandeja {
+  if (filtroSinResponderPuesto(filtros)) {
+    return { condiciones: filtros.condiciones.filter((c) => !(c.campo === "sin_responder" && c.operador === "si")) };
+  }
+  return {
+    condiciones: [
+      ...filtros.condiciones.filter((c) => c.campo !== "sin_responder"),
+      { campo: "sin_responder", operador: "si" },
+    ],
+  };
+}
+
+/**
+ * Con el filtro "Sin responder" puesto, una fila que ya se respondio sale de la lista sin recargar.
+ *
+ * - Solo con el filtro puesto.
+ * - Solo si `sinResponderDesde` es `null` (ya se respondio). `undefined` es "no se sabe" (la fila
+ *   no trae el dato): no se decide sobre lo que no se sabe y se deja.
+ * - El chat abierto nunca se oculta: la asesora que acaba de contestar sigue viendolo hasta que
+ *   cambia de chat; ahi recien sale.
+ *
+ * Tambien tapa la cache de 60 s del filtro en el servidor: un chat recien contestado no reaparece.
+ */
+export function filaSeOcultaPorSinResponder(input: {
+  filtroPuesto: boolean;
+  sinResponderDesde: Date | string | number | null | undefined;
+  esElChatAbierto: boolean;
+}): boolean {
+  return input.filtroPuesto && input.sinResponderDesde === null && !input.esElChatAbierto;
 }

@@ -27,6 +27,7 @@ import {
   textoDeCondicion,
   type FiltrosDeBandeja,
 } from "@/features/chats/domain/filtros-de-bandeja";
+import { alternarFiltroSinResponder, filtroSinResponderPuesto } from "@/features/chats/domain/sin-responder";
 import { CRM_STAGE_META } from "@/features/crm/domain/crm-config";
 import { iniciarMedicion, terminarMedicionAlPintar } from "@/lib/metricas-chats";
 
@@ -528,6 +529,9 @@ export const AppSidebar = React.memo(function AppSidebar({
     (isManager && assignedFilter !== "all") ||
     hayFiltrosPuestos(filtros);
 
+  // La pastilla "Sin responder" va azul si hay una condicion sin_responder:si.
+  const sinResponderActivo = filtroSinResponderPuesto(filtros);
+
   return (
     <aside
       className={`${mobileConversationActive ? "hidden md:flex" : "flex"} chat-inbox-sidebar min-h-0 flex-1 overflow-hidden border border-border bg-card p-0 shadow-none md:h-full md:shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)]`}
@@ -614,6 +618,26 @@ export const AppSidebar = React.memo(function AppSidebar({
               })}
 
               {/*
+                "Sin responder" a un toque, tambien para la asesora (que solo tiene "Mias"): va fuera
+                del map de arriba. Sin numero. Se SUMA a lo que ya esta puesto ("Mias + Sin
+                responder" = solo los mios) y al tocarla otra vez se quita; no es un filtro aparte.
+                Activa = hay una condicion sin_responder:si; con una lista abierta, tocarla cambia la
+                vista y la lista deja de contar como abierta.
+              */}
+              <button
+                type="button"
+                aria-pressed={sinResponderActivo}
+                onClick={() => aplicarFiltros(assignedFilter, statusFilter, alternarFiltroSinResponder(filtros))}
+                className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1 text-[13px] font-medium transition ${
+                  sinResponderActivo
+                    ? "border-transparent bg-primary text-primary-foreground"
+                    : "border-border text-muted-foreground hover:bg-muted"
+                }`}
+              >
+                Sin responder
+              </button>
+
+              {/*
                 Las listas de esta persona. La abierta va en azul y con su numero (el de los demas
                 costaria una consulta por lista en cada recarga). Mantener presionada o clic derecho:
                 editar, mover o borrar.
@@ -683,6 +707,12 @@ export const AppSidebar = React.memo(function AppSidebar({
                 chats, no entiende por que, y termina pensando que se perdieron conversaciones.
               */}
               {filtros.condiciones.map((condicion, indice) => {
+                /*
+                  sin_responder:si ya se ve en la pastilla "Sin responder": no se repite como chapita.
+                  Se devuelve null en vez de filtrar antes para no correr los indices con los que se
+                  quitan las demas. La de sin_responder:no si se queda.
+                */
+                if (condicion.campo === "sin_responder" && condicion.operador === "si") return null;
                 // Una etapa o una etiqueta sola se ve con sus colores; "no tiene" / "no es", en rojo.
                 const negada = condicion.operador === "no_es" || condicion.operador === "no_tiene";
                 const etapaSola = condicion.campo === "etapa" && condicion.valores.length === 1 && !negada ? CRM_STAGE_META[condicion.valores[0]] : null;
