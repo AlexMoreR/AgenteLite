@@ -3,6 +3,7 @@
 // Reglas puras + el servicio con la base y los envíos simulados (sin red ni base real).
 // Correr: npm run test:supervisor-accionable
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { cargar } from "./supervisor-cargar.mjs";
 
 /* ------------------------------------------------------------------ base y envíos simulados */
@@ -1941,6 +1942,58 @@ await prueba("servicio: una escalada vieja (sin whatsappAlexander) nunca genera 
   const config = await servicio.leerConfigAccionable(WS);
   await servicio.gestionarAcciones({ workspaceId: WS, hallazgos: [], chats: [maria()], ahora: mas(T0, 30), config });
   assert.equal(enviados.whatsapp.length, 0);
+});
+
+await prueba("etiquetaWhatsAppDeAlexander: sin dato, pendiente, pendiente con intentos, enviado y no salió", () => {
+  assert.equal(r.etiquetaWhatsAppDeAlexander({}), null, "escalada vieja: null");
+  assert.equal(r.etiquetaWhatsAppDeAlexander({ whatsappAlexander: { estado: "PENDIENTE", intentos: 0, enviadoEn: null, motivo: null } }), "WhatsApp pendiente");
+  assert.equal(
+    r.etiquetaWhatsAppDeAlexander({ whatsappAlexander: { estado: "PENDIENTE", intentos: 2, enviadoEn: null, motivo: "la línea no responde" } }),
+    `WhatsApp pendiente (intento 2 de ${r.MAX_INTENTOS_WHATSAPP}: la línea no responde)`,
+  );
+  assert.equal(r.MAX_INTENTOS_WHATSAPP, 6);
+  assert.equal(
+    r.etiquetaWhatsAppDeAlexander({ whatsappAlexander: { estado: "ENVIADO", intentos: 1, enviadoEn: "2026-11-06T15:23:00.000Z", motivo: null } }),
+    "WhatsApp enviado 10:23",
+  );
+  assert.equal(
+    r.etiquetaWhatsAppDeAlexander({ whatsappAlexander: { estado: "NO_SALIO", intentos: 6, enviadoEn: null, motivo: "la línea está desconectada" } }),
+    "WhatsApp no salió: la línea está desconectada",
+  );
+  assert.ok(r.etiquetaWhatsAppDeAlexander({ whatsappAlexander: { estado: "NO_SALIO", intentos: 6, enviadoEn: null, motivo: "x" } }).startsWith(r.WHATSAPP_NO_SALIO));
+});
+
+await prueba("tarjetaDeAccion: trae la etiqueta del WhatsApp; las viejas y los incidentes no; el resto de la tarjeta no cambia", () => {
+  const a = escaladaPura("c1");
+  assert.equal(a.whatsappAlexander.estado, "PENDIENTE");
+  const t = r.tarjetaDeAccion(a, mas(T0, 25));
+  assert.equal(t.whatsappAlexander, "WhatsApp pendiente");
+  const enviada = { ...a, whatsappAlexander: { estado: "ENVIADO", intentos: 1, enviadoEn: "2026-11-06T15:23:00.000Z", motivo: null } };
+  assert.equal(r.tarjetaDeAccion(enviada, mas(T0, 25)).whatsappAlexander, "WhatsApp enviado 10:23");
+  const vieja = { ...a };
+  delete vieja.whatsappAlexander;
+  const tv = r.tarjetaDeAccion(vieja, mas(T0, 25));
+  assert.equal("whatsappAlexander" in tv, false, "escalada vieja: sin el campo");
+  const { whatsappAlexander: _w, ...sinEtiqueta } = t;
+  assert.deepEqual(sinEtiqueta, tv, "lo demás de la tarjeta queda igual");
+  const inc = r.tarjetaDeIncidente({
+    clave: "BOT:x",
+    familia: "BOT",
+    severidad: "CRITICO",
+    titulo: "Bot caído",
+    primeraVezEn: T0,
+    hallazgos: [{ clave: "BOT:x", familia: "BOT", severidad: "CRITICO", titulo: "Bot caído", hechos: [], recomendacion: "", queCambiar: "", conversationIds: [] }],
+  });
+  assert.equal("whatsappAlexander" in inc, false, "los incidentes no la llevan");
+});
+
+await prueba("PanelAccionable y CajaDePrioridad: muestran la etiqueta del WhatsApp; 'no salió' en rojo", () => {
+  const panel = readFileSync("src/features/supervisor-accionable/components/PanelAccionable.tsx", "utf8");
+  assert.match(panel, /case "ESCALADA": \{\s*const whatsapp = etiquetaWhatsAppDeAlexander\(a\);/);
+  assert.match(panel, /\$\{whatsapp \? ` · \$\{whatsapp\}` : ""\}/);
+  const caja = readFileSync("src/features/supervisor-accionable/components/CajaDePrioridad.tsx", "utf8");
+  assert.match(caja, /tarjeta\.whatsappAlexander \? \(/, "sin dato no pinta nada");
+  assert.match(caja, /startsWith\(WHATSAPP_NO_SALIO\) \? "font-semibold text-red-600" : "text-foreground\/80"/);
 });
 
 console.log(`\n${pruebas} pruebas OK`);

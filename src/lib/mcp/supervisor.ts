@@ -1,6 +1,14 @@
 import { Prisma } from "@prisma/client";
 
-import { idDeIncidente, ESTADOS_ACTIVOS, ETIQUETA_DE_ESTADO, type Accion, type Atendidas, type EstadoAccionable } from "@/features/supervisor-accionable/dominio/reglas";
+import {
+  etiquetaWhatsAppDeAlexander,
+  idDeIncidente,
+  ESTADOS_ACTIVOS,
+  ETIQUETA_DE_ESTADO,
+  type Accion,
+  type Atendidas,
+  type EstadoAccionable,
+} from "@/features/supervisor-accionable/dominio/reglas";
 import { leerAtendidas, leerConfigAccionable, leerEstadoAccionable } from "@/features/supervisor-accionable/servicios/accionable";
 import type { Incidente } from "@/features/supervisor/dominio/alertas";
 import { filaDelChat, idsDeChatsDeLaAlerta, type DatosDelChat } from "@/features/supervisor/dominio/chats-de-la-alerta";
@@ -64,7 +72,7 @@ export const HERRAMIENTAS_MCP_SUPERVISOR = [
     name: "ver_supervisor",
     title: "Ver los avisos del Supervisor",
     description:
-      "Lo que tiene abierto el Supervisor, AGRUPADO POR ASESORA para armar UN solo mensaje por cada una (no varios sueltos en el dia). Por asesora: (1) sus avisos abiertos con gravedad, motivo, lo ultimo que dijo el cliente, cuanto lleva esperando, telefono COMPLETO, id de la conversacion, que intento el Supervisor (aviso, plazo, segundo aviso, escalada) y la solucion recomendada con el mensaje sugerido; (2) sus chats Caliente y Tibio con mas de 24 h sin mensaje de ella. Aparte van 'sin_asesora' y 'para_alexander' (avisos del bot, del embudo o del libro: no son de ninguna asesora, no meterlos en sus mensajes). Lo que Alexander ya marco como atendido no sale. Solo lectura: no manda mensajes ni marca nada. Usar en la hora de ventas y en los chequeos de 2:00 y 6:00 p. m.",
+      "Lo que tiene abierto el Supervisor, AGRUPADO POR ASESORA para armar UN solo mensaje por cada una (no varios sueltos en el dia). Por asesora: (1) sus avisos abiertos con gravedad, motivo, lo ultimo que dijo el cliente, cuanto lleva esperando, telefono COMPLETO, id de la conversacion, que intento el Supervisor (aviso, plazo, segundo aviso, escalada) y la solucion recomendada con el mensaje sugerido; (2) sus chats Caliente y Tibio con mas de 24 h sin mensaje de ella. Aparte van 'sin_asesora' y 'para_alexander' (avisos del bot, del embudo o del libro: no son de ninguna asesora, no meterlos en sus mensajes). Lo que Alexander ya marco como atendido no sale. Cada escalada trae 'whatsapp_a_alexander' (pendiente, enviado o no salio, con intentos y motivo) y 'whatsapp_de_alexander' dice como va el envio en general. Solo lectura: no manda mensajes ni marca nada. Usar en la hora de ventas y en los chequeos de 2:00 y 6:00 p. m.",
     inputSchema: {
       type: "object",
       properties: {
@@ -244,6 +252,16 @@ export function queHizoElSupervisor(accion: Accion | undefined, ahora: Date) {
     escalada_a_alexander_en: hora(accion.escaladaEn),
     gravedad_de_la_escalada: accion.gravedadEscalada ? ETIQUETA_DE_SEVERIDAD[accion.gravedadEscalada] : null,
     motivo_de_la_escalada: accion.motivoEscalada,
+    // El WhatsApp de la escalada a Alexander; null en las acciones de antes que no traen el dato.
+    whatsapp_a_alexander: accion.whatsappAlexander
+      ? {
+          estado: accion.whatsappAlexander.estado,
+          intentos: accion.whatsappAlexander.intentos,
+          enviado_en: hora(accion.whatsappAlexander.enviadoEn),
+          motivo: accion.whatsappAlexander.motivo,
+          resumen: etiquetaWhatsAppDeAlexander(accion),
+        }
+      : null,
   };
 }
 

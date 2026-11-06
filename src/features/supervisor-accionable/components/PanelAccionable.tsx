@@ -7,6 +7,7 @@ import {
   ETIQUETA_DE_GRAVEDAD,
   duracion,
   enlaceAlChat,
+  etiquetaWhatsAppDeAlexander,
   horaBogota,
   textoDelPlazo,
   type Accion,
@@ -36,8 +37,10 @@ function detalleDelEstado(a: Accion): string {
       return `Plazo vencido ${horaBogota(a.venceEn)} · segundo aviso ${horaBogota(a.segundoAvisoEn)}${a.segundoAvisoA ? ` (y ${a.segundoAvisoA})` : ""}`;
     case "RESUELTA_ABAJO":
       return `Resuelta por ${a.resueltaPorNombre ?? a.responsableNombre} en ${a.minutosHastaResolver ?? "?"} min`;
-    case "ESCALADA":
-      return `Escalada ${horaBogota(a.escaladaEn)} (${a.gravedadEscalada ? ETIQUETA_DE_GRAVEDAD[a.gravedadEscalada].toLowerCase() : "importante"})${a.liderNombre ? ` · avisado ${a.liderNombre}` : ""}`;
+    case "ESCALADA": {
+      const whatsapp = etiquetaWhatsAppDeAlexander(a);
+      return `Escalada ${horaBogota(a.escaladaEn)} (${a.gravedadEscalada ? ETIQUETA_DE_GRAVEDAD[a.gravedadEscalada].toLowerCase() : "importante"})${a.liderNombre ? ` · avisado ${a.liderNombre}` : ""}${whatsapp ? ` · ${whatsapp}` : ""}`;
+    }
     case "RESUELTA_TRAS_ESCALAR":
       return `Respondida ${horaBogota(a.resueltaEn)}, ${typeof a.minutosTrasEscalar === "number" ? `${a.minutosTrasEscalar} min ` : ""}después de escalar`;
     case "ATENDIDA_POR_ALEXANDER":
