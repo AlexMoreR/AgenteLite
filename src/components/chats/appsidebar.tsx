@@ -27,6 +27,7 @@ import {
   textoDeCondicion,
   type FiltrosDeBandeja,
 } from "@/features/chats/domain/filtros-de-bandeja";
+import { filtroSinResponderPuesto } from "@/features/chats/domain/sin-responder";
 import { CRM_STAGE_META } from "@/features/crm/domain/crm-config";
 import { iniciarMedicion, terminarMedicionAlPintar } from "@/lib/metricas-chats";
 
@@ -522,6 +523,9 @@ export const AppSidebar = React.memo(function AppSidebar({
     },
   });
 
+  // La pastilla "Sin responder" va encendida si esta puesta la condicion `sin_responder:si`.
+  const sinResponderPuesto = filtroSinResponderPuesto(filtros.condiciones);
+
   // El + se marca cuando NO estas en la vista por defecto: abiertas y sin filtro de asignacion.
   const filtersActive =
     statusFilter !== "open" ||
@@ -614,6 +618,39 @@ export const AppSidebar = React.memo(function AppSidebar({
               })}
 
               {/*
+                "Sin responder" a un toque (parte 4 de la marca), fuera del map de Todas/Mias para que
+                tambien la vea la asesora, que solo tiene "Mias". Sin numero.
+
+                No es un filtro nuevo: pone o quita la condicion `sin_responder:si` sobre lo que ya
+                hay, asi "Mias + Sin responder" muestra solo los mios. Con una lista abierta se suma a
+                sus condiciones y la lista deja de contar como abierta (cambia la firma de la vista).
+              */}
+              <button
+                type="button"
+                aria-pressed={sinResponderPuesto}
+                onClick={() =>
+                  aplicarFiltros(assignedFilter, statusFilter, {
+                    condiciones: sinResponderPuesto
+                      ? filtros.condiciones.filter(
+                          (condicion) => !(condicion.campo === "sin_responder" && condicion.operador === "si"),
+                        )
+                      : [
+                          // Una "sin_responder:no" se reemplaza: las dos juntas no darian nada.
+                          ...filtros.condiciones.filter((condicion) => condicion.campo !== "sin_responder"),
+                          { campo: "sin_responder", operador: "si" },
+                        ],
+                  })
+                }
+                className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1 text-[13px] font-medium transition ${
+                  sinResponderPuesto
+                    ? "border-transparent bg-primary text-primary-foreground"
+                    : "border-border text-muted-foreground hover:bg-muted"
+                }`}
+              >
+                Sin responder
+              </button>
+
+              {/*
                 Las listas de esta persona. La abierta va en azul y con su numero (el de los demas
                 costaria una consulta por lista en cada recarga). Mantener presionada o clic derecho:
                 editar, mover o borrar.
@@ -690,6 +727,9 @@ export const AppSidebar = React.memo(function AppSidebar({
                   condicion.campo === "etiquetas" && condicion.valores.length === 1 && !negada
                     ? catalogosDeFiltro.etiquetas.find((item) => item.id === condicion.valores[0])
                     : null;
+                // "Sin responder: si" ya se ve en su pastilla. Se devuelve null en vez de filtrar
+                // antes, para no correr los indices con los que se quitan las demas.
+                if (condicion.campo === "sin_responder" && condicion.operador === "si") return null;
                 const texto = textoDeCondicion(condicion, nombresDeFiltro, new Date());
                 return (
                   <ChapaDeFiltro

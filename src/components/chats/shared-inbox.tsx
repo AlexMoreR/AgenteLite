@@ -85,6 +85,7 @@ import {
   mergeConversationSnapshotIfChanged,
   updateConversationItemByContact,
 } from "./chat-inbox-conversation-utils";
+import { filtroSinResponderPuesto, seOcultaPorSinResponder } from "@/features/chats/domain/sin-responder";
 import { ConversationPanel, type EnvioTerminado } from "./chat-conversation-panel";
 import { BarraDeAccionesDelChat, BarraDeAccionesEnSilueta, ChatHeaderActions } from "./chat-header-actions";
 import { MenuDelContacto } from "./menu-del-contacto";
@@ -1545,6 +1546,25 @@ export function SharedInbox({
   // leyendolo crudo apuntarian al chat viejo; sombreandolo pasan todos a la fuente unica.
   const selectedConversationKey = useOpenChatKey(selectedConversationIdFromUrl);
   const selectedConversationId = selectedConversationKey;
+
+  /*
+    Con el filtro "Sin responder" puesto, un chat ya contestado sale de la lista sin recargar (parte 4
+    de la marca). El chat abierto se queda hasta cambiar de chat. Tambien tapa la cache de 60 s del
+    filtro: un chat recien contestado no reaparece. Uno recien escrito puede tardar hasta 1 min en
+    entrar, y es lo esperado.
+  */
+  const filasDeLaBarraLateral = useMemo(() => {
+    const filtroPuesto = filtroSinResponderPuesto(filtrosDeLaUrl.condiciones);
+    if (!filtroPuesto) return displayedConversationItems;
+    return displayedConversationItems.filter(
+      (item) =>
+        !seOcultaPorSinResponder({
+          filtroPuesto,
+          sinResponderDesde: item.sinResponderDesde,
+          esElChatAbierto: conversationIdMatchesKey(selectedConversationKey, item.id),
+        }),
+    );
+  }, [displayedConversationItems, filtrosDeLaUrl, selectedConversationKey]);
 
   /*
     Abrir un chat apaga su aviso en la campanita, en el acto.
@@ -3968,7 +3988,7 @@ export function SharedInbox({
       ) : null}
 
       <AppSidebar
-        conversationItems={displayedConversationItems}
+        conversationItems={filasDeLaBarraLateral}
         selectedConversationId={selectedConversationId}
         searchAction={searchAction}
         selectedConnectionKey={selectedConnectionKey}

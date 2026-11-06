@@ -4,8 +4,10 @@ import { test } from "node:test";
 
 import {
   colorSinResponder,
+  filtroSinResponderPuesto,
   marcaSinResponder,
   minutosSinResponder,
+  seOcultaPorSinResponder,
   siguienteSinResponderDesde,
   textoSinResponder,
 } from "./sin-responder";
@@ -277,4 +279,34 @@ test("mezcla: tras un envio fallido, el refresco del servidor la devuelve", () =
   // Una fila del servidor sin el dato (undefined) no borra lo que ya habia.
   const sinDato = mergeConversationListItem({ ...delServidor, sinResponderDesde: undefined }, filaEsperando);
   assert.equal(sinDato.sinResponderDesde, ESPERA_DESDE);
+});
+
+test("filtroSinResponderPuesto: solo cuenta sin_responder con operador si", () => {
+  assert.equal(filtroSinResponderPuesto([]), false);
+  assert.equal(filtroSinResponderPuesto([{ campo: "sin_responder", operador: "si" }]), true);
+  assert.equal(filtroSinResponderPuesto([{ campo: "sin_responder", operador: "no" }]), false);
+  assert.equal(
+    filtroSinResponderPuesto([
+      { campo: "etapa", operador: "es" },
+      { campo: "sin_responder", operador: "si" },
+    ]),
+    true,
+  );
+  assert.equal(filtroSinResponderPuesto([{ campo: "dias_sin_responder", operador: "al_menos" }]), false);
+});
+
+test("seOcultaPorSinResponder: sale solo con el filtro, ya respondido y sin ser el chat abierto", () => {
+  // Con el filtro puesto y ya respondido: sale.
+  assert.equal(seOcultaPorSinResponder({ filtroPuesto: true, sinResponderDesde: null, esElChatAbierto: false }), true);
+  // El chat abierto se queda hasta cambiar de chat.
+  assert.equal(seOcultaPorSinResponder({ filtroPuesto: true, sinResponderDesde: null, esElChatAbierto: true }), false);
+  // Sin el filtro no se saca nada.
+  assert.equal(seOcultaPorSinResponder({ filtroPuesto: false, sinResponderDesde: null, esElChatAbierto: false }), false);
+  // Sigue esperando: se queda.
+  assert.equal(
+    seOcultaPorSinResponder({ filtroPuesto: true, sinResponderDesde: haceMinutos(5), esElChatAbierto: false }),
+    false,
+  );
+  // undefined es "no se sabe": no se oculta.
+  assert.equal(seOcultaPorSinResponder({ filtroPuesto: true, sinResponderDesde: undefined, esElChatAbierto: false }), false);
 });

@@ -87,3 +87,28 @@ export function siguienteSinResponderDesde<F>(actual: F | null, mensaje: Mensaje
   if (mensaje.direccion === "OUTBOUND") return null;
   return actual ?? mensaje.fecha;
 }
+
+/** La condicion del filtro "Sin responder" (`c=sin_responder:si`), sin importar Prisma. */
+type CondicionParaSinResponder = { campo: string; operador?: string };
+
+/** Si entre las condiciones de la bandeja esta puesta "Sin responder: si" (la pastilla, encendida). */
+export function filtroSinResponderPuesto(condiciones: readonly CondicionParaSinResponder[]): boolean {
+  return condiciones.some((condicion) => condicion.campo === "sin_responder" && condicion.operador === "si");
+}
+
+/**
+ * Si una fila se saca de la bandeja con el filtro "Sin responder" puesto, sin recargar.
+ *
+ * - Solo con el filtro puesto.
+ * - Solo si ya se respondio (`sinResponderDesde === null`). `undefined` es "no se sabe": se deja.
+ * - Nunca el chat abierto: al contestar se queda hasta cambiar de chat y despues sale.
+ *
+ * Tambien tapa la cache de 60 s del filtro: un chat recien contestado no reaparece.
+ */
+export function seOcultaPorSinResponder(input: {
+  filtroPuesto: boolean;
+  sinResponderDesde: Date | string | number | null | undefined;
+  esElChatAbierto: boolean;
+}): boolean {
+  return input.filtroPuesto && input.sinResponderDesde === null && !input.esElChatAbierto;
+}
