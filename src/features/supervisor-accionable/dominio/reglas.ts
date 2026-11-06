@@ -87,10 +87,11 @@ export type Riesgo = "PAGO" | "COTIZACION" | "VENTA" | "SISTEMA" | "PATRON" | "I
 const ORDEN_DE_RIESGO: Record<Riesgo, number> = { PAGO: 6, COTIZACION: 5, SISTEMA: 4, VENTA: 3, PATRON: 2, INTERES: 1 };
 
 /**
- * El canal de la escalada a Alexander:
- *  - CRITICO     → tarjeta + push + WhatsApp (solo plata en juego, en horario).
+ * Qué tan grave es la escalada a Alexander (ordena y decide el push). El WhatsApp ya no depende de
+ * esto (6-nov-2026): TODA escalada le manda un WhatsApp en horario, con reintentos (`whatsappAlexander`).
+ *  - CRITICO     → tarjeta + push (plata en juego, en horario).
  *  - IMPORTANTE  → tarjeta + push (agrupado por vuelta).
- *  - OBSERVACION → solo la tarjeta en su pantalla (sin interrumpirlo); cuenta para el patrón.
+ *  - OBSERVACION → tarjeta sin push (lead tibio); cuenta para el patrón.
  */
 export type GravedadDeEscalada = "CRITICO" | "IMPORTANTE" | "OBSERVACION";
 
@@ -160,6 +161,19 @@ export type Accion = {
   liderNombre?: string | null;
   /** Minutos desde la escalada hasta el primer mensaje humano en el chat (la medición del aviso al líder). */
   minutosTrasEscalar?: number | null;
+  /**
+   * El WhatsApp de la escalada a Alexander (6-nov-2026): toda escalada lo deja PENDIENTE y el servicio
+   * lo intenta en horario, con reintentos. Las acciones viejas no lo traen y nunca generan envío.
+   */
+  whatsappAlexander?: WhatsAppAAlexander;
+};
+
+/** Estado del WhatsApp de una escalada a Alexander. */
+export type WhatsAppAAlexander = {
+  estado: "PENDIENTE" | "ENVIADO" | "NO_SALIO";
+  intentos: number;
+  enviadoEn: string | null;
+  motivo: string | null;
 };
 
 /** Lo que queda de una acción cerrada (para medir y para el patrón semanal). */
@@ -693,9 +707,10 @@ export type Evento =
 export type Atendidas = Record<string, { en: string; por: string | null }>;
 
 /**
- * El canal de una escalada. WhatsApp solo cuando hay plata en juego (pago o cotización/anticipo)
- * y en horario; de noche o domingo, push y la tarjeta queda arriba para la mañana. Un lead tibio
- * sin respuesta no interrumpe a Alexander: queda en su pantalla y cuenta para el patrón.
+ * La gravedad de una escalada (ordena las tarjetas y decide el push). CRÍTICO cuando hay plata en
+ * juego (pago o cotización/anticipo) y es horario; de noche o domingo, IMPORTANTE. Un lead tibio
+ * con responsable queda en OBSERVACION (sin push). El WhatsApp a Alexander NO sale de aquí: toda
+ * escalada lo manda en horario (ver `whatsappsPendientes`).
  */
 export function gravedadDeEscalada(riesgo: Riesgo, ahora: Date, conResponsable = true): GravedadDeEscalada {
   if (riesgo === "PAGO" || riesgo === "COTIZACION") return enHorario(ahora) ? "CRITICO" : "IMPORTANTE";
@@ -781,7 +796,40 @@ function escalar(a: Accion, ahora: Date, motivo: string, eventos: Evento[]) {
   a.escaladaEn = ahora.toISOString();
   a.gravedadEscalada = gravedadDeEscalada(a.riesgo, ahora, Boolean(a.responsableId));
   a.motivoEscalada = motivo;
+  // Toda escalada manda WhatsApp a Alexander (el servicio lo intenta en horario, con reintentos).
+  a.whatsappAlexander = { estado: "PENDIENTE", intentos: 0, enviadoEn: null, motivo: null };
   eventos.push({ tipo: "escalar", accionId: a.id, gravedad: a.gravedadEscalada });
+}
+
+/** Intentos fallidos del WhatsApp de una escalada antes de darlo por no salido (uno por vuelta de 5 min). */
+export const MAX_INTENTOS_WHATSAPP = 6;
+
+/**
+ * Las escaladas con el WhatsApp a Alexander pendiente, de la más vieja a la más nueva. Fuera de
+ * horario (noche, domingo), ninguna: esperan a las 8 a. m. Lo resuelto o atendido ya no está
+ * ESCALADA y deja de salir.
+ */
+export function whatsappsPendientes(estado: EstadoAccionable, ahora: Date): Accion[] {
+  if (!enHorario(ahora)) return [];
+  return Object.values(estado.acciones)
+    .filter((a) => a.estado === "ESCALADA" && a.whatsappAlexander?.estado === "PENDIENTE")
+    .sort((a, b) => Date.parse(a.escaladaEn ?? a.detectadaEn) - Date.parse(b.escaladaEn ?? b.detectadaEn) || a.id.localeCompare(b.id));
+}
+
+/**
+ * Anota el resultado de un intento: con éxito, ENVIADO con la hora; con falla, un intento más y el
+ * motivo; al llegar a MAX_INTENTOS_WHATSAPP, NO_SALIO. Devuelve una acción nueva (no toca la de entrada).
+ */
+export function anotarIntentoWhatsApp(a: Accion, resultado: { ok: true } | { ok: false; motivo: string }, ahora: Date): Accion {
+  const previo = a.whatsappAlexander ?? { estado: "PENDIENTE" as const, intentos: 0, enviadoEn: null, motivo: null };
+  if (resultado.ok) {
+    return { ...a, whatsappAlexander: { ...previo, estado: "ENVIADO", enviadoEn: ahora.toISOString(), motivo: null } };
+  }
+  const intentos = previo.intentos + 1;
+  return {
+    ...a,
+    whatsappAlexander: { ...previo, estado: intentos >= MAX_INTENTOS_WHATSAPP ? "NO_SALIO" : "PENDIENTE", intentos, motivo: resultado.motivo },
+  };
 }
 
 /**
@@ -1164,7 +1212,7 @@ export function avanzar(input: {
         vistoEn: iso,
       };
       acciones[p.id] = patron;
-      // Un patrón no es urgente de minutos: push (riesgo PATRON), sin WhatsApp.
+      // Un patrón no es urgente de minutos, pero como toda escalada: push y WhatsApp a Alexander (en horario).
       escalar(patron, ahora, `Se repite: ${p.conteo} plazos vencidos ${periodo} (umbral ${p.umbral}). Ya no es un descuido: hay que hablar con ella.`, eventos);
     }
   }
@@ -1714,7 +1762,7 @@ export function textoDeLaTarjeta(t: Tarjeta): string {
   ].join("\n");
 }
 
-/** El WhatsApp corto para Alexander (solo CRÍTICO). */
+/** El WhatsApp corto para Alexander: el de toda escalada del accionable y el de los críticos del bot/embudo/sistema. */
 export function textoWhatsAppDeLaTarjeta(t: Tarjeta): string {
   return [
     `🚨 *${ETIQUETA_DE_GRAVEDAD[t.gravedad]}* · Supervisor`,

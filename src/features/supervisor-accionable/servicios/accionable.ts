@@ -7,12 +7,13 @@ import { sendPushToUser } from "@/lib/web-push";
 import { resolveCallablePhone } from "@/lib/whatsapp-lid";
 
 import { CONFIG_GRAVEDAD_POR_DEFECTO } from "@/features/avisos-gravedad/dominio/reglas";
+import type { ConfigGravedad } from "@/features/avisos-gravedad/dominio/reglas";
 import {
+  intentarWhatsAppAAlexander,
   leerConfigGravedad,
   lineaInterna,
   numeroDeAvisosDeLaPersona,
   pushAAlexander,
-  whatsAppAAlexander,
 } from "@/features/avisos-gravedad/servicios/enrutador";
 import type { Incidente } from "@/features/supervisor/dominio/alertas";
 import type { ChatAbierto } from "@/features/supervisor/dominio/detectores-atencion";
@@ -22,6 +23,7 @@ import {
   ESTADOS_ACTIVOS,
   DOMINIO,
   accionDeTarea,
+  anotarIntentoWhatsApp,
   avanzar,
   avisoDeTareasSinDuena,
   estadoTareasVacio,
@@ -46,6 +48,7 @@ import {
   textoParaElLider,
   textoParaLaAsesora,
   textoWhatsAppDeLaTarjeta,
+  whatsappsPendientes,
   type Accion,
   type Atendidas,
   type ConfigAccionable,
@@ -245,11 +248,9 @@ async function ejecutar(workspaceId: string, estado: EstadoAccionable, eventos: 
       if (evento.tipo === "escalar") {
         const accion = estado.acciones[evento.accionId];
         if (!accion) continue;
-        // OBSERVACION: solo la tarjeta en su pantalla (no lo interrumpe).
+        // OBSERVACION: sin push. El WhatsApp de toda escalada sale aparte (whatsappsDeEscaladas).
         if (evento.gravedad === "OBSERVACION") continue;
-        const tarjeta = tarjetaDeAccion(accion, ahora);
-        paraAlexander.push(tarjeta);
-        if (evento.gravedad === "CRITICO" && (await whatsAppAAlexander({ workspaceId, config: gravedad, texto: textoWhatsAppDeLaTarjeta(tarjeta) }))) enviados += 1;
+        paraAlexander.push(tarjetaDeAccion(accion, ahora));
       }
       // resuelta_abajo / resuelta_tras_escalar: no se avisa a nadie (queda en las métricas).
     } catch (error) {
@@ -261,6 +262,55 @@ async function ejecutar(workspaceId: string, estado: EstadoAccionable, eventos: 
     const push = pushDeVariasTarjetas(paraAlexander);
     const url = paraAlexander.length === 1 ? paraAlexander[0].enlace : "/cliente/direccion/supervisor";
     enviados += await pushAAlexander(workspaceId, gravedad, { ...push, tag: paraAlexander.length === 1 ? `accionable:${paraAlexander[0].id}` : `accionable:vuelta:${ahora.getTime()}`, url }).catch(() => 0);
+  }
+  return enviados;
+}
+
+/** Tiempo límite con el gateway para cada WhatsApp de escalada (así una línea colgada no frena la vuelta). */
+const LIMITE_WHATSAPP_ESCALADA_MS = 20_000;
+
+/**
+ * El WhatsApp a Alexander de TODA escalada (6-nov-2026), en horario y con reintentos. Recorre las
+ * pendientes de la más vieja a la más nueva y guarda el estado después de cada intento (si el sistema
+ * se reinicia, no se repite lo ya enviado). Si un intento falla, se anota y se corta: las demás
+ * esperan a la vuelta siguiente sin gastar intentos. Con `whatsapp.activo: false` (apagado de
+ * emergencia en avisos:gravedad) se corta sin gastar intentos y todo queda pendiente. Al llegar a
+ * NO_SALIO, un push a Alexander por esa acción. Nunca lanza.
+ */
+async function whatsappsDeEscaladas(workspaceId: string, estado: EstadoAccionable, ahora: Date): Promise<number> {
+  let enviados = 0;
+  try {
+    const pendientes = whatsappsPendientes(estado, ahora);
+    if (!pendientes.length) return 0;
+    const gravedad: ConfigGravedad = await leerConfigGravedad(workspaceId).catch(() => CONFIG_GRAVEDAD_POR_DEFECTO);
+    for (const pendiente of pendientes) {
+      const texto = textoWhatsAppDeLaTarjeta(tarjetaDeAccion(pendiente, ahora));
+      const resultado = await intentarWhatsAppAAlexander({ workspaceId, config: gravedad, texto, limiteMs: LIMITE_WHATSAPP_ESCALADA_MS }).catch(
+        (error: unknown) => ({ ok: false as const, motivo: error instanceof Error ? error.message : String(error) }),
+      );
+      // Apagado de emergencia: no se gasta el intento; queda pendiente para cuando lo prendan.
+      if (!resultado.ok && "apagado" in resultado && resultado.apagado) break;
+      const anotada = anotarIntentoWhatsApp(pendiente, resultado, ahora);
+      estado.acciones[anotada.id] = anotada;
+      await guardarJson(claveEstadoAccionable(workspaceId), estado);
+      if (resultado.ok) {
+        enviados += 1;
+        continue;
+      }
+      if (anotada.whatsappAlexander?.estado === "NO_SALIO") {
+        const quien = anotada.cliente || "un chat";
+        enviados += await pushAAlexander(workspaceId, gravedad, {
+          title: `No salió el WhatsApp · ${quien}`.slice(0, 60),
+          body: `La escalada de ${quien} no te llegó por WhatsApp tras ${anotada.whatsappAlexander.intentos} intentos. Mírala en el Supervisor.`.slice(0, 180),
+          tag: `accionable:whatsapp:${anotada.id}`,
+          url: anotada.conversationId ? enlaceAbsoluto(anotada).replace(DOMINIO, "") : "/cliente/direccion/supervisor",
+        }).catch(() => 0);
+      }
+      // Un intento fallido corta la vuelta: las demás esperan sin gastar intentos.
+      break;
+    }
+  } catch (error) {
+    console.warn("[supervisor-accionable] WhatsApp de escaladas", error instanceof Error ? error.message : error);
   }
   return enviados;
 }
@@ -293,7 +343,9 @@ export async function gestionarAcciones(input: {
     const { estado, eventos } = avanzar({ estado: previo, candidatas, chats: input.chats, atendidas, ahora, config, supervisora, numeros, asignadoIgnoraTurno: input.asignadoIgnoraTurno, lider });
     // Se guarda ANTES de mandar: si un envío se cuelga, la próxima vuelta no repite el aviso.
     await guardarJson(claveEstadoAccionable(workspaceId), estado);
-    const enviados = await ejecutar(workspaceId, estado, eventos, config, ahora);
+    let enviados = await ejecutar(workspaceId, estado, eventos, config, ahora);
+    // Con el estado ya guardado: el WhatsApp de cada escalada pendiente (nuevas y reintentos).
+    enviados += await whatsappsDeEscaladas(workspaceId, estado, ahora);
     return { eventos, enviados };
   } catch (error) {
     console.error("[supervisor-accionable]", workspaceId, error instanceof Error ? error.message : error);
