@@ -37,6 +37,7 @@ import { canalesQueMonitorea, enmascararSiEsTelefono, enmascararTelefono } from 
 import { esSupervisora } from "@/lib/permisos-del-equipo";
 import { chatKeyPorConversacion, puedeAbrirChatPorClave } from "@/lib/chats-acceso-por-enlace";
 import {
+  DIAS_DE_SIN_RESPONDER,
   idsSinResponder,
   leerFiltrosDeBandeja,
   paramsDeFiltros,
@@ -88,6 +89,8 @@ type UnifiedConversation = {
   lastMessageDirection?: "INBOUND" | "OUTBOUND" | null;
   lastMessageStatus?: string | null;
   lastMessageAt?: Date | null;
+  /** "Sin responder": desde el primer mensaje del cliente sin respuesta; null = ya contestado. */
+  sinResponderDesde?: Date | null;
   activeProductContext?: ActiveProductContextSummary | null;
 };
 
@@ -624,6 +627,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           workspaceId: membership.workspace.id,
           conversationIds: activeAgentConversationIds,
           ocultarSistemaSalvoLlamadas: false,
+          diasSinResponder: DIAS_DE_SIN_RESPONDER,
         }),
       )
     : Promise.resolve([] as FilaUltimoMensaje[]);
@@ -859,6 +863,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       lastMessageDirection: latestMessage?.direction ?? null,
       lastMessageStatus: latestMessage?.status ?? null,
       lastMessageAt: latestMessage?.createdAt ?? null,
+      // Un chat sin mensajes no espera respuesta: null.
+      sinResponderDesde: latestMessage?.sinResponderDesde ?? null,
       activeProductContext,
     };
   });
@@ -889,6 +895,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     lastMessageType: conversation.lastMessage?.type ?? null,
     lastMessageDirection: conversation.lastMessage?.direction ?? null,
     lastMessageAt: conversation.lastMessage?.createdAt ?? null,
+    sinResponderDesde: conversation.sinResponderDesde ?? null,
     activeProductContext: null,
   }));
 
@@ -1361,6 +1368,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           lastMessageDirection: item.lastMessageDirection,
           lastMessageStatus: item.lastMessageStatus,
           lastMessageAt: item.lastMessageAt,
+          // Sin esto la primera carga llegaria sin el dato (undefined = "no lo trae").
+          sinResponderDesde: item.sinResponderDesde ?? null,
           href: `/cliente/chats?chatKey=${encodeURIComponent(item.key)}${selectedConnectionKey ? `&connection=${encodeURIComponent(selectedConnectionKey)}` : ""}${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ""}${assignedFilter !== "all" ? `&assigned=${assignedFilter}` : ""}${statusFilter !== "open" ? `&status=${statusFilter}` : ""}${paramsDeFiltros(filtros)
             .map(([clave, valor]) => `&${clave}=${encodeURIComponent(valor)}`)
             .join("")}`,

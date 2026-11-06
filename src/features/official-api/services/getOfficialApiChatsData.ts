@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getOfficialApiConfigByWorkspaceId, hasOfficialApiBaseCredentials } from "@/lib/official-api-config";
 import { downloadOfficialApiMedia, extractMediaRefFromRawPayload } from "@/lib/official-api-media";
 import { cifrasParaBuscarElTelefono, estadoQueAplica } from "@/lib/busqueda-de-chats";
-import { sqlOficialQuedoSinResponder } from "@/lib/ultimo-mensaje-de-chats";
+import { sqlOficialQuedoSinResponder, sqlOficialSinResponderDesde } from "@/lib/ultimo-mensaje-de-chats";
 import type { OfficialApiChatsData } from "@/features/official-api/types/official-api";
 import {
   DIAS_DE_SIN_RESPONDER,
@@ -607,6 +607,9 @@ async function loadOfficialApiChatsData(input: {
       ? fetchConversationDetail(requestedConversationId)
       : null;
 
+  // "Sin responder desde" de cada fila: misma regla que el filtro (sin abrir rawPayload).
+  const sinResponderDesde = sqlOficialSinResponderDesde(DIAS_DE_SIN_RESPONDER);
+
   const conversationRows = searchQuery
     ? await prisma.$queryRaw<Array<{
         id: string;
@@ -628,6 +631,7 @@ async function loadOfficialApiChatsData(input: {
         lastMessageType: string | null;
         lastMessageMediaUrl: string | null;
         lastMessageRawPayload: unknown;
+        sinResponderDesde: Date | null;
       }>>`
         SELECT
           c."id",
@@ -648,7 +652,8 @@ async function loadOfficialApiChatsData(input: {
           lm."status"::text AS "lastMessageStatus",
           lm."type"::text AS "lastMessageType",
           lm."mediaUrl" AS "lastMessageMediaUrl",
-          lm."rawPayload" AS "lastMessageRawPayload"
+          lm."rawPayload" AS "lastMessageRawPayload",
+          ${sinResponderDesde} AS "sinResponderDesde"
         FROM "OfficialApiConversation" c
         INNER JOIN "OfficialApiContact" ct
           ON ct."id" = c."contactId"
@@ -723,6 +728,7 @@ async function loadOfficialApiChatsData(input: {
         lastMessageType: string | null;
         lastMessageMediaUrl: string | null;
         lastMessageRawPayload: unknown;
+        sinResponderDesde: Date | null;
       }>>`
         WITH filtered_conversations AS (
           SELECT
@@ -798,7 +804,9 @@ async function loadOfficialApiChatsData(input: {
           lm."status" AS "lastMessageStatus",
           lm."type" AS "lastMessageType",
           lm."mediaUrl" AS "lastMessageMediaUrl",
-          lm."rawPayload" AS "lastMessageRawPayload"
+          lm."rawPayload" AS "lastMessageRawPayload",
+          -- El fragmento llama c a la conversacion: se le da con una subconsulta de una fila.
+          (SELECT ${sinResponderDesde} FROM (SELECT fc."id" AS "id") c) AS "sinResponderDesde"
         FROM filtered_conversations fc
         INNER JOIN "OfficialApiContact" ct
           ON ct."id" = fc."contactId"
@@ -844,6 +852,7 @@ async function loadOfficialApiChatsData(input: {
           }),
         }
       : null,
+    sinResponderDesde: row.sinResponderDesde ? new Date(row.sinResponderDesde) : null,
   }));
 
   const selectedConversationId = input.conversationId?.trim() || conversations[0]?.id || "";
@@ -861,6 +870,7 @@ async function loadOfficialApiChatsData(input: {
       assignedTo: conversation.assignedTo ?? null,
       incomingCount: conversation.incomingCount,
       lastMessage: conversation.lastMessage ?? null,
+      sinResponderDesde: conversation.sinResponderDesde,
     })),
     selectedConversation,
     selectedConversationId,

@@ -49,6 +49,9 @@ export type OfficialApiChatConversationSummary = {
     status: "RECEIVED" | "SENT" | "DELIVERED" | "READ" | "FAILED";
     type: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "TEMPLATE" | "INTERACTIVE" | "SYSTEM" | "LOCATION" | "CONTACTS";
   } | null;
+  // "Sin responder": desde el primer mensaje del cliente sin respuesta; null = ya contestado.
+  // undefined = esta fuente no trae el dato.
+  sinResponderDesde?: Date | null;
 };
 
 export type OfficialApiChatMessage = {

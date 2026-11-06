@@ -49,6 +49,12 @@ export type SharedInboxConversationItem = {
   /** Acuse del ultimo mensaje. Solo se dibuja si es NUESTRO: al del cliente no le corresponde. */
   lastMessageStatus?: string | null;
   lastMessageAt?: Date | null;
+  /**
+   * "Sin responder": desde el PRIMER mensaje del cliente sin respuesta valida (string si viene
+   * del JSON de /list). Significado preciso: undefined = la fila no trae el dato; null = ya
+   * contestado (o no espera respuesta).
+   */
+  sinResponderDesde?: Date | string | null;
   href: string;
 };
 

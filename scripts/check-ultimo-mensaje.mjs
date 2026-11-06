@@ -39,6 +39,7 @@ await db.exec(`
 `);
 
 const WS = "ws_magilus";
+const DIAS = 60;
 const conversaciones = Array.from({ length: 80 }, (_, i) => `conv_${String(i).padStart(3, "0")}`);
 const filas = [];
 let n = 0;
@@ -122,11 +123,14 @@ for (const conFiltro of [true, false]) {
   for (const ids of [conversaciones, conversaciones.slice(0, 40), conversaciones.slice(40, 43), [conversaciones[5]]]) {
     const vieja = await correr(sqlViejaVistaPrevia(ids, conFiltro));
     const nuevaConId = await correr(
-      sqlUltimoMensajeDeChats({ workspaceId: WS, conversationIds: ids, ocultarSistemaSalvoLlamadas: conFiltro }),
+      sqlUltimoMensajeDeChats({ workspaceId: WS, conversationIds: ids, ocultarSistemaSalvoLlamadas: conFiltro, diasSinResponder: DIAS }),
     );
+    // `sinResponderDesde` es una columna nueva (LEFT JOIN LATERAL): se saca para comparar la vista
+    // previa, que tiene que seguir identica. Su regla la prueba scripts/check-sin-responder.mjs.
     const nueva = nuevaConId.map((fila) => {
       const resto = { ...fila };
       delete resto.messageId;
+      delete resto.sinResponderDesde;
       return resto;
     });
     if (JSON.stringify(vieja) !== JSON.stringify(nueva)) {
@@ -149,8 +153,8 @@ for (const conFiltro of [true, false]) {
 
 // El plan nuevo: debe usar el indice (conversationId, createdAt) con LIMIT por chat.
 const plan = await db.query(
-  `EXPLAIN ${sqlUltimoMensajeDeChats({ workspaceId: WS, conversationIds: conversaciones.slice(0, 40), ocultarSistemaSalvoLlamadas: true }).text}`,
-  sqlUltimoMensajeDeChats({ workspaceId: WS, conversationIds: conversaciones.slice(0, 40), ocultarSistemaSalvoLlamadas: true }).values,
+  `EXPLAIN ${sqlUltimoMensajeDeChats({ workspaceId: WS, conversationIds: conversaciones.slice(0, 40), ocultarSistemaSalvoLlamadas: true, diasSinResponder: DIAS }).text}`,
+  sqlUltimoMensajeDeChats({ workspaceId: WS, conversationIds: conversaciones.slice(0, 40), ocultarSistemaSalvoLlamadas: true, diasSinResponder: DIAS }).values,
 );
 console.log(`mensajes simulados: ${filas.length}`);
 console.log(plan.rows.map((r) => r["QUERY PLAN"]).join("\n"));

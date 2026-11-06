@@ -16,6 +16,7 @@ import {
   type PosicionEnBandeja,
 } from "@/lib/cursor-de-bandeja";
 import {
+  DIAS_DE_SIN_RESPONDER,
   idsSinResponder,
   leerFiltrosDeBandeja,
   necesitaIdsSinResponder,
@@ -59,6 +60,8 @@ type UnifiedConversation = {
   lastMessageDirection?: "INBOUND" | "OUTBOUND" | null;
   lastMessageStatus?: string | null;
   lastMessageAt?: Date | null;
+  /** "Sin responder": desde el primer mensaje del cliente sin respuesta; null = ya contestado. */
+  sinResponderDesde?: Date | null;
 };
 
 type ActiveProductContextSummary = {
@@ -357,6 +360,7 @@ async function getAgentConversationList(input: {
           workspaceId: input.workspaceId,
           conversationIds: activeAgentConversationIds,
           ocultarSistemaSalvoLlamadas: true,
+          diasSinResponder: DIAS_DE_SIN_RESPONDER,
         }),
       )
     : Promise.resolve([] as FilaUltimoMensaje[]);
@@ -524,6 +528,8 @@ async function getAgentConversationList(input: {
       lastMessageDirection: latestMessage?.direction ?? null,
       lastMessageStatus: latestMessage?.status ?? null,
       lastMessageAt: latestMessage?.createdAt ?? null,
+      // Un chat sin mensajes no espera respuesta: null.
+      sinResponderDesde: latestMessage?.sinResponderDesde ?? null,
     };
   });
 
@@ -747,6 +753,7 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
         lastMessageType: conversation.lastMessage?.type ?? null,
         lastMessageDirection: conversation.lastMessage?.direction ?? null,
         lastMessageAt: conversation.lastMessage?.createdAt ?? null,
+        sinResponderDesde: conversation.sinResponderDesde ?? null,
       };
     });
     // Las dos fuentes ya vienen filtradas por `q` (ver getAgentConversationList).

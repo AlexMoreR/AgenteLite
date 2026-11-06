@@ -1,5 +1,7 @@
+import { DIAS_DE_SIN_RESPONDER } from "@/features/chats/domain/filtros-de-bandeja";
 import { prisma } from "@/lib/prisma";
 import { whereEsMio } from "@/lib/chats-asignacion-compartida";
+import { sqlSinResponderDesdeDeChats } from "@/lib/ultimo-mensaje-de-chats";
 
 export type ChatConversationSummary = {
   id: string;
@@ -27,6 +29,11 @@ export type ChatConversationSummary = {
   */
   lastMessageStatus: string | null;
   lastMessageAt: Date | null;
+  /**
+   * "Sin responder": desde el primer mensaje del cliente sin respuesta valida; null = ya
+   * contestado. Misma regla y misma consulta que la lista (lib/ultimo-mensaje-de-chats).
+   */
+  sinResponderDesde: Date | null;
   channelType: "whatsapp" | "whatsapp_official" | "instagram" | "facebook";
   /** El segundo asesor del chat (solo WhatsApp normal). Si no viene, la fila conserva el que tenia. */
   segundoAsesorId?: string | null;
@@ -78,6 +85,18 @@ async function getIncomingCountForConversation(input: { workspaceId: string; con
   return Number(rows[0]?.incomingCount ?? 0);
 }
 
+async function getSinResponderDesdeForConversation(input: { workspaceId: string; conversationId: string }) {
+  const rows = await prisma.$queryRaw<Array<{ sinResponderDesde: Date | null }>>(
+    sqlSinResponderDesdeDeChats({
+      workspaceId: input.workspaceId,
+      conversationIds: [input.conversationId],
+      dias: DIAS_DE_SIN_RESPONDER,
+    }),
+  );
+
+  return rows[0]?.sinResponderDesde ?? null;
+}
+
 export async function getAgentConversationSummaryByConversationId(input: {
   workspaceId: string;
   conversationId: string;
@@ -114,7 +133,7 @@ export async function getAgentConversationSummaryByConversationId(input: {
 
   const contact = conversation.contact;
 
-  const [lastMessageRows, contactTagRows, incomingCount] = await Promise.all([
+  const [lastMessageRows, contactTagRows, incomingCount, sinResponderDesde] = await Promise.all([
     prisma.message.findMany({
       where: {
         workspaceId: input.workspaceId,
@@ -148,6 +167,10 @@ export async function getAgentConversationSummaryByConversationId(input: {
       workspaceId: input.workspaceId,
       conversationId: conversation.id,
     }),
+    getSinResponderDesdeForConversation({
+      workspaceId: input.workspaceId,
+      conversationId: conversation.id,
+    }),
   ]);
 
   const lastMessage = lastMessageRows[0] ?? null;
@@ -168,6 +191,7 @@ export async function getAgentConversationSummaryByConversationId(input: {
     lastMessageDirection: lastMessage?.direction ?? null,
     lastMessageStatus: lastMessage?.status ?? null,
     lastMessageAt: lastMessage?.createdAt ?? null,
+    sinResponderDesde,
     channelType: "whatsapp",
     segundoAsesorId: conversation.segundoAsesorId ?? null,
     segundoAsesorNombre: conversation.segundoAsesor?.name?.trim() || null,
@@ -241,7 +265,7 @@ export async function getAgentConversationSummaryByPhoneNumber(input: {
     return null;
   }
 
-  const [lastMessageRows, contactTagRows, incomingCount] = await Promise.all([
+  const [lastMessageRows, contactTagRows, incomingCount, sinResponderDesde] = await Promise.all([
     prisma.message.findMany({
       where: {
         workspaceId: input.workspaceId,
@@ -275,6 +299,10 @@ export async function getAgentConversationSummaryByPhoneNumber(input: {
       workspaceId: input.workspaceId,
       conversationId: conversation.id,
     }),
+    getSinResponderDesdeForConversation({
+      workspaceId: input.workspaceId,
+      conversationId: conversation.id,
+    }),
   ]);
 
   const lastMessage = lastMessageRows[0] ?? null;
@@ -295,6 +323,7 @@ export async function getAgentConversationSummaryByPhoneNumber(input: {
     lastMessageDirection: lastMessage?.direction ?? null,
     lastMessageStatus: lastMessage?.status ?? null,
     lastMessageAt: lastMessage?.createdAt ?? null,
+    sinResponderDesde,
     channelType: "whatsapp",
     segundoAsesorId: conversation.segundoAsesorId ?? null,
     segundoAsesorNombre: conversation.segundoAsesor?.name?.trim() || null,
