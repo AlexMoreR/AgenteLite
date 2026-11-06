@@ -2,7 +2,7 @@ import { rutaDelAvisoDelBot } from "@/features/avisos-gravedad/dominio/reglas";
 import { anotarAvisoDelBot, leerConfigGravedad, pushAAlexander } from "@/features/avisos-gravedad/servicios/enrutador";
 import { registrarEscalado } from "@/features/embudo/servicios/eventos";
 import { armarEncabezadoDelAviso, esListoParaPagar } from "@/features/listo-para-pagar/dominio/senal";
-import { leerMensajeDeCierre } from "@/features/listo-para-pagar/servicios/listo-para-pagar";
+import { guardarMarcaListoParaPagar, leerMensajeDeCierre } from "@/features/listo-para-pagar/servicios/listo-para-pagar";
 import { decidirViaDeAvisos } from "@/lib/anti-bloqueo/reglas";
 import { leerConfigAntiBloqueo } from "@/lib/anti-bloqueo/servicio";
 import { sendEvolutionTextMessageWithReconnect } from "@/lib/evolution";
@@ -236,6 +236,15 @@ export async function avisarAsesorPorWhatsApp(input: {
       if (previoListo && Date.now() - previoListo < ESPERA_ENTRE_AVISOS_MS) {
         return 0;
       }
+      /*
+        Parte 3: la marca para pasarle el aviso al líder de ventas si nadie escribe en 5 minutos.
+        Va ANTES de enviar: así un aviso que no se pudo entregar también le llega al líder.
+      */
+      await guardarMarcaListoParaPagar({
+        workspaceId: input.workspaceId,
+        conversationId: input.conversationId,
+        asesoraId: duenoDelChat,
+      }).catch(() => {});
     }
     const cierre = listoParaPagar ? await leerMensajeDeCierre(input.workspaceId, input.conversationId) : null;
     const marcarAvisoEntregado = async () => {

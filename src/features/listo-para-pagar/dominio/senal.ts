@@ -52,3 +52,74 @@ export function armarEncabezadoDelAviso(input: { cliente: string; telefono: stri
     `📌 ${input.motivo}`,
   ];
 }
+
+/* ------------------------------------------------------------------------------------------------
+   LISTO PARA PAGAR (parte 3): si nadie del equipo escribe en el chat en 5 minutos, en horario de
+   trabajo, el aviso le llega al líder de ventas. Aquí solo la decisión y el texto (sin base).
+------------------------------------------------------------------------------------------------ */
+
+/** Lo que espera la marca antes de pasarle el aviso al líder. */
+export const ESPERA_PARA_ESCALAR_MS = 5 * 60_000;
+/** Pasado este rato la marca se cierra sola: ya no sirve avisar. */
+export const VIDA_DE_LA_MARCA_MS = 24 * 60 * 60_000;
+
+/** Título del aviso al líder (push y primera línea del WhatsApp). */
+export const TITULO_PARA_EL_LIDER = "🔥 LISTO PARA PAGAR — sin respuesta en 5 min";
+
+export type EstadoDeLaMarca = "pendiente" | "escalado" | "atendido" | "cerrado" | "sin_destino";
+export type DecisionDeLaMarca = "nada" | "atendido" | "cerrar" | "escalar";
+
+/**
+ * Qué hacer con una marca "Listo para pagar". En este orden:
+ * 1. Si no está pendiente, nada.
+ * 2. Si alguien del equipo ya escribió en el chat, atendido.
+ * 3. Si pasaron más de 24 h, cerrar.
+ * 4. Fuera de horario, nada (sigue pendiente).
+ * 5. Con menos de 5 minutos, nada.
+ * 6. Si no, escalar al líder.
+ */
+export function decidirMarca(input: {
+  estado: string;
+  avisadoEn: Date;
+  ahora: Date;
+  huboRespuestaHumana: boolean;
+  enHorario: boolean;
+}): DecisionDeLaMarca {
+  if (input.estado !== "pendiente") {
+    return "nada";
+  }
+  if (input.huboRespuestaHumana) {
+    return "atendido";
+  }
+  const transcurrido = input.ahora.getTime() - input.avisadoEn.getTime();
+  if (!Number.isFinite(transcurrido) || transcurrido > VIDA_DE_LA_MARCA_MS) {
+    return "cerrar";
+  }
+  if (!input.enHorario) {
+    return "nada";
+  }
+  if (transcurrido < ESPERA_PARA_ESCALAR_MS) {
+    return "nada";
+  }
+  return "escalar";
+}
+
+/** El WhatsApp para el líder: título, cliente, asesora, enlace y el mensaje de cierre. */
+export function armarAvisoParaElLider(input: {
+  cliente: string;
+  asesora: string | null;
+  enlace: string;
+  cierre: string;
+}): string {
+  return [
+    `*${TITULO_PARA_EL_LIDER}*`,
+    "",
+    `👤 ${input.cliente}`,
+    `🙋 Asesora: ${input.asesora ?? "nadie todavía"}`,
+    "",
+    input.enlace,
+    "",
+    "Mensaje de cierre:",
+    input.cierre,
+  ].join("\n");
+}

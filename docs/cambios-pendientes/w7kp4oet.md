@@ -1,0 +1,5 @@
+## Automatizaciones
+- `listo_para_pagar`: cuando sale un aviso "🔥 LISTO PARA PAGAR" a la asesora queda la marca `listo-para-pagar:<chat>` en AppSetting. El reloj (cron/follows, cada minuto) la revisa: si nadie del equipo escribe en el chat (desde el CRM o el teléfono) en 5 minutos, en horario de trabajo (lunes a sábado, 8 a. m. a 6 p. m. de Bogotá), el aviso le llega al líder de ventas (el elegido en Equipo o, si no, la primera supervisora activa) por push y por WhatsApp desde la línea interna, con el mensaje de cierre. Se avisa una sola vez por chat cada 24 h y máximo 5 por vuelta. Al cliente no se le manda nada.
+
+## Advertencias de operación
+- `listo_para_pagar`: si no hay líder de ventas ni supervisora activa, la marca queda "sin_destino" y solo se ve un `console.warn`. El WhatsApp al líder sale solo si tiene número en Mi empresa → Equipo y hay línea interna (o línea en la config de avisos); con anti-bloqueo en "push" sale solo el push. Fuera de horario la marca espera; pasadas 24 h se cierra sin avisar.
