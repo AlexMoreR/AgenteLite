@@ -1,8 +1,10 @@
 import { Prisma } from "@prisma/client";
 
 import { sendEvolutionTextMessageWithReconnect } from "@/lib/evolution";
+import { leerLiderDeVentasElegido } from "@/lib/permisos-del-equipo";
 import { prisma } from "@/lib/prisma";
 import { sendPushToUser } from "@/lib/web-push";
+import { resolveCallablePhone } from "@/lib/whatsapp-lid";
 
 import { CONFIG_GRAVEDAD_POR_DEFECTO } from "@/features/avisos-gravedad/dominio/reglas";
 import {
@@ -37,9 +39,11 @@ import {
   prioridadesDeAlexander,
   pushDeVariasTarjetas,
   pushParaLaAsesora,
+  pushParaElLider,
   pushParaLaSupervisora,
   tarjetaDeAccion,
   tarjetaDeIncidente,
+  textoParaElLider,
   textoParaLaAsesora,
   textoWhatsAppDeLaTarjeta,
   type Accion,
@@ -128,12 +132,37 @@ async function supervisoraDelNegocio(workspaceId: string, config: ConfigAccionab
     ids = Array.isArray(lista) ? lista.filter((id): id is string => typeof id === "string") : [];
   }
   for (const id of ids) {
-    const miembro = await prisma.workspaceMember
-      .findFirst({ where: { workspaceId, userId: id, isActive: true }, select: { user: { select: { name: true, email: true } } } })
-      .catch(() => null);
-    if (miembro) return { id, nombre: miembro.user?.name?.trim() || miembro.user?.email || "la supervisora" };
+    const persona = await personaActiva(workspaceId, id, "la supervisora");
+    if (persona) return persona;
   }
   return null;
+}
+
+/** La persona si sigue activa en el negocio; si no, null. */
+async function personaActiva(workspaceId: string, userId: string, porDefecto: string): Promise<Persona | null> {
+  const miembro = await prisma.workspaceMember
+    .findFirst({ where: { workspaceId, userId, isActive: true }, select: { user: { select: { name: true, email: true } } } })
+    .catch(() => null);
+  return miembro ? { id: userId, nombre: miembro.user?.name?.trim() || miembro.user?.email || porDefecto } : null;
+}
+
+/**
+ * El líder de ventas para el aviso "la asesora no respondió" (6-nov-2026): SOLO el elegido en Mi
+ * empresa → Equipo y activo. Sin elegido no se avisa a nadie más: la "primera supervisora" podría ser
+ * la misma asesora que no respondió. Elegir o quitar al líder hace de interruptor.
+ */
+export async function liderParaEscaladas(workspaceId: string): Promise<Persona | null> {
+  const elegido = await leerLiderDeVentasElegido(workspaceId).catch(() => null);
+  return elegido ? personaActiva(workspaceId, elegido, "el líder de ventas") : null;
+}
+
+/** El teléfono real del cliente al momento de enviar (nunca se guarda). Sin número real (identificador de WhatsApp): null. */
+async function telefonoDelCliente(workspaceId: string, conversationId: string): Promise<string | null> {
+  const conversacion = await prisma.conversation
+    .findFirst({ where: { workspaceId, id: conversationId }, select: { contact: { select: { phoneNumber: true, metadata: true } } } })
+    .catch(() => null);
+  const contacto = conversacion?.contact;
+  return contacto ? resolveCallablePhone({ phoneNumber: contacto.phoneNumber, metadata: contacto.metadata }) : null;
 }
 
 async function datosDeLosChats(workspaceId: string, ids: string[]): Promise<{ numeros: Map<string, number>; extras: Map<string, ExtrasDelChat> }> {
@@ -199,6 +228,20 @@ async function ejecutar(workspaceId: string, estado: EstadoAccionable, eventos: 
         }
         continue;
       }
+      if (evento.tipo === "avisar_lider") {
+        // Solo avisa: no reasigna el chat ni le escribe al cliente. Sin WhatsApp, la notificación del CRM.
+        const accion = estado.acciones[evento.accionId];
+        if (!accion?.conversationId) continue;
+        const telefono = await telefonoDelCliente(workspaceId, accion.conversationId);
+        const enlace = enlaceAbsoluto(accion).replace(/^https?:\/\//, "");
+        if (await whatsAppAlEquipo(workspaceId, evento.liderId, textoParaElLider({ accion, telefono, enlace, ahora }), { sinVistaPrevia: true })) {
+          enviados += 1;
+        } else {
+          const aviso = pushParaElLider(accion, ahora);
+          enviados += await sendPushToUser({ userId: evento.liderId, payload: { ...aviso, tag: `accionable:lider:${accion.id}`, url: enlaceAbsoluto(accion).replace(DOMINIO, "") } }).catch(() => 0);
+        }
+        continue;
+      }
       if (evento.tipo === "escalar") {
         const accion = estado.acciones[evento.accionId];
         if (!accion) continue;
@@ -237,16 +280,17 @@ export async function gestionarAcciones(input: {
 }): Promise<{ eventos: Evento[]; enviados: number }> {
   const { workspaceId, ahora, config } = input;
   try {
-    const [previo, atendidas, supervisora] = await Promise.all([
+    const [previo, atendidas, supervisora, lider] = await Promise.all([
       leerEstadoAccionable(workspaceId),
       leerAtendidas(workspaceId),
       supervisoraDelNegocio(workspaceId, config),
+      liderParaEscaladas(workspaceId),
     ]);
     // Fuera de horario también los chats que no salen en las alertas (los calientes que ve el accionable).
     const idsDeChats = [...input.hallazgos.flatMap((h) => h.evidencia.chats), ...(config.fueraDeHorario?.activo ? input.chats.map((c) => c.conversationId) : [])];
     const { numeros, extras } = await datosDeLosChats(workspaceId, idsDeChats);
     const candidatas = candidatasDeLaVuelta({ hallazgos: input.hallazgos, chats: input.chats, ahora, supervisora, extras, config });
-    const { estado, eventos } = avanzar({ estado: previo, candidatas, chats: input.chats, atendidas, ahora, config, supervisora, numeros, asignadoIgnoraTurno: input.asignadoIgnoraTurno });
+    const { estado, eventos } = avanzar({ estado: previo, candidatas, chats: input.chats, atendidas, ahora, config, supervisora, numeros, asignadoIgnoraTurno: input.asignadoIgnoraTurno, lider });
     // Se guarda ANTES de mandar: si un envío se cuelga, la próxima vuelta no repite el aviso.
     await guardarJson(claveEstadoAccionable(workspaceId), estado);
     const enviados = await ejecutar(workspaceId, estado, eventos, config, ahora);

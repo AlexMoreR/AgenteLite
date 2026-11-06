@@ -660,6 +660,48 @@ await prueba("camino completo: que_hizo_el_supervisor con aviso, segundo aviso a
   assert.ok(!r.advertencias.some((a) => a.includes("apagado")));
 });
 
+await prueba("camino completo: lider_de_ventas dice quién es, si tiene número de avisos y si puede abrir chats de otras; advierte lo que falta", async () => {
+  const delLider = (r) => r.advertencias.filter((a) => a.includes("Líder de ventas"));
+  // Sin líder elegido.
+  escenario();
+  let r = await ver();
+  assert.equal(r.lider_de_ventas.elegido, false);
+  assert.equal(delLider(r).length, 1);
+  assert.match(delLider(r)[0], /No hay Líder de ventas elegido/);
+  // Supervisora con número de avisos: completo (solo la nota de sus líneas).
+  escenario();
+  db.settings.set(`equipo:lider-ventas:${WS}`, "sthef");
+  db.settings.set(`agente-v3:avisos:${WS}`, JSON.stringify({ canalId: "linea-admin", destinos: [{ numero: "573000003333", soloDe: "sthef", userId: "sthef" }] }));
+  r = await ver();
+  assert.deepEqual(
+    { nombre: r.lider_de_ventas.nombre, activo: r.lider_de_ventas.activo, numero: r.lider_de_ventas.tiene_numero_de_avisos, abre: r.lider_de_ventas.puede_abrir_chats_de_otras },
+    { nombre: "Stheffani Supervisora", activo: true, numero: true, abre: true },
+  );
+  assert.ok(!delLider(r).some((a) => /no tiene número|bandeja/.test(a)));
+  assert.ok(!JSON.stringify(r.lider_de_ventas).includes("573000003333"), "no muestra el número de avisos");
+  // Asesora sin número ni permiso: dos advertencias.
+  escenario();
+  db.settings.set(`equipo:lider-ventas:${WS}`, "genesis");
+  r = await ver();
+  assert.equal(r.lider_de_ventas.nombre, "Genesis Moreno");
+  assert.equal(r.lider_de_ventas.tiene_numero_de_avisos, false);
+  assert.equal(r.lider_de_ventas.puede_abrir_chats_de_otras, false);
+  assert.ok(delLider(r).some((a) => /no tiene número de avisos/.test(a)));
+  assert.ok(delLider(r).some((a) => /lo lleva a la bandeja/.test(a)));
+  // El dueño como líder: abre todas las líneas.
+  escenario();
+  db.settings.set(`equipo:lider-ventas:${WS}`, "alex");
+  r = await ver();
+  assert.equal(r.lider_de_ventas.puede_abrir_chats_de_otras, true);
+  assert.equal(r.lider_de_ventas.alcance, "todas las líneas");
+  // Elegido pero ya no está en el equipo.
+  escenario();
+  db.settings.set(`equipo:lider-ventas:${WS}`, "se-fue");
+  r = await ver();
+  assert.equal(r.lider_de_ventas.activo, false);
+  assert.ok(delLider(r).some((a) => /ya no está activo/.test(a)));
+});
+
 await prueba("camino completo: con el accionable apagado, que_hizo_el_supervisor es null y hay advertencia", async () => {
   escenario({ accionable: false });
   // Aunque quede un estado viejo guardado, con el accionable apagado no se lee.
