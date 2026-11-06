@@ -9,7 +9,8 @@ import { getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
 import { prisma } from "@/lib/prisma";
 import { revisarSiTermino } from "@/features/reuniones/servicios/avisos-de-livekit";
 import { crearReunion } from "@/features/reuniones/servicios/crear-reunion";
-import { cerrarSala, leerConfigLivekit } from "@/features/reuniones/servicios/livekit";
+import { apagarPistas, cerrarSala, leerConfigLivekit } from "@/features/reuniones/servicios/livekit";
+import { esQueModerar } from "@/features/reuniones/moderacion";
 import { carpetaDeReuniones, rutaDeArchivo } from "@/features/reuniones/servicios/archivos-de-reuniones";
 import { puedeBorrarLaReunionDe, sePuedeBorrarPorEstado } from "@/features/reuniones/servicios/borrar-reunion";
 import { esDuenoOAdmin, puedeAdministrarSalas, puedeIniciarLaSala, puedeTerminarLaReunion, puedeVerReuniones } from "@/features/reuniones/servicios/permisos";
@@ -178,6 +179,42 @@ export async function terminarReunionAction(codigo: string): Promise<{ ok?: true
   await prisma.reunion.updateMany({ where: { id: reunion.id, terminoEn: null }, data: { terminoEn: new Date() } });
   await revisarSiTermino(reunion.id);
   revalidatePath("/cliente/reuniones");
+  return { ok: true };
+}
+
+/**
+ * Silenciar a alguien o quitarle la pantalla (botones de la sala). Pueden los mismos que terminar la
+ * reunión. La persona puede volver a prender el micrófono o compartir de nuevo.
+ */
+export async function moderarEnLaReunionAction(codigo: string, identidad: string, que: unknown): Promise<{ ok?: true; error?: string }> {
+  const session = await auth();
+  if (!session?.user?.id || typeof codigo !== "string" || !codigo || typeof identidad !== "string" || !identidad || identidad.length > 200 || !esQueModerar(que)) {
+    return { error: "No autorizado" };
+  }
+  const reunion = await prisma.reunion.findUnique({
+    where: { codigo },
+    select: { sala: true, estado: true, workspaceId: true, creadaPorId: true, salaFija: { select: { liderId: true } } },
+  });
+  if (!reunion || !(await puedeTerminarLaReunion(session.user.id, reunion))) {
+    return { error: "No autorizado" };
+  }
+  if (reunion.estado !== "EN_VIVO" && reunion.estado !== "ESPERANDO") {
+    return { error: "Esta reunión ya terminó." };
+  }
+  const config = leerConfigLivekit();
+  if (!config) {
+    return { error: "LiveKit no está configurado." };
+  }
+  const por = session.user.name?.trim() || session.user.email?.split("@")[0] || "Alguien";
+  try {
+    await apagarPistas(config, { sala: reunion.sala, identidad, que, por });
+  } catch (error) {
+    if (/404|not.?found/i.test(error instanceof Error ? error.message : "")) {
+      return { error: "Esa persona ya salió de la reunión." };
+    }
+    console.error("[reuniones] no se pudo moderar", reunion.sala, error);
+    return { error: que === "microfono" ? "No se pudo silenciar. Intenta de nuevo." : "No se pudo quitar la pantalla. Intenta de nuevo." };
+  }
   return { ok: true };
 }
 

@@ -8,6 +8,7 @@ import { canAccessClientModule, getClientWorkspaceAccessForUser, type ClientWork
     en el link fijo de una sala, siempre que la sala sea de su negocio.
   - "Terminar reunión" en la sala: quien la creó, el dueño del negocio, los administradores y, en una
     sala fija, su líder. Un invitado nunca: su pase no trae permiso de administrar la sala.
+  - Silenciar a alguien o quitarle la pantalla: los mismos que pueden terminarla.
   - Crear y editar salas fijas: solo el dueño o un administrador.
 */
 

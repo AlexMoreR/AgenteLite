@@ -1,4 +1,6 @@
-import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+
+import { pistasParaApagar, TEMA_DE_MODERACION, type QueModerar } from "@/features/reuniones/moderacion";
 
 /*
   LIVEKIT, el servidor de video de las reuniones (autoalojado, Apache 2.0).
@@ -216,6 +218,50 @@ export async function salaAbierta(config: ConfigLivekit, sala: string): Promise<
     { roomList: true },
   );
   return (respuesta.rooms ?? []).some((uno) => uno.name === sala);
+}
+
+/**
+ * Silencia a alguien o le quita la pantalla: apaga sus pistas en el servidor y le avisa quién fue.
+ * Las pistas se leen de LiveKit, no del navegador. El aviso es lo único que puede fallar sin problema:
+ * la pista ya quedó apagada. Devuelve cuántas apagó (0 si ya estaban apagadas).
+ */
+export async function apagarPistas(
+  config: ConfigLivekit,
+  datos: { sala: string; identidad: string; que: QueModerar; por: string },
+): Promise<number> {
+  const permisos = { room: datos.sala, roomAdmin: true };
+  const participante = await llamarApi<{ tracks?: Array<{ sid?: string; source?: string | number; muted?: boolean }> }>(
+    config,
+    "RoomService",
+    "GetParticipant",
+    { room: datos.sala, identity: datos.identidad },
+    permisos,
+  );
+  const pistas = pistasParaApagar(datos.que, participante.tracks);
+  for (const trackSid of pistas) {
+    await llamarApi(config, "RoomService", "MutePublishedTrack", { room: datos.sala, identity: datos.identidad, trackSid, muted: true }, permisos);
+  }
+  if (pistas.length) {
+    try {
+      await llamarApi(
+        config,
+        "RoomService",
+        "SendData",
+        {
+          room: datos.sala,
+          data: Buffer.from(JSON.stringify({ que: datos.que, por: datos.por })).toString("base64"),
+          kind: "RELIABLE",
+          destinationIdentities: [datos.identidad],
+          topic: TEMA_DE_MODERACION,
+          nonce: randomBytes(16).toString("base64"),
+        },
+        permisos,
+      );
+    } catch (error) {
+      console.error("[reuniones] no se pudo avisar a la persona", datos.sala, error);
+    }
+  }
+  return pistas.length;
 }
 
 /**

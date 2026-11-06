@@ -9,7 +9,10 @@ import {
   Minimize,
   Mic,
   MicOff,
+  MonitorOff,
   MonitorUp,
+  PanelRightClose,
+  PanelRightOpen,
   PhoneOff,
   Send,
   X,
@@ -21,12 +24,15 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { terminarReunionAction } from "@/app/actions/reuniones-actions";
+import { moderarEnLaReunionAction, terminarReunionAction } from "@/app/actions/reuniones-actions";
+import { TEMA_DE_MODERACION, textoDelAviso, type QueModerar } from "@/features/reuniones/moderacion";
+import { SIN_PANTALLA, siguienteVista, type VistaDePantalla } from "@/features/reuniones/components/pantallas-compartidas";
 import {
   cargarLivekit,
   type LivekitClient,
   type ParticipanteLK,
   type PistaLK,
+  type PublicacionLK,
   type SalaLK,
 } from "@/features/reuniones/components/cargar-livekit";
 import { debeReconectar, esperaDelIntento, hayQueRendirse, nombreDelMotivo } from "@/features/reuniones/components/reconexion";
@@ -102,25 +108,9 @@ function AudioDePista({ pista }: { pista: PistaLK }) {
   return <audio ref={audio} autoPlay />;
 }
 
-/** Distancia entre dos dedos, para el zoom. */
-function distancia(a: { x: number; y: number }, b: { x: number; y: number }) {
-  return Math.hypot(a.x - b.x, a.y - b.y);
-}
-
-/**
- * Pantalla compartida en grande (la de otra persona o la propia). Se ajusta sin cortarse, con botón de
- * pantalla completa (o a toda la ventana si el navegador no la permite) y zoom con dos dedos / arrastre.
- * El video va siempre sin sonido: el audio de la reunión llega por las pistas de los micrófonos (evita eco).
- */
-function PantallaGrande({ pista, nombre, propia }: { pista: PistaLK; nombre: string; propia: boolean }) {
+/** Pega una pista de video a su elemento mientras se está mostrando. */
+function useVideoDePista(pista: PistaLK) {
   const video = useRef<HTMLVideoElement>(null);
-  const caja = useRef<HTMLDivElement>(null);
-  const [completa, setCompleta] = useState(false);
-  const [ventanaCompleta, setVentanaCompleta] = useState(false);
-  const [zoom, setZoom] = useState({ escala: 1, x: 0, y: 0 });
-  const dedos = useRef(new Map<number, { x: number; y: number }>());
-  const previa = useRef<{ separacion: number; centro: { x: number; y: number } } | null>(null);
-
   useEffect(() => {
     const elemento = video.current;
     if (!elemento) {
@@ -131,6 +121,39 @@ function PantallaGrande({ pista, nombre, propia }: { pista: PistaLK; nombre: str
       pista.detach(elemento);
     };
   }, [pista]);
+  return video;
+}
+
+/** Distancia entre dos dedos, para el zoom. */
+function distancia(a: { x: number; y: number }, b: { x: number; y: number }) {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+/**
+ * Pantalla compartida en grande (la de otra persona o la propia). Se ajusta sin cortarse, con botón de
+ * pantalla completa (o a toda la ventana si el navegador no la permite) y zoom con dos dedos / arrastre.
+ * El video va siempre sin sonido: el audio de la reunión llega por las pistas de los micrófonos (evita eco).
+ */
+function PantallaGrande({
+  pista,
+  nombre,
+  propia,
+  alQuitar,
+  className,
+}: {
+  pista: PistaLK;
+  nombre: string;
+  propia: boolean;
+  alQuitar?: () => void;
+  className?: string;
+}) {
+  const video = useVideoDePista(pista);
+  const caja = useRef<HTMLDivElement>(null);
+  const [completa, setCompleta] = useState(false);
+  const [ventanaCompleta, setVentanaCompleta] = useState(false);
+  const [zoom, setZoom] = useState({ escala: 1, x: 0, y: 0 });
+  const dedos = useRef(new Map<number, { x: number; y: number }>());
+  const previa = useRef<{ separacion: number; centro: { x: number; y: number } } | null>(null);
 
   useEffect(() => {
     const alCambiar = () => setCompleta(document.fullscreenElement === caja.current);
@@ -212,6 +235,7 @@ function PantallaGrande({ pista, nombre, propia }: { pista: PistaLK; nombre: str
       ref={caja}
       className={cn(
         "relative min-h-0 min-w-0 flex-1 overflow-hidden rounded-lg bg-black",
+        className,
         ventanaCompleta && "fixed inset-0 z-50 rounded-none",
       )}
     >
@@ -236,6 +260,16 @@ function PantallaGrande({ pista, nombre, propia }: { pista: PistaLK; nombre: str
         {propia ? "Estás compartiendo tu pantalla" : `Pantalla de ${nombre}`}
       </span>
       <div className="absolute top-1.5 right-1.5 flex gap-1.5">
+        {alQuitar ? (
+          <button
+            type="button"
+            onClick={alQuitar}
+            aria-label={`Quitar la pantalla de ${nombre}`}
+            className="flex items-center gap-1 rounded bg-black/60 px-2 py-1 text-xs text-white hover:bg-black/80"
+          >
+            <MonitorOff className="size-3.5" /> Quitar pantalla
+          </button>
+        ) : null}
         {zoom.escala > 1 ? (
           <button
             type="button"
@@ -259,13 +293,41 @@ function PantallaGrande({ pista, nombre, propia }: { pista: PistaLK; nombre: str
   );
 }
 
-function Cuadro({ participante, compacto = false }: { participante: ParticipanteLK; compacto?: boolean }) {
+/** Otra pantalla compartida, en pequeño: al tocarla pasa a verse en grande. */
+function PantallaEnMiniatura({ pista, nombre, propia, alElegir }: { pista: PistaLK; nombre: string; propia: boolean; alElegir: () => void }) {
+  const video = useVideoDePista(pista);
+  const etiqueta = propia ? "Tu pantalla" : `Pantalla de ${nombre}`;
+  return (
+    <button
+      type="button"
+      onClick={alElegir}
+      aria-label={`Ver en grande: ${etiqueta}`}
+      title={`Ver en grande: ${etiqueta}`}
+      className="relative aspect-video h-full shrink-0 overflow-hidden rounded-lg bg-black ring-1 ring-white/25 transition hover:ring-white/70 md:h-auto md:w-full"
+    >
+      <video ref={video} autoPlay playsInline muted className="size-full object-contain" />
+      <span className="absolute bottom-1 left-1 max-w-[calc(100%-0.5rem)] truncate rounded bg-black/70 px-1.5 py-0.5 text-[10px] text-white">{etiqueta}</span>
+    </button>
+  );
+}
+
+function Cuadro({
+  participante,
+  compacto = false,
+  alSilenciar,
+  alQuitarPantalla,
+}: {
+  participante: ParticipanteLK;
+  compacto?: boolean;
+  alSilenciar?: () => void;
+  alQuitarPantalla?: () => void;
+}) {
   const nombre = participante.name || participante.identity;
   return (
     <div
       className={cn(
         "relative flex aspect-video min-h-0 items-center justify-center overflow-hidden rounded-lg bg-neutral-800",
-        compacto && "h-full shrink-0 md:h-auto md:w-full",
+        compacto && "h-full shrink-0 md:aspect-auto md:h-20 md:w-full",
         participante.isSpeaking && "ring-2 ring-emerald-400",
       )}
     >
@@ -289,6 +351,34 @@ function Cuadro({ participante, compacto = false }: { participante: Participante
           {participante.isLocal ? " (tú)" : ""}
         </span>
       </span>
+      {alSilenciar || alQuitarPantalla ? (
+        <span className="absolute top-1 right-1 flex gap-1">
+          {alSilenciar ? (
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              onClick={alSilenciar}
+              aria-label={`Silenciar a ${nombre}`}
+              title={`Silenciar a ${nombre}`}
+              className="bg-black/60 text-white hover:bg-black/80 hover:text-white"
+            >
+              <MicOff />
+            </Button>
+          ) : null}
+          {alQuitarPantalla ? (
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              onClick={alQuitarPantalla}
+              aria-label={`Quitar la pantalla de ${nombre}`}
+              title={`Quitar la pantalla de ${nombre}`}
+              className="bg-black/60 text-white hover:bg-black/80 hover:text-white"
+            >
+              <MonitorOff />
+            </Button>
+          ) : null}
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -313,8 +403,10 @@ function textoDeSalida(motivo: string | null) {
 /**
  * Adentro de la reunión: voz (micrófono, silenciar, salir), compartir pantalla y chat. Sin cámara.
  * La pantalla compartida no se graba: el acta sale solo del audio de los micrófonos.
- * Quien la creó, el dueño y los administradores ven
- * "Terminar reunión", que la cierra para todos.
+ * Si varias personas comparten, una se ve en grande y las otras en miniatura. Mientras hay una pantalla,
+ * en el computador el título, las personas y los botones pasan a la columna derecha para dejarle a la
+ * pantalla todo el alto. Quien la creó, el líder de la sala, el dueño y los administradores ven
+ * "Terminar reunión", que la cierra para todos, y pueden silenciar a alguien o quitarle la pantalla.
  *
  * Para el celular: mientras está adentro la pantalla no se apaga sola (Wake Lock); al volver a la
  * pestaña revisa el micrófono y el audio; y si la conexión se cae del todo vuelve a entrar sola a la
@@ -353,6 +445,8 @@ export function SalaDeReunion({
   const [formaDeSalida, setFormaDeSalida] = useState<FormaDeCambiar>("ninguna");
   const [celular, setCelular] = useState(false);
   const [cambiandoSalida, setCambiandoSalida] = useState(false);
+  const [vistaDePantalla, setVistaDePantalla] = useState<VistaDePantalla>(SIN_PANTALLA);
+  const [columnaEscondida, setColumnaEscondida] = useState(false);
   const salidaRef = useRef<SalidaDeAudio | null>(null);
   const chatAbiertoRef = useRef(false);
   useEffect(() => {
@@ -504,6 +598,18 @@ export function SalaDeReunion({
             }
           });
         }
+        // Alguien me silenció o me quitó la pantalla: el micrófono no vuelve solo al reconectar, y la
+        // pantalla se deja de compartir de verdad (la pista apagada no le sirve a nadie).
+        room.on(E.TrackMuted, ((publicacion: PublicacionLK, participante?: ParticipanteLK) => {
+          if (!participante?.isLocal) {
+            return;
+          }
+          if (publicacion.source === cliente.Track.Source.Microphone) {
+            micDeseadoRef.current = false;
+          } else if (publicacion.source === cliente.Track.Source.ScreenShare) {
+            void room?.localParticipant.setScreenShareEnabled(false).catch(() => undefined).finally(repintar);
+          }
+        }) as (...argumentos: never[]) => void);
         room.on(E.AudioPlaybackStatusChanged, () => setSinAudio(!room?.canPlaybackAudio));
         room.on(E.Reconnecting, () => setReconectando(true));
         room.on(E.Reconnected, () => {
@@ -529,6 +635,18 @@ export function SalaDeReunion({
           programar();
         }) as (...argumentos: never[]) => void);
         room.on(E.DataReceived, ((datos: Uint8Array, participante?: ParticipanteLK, _tipo?: unknown, tema?: string) => {
+          // Solo el servidor manda avisos sin participante: otra persona de la sala no puede falsificarlos.
+          if (tema === TEMA_DE_MODERACION && !participante) {
+            try {
+              const aviso = textoDelAviso(JSON.parse(new TextDecoder().decode(datos)));
+              if (aviso) {
+                toast(aviso);
+              }
+            } catch {
+              // Un aviso que no se entiende se ignora.
+            }
+            return;
+          }
           if (tema !== TEMA_DEL_CHAT) {
             return;
           }
@@ -776,6 +894,13 @@ export function SalaDeReunion({
     repintar();
   };
 
+  const moderar = async (participante: ParticipanteLK, que: QueModerar) => {
+    const resultado = await moderarEnLaReunionAction(codigo, participante.identity, que);
+    if (resultado.error) {
+      toast.error(resultado.error);
+    }
+  };
+
   const enviar = async (evento: React.FormEvent) => {
     evento.preventDefault();
     const limpio = texto.trim().slice(0, 1000);
@@ -824,36 +949,54 @@ export function SalaDeReunion({
         )
     : [];
 
-  // Pantalla compartida (de otra persona o la propia): se ve en grande y las personas pasan a una tira.
-  const pantalla = lk
-    ? participantes
-        .map((participante) => ({
-          participante,
-          publicacion: Array.from(participante.trackPublications.values()).find(
-            (item) => item.source === lk.Track.Source.ScreenShare && item.kind === "video" && item.track,
-          ),
-        }))
-        .find((item) => item.publicacion?.track)
-    : undefined;
+  // Las pantallas compartidas: una se ve en grande y las otras quedan en miniatura. Una pista apagada no
+  // cuenta: es la que alguien acaba de quitar.
+  const pantallas = lk
+    ? participantes.flatMap((participante) => {
+        const pista = Array.from(participante.trackPublications.values()).find(
+          (item) => item.source === lk.Track.Source.ScreenShare && item.kind === "video" && item.track && !item.isMuted,
+        )?.track;
+        return pista ? [{ participante, pista }] : [];
+      })
+    : [];
+  const vista = siguienteVista(
+    pantallas.map(({ participante }) => ({ identidad: participante.identity, propia: participante.isLocal })),
+    vistaDePantalla,
+  );
+  if (vista !== vistaDePantalla) {
+    setVistaDePantalla(vista);
+  }
+  const pantalla = pantallas.find(({ participante }) => participante.identity === vista.identidad);
+  const conPantalla = !!pantalla;
+  // Los avisos importantes no caben en la columna angosta: si hay uno, la columna se abre sola.
+  const angosta = conPantalla && columnaEscondida && !reconectando && !sinAudio;
 
   return (
-    <div className="flex h-dvh flex-col bg-neutral-950 text-white">
-      <div className="flex shrink-0 items-center bg-neutral-900 px-3 py-1.5">
-        <span className="min-w-0 flex-1 truncate text-sm text-white/80">{titulo}</span>
+    <div
+      className={cn(
+        "flex h-dvh flex-col bg-neutral-950 text-white",
+        conPantalla && "md:grid md:grid-rows-[auto_minmax(0,1fr)_auto]",
+        conPantalla && (angosta ? "md:grid-cols-[minmax(0,1fr)_3.5rem_auto]" : "md:grid-cols-[minmax(0,1fr)_12rem_auto]"),
+      )}
+    >
+      <div className={cn("flex shrink-0 flex-col", conPantalla && "md:col-start-2 md:row-start-1", angosta && "md:hidden")}>
+        <div className="flex shrink-0 items-center bg-neutral-900 px-3 py-1.5">
+          <span className={cn("min-w-0 flex-1 truncate text-sm text-white/80", conPantalla && "md:whitespace-normal")}>{titulo}</span>
+        </div>
+        {sinGrabar ? <div className="shrink-0 bg-neutral-800 px-3 py-1 text-xs text-white/70">Esta reunión no se está grabando</div> : null}
+        {reconectando ? <div className="shrink-0 bg-amber-600 px-3 py-1 text-xs">Reconectando…</div> : null}
+        {sinAudio && room ? (
+          <button type="button" onClick={() => void room.startAudio()} className="shrink-0 bg-sky-700 px-3 py-1.5 text-left text-xs">
+            Toca aquí para escuchar a los demás
+          </button>
+        ) : null}
       </div>
-      {sinGrabar ? <div className="shrink-0 bg-neutral-800 px-3 py-1 text-xs text-white/70">Esta reunión no se está grabando</div> : null}
-      {reconectando ? <div className="shrink-0 bg-amber-600 px-3 py-1 text-xs">Reconectando…</div> : null}
-      {sinAudio && room ? (
-        <button type="button" onClick={() => void room.startAudio()} className="shrink-0 bg-sky-700 px-3 py-1.5 text-left text-xs">
-          Toca aquí para escuchar a los demás
-        </button>
-      ) : null}
 
-      <div className="flex min-h-0 flex-1">
+      <div className={cn("flex min-h-0 flex-1", conPantalla && "md:contents")}>
         <div
           className={cn(
-            "flex min-h-0 min-w-0 flex-1 gap-2 p-2",
-            pantalla ? "flex-col md:flex-row" : "flex-col overflow-y-auto",
+            "flex min-h-0 min-w-0 flex-1 flex-col gap-2 p-2",
+            conPantalla ? "md:contents" : "overflow-y-auto",
           )}
         >
           {estado === "conectando" || !lk ? (
@@ -862,24 +1005,47 @@ export function SalaDeReunion({
             </div>
           ) : (
             <>
-              {pantalla?.publicacion?.track ? (
+              {pantalla ? (
                 <PantallaGrande
-                  key={pantalla.publicacion.trackSid}
-                  pista={pantalla.publicacion.track}
+                  key={pantalla.participante.identity}
+                  pista={pantalla.pista}
                   nombre={pantalla.participante.name || pantalla.participante.identity}
                   propia={pantalla.participante.isLocal}
+                  alQuitar={pase.puedeTerminar && !pantalla.participante.isLocal ? () => void moderar(pantalla.participante, "pantalla") : undefined}
+                  className="md:col-start-1 md:row-span-3 md:row-start-1 md:h-full md:rounded-none"
                 />
               ) : null}
               <div
                 className={cn(
-                  pantalla
-                    ? "flex h-20 shrink-0 gap-2 overflow-x-auto md:h-auto md:w-44 md:flex-col md:overflow-y-auto md:overflow-x-hidden"
+                  conPantalla
+                    ? "flex h-20 shrink-0 gap-2 overflow-x-auto md:col-start-2 md:row-start-2 md:h-auto md:min-h-0 md:flex-col md:overflow-x-hidden md:overflow-y-auto md:p-2"
                     : "grid grid-cols-2 gap-2 md:grid-cols-3",
+                  angosta && "md:hidden",
                 )}
               >
-                {participantes.map((participante) => (
-                  <Cuadro key={participante.identity} participante={participante} compacto={!!pantalla} />
-                ))}
+                {pantallas
+                  .filter(({ participante }) => participante.identity !== vista.identidad)
+                  .map(({ participante, pista }) => (
+                    <PantallaEnMiniatura
+                      key={participante.identity}
+                      pista={pista}
+                      nombre={participante.name || participante.identity}
+                      propia={participante.isLocal}
+                      alElegir={() => setVistaDePantalla({ identidad: participante.identity, aMano: true })}
+                    />
+                  ))}
+                {participantes.map((participante) => {
+                  const sePuedeModerar = pase.puedeTerminar && !participante.isLocal;
+                  return (
+                    <Cuadro
+                      key={participante.identity}
+                      participante={participante}
+                      compacto={conPantalla}
+                      alSilenciar={sePuedeModerar && participante.isMicrophoneEnabled ? () => void moderar(participante, "microfono") : undefined}
+                      alQuitarPantalla={sePuedeModerar && participante.isScreenShareEnabled ? () => void moderar(participante, "pantalla") : undefined}
+                    />
+                  );
+                })}
               </div>
             </>
           )}
@@ -887,7 +1053,12 @@ export function SalaDeReunion({
         </div>
 
         {chatAbierto ? (
-          <aside className="absolute inset-x-0 bottom-16 top-9 z-10 flex flex-col border-l border-white/10 bg-neutral-900 md:static md:w-80">
+          <aside
+            className={cn(
+              "absolute inset-x-0 bottom-16 top-9 z-10 flex flex-col border-l border-white/10 bg-neutral-900 md:static md:w-80",
+              conPantalla && "md:col-start-3 md:row-span-3 md:row-start-1 md:h-full md:min-h-0",
+            )}
+          >
             <div className="flex items-center justify-between border-b border-white/10 px-3 py-2 text-sm font-medium">
               Chat
               <button type="button" onClick={() => setChatAbierto(false)} aria-label="Cerrar chat" className="rounded p-1 hover:bg-white/10">
@@ -918,7 +1089,13 @@ export function SalaDeReunion({
         ) : null}
       </div>
 
-      <div className="flex shrink-0 items-center justify-center gap-2 border-t border-white/10 px-2 py-2.5">
+      <div
+        className={cn(
+          "flex shrink-0 items-center justify-center gap-2 border-t border-white/10 px-2 py-2.5",
+          conPantalla && "md:col-start-2 md:row-start-3 md:flex-wrap",
+          angosta && "md:flex-col",
+        )}
+      >
         <Button
           size="icon-lg"
           variant={local?.isMicrophoneEnabled ? "secondary" : "destructive"}
@@ -969,13 +1146,40 @@ export function SalaDeReunion({
             <span className="absolute -top-1 -right-1 rounded-full bg-red-600 px-1 text-[10px] leading-4 text-white">{sinLeer}</span>
           ) : null}
         </Button>
-        <Button size="lg" variant="outline" onClick={salir} className="text-foreground">
-          <LogOut /> Salir
+        {conPantalla ? (
+          <Button
+            size="icon-lg"
+            variant="outline"
+            onClick={() => setColumnaEscondida((escondida) => !escondida)}
+            aria-label={angosta ? "Mostrar personas" : "Esconder personas"}
+            title={angosta ? "Mostrar personas" : "Esconder personas"}
+            className="hidden text-foreground md:inline-flex"
+          >
+            {angosta ? <PanelRightOpen /> : <PanelRightClose />}
+          </Button>
+        ) : null}
+        <Button
+          size="lg"
+          variant="outline"
+          onClick={salir}
+          aria-label="Salir"
+          title="Salir"
+          className={cn("text-foreground", conPantalla && !angosta && "md:flex-1")}
+        >
+          <LogOut /> <span className={cn(angosta && "md:hidden")}>Salir</span>
         </Button>
         {pase.puedeTerminar ? (
-          <Button size="lg" variant="destructive" onClick={() => void terminar()} disabled={terminando} className="bg-red-600 text-white hover:bg-red-700">
+          <Button
+            size="lg"
+            variant="destructive"
+            onClick={() => void terminar()}
+            disabled={terminando}
+            aria-label="Terminar reunión"
+            title="Terminar reunión"
+            className={cn("bg-red-600 text-white hover:bg-red-700", conPantalla && !angosta && "md:w-full")}
+          >
             {terminando ? <Loader2 className="animate-spin" /> : <PhoneOff />}
-            <span className="hidden sm:inline">Terminar reunión</span>
+            <span className={cn("hidden sm:inline", angosta && "md:hidden")}>Terminar reunión</span>
           </Button>
         ) : null}
       </div>
