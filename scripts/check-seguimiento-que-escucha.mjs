@@ -768,7 +768,7 @@ await prueba("follows.ts: pide el texto al redactor antes de los 2 envíos de te
   const fs = await import("node:fs");
   const codigo = fs.readFileSync(new URL("../src/features/seguimientos/services/follows.ts", import.meta.url), "utf8");
   // Solo los automáticos, y después de todos los frenos (el redactor se arma tras el freno de 3 seguidos).
-  assert.match(codigo, /const redactar = clase === "automatico" \? redactorDelFollow\(follow\) : null;/);
+  assert.match(codigo, /const redactar = clase === "automatico" \? redactorDelFollow\(follow, charlaDelFollow\) : null;/);
   assert.ok(codigo.indexOf("const redactar = clase") > codigo.indexOf("revisarFrenoDeAutomatico({"));
   // Los dos envíos (el flujo y el texto) guardan la marca, y el rawPayload la lleva.
   assert.equal(codigo.match(/marca: marcaDelSeguimiento\(redactado\)/g)?.length, 2);
@@ -776,6 +776,50 @@ await prueba("follows.ts: pide el texto al redactor antes de los 2 envíos de te
   // enviar:false no se manda: se cancela o se corre a la vuelta siguiente, y se anota.
   assert.match(codigo, /if \(redactado && !redactado\.enviar\) throw new FrenoDelRedactor\(redactado\);/);
   assert.match(codigo, /error instanceof FrenoDelRedactor/);
+});
+
+await prueba("caso real 302 718 8927 (tarjeta yp8xzwvm): la IA ve el nombre del PDF y el producto nuevo, y nada del combo sale", async () => {
+  reiniciarBase();
+  base.enviados = [];
+  base.mensajes = [
+    msg("m1", "INBOUND", "TEXT", "Hola, info del combo", 0),
+    msg("m2", "OUTBOUND", "TEXT", "¡Hola! El combo de camilla vale 989.000", 1),
+    msg("m3", "INBOUND", "AUDIO", null, 5, { mediaUrl: "https://x/a.ogg", transcripcion: "necesito uno para una", transcritoEn: new Date() }),
+    msg("m4", "OUTBOUND", "DOCUMENT", null, 9, { mediaUrl: "https://x/doc.pdf", rawPayload: { source: "manual", fileName: "COMBO MESA Y SILLAS MANICURA.pdf" } }),
+  ].reverse();
+  const original = prismaFalso.product.findFirst;
+  prismaFalso.product.findFirst = async () => ({ name: "Combo de Camilla", price: 989000, description: "Camilla, butaco y carrito", activo: true });
+  const COMBO = "Recuerda que el combo camillas tiene garantía de 1 año 😊 ¿Te lo separo?";
+  reiniciarIa([COMBO, COMBO, COMBO]);
+  const r = await redactar({ ...ENTRADA, textoFijo: COMBO });
+  prismaFalso.product.findFirst = original;
+  const contexto = ia.pedidos[0].messages.find((m) => m.role === "user").content;
+  assert.match(contexto, /\[documento\] COMBO MESA Y SILLAS MANICURA\.pdf/);
+  assert.match(contexto, /PRODUCTO QUE LE INTERESA: mesa de manicure/);
+  assert.match(ia.pedidos[0].messages[0].content, /quiere mesa de manicure: habla solo de eso/);
+  // Ni la IA, ni el texto fijo, ni la pregunta del anuncio del combo: no sale nada.
+  assert.equal(r.enviar, false);
+  assert.equal(r.motivo, redactor.MOTIVO_SIN_TEXTO);
+  // Con una propuesta de la mesa, sí sale.
+  reiniciarBase();
+  base.enviados = [];
+  base.mensajes = [
+    msg("m1", "INBOUND", "TEXT", "necesito un combo para uñas", 0),
+    msg("m2", "OUTBOUND", "DOCUMENT", null, 9, { mediaUrl: "https://x/doc.pdf", rawPayload: { source: "manual", fileName: "COMBO MESA Y SILLAS MANICURA.pdf" } }),
+  ].reverse();
+  const MESA = "Laura, la mesa con las sillas de manicure del PDF queda lista para tu puesto 💅 ¿Te la separo?";
+  reiniciarIa([MESA]);
+  const bien = await redactar({ ...ENTRADA, textoFijo: COMBO });
+  assert.equal(bien.enviar, true);
+  assert.equal(bien.texto, MESA);
+});
+
+await prueba("revisor: con otro producto vigente rechaza el texto del combo; con el combo vigente lo deja", () => {
+  const otro = { ...BASE, productoVigente: { nombre: "mesa de manicure", esElCombo: false } };
+  const problemas = sq.revisarSeguimiento("Espero que te haya gustado el combo 😊 ¿Para cuándo lo necesitas?", otro);
+  assert.ok(problemas.some((p) => /habla del combo/.test(p)), problemas.join(" | "));
+  const combo = { ...BASE, productoVigente: { nombre: "Combo de Camilla", esElCombo: true } };
+  assert.ok(!sq.revisarSeguimiento("Espero que te haya gustado el combo 😊 ¿Para cuándo lo necesitas?", combo).some((p) => /habla del combo/.test(p)));
 });
 
 /* ----------------------------------------------------------------------------------------------
@@ -836,10 +880,17 @@ const relojV3 = cargar("src/features/agente-v3/servicios/seguimientos.ts", {
   "@/lib/freno-de-automaticos": { revisarFrenoDeAutomatico: async () => ({ enviar: true }) },
   "@/features/seguimientos/services/follows": { apagarSiCorresponde: async () => null },
   "@/features/seguimiento-inteligente/servicios/convivencia": { revisarConvivencia: async () => null },
+  // La revisión final y el candado tienen su prueba propia (check-seguimientos-sin-duplicados.mjs).
+  "@/features/seguimientos/services/compuerta-de-envio": { revisarCompuertaDeEnvio: async () => null },
   "../motor/estado": {
     elV3AtendioLaCharla: async () => true,
     leerEstado: async () => ({ ...v3.estado }),
     guardarEstado: async (_id, estado) => v3.estados.push(estado),
+    // El candado: lo que se reserva queda marcado como en `guardarEstado`.
+    reservarSeguimientoV3: async ({ marcar }) => {
+      v3.estados.push({ ...v3.estado, seguimientosEnviados: [...new Set([...v3.estado.seguimientosEnviados, ...marcar])] });
+      return "reservado";
+    },
   },
   "./almacen": { leerLibro: async () => ({ reglas: [reglaV3("r15", 15, TEXTO_15), reglaV3("r60", 60, TEXTO_60)] }) },
 });

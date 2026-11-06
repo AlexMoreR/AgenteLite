@@ -18,8 +18,10 @@ import {
   redactarSeguimientoQueEscucha,
 } from "@/features/seguimientos/services/seguimiento-que-escucha";
 
+import { revisarCompuertaDeEnvio } from "@/features/seguimientos/services/compuerta-de-envio";
+
 import { cumpleLasCondiciones } from "../motor/decidir";
-import { elV3AtendioLaCharla, guardarEstado, leerEstado } from "../motor/estado";
+import { elV3AtendioLaCharla, guardarEstado, leerEstado, reservarSeguimientoV3 } from "../motor/estado";
 import { leerLibro } from "./almacen";
 
 /**
@@ -33,7 +35,8 @@ import { leerLibro } from "./almacen";
  * nosotros y ya pasó el tiempo de alguna regla. Cuelga del cron que ya existe, para no montar otro.
  *
  * Tres cuidados, que son los que evitan que esto se convierta en spam:
- * 1. Cada regla sale UNA vez por silencio. Al volver a escribir el cliente, el contador se limpia.
+ * 1. Cada regla sale UNA vez por silencio. Al volver a escribir el cliente, el contador se limpia. Se
+ *    reserva con candado ANTES de enviar (reservarSeguimientoV3): dos vueltas cruzadas no la mandan dos veces.
  * 2. Si se acumuló atraso -la app estuvo caída, por ejemplo- sale SOLO el recordatorio más
  *    avanzado, no la ráfaga de todos los que vencieron.
  * 3. Nunca le escribe encima a una asesora: un chat pausado no se toca.
@@ -328,6 +331,49 @@ export async function ejecutarSeguimientosV3(
       // Si salió el texto de la regla tal cual, salen sus mensajes como siempre; si no, uno solo.
       const aEnviar = marca ? [redactado.texto] : textos;
       const source = redactado.deIA ? "agente-v3-seguimiento-ia" : "agente-v3-seguimiento";
+      const marcados = delPaso.filter((fila) => fila.minutos <= toca.minutos).map((fila) => fila.minutos);
+      const reservar = () =>
+        reservarSeguimientoV3({
+          conversationId: conversacion.id,
+          minutos: toca.minutos,
+          marcar: marcados,
+          ultimoEn: ultimo.createdAt,
+        }).catch((error) => {
+          console.error("[agente-v3] no se pudo reservar el seguimiento; no sale", {
+            conversationId: conversacion.id,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          return "error" as const;
+        });
+
+      /*
+        Revisión final (tarjeta yp8xzwvm, 4-nov-2026): no sale el mismo texto que este chat ya recibió de un
+        automático en los últimos 7 días, ni un texto del combo en un chat que va de otro producto. Se da por
+        visto (se reserva sin enviar) para no volver a pedirle el texto a la IA cada minuto.
+      */
+      const compuerta = await revisarCompuertaDeEnvio({ conversationId: conversacion.id, textos: aEnviar, ahora });
+      if (compuerta) {
+        frenados += 1;
+        anotar(compuerta.motivo);
+        console.info("[agente-v3] seguimiento frenado en la revisión final", {
+          conversationId: conversacion.id,
+          motivo: compuerta.motivo,
+          detalle: compuerta.detalle,
+        });
+        await reservar();
+        continue;
+      }
+
+      /*
+        El candado (tarjeta yp8xzwvm): se reserva ANTES de enviar, dentro de una transacción con candado por
+        chat. Si otra vuelta ya lo reservó, si alguien escribió o si el chat se pausó mientras tanto, no sale.
+      */
+      const reserva = await reservar();
+      if (reserva !== "reservado") {
+        frenados += 1;
+        anotar(`reserva_${reserva}`);
+        continue;
+      }
 
       try {
         for (const texto of aEnviar) {
@@ -362,16 +408,11 @@ export async function ejecutarSeguimientosV3(
         */
 
         /*
-          Los vencidos quedan marcados aunque haya salido solo el último: no se persigue hacia atrás.
-          Solo los del paso (hasta el que salió): antes se marcaban los de TODAS las reglas, y una de
+          Los vencidos ya quedaron marcados en la reserva, aunque salga solo el último: no se persigue hacia
+          atrás. Solo los del paso (hasta el que salió): antes se marcaban los de TODAS las reglas, y una de
           60 min de otro paso dejaba marcado el "60" de este. Caso 12-oct •••• 5474: salió el de 15
           a los 104 min y el de 1 h ya no salió nunca.
         */
-        const marcados = delPaso.filter((fila) => fila.minutos <= toca.minutos).map((fila) => fila.minutos);
-        await guardarEstado(conversacion.id, {
-          ...estado,
-          seguimientosEnviados: [...new Set([...yaSalieron, ...marcados])],
-        });
         enviados += 1;
         enviadosEnLaLinea += 1;
         // Espaciado: el próximo automático de esta línea espera (solo con la medida prendida).
@@ -390,7 +431,9 @@ export async function ejecutarSeguimientosV3(
           datos: { minutos: toca.minutos, mensajes: aEnviar.length, deIA: redactado.deIA },
         });
       } catch (error) {
-        console.error("[agente-v3] no se pudo enviar el seguimiento", {
+        // Quedó reservado: NO se reintenta en la vuelta siguiente (no se sabe si salió; reintentar duplica).
+        anotar("envio_fallido");
+        console.error("[agente-v3] no se pudo enviar el seguimiento; no se reintenta", {
           conversationId: conversacion.id,
           error: error instanceof Error ? error.message : String(error),
         });

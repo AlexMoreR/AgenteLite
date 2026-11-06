@@ -12,6 +12,9 @@ import {
   revisarSeguimiento,
   type RevisionDelSeguimiento,
 } from "@/features/seguimientos/dominio/seguimiento-que-escucha";
+import { productoVigenteDelChat } from "@/features/seguimientos/dominio/compuerta-de-envio";
+import { familiaDelTexto } from "@/features/seguimiento-inteligente/dominio/producto";
+import { nombreDeArchivo } from "@/features/seguimientos/services/compuerta-de-envio";
 
 /**
  * SEGUIMIENTOS QUE ESCUCHAN AL CLIENTE (parte 2: el redactor).
@@ -149,11 +152,19 @@ export async function redactarSeguimientoQueEscucha(input: {
     const chat = await leerConversacion(input.workspaceId, input.conversationId);
     if (!chat) return textoFijoTalCual(input.textoFijo, "conversación no encontrada: texto fijo");
 
-    const [producto, libro, yaEnviados] = await Promise.all([
+    const [productoGuardado, libro, yaEnviados] = await Promise.all([
       leerProducto(input.workspaceId, chat.productoId),
       leerLibro(input.workspaceId).catch(() => null),
       seguimientosYaEnviados(input.conversationId),
     ]);
+    /*
+      El producto que el chat pide AHORA (tarjeta yp8xzwvm): si la clienta pidió otro o le mandamos el catálogo
+      de otro, el producto guardado del combo ya no vale (ni sus datos, ni la pregunta del anuncio).
+    */
+    const vigente = chat.productoVigente;
+    const otroProducto = vigente && !vigente.esElCombo;
+    const delCombo = (nombre: string) => ["combo-camilla", "camillas"].includes(familiaDelTexto(nombre) ?? "");
+    const producto = otroProducto && productoGuardado && delCombo(productoGuardado.nombre) ? null : productoGuardado;
 
     const datosDelLibro =
       [
@@ -171,6 +182,7 @@ export async function redactarSeguimientoQueEscucha(input: {
       yaEnviados: yaEnviados.textos,
       datosDelLibro,
       soloMandoElAnuncio: chat.soloMandoElAnuncio,
+      productoVigente: vigente,
     });
 
     const revision: RevisionDelSeguimiento = {
@@ -179,6 +191,7 @@ export async function redactarSeguimientoQueEscucha(input: {
       textoDelLibro: [datosDelLibro ?? "", producto?.nombre ?? ""].join("\n"),
       // Sin el producto, los reintentos de la IA no verian la regla de la contraentrega (solo en el Combo).
       producto: producto?.nombre ?? null,
+      productoVigente: vigente,
     };
     const propuestas = await pedirPropuestas(apiKey, pedido, revision);
 
@@ -312,6 +325,7 @@ type MensajeLeido = {
   transcripcion: string | null;
   transcritoEn: Date | null;
   createdAt: Date;
+  rawPayload: unknown;
 };
 
 /**
@@ -336,6 +350,7 @@ async function leerConversacion(workspaceId: string, conversationId: string) {
           transcripcion: true,
           transcritoEn: true,
           createdAt: true,
+          rawPayload: true,
         },
       },
     },
@@ -357,6 +372,17 @@ async function leerConversacion(workspaceId: string, conversationId: string) {
     lineas: aLineas(mensajes),
     ultimoDelCliente: ultimoEntrante,
     soloMandoElAnuncio: soloMandoElAnuncio({ primerEntrante, ultimoEntrante, entrantesDespuesDelAnuncio, automaticos: [] }),
+    productoVigente: productoVigenteDelChat(
+      mensajes
+        .filter((m) => m.type !== "SYSTEM")
+        .map((m) => ({
+          direccion: m.direction === "INBOUND" ? ("IN" as const) : ("OUT" as const),
+          tipo: m.type,
+          texto: m.type === "AUDIO" ? m.transcripcion?.trim() || null : m.content,
+          nombreDeArchivo: nombreDeArchivo(m),
+          en: m.createdAt,
+        })),
+    ),
   };
 }
 
@@ -402,7 +428,7 @@ function aLineas(mensajes: MensajeLeido[]): Linea[] {
             : m.type === "VIDEO"
               ? `[video]${contenido ? ` ${contenido}` : ""}`
               : m.type === "DOCUMENT"
-                ? `[documento]${contenido ? ` ${contenido}` : ""}`
+                ? `[documento]${conNombre(nombreDeArchivo(m), contenido)}`
                 : contenido;
       return {
         de: m.direction === "INBOUND" ? ("cliente" as const) : ("negocio" as const),
@@ -411,6 +437,13 @@ function aLineas(mensajes: MensajeLeido[]): Linea[] {
       };
     })
     .filter((linea) => linea.texto);
+}
+
+/** " NOMBRE.pdf pie" (el nombre del archivo y el pie, sin repetir si son lo mismo). Vacio si no hay nada. */
+function conNombre(nombre: string | null, contenido: string): string {
+  const partes = [nombre?.trim() || "", contenido].filter(Boolean);
+  if (partes.length === 2 && partes[0] === partes[1]) partes.pop();
+  return partes.length ? ` ${partes.join(" ")}` : "";
 }
 
 /** Los origenes de los seguimientos automaticos de texto: los follows y los del reloj del V3 (parte 3). */

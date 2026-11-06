@@ -24,6 +24,8 @@ export async function revisarApagadoDelChat(input: {
   conversationId?: string | null;
   tipo: TipoDeSeguimiento;
   ahora?: Date;
+  /** Cuándo se agendó el seguimiento (los de Follow). Ver `decidirApagado`. */
+  agendadoEn?: Date | null;
 }): Promise<RevisionDeApagado> {
   try {
     const ahora = input.ahora ?? new Date();
@@ -63,6 +65,7 @@ export async function revisarApagadoDelChat(input: {
       mensajes,
       inicioDeLaCharla: charla.startedAt,
       ahora,
+      agendadoEn: input.agendadoEn ?? null,
     });
     return motivo ? { motivo, conversationId: charla.id, channelId: charla.channelId } : null;
   } catch (error) {

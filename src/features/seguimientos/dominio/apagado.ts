@@ -12,7 +12,9 @@
  *  - el cliente ya confirmó la compra o el pago. Regla CONSERVADORA: es preferible dejar pasar un falso
  *    negativo que apagarle los seguimientos a quien no confirmó. Un "sí" suelto solo cuenta si lo último que
  *    dijo el negocio fue una pregunta de cierre o de pago;
- *  - (solo los del paso del embudo / de un producto) una asesora le escribió a mano en las últimas 24 h;
+ *  - (solo los del paso del embudo / de un producto) una asesora le escribió a mano en las últimas 24 h, o le
+ *    escribió (o le mandó un archivo) DESPUÉS de que se agendó el seguimiento, aunque hayan pasado más de 24 h:
+ *    la asesora tomó el chat y el seguimiento viejo del embudo ya no corresponde (tarjeta yp8xzwvm, 4-nov-2026);
  *  - (solo "Tras asesora") la última frase de la asesora promete enviar algo o pide esperar ("deme un
  *    momento y te envío todo"): quien tiene que responder es ella, no el cliente. Los "Tras asesora" nacen
  *    justamente porque la asesora escribió, así que "asesora escribió" no los frena.
@@ -49,6 +51,8 @@ export type HechosDeApagado = {
   mensajes: MensajeDelChat[];
   inicioDeLaCharla: Date | null;
   ahora: Date;
+  /** Cuándo se agendó el seguimiento (`Follow.createdAt`). null o ausente = el reloj del V3, que no se agenda. */
+  agendadoEn?: Date | null;
 };
 
 /** Null = el seguimiento puede seguir su camino (lo demás lo deciden las medidas de siempre). */
@@ -75,6 +79,10 @@ export function decidirApagado(h: HechosDeApagado): MotivoDeApagado | null {
     const desde = h.ahora.getTime() - HORAS_ASESORA_ESCRIBIO * 3_600_000;
     if (delaAsesora.some((m) => m.en.getTime() >= desde)) {
       return { codigo: "asesora_escribio", texto: "la asesora le escribió a mano en las últimas 24 h" };
+    }
+    const agendado = h.agendadoEn?.getTime();
+    if (agendado !== undefined && delaAsesora.some((m) => m.en.getTime() > agendado)) {
+      return { codigo: "asesora_escribio", texto: "la asesora tomó el chat después de agendado el seguimiento" };
     }
   }
   return null;

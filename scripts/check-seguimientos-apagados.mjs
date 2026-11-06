@@ -168,6 +168,22 @@ prueba("Tras asesora (agenda): promesa sola, confirmación sola y etapa de venta
 });
 
 /* ---- 8. Qué Follow es de qué tipo ---- */
+prueba("la asesora tomó el chat DESPUÉS de agendado el seguimiento: no sale aunque hayan pasado más de 24 h (tarjeta yp8xzwvm)", () => {
+  // Agendado a la hora 1; la asesora mandó el PDF a la hora 2; el seguimiento vence a las 30 h.
+  const charla = [IN(0, "Hola, necesito un combo"), BOT(0.5, "¡Hola! Te cuento del combo"), ASESORA(2, "COMBO MESA Y SILLAS MANICURA.pdf", "DOCUMENT")];
+  const r = decidir(charla, { ahora: mas(30), agendadoEn: mas(1) });
+  assert.equal(r?.codigo, "asesora_escribio");
+  assert.match(r.texto, /tomó el chat después de agendado/);
+  // Agendado DESPUÉS de lo que escribió ella (y hace más de 24 h): sale como siempre.
+  assert.equal(decidir(charla, { ahora: mas(30), agendadoEn: mas(3) }), null);
+  // Sin fecha de agendado (el reloj del V3): solo cuenta la ventana de 24 h.
+  assert.equal(decidir(charla, { ahora: mas(30) }), null);
+  // Los "Tras asesora" nacen porque ella escribió: esto no los frena.
+  assert.equal(decidir(charla, { ahora: mas(30), agendadoEn: mas(1), tipo: "tras_asesora" }), null);
+  // El motor de Follows le pasa la fecha en que se agendó.
+  assert.match(fs.readFileSync("src/features/seguimientos/services/follows.ts", "utf8"), /agendadoEn: follow\.createdAt/);
+});
+
 prueba("tipo de seguimiento por nombre/regla", () => {
   assert.equal(ap.tipoDeSeguimiento({ name: "Tras asesora: 1 h", followRuleId: null }), "tras_asesora");
   assert.equal(ap.tipoDeSeguimiento({ name: "Etapa Bienvenida · 1 día", followRuleId: null }), "embudo");

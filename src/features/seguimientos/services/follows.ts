@@ -42,6 +42,8 @@ import {
   type MotivoDelRedactor,
   type SeguimientoRedactado,
 } from "@/features/seguimientos/services/seguimiento-que-escucha";
+import { revisarCompuertaDeEnvio } from "@/features/seguimientos/services/compuerta-de-envio";
+import type { FrenoDeCompuerta, MotivoDeCompuerta } from "@/features/seguimientos/dominio/compuerta-de-envio";
 
 export type FollowSourceType = "FLOW" | "PRODUCT" | "TAG" | "CRM_STAGE" | "MANUAL" | "AGENT_NODE";
 export type FollowTimeType = "MINUTES" | "HOURS" | "DAYS";
@@ -1413,9 +1415,28 @@ async function persistFollowActionProgress(followId: string, actions: FollowActi
     SET
       ${hasActionsColumn ? Prisma.sql`"actions" = ${JSON.stringify(actions)}::jsonb,` : Prisma.empty}
       "updatedAt" = ${now}
-    WHERE "id" = ${followId}
+    WHERE "id" = ${followId} AND "status" = 'PENDING'
   `);
 }
+
+/**
+ * ¿Este seguimiento sigue PENDIENTE y sigue siendo de esta vuelta? (tarjeta yp8xzwvm, 4-nov-2026)
+ *
+ * Se pregunta justo antes de cada envío. Si alguien lo canceló mientras tanto (la asesora pausó el chat,
+ * otra regla lo apagó) o si otra vuelta del cron lo tomó (el candado de 10 minutos venció en una vuelta
+ * lenta), no sale. Si sigue siendo suyo, renueva el candado: así una vuelta lenta no lo pierde a mitad.
+ */
+async function sigueSiendoDeEstaVuelta(followId: string, workerId: string): Promise<boolean> {
+  const tomados = await prisma.$executeRaw(Prisma.sql`
+    UPDATE public."Follow"
+    SET "lockedAt" = ${new Date()}
+    WHERE "id" = ${followId} AND "status" = 'PENDING' AND "lockedBy" = ${workerId}
+  `);
+  return tomados > 0;
+}
+
+/** Motivo de una acción que una vuelta anterior empezó a enviar y no terminó: no se reenvía. */
+export const MOTIVO_ENVIO_INTERRUMPIDO = "envio_interrumpido";
 
 async function finalizeFollowExecution(
   followId: string,
@@ -1434,7 +1455,7 @@ async function finalizeFollowExecution(
       "lockedBy" = NULL,
       ${hasActionsColumn ? Prisma.sql`"actions" = ${JSON.stringify(actions)}::jsonb,` : Prisma.empty}
       "updatedAt" = ${now}
-    WHERE "id" = ${followId}
+    WHERE "id" = ${followId} AND "status" = 'PENDING'
   `);
 }
 
@@ -1490,6 +1511,8 @@ async function enviarFlujoDelSeguimiento(input: {
   flowId: string;
   /** Seguimientos que escuchan: el redactor de los textos (solo en los automáticos). */
   redactar?: RedactorDelFollow | null;
+  /** La revisión final y el candado, con los textos ya listos, antes del primer paso. Lanza si no sale. */
+  antesDeEnviar?: (textos: string[]) => Promise<void>;
 }) {
   const flujo = await getFlowReply({
     workspaceId: input.workspaceId,
@@ -1513,6 +1536,13 @@ async function enviarFlujoDelSeguimiento(input: {
       if (redactado && !redactado.enviar) throw new FrenoDelRedactor(redactado);
       redactados[indice] = redactado;
     }
+  }
+  if (input.antesDeEnviar) {
+    const textos = mensajes.map((mensaje, indice) => {
+      const redactado = redactados[indice];
+      return (redactado?.enviar ? redactado.texto : mensaje.content) ?? "";
+    });
+    await input.antesDeEnviar(textos.filter((texto) => texto.trim()));
   }
   for (const [indice, original] of mensajes.entries()) {
     const redactado = redactados[indice];
@@ -1695,6 +1725,8 @@ export async function apagarSiCorresponde(input: {
   conversationId?: string | null;
   tipo: TipoDeSeguimiento;
   soloInterruptor?: boolean;
+  /** Cuándo se agendó (los de Follow): si la asesora escribió después, ya no sale (ver dominio/apagado.ts). */
+  agendadoEn?: Date | null;
 }): Promise<string | null> {
   const revision = await revisarApagadoDelChat(input);
   if (!revision) return null;
@@ -1817,7 +1849,10 @@ async function revisarAntiBloqueoDelFollow(
   return resultado.enviar ? null : resultado;
 }
 
-async function cancelarFollowFrenado(follow: ClaimedFollowRow, motivo: MotivoDeFreno | MotivoAntiBloqueo | MotivoDelRedactor) {
+async function cancelarFollowFrenado(
+  follow: ClaimedFollowRow,
+  motivo: MotivoDeFreno | MotivoAntiBloqueo | MotivoDelRedactor | MotivoDeCompuerta,
+) {
   const now = new Date();
   const hasActionsColumn = await hasFollowActionsColumn("Follow");
   const actions = buildCancelledFollowActions({
@@ -1837,7 +1872,7 @@ async function cancelarFollowFrenado(follow: ClaimedFollowRow, motivo: MotivoDeF
       "lockedBy" = NULL,
       ${hasActionsColumn ? Prisma.sql`"actions" = ${JSON.stringify(actions)}::jsonb,` : Prisma.empty}
       "updatedAt" = ${now}
-    WHERE "id" = ${follow.id}
+    WHERE "id" = ${follow.id} AND "status" = 'PENDING'
   `);
 }
 
@@ -1854,9 +1889,10 @@ class FrenoDelRedactor extends Error {
  * Seguimientos que escuchan al cliente (parte 2): el texto de un seguimiento AUTOMÁTICO lo escribe el
  * redactor leyendo la conversación. Si el contacto no tiene chat, devuelve null y sale el texto agendado.
  */
-function redactorDelFollow(follow: ClaimedFollowRow): RedactorDelFollow {
+/** El chat del contacto de un Follow (el más reciente de su línea), leído una sola vez. */
+function buscadorDeLaCharla(follow: ClaimedFollowRow): () => Promise<string | null> {
   let conversationId: string | null | undefined;
-  return async (textoFijo, origen) => {
+  return async () => {
     if (conversationId === undefined) {
       const charla = await prisma.conversation
         .findFirst({
@@ -1867,6 +1903,13 @@ function redactorDelFollow(follow: ClaimedFollowRow): RedactorDelFollow {
         .catch(() => null);
       conversationId = charla?.id ?? null;
     }
+    return conversationId;
+  };
+}
+
+function redactorDelFollow(follow: ClaimedFollowRow, charlaDelFollow = buscadorDeLaCharla(follow)): RedactorDelFollow {
+  return async (textoFijo, origen) => {
+    const conversationId = await charlaDelFollow();
     if (!conversationId) return null;
     return redactarSeguimientoQueEscucha({
       conversationId,
@@ -1877,6 +1920,16 @@ function redactorDelFollow(follow: ClaimedFollowRow): RedactorDelFollow {
     });
   };
 }
+
+/** La revisión final frenó el seguimiento (texto repetido o del combo en un chat de otro producto). */
+class FrenoDeLaCompuerta extends Error {
+  constructor(readonly freno: FrenoDeCompuerta) {
+    super(freno.motivo);
+  }
+}
+
+/** El seguimiento ya no es de esta vuelta (lo cancelaron o lo tomó otra): no sale. */
+class YaNoEsDeEstaVuelta extends Error {}
 
 /** Lo que pasa cuando el redactor frena: igual que los otros frenos (cancelar y anotar), o correrlo un minuto. */
 async function frenarPorElRedactor(
@@ -1912,6 +1965,33 @@ async function frenarPorElRedactor(
     datos: { followId: follow.id, clase },
   });
   return { ok: true as const, executionError: null, frenado: motivo };
+}
+
+/** La revisión final frenó el envío: se cancela con el motivo (lo que ya salió queda como salió) y se anota. */
+async function frenarPorLaCompuerta(
+  follow: ClaimedFollowRow,
+  actions: FollowActionRecord[],
+  action: FollowActionRecord,
+  freno: FrenoDeCompuerta,
+  clase: ClaseDeFollow,
+  conversationId: string | null,
+) {
+  action.lockedAt = null;
+  action.lockedBy = null;
+  await cancelarFollowFrenado({ ...follow, actions: actions as unknown as Prisma.JsonValue }, freno.motivo);
+  anotarFrenado({
+    workspaceId: follow.workspaceId,
+    conversationId,
+    contactId: follow.contactId,
+    channelId: follow.channelId,
+    motor: "follow",
+    motivo: freno.motivo,
+    claveUnica: `follow:${follow.id}:${freno.motivo}`,
+    reglaId: follow.followRuleId,
+    reglaNombre: follow.name,
+    datos: { followId: follow.id, clase, detalle: freno.detalle },
+  });
+  return { ok: true as const, executionError: null, frenado: freno.motivo };
 }
 
 async function executeFollowRecord(follow: ClaimedFollowRow) {
@@ -1960,6 +2040,7 @@ async function executeFollowRecord(follow: ClaimedFollowRow) {
         tipo: clase === "automatico" ? tipoDeSeguimiento(follow) : "otro",
         // Una "Automatización" o la reactivación son decisión de una persona: solo las frena el interruptor.
         soloInterruptor: clase !== "automatico",
+        agendadoEn: follow.createdAt,
       });
       if (apagado) antiBloqueo = { motivo: "seguimientos_apagados", reprogramarPara: null, conversationId: apagado };
     }
@@ -2027,10 +2108,39 @@ async function executeFollowRecord(follow: ClaimedFollowRow) {
     Seguimientos que escuchan al cliente: ya pasaron TODOS los frenos de arriba. Solo los automáticos;
     los de una persona, las campañas y las automatizaciones salen con su texto de siempre.
   */
-  const redactar = clase === "automatico" ? redactorDelFollow(follow) : null;
+  const charlaDelFollow = buscadorDeLaCharla(follow);
+  const redactar = clase === "automatico" ? redactorDelFollow(follow, charlaDelFollow) : null;
+  /*
+    Justo antes de cada envío (tarjeta yp8xzwvm, 4-nov-2026):
+     - la revisión final, solo los automáticos: no sale el mismo texto que el chat ya recibió de un automático
+       en los últimos 7 días, ni un texto del combo en un chat que va de otro producto;
+     - el candado: el seguimiento sigue pendiente y sigue siendo de esta vuelta.
+  */
+  const antesDeEnviar = async (textos: string[]) => {
+    if (clase === "automatico") {
+      const freno = await revisarCompuertaDeEnvio({ conversationId: await charlaDelFollow(), textos });
+      if (freno) throw new FrenoDeLaCompuerta(freno);
+    }
+    if (!(await sigueSiendoDeEstaVuelta(follow.id, workerId))) throw new YaNoEsDeEstaVuelta();
+  };
 
   for (const action of actions) {
     if (action.status !== "PENDING") {
+      continue;
+    }
+
+    /*
+      Una vuelta anterior empezó a enviar esta acción y se cayó a mitad (quedó con su candado): no se sabe si
+      salió, y reenviarla es justo lo que duplica. Queda fallida con el motivo.
+    */
+    if (action.lockedAt && action.lockedBy !== workerId) {
+      action.status = "FAILED";
+      action.executionError = MOTIVO_ENVIO_INTERRUMPIDO;
+      action.executedAt = null;
+      action.lockedAt = null;
+      action.lockedBy = null;
+      actionErrors.push({ order: action.order, message: MOTIVO_ENVIO_INTERRUMPIDO });
+      await persistFollowActionProgress(follow.id, actions);
       continue;
     }
 
@@ -2047,6 +2157,7 @@ async function executeFollowRecord(follow: ClaimedFollowRow) {
           channelId: follow.channelId,
           flowId: action.flowId,
           redactar,
+          antesDeEnviar,
         });
         action.status = "EXECUTED";
         action.executedAt = new Date().toISOString();
@@ -2064,6 +2175,7 @@ async function executeFollowRecord(follow: ClaimedFollowRow) {
           : null;
       if (redactado && !redactado.enviar) throw new FrenoDelRedactor(redactado);
       const contenido = redactado?.enviar ? redactado.texto : action.content;
+      await antesDeEnviar(contenido?.trim() ? [contenido] : []);
 
       const sendResult = await sendFollowMessage({
         workspaceId: follow.workspaceId,
@@ -2104,6 +2216,14 @@ async function executeFollowRecord(follow: ClaimedFollowRow) {
     } catch (error) {
       if (error instanceof FrenoDelRedactor) {
         return frenarPorElRedactor(follow, actions, action, error, clase);
+      }
+      if (error instanceof FrenoDeLaCompuerta) {
+        return frenarPorLaCompuerta(follow, actions, action, error.freno, clase, await charlaDelFollow());
+      }
+      if (error instanceof YaNoEsDeEstaVuelta) {
+        // Lo canceló alguien o lo tomó otra vuelta: no se toca nada más (es de quien lo tenga ahora).
+        console.info("[follows] el seguimiento ya no es de esta vuelta; no sale", { followId: follow.id });
+        return { ok: true as const, executionError: null, frenado: "ya_no_es_de_esta_vuelta" };
       }
       const errorMessage = buildExecutionErrorMessage(error);
       action.status = "FAILED";
@@ -2171,6 +2291,15 @@ export async function executePendingFollows(input: {
   const results: Array<{ followId: string; ok: boolean; error?: string }> = [];
   let warningCount = 0;
   for (const follow of claimed) {
+    /*
+      Una vuelta lenta (el redactor con IA tarda) puede pasar los 10 minutos del candado con seguimientos de
+      esta tanda todavía sin mirar: otra vuelta los toma y los dos los enviarían. Antes de empezar cada uno se
+      confirma que sigue pendiente y sigue siendo de esta vuelta (y se renueva el candado).
+    */
+    if (!(await sigueSiendoDeEstaVuelta(follow.id, workerId))) {
+      results.push({ followId: follow.id, ok: true, error: undefined });
+      continue;
+    }
     const result = await executeFollowRecord(follow);
     if (result.executionError) {
       warningCount += 1;

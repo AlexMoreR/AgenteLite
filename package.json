@@ -91,6 +91,7 @@
     "test:alerta-ultima-vez-migracion": "node scripts/check-alerta-ultima-vez-migracion.mjs",
     "test:seguimientos-apagados-migracion": "node scripts/check-seguimientos-apagados-migracion.mjs",
     "test:seguimientos-apagados": "node scripts/check-seguimientos-apagados.mjs",
+    "test:seguimientos-sin-duplicados": "node scripts/check-seguimientos-sin-duplicados.mjs",
     "test:avisos-gravedad": "node scripts/check-avisos-gravedad.mjs",
     "test:supervisor-accionable": "node scripts/check-supervisor-accionable.mjs",
     "test:mcp-supervisor": "node scripts/check-mcp-supervisor.mjs",

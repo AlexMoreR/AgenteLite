@@ -44,6 +44,11 @@ import {
   esHerramientaDeEmbudoPorPaso,
 } from "@/lib/mcp/embudo-por-paso";
 import {
+  HERRAMIENTAS_MCP_SEGUIMIENTOS_REPETIDOS,
+  ejecutarHerramientaMcpSeguimientosRepetidos,
+  esHerramientaDeSeguimientosRepetidos,
+} from "@/lib/mcp/seguimientos-repetidos";
+import {
   HERRAMIENTAS_MCP_REUNIONES,
   ejecutarHerramientaMcpReuniones,
   esHerramientaDeReuniones,
@@ -1131,6 +1136,7 @@ export const HERRAMIENTAS_MCP = [
   ...HERRAMIENTAS_MCP_ERRORES_DE_ENVIO,
   ...HERRAMIENTAS_MCP_COMPARAR_EMBUDOS,
   ...HERRAMIENTAS_MCP_EMBUDO_POR_PASO,
+  ...HERRAMIENTAS_MCP_SEGUIMIENTOS_REPETIDOS,
   ...HERRAMIENTAS_MCP_VENTAS_POR_CAMPANA,
   ...HERRAMIENTAS_MCP_REUNIONES,
   ...HERRAMIENTAS_MCP_ESCRITURA,
@@ -1161,6 +1167,9 @@ export async function ejecutarHerramientaMcp(nombre: string, args: Argumentos, c
   }
   if (esHerramientaDeEmbudoPorPaso(nombre)) {
     return ejecutarHerramientaMcpEmbudoPorPaso(nombre, args, contexto);
+  }
+  if (esHerramientaDeSeguimientosRepetidos(nombre)) {
+    return ejecutarHerramientaMcpSeguimientosRepetidos(nombre, args, contexto);
   }
   if (esHerramientaDeVentasPorCampana(nombre)) {
     return ejecutarHerramientaMcpVentasPorCampana(nombre, args, contexto);

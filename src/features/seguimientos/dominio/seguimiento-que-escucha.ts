@@ -18,6 +18,7 @@ import { problemasDeSeguimiento } from "@/lib/reglas-de-redaccion";
 import { buscarPorReglas, type TurnoDelChat } from "@/features/cotizaciones/services/datos-de-cotizacion";
 import { clienteConfirmoCompra, type MensajeDelChat } from "@/features/seguimientos/dominio/confirmacion-de-compra";
 import { preguntaLaCiudad } from "@/features/supervisor/dominio/lead";
+import { hablaDelCombo } from "@/features/seguimientos/dominio/compuerta-de-envio";
 
 /** Lineas que puede tener un seguimiento en WhatsApp. */
 export const LINEAS_MAXIMAS = 2;
@@ -123,6 +124,11 @@ export type RevisionDelSeguimiento = {
   textoDelLibro: string | null;
   /** El producto del chat: la contraentrega solo vale si es un Combo. null o ausente = no se sabe. */
   producto?: string | null;
+  /**
+   * El producto que el chat pide AHORA (ver dominio/compuerta-de-envio.ts). Si no es el combo, el texto no
+   * puede hablar del combo ni de las camillas (tarjeta yp8xzwvm). null o ausente = no hay señal.
+   */
+  productoVigente?: { nombre: string; esElCombo: boolean } | null;
 };
 
 /**
@@ -153,6 +159,11 @@ export function revisarSeguimiento(texto: string, contexto: RevisionDelSeguimien
 
   // Lo que el libro prohibe: valor del envio, envio gratis sin condicion, contraentrega fuera del Combo...
   problemas.push(...problemasConElLibro(limpio, contexto.producto ?? null));
+
+  // El chat va de otro producto (la clienta lo pidió o le mandamos su catálogo): nada del combo.
+  if (contexto.productoVigente && !contexto.productoVigente.esElCombo && hablaDelCombo(limpio)) {
+    problemas.push(`habla del combo y el chat ahora es de ${contexto.productoVigente.nombre}`);
+  }
 
   const fuente = [contexto.textoDelLibro ?? "", ...contexto.conversacion.map((l) => l.texto)].join("\n");
   const indice = indiceDeLaFuente(fuente);
@@ -595,6 +606,8 @@ export function armarPedidoDeSeguimiento(input: {
   yaEnviados: string[];
   datosDelLibro: string | null;
   soloMandoElAnuncio: boolean;
+  /** El producto que el chat pide ahora, si no es el combo (ver `RevisionDelSeguimiento.productoVigente`). */
+  productoVigente?: { nombre: string; esElCombo: boolean } | null;
 }): { instrucciones: string; contexto: string } {
   const reglas = [
     "Escribes UN mensaje de seguimiento por WhatsApp para un cliente que dejó de contestar. Tuteas, en español de Colombia.",
@@ -616,6 +629,12 @@ export function armarPedidoDeSeguimiento(input: {
     "Si el cliente ya separó, ya pagó o dijo que no le interesa, no le pidas apartar.",
     "Responde solo con el texto del mensaje, sin comillas ni explicaciones.",
   ];
+  const otroProducto = input.productoVigente && !input.productoVigente.esElCombo ? input.productoVigente.nombre : null;
+  if (otroProducto) {
+    reglas.push(
+      `El cliente ahora quiere ${otroProducto}: habla solo de eso. No menciones el combo ni las camillas.`,
+    );
+  }
   if (input.soloMandoElAnuncio) {
     reglas.push(
       "Este cliente solo mandó el texto del anuncio y no escribió nada más: haz una pregunta corta y concreta sobre el producto del anuncio.",
@@ -628,7 +647,7 @@ export function armarPedidoDeSeguimiento(input: {
     .filter((l) => !l.endsWith(": "));
 
   const contexto = [
-    `PRODUCTO QUE LE INTERESA: ${input.producto?.trim() || "(no se sabe)"}`,
+    `PRODUCTO QUE LE INTERESA: ${otroProducto ?? (input.producto?.trim() || "(no se sabe)")}`,
     `SEGUIMIENTO NÚMERO: ${input.paso}`,
     "",
     // De TODA la conversacion: lo de mas de 30 lineas atras no esta abajo, pero sigue valiendo.
@@ -681,6 +700,7 @@ export function elegirTexto(
     yaEnviados: input.yaEnviados,
     textoDelLibro: [input.textoDelLibro ?? "", input.producto ?? ""].join("\n"),
     producto: input.producto,
+    productoVigente: input.productoVigente ?? null,
   };
 
   for (const propuesta of input.propuestas.slice(0, INTENTOS_MAXIMOS)) {
@@ -704,7 +724,11 @@ export function elegirTexto(
   }
 
   const delAnuncio = seguimientoDelAnuncio(input.producto);
-  if (delAnuncio) return { enviar: true, texto: delAnuncio, origen: "producto", descartados };
+  // La pregunta del producto del anuncio tampoco habla del combo si el chat ya es de otro producto.
+  const otroProducto = input.productoVigente && !input.productoVigente.esElCombo;
+  if (delAnuncio && !(otroProducto && hablaDelCombo(delAnuncio))) {
+    return { enviar: true, texto: delAnuncio, origen: "producto", descartados };
+  }
 
   return {
     enviar: false,
