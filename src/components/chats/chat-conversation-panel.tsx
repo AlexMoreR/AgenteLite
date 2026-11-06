@@ -99,6 +99,26 @@ import { MediaLibraryDialog } from "@/components/chats/media-library-dialog";
 import { CartaDeColoresDialog } from "@/components/chats/carta-de-colores-dialog";
 import { subirArchivoPorPedazos } from "@/lib/subir-archivo-por-pedazos";
 import { comprimirFotoParaEnviar } from "@/lib/comprimir-foto";
+import { toProxiedMediaUrl } from "@/components/chats/chat-inbox-media";
+import {
+  actualizarFoto,
+  agregarArchivosFallidos,
+  agregarFotos,
+  decidirReintento,
+  esFotoEnEnvio,
+  fotoComoMensaje,
+  fotosDelChat,
+  fotosQueYaLlegaron,
+  leerFoto,
+  marcarFotoEnviada,
+  nuevoIdDeFoto,
+  quitarArchivosFallidos,
+  quitarFotos,
+  useArchivosFallidos,
+  useFotosEnEnvio,
+  type DestinoDeFoto,
+  type FotoEnEnvio,
+} from "@/components/chats/fotos-en-envio";
 import { cuandoEsteLibre } from "@/lib/cuando-este-libre";
 import {
   MENSAJE_SIN_CONEXION_ENVIO,
@@ -364,10 +384,12 @@ export const ConversationPanel = memo(function ConversationPanel({
    * Antes solo salia un aviso que se desvanecia y el archivo se perdia: habia que volver a la
    * galeria, buscar la misma foto y empezar de nuevo. Con la señal de la calle eso pasa seguido, y
    * es la diferencia entre reintentar de un toque o dejar al cliente sin la foto.
+   *
+   * Es una LISTA y vive fuera del panel (fotos-en-envio.ts), cada tarjeta con su chat y su destino:
+   * se ve solo en su chat y reintenta hacia ese destino, aunque la asesora haya cambiado de chat.
+   * Las fotos que fallan no vienen aca: quedan como burbuja en el chat, con su Reintentar.
    */
-  const [mediaFallida, setMediaFallida] = useState<
-    { files: File[]; caption?: string; motivo?: string } | null
-  >(null);
+  const todosLosArchivosFallidos = useArchivosFallidos();
   const [isSuggestingReply, setIsSuggestingReply] = useState(false);
   /*
     La sugerencia de la estrella que esta en la caja, para registrar al enviar que salio de ahi (y
@@ -633,6 +655,17 @@ export const ConversationPanel = memo(function ConversationPanel({
   // spinner mientras se envía (estilo WhatsApp), SIN bloquear el composer. Se ocultan solos
   // cuando llega el mensaje real (se deduplican por mediaUrl en el render).
   const [optimisticMediaMessages, setOptimisticMediaMessages] = useState<SharedInboxMessageItem[]>([]);
+  /*
+    Las fotos en envio (fotos-en-envio.ts): aparecen al tocar Enviar con la vista previa local y
+    viven fuera del panel, para sobrevivir al cambio de chat. Aca solo se muestran las de ESTE chat.
+  */
+  const chatDeLasFotos = mediaConfig?.conversationId ?? null;
+  const todasLasFotosEnEnvio = useFotosEnEnvio();
+  const fotosDeEsteChat = useMemo(
+    () => fotosDelChat(todasLasFotosEnEnvio, chatDeLasFotos),
+    [todasLasFotosEnEnvio, chatDeLasFotos],
+  );
+  const fotosPorId = useMemo(() => new Map(fotosDeEsteChat.map((foto) => [foto.id, foto])), [fotosDeEsteChat]);
   // Lista final a renderizar: mensajes reales + optimistas que aún no llegaron (mismo
   // mediaUrl ⇒ ya está el real, se descarta el optimista para no duplicar).
   const displayedMessages = useMemo(() => {
@@ -644,15 +677,42 @@ export const ConversationPanel = memo(function ConversationPanel({
     const sinNotasInternas = renderedMessages.some(esNotaInternaDelAgente)
       ? renderedMessages.filter((mensaje) => !esNotaInternaDelAgente(mensaje))
       : renderedMessages;
-    if (optimisticMediaMessages.length === 0) {
+    if (optimisticMediaMessages.length === 0 && fotosDeEsteChat.length === 0) {
       return sinNotasInternas;
     }
     const pending = optimisticMediaMessages.filter(
       (optimistic) =>
         !sinNotasInternas.some((real) => Boolean(real.mediaUrl) && real.mediaUrl === optimistic.mediaUrl),
     );
-    return pending.length === 0 ? sinNotasInternas : [...sinNotasInternas, ...pending];
-  }, [renderedMessages, optimisticMediaMessages]);
+    /*
+      Una foto se compara contra la direccion del SERVIDOR (la vista previa `blob:` nunca
+      coincidiria). La que ya llego se deja de dibujar en este mismo render, para que no se vean dos
+      un instante; el efecto de abajo la retira del almacen y libera su vista previa.
+    */
+    const yaLlegaron = new Set(fotosQueYaLlegaron(fotosDeEsteChat, chatDeLasFotos, sinNotasInternas));
+    const fotos = fotosDeEsteChat.filter((foto) => !yaLlegaron.has(foto.id)).map(fotoComoMensaje);
+    if (pending.length === 0 && fotos.length === 0) {
+      return sinNotasInternas;
+    }
+    const enEnvio = [...pending, ...fotos].sort(
+      (izquierda, derecha) => new Date(izquierda.createdAt).getTime() - new Date(derecha.createdAt).getTime(),
+    );
+    return [...sinNotasInternas, ...enEnvio];
+  }, [renderedMessages, optimisticMediaMessages, fotosDeEsteChat, chatDeLasFotos]);
+  // Llego el mensaje real de una foto: se retira la burbuja y se libera su vista previa local.
+  useEffect(() => {
+    const llegaron = fotosQueYaLlegaron(fotosDeEsteChat, chatDeLasFotos, renderedMessages);
+    if (llegaron.length > 0) {
+      quitarFotos(llegaron);
+    }
+  }, [fotosDeEsteChat, chatDeLasFotos, renderedMessages]);
+  // Mientras una foto sube o se envia (de cualquier chat), la app no se recarga sola.
+  const hayFotosEnCurso = todasLasFotosEnEnvio.some(
+    (foto) => foto.estado === "subiendo" || foto.estado === "enviando",
+  );
+  useEffect(() => {
+    marcarOcupada("fotos-en-envio", hayFotosEnCurso);
+  }, [hayFotosEnCurso]);
   const [isContactPanelOpen, setIsContactPanelOpen] = useState(false);
   const isMobile = useIsMobile();
   const [contactCity, setContactCity] = useState("");
@@ -778,8 +838,8 @@ export const ConversationPanel = memo(function ConversationPanel({
     varios en secuencia.
   */
   const sendSingleMediaFile = useCallback(
-    async (file: File, caption?: string): Promise<string | null> => {
-      if (!mediaConfig) {
+    async (file: File, caption?: string, destino: DestinoDeFoto | undefined = mediaConfig): Promise<string | null> => {
+      if (!destino) {
         return "No se pudo preparar el envio.";
       }
 
@@ -814,7 +874,7 @@ export const ConversationPanel = memo(function ConversationPanel({
          */
         const subida = await subirArchivoPorPedazos({
           file,
-          endpoint: `${mediaConfig.uploadPath}/chunk`,
+          endpoint: `${destino.uploadPath}/chunk`,
         });
         if (subida.error || !subida.archivo) {
           const motivo = subida.error || `No se pudo subir "${file.name}".`;
@@ -844,16 +904,16 @@ export const ConversationPanel = memo(function ConversationPanel({
         setOptimisticMediaMessages((prev) => [...prev, optimisticMessage]);
         window.requestAnimationFrame(() => onScrollToBottom());
 
-        const result = await mediaConfig.sendAction({
-          source: mediaConfig.source,
-          conversationId: mediaConfig.conversationId,
-          agentId: mediaConfig.agentId,
+        const result = await destino.sendAction({
+          source: destino.source,
+          conversationId: destino.conversationId,
+          agentId: destino.agentId,
           mediaUrl: data.url,
           mediaType: data.mediaType,
           fileName: data.fileName || file.name,
           mimeType: data.mimeType || file.type,
           caption: trimmedCaption || undefined,
-          returnTo: mediaConfig.returnTo,
+          returnTo: destino.returnTo,
         });
 
         if (result && "ok" in result && result.ok) {
@@ -895,43 +955,225 @@ export const ConversationPanel = memo(function ConversationPanel({
     [mediaConfig, onScrollToBottom],
   );
 
+  /*
+    Sube (si hace falta) y envia UNA foto que ya tiene su burbuja en el chat. Devuelve si salio.
+
+    Todo sale de la foto guardada y no del chat abierto: la asesora puede cambiar de chat a mitad de
+    la subida y la foto tiene que seguir yendo al chat donde toco Enviar, con su mismo texto.
+
+    Nada se reintenta solo: el servidor no reconoce envios repetidos, asi que si no hubo respuesta
+    la foto pudo haber salido. Se repite solo con el toque de la asesora en Reintentar.
+  */
+  const enviarFoto = useCallback(async (id: string): Promise<boolean> => {
+    const inicial = leerFoto(id);
+    if (!inicial) {
+      return false;
+    }
+    const { destino } = inicial;
+    const nombre = inicial.archivo.name;
+    const fallar = (motivo: string) => {
+      actualizarFoto(id, { estado: "fallida", motivo });
+    };
+
+    let subida = inicial.subida;
+    try {
+      if (!subida) {
+        actualizarFoto(id, { estado: "subiendo", motivo: null, avance: 0 });
+        // Fotos (JPEG, PNG, WEBP) a 1600 px y unos 400 KB. Si no se puede comprimir, sale la original.
+        // Se guarda la comprimida: un reintento no la vuelve a comprimir.
+        let archivo = inicial.archivo;
+        if (!inicial.comprimida) {
+          archivo = await comprimirFotoParaEnviar(archivo);
+          actualizarFoto(id, { archivo, comprimida: true });
+        }
+        const resultado = await subirArchivoPorPedazos({
+          file: archivo,
+          endpoint: `${destino.uploadPath}/chunk`,
+          onAvance: (avance) => actualizarFoto(id, { avance }),
+        });
+        if (resultado.error || !resultado.archivo) {
+          const motivo = resultado.error || `No se pudo subir "${nombre}".`;
+          toast.error(motivo);
+          fallar(motivo);
+          return false;
+        }
+        subida = resultado.archivo;
+        actualizarFoto(id, { subida, avance: 1 });
+        /*
+          Se deja la foto ya descargada en el navegador antes de que llegue el mensaje real: la
+          burbuja real la pide con esta misma direccion y aparece sin parpadear.
+        */
+        try {
+          const precarga = new Image();
+          precarga.decoding = "async";
+          precarga.src = toProxiedMediaUrl(subida.url);
+        } catch {
+          // Sin precarga solo se pierde el "sin parpadeo".
+        }
+      }
+
+      actualizarFoto(id, { estado: "enviando", motivo: null });
+      const result = await destino.sendAction({
+        source: destino.source,
+        conversationId: destino.conversationId,
+        agentId: destino.agentId,
+        mediaUrl: subida.url,
+        mediaType: subida.mediaType,
+        fileName: subida.fileName || nombre,
+        mimeType: subida.mimeType || inicial.archivo.type,
+        caption: inicial.caption || undefined,
+        returnTo: destino.returnTo,
+      });
+      if (result && "ok" in result && result.ok) {
+        marcarFotoEnviada(id);
+        return true;
+      }
+      const motivo = (result && "error" in result && result.error) || `No se pudo enviar "${nombre}".`;
+      toast.error(motivo);
+      fallar(motivo);
+      return false;
+    } catch {
+      // Igual que en los demas archivos: lo mas comun es que la pagina haya quedado vieja.
+      if (await hayVersionNueva()) {
+        const motivo = "Actualizamos la app. Recarga y volve a mandarlo.";
+        toast.error(motivo, {
+          duration: 15000,
+          action: { label: "Recargar", onClick: () => window.location.reload() },
+        });
+        fallar(motivo);
+        return false;
+      }
+      // Si la foto ya estaba subida, lo que se corto es el envio: pudo haber salido.
+      const motivo = subida
+        ? "El servidor no respondió: la foto pudo haber salido. Revisa el chat antes de reintentar."
+        : `No se pudo enviar "${nombre}". Revisa la señal.`;
+      toast.error(motivo);
+      fallar(motivo);
+      return false;
+    }
+  }, []);
+
+  // Reintentar desde la burbuja: solo con el toque explicito de la asesora y solo si esta fallida.
+  const reintentarFoto = useCallback(
+    (id: string) => {
+      const foto = leerFoto(id);
+      const decision = decidirReintento(foto);
+      if (decision === "nada" || !foto) {
+        return;
+      }
+      // Se saca de "fallida" ANTES de empezar: un segundo toque ya no la reintenta.
+      actualizarFoto(id, decision === "solo-enviar" ? { estado: "enviando", motivo: null } : { estado: "subiendo", motivo: null, avance: 0 });
+      void enviarFoto(id).then((salio) => {
+        if (salio) {
+          composerRouter.refresh();
+        }
+      });
+    },
+    [enviarFoto, composerRouter],
+  );
+
+  const descartarFoto = useCallback((id: string) => {
+    if (leerFoto(id)?.estado === "fallida") {
+      quitarFotos([id]);
+    }
+  }, []);
+
   // Envía uno o varios archivos en secuencia. No bloquea el composer: cada archivo aparece
   // como burbuja optimista con spinner y se resuelve al llegar el mensaje real.
   const uploadAndSendMediaFiles = useCallback(
-    async (files: File[], caption?: string) => {
-      if (!mediaConfig || files.length === 0) {
+    async (files: File[], caption?: string, destinoDelReintento?: DestinoDeFoto) => {
+      // El reintento de una tarjeta va a SU chat, no al que esta abierto ahora.
+      const destino = destinoDelReintento ?? mediaConfig;
+      if (!destino || files.length === 0) {
         return;
       }
 
       setIsSendingMedia(true);
 
+      /*
+        Las fotos aparecen en el chat AL TOCAR ENVIAR, todas de una vez, antes de comprimir o subir.
+        Las revisiones de hoy van primero: una foto HEIC o demasiado pesada no crea burbuja y sigue
+        el camino de siempre (aviso y tarjeta). El mensaje escrito va con el primer archivo.
+      */
+      const fotoDe = new Map<number, string>();
+      const nuevas: FotoEnEnvio[] = [];
+      files.forEach((file, index) => {
+        const revision = revisarArchivoAntesDeSubir(file);
+        if (!revision.ok || !revision.mime.startsWith("image/")) {
+          return;
+        }
+        const archivo =
+          revision.mime !== file.type
+            ? new File([file], file.name, { type: revision.mime, lastModified: file.lastModified })
+            : file;
+        const id = nuevoIdDeFoto();
+        fotoDe.set(index, id);
+        nuevas.push({
+          id,
+          conversationId: destino.conversationId,
+          destino,
+          archivo,
+          comprimida: false,
+          vistaPrevia: URL.createObjectURL(archivo),
+          caption: index === 0 ? caption?.trim() || "" : "",
+          subida: null,
+          avance: 0,
+          estado: "subiendo",
+          motivo: null,
+          creadaEn: new Date(),
+          enviadaEn: null,
+        });
+      });
+      if (nuevas.length > 0) {
+        agregarFotos(nuevas);
+        window.requestAnimationFrame(() => onScrollToBottom());
+      }
+
       let sentCount = 0;
       const fallidos: File[] = [];
       let motivoDelFallo = "";
-      for (let index = 0; index < files.length; index += 1) {
-        // El caption (mensaje) va con el primer archivo, como WhatsApp.
-        const motivo = await sendSingleMediaFile(files[index], index === 0 ? caption : undefined);
-        if (!motivo) {
-          sentCount += 1;
-        } else {
-          fallidos.push(files[index]);
-          motivoDelFallo = motivo;
+      try {
+        for (let index = 0; index < files.length; index += 1) {
+          const idDeFoto = fotoDe.get(index);
+          if (idDeFoto) {
+            // Si falla, la foto se queda como burbuja con su motivo y Reintentar: no va a la tarjeta.
+            if (await enviarFoto(idDeFoto)) {
+              sentCount += 1;
+            }
+            continue;
+          }
+          // El caption (mensaje) va con el primer archivo, como WhatsApp.
+          const motivo = await sendSingleMediaFile(files[index], index === 0 ? caption : undefined, destino);
+          if (!motivo) {
+            sentCount += 1;
+          } else {
+            fallidos.push(files[index]);
+            motivoDelFallo = motivo;
+          }
         }
+      } finally {
+        // El archivo se guarda para poder reintentarlo, en vez de perderse con el aviso. Cada
+        // tarjeta con su chat y su destino: un envio bueno en otro chat no la borra.
+        if (fallidos.length > 0) {
+          agregarArchivosFallidos({
+            id: nuevoIdDeFoto(),
+            conversationId: destino.conversationId,
+            destino,
+            files: fallidos,
+            // El mensaje escrito solo se repite si iba con el archivo que fallo.
+            caption: fallidos[0] === files[0] ? caption : undefined,
+            motivo: motivoDelFallo,
+          });
+        }
+
+        if (sentCount > 0) {
+          composerRouter.refresh();
+        }
+
+        setIsSendingMedia(false);
       }
-
-      // El archivo se guarda para poder reintentarlo, en vez de perderse con el aviso.
-      setMediaFallida(
-        fallidos.length > 0 ? { files: fallidos, caption, motivo: motivoDelFallo } : null,
-      );
-
-
-      if (sentCount > 0) {
-        composerRouter.refresh();
-      }
-
-      setIsSendingMedia(false);
     },
-    [mediaConfig, sendSingleMediaFile, composerRouter],
+    [mediaConfig, sendSingleMediaFile, enviarFoto, composerRouter, onScrollToBottom],
   );
 
   const stopRecordTracks = useCallback(() => {
@@ -1775,7 +2017,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                       </button>
                       <button
                         type="button"
-                        onClick={() => setSeleccionados(displayedMessages.map((m) => m.id))}
+                        onClick={() => setSeleccionados(displayedMessages.filter((m) => !esFotoEnEnvio(m.id)).map((m) => m.id))}
                         className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm text-foreground transition hover:bg-muted"
                       >
                         <MessageSquareText className="size-4" /> Marcar todos
@@ -2129,13 +2371,22 @@ export const ConversationPanel = memo(function ConversationPanel({
                         onRetry={
                           message.outboundStatusLabel === "error" ? onRetryFailedMessage : undefined
                         }
-                        onReply={onReplyToMessage}
-                        onForward={setMensajeAReenviar}
-                        onEdit={onEditMessage}
-                        onDelete={onDeleteMessage}
+                        /*
+                          Una foto en envio o fallida no ofrece responder, reenviar, eliminar ni
+                          seleccionar: su direccion local no sirve fuera de este navegador.
+                        */
+                        onReply={esFotoEnEnvio(message.id) ? undefined : onReplyToMessage}
+                        onForward={esFotoEnEnvio(message.id) ? undefined : setMensajeAReenviar}
+                        onEdit={esFotoEnEnvio(message.id) ? undefined : onEditMessage}
+                        onDelete={esFotoEnEnvio(message.id) ? undefined : onDeleteMessage}
                         seleccionado={seleccionados.includes(message.id)}
                         haySeleccion={seleccionados.length > 0}
-                        onSeleccionar={alternarSeleccion}
+                        onSeleccionar={esFotoEnEnvio(message.id) ? undefined : alternarSeleccion}
+                        fotoEstado={fotosPorId.get(message.id)?.estado}
+                        fotoAvance={fotosPorId.get(message.id)?.avance}
+                        fotoMotivo={fotosPorId.get(message.id)?.motivo}
+                        onReintentarFoto={reintentarFoto}
+                        onDescartarFoto={descartarFoto}
                         /*
                           Los emoticones salen solo sobre la UNICA marcada: con varias no hay un
                           mensaje al cual reaccionar, y seis filas de emojis a la vez serian ruido.
@@ -2956,8 +3207,11 @@ export const ConversationPanel = memo(function ConversationPanel({
           Va pegado arriba del compositor y no como aviso flotante: un aviso se va solo y el archivo
           se pierde con el. Aca se queda hasta que ella decida reintentar o descartar.
         */}
-        {mediaFallida ? (
-          <div className="mx-3 mb-2 flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 dark:border-amber-900 dark:bg-amber-950/40">
+        {fotosDelChat(todosLosArchivosFallidos, mediaConfig?.conversationId).map((mediaFallida) => (
+          <div
+            key={mediaFallida.id}
+            className="mx-3 mb-2 flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 dark:border-amber-900 dark:bg-amber-950/40"
+          >
             <TriangleAlert className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
             <span className="min-w-0 flex-1 text-[12px] leading-4 text-amber-900 dark:text-amber-200">
               No se pudo enviar{" "}
@@ -2971,9 +3225,9 @@ export const ConversationPanel = memo(function ConversationPanel({
               type="button"
               disabled={isSendingMedia}
               onClick={() => {
-                const reintento = mediaFallida;
-                setMediaFallida(null);
-                void uploadAndSendMediaFiles(reintento.files, reintento.caption);
+                // Va al chat y al destino donde se toco Enviar, no al que este abierto.
+                quitarArchivosFallidos(mediaFallida.id);
+                void uploadAndSendMediaFiles(mediaFallida.files, mediaFallida.caption, mediaFallida.destino);
               }}
               className="shrink-0 rounded-lg bg-amber-600 px-2.5 py-1 text-[12px] font-medium text-white transition hover:opacity-90 disabled:opacity-60"
             >
@@ -2981,14 +3235,14 @@ export const ConversationPanel = memo(function ConversationPanel({
             </button>
             <button
               type="button"
-              onClick={() => setMediaFallida(null)}
+              onClick={() => quitarArchivosFallidos(mediaFallida.id)}
               aria-label="Descartar"
               className="shrink-0 rounded-lg px-1.5 py-1 text-amber-800 transition hover:bg-amber-100 dark:text-amber-300"
             >
               <X className="size-3.5" />
             </button>
           </div>
-        ) : null}
+        ))}
 
         {/* La nota de voz que no salio: se queda aca, con su audio, hasta reintentar o descartar. */}
         {notasDeVozFallidas

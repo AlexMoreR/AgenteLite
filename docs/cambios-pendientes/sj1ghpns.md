@@ -1,0 +1,2 @@
+## Advertencias de operación
+- `fotos_en_envio`: la foto que una asesora manda en Chats aparece al tocar Enviar y vive en la memoria del navegador hasta que llega el mensaje real (o 5 minutos después de enviada); si recarga la página durante la subida, se pierden la burbuja y esa subida. Una foto fallida queda en el chat con su motivo y Reintentar, que solo se repite con el toque de la asesora: si el servidor no respondió, la foto pudo haber salido y reintentar la mandaría dos veces.

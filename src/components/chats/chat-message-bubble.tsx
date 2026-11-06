@@ -45,6 +45,7 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { reaccionarAlMensajeAction, recuperarArchivoPerdidoAction } from "@/app/actions/chats-actions";
 import type { SharedInboxMessageItem } from "./chat-inbox-types";
+import type { EstadoDeFoto } from "./fotos-en-envio";
 import {
   chatDateFormatter,
   formatChatTime,
@@ -803,6 +804,59 @@ function MessageActionsMenu({
   );
 }
 
+/*
+  La barra de subida que va sobre una foto en envio.
+
+  Una foto ya comprimida suele pesar menos de un pedazo (512 KB, subir-archivo-por-pedazos.ts) y
+  sube de una: el avance real saltaria de 0 a 100 %. En ese caso la barra avanza de forma continua
+  hasta casi el final, sin mostrar un porcentaje inventado. Con varios pedazos sigue el avance real.
+  Al terminar la subida se llena y dice que se esta enviando.
+*/
+const UN_SOLO_PEDAZO_BYTES = 512 * 1024;
+
+function BarraDeSubida({
+  estado,
+  avance,
+  pesoDelArchivo,
+}: {
+  estado: "subiendo" | "enviando";
+  avance: number;
+  pesoDelArchivo: number | null;
+}) {
+  const [arrancada, setArrancada] = useState(false);
+  useEffect(() => {
+    const cuadro = window.requestAnimationFrame(() => setArrancada(true));
+    return () => window.cancelAnimationFrame(cuadro);
+  }, []);
+  const avanceReal = Math.min(1, Math.max(0, avance));
+  const deUnaVez = pesoDelArchivo !== null && pesoDelArchivo <= UN_SOLO_PEDAZO_BYTES;
+  const continua = estado === "subiendo" && deUnaVez && avanceReal < 1;
+  const ancho =
+    estado === "enviando" ? 1 : continua ? (arrancada ? 0.9 : 0.04) : Math.max(0.04, avanceReal);
+  return (
+    <div className="pointer-events-none absolute inset-x-2 top-2 flex items-center gap-2 rounded-full bg-black/45 px-2 py-1 text-[10px] leading-none text-white">
+      <LoaderCircle className="h-3 w-3 shrink-0 animate-spin" aria-hidden="true" />
+      <div
+        className="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-white/30"
+        role="progressbar"
+        aria-label={estado === "enviando" ? "Enviando foto" : "Subiendo foto"}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={continua ? undefined : Math.round(ancho * 100)}
+      >
+        <div
+          className="h-full rounded-full bg-white"
+          style={{
+            width: `${ancho * 100}%`,
+            transition: continua ? "width 12s cubic-bezier(0.1, 0.7, 0.3, 1)" : "width 300ms ease-out",
+          }}
+        />
+      </div>
+      <span className="shrink-0">{estado === "enviando" ? "Enviando…" : "Subiendo…"}</span>
+    </div>
+  );
+}
+
 // Componente memoizado: solo re-renderiza si cambian sus props directas.
 // Evita que los ~N mensajes renderizados re-ejecuten cuando cambia estado de UI
 // en SharedInbox (modal abierto, optimisticOutgoingMessage, pendingConversation, etc.).
@@ -820,6 +874,11 @@ export const MessageBubble = memo(function MessageBubble({
   mostrarReacciones,
   avatarUrl,
   contactLabel,
+  fotoEstado,
+  fotoAvance,
+  fotoMotivo,
+  onReintentarFoto,
+  onDescartarFoto,
 }: {
   message: SharedInboxMessageItem;
   previousMessage: SharedInboxMessageItem | undefined;
@@ -839,6 +898,17 @@ export const MessageBubble = memo(function MessageBubble({
   /** Foto y nombre del contacto: los usa la nota de voz, como WhatsApp. */
   avatarUrl?: string | null;
   contactLabel?: string | null;
+  /*
+    Foto en envio (fotos-en-envio.ts): la vista previa local mientras sube. Llegan sueltos y no
+    como objeto para que el memo de la burbuja no la vuelva a dibujar en cada cambio del chat.
+  */
+  fotoEstado?: EstadoDeFoto;
+  /** Avance real de la subida, de 0 a 1. */
+  fotoAvance?: number;
+  /** El motivo real del fallo. */
+  fotoMotivo?: string | null;
+  onReintentarFoto?: (id: string) => void;
+  onDescartarFoto?: (id: string) => void;
 }) {
   const [imagePreviewIndex, setImagePreviewIndex] = useState(0);
   const [isImageViewerOpen, setIsImageViewerOpen] = useState(false);
@@ -957,7 +1027,8 @@ export const MessageBubble = memo(function MessageBubble({
     [message],
   );
   // Mensaje de archivo aún enviándose (burbuja optimista): muestra spinner en vez de hora.
-  const isPendingMedia = message.id.startsWith("optimistic-media:");
+  const isPendingMedia = message.id.startsWith("optimistic-media:") && fotoEstado !== "fallida";
+  const fotoFallida = fotoEstado === "fallida";
   const isDeleted = Boolean(message.deletedAt);
   const mediaPreviewLabel = getMediaPreviewLabel(message.type);
   /*
@@ -1060,7 +1131,8 @@ export const MessageBubble = memo(function MessageBubble({
 
   // Acciones del mensaje: menu de hover en escritorio, hoja al mantener apretado en el celular.
   const [isTouchMenuOpen, setIsTouchMenuOpen] = useState(false);
-  const tieneAcciones = !isDeleted && !callSummary;
+  // Una foto en envio o fallida no tiene acciones: su direccion local no sirve fuera de aca.
+  const tieneAcciones = !isDeleted && !callSummary && !fotoEstado;
   /*
     Mantener apretado SELECCIONA, como en WhatsApp.
 
@@ -1576,6 +1648,26 @@ export const MessageBubble = memo(function MessageBubble({
                   />
                   <span className="pointer-events-none absolute inset-0 rounded-xl ring-1 ring-inset ring-black/5 transition group-hover:bg-black/5" />
                 </button>
+                {fotoEstado === "subiendo" || fotoEstado === "enviando" ? (
+                  <BarraDeSubida
+                    estado={fotoEstado}
+                    avance={fotoAvance ?? 0}
+                    pesoDelArchivo={
+                      typeof message.rawPayload === "object" &&
+                      message.rawPayload !== null &&
+                      typeof (message.rawPayload as { fileSize?: unknown }).fileSize === "number"
+                        ? ((message.rawPayload as { fileSize: number }).fileSize)
+                        : null
+                    }
+                  />
+                ) : null}
+                {fotoFallida ? (
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-xl bg-black/35">
+                    <span className="inline-flex size-9 items-center justify-center rounded-full bg-black/55 text-white">
+                      <AlertTriangle className="size-5" aria-hidden="true" />
+                    </span>
+                  </div>
+                ) : null}
                 {showInlineImageTimestamp ? (
                   <div
                     className={`absolute right-2 bottom-2 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] leading-none ${
@@ -1591,6 +1683,36 @@ export const MessageBubble = memo(function MessageBubble({
                   </div>
                 ) : null}
               </div>
+              {fotoFallida ? (
+                // Como el texto que no salio: el motivo real a la vista, Reintentar y Descartar.
+                <div className="flex flex-wrap items-center gap-1 text-[12px] font-medium text-amber-700 dark:text-amber-300">
+                  <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden="true" />
+                  No se envió
+                  {onReintentarFoto ? (
+                    <button
+                      type="button"
+                      onClick={() => onReintentarFoto(message.id)}
+                      className="ml-0.5 inline-flex min-h-7 cursor-pointer items-center gap-1 rounded-full bg-amber-600/15 px-2.5 py-1 font-semibold text-amber-800 transition hover:bg-amber-600/25 dark:bg-amber-300/20 dark:text-amber-200 dark:hover:bg-amber-300/30"
+                    >
+                      <RotateCcw className="h-3 w-3" />
+                      Reintentar
+                    </button>
+                  ) : null}
+                  {onDescartarFoto ? (
+                    <button
+                      type="button"
+                      onClick={() => onDescartarFoto(message.id)}
+                      className="inline-flex min-h-7 cursor-pointer items-center gap-1 rounded-full bg-amber-600/10 px-2.5 py-1 font-semibold text-amber-800 transition hover:bg-amber-600/20 dark:bg-amber-300/15 dark:text-amber-200 dark:hover:bg-amber-300/25"
+                    >
+                      <X className="h-3 w-3" />
+                      Descartar
+                    </button>
+                  ) : null}
+                  {fotoMotivo?.trim() ? (
+                    <span className="basis-full text-[11px] font-normal">{fotoMotivo.trim()}</span>
+                  ) : null}
+                </div>
+              ) : null}
               {renderMessageText(contenidoVisible)}
               {portalTarget && isImageViewerOpen && hasImagePreview
                 ? createPortal(
