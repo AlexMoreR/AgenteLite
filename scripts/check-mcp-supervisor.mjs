@@ -19,6 +19,10 @@ const db = {
   datosDeChats: [],
   candidatos: [],
   escrituras: [],
+  /** Líneas de WhatsApp del negocio (para la línea interna del WhatsApp a Alexander). */
+  lineas: [],
+  /** Si tiene texto, el envío de WhatsApp falla con ese mensaje. */
+  envioFalla: null,
 };
 
 // Miembros por negocio: "<ws>:<userId>".
@@ -62,6 +66,9 @@ const prismaBase = {
   appSetting: modelo("appSetting", {
     findUnique: async ({ where }) => (db.settings.has(where.key) ? { key: where.key, value: db.settings.get(where.key) } : null),
     findMany: async () => [...db.settings.entries()].map(([key, value]) => ({ key, value })),
+  }),
+  whatsAppChannel: modelo("whatsAppChannel", {
+    findFirst: async ({ where }) => db.lineas.find((l) => l.id === where.id && l.workspaceId === where.workspaceId) ?? null,
   }),
   workspaceMember: modelo("workspaceMember", {
     findFirst: async ({ where }) => {
@@ -109,13 +116,20 @@ const mocks = {
     invalidarTrasEscritura: () => {},
   },
   "@/lib/web-push": { sendPushToUser: anotarEscritura("push", "send") },
-  "@/lib/evolution": { sendEvolutionTextMessageWithReconnect: anotarEscritura("whatsapp", "send") },
+  "@/lib/evolution": {
+    sendEvolutionTextMessageWithReconnect: async (...args) => {
+      db.escrituras.push({ modelo: "whatsapp", metodo: "send", args });
+      if (db.envioFalla) throw new Error(db.envioFalla);
+      return {};
+    },
+  },
   "@/lib/anti-bloqueo/servicio": { leerConfigAntiBloqueo: async () => ({ avisos: { canalInternoId: null } }) },
 };
 
 const mcp = cargar("src/lib/mcp/supervisor.ts", mocks);
 const servicio = cargar("src/features/supervisor-accionable/servicios/accionable.ts", mocks);
 const reglas = cargar("src/features/supervisor-accionable/dominio/reglas.ts", mocks);
+const enrutador = cargar("src/features/avisos-gravedad/servicios/enrutador.ts", mocks);
 
 let pruebas = 0;
 const fallas = [];
@@ -265,7 +279,10 @@ const ACCION_C1 = {
 function escenario({ accionable = true } = {}) {
   db.settings.clear();
   db.alertasLanza = false;
+  db.lineas = [];
+  db.envioFalla = null;
   servicio.olvidarConfigAccionable();
+  enrutador.olvidarConfigGravedad();
   db.settings.set(`equipo:supervisoras:${WS}`, JSON.stringify(["sthef"]));
   if (accionable) {
     db.settings.set(`supervisor:accionable:${WS}`, JSON.stringify({ activo: true }));
@@ -818,6 +835,74 @@ await prueba("herramienta desconocida = error", async () => {
   await assert.rejects(() => mcp.ejecutarHerramientaMcpSupervisor("borrar_todo", {}, { workspaceId: WS, userId: "alex" }), /No existe la herramienta/);
 });
 
+/* ------------------------------------------------------------------ WhatsApp de Alexander */
+
+const NUMERO_ALEX = "573001112277";
+/** La ruta del WhatsApp a Alexander bien configurada (Mi empresa → Equipo), con cambios encima. */
+function whatsappDeAlexander({ gravedad = { activo: true }, avisos, lineas } = {}) {
+  db.lineas = lineas ?? [{ id: "linea-admin", workspaceId: WS, evolutionInstanceName: "admin-interna" }];
+  db.settings.set(`agente-v3:avisos:${WS}`, JSON.stringify(avisos ?? { canalId: "linea-admin", destinos: [{ numero: NUMERO_ALEX, soloDe: null }] }));
+  db.settings.set(`avisos:gravedad:${WS}`, JSON.stringify(gravedad));
+  enrutador.olvidarConfigGravedad();
+}
+
+await prueba("ver_supervisor: whatsapp_de_alexander bien configurado, sin el número completo", async () => {
+  escenario();
+  whatsappDeAlexander();
+  const r = await ver();
+  assert.deepEqual(r.whatsapp_de_alexander, { prendido: true, numero_termina_en: "2277", linea: "admin-interna", problema: null });
+  assert.ok(!JSON.stringify(r).includes(NUMERO_ALEX), "el número de Alexander nunca sale completo");
+});
+
+await prueba("ver_supervisor: whatsapp_de_alexander con el número fuera de la lista, sin número, sin línea y apagado", async () => {
+  // El número del ajuste de gravedad no está en la lista de avisos.
+  escenario();
+  whatsappDeAlexander({ gravedad: { activo: true, whatsapp: { numero: "573009990000" } } });
+  let w = (await ver()).whatsapp_de_alexander;
+  assert.equal(w.prendido, true);
+  assert.equal(w.numero_termina_en, "0000");
+  assert.match(w.problema, /terminado en …0000 no está en la lista de avisos/);
+  assert.ok(!w.problema.includes("573009990000"));
+  // Sin número de avisos del administrador.
+  escenario();
+  whatsappDeAlexander({ avisos: { canalId: "linea-admin", destinos: [{ numero: "573000003333", soloDe: "sthef" }] } });
+  w = (await ver()).whatsapp_de_alexander;
+  assert.equal(w.numero_termina_en, null);
+  assert.match(w.problema, /No hay número de WhatsApp de Alexander/);
+  // La línea interna no existe (o no tiene instancia).
+  escenario();
+  whatsappDeAlexander({ lineas: [] });
+  w = (await ver()).whatsapp_de_alexander;
+  assert.equal(w.numero_termina_en, "2277");
+  assert.equal(w.linea, null);
+  assert.match(w.problema, /No hay línea interna/);
+  // Apagado en el ajuste de gravedad.
+  escenario();
+  whatsappDeAlexander({ gravedad: { activo: true, whatsapp: { activo: false } } });
+  w = (await ver()).whatsapp_de_alexander;
+  assert.equal(w.prendido, false);
+  assert.equal(w.numero_termina_en, "2277");
+  assert.equal(w.linea, "admin-interna");
+  assert.match(w.problema, /apagado/);
+  assert.deepEqual(db.escrituras.map((e) => `${e.modelo}.${e.metodo}`), [], "ver_supervisor no escribe ni manda nada");
+});
+
+await prueba("ver_supervisor: si el WhatsApp de Alexander no se puede leer, sale null y va en no_se_pudo_leer", async () => {
+  escenario();
+  const estadoOriginal = enrutador.estadoWhatsAppDeAlexander;
+  enrutador.estadoWhatsAppDeAlexander = async () => {
+    throw new Error("la base no responde");
+  };
+  try {
+    const r = await ver();
+    assert.equal(r.whatsapp_de_alexander, null);
+    assert.ok(r.no_se_pudo_leer.some((x) => x.startsWith("WhatsApp de Alexander") && x.includes("la base no responde")));
+    assert.ok(Array.isArray(r.por_asesora), "el resto sale igual");
+  } finally {
+    enrutador.estadoWhatsAppDeAlexander = estadoOriginal;
+  }
+});
+
 await prueba("la herramienta no escribe nada en la base ni manda nada", async () => {
   // Las pruebas anteriores también pasaron por la herramienta: no debería haber nada anotado.
   assert.deepEqual(db.escrituras.map((e) => `${e.modelo}.${e.metodo}`), [], "nada escrito en las pruebas anteriores");
@@ -835,6 +920,93 @@ await prueba("la herramienta no escribe nada en la base ni manda nada", async ()
     [],
     "ninguna escritura, push ni WhatsApp",
   );
+});
+
+/* ------------------------------------------------------------------ probar_whatsapp_de_escalada */
+
+const probar = (args = {}, userId = "alex") => mcp.ejecutarHerramientaMcpSupervisor("probar_whatsapp_de_escalada", args, { workspaceId: WS, userId });
+const envios = () => db.escrituras.filter((e) => e.modelo === "whatsapp");
+
+await prueba("probar_whatsapp_de_escalada: registrada como escritura, sin argumentos", () => {
+  assert.equal(mcp.esHerramientaDelSupervisor("probar_whatsapp_de_escalada"), true);
+  const h = mcp.HERRAMIENTAS_MCP_SUPERVISOR.find((x) => x.name === "probar_whatsapp_de_escalada");
+  assert.deepEqual(h.inputSchema, { type: "object", properties: {}, additionalProperties: false });
+  assert.deepEqual(h.annotations, { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true });
+  assert.match(mcp.TEXTO_PRUEBA_WHATSAPP, /Supervisor/);
+});
+
+await prueba("probar_whatsapp_de_escalada: UN solo envío al destino configurado, con el texto fijo aunque le pasen argumentos", async () => {
+  escenario();
+  whatsappDeAlexander();
+  db.escrituras = [];
+  const r = await probar({ numero: "573000000001", texto: "otro texto", phoneNumber: "573000000002" });
+  assert.deepEqual(r, { salio: true, numero_termina_en: "2277", linea: "admin-interna", motivo: null });
+  assert.equal(envios().length, 1, "exactamente un envío");
+  assert.deepEqual(envios()[0].args[0], { instanceName: "admin-interna", phoneNumber: NUMERO_ALEX, text: mcp.TEXTO_PRUEBA_WHATSAPP, limiteMs: 20000 });
+  assert.deepEqual(db.escrituras.filter((e) => e.modelo !== "whatsapp"), [], "no escribe nada en la base");
+  assert.ok(!JSON.stringify(r).includes(NUMERO_ALEX));
+});
+
+await prueba("probar_whatsapp_de_escalada: si el envío falla responde el motivo, sin el número completo", async () => {
+  escenario();
+  whatsappDeAlexander();
+  db.escrituras = [];
+  db.envioFalla = `Evolution 500: el número ${NUMERO_ALEX} no respondió`;
+  const r = await probar();
+  assert.equal(r.salio, false);
+  assert.equal(r.numero_termina_en, "2277");
+  assert.equal(r.linea, "admin-interna");
+  assert.match(r.motivo, /No salió el WhatsApp por la línea admin-interna: Evolution 500/);
+  assert.ok(!r.motivo.includes(NUMERO_ALEX), "el motivo nunca lleva el número completo");
+  assert.equal(envios().length, 1);
+});
+
+await prueba("probar_whatsapp_de_escalada: con un problema de ajuste no manda nada y dice el motivo", async () => {
+  escenario();
+  whatsappDeAlexander({ gravedad: { activo: true, whatsapp: { activo: false } } });
+  db.escrituras = [];
+  let r = await probar();
+  assert.equal(r.salio, false);
+  assert.match(r.motivo, /apagado/);
+  escenario();
+  whatsappDeAlexander({ lineas: [] });
+  r = await probar();
+  assert.equal(r.salio, false);
+  assert.match(r.motivo, /No hay línea interna/);
+  escenario();
+  whatsappDeAlexander({ gravedad: { activo: true, whatsapp: { numero: "573009990000" } } });
+  r = await probar();
+  assert.match(r.motivo, /no está en la lista de avisos/);
+  assert.deepEqual(envios(), [], "sin destino válido no sale ningún WhatsApp");
+});
+
+await prueba("probar_whatsapp_de_escalada: sin permiso lanza error y no manda nada", async () => {
+  escenario();
+  whatsappDeAlexander();
+  db.escrituras = [];
+  for (const userId of ["maria", "genesis", "intruso", "nadie"]) {
+    await assert.rejects(() => probar({}, userId), /no tiene permiso/, `${userId} no puede`);
+  }
+  assert.deepEqual(db.escrituras, []);
+  // La supervisora sí, igual que ver_supervisor.
+  const r = await probar({}, "sthef");
+  assert.equal(r.salio, true);
+});
+
+await prueba("whatsAppAAlexander (incidentes, embudo, línea caída) sigue igual: boolean y sin límite de tiempo", async () => {
+  escenario();
+  whatsappDeAlexander();
+  db.escrituras = [];
+  const config = await enrutador.leerConfigGravedad(WS);
+  assert.equal(await enrutador.whatsAppAAlexander({ workspaceId: WS, config, texto: "hola" }), true);
+  assert.deepEqual(envios()[0].args[0], { instanceName: "admin-interna", phoneNumber: NUMERO_ALEX, text: "hola" });
+  assert.equal(await enrutador.whatsAppAAlexander({ workspaceId: WS, config, texto: "hola", evitarCanalId: "linea-admin" }), false, "la línea caída es la interna");
+  db.envioFalla = "se cayó";
+  assert.equal(await enrutador.whatsAppAAlexander({ workspaceId: WS, config, texto: "hola" }), false);
+  const intento = await enrutador.intentarWhatsAppAAlexander({ workspaceId: WS, config: { ...config, whatsapp: { ...config.whatsapp, activo: false } }, texto: "x" });
+  assert.deepEqual(intento, { ok: false, motivo: intento.motivo, apagado: true });
+  const destino = await enrutador.destinoWhatsAppCritico(WS, config);
+  assert.deepEqual(destino, { numero: NUMERO_ALEX, canalId: "linea-admin", instancia: "admin-interna" });
 });
 
 console.log(`\n${pruebas} pruebas ok${fallas.length ? `, ${fallas.length} fallaron: ${fallas.join(" | ")}` : ""}`);

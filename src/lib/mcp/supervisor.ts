@@ -7,7 +7,12 @@ import { filaDelChat, idsDeChatsDeLaAlerta, type DatosDelChat } from "@/features
 import { ETIQUETA_DE_SEVERIDAD, type Hallazgo } from "@/features/supervisor/dominio/tipos";
 import { leerAlertasRecientes } from "@/features/supervisor/servicios/almacen-alertas";
 import { leerDatosDeChats } from "@/features/supervisor/servicios/chats-de-alertas";
-import { numeroDeAvisosDeLaPersona } from "@/features/avisos-gravedad/servicios/enrutador";
+import {
+  estadoWhatsAppDeAlexander,
+  intentarWhatsAppAAlexander,
+  leerConfigGravedad,
+  numeroDeAvisosDeLaPersona,
+} from "@/features/avisos-gravedad/servicios/enrutador";
 import { esJefeDelNegocio } from "@/lib/permisos-del-crm";
 import { esSupervisora, leerLiderDeVentasElegido, puedeSupervisar } from "@/lib/permisos-del-equipo";
 import { prisma } from "@/lib/prisma";
@@ -26,12 +31,23 @@ import { prisma } from "@/lib/prisma";
   consulta de los chats Caliente/Tibio con más de 24 h sin mensaje de la asesora.
 
   Lo pueden usar las mismas personas que ven la pantalla: dueño, administradores y supervisora.
+
+  Aparte, `probar_whatsapp_de_escalada` SÍ manda un mensaje: UN WhatsApp de prueba, con texto fijo, a
+  Alexander por la ruta de las escaladas (nunca a un cliente), para saber si esa ruta funciona.
 */
 
 type Contexto = { workspaceId: string; userId: string };
 type Argumentos = Record<string, unknown>;
 
 const SOLO_LECTURA = { readOnlyHint: true, destructiveHint: false, openWorldHint: false } as const;
+/** Manda un WhatsApp interno (a Alexander, nunca a un cliente): escribe hacia afuera, no borra nada. */
+const ESCRITURA = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true } as const;
+
+/** El texto fijo de la prueba: sin datos de clientes. */
+export const TEXTO_PRUEBA_WHATSAPP =
+  "✅ Prueba del Supervisor: si te llegó este WhatsApp, la escalada del Supervisor sí te llega por aquí. No hay que responder.";
+/** Tiempo límite con el gateway en la prueba, para que la herramienta no se quede colgada. */
+const LIMITE_PRUEBA_MS = 20_000;
 
 const HORA = 3_600_000;
 const DIA = 24 * HORA;
@@ -62,6 +78,14 @@ export const HERRAMIENTAS_MCP_SUPERVISOR = [
       additionalProperties: false,
     },
     annotations: SOLO_LECTURA,
+  },
+  {
+    name: "probar_whatsapp_de_escalada",
+    title: "Probar el WhatsApp de escalada a Alexander",
+    description:
+      "Manda UN WhatsApp de prueba a Alexander por la misma ruta de las escaladas del Supervisor (el numero y la linea interna del ajuste de Mi empresa -> Equipo). El texto es fijo y no lleva datos de clientes; no recibe numero ni texto. Responde si salio, en que termina el numero, por que linea y, si no salio, el motivo. Nunca le escribe a un cliente.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    annotations: ESCRITURA,
   },
 ] as const;
 
@@ -568,15 +592,45 @@ async function verSupervisor(args: Argumentos, contexto: Contexto) {
   advertencias.push("Los avisos se recalculan cada 5 minutos: si la asesora acaba de responder, el aviso puede seguir saliendo hasta la siguiente revisión. Los chats de más de 24 h se leen en vivo.");
   const lider = await intentar("líder de ventas", () => leerLiderDeVentas(ws, miembros), null);
   if (lider) advertencias.push(...advertenciasDelLider(lider));
+  const whatsapp = await intentar(
+    "WhatsApp de Alexander",
+    async () => aWhatsAppParaMostrar(await estadoWhatsAppDeAlexander(ws, await leerConfigGravedad(ws))),
+    null,
+  );
 
   return {
     generado_en: hora(ahora),
     filtros: { asesora: filtros.asesora, desde: typeof args.desde === "string" ? args.desde : null, hasta: typeof args.hasta === "string" ? args.hasta : null },
     accionable_activo: accionableActivo,
     lider_de_ventas: lider,
+    whatsapp_de_alexander: whatsapp,
     ...armarRespuesta({ ahora, filtros, alertas: abiertas, datosPorChat, estado, atendidas, candidatos, miembros }),
     advertencias,
     ...(noSePudoLeer.length ? { no_se_pudo_leer: noSePudoLeer } : {}),
+  };
+}
+
+function aWhatsAppParaMostrar(estado: Awaited<ReturnType<typeof estadoWhatsAppDeAlexander>>) {
+  return { prendido: estado.prendido, numero_termina_en: estado.numeroTerminaEn, linea: estado.linea, problema: estado.problema };
+}
+
+/**
+ * Manda UN WhatsApp de prueba a Alexander por la ruta de las escaladas. No recibe número ni texto:
+ * los argumentos se ignoran, el destino sale del ajuste y el texto es fijo.
+ */
+async function probarWhatsAppDeEscalada(contexto: Contexto) {
+  if (!(await puedeVerElSupervisor(contexto))) {
+    throw new Error("Esta clave no tiene permiso para probar el WhatsApp del Supervisor: es solo del dueño, los administradores y la supervisora.");
+  }
+  const ws = contexto.workspaceId;
+  const config = await leerConfigGravedad(ws);
+  const estado = await estadoWhatsAppDeAlexander(ws, config);
+  const resultado = await intentarWhatsAppAAlexander({ workspaceId: ws, config, texto: TEXTO_PRUEBA_WHATSAPP, limiteMs: LIMITE_PRUEBA_MS });
+  return {
+    salio: resultado.ok,
+    numero_termina_en: estado.numeroTerminaEn,
+    linea: estado.linea,
+    motivo: resultado.ok ? null : resultado.motivo,
   };
 }
 
@@ -584,6 +638,8 @@ export async function ejecutarHerramientaMcpSupervisor(nombre: string, argumento
   switch (nombre) {
     case "ver_supervisor":
       return verSupervisor(argumentos, contexto);
+    case "probar_whatsapp_de_escalada":
+      return probarWhatsAppDeEscalada(contexto);
     default:
       throw new Error(`No existe la herramienta "${nombre}".`);
   }
