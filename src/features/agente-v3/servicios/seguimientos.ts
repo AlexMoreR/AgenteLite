@@ -15,9 +15,11 @@ import { revisarConvivencia } from "@/features/seguimiento-inteligente/servicios
 import { limpiarFrasesProhibidas } from "@/lib/reglas-de-redaccion";
 import {
   marcaDelSeguimiento,
+  MOTIVO_PROMESA_DE_ENVIO,
   redactarSeguimientoQueEscucha,
   type SeguimientoRedactado,
 } from "@/features/seguimientos/services/seguimiento-que-escucha";
+import { revisarAntesDeEnviar } from "@/features/seguimientos/dominio/seguimiento-que-escucha";
 import { elClienteRespondioLaBienvenida } from "@/features/seguimientos/services/sin-respuesta-a-la-bienvenida";
 
 import { cumpleLasCondiciones } from "../motor/decidir";
@@ -331,12 +333,31 @@ export async function ejecutarSeguimientosV3(
               paso: pasoDelSeguimiento,
               origen: `v3-${etiquetaDelPaso(toca.minutos)}`,
             });
-      if (!redactado.enviar) {
+      /*
+        La puerta de envío (6-nov-2026, chat 8927): lo que va a salir, venga de la IA o de la regla del
+        libro, no puede prometer envío gratis, ni llegada, pago o contraentrega que la regla no diga. Si
+        lo hace, no sale nada (mejor callar que prometer) y se da por visto, como un texto sin revisión.
+      */
+      const textoAgendado = textos.join("\n\n");
+      const rechazado =
+        redactado.enviar &&
+        (marcaDelSeguimiento(redactado) ? [redactado.texto] : textos).some(
+          (texto) => revisarAntesDeEnviar(texto, textoAgendado).length > 0,
+        );
+      if (rechazado) {
+        console.info("[agente-v3] la puerta de envío frenó un seguimiento", {
+          conversationId: conversacion.id,
+          regla: toca.regla.id,
+        });
+      }
+      if (!redactado.enviar || rechazado) {
+        const motivo = redactado.enviar ? MOTIVO_PROMESA_DE_ENVIO : redactado.motivo;
+        const reprogramar = !redactado.enviar && redactado.reprogramar;
         frenados += 1;
-        anotar(redactado.motivo);
+        anotar(motivo);
         // Ningún texto pasó la revisión: se da por visto, para no pedirle a la IA lo mismo cada minuto.
         // Con el tope de la vuelta lleno no se marca: sale en la vuelta siguiente.
-        if (!redactado.reprogramar) {
+        if (!reprogramar) {
           const vistos = delPaso.filter((fila) => fila.minutos <= toca.minutos).map((fila) => fila.minutos);
           await guardarEstado(conversacion.id, {
             ...estado,
