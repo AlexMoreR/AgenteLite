@@ -146,11 +146,15 @@ export type RevisionDelSeguimiento = {
  * chat 8927): nada de "gratis" ni de envio sin costo o incluido, aunque lleve el 50 %, y nada de
  * prometer llegada, pago o contraentrega si el texto agendado no lo dice (ver revisarAntesDeEnviar).
  * Antes de revisar se quitan todos los asteriscos (la negrita de WhatsApp): "*envío*" o "*50* %" tienen
- * que caer en las mismas reglas que sin negrita. Solo se quitan para revisar: lo que se manda los
- * conserva (elegirTexto devuelve la propuesta tal cual).
+ * que caer en las mismas reglas que sin negrita. Un asterisco entre dos letras o numeros se vuelve un
+ * espacio ("envio*gratis*" no puede quedar "enviogratis" y esconder el "gratis"). Solo se quitan para
+ * revisar: lo que se manda los conserva (elegirTexto devuelve la propuesta tal cual).
  */
 export function revisarSeguimiento(texto: string, contexto: RevisionDelSeguimiento): string[] {
-  const limpio = (texto ?? "").replace(/\*/g, "").trim();
+  const limpio = (texto ?? "")
+    .replace(/(?<=[\p{L}\p{N}])\*+(?=[\p{L}\p{N}])/gu, " ")
+    .replace(/\*/g, "")
+    .trim();
   if (!limpio) return ["está vacío"];
 
   const problemas: string[] = [];
