@@ -72,3 +72,57 @@ export function calcularVentanaDeLaLista({
     espacioAbajo: (filas - fin) * altoDeFila,
   };
 }
+
+/*
+  Que chats se precargan (06-11-2026, "que abran al instante como WhatsApp").
+
+  Antes eran siempre los 5 de arriba. Ahora son los que se VEN en pantalla, con tope: en un celular
+  de 700 px de alto son unos 8 y en una pantalla de 900 px unos 10. Con la lista oculta (mide 0, en
+  el celular con un chat abierto) no se precarga nada, para no competir con el chat abierto.
+*/
+
+/** Como mucho, cuantos chats se precargan por pantalla. */
+export const TOPE_DE_PRECARGA = 15;
+
+export function clavesAPrecargar({
+  claves,
+  primeraFila,
+  altoVisible,
+  altoDeFila = ALTO_DE_FILA,
+  tope = TOPE_DE_PRECARGA,
+  excluidas,
+}: {
+  /** Las claves de los chats, en el orden en que se dibujan. */
+  claves: ReadonlyArray<string>;
+  /** Primera fila visible (la que esta arriba de la caja). */
+  primeraFila: number;
+  /** Alto de la caja de la lista, en px. Con 0 la lista esta oculta. */
+  altoVisible: number;
+  altoDeFila?: number;
+  tope?: number;
+  /** Chats que no se precargan (los que aparecieron por un cambio de pestaña o filtro). */
+  excluidas?: ReadonlySet<string>;
+}): string[] {
+  if (!(altoVisible > 0) || !(altoDeFila > 0) || claves.length === 0 || tope <= 0) {
+    return [];
+  }
+  const inicio = Math.min(Math.max(0, Math.floor(primeraFila) || 0), claves.length - 1);
+  // La fila de arriba puede estar cortada: se cuenta una mas.
+  const fin = Math.min(claves.length, inicio + Math.ceil(altoVisible / altoDeFila) + 1);
+
+  const resultado: string[] = [];
+  const vistas = new Set<string>();
+  for (let fila = inicio; fila < fin && resultado.length < tope; fila += 1) {
+    const clave = claves[fila]?.trim() ?? "";
+    if (!clave || vistas.has(clave) || excluidas?.has(clave)) {
+      continue;
+    }
+    vistas.add(clave);
+    // Los oficiales no se precargan: su cargador los marca leidos (ver chat-conversation-warmup).
+    if (clave.startsWith("official:")) {
+      continue;
+    }
+    resultado.push(clave);
+  }
+  return resultado;
+}

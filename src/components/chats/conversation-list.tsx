@@ -14,7 +14,13 @@ import { ContactAvatar } from "./contact-avatar";
 import { warmConversationCache } from "./chat-conversation-warmup";
 import { clearPendingConversationSelection, setPendingConversationSelection } from "./chat-selection-store";
 import { readConversationFromCache } from "./chat-history-cache";
-import { ALTO_DE_FILA, UMBRAL_PARA_RECORTAR, calcularVentanaDeLaLista, type VentanaDeLaLista } from "./ventana-de-la-lista";
+import {
+  ALTO_DE_FILA,
+  UMBRAL_PARA_RECORTAR,
+  calcularVentanaDeLaLista,
+  clavesAPrecargar,
+  type VentanaDeLaLista,
+} from "./ventana-de-la-lista";
 import { iniciarMedicion, terminarMedicionAlPintar } from "@/lib/metricas-chats";
 import { CRM_STAGE_META } from "@/features/crm/domain/crm-config";
 import type { CrmStage } from "@/features/crm/types";
@@ -413,8 +419,11 @@ const ConversationListItem = memo(function ConversationListItem({
 const ESTILO_DE_FILA = { height: ALTO_DE_FILA } as const;
 // A cuantos px del fondo se pide la pagina siguiente: unas 6 filas antes, para que llegue a tiempo.
 const DISTANCIA_PARA_CARGAR_MAS = 640;
-// Cuantos chats de arriba de la lista se precargan (ver el efecto de precarga).
-const CHATS_A_PRECARGAR = 5;
+// Cuanto se espera sin movimiento del scroll antes de precargar lo que quedo en pantalla.
+const ESPERA_SIN_MOVIMIENTO_MS = 400;
+// Despues de cambiar de pestaña o filtro, durante este rato lo que aparece tampoco se precarga (la
+// lista se reacomoda un instante despues y eso parece un desplazamiento).
+const RATO_DEL_CAMBIO_DE_VISTA_MS = 500;
 
 export function ConversationList({
   conversations: conversacionesPorFecha,
@@ -424,9 +433,12 @@ export function ConversationList({
   isLoadingMoreConversations = false,
   onLoadMoreConversations,
   versionDeVista = 0,
+  sinPrecarga = false,
 }: {
   /** Sube cuando la lista se reemplaza por un cambio de filtro: esa vez no se precarga nada. */
   versionDeVista?: number;
+  /** Mientras se busca no se precarga: la lista cambia con cada letra. */
+  sinPrecarga?: boolean;
   conversations: SharedInboxConversationItem[];
   selectedConversationId: string;
   scrollContainerRef?: RefObject<HTMLDivElement | null>;
@@ -531,7 +543,7 @@ export function ConversationList({
       return;
     }
 
-    prefetchedHrefsRef.current.add(href);
+    // Ya NO se precarga la pagina con el router (prefetch del href): abrir un chat no navega, asi que precargar el server
     // Ya NO se hace router.prefetch(href): abrir un chat no navega, asi que precargar el server
     // component solo dispararia las consultas caras de la pagina con pasar el mouse. Lo util es
     // calentar el chat en si, que es lo que se muestra.
@@ -552,49 +564,94 @@ export function ConversationList({
   }, [conversations.length]);
 
   /*
-    PRECARGA de los primeros chats de la lista (Alex, 05-10-2026).
+    PRECARGA de los chats que se ven en pantalla (Alex, 05-10-2026; desde el 06-11-2026 son los
+    visibles, no los 5 de arriba).
 
-    Los que estan arriba son los que se van a abrir: se traen de a uno, cuando el navegador esta
+    Los que estan en pantalla son los que se van a abrir: se traen de a uno, cuando el navegador esta
     libre, y quedan en la cache para que se vean al instante al tocarlos. Es la misma precarga que
     ya se hacia al pasar el mouse, que NO abre el chat ni marca leidos. Va de a uno para no
     competir con lo que la asesora esta haciendo: la conexion de la oficina es lo que mas se nota.
+    Como mucho TOPE_DE_PRECARGA (ver ventana-de-la-lista) y nunca un chat ya pedido en los ultimos
+    30 minutos (ver chat-conversation-warmup).
+
+    Al desplazarse se espera ESPERA_SIN_MOVIMIENTO_MS sin movimiento y se cancela la cola anterior;
+    el chat que ya venia en camino termina antes de que arranque la cola nueva (nunca van dos a la vez).
   */
-  const clavesDeArriba = conversations
-    .slice(0, CHATS_A_PRECARGAR)
-    .map((conversation) => conversation.id)
-    .join("|");
+  const clavesEnPantalla = useMemo(
+    () => clavesAPrecargar({ claves: conversations.map((conversation) => conversation.id), primeraFila, altoVisible }).join("|"),
+    [altoVisible, conversations, primeraFila],
+  );
   /*
     Cambiar de pestaña o filtro NO precarga (Alex, 07-10-2026: no subir la carga). Antes cada
-    toque traia hasta 5 chats mas que quiza nadie abre. Sigue la precarga al cargar la pantalla y
-    cuando entra un chat nuevo arriba por tiempo real.
+    toque traia hasta 5 chats mas que quiza nadie abre. Sigue la precarga al cargar la pantalla,
+    al desplazarse y cuando entra un chat nuevo por tiempo real.
+
+    Con las filas visibles no alcanza con saltarse esa vez: la lista se reacomoda un instante despues
+    (pareceria un desplazamiento) y, si despues entra un mensaje, se precargaria toda la pantalla
+    del filtro. Por eso los chats que aparecen por el cambio, y durante RATO_DEL_CAMBIO_DE_VISTA_MS,
+    quedan anotados como "no precargar". Solo se precargan los que aparezcan despues.
   */
   // Si la lista se monta ya despues de un cambio de filtro (venia de una vista vacia), tampoco.
-  const versionPrecargadaRef = useRef(versionDeVista > 0 ? -1 : 0);
+  const versionPrecargadaRef = useRef(versionDeVista > 0 ? -1 : versionDeVista);
+  const cambioDeVistaHastaRef = useRef(0);
+  const noPrecargarRef = useRef(new Set<string>());
+  // El chat que se esta trayendo ahora: la cola nueva lo espera antes de pedir el siguiente.
+  const precargaEnCaminoRef = useRef<Promise<void>>(Promise.resolve());
   useEffect(() => {
     if (versionPrecargadaRef.current !== versionDeVista) {
       versionPrecargadaRef.current = versionDeVista;
-      return;
+      cambioDeVistaHastaRef.current = Date.now() + RATO_DEL_CAMBIO_DE_VISTA_MS;
     }
-    if (!clavesDeArriba) {
-      return;
-    }
-    let cancelado = false;
-    const cuandoEsteLibre = (tarea: () => void) =>
-      typeof window.requestIdleCallback === "function"
-        ? window.requestIdleCallback(tarea, { timeout: 4000 })
-        : window.setTimeout(tarea, 1500);
-    cuandoEsteLibre(async () => {
-      for (const clave of clavesDeArriba.split("|")) {
-        if (cancelado) {
-          return;
-        }
-        await warmConversationCache(clave);
+    const enPantalla = clavesEnPantalla ? clavesEnPantalla.split("|") : [];
+    if (Date.now() < cambioDeVistaHastaRef.current) {
+      for (const clave of enPantalla) {
+        noPrecargarRef.current.add(clave);
       }
+      return;
+    }
+    if (sinPrecarga) {
+      return;
+    }
+    const cola = clavesAPrecargar({
+      claves: enPantalla,
+      primeraFila: 0,
+      altoVisible: enPantalla.length * ALTO_DE_FILA,
+      excluidas: noPrecargarRef.current,
     });
+    if (cola.length === 0) {
+      return;
+    }
+
+    let cancelado = false;
+    let idleHandle: number | null = null;
+    const espera = window.setTimeout(() => {
+      const tarea = async () => {
+        idleHandle = null;
+        for (const clave of cola) {
+          // El que venia en camino termina primero: nunca van dos a la vez.
+          await precargaEnCaminoRef.current;
+          if (cancelado) {
+            return;
+          }
+          const pedido = warmConversationCache(clave);
+          precargaEnCaminoRef.current = pedido;
+          await pedido;
+        }
+      };
+      if (typeof window.requestIdleCallback === "function") {
+        idleHandle = window.requestIdleCallback(() => void tarea(), { timeout: 4000 });
+      } else {
+        void tarea();
+      }
+    }, ESPERA_SIN_MOVIMIENTO_MS);
     return () => {
       cancelado = true;
+      window.clearTimeout(espera);
+      if (idleHandle !== null && typeof window.cancelIdleCallback === "function") {
+        window.cancelIdleCallback(idleHandle);
+      }
     };
-  }, [clavesDeArriba, versionDeVista]);
+  }, [clavesEnPantalla, sinPrecarga, versionDeVista]);
 
   // Atras/adelante del navegador. Como abrir un chat usa history.pushState (sin navegacion),
   // Next no re-renderiza el server component al volver: escuchamos popstate y reconstruimos la

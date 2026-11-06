@@ -805,6 +805,7 @@ export const AppSidebar = React.memo(function AppSidebar({
               isLoadingMoreConversations={isLoadingMoreConversationItems}
               onLoadMoreConversations={onLoadMoreConversationItems}
               versionDeVista={versionDeVista}
+              sinPrecarga={Boolean(busqueda.trim())}
             />
           ) : mensajesEncontrados.length > 0 ? null : (
             <div className="px-5 py-12 text-center">

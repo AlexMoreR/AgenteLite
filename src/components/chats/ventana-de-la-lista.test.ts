@@ -1,7 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { ALTO_DE_FILA, FILAS_DE_MARGEN, calcularVentanaDeLaLista } from "./ventana-de-la-lista";
+import {
+  ALTO_DE_FILA,
+  FILAS_DE_MARGEN,
+  TOPE_DE_PRECARGA,
+  calcularVentanaDeLaLista,
+  clavesAPrecargar,
+} from "./ventana-de-la-lista";
 
 const TOTAL = 2500;
 const ALTO_VISIBLE = 700;
@@ -72,4 +78,46 @@ test("d) con pocas filas se dibujan todas; sin alto medido, solo una pantalla", 
     espacioArriba: 0,
     espacioAbajo: 0,
   });
+});
+
+const CLAVES = Array.from({ length: TOTAL }, (_, fila) => `agent:chat-${fila}`);
+
+test("e) se precargan las filas visibles: unas 8 en 700 px y unas 10 en 900 px, segun el desplazamiento", () => {
+  const arriba = clavesAPrecargar({ claves: CLAVES, primeraFila: 0, altoVisible: 700 });
+  assert.deepEqual(arriba, CLAVES.slice(0, 8));
+  assert.equal(clavesAPrecargar({ claves: CLAVES, primeraFila: 0, altoVisible: 900 }).length, 10);
+  // Bajando hasta la fila 500, son las de la fila 500 en adelante.
+  const abajo = clavesAPrecargar({ claves: CLAVES, primeraFila: 500, altoVisible: 700 });
+  assert.deepEqual(abajo, CLAVES.slice(500, 508));
+  // Al fondo no se pasa del final de la lista.
+  const fondo = clavesAPrecargar({ claves: CLAVES, primeraFila: TOTAL + 50, altoVisible: 700 });
+  assert.deepEqual(fondo, CLAVES.slice(TOTAL - 1));
+  // El rebote del scroll (fila negativa) cuenta como arriba del todo.
+  assert.deepEqual(clavesAPrecargar({ claves: CLAVES, primeraFila: -3, altoVisible: 700 }), arriba);
+});
+
+test("f) nunca mas de 15, aunque la pantalla sea muy alta", () => {
+  assert.equal(TOPE_DE_PRECARGA, 15);
+  const altisima = clavesAPrecargar({ claves: CLAVES, primeraFila: 0, altoVisible: 5000 });
+  assert.equal(altisima.length, 15);
+  assert.deepEqual(altisima, CLAVES.slice(0, 15));
+  assert.ok(clavesAPrecargar({ claves: CLAVES, primeraFila: 1200, altoVisible: 100_000 }).length <= 15);
+});
+
+test("g) sin repetidos ni claves vacias, y los oficiales no se precargan", () => {
+  const claves = ["agent:a", "agent:a", " ", "official:b", "agent:c", "agent:a", "agent:d"];
+  assert.deepEqual(clavesAPrecargar({ claves, primeraFila: 0, altoVisible: 5000 }), ["agent:a", "agent:c", "agent:d"]);
+});
+
+test("h) con la lista oculta (mide 0) o vacia no se precarga nada", () => {
+  assert.deepEqual(clavesAPrecargar({ claves: CLAVES, primeraFila: 0, altoVisible: 0 }), []);
+  assert.deepEqual(clavesAPrecargar({ claves: [], primeraFila: 0, altoVisible: 700 }), []);
+});
+
+test("i) los chats anotados como no precargar (cambio de filtro) se saltan", () => {
+  const excluidas = new Set(CLAVES.slice(0, 8));
+  assert.deepEqual(clavesAPrecargar({ claves: CLAVES, primeraFila: 0, altoVisible: 700, excluidas }), []);
+  // Entra un chat nuevo arriba: solo se precarga ese.
+  const conNuevo = ["agent:nuevo", ...CLAVES];
+  assert.deepEqual(clavesAPrecargar({ claves: conNuevo, primeraFila: 0, altoVisible: 700, excluidas }), ["agent:nuevo"]);
 });

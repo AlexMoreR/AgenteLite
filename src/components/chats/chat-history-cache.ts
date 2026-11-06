@@ -745,6 +745,20 @@ export function readConversationFromCache(
   }
 
   const store = readStore();
+
+  /*
+    Un chat recien guardado espera en `pendingConversationSaves` (600 ms mas la espera de
+    inactividad) antes de llegar al navegador. Sin mirar aca, un chat recien precargado parecia no
+    estar en la cache y al tocarlo salia vacio (06-11-2026). Se devuelve lo mismo que quedara
+    guardado: la copia guardada junto con la nueva (la nueva sola podria traer menos mensajes).
+    Leer no escribe nada en el navegador: el guardado sigue esperando su turno.
+  */
+  const pendiente = pendingConversationSaves.get(normalizeConversationStoreKey(conversationId));
+  if (pendiente) {
+    const guardada = store.conversations[pendiente.id] ?? null;
+    return hydrateConversation(mergeCachedConversations(guardada, serializeConversation(pendiente)));
+  }
+
   const normalizedConversationId = normalizeConversationCacheKey(conversationId);
   // Se busca por la clave tal cual y por la version sin prefijo ("agent:xxx" -> "xxx").
   // Habia un tercer intento con `split(":").slice(1).join(":")` que era redundante con el

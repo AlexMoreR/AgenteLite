@@ -120,3 +120,110 @@ test("d) la copia guardada en el navegador tiene como mucho 50 mensajes por chat
   assert.equal(otraVez.messages.at(-1)?.id, mensaje(320).id);
   assert.equal(otraVez.loadMoreCursor, mensaje(271).id);
 });
+
+function chatGuardado(id: string) {
+  const guardado = [...almacen.entries()].find(([clave]) => clave.startsWith("aglite:chat-history-cache"));
+  if (!guardado) {
+    return null;
+  }
+  const store = JSON.parse(guardado[1]) as { conversations: Record<string, unknown> };
+  return store.conversations[id] ?? null;
+}
+
+test("e) un chat guardado se lee enseguida, antes del guardado diferido, sin escribir antes de tiempo", async () => {
+  saveConversationToCache(copia(1, 20, { id: "chat-2" }));
+  // Todavia no se escribio en el navegador...
+  assert.equal(chatGuardado("chat-2"), null, "no se escribe antes de tiempo");
+  // ...pero ya se puede leer (antes salia vacio al tocarlo).
+  const leida = readConversationFromCache("chat-2");
+  assert.ok(leida, "el chat recien guardado se lee");
+  assert.equal(leida.messages.length, 20);
+  assert.equal(leida.messages.at(-1)?.id, mensaje(20).id);
+  assert.ok(leida.messages[0]?.createdAt instanceof Date);
+  // Tambien con el prefijo de la clave del chat.
+  assert.ok(readConversationFromCache("agent:chat-2"));
+  // Leer no escribe nada.
+  assert.equal(chatGuardado("chat-2"), null);
+
+  await new Promise((listo) => setTimeout(listo, 900));
+  assert.ok(chatGuardado("chat-2"), "despues de la espera, si se guarda");
+});
+
+test("f) leer lo que espera guardarse no pierde mensajes frente a la copia ya guardada", async () => {
+  saveConversationToCache(copia(1, 40, { id: "chat-3" }));
+  await new Promise((listo) => setTimeout(listo, 900));
+  assert.ok(chatGuardado("chat-3"));
+
+  // Llega una copia nueva con solo los ultimos (como la trae /live): se lee junto con la guardada.
+  saveConversationToCache(copia(36, 45, { id: "chat-3" }));
+  const leida = readConversationFromCache("chat-3")!;
+  assert.equal(leida.messages.length, 45, "del 1 al 45, sin perder los viejos");
+  assert.equal(leida.messages[0]?.id, mensaje(1).id);
+  assert.equal(leida.messages.at(-1)?.id, mensaje(45).id);
+  assert.equal(leida.loadMoreCursor, mensaje(1).id, "el cursor sigue en el mas viejo");
+
+  // Y es lo mismo que queda guardado despues.
+  await new Promise((listo) => setTimeout(listo, 900));
+  const guardada = readConversationFromCache("chat-3")!;
+  assert.deepEqual(
+    guardada.messages.map((item) => item.id),
+    leida.messages.map((item) => item.id),
+  );
+});
+
+/*
+  La precarga (chat-conversation-warmup) con un pedido falso: cuenta cuantas veces se llama a fetch.
+*/
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const precarga = require("./chat-conversation-warmup") as typeof import("./chat-conversation-warmup");
+const pedidos: string[] = [];
+let respuestaFalsa: () => Response = () => new Response("{}", { status: 500 });
+(globalThis as unknown as { fetch: typeof fetch }).fetch = (async (url: string | URL) => {
+  pedidos.push(String(url));
+  return respuestaFalsa();
+}) as typeof fetch;
+
+function pedidosDe(chatKey: string) {
+  return pedidos.filter((url) => url.includes(`chatKey=${encodeURIComponent(chatKey)}&`)).length;
+}
+
+test("g) precarga: dos intentos seguidos hacen un solo pedido y el chat queda listo para leer", async () => {
+  respuestaFalsa = () =>
+    new Response(JSON.stringify({ ok: true, conversation: { ...copia(1, 10, { id: "agent:chat-4" }) } }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  await Promise.all([precarga.warmConversationCache("agent:chat-4"), precarga.warmConversationCache("agent:chat-4")]);
+  assert.equal(pedidosDe("agent:chat-4"), 1);
+  assert.ok(pedidos[0]?.includes("precarga=1"), "es la precarga, que no marca leidos");
+  // Recien precargado (todavia sin escribir en el navegador) ya se lee: al tocarlo no sale vacio.
+  assert.equal(readConversationFromCache("agent:chat-4")?.messages.length, 10);
+  await precarga.warmConversationCache("agent:chat-4");
+  assert.equal(pedidosDe("agent:chat-4"), 1);
+});
+
+test("h) precarga: un pedido fallido no se repite en 30 minutos; pasados, si", async () => {
+  respuestaFalsa = () => new Response("{}", { status: 500 });
+  await precarga.warmConversationCache("agent:chat-5");
+  await precarga.warmConversationCache("agent:chat-5");
+  assert.equal(pedidosDe("agent:chat-5"), 1, "el mismo chat no se pide dos veces");
+
+  const ahora = Date.now;
+  try {
+    Date.now = () => ahora() + precarga.ESPERA_PARA_VOLVER_A_PEDIR_MS - 60_000;
+    await precarga.warmConversationCache("agent:chat-5");
+    assert.equal(pedidosDe("agent:chat-5"), 1, "a los 29 minutos todavia no");
+    Date.now = () => ahora() + precarga.ESPERA_PARA_VOLVER_A_PEDIR_MS + 1000;
+    await precarga.warmConversationCache("agent:chat-5");
+    assert.equal(pedidosDe("agent:chat-5"), 2, "pasados 30 minutos se puede volver a pedir");
+  } finally {
+    Date.now = ahora;
+  }
+});
+
+test("i) precarga: un chat oficial no hace ningun pedido", async () => {
+  respuestaFalsa = () => new Response("{}", { status: 200 });
+  await precarga.warmConversationCache("official:chat-6");
+  await precarga.warmConversationCache("official:chat-6");
+  assert.equal(pedidosDe("official:chat-6"), 0);
+});

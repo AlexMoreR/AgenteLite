@@ -9,6 +9,13 @@ type WarmupConversationResponse = {
 };
 
 const inflightWarmups = new Map<string, Promise<void>>();
+/*
+  No repetir (06-11-2026): cuando se pidio cada chat en esta sesion. Un chat ya pedido no se vuelve a
+  pedir mientras su copia siga fresca (30 min, lo mismo que la cache), aunque el pedido haya fallado:
+  ahora se precarga lo que se ve en pantalla y, sin esto, cada parada del scroll podria repetirlos.
+*/
+export const ESPERA_PARA_VOLVER_A_PEDIR_MS = 1_800_000; // 30 minutos
+const pedidosDeLaSesion = new Map<string, number>();
 
 function normalizeSelectedConversation(value: unknown): SharedInboxSelectedConversation | null {
   if (!value || typeof value !== "object") {
@@ -49,6 +56,11 @@ export function warmConversationCache(chatKey: string) {
   if (normalizedChatKey.startsWith("official:")) {
     return Promise.resolve();
   }
+  const pedidoEn = pedidosDeLaSesion.get(normalizedChatKey);
+  if (pedidoEn !== undefined && Date.now() - pedidoEn < ESPERA_PARA_VOLVER_A_PEDIR_MS) {
+    return Promise.resolve();
+  }
+  pedidosDeLaSesion.set(normalizedChatKey, Date.now());
 
   const warmup: Promise<void> = (async () => {
     try {
