@@ -133,9 +133,12 @@ export type RevisionDelSeguimiento = {
  * da el valor del envio, dice "envio gratis" sin la condicion del 50 % (o "sin costo de envio"),
  * ofrece contraentrega en un producto que no es el Combo o promete que llega a San Andres, Leticia,
  * Inirida o Mitu.
+ * Se revisa el texto SIN asteriscos: la negrita de WhatsApp ("*50 %*", "*$20.000*") no debe esconder
+ * una frase prohibida, el valor del envio ni una cifra, ni hacer que el 50 % del anticipo o el parecido
+ * con lo ya enviado se lean distinto. Lo que se manda sigue con sus asteriscos (ver `elegirTexto`).
  */
 export function revisarSeguimiento(texto: string, contexto: RevisionDelSeguimiento): string[] {
-  const limpio = (texto ?? "").trim();
+  const limpio = (texto ?? "").replace(/\*/g, "").trim();
   if (!limpio) return ["está vacío"];
 
   const problemas: string[] = [];

@@ -488,6 +488,25 @@ await prueba("los textos fijos de 'Tras asesora' ya no son robóticos y pasan la
   assert.deepEqual(sq.revisarSeguimiento(dos, { conversacion: [], yaEnviados: [uno], textoDelLibro: null }), []);
 });
 
+await prueba("negrita: la revisión mira el texto sin asteriscos y lo que sale los conserva", () => {
+  const rev = { conversacion: [linea("cliente", "Hola, vi la camilla", 0)], yaEnviados: [], textoDelLibro: "Camilla en cuero tex, garantía de 1 año." };
+  const conNegrita = "La *camilla* está en cuero tex con garantía de *1 año*. ¿Quieres apartarla con el *50 %* para empezar la fabricación?";
+  const r = sq.elegirTexto({ ...rev, producto: null, propuestas: [conNegrita], textoFijo: null });
+  assert.equal(r.enviar, true);
+  assert.equal(r.origen, "ia");
+  assert.equal(r.texto, conNegrita);
+
+  // La negrita no esconde el valor del envío ni una frase prohibida.
+  const sinNada = { conversacion: [linea("cliente", "Hola, vi el anuncio", 0)], yaEnviados: [], textoDelLibro: null };
+  assert.ok(sq.revisarSeguimiento("El *envío* de *$20.000* ya está listo ¿te lo aparto?", sinNada).some((x) => /env[ií]o/i.test(x)));
+  assert.ok(sq.revisarSeguimiento("¿Sigues *interesada* en la camilla?", sinNada).length > 0);
+  assert.deepEqual(sq.revisarSeguimiento("¿Sigues interesada en la camilla?", sinNada), sq.revisarSeguimiento("¿Sigues *interesada* en la camilla?", sinNada));
+
+  // "*50* %" sigue siendo la regla del anticipo, no una cifra inventada.
+  const problemas = sq.revisarSeguimiento("¿Te la aparto con el *50* %?", sinNada);
+  assert.ok(!problemas.some((x) => /no está ni en el libro/.test(x)), problemas.join(" | "));
+});
+
 /* ----------------------------------------------------------------------------------------------
    Parte 2: el redactor, con la base y la IA simuladas
 ---------------------------------------------------------------------------------------------- */
@@ -620,6 +639,16 @@ await prueba("el audio transcrito del cliente ('palo rosa, Montería') llega a l
   assert.doesNotMatch(ia.pedidos[0].messages[0].content, /solo mandó el texto del anuncio/);
   // La marca que va al rawPayload del mensaje enviado.
   assert.deepEqual(redactor.marcaDelSeguimiento(r), { seguimientoQueEscucha: { deIA: true, textoReemplazado: FIJO } });
+});
+
+await prueba("la negrita doble o triple de la IA sale con un solo asterisco por lado", async () => {
+  reiniciarBase();
+  reiniciarIa(["La **camilla** te llega a Montería sin problema ¿Te la aparto con el ***50 %***?"]);
+  const r = await redactar();
+  assert.equal(r.enviar, true);
+  assert.equal(r.deIA, true);
+  assert.equal(r.texto, "La *camilla* te llega a Montería sin problema ¿Te la aparto con el *50 %*?");
+  assert.ok(!r.texto.includes("**"), r.texto);
 });
 
 await prueba("si la IA propone algo que no pasa la revisión, se le pide otra (hasta 3)", async () => {
