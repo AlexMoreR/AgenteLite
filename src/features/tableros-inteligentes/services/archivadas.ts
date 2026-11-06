@@ -22,6 +22,8 @@ import type { Alcance, ContextoTablero } from "./tableros";
     ni en "Te toca a ti" (el filtro VISIBLE de tableros.ts). Se ven en la pestaña "Trabajos terminados".
   - Desarchivar (botón de esa pestaña) la devuelve al tablero. Si a una archivada se le cambia el estado a uno
     abierto, se desarchiva sola (tableros.ts: alReabrir).
+  - 6-nov-2026: con `?vista=terminados&dia=AAAA-MM-DD` (el link del resumen de las 6 p. m.) esa pestaña muestra lo que
+    terminó ESE día, archivado o no (terminadasDelDia).
 */
 
 const MS_HORA = 3_600_000;
@@ -103,15 +105,30 @@ export function diaDeBogota(ahora: Date): string {
   return new Date(ahora.getTime() - BOGOTA_MS).toISOString().slice(0, 10);
 }
 
+/** La fecha AAAA-MM-DD si está bien escrita y existe (sin espacios); si no, null. Nunca lanza. */
+export function diaValido(fecha: unknown): string | null {
+  const texto = typeof fecha === "string" ? fecha.trim() : "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(texto)) return null;
+  const mediodia = new Date(`${texto}T12:00:00Z`);
+  return !Number.isNaN(mediodia.getTime()) && mediodia.toISOString().slice(0, 10) === texto ? texto : null;
+}
+
+/** Desde y hasta (sin incluirlo) de un día de Bogotá AAAA-MM-DD, en UTC. Una fecha mal escrita da null. */
+export function rangoDeUnDia(fecha: unknown): { dia: string; desde: Date; hasta: Date } | null {
+  const dia = diaValido(fecha);
+  if (!dia) return null;
+  const desde = new Date(Date.parse(`${dia}T00:00:00Z`) + BOGOTA_MS);
+  return { dia, desde, hasta: new Date(desde.getTime() + MS_DIA) };
+}
+
 /**
  * La semana (lunes a domingo, en hora de Bogotá) de una fecha AAAA-MM-DD: el lunes y el domingo, y el rango en UTC
  * (desde el lunes 00:00 hasta el lunes siguiente 00:00 de Bogotá, sin incluirlo). Una fecha mal escrita da null.
  */
 export function semanaDe(fecha: string): { lunes: string; domingo: string; desde: Date; hasta: Date } | null {
-  const texto = typeof fecha === "string" ? fecha.trim() : "";
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(texto)) return null;
+  const texto = diaValido(fecha);
+  if (!texto) return null;
   const mediodia = new Date(`${texto}T12:00:00Z`);
-  if (Number.isNaN(mediodia.getTime()) || mediodia.toISOString().slice(0, 10) !== texto) return null;
   const desdeLunes = (mediodia.getUTCDay() + 6) % 7; // lunes = 0 … domingo = 6
   const lunes = new Date(mediodia.getTime() - desdeLunes * MS_DIA).toISOString().slice(0, 10);
   const domingo = new Date(mediodia.getTime() + (6 - desdeLunes) * MS_DIA).toISOString().slice(0, 10);
@@ -420,4 +437,53 @@ export async function terminadasDeLaSemana(alcance: Alcance, fecha: unknown, tab
     .sort((a, b) => Date.parse(a.terminadaEn) - Date.parse(b.terminadaEn))
     .slice(0, MAX_SEMANA);
   return { semana: { lunes: semana.lunes, domingo: semana.domingo }, tarjetas: lista };
+}
+
+/**
+ * Lo terminado en UN día de Bogotá (6-nov-2026, el link del resumen de las 6 p. m.): las tarjetas HECHO o FALLIDO que
+ * quedaron así ese día, archivadas o no, de los tableros que la persona alcanza. Sale del historial: el último cambio a
+ * HECHO o FALLIDO de ese día que no se deshizo, y la tarjeta tiene que seguir HECHO o FALLIDO hoy (una reabierta no sale).
+ * `buscar` filtra igual que la lista de archivadas. De la última terminada a la primera. Una fecha mal escrita lanza.
+ */
+export async function terminadasDelDia(alcance: Alcance, fecha: unknown, { buscar }: { buscar?: string | null } = {}): Promise<ArchivadaVista[]> {
+  const rango = rangoDeUnDia(fecha);
+  if (!rango) throw new Error("El día va como una fecha AAAA-MM-DD, por ejemplo 2026-11-06.");
+  const busqueda = busquedaDe(buscar);
+  const deLaTarjeta = {
+    borradoEn: null,
+    estado: { in: ESTADOS_EN_LISTA },
+    tablero: dondeTablero(alcance),
+    ...(busqueda && "numero" in busqueda ? { numero: busqueda.numero } : {}),
+    ...(busqueda && "texto" in busqueda
+      ? {
+          OR: [
+            { titulo: { contains: busqueda.texto, mode: "insensitive" as const } },
+            { repo: { contains: busqueda.texto, mode: "insensitive" as const } },
+          ],
+        }
+      : {}),
+  };
+  const cambios = await prisma.historialTarjeta.findMany({
+    where: {
+      creadoEn: { gte: rango.desde, lt: rango.hasta },
+      deshechoEn: null,
+      OR: ESTADOS_TERMINADOS.map((estado) => ({ despues: { path: ["estado"], equals: estado } })),
+      tarjeta: deLaTarjeta,
+    },
+    orderBy: { creadoEn: "asc" },
+    take: 5 * MAX_LISTA,
+    select: { tarjetaId: true, creadoEn: true },
+  });
+  // El último cambio a HECHO o FALLIDO de ese día, por tarjeta.
+  const ultimoDe = new Map<string, Date>();
+  for (const cambio of cambios) ultimoDe.set(cambio.tarjetaId, cambio.creadoEn);
+  if (!ultimoDe.size) return [];
+  const filas = await prisma.tarjetaTablero.findMany({
+    where: { id: { in: [...ultimoDe.keys()] }, ...deLaTarjeta },
+    take: MAX_LISTA,
+    select: SELECT_ARCHIVADA,
+  });
+  return filas
+    .map((fila) => aVistaArchivada(fila, ultimoDe.get(fila.id)))
+    .sort((a, b) => Date.parse(b.terminadaEn) - Date.parse(a.terminadaEn));
 }

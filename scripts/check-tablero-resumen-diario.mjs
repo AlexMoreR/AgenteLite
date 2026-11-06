@@ -1,5 +1,5 @@
 // Pruebas del resumen diario del Tablero IA (resumen-diario.ts): el día de Bogotá, cómo se arma con el historial
-// de HOY (no el de ayer), el texto corto de 4 líneas (6 con los cupos, 31-oct-2026) (la línea Falló con los choques con main, 31-oct-2026), la vista "Hoy" y la caja "Resumen de hoy" con un prisma
+// de HOY (no el de ayer), el texto corto de 4 líneas (6 con los cupos, 31-oct-2026) (la línea Falló con los choques con main, 31-oct-2026), el link del día al final del WhatsApp (6-nov-2026), la vista "Hoy" y la caja "Resumen de hoy" con un prisma
 // FALSO. Desde el 26-oct-2026 el resumen YA NO se manda por WhatsApp (el silencio, las 3 líneas y los avisos al
 // dueño se prueban en check-tablero-avisos-al-dueno.mjs). No necesita base ni red.
 // Correr: npm run test:tablero-resumen-diario
@@ -69,6 +69,7 @@ const mocks = {
     linkDeHoy: () => "https://app.aizenbot.com/cliente/tablero-ia?vista=hoy",
     linkDelCoordinador: () => "https://app.aizenbot.com/cliente/tablero-ia?vista=coordinador",
     linkDeLaTarjeta: (id) => `https://app.aizenbot.com/cliente/tablero-ia?tarjeta=${id}`,
+    linkDeTerminadosDelDia: (dia) => `https://app.aizenbot.com/cliente/tablero-ia?vista=terminados&dia=${encodeURIComponent(dia)}`,
   },
   // El resumen sale por la línea Admin con avisos-al-dueno.ts (30-oct-2026): envío y latido falsos.
   "@/lib/evolution": {
@@ -239,7 +240,7 @@ await prueba("cuantasChocaronConMain: tarjetas distintas con choca_con_main o ch
   assert.deepEqual([...resumen.CATEGORIAS_DE_CHOQUE_CON_MAIN], ["choca_con_main", "choque_de_logica"]);
 });
 
-await prueba("enviarResumenDiarioAlDueno: una vez al día, a la hora, sin silencio ni movimiento vacío", async () => {
+await prueba("enviarResumenDiarioAlDueno: una vez al día, a la hora, sin silencio, con el link del día al final", async () => {
   const TARDE = new Date("2026-10-30T23:30:00Z"); // 6:30 p. m. de Bogotá
   const MANANA = new Date("2026-10-30T15:00:00Z"); // 10:00 a. m.
   const NOCHE = new Date("2026-10-31T03:00:00Z"); // 10:00 p. m.
@@ -250,9 +251,16 @@ await prueba("enviarResumenDiarioAlDueno: una vez al día, a la hora, sin silenc
   assert.equal(estado.mensajes.length, 0);
   assert.deepEqual(await resumen.enviarResumenDiarioAlDueno(TARDE), { enviados: 1 });
   assert.equal(estado.mensajes.length, 1);
-  assert.equal(estado.mensajes[0].text.split("\n").length, 4);
+  // 6-nov-2026: las 4 líneas de siempre y, al final, UNA línea con el link a lo trabajado ese día de Bogotá.
+  const lineas = estado.mensajes[0].text.split("\n");
+  assert.equal(lineas.length, 5);
   assert.match(estado.mensajes[0].text, /⚠️ Falló: nada \(0 por choque con main\)/);
-  assert.doesNotMatch(estado.mensajes[0].text, /https?:\/\//);
+  assert.equal(lineas[4], "📋 Ver lo trabajado hoy: https://app.aizenbot.com/cliente/tablero-ia?vista=terminados&dia=2026-10-30");
+  assert.equal(estado.mensajes[0].text.match(/https?:\/\//g).length, 1, "un solo link");
+  // La caja "Resumen de hoy" de la pantalla queda sin link: el WhatsApp es ese texto más la línea del link.
+  const pantalla = await resumen.resumenDeHoyParaLaPantalla("ws1", TARDE);
+  assert.doesNotMatch(pantalla.texto, /https?:\/\//);
+  assert.equal(estado.mensajes[0].text, `${pantalla.texto}\n${lineas[4]}`);
   assert.deepEqual(await resumen.enviarResumenDiarioAlDueno(new Date(TARDE.getTime() + 60_000)), { enviados: 0 }, "no se repite el mismo día");
   assert.equal(estado.mensajes.length, 1);
 });
@@ -261,7 +269,8 @@ await prueba("enviarResumenDiarioAlDueno: sin movimiento no manda nada; si no sa
   const TARDE = new Date("2026-10-30T23:30:00Z");
   estado.ajustes.set("tablero:avisos-dueno:telefono:ws1", "573001112233");
   assert.deepEqual(await resumen.enviarResumenDiarioAlDueno(TARDE), { enviados: 0 });
-  assert.equal(estado.mensajes.length, 0, "día vacío: nada");
+  assert.equal(estado.mensajes.length, 0, "día vacío: nada, ni el link");
+  assert.equal(estado.ajustes.get("tablero:resumen-diario:ultimo:ws1"), "2026-10-30", "queda anotado el día sin movimiento");
   estado.esperando.push({ id: "t3", titulo: "Reuniones", detalle: "x", plan: null, resultado: null });
   estado.ajustes.set("tablero:resumen-diario:ultimo:ws1", "2026-10-29");
   estado.ajustes.set("tablero:resumen-diario:activo:ws1", "false");
@@ -372,7 +381,7 @@ await prueba("la base de antes del 31-oct: promedio de las listas del 24 al 30, 
   assert.equal(await resumen.basePorDiaAntesDel31Oct("ws1", "2026-11-01"), 2, "queda guardada: no se vuelve a calcular");
 });
 
-await prueba("enviarResumenDiarioAlDueno el 31-oct: sale con las 6 líneas, en un solo WhatsApp", async () => {
+await prueba("enviarResumenDiarioAlDueno el 31-oct: sale con las 6 líneas y la del link (7), en un solo WhatsApp", async () => {
   const TARDE = new Date("2026-10-31T23:30:00Z"); // 6:30 p. m. de Bogotá
   estado.ajustes.set("tablero:avisos-dueno:telefono:ws1", "573001112233");
   estado.ajustes.set("tablero:resumen-diario:base-antes-31oct:ws1", "7");
@@ -381,13 +390,25 @@ await prueba("enviarResumenDiarioAlDueno el 31-oct: sale con las 6 líneas, en u
   assert.deepEqual(await resumen.enviarResumenDiarioAlDueno(TARDE), { enviados: 1 });
   assert.equal(estado.mensajes.length, 1, "un solo WhatsApp");
   const lineas = estado.mensajes[0].text.split("\n");
-  assert.equal(lineas.length, 6);
+  // Con las 6 líneas llenas, la del link es la 7.ª y el recorte del envío no la borra (6-nov-2026).
+  assert.equal(lineas.length, 7);
   assert.equal(lineas[4], "🔁 Corriendo a la vez: 5 (máx.) / en fila: 3");
   assert.match(lineas[5], /antes se terminaban 7 por día .* y hoy 1$/);
+  assert.equal(lineas[6], "📋 Ver lo trabajado hoy: https://app.aizenbot.com/cliente/tablero-ia?vista=terminados&dia=2026-10-31");
   const pantalla = await resumen.resumenDeHoyParaLaPantalla("ws1", TARDE);
-  assert.equal(pantalla.texto, estado.mensajes[0].text, "la caja «Resumen de hoy» dice lo mismo");
+  assert.equal(pantalla.texto.split("\n").length, 6, "la caja «Resumen de hoy» sigue con sus 6 líneas");
+  assert.equal(`${pantalla.texto}\n${lineas[6]}`, estado.mensajes[0].text, "la caja dice lo mismo, sin el link");
   estado.mensajes.length = 0;
   estado.esperando.length = 0;
+});
+
+await prueba("textoDelWhatsAppDelResumen: el texto más UNA línea con el link del día; vacío si no hay texto", () => {
+  assert.equal(resumen.MAXIMO_LINEAS_DEL_RESUMEN, 7);
+  assert.equal(resumen.textoDelWhatsAppDelResumen("", "2026-11-06"), "", "sin movimiento: ni el link");
+  const texto = resumen.textoDelResumen({ listas: 2, conProblema: 0, esperando: 0, chocaronConMain: 0 });
+  const whatsapp = resumen.textoDelWhatsAppDelResumen(texto, "2026-11-06");
+  assert.equal(whatsapp, `${texto}\n📋 Ver lo trabajado hoy: https://app.aizenbot.com/cliente/tablero-ia?vista=terminados&dia=2026-11-06`);
+  assert.match(whatsapp.split("\n").at(-1), /\?vista=terminados&dia=2026-11-06$/);
 });
 
 assert.equal(resumen.enviarResumenDiarioSiToca, undefined, "el resumen ya no se manda por WhatsApp");

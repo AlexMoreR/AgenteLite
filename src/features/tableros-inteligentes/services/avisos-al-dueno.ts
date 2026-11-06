@@ -47,12 +47,11 @@ import { linkDeHoy, linkDeLaTarjeta, linkDelCoordinador, pendientesDelDueno, tod
     trabado, sin_trabajo       → ALTA (solo la página; ya no llegan por WhatsApp)
   Interruptor apagado = exactamente lo anterior.
 
-  EXCEPCIÓN "TERMINADA" (30-oct-2026, pedida por el dueño): cuando el Coordinador deja una tarea en HECHO, el dueño recibe
-  "✅ ¡Listo! Terminó la tarea T-123: …" por WhatsApp AUNQUE no sea urgente. Esto CAMBIA lo del 26-oct (no avisar
-  "terminó") y lo del 29-oct (por WhatsApp solo los urgentes), y solo para "terminada": vive en avisos-de-terminadas.ts,
-  con su propio interruptor `tablero:avisos-dueno:terminadas:<ws>` (empieza prendido; el interruptor general de acá
-  también manda), prioridad BAJA en /cliente/alertas, y usa enviarAlDueno de este archivo (misma línea Admin, mismo
-  número, mismo silencio de 9 p. m. a 7 a. m.). Ningún otro aviso cambia.
+  "TERMINADA" (30-oct-2026; sin WhatsApp desde el 6-nov-2026): del 30-oct al 6-nov el dueño recibía "✅ ¡Listo! Terminó la
+  tarea T-123: …" por WhatsApp como excepción a lo del 26-oct y el 29-oct. El 6-nov el dueño la quitó (le llenaba el
+  WhatsApp): hoy la tarea terminada deja solo su alerta BAJA en /cliente/alertas (avisos-de-terminadas.ts, con su
+  interruptor `tablero:avisos-dueno:terminadas:<ws>` y el general de acá) y lo terminado le llega en el resumen de las
+  6 p. m. (resumen-diario.ts), con el link a la lista de ese día. Ningún aviso de este archivo cambia.
 
   AVISOS TÉCNICOS A EMANUEL (30-oct-2026, decisión del dueño: Sistemas pasa a Emanuel, prueba hasta el 29-nov): los avisos
   caido, sin_trabajo, trabado (tarjetas en ERROR o atascadas) y limite salen al WhatsApp de Emanuel (el teléfono de Sistemas,
