@@ -31,7 +31,7 @@ const BASE = { conversacion: CHARLA, yaEnviados: [], textoDelLibro: LIBRO };
 /* ---------------------------------------------------------------------------------------------- */
 
 await prueba("acepta un texto que menciona la beige y termina en pregunta", () => {
-  const texto = "Laura, la camilla beige para Pereira te llega en 2 a 4 días hábiles 🙌 ¿Te la separo?";
+  const texto = "Laura, la camilla beige para Pereira queda lista en 2 a 4 días hábiles 🙌 ¿Te la separo?";
   assert.deepEqual(sq.revisarSeguimiento(texto, BASE), []);
 });
 
@@ -66,7 +66,7 @@ await prueba("rechaza los textos de más de 2 líneas", () => {
   const problemas = sq.revisarSeguimiento(texto, BASE);
   assert.ok(problemas.some((p) => /3 líneas/.test(p)), problemas.join(" | "));
   // Dos líneas sí se aceptan.
-  assert.deepEqual(sq.revisarSeguimiento("Laura, la beige te llega a Pereira\n¿Te la separo?", BASE), []);
+  assert.deepEqual(sq.revisarSeguimiento("Laura, la beige para Pereira está lista\n¿Te la separo?", BASE), []);
 });
 
 await prueba("rechaza un precio, cifra o fecha que no está ni en el libro ni en el chat", () => {
@@ -92,7 +92,7 @@ await prueba("rechaza la repetición de un seguimiento ya enviado (aunque cambie
   assert.ok(problemas.some((p) => /ya enviado/.test(p)), problemas.join(" | "));
   // Uno distinto sí pasa.
   assert.deepEqual(
-    sq.revisarSeguimiento("Laura, la beige para Pereira te llega en 2 a 4 días hábiles 🙌 ¿Te la separo?", { ...BASE, yaEnviados: ya }),
+    sq.revisarSeguimiento("Laura, la beige para Pereira queda lista en 2 a 4 días hábiles 🙌 ¿Te la separo?", { ...BASE, yaEnviados: ya }),
     [],
   );
   assert.ok(sq.parecido("a b c", "a b c") === 1 && sq.parecido("a b c", "x y z") === 0);
@@ -159,11 +159,10 @@ await prueba("el cliente dijo 'Bogotá': el pedido a la IA la trae como ciudad y
   const pedido = pedidoCon(lineas);
   assert.match(pedido.contexto, /LO QUE EL CLIENTE YA DIJO \(no lo vuelvas a preguntar\):\n- Ciudad: Bogotá/);
   assert.match(pedido.instrucciones, /Nunca preguntes lo que el cliente ya respondió/);
-  assert.match(pedido.instrucciones, /A Bogotá te llega sin problema 🚚 ¿Te lo aparto con el 50 % para empezar a fabricarlo\?/);
-  assert.match(pedido.instrucciones, /No des el valor del envío/);
-  assert.match(pedido.instrucciones, /contraentrega solo aplica al Combo/);
-  assert.match(pedido.instrucciones, /"envío gratis" junto con su condición: apartando con el 50 %/);
-  assert.match(pedido.instrucciones, /San Andrés, Leticia, Inírida o Mitú no digas "te llega"/);
+  assert.match(pedido.instrucciones, /Anotado para Bogotá 🙌 ¿Te lo aparto para empezar a fabricarlo\?/);
+  // Envío y pago (6-nov-2026): una sola regla que lo prohíbe todo, y nada que lo permita.
+  assert.match(pedido.instrucciones, /No hables del envío ni de su valor, de nada "gratis" o "sin costo", de a qué ciudades llega, de la contraentrega ni de formas de pago o anticipo/);
+  assert.doesNotMatch(pedido.instrucciones, /te llega|envío gratis|del envío o de la forma de pago|con el 50 %/);
   assert.match(pedido.instrucciones, /ya separó, ya pagó o dijo que no le interesa, no le pidas apartar/);
   // Sin datos, el bloque lo dice.
   assert.match(pedidoCon([linea("cliente", "Hola", 0)]).contexto, /LO QUE EL CLIENTE YA DIJO \(no lo vuelvas a preguntar\):\n\(nada todavía\)/);
@@ -244,12 +243,12 @@ await prueba("quien confirmó la compra queda con yaCompro (y el pedido lo dice)
 });
 
 await prueba("elegirTexto: la cadena de respaldo IA → cierre → texto fijo → pregunta del producto → no se manda", () => {
-  const buena = "Laura, la beige para Pereira te llega en 2 a 4 días hábiles 🙌 ¿Te la separo?";
+  const buena = "Laura, la beige para Pereira queda lista en 2 a 4 días hábiles 🙌 ¿Te la separo?";
   const mala1 = "¿Pudiste ver lo que te envié?";
   const mala2 = "Laura, hoy te queda en $199.000 ¿Te la separo?";
   const fijoBueno = "¡Hola, Laura! ¿Te muestro otros colores de la camilla? 😊";
   const fijoMalo = "¡Hola, Laura! ¿Pudiste ver lo que te envié? 😊 Si te queda alguna duda, aquí estoy para ayudarte.";
-  const cierrePereira = "A Pereira te llega sin problema 🚚 ¿Te lo aparto con el 50 % para empezar a fabricarlo?";
+  const cierrePereira = "Anotado para Pereira 🙌 ¿Te lo aparto para empezar a fabricarlo?";
   // BASE trae la ciudad (Pereira): después de la IA va el cierre de apartar.
   const conCiudad = { ...BASE, producto: "Camilla plegable" };
   // Un chat sin ciudad, para probar la cadena del texto fijo y de la pregunta del producto.
@@ -308,16 +307,16 @@ const CHAT_BOGOTA = [
   linea("cliente", "Bogotá", 2),
 ];
 const REV_BOGOTA = { conversacion: CHAT_BOGOTA, yaEnviados: [], textoDelLibro: null };
-const CIERRE_BOGOTA = "A Bogotá te llega sin problema 🚚 ¿Te lo aparto con el 50 % para empezar a fabricarlo?";
+const CIERRE_BOGOTA = "Anotado para Bogotá 🙌 ¿Te lo aparto para empezar a fabricarlo?";
 
 await prueba("cliente dijo 'Bogotá': se rechaza preguntar la ciudad y se acepta nombrar Bogotá y pedir apartar", () => {
   for (const texto of ["¿A qué ciudad te lo enviamos?", "¿A dónde te lo enviamos?", "¿Te ayudo con el envío a tu ciudad o con la forma de pago?"]) {
     const problemas = sq.revisarSeguimiento(texto, REV_BOGOTA);
     assert.ok(problemas.some((p) => /vuelve a preguntar la ciudad: el cliente ya dijo que es Bogotá/.test(p)), `${texto}: ${problemas.join(" | ")}`);
   }
-  assert.deepEqual(sq.revisarSeguimiento("La camilla te llega a Bogotá en 2 a 4 días 🙌 ¿Te la aparto?", { ...REV_BOGOTA, textoDelLibro: LIBRO }), []);
+  assert.deepEqual(sq.revisarSeguimiento("La camilla para Bogotá queda lista en 2 a 4 días 🙌 ¿Te la aparto?", { ...REV_BOGOTA, textoDelLibro: LIBRO }), []);
   // 'Separar' vale igual que 'apartar'.
-  assert.deepEqual(sq.revisarSeguimiento("A Bogotá te llega sin problema 🚚 ¿Te la separo?", REV_BOGOTA), []);
+  assert.deepEqual(sq.revisarSeguimiento("Anotado para Bogotá 🙌 ¿Te la separo?", REV_BOGOTA), []);
   // No nombra la ciudad, o no pide apartar: se rechaza con el motivo (la IA lo recibe al reintentar).
   const sinCiudad = sq.revisarSeguimiento("La camilla te llega sin problema 🚚 ¿Te la aparto?", REV_BOGOTA);
   assert.ok(sinCiudad.some((p) => /ya dijo la ciudad \(Bogotá\): nómbrala/.test(p)), sinCiudad.join(" | "));
@@ -328,10 +327,16 @@ await prueba("cliente dijo 'Bogotá': se rechaza preguntar la ciudad y se acepta
   assert.ok(pegada.some((p) => /nómbrala/.test(p)), pegada.join(" | "));
 });
 
-await prueba("el cierre de apartar tiene la frase exacta y pasa la revisión sin libro (el '50 %' no es cifra inventada)", () => {
+await prueba("el cierre de apartar tiene la frase exacta, sin promesa de llegada ni de pago, y pasa la revisión sin libro", () => {
   assert.equal(sq.cierreDeApartar("Bogotá"), CIERRE_BOGOTA);
   assert.deepEqual(sq.revisarSeguimiento(CIERRE_BOGOTA, REV_BOGOTA), []);
-  assert.deepEqual(sq.revisarSeguimiento("A Bogotá te llega sin problema 🚚 ¿Te lo aparto con el 50% de anticipo?", REV_BOGOTA), []);
+  assert.deepEqual(sq.promesasDeEnvioYPago(CIERRE_BOGOTA, null), []);
+  // El "50 %" no es una cifra inventada: si el texto agendado ya habla del anticipo y de la llegada, pasa.
+  const agendado50 = "A Bogotá te llega sin problema 🚚 ¿Te lo aparto con el 50 % de anticipo?";
+  assert.deepEqual(sq.revisarSeguimiento("A Bogotá te llega sin problema 🚚 ¿Te lo aparto con el 50% de anticipo?", { ...REV_BOGOTA, textoAgendado: agendado50 }), []);
+  // Sin eso en lo agendado, se rechaza por la promesa de llegada y de pago.
+  const sinAgendado = sq.revisarSeguimiento("A Bogotá te llega sin problema 🚚 ¿Te lo aparto con el 50% de anticipo?", REV_BOGOTA);
+  assert.ok(sinAgendado.some((p) => /promete la llegada/.test(p)) && sinAgendado.some((p) => /pago o del anticipo/.test(p)), sinAgendado.join(" | "));
   // Solo la forma "50 %": "50 mil" o un "50" suelto siguen siendo cifras que se revisan.
   const enMiles = sq.revisarSeguimiento("A Bogotá te llega con 50 mil de anticipo 🚚 ¿Te lo aparto?", REV_BOGOTA);
   assert.ok(enMiles.some((p) => /50 mil/.test(p)), enMiles.join(" | "));
@@ -430,12 +435,12 @@ await prueba("reglas del libro: rechaza el valor del envío, 'envío gratis' sin
     assert.ok(p.some((x) => /valor del envío/.test(x)), `${texto} => ${p.join(" | ")}`);
   }
   const gratis = sq.revisarSeguimiento("La camilla te llega con envío gratis ¿Te la separo?", sinCiudad);
-  assert.ok(gratis.some((x) => /«envío gratis» sin su condición/.test(x)), gratis.join(" | "));
+  assert.ok(gratis.some((x) => /gratis o sin costo/.test(x)), gratis.join(" | "));
   const sinCosto = sq.revisarSeguimiento("La camilla te llega sin costo de envío ¿Te la separo?", sinCiudad);
-  assert.ok(sinCosto.some((x) => /sin costo de envío/.test(x)), sinCosto.join(" | "));
-  // Con la condición del 50 %, "envío gratis" sí vale; y el precio "con envío incluido" no es un valor de envío.
-  assert.deepEqual(sq.revisarSeguimiento("Envío gratis apartando con el 50 % 🙌 ¿Te la separo?", sinCiudad), []);
-  assert.deepEqual(sq.revisarSeguimiento("La camilla queda en $350.000 con envío incluido ¿Te la separo?", sinCiudad), []);
+  assert.ok(sinCosto.some((x) => /gratis o sin costo/.test(x)), sinCosto.join(" | "));
+  // 6-nov-2026: ni con la condición del 50 % ni como "envío incluido" en el precio: un seguimiento no lo dice.
+  assert.ok(sq.revisarSeguimiento("Envío gratis apartando con el 50 % 🙌 ¿Te la separo?", sinCiudad).some((x) => /gratis o sin costo/.test(x)));
+  assert.ok(sq.revisarSeguimiento("La camilla queda en $350.000 con envío incluido ¿Te la separo?", sinCiudad).some((x) => /gratis o sin costo/.test(x)));
   // Un plazo no es un valor de envío.
   assert.deepEqual(sq.revisarSeguimiento("La camilla te llega en 2 a 4 días hábiles ¿Te la separo?", BASE).filter((x) => /envío/.test(x)), []);
 });
@@ -450,16 +455,19 @@ await prueba("reglas del libro: contraentrega solo en el Combo y nada de 'te lle
   const sinProducto = sq.revisarSeguimiento(oferta, { ...camilla, producto: null });
   assert.ok(sinProducto.some((x) => /no se sabe si el producto es el Combo/.test(x)), sinProducto.join(" | "));
   assert.ok(sq.revisarSeguimiento(oferta, { conversacion: charla, yaEnviados: [], textoDelLibro: null }).some((x) => /contraentrega/.test(x)));
-  // En el Combo sí vale, y aclarar que es solo en el Combo tampoco se rechaza.
-  assert.deepEqual(sq.revisarSeguimiento(oferta, { ...camilla, producto: "Combo Spa 3 en 1" }), []);
-  assert.deepEqual(sq.revisarSeguimiento("La contraentrega es solo en el Combo 🙌 ¿Te muestro el Combo?", camilla), []);
+  // En el Combo sí vale si el texto agendado ya la ofrecía; sin eso, un seguimiento no la ofrece.
+  const agendadoContra = "Te lo mandamos y lo pagas contraentrega ¿Te lo separo?";
+  assert.deepEqual(sq.revisarSeguimiento(oferta, { ...camilla, producto: "Combo Spa 3 en 1", textoAgendado: agendadoContra }), []);
+  assert.ok(sq.revisarSeguimiento(oferta, { ...camilla, producto: "Combo Spa 3 en 1" }).some((x) => /contraentrega: en un seguimiento no se ofrece/.test(x)));
+  // Aclarar que es solo en el Combo no rompe la regla del Combo (si lo agendado ya hablaba de contraentrega).
+  assert.deepEqual(sq.revisarSeguimiento("La contraentrega es solo en el Combo 🙌 ¿Te muestro el Combo?", { ...camilla, textoAgendado: agendadoContra }), []);
 
   const san = { conversacion: [linea("cliente", "Soy de San Andrés", 0)], yaEnviados: [], textoDelLibro: null };
   const llega = sq.revisarSeguimiento("A San Andrés te llega sin problema 🚚 ¿Te la separo?", san);
   assert.ok(llega.some((x) => /promete que llega a San Andrés/.test(x)), llega.join(" | "));
   assert.ok(sq.revisarSeguimiento("Te lo enviamos a Leticia ¿Te lo separo?", camilla).some((x) => /llega a Leticia/.test(x)));
   // Decir que no llega no promete nada.
-  assert.deepEqual(sq.revisarSeguimiento("A San Andrés no llega envío asegurado ¿Te muestro otra opción?", san).filter((x) => /promete/.test(x)), []);
+  assert.deepEqual(sq.revisarSeguimiento("A San Andrés no llega envío asegurado ¿Te muestro otra opción?", san).filter((x) => /promete que llega a/.test(x)), []);
 });
 
 await prueba("elegirTexto pasa el producto al revisor: la contraentrega fuera del Combo no sale", () => {
@@ -468,8 +476,90 @@ await prueba("elegirTexto pasa el producto al revisor: la contraentrega fuera de
   let r = sq.elegirTexto({ ...rev, producto: "Camilla plegable", propuestas: [propuesta], textoFijo: null });
   assert.equal(r.origen, "producto");
   assert.ok(r.descartados[0].problemas.some((x) => /contraentrega/.test(x)));
-  r = sq.elegirTexto({ ...rev, producto: "Combo Spa", propuestas: [propuesta], textoFijo: null });
+  // En el Combo sale solo si el texto agendado (el fijo) ya hablaba de mandarlo y de la contraentrega.
+  r = sq.elegirTexto({ ...rev, producto: "Combo Spa", propuestas: [propuesta], textoFijo: "Te lo mandamos y lo pagas contraentrega ¿Te lo separo?" });
   assert.equal(r.origen, "ia");
+  r = sq.elegirTexto({ ...rev, producto: "Combo Spa", propuestas: [propuesta], textoFijo: null });
+  assert.equal(r.origen, "producto");
+});
+
+/* ----------------------------------------------------------------------------------------------
+   Envío y pago (6-nov-2026): el chat 8927 y la política (gratis solo con 50/50, contraentrega solo
+   en el combo de camilla, no a zonas de avión). Un seguimiento automático no promete nada de eso.
+---------------------------------------------------------------------------------------------- */
+
+// Los dos textos reales del chat 8927 (cv7092ed22f12df3cd3ad0c578), copiados tal cual.
+const CHAT_8927 = [
+  "Recuerda que el combo camillas tiene garantía de 1 año en la estructura y envío gratis a ciudades principales si lo separas con el 50%. ¿Quieres que te conecte con una asesora para detalles?",
+  "El combo para uñas se fabrica a pedido y el envío es gratis a ciudades principales si lo separas con el 50%. ¿Quieres que te pase el catálogo completo para que elijas?",
+];
+const SIN_DATOS = { conversacion: [linea("cliente", "Hola, vi el anuncio del combo", 0)], yaEnviados: [], textoDelLibro: null };
+// Un agendado que ya habla de llegada, del 50 % y de contraentrega: aun así "gratis" no pasa.
+const AGENDADO_COMPLETO = "Te lo despachamos y te llega a tu ciudad; lo apartas con el 50 % y el resto contraentrega ¿Te lo separo?";
+
+await prueba("chat 8927: revisarSeguimiento rechaza los dos textos reales, con o sin texto agendado", () => {
+  for (const texto of CHAT_8927) {
+    for (const textoAgendado of [null, texto, AGENDADO_COMPLETO]) {
+      const problemas = sq.revisarSeguimiento(texto, { ...SIN_DATOS, textoAgendado });
+      assert.ok(problemas.some((p) => /gratis o sin costo/.test(p)), `${texto} => ${problemas.join(" | ")}`);
+      assert.notDeepEqual(sq.promesasDeEnvioYPago(texto, textoAgendado), []);
+    }
+    // Sin agendado, también por la promesa de llegada ("ciudades principales") y del 50 %.
+    const problemas = sq.revisarSeguimiento(texto, SIN_DATOS);
+    assert.ok(problemas.some((p) => /promete la llegada/.test(p)), problemas.join(" | "));
+    assert.ok(problemas.some((p) => /pago o del anticipo/.test(p)), problemas.join(" | "));
+  }
+});
+
+await prueba("se rechazan, sin importar el 50 %: envío gratis, es gratis, sin costo, no tiene costo y 'A Pasto te llega'", () => {
+  const siempre = [
+    "Laura, el combo va con envío gratis si lo separas con el 50 % ¿Te lo aparto?",
+    "Laura, el envío es gratis si lo separas con el 50 % ¿Te lo aparto?",
+    "Laura, envío sin costo a ciudades principales con el 50 % ¿Te lo aparto?",
+    "Laura, el envío no tiene costo adicional con el 50 % ¿Te lo aparto?",
+    "Laura, el combo es gratuito en el envío ¿Te lo aparto?",
+    "Laura, la camilla queda con envío incluido ¿Te la aparto?",
+  ];
+  for (const texto of siempre) {
+    // Aunque lo agendado hable de llegada, del 50 % y de contraentrega: "gratis" no pasa nunca.
+    const problemas = sq.revisarSeguimiento(texto, { ...SIN_DATOS, textoAgendado: AGENDADO_COMPLETO });
+    assert.ok(problemas.some((p) => /gratis o sin costo/.test(p)), `${texto} => ${problemas.join(" | ")}`);
+  }
+  // El cierre viejo: promete que llega a Pasto y el 50 %, y no estaba en lo agendado.
+  const pasto = "A Pasto te llega sin problema 🚚 ¿Te lo aparto con el 50 % para empezar a fabricarlo?";
+  const chatPasto = { conversacion: [linea("cliente", "Soy de Pasto", 0)], yaEnviados: [], textoDelLibro: null };
+  const pPasto = sq.revisarSeguimiento(pasto, { ...chatPasto, textoAgendado: "¡Hola! ¿Te muestro otras fotos del combo?" });
+  assert.ok(pPasto.some((p) => /promete la llegada/.test(p)), pPasto.join(" | "));
+  assert.ok(pPasto.some((p) => /pago o del anticipo/.test(p)), pPasto.join(" | "));
+  // Y el cierre nuevo para Pasto sí pasa.
+  assert.deepEqual(sq.revisarSeguimiento(sq.cierreDeApartar("Pasto"), chatPasto), []);
+});
+
+await prueba("sí pasan: confirmar el envío, mandar fotos y un agendado con el 50 % o contraentrega sin 'gratis'", () => {
+  assert.deepEqual(sq.revisarSeguimiento("¿Te confirmo el envío a tu ciudad?", SIN_DATOS), []);
+  assert.deepEqual(sq.revisarSeguimiento("¿Te envío las fotos del combo?", SIN_DATOS), []);
+  assert.deepEqual(sq.revisarSeguimiento("¿Te ayudo con el envío a tu ciudad o con la forma de pago?", SIN_DATOS), []);
+  const agendados = [
+    "Laura, el combo lo apartas con el 50 % y el otro 50 % cuando esté terminado ¿Te lo separo?",
+    "Laura, el combo de camilla lo puedes pagar contraentrega ¿Te lo separo?",
+  ];
+  const combo = { ...SIN_DATOS, producto: "Combo Camilla Divan" };
+  for (const agendado of agendados) {
+    assert.deepEqual(sq.revisarSeguimiento(agendado, { ...combo, textoAgendado: agendado }), [], agendado);
+    assert.deepEqual(sq.promesasDeEnvioYPago(agendado, agendado), [], agendado);
+  }
+});
+
+await prueba("el redactor no ve del libro ni del producto las frases de envío, gratis, contraentrega ni pago", () => {
+  const comoHablamos = [
+    'Tuteamos. El bot puede decirlo, pero SIEMPRE con la condición completa: "Envío gratis a ciudades principales si lo separas con el 50%".',
+    "Contraentrega solo en el combo de camilla.",
+    "Formas de pago: transferencia o Nequi.",
+    "Las camillas se fabrican a pedido en 8 días.",
+  ].join("\n");
+  const limpio = sq.sinTemasDeEnvioYPago(comoHablamos);
+  assert.equal(limpio, "Tuteamos.\nLas camillas se fabrican a pedido en 8 días.");
+  assert.equal(sq.sinTemasDeEnvioYPago(null), "");
 });
 
 await prueba("los textos fijos de 'Tras asesora' ya no son robóticos y pasan la revisión", () => {
@@ -553,7 +643,11 @@ const audiosFalsos = {
   transcribirAudioAhora: async (url) => (url.includes("audio-cliente") ? "La quiero en palo rosa para Montería" : null),
 };
 const libroFalso = {
-  leerLibro: async () => ({ comoHablamos: "Envío gratis a ciudades principales con anticipo del 50%. Contraentrega pagando solo el envío." }),
+  // Como el libro V3 de verdad (v355): el redactor no ve las frases de envío ni de pago.
+  leerLibro: async () => ({
+    comoHablamos:
+      'Las sillas se fabrican a pedido. El bot puede decirlo, pero SIEMPRE con la condición completa: "Envío gratis a ciudades principales si lo separas con el 50%".\nContraentrega pagando solo el envío.\nTuteamos siempre.',
+  }),
 };
 
 const redactor = cargar("src/features/seguimientos/services/seguimiento-que-escucha.ts", {
@@ -582,7 +676,7 @@ function reiniciarIa(respuestas = []) {
 
 const FIJO = "¡Hola, Laura! ¿Pudiste ver lo que te envié? 😊";
 const FIJO_BUENO = "¡Hola, Laura! ¿Te muestro otros colores de la silla? 😊";
-const BUENA = "Laura, la silla Isabela en palo rosa te llega a Montería sin problema 🙌 ¿Te la separo?";
+const BUENA = "Laura, la silla Isabela en palo rosa para Montería queda divina 🙌 ¿Te la separo?";
 const ENTRADA = { conversationId: "conv-1", workspaceId: "ws-1", textoFijo: FIJO, paso: null, origen: "follow" };
 const consolaOriginal = { info: console.info, warn: console.warn };
 console.info = () => {};
@@ -613,7 +707,10 @@ await prueba("el audio transcrito del cliente ('palo rosa, Montería') llega a l
   assert.match(contexto, /Nosotros: \[documento\] CATALOGO SILLAS\.pdf/);
   assert.match(contexto, /- ¡Hola, Laura! ¿Te ayudo con el envío/);
   assert.match(contexto, /PRODUCTO QUE LE INTERESA: Silla Isabela/);
-  assert.match(contexto, /Envío gratis a ciudades principales/);
+  // Del libro llega lo demás, sin envío, gratis, contraentrega ni formas de pago.
+  assert.match(contexto, /Las sillas se fabrican a pedido\./);
+  assert.match(contexto, /Tuteamos siempre\./);
+  assert.doesNotMatch(contexto.split("DATOS DEL NEGOCIO")[1], /gratis|ciudades principales|Contraentrega|50%/);
   assert.match(contexto, /SEGUIMIENTO NÚMERO: 2/);
   assert.doesNotMatch(contexto, /aviso del sistema/);
   // El cliente escribió después del anuncio: no se le pide la pregunta del anuncio.
@@ -631,7 +728,7 @@ await prueba("si la IA propone algo que no pasa la revisión, se le pide otra (h
   assert.match(ia.pedidos[1].messages.at(-1).content, /no cumple/);
 });
 
-await prueba("en los reintentos la IA ve las reglas del libro (contraentrega fuera del Combo, envío gratis sin condición)", async () => {
+await prueba("en los reintentos la IA ve las reglas (contraentrega fuera del Combo, nada gratis)", async () => {
   reiniciarBase();
   reiniciarIa([
     "Laura, la silla Isabela en palo rosa te llega a Montería con pago contraentrega ¿Te la separo?",
@@ -643,7 +740,7 @@ await prueba("en los reintentos la IA ve las reglas del libro (contraentrega fue
   assert.equal(r.texto, BUENA);
   // El producto del chat es la Silla Isabela (no es Combo): el reintento lo dice.
   assert.match(ia.pedidos[1].messages.at(-1).content, /Silla Isabela\) no es el Combo/);
-  assert.match(ia.pedidos[2].messages.at(-1).content, /«envío gratis» sin su condición/);
+  assert.match(ia.pedidos[2].messages.at(-1).content, /gratis o sin costo/);
 });
 
 await prueba("si la IA falla y el cliente dijo la ciudad (Montería, en el audio), sale el cierre exacto de apartar", async () => {
@@ -653,7 +750,7 @@ await prueba("si la IA falla y el cliente dijo la ciudad (Montería, en el audio
   const r = await redactar({ ...ENTRADA, textoFijo: FIJO_BUENO });
   assert.equal(r.enviar, true);
   assert.equal(r.deIA, false);
-  assert.equal(r.texto, "A Montería te llega sin problema 🚚 ¿Te lo aparto con el 50 % para empezar a fabricarlo?");
+  assert.equal(r.texto, "Anotado para Montería 🙌 ¿Te lo aparto para empezar a fabricarlo?");
   assert.equal(r.textoReemplazado, FIJO_BUENO);
   assert.equal(r.motivo, "la IA no respondió: cierre de apartar");
   assert.deepEqual(redactor.marcaDelSeguimiento(r), { seguimientoQueEscucha: { deIA: false, textoReemplazado: FIJO_BUENO } });
@@ -841,7 +938,7 @@ const relojV3 = cargar("src/features/agente-v3/servicios/seguimientos.ts", {
     leerEstado: async () => ({ ...v3.estado }),
     guardarEstado: async (_id, estado) => v3.estados.push(estado),
   },
-  "./almacen": { leerLibro: async () => ({ reglas: [reglaV3("r15", 15, TEXTO_15), reglaV3("r60", 60, TEXTO_60)] }) },
+  "./almacen": { leerLibro: async () => ({ reglas: v3.reglas ?? [reglaV3("r15", 15, TEXTO_15), reglaV3("r60", 60, TEXTO_60)] }) },
 });
 
 async function correrRelojV3() {
@@ -1054,6 +1151,122 @@ await prueba("V3: con el tope de la vuelta lleno no sale ni se marca: va en la v
   assert.equal(v3.estados.length, 0);
 });
 
+/* ----------------------------------------------------------------------------------------------
+   La puerta final antes de enviar (6-nov-2026): por cualquier camino, "gratis" no sale
+---------------------------------------------------------------------------------------------- */
+
+// Lo que salió hasta el 2-nov en un texto agendado (hoy no está en el libro, pero un agendado lo puede traer).
+const AGENDADO_GRATIS = "Te dejé apartado el combo (envío gratis) o lo pagas contraentrega ¿Te lo separo?";
+
+await prueba("puerta final: frena los textos reales del chat 8927 y el agendado con '(envío gratis)', con su motivo", () => {
+  for (const texto of [...CHAT_8927, AGENDADO_GRATIS]) {
+    // Aunque el texto agendado sea el mismo: "gratis" no sale nunca.
+    const freno = redactor.frenoDeLaPuerta(texto, texto, { origen: "prueba" });
+    assert.ok(freno, texto);
+    assert.equal(freno.enviar, false);
+    assert.equal(freno.reprogramar, false);
+    assert.equal(freno.motivo, redactor.MOTIVO_PROMESA_DE_ENVIO);
+    assert.equal(freno.motivo, "seguimiento_promete_envio_o_pago");
+  }
+  // Lo que escribió la IA con una promesa que no estaba en lo agendado, también.
+  assert.ok(redactor.frenoDeLaPuerta("A Pasto te llega sin problema 🚚 ¿Te lo aparto con el 50 %?", "¿Te muestro otras fotos?", { origen: "prueba" }));
+  // Lo que no promete nada sale, y un texto vacío no se frena aquí.
+  assert.equal(redactor.frenoDeLaPuerta("¿Te envío las fotos del combo?", null, { origen: "prueba" }), null);
+  assert.equal(redactor.frenoDeLaPuerta(TEXTO_15, TEXTO_15, { origen: "prueba" }), null);
+  assert.equal(redactor.frenoDeLaPuerta("", null, { origen: "prueba" }), null);
+});
+
+async function relojConReglaGratis(preparar) {
+  reiniciarBase();
+  reiniciarV3();
+  v3.reglas = [reglaV3("r15", 15, CHAT_8927[0])];
+  try {
+    await preparar?.();
+    return await correrRelojV3();
+  } finally {
+    v3.reglas = undefined;
+    base.apagado = null;
+    process.env.OPENAI_API_KEY = "clave-de-prueba";
+  }
+}
+
+await prueba("puerta final del V3: con el interruptor apagado, la regla con 'envío gratis' no sale y queda frenada", async () => {
+  const r = await relojConReglaGratis(() => {
+    base.apagado = "si";
+  });
+  assert.equal(r.enviados, 0);
+  assert.equal(r.frenados, 1);
+  assert.deepEqual(v3.mandados, []);
+  assert.deepEqual(v3.creados, []);
+  assert.deepEqual(v3.frenados, [redactor.MOTIVO_PROMESA_DE_ENVIO]);
+  // Se da por visto: no se vuelve a intentar cada minuto.
+  assert.deepEqual(v3.estados.at(-1).seguimientosEnviados, [15]);
+});
+
+await prueba("puerta final del V3: sin clave de OpenAI, ni con el cliente sin responder la bienvenida, sale el 'envío gratis'", async () => {
+  let r = await relojConReglaGratis(() => {
+    delete process.env.OPENAI_API_KEY;
+  });
+  assert.equal(r.enviados, 0);
+  assert.deepEqual(v3.mandados, []);
+  assert.deepEqual(v3.frenados, [redactor.MOTIVO_PROMESA_DE_ENVIO]);
+
+  r = await relojConReglaGratis(() => {
+    base.mensajes = [msg("m1", "INBOUND", "TEXT", "Hola, vi el anuncio del combo", 0), msg("m2", "OUTBOUND", "TEXT", "¡Hola!", 0.5)].reverse();
+  });
+  assert.equal(r.enviados, 0);
+  assert.equal(ia.pedidos.length, 0);
+  assert.deepEqual(v3.mandados, []);
+  assert.deepEqual(v3.frenados, [redactor.MOTIVO_PROMESA_DE_ENVIO]);
+});
+
+await prueba("puerta final del V3: si falla el redactor (sale el texto de la regla), tampoco sale el 'envío gratis'", async () => {
+  const original = prismaFalso.appSetting.findUnique;
+  const r = await relojConReglaGratis(() => {
+    prismaFalso.appSetting.findUnique = async () => {
+      throw new Error("base caída");
+    };
+  }).finally(() => {
+    prismaFalso.appSetting.findUnique = original;
+  });
+  assert.equal(r.enviados, 0);
+  assert.deepEqual(v3.mandados, []);
+  assert.deepEqual(v3.frenados, [redactor.MOTIVO_PROMESA_DE_ENVIO]);
+});
+
+await prueba("puerta final del V3: una regla sin promesas sale igual que antes", async () => {
+  reiniciarBase();
+  reiniciarV3();
+  base.apagado = "si";
+  const r = await correrRelojV3();
+  base.apagado = null;
+  assert.equal(r.enviados, 1);
+  assert.deepEqual(v3.mandados, [TEXTO_15]);
+  assert.deepEqual(v3.frenados, []);
+});
+
+await prueba("follows.ts: la puerta final mira lo agendado de todas las acciones, lo redactado y cada paso del flujo, antes de enviar", async () => {
+  const fs = await import("node:fs");
+  const codigo = fs.readFileSync(new URL("../src/features/seguimientos/services/follows.ts", import.meta.url), "utf8");
+  // 1) Lo agendado de todas las acciones pendientes (también el pie de foto), antes del primer envío.
+  const previa = codigo.indexOf('const freno = frenoDeLaPuerta(action.content, action.content, { origen: "follow", followId: follow.id });');
+  assert.ok(previa > 0);
+  assert.ok(previa > codigo.indexOf("const redactar = clase"));
+  assert.ok(previa < codigo.indexOf("for (const action of actions) {\n    if (action.status !== \"PENDING\") {"));
+  assert.match(codigo, /if \(freno && pendiente\) return frenarPorElRedactor\(follow, actions, pendiente, new FrenoDelRedactor\(freno\), clase\);/);
+  // 2) Lo redactado contra lo agendado, antes de sendFollowMessage.
+  const redactado = codigo.indexOf('const freno = frenoDeLaPuerta(contenido, action.content, { origen: "follow", followId: follow.id });');
+  assert.ok(redactado > 0);
+  assert.ok(redactado < codigo.indexOf("const sendResult = await sendFollowMessage({"));
+  // 3) Cada paso del flujo, antes de mandar el primero, y solo en los automáticos.
+  const flujo = codigo.indexOf('const freno = frenoDeLaPuerta(final, original.content, { origen: "flujo", followId: input.puerta.followId });');
+  assert.ok(flujo > 0);
+  assert.ok(flujo < codigo.indexOf("const enviado = await sendFollowMessage({"));
+  assert.match(codigo, /puerta: clase === "automatico" \? \{ followId: follow\.id \} : null,/);
+  // El freno cancela y anota como los demás (sin reprogramar).
+  assert.match(codigo, /motivo: MotivoDeFreno \| MotivoAntiBloqueo \| MotivoDelRedactor/);
+});
+
 await prueba("seguimientos.ts del V3: el redactor va después del anti-bloqueo y del freno, y antes del envío", async () => {
   const fs = await import("node:fs");
   const codigo = fs.readFileSync(new URL("../src/features/agente-v3/servicios/seguimientos.ts", import.meta.url), "utf8");
@@ -1071,6 +1284,25 @@ await prueba("seguimientos.ts del V3: el redactor va después del anti-bloqueo y
   assert.ok(enBienvenida > codigo.indexOf("revisarFrenoDeAutomatico({"));
   assert.ok(enBienvenida < enRedactor);
   assert.match(codigo, /respondioLaBienvenida === false\s*\?/);
+  // La puerta final va después del redactor y antes del envío.
+  const enPuerta = codigo.indexOf("frenoDeLaPuerta(texto, textoDeLaRegla");
+  assert.ok(enPuerta > enRedactor && enPuerta < codigo.indexOf("sendEvolutionTextMessageWithReconnect({"));
+});
+
+await prueba("MCP buscar_mensajes: la opción solo_seguimientos filtra en la base por la marca y devuelve el total", async () => {
+  const fs = await import("node:fs");
+  const codigo = fs.readFileSync(new URL("../src/lib/mcp/herramientas.ts", import.meta.url), "utf8");
+  // La opción está en el esquema que ve el asesor de IA.
+  assert.match(codigo, /solo_seguimientos: \{\s*type: "boolean",/);
+  // Las mismas marcas que usa el redactor para "seguimientos ya enviados".
+  const redactorCodigo = fs.readFileSync(new URL("../src/features/seguimientos/services/seguimiento-que-escucha.ts", import.meta.url), "utf8");
+  const marcas = 'const ORIGENES_DE_SEGUIMIENTO = ["follow", "agente-v3-seguimiento", "agente-v3-seguimiento-ia"];';
+  assert.ok(codigo.includes(marcas) && redactorCodigo.includes(marcas));
+  // Se filtra en la base (no después), solo lo enviado, y se cuenta el total con el mismo filtro.
+  assert.match(codigo, /OR: ORIGENES_DE_SEGUIMIENTO\.map\(\(source\) => \(\{ rawPayload: \{ path: \["source"\], equals: source \} \}\)\)/);
+  assert.match(codigo, /\.\.\.\(quien === "agente" \|\| soloSeguimientos \? \{ direction: "OUTBOUND" as const \} : \{\}\)/);
+  assert.match(codigo, /soloSeguimientos \? prisma\.message\.count\(\{ where: donde \}\) : Promise\.resolve\(null\)/);
+  assert.match(codigo, /\.\.\.\(soloSeguimientos \? \{ solo_seguimientos: true, total \} : \{\}\)/);
 });
 
 console.info = consolaOriginal.info;

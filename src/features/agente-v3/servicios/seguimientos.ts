@@ -14,6 +14,7 @@ import { apagarSiCorresponde } from "@/features/seguimientos/services/follows";
 import { revisarConvivencia } from "@/features/seguimiento-inteligente/servicios/convivencia";
 import { limpiarFrasesProhibidas } from "@/lib/reglas-de-redaccion";
 import {
+  frenoDeLaPuerta,
   marcaDelSeguimiento,
   redactarSeguimientoQueEscucha,
   type SeguimientoRedactado,
@@ -331,13 +332,14 @@ export async function ejecutarSeguimientosV3(
               paso: pasoDelSeguimiento,
               origen: `v3-${etiquetaDelPaso(toca.minutos)}`,
             });
+      // Los recordatorios del paso hasta el que toca: se dan por vistos al salir o al frenarse del todo.
+      const vistos = delPaso.filter((fila) => fila.minutos <= toca.minutos).map((fila) => fila.minutos);
       if (!redactado.enviar) {
         frenados += 1;
         anotar(redactado.motivo);
         // Ningún texto pasó la revisión: se da por visto, para no pedirle a la IA lo mismo cada minuto.
         // Con el tope de la vuelta lleno no se marca: sale en la vuelta siguiente.
         if (!redactado.reprogramar) {
-          const vistos = delPaso.filter((fila) => fila.minutos <= toca.minutos).map((fila) => fila.minutos);
           await guardarEstado(conversacion.id, {
             ...estado,
             seguimientosEnviados: [...new Set([...yaSalieron, ...vistos])],
@@ -348,6 +350,27 @@ export async function ejecutarSeguimientosV3(
       const marca = marcaDelSeguimiento(redactado);
       // Si salió el texto de la regla tal cual, salen sus mensajes como siempre; si no, uno solo.
       const aEnviar = marca ? [redactado.texto] : textos;
+
+      /*
+        Puerta final (6-nov-2026, chat 8927): por cualquier camino (IA, texto de la regla, sin clave,
+        interruptor apagado, falla del redactor, sin respuesta a la bienvenida), un texto que dice
+        "gratis" o promete envío, pago o contraentrega que no estaba en la regla del libro no sale:
+        mejor callar que prometer. Se da por visto, como cuando ningún texto pasa la revisión.
+      */
+      const textoDeLaRegla = textos.join("\n\n");
+      const frenoFinal =
+        aEnviar
+          .map((texto) => frenoDeLaPuerta(texto, textoDeLaRegla, { origen: "v3", conversationId: conversacion.id }))
+          .find((freno) => freno !== null) ?? null;
+      if (frenoFinal) {
+        frenados += 1;
+        anotar(frenoFinal.motivo);
+        await guardarEstado(conversacion.id, {
+          ...estado,
+          seguimientosEnviados: [...new Set([...yaSalieron, ...vistos])],
+        });
+        continue;
+      }
       const source = redactado.deIA ? "agente-v3-seguimiento-ia" : "agente-v3-seguimiento";
 
       try {
@@ -388,10 +411,9 @@ export async function ejecutarSeguimientosV3(
           60 min de otro paso dejaba marcado el "60" de este. Caso 12-oct •••• 5474: salió el de 15
           a los 104 min y el de 1 h ya no salió nunca.
         */
-        const marcados = delPaso.filter((fila) => fila.minutos <= toca.minutos).map((fila) => fila.minutos);
         await guardarEstado(conversacion.id, {
           ...estado,
-          seguimientosEnviados: [...new Set([...yaSalieron, ...marcados])],
+          seguimientosEnviados: [...new Set([...yaSalieron, ...vistos])],
         });
         enviados += 1;
         enviadosEnLaLinea += 1;

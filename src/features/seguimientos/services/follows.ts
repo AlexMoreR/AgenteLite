@@ -37,6 +37,7 @@ import { tipoDeSeguimiento, type TipoDeSeguimiento } from "@/features/seguimient
 import { anotarSeguimientosApagados, revisarApagadoDelChat } from "@/features/seguimientos/services/apagado";
 import { revisarDiaSiguienteAlEnviar } from "@/features/seguimiento-inteligente/servicios/dia-siguiente-al-enviar";
 import {
+  frenoDeLaPuerta,
   marcaDelSeguimiento,
   redactarSeguimientoQueEscucha,
   type MotivoDelRedactor,
@@ -1491,6 +1492,8 @@ async function enviarFlujoDelSeguimiento(input: {
   flowId: string;
   /** Seguimientos que escuchan: el redactor de los textos (solo en los automáticos). */
   redactar?: RedactorDelFollow | null;
+  /** Puerta final de envío y pago (solo en los automáticos): si un paso no pasa, no sale ninguno. */
+  puerta?: { followId: string } | null;
 }) {
   const flujo = await getFlowReply({
     workspaceId: input.workspaceId,
@@ -1513,6 +1516,19 @@ async function enviarFlujoDelSeguimiento(input: {
       const redactado = await input.redactar(mensaje.content!.trim(), "flujo");
       if (redactado && !redactado.enviar) throw new FrenoDelRedactor(redactado);
       redactados[indice] = redactado;
+    }
+  }
+  /*
+    Puerta final (6-nov-2026): textos y pies de foto o video de TODOS los pasos, ya redactados, antes
+    de mandar el primero. Un "gratis" o una promesa de envío o pago que no estaba en el paso agendado
+    frena el flujo completo.
+  */
+  if (input.puerta) {
+    for (const [indice, original] of mensajes.entries()) {
+      const redactado = redactados[indice];
+      const final = redactado?.enviar ? redactado.texto : original.content;
+      const freno = frenoDeLaPuerta(final, original.content, { origen: "flujo", followId: input.puerta.followId });
+      if (freno) throw new FrenoDelRedactor(freno);
     }
   }
   for (const [indice, original] of mensajes.entries()) {
@@ -2050,6 +2066,21 @@ async function executeFollowRecord(follow: ClaimedFollowRow) {
   */
   const redactar = clase === "automatico" ? redactorDelFollow(follow, actions) : null;
 
+  /*
+    Puerta final de envío y pago (6-nov-2026, chat 8927): antes de mandar la primera acción se mira el
+    texto agendado de TODAS (también el pie de una foto o un video). Un "gratis" ("(envío gratis)")
+    no sale nunca en un automático: se cancela el seguimiento completo y queda anotado como frenado.
+    Los flujos se miran al armarlos (enviarFlujoDelSeguimiento) y lo que escribe la IA, abajo.
+  */
+  if (clase === "automatico") {
+    const pendiente = actions.find((action) => action.status === "PENDING");
+    for (const action of actions) {
+      if (action.status !== "PENDING" || action.flowId) continue;
+      const freno = frenoDeLaPuerta(action.content, action.content, { origen: "follow", followId: follow.id });
+      if (freno && pendiente) return frenarPorElRedactor(follow, actions, pendiente, new FrenoDelRedactor(freno), clase);
+    }
+  }
+
   for (const action of actions) {
     if (action.status !== "PENDING") {
       continue;
@@ -2068,6 +2099,7 @@ async function executeFollowRecord(follow: ClaimedFollowRow) {
           channelId: follow.channelId,
           flowId: action.flowId,
           redactar,
+          puerta: clase === "automatico" ? { followId: follow.id } : null,
         });
         action.status = "EXECUTED";
         action.executedAt = new Date().toISOString();
@@ -2085,6 +2117,11 @@ async function executeFollowRecord(follow: ClaimedFollowRow) {
           : null;
       if (redactado && !redactado.enviar) throw new FrenoDelRedactor(redactado);
       const contenido = redactado?.enviar ? redactado.texto : action.content;
+      // Puerta final: lo que escribió el redactor no puede prometer envío o pago que no estaba agendado.
+      if (clase === "automatico") {
+        const freno = frenoDeLaPuerta(contenido, action.content, { origen: "follow", followId: follow.id });
+        if (freno) throw new FrenoDelRedactor(freno);
+      }
 
       const sendResult = await sendFollowMessage({
         workspaceId: follow.workspaceId,

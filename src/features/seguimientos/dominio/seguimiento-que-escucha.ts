@@ -1,6 +1,10 @@
 /**
  * SEGUIMIENTOS QUE ESCUCHAN AL CLIENTE (parte 1: el revisor). Codigo puro, sin base ni OpenAI.
  *
+ * Envio y pago (6-nov-2026): un seguimiento automatico nunca dice "gratis" y solo promete llegada,
+ * pago o contraentrega si el texto agendado ya lo decia (`promesasDeEnvioYPago`, tambien la puerta
+ * final antes de enviar). El redactor no ve esas frases del libro (`sinTemasDeEnvioYPago`).
+ *
  * El seguimiento automatico de hoy es una plantilla igual para todos ("¿Pudiste ver lo que te
  * envié?"): el cliente no la contesta porque no habla de lo suyo. Aqui esta:
  *  - el pedido para la IA: mencionar lo que ESE cliente dijo (color, producto, ciudad, para cuando,
@@ -123,16 +127,20 @@ export type RevisionDelSeguimiento = {
   textoDelLibro: string | null;
   /** El producto del chat: la contraentrega solo vale si es un Combo. null o ausente = no se sabe. */
   producto?: string | null;
+  /**
+   * El texto agendado (del libro, la regla o el flujo). Una promesa de llegada, de pago o de
+   * contraentrega solo pasa si este texto ya habla de lo mismo. null o ausente = no hay agendado.
+   */
+  textoAgendado?: string | null;
 };
 
 /**
  * Los problemas de un seguimiento propuesto (vacio = se puede mandar). Se rechaza si tiene mas de 2
  * lineas, una frase prohibida, no termina en pregunta, se parece a uno ya enviado, vuelve a preguntar
  * lo que el cliente ya dijo (o no cierra pidiendo apartar cuando ya dio la ciudad), trae un precio,
- * una cifra o una fecha que no esta ni en el libro ni en la conversacion, o rompe una regla del libro:
- * da el valor del envio, dice "envio gratis" sin la condicion del 50 % (o "sin costo de envio"),
- * ofrece contraentrega en un producto que no es el Combo o promete que llega a San Andres, Leticia,
- * Inirida o Mitu.
+ * una cifra o una fecha que no esta ni en el libro ni en la conversacion, promete envio o pago (ver
+ * `promesasDeEnvioYPago`) o rompe una regla del libro: da el valor del envio, ofrece contraentrega en
+ * un producto que no es el Combo o promete que llega a San Andres, Leticia, Inirida o Mitu.
  */
 export function revisarSeguimiento(texto: string, contexto: RevisionDelSeguimiento): string[] {
   const limpio = (texto ?? "").trim();
@@ -151,7 +159,10 @@ export function revisarSeguimiento(texto: string, contexto: RevisionDelSeguimien
   // Lo que el cliente ya dijo: no se le vuelve a preguntar y, si dio la ciudad, se cierra pidiendo apartar.
   problemas.push(...problemasConLoQueDijo(limpio, loQueDijoElCliente(contexto.conversacion)));
 
-  // Lo que el libro prohibe: valor del envio, envio gratis sin condicion, contraentrega fuera del Combo...
+  // Envio gratis (siempre) y promesas de llegada, pago o contraentrega que no estan en lo agendado.
+  problemas.push(...promesasDeEnvioYPago(limpio, contexto.textoAgendado ?? null));
+
+  // Lo que el libro prohibe: valor del envio, contraentrega fuera del Combo, ciudades sin envio...
   problemas.push(...problemasConElLibro(limpio, contexto.producto ?? null));
 
   const fuente = [contexto.textoDelLibro ?? "", ...contexto.conversacion.map((l) => l.texto)].join("\n");
@@ -190,9 +201,6 @@ const VALOR_DEL_ENVIO = [
   new RegExp(`\\benvios? (?:de|por|en) ${VALOR}`),
   new RegExp(`${VALOR}\\s*(?:de|del|por|para|en)(?: el)? envios?\\b`),
 ];
-const ENVIO_GRATIS = /\b(envios? (gratis|gratuitos?)|gratis el envio)\b/;
-const CONDICION_DEL_50 = /\b50\s?(%|por ciento)/;
-const SIN_COSTO_DE_ENVIO = /\bsin (costo|cobro|valor)( alguno)? (de|del|en el|por el) envios?\b/;
 /** "contraentrega solo en el Combo": aclarar la regla no es ofrecerla. */
 const CONTRAENTREGA_SOLO_EN_EL_COMBO = /\bsolo (aplica |es |funciona |va )?(en|con|para|al|a) (el )?combo\b/;
 /** Prometer que llega o que se envia; lo negado ("no llega") no promete nada y se quita antes. */
@@ -214,11 +222,6 @@ function problemasConElLibro(texto: string, producto: string | null): string[] {
   if (VALOR_DEL_ENVIO.some((patron) => patron.test(bajo))) {
     problemas.push("da el valor del envío: no lo des, el libro no lo permite");
   }
-  if (SIN_COSTO_DE_ENVIO.test(textoNormal)) {
-    problemas.push("dice «sin costo de envío»: el envío gratis solo va con su condición, apartando con el 50 %");
-  } else if (ENVIO_GRATIS.test(textoNormal) && !CONDICION_DEL_50.test(bajo)) {
-    problemas.push("dice «envío gratis» sin su condición: solo si aparta con el 50 %");
-  }
 
   const esCombo = /\bcombo\b/.test(normalizar(producto ?? ""));
   if (CONTRAENTREGA.test(textoNormal) && !esCombo && !CONTRAENTREGA_SOLO_EN_EL_COMBO.test(textoNormal)) {
@@ -239,6 +242,97 @@ function problemasConElLibro(texto: string, producto: string | null): string[] {
     }
   }
   return problemas;
+}
+
+/* ----------------------------------------------------------------------------------------------
+   Envio y pago en los seguimientos automaticos (6-nov-2026, chat 8927). El redactor escribio
+   «envío gratis a ciudades principales si lo separas con el 50%» y la politica es otra: gratis solo
+   con el 50/50, contraentrega solo en el combo de camilla y no a zonas de avion. En un seguimiento
+   automatico es mejor callar que prometer: las condiciones las da la asesora o el bot al responder.
+---------------------------------------------------------------------------------------------- */
+
+/**
+ * "Gratis" en cualquier forma: siempre se rechaza, aunque lo diga el texto agendado y aunque lleve
+ * el 50 %. Se busca en el texto normalizado (sin tildes ni signos).
+ */
+const GRATIS = [
+  /\b(gratis|gratuit[oa]s?|regalamos el envio|envio de regalo)\b/,
+  /\bsin (ningun |ninguna )?(costo|cobro|cargo)\b/,
+  /\bno (te |le |les )?(tiene|tendra|tendria|lleva|genera) (ningun |ninguna )?(costo|cobro|cargo)\b/,
+  /\bno (te |le |les )?(cuesta|cobra|cobramos) (nada|el envio)\b/,
+  /\benvios? (\S+ ){0,2}incluid[oa]s?\b/,
+  /\bincluid[oa]s? (el )?envios?\b/,
+];
+
+/**
+ * Promesas que solo pasan si el texto agendado ya habla de lo mismo. Se buscan en minusculas y sin
+ * tildes, con "%" incluido. "¿Te confirmo el envío a tu ciudad?", "¿Te envío las fotos?" o "¿Te ayudo
+ * con la forma de pago?" no prometen nada: no son ninguna de estas.
+ */
+const PROMESAS: { tema: string; patron: RegExp; problema: string }[] = [
+  {
+    tema: "llegada",
+    patron:
+      /\b(llega|llegan|llegamos|llegaria|hacemos llegar|(te|le|les) (lo|la|los|las) (enviamos|mandamos|despachamos|llevamos)|(enviamos|mandamos|despachamos|llevamos) a|despachos?|despachamos|cobertura|ciudades principales|toda colombia|todo el pais)\b/,
+    problema: "promete la llegada o el despacho: en un seguimiento no se habla de a dónde llega",
+  },
+  {
+    tema: "pago",
+    patron:
+      /(\b50\s?%|\b50 por ciento\b|\bla mitad\b|\banticipo\b|\babono\b|\bal recibir\b|\bcuando (te |le )?llegue\b|\b(pagas|pagar|pagarlo|pagarla) (cuando|al|apenas|despues|contra)\b)/,
+    problema: "habla del pago o del anticipo (50 %): en un seguimiento no se habla de formas de pago",
+  },
+  {
+    tema: "contraentrega",
+    patron: /\b(contraentrega|contra entrega)\b/,
+    problema: "habla de contraentrega: en un seguimiento no se ofrece",
+  },
+];
+
+/** Preguntar a donde va ("¿A qué ciudad te lo enviamos?") no promete nada: se quita antes de buscar. */
+const PREGUNTA_EL_DESTINO = /\b(a que ciudad|a cual ciudad|a donde|para donde|para que ciudad) (te |le |les )?(lo |la |los |las )?(enviamos|mandamos|despachamos|llevamos)\b/g;
+
+/**
+ * Los problemas de envio y pago de un texto de seguimiento automatico (vacio = puede salir):
+ *  - "gratis", "gratuito", "sin costo", "no tiene costo", "envío incluido": siempre.
+ *  - promesas de llegada, de pago (50 %, anticipo, al recibir) o de contraentrega: salvo que el texto
+ *    agendado ya hable del mismo tema (lo agendado lo escribio una persona en el libro o la regla).
+ * Es la revision de lo que propone la IA y tambien la puerta final antes de enviar cualquier texto.
+ */
+export function promesasDeEnvioYPago(texto: string, textoAgendado: string | null): string[] {
+  const normal = normalizar(texto ?? "");
+  const bajo = sinTildes(texto ?? "").replace(PREGUNTA_EL_DESTINO, " ");
+  const agendado = sinTildes(textoAgendado ?? "");
+  const problemas: string[] = [];
+  if (GRATIS.some((patron) => patron.test(normal))) {
+    problemas.push("dice que algo es gratis o sin costo (envío gratis): en un seguimiento automático nunca se dice");
+  }
+  for (const promesa of PROMESAS) {
+    if (promesa.patron.test(bajo) && !promesa.patron.test(agendado)) problemas.push(promesa.problema);
+  }
+  return problemas;
+}
+
+/**
+ * Lo que el redactor NO ve del libro ni de la descripcion del producto: las frases sobre envio,
+ * gratis, contraentrega y formas de pago. El libro dice «Envío gratis a ciudades principales si lo
+ * separas con el 50%» para las respuestas del bot; en un seguimiento eso no va. El libro no se toca.
+ */
+const TEMA_DE_ENVIO_O_PAGO =
+  /(envi|gratis|gratuit|contraentrega|contra entrega|flete|despach|ciudades principales|cobertura|anticipo|abono|50\s?%|por ciento|forma de pago|formas de pago|medios de pago|transferencia|nequi|daviplata|pago|pagas|pagar|al recibir)/;
+
+export function sinTemasDeEnvioYPago(texto: string | null | undefined): string {
+  return (texto ?? "")
+    .split(/\r?\n/)
+    .map((linea) =>
+      linea
+        .split(/(?<=[.!?])\s+/)
+        .filter((frase) => !TEMA_DE_ENVIO_O_PAGO.test(sinTildes(frase)))
+        .join(" ")
+        .trim(),
+    )
+    .filter(Boolean)
+    .join("\n");
 }
 
 /** Las preguntas del texto, normalizadas: de cada oracion con "?", lo que va desde su "¿" (si lo tiene). */
@@ -306,9 +400,12 @@ function problemasConLoQueDijo(texto: string, dicho: LoQueDijoElCliente): string
   return problemas;
 }
 
-/** El cierre fijo para quien ya dio la ciudad: si la IA no da un texto que pase, sale este. */
+/**
+ * El cierre fijo para quien ya dio la ciudad: si la IA no da un texto que pase, sale este. Sin
+ * promesa de llegada ni de pago (antes decia «te llega sin problema 🚚 … con el 50 %», 6-nov-2026).
+ */
 export function cierreDeApartar(ciudad: string): string {
-  return `A ${ciudad} te llega sin problema 🚚 ¿Te lo aparto con el 50 % para empezar a fabricarlo?`;
+  return `Anotado para ${ciudad} 🙌 ¿Te lo aparto para empezar a fabricarlo?`;
 }
 
 /**
@@ -580,7 +677,9 @@ function bloqueDeLoQueDijo(dicho: LoQueDijoElCliente): string[] {
   if (dicho.servicio) datos.push(`- Su servicio o negocio: ${dicho.servicio}`);
   if (dicho.yaCompro) datos.push("- Ya confirmó la compra o el pago: no le pidas apartar");
   if (dicho.noLeInteresa) datos.push("- Dijo que no le interesa: no le pidas apartar");
-  if (dicho.pidioContraentrega) datos.push("- Preguntó por el pago contraentrega");
+  if (dicho.pidioContraentrega) {
+    datos.push("- Preguntó por el pago contraentrega (no lo respondas en el seguimiento: eso lo explica la asesora)");
+  }
   return ["LO QUE EL CLIENTE YA DIJO (no lo vuelvas a preguntar):", ...(datos.length ? datos : ["(nada todavía)"])];
 }
 
@@ -599,19 +698,16 @@ export function armarPedidoDeSeguimiento(input: {
   const reglas = [
     "Escribes UN mensaje de seguimiento por WhatsApp para un cliente que dejó de contestar. Tuteas, en español de Colombia.",
     "Menciona algo que ESTE cliente dijo en la conversación: el color, el producto, la ciudad, para cuándo lo necesita o la duda que tuvo. Si no dijo nada de eso, habla del producto que le interesa.",
-    "Trae algo nuevo o útil para él (un dato del producto, del envío o de la forma de pago que esté en los DATOS DEL NEGOCIO); no repitas lo que ya le dijimos.",
+    "Trae algo nuevo o útil para él (un dato del producto que esté en los DATOS DEL NEGOCIO); no repitas lo que ya le dijimos.",
     "Cierra con UNA sola pregunta fácil de contestar (de sí o no, o de elegir entre dos), al final del mensaje.",
     `Máximo ${LINEAS_MAXIMAS} líneas y unas 35 palabras.`,
     "No inventes precios, cifras ni fechas: solo puedes usar los que estén en la conversación o en los DATOS DEL NEGOCIO.",
     'Nunca escribas "pero" (usa "sin embargo"), "¿sigues interesada?", "cuando puedas me avisas", "¿pudiste ver lo que te envié?", "aquí estoy para ayudarte" ni "si te queda alguna duda". No trates de usted.',
     "No repitas ni parafrasees los SEGUIMIENTOS YA ENVIADOS.",
     "Nunca preguntes lo que el cliente ya respondió (mira LO QUE EL CLIENTE YA DIJO): ni la ciudad, ni para cuándo lo necesita, ni el color, ni su servicio o negocio.",
-    'Si ya dio la ciudad, confírmala y termina pidiendo apartar. Por ejemplo, si dijo Bogotá: "A Bogotá te llega sin problema 🚚 ¿Te lo aparto con el 50 % para empezar a fabricarlo?"',
+    `Si ya dio la ciudad, nómbrala y termina pidiendo apartar. Por ejemplo, si dijo Bogotá: "${cierreDeApartar("Bogotá")}"`,
     "Menciona algo concreto que dijo el cliente, no un mensaje genérico.",
-    "No des el valor del envío.",
-    "La contraentrega solo aplica al Combo: no la ofrezcas con otro producto.",
-    'Solo di "envío gratis" junto con su condición: apartando con el 50 %.',
-    'A San Andrés, Leticia, Inírida o Mitú no digas "te llega" ni prometas el envío.',
+    'No hables del envío ni de su valor, de nada "gratis" o "sin costo", de a qué ciudades llega, de la contraentrega ni de formas de pago o anticipo (ni del 50 %): eso lo explica la asesora.',
     "No inventes nada: ni productos, ni colores, ni condiciones que no estén en la conversación o en los DATOS DEL NEGOCIO.",
     "Si el cliente ya separó, ya pagó o dijo que no le interesa, no le pidas apartar.",
     "Responde solo con el texto del mensaje, sin comillas ni explicaciones.",
@@ -681,6 +777,8 @@ export function elegirTexto(
     yaEnviados: input.yaEnviados,
     textoDelLibro: [input.textoDelLibro ?? "", input.producto ?? ""].join("\n"),
     producto: input.producto,
+    // Lo agendado es el texto fijo: una promesa de envio o pago solo pasa si ya estaba ahi.
+    textoAgendado: input.textoAgendado ?? input.textoFijo,
   };
 
   for (const propuesta of input.propuestas.slice(0, INTENTOS_MAXIMOS)) {

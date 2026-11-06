@@ -221,6 +221,11 @@ const HERRAMIENTAS_DE_LECTURA = [
         quien: { type: "string", enum: ["agente", "cliente", "todos"], description: "Por defecto: todos" },
         dias: { type: "number", description: "Cuantos dias hacia atras (1 a 60, por defecto 7)" },
         limite: { type: "number", description: "Maximo de resultados (1 a 100, por defecto 40)" },
+        solo_seguimientos: {
+          type: "boolean",
+          description:
+            "true = solo los mensajes que salieron como seguimiento (Follow o reloj del V3), con el total en `total` aunque pase el limite. Por defecto: false",
+        },
       },
       required: ["texto"],
       additionalProperties: false,
@@ -1057,6 +1062,13 @@ async function verConversacion(args: Argumentos, contexto: Contexto) {
   };
 }
 
+/**
+ * La marca (`rawPayload.source`) de los mensajes que salieron como seguimiento automatico de texto:
+ * los del Follow y los del reloj del V3 (la misma lista que usa el redactor, en
+ * features/seguimientos/services/seguimiento-que-escucha.ts).
+ */
+const ORIGENES_DE_SEGUIMIENTO = ["follow", "agente-v3-seguimiento", "agente-v3-seguimiento-ia"];
+
 async function buscarMensajes(args: Argumentos, contexto: Contexto) {
   const buscado = texto(args, "texto");
   if (buscado.length < 3) {
@@ -1066,45 +1078,63 @@ async function buscarMensajes(args: Argumentos, contexto: Contexto) {
   const dias = numero(args, "dias", 1, 60, 7);
   const limite = numero(args, "limite", 1, 100, 40);
   const desde = new Date(Date.now() - dias * 24 * 60 * 60 * 1000);
+  /*
+    Solo seguimientos (6-nov-2026): para medir cuantos seguimientos dijeron una frase ("envío gratis")
+    sin que las respuestas del bot gasten el limite. Se filtra en la base por la marca del mensaje.
+  */
+  const soloSeguimientos = args.solo_seguimientos === true;
+
+  const donde = {
+    workspaceId: contexto.workspaceId,
+    createdAt: { gte: desde },
+    deletedAt: null,
+    type: { not: "SYSTEM" as const },
+    AND: [
+      // Tambien dentro de lo que se dijo en los audios: un precio dicho de viva voz es igual de real.
+      {
+        OR: [
+          { content: { contains: buscado, mode: "insensitive" as const } },
+          { transcripcion: { contains: buscado, mode: "insensitive" as const } },
+        ],
+      },
+      ...(soloSeguimientos
+        ? [{ OR: ORIGENES_DE_SEGUIMIENTO.map((source) => ({ rawPayload: { path: ["source"], equals: source } })) }]
+        : []),
+    ],
+    ...(quien === "cliente" && !soloSeguimientos ? { direction: "INBOUND" as const } : {}),
+    ...(quien === "agente" || soloSeguimientos ? { direction: "OUTBOUND" as const } : {}),
+  };
 
   // Se piden de mas cuando se filtra por agente: quien lo dijo se sabe recien al leer cada mensaje.
-  const filas = await prisma.message.findMany({
-    where: {
-      workspaceId: contexto.workspaceId,
-      createdAt: { gte: desde },
-      deletedAt: null,
-      type: { not: "SYSTEM" },
-      // Tambien dentro de lo que se dijo en los audios: un precio dicho de viva voz es igual de real.
-      OR: [
-        { content: { contains: buscado, mode: "insensitive" } },
-        { transcripcion: { contains: buscado, mode: "insensitive" } },
-      ],
-      ...(quien === "cliente" ? { direction: "INBOUND" as const } : {}),
-      ...(quien === "agente" ? { direction: "OUTBOUND" as const } : {}),
-    },
-    orderBy: { createdAt: "desc" },
-    take: quien === "agente" ? limite * 3 : limite,
-    select: {
-      conversationId: true,
-      createdAt: true,
-      direction: true,
-      type: true,
-      content: true,
-      transcripcion: true,
-      rawPayload: true,
-      contact: { select: { name: true, phoneNumber: true } },
-    },
-  });
+  const [filas, total] = await Promise.all([
+    prisma.message.findMany({
+      where: donde,
+      orderBy: { createdAt: "desc" },
+      take: quien === "agente" && !soloSeguimientos ? limite * 3 : limite,
+      select: {
+        conversationId: true,
+        createdAt: true,
+        direction: true,
+        type: true,
+        content: true,
+        transcripcion: true,
+        rawPayload: true,
+        contact: { select: { name: true, phoneNumber: true } },
+      },
+    }),
+    soloSeguimientos ? prisma.message.count({ where: donde }) : Promise.resolve(null),
+  ]);
 
   const resultados = filas
     .map((fila) => ({ fila, dijo: quienDijo(fila) }))
-    .filter(({ dijo }) => quien !== "agente" || dijo === "agente_o_flujo")
+    .filter(({ dijo }) => soloSeguimientos || quien !== "agente" || dijo === "agente_o_flujo")
     .slice(0, limite);
 
   return {
     buscado,
     desde: hora(desde),
     encontrados: resultados.length,
+    ...(soloSeguimientos ? { solo_seguimientos: true, total } : {}),
     resultados: resultados.map(({ fila, dijo }) => ({
       conversacion_id: fila.conversationId,
       contacto: fila.contact?.name || fila.contact?.phoneNumber || null,

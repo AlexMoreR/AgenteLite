@@ -9,7 +9,9 @@ import {
   armarPedidoDeSeguimiento,
   elegirTexto,
   INTENTOS_MAXIMOS,
+  promesasDeEnvioYPago,
   revisarSeguimiento,
+  sinTemasDeEnvioYPago,
   type RevisionDelSeguimiento,
 } from "@/features/seguimientos/dominio/seguimiento-que-escucha";
 
@@ -47,7 +49,9 @@ const MENSAJES_MAXIMOS = 1_000;
 export const MOTIVO_SIN_TEXTO = "seguimiento_sin_texto_valido" as const;
 /** Motivo con el que se corre a la vuelta siguiente porque ya se lleno el tope de la vuelta. */
 export const MOTIVO_TOPE_DE_LA_VUELTA = "tope_de_redacciones" as const;
-export type MotivoDelRedactor = typeof MOTIVO_SIN_TEXTO;
+/** Motivo con el que se cancela un seguimiento porque la puerta final encontro "gratis" o una promesa de envio o pago. */
+export const MOTIVO_PROMESA_DE_ENVIO = "seguimiento_promete_envio_o_pago" as const;
+export type MotivoDelRedactor = typeof MOTIVO_SIN_TEXTO | typeof MOTIVO_PROMESA_DE_ENVIO;
 
 export type SeguimientoRedactado =
   | {
@@ -109,6 +113,29 @@ export function marcaDelSeguimiento(
 }
 
 /* ------------------------------------------------------------------------------------------------
+   La puerta final antes de enviar
+------------------------------------------------------------------------------------------------ */
+
+/**
+ * La ultima revision de un seguimiento automatico, justo antes de mandarlo, sea cual sea el camino
+ * por el que llego (IA, texto fijo, sin clave, interruptor apagado, falla del redactor, cliente que no
+ * respondio la bienvenida, pie de una foto o paso de un flujo). Si el texto dice "gratis" o promete
+ * envio, pago o contraentrega que no estaba en lo agendado, devuelve el freno: no sale nada (mejor
+ * callar que prometer). null = puede salir. `textoAgendado` = lo que se agendo (el libro, la regla o el flujo).
+ */
+export function frenoDeLaPuerta(
+  texto: string | null | undefined,
+  textoAgendado: string | null | undefined,
+  registro: { origen: string; conversationId?: string | null; followId?: string | null },
+): Extract<SeguimientoRedactado, { enviar: false }> | null {
+  if (!texto?.trim()) return null;
+  const problemas = promesasDeEnvioYPago(texto, textoAgendado ?? null);
+  if (!problemas.length) return null;
+  console.info("[seguimiento-que-escucha] la puerta final no dejo salir el texto", { ...registro, problemas });
+  return { enviar: false, texto: null, deIA: false, textoReemplazado: null, motivo: MOTIVO_PROMESA_DE_ENVIO, reprogramar: false };
+}
+
+/* ------------------------------------------------------------------------------------------------
    El redactor
 ------------------------------------------------------------------------------------------------ */
 
@@ -155,11 +182,13 @@ export async function redactarSeguimientoQueEscucha(input: {
       seguimientosYaEnviados(input.conversationId),
     ]);
 
+    // Sin las frases de envio, gratis, contraentrega ni formas de pago: el seguimiento no habla de eso.
+    const descripcion = sinTemasDeEnvioYPago(producto?.descripcion);
     const datosDelLibro =
       [
-        libro?.comoHablamos?.trim() || "",
+        sinTemasDeEnvioYPago(libro?.comoHablamos),
         producto ? `Producto: ${producto.nombre}${producto.precio ? `, precio ${producto.precio}` : ""}` : "",
-        producto?.descripcion ? `Descripción: ${producto.descripcion}` : "",
+        descripcion ? `Descripción: ${descripcion}` : "",
       ]
         .filter(Boolean)
         .join("\n") || null;
@@ -179,6 +208,7 @@ export async function redactarSeguimientoQueEscucha(input: {
       textoDelLibro: [datosDelLibro ?? "", producto?.nombre ?? ""].join("\n"),
       // Sin el producto, los reintentos de la IA no verian la regla de la contraentrega (solo en el Combo).
       producto: producto?.nombre ?? null,
+      textoAgendado: input.textoFijo,
     };
     const propuestas = await pedirPropuestas(apiKey, pedido, revision);
 
