@@ -83,6 +83,34 @@ test.describe("Asesora en celular (solo lectura)", () => {
       await expect(pagina.getByLabel("Cargando conversación")).toHaveCount(0, { timeout: 30_000 });
     });
     chatAbierto = true;
+
+    /*
+      Resolver tiene que verse sin deslizar la barra en los celulares angostos (va fijo a la
+      derecha). Solo se MIDE: nunca se toca, porque resolveria un chat de verdad.
+    */
+    await test.step("Resolver se ve entero sin deslizar a 375 y 360 px", async () => {
+      const tamanoOriginal = pagina.viewportSize();
+      try {
+        for (const ancho of [375, 360]) {
+          await pagina.setViewportSize({ width: ancho, height: tamanoOriginal?.height ?? 800 });
+          // FRAGIL: aria-label de snooze-chat-control.tsx y resolve-chat-control.tsx. Sin ficha del
+          // CRM no hay "Resolver o posponer": queda solo el de resolver (o reabrir).
+          const resolver = pagina
+            .getByRole("button", { name: "Resolver o posponer", exact: true })
+            .or(pagina.getByRole("button", { name: /^(Resolver|Reabrir) conversación$/ }))
+            .first();
+          await expect(resolver).toBeVisible();
+          const caja = await resolver.boundingBox();
+          expect(caja, `sin medidas del boton de resolver a ${ancho} px`).not.toBeNull();
+          expect(caja!.x, `Resolver se sale por la izquierda a ${ancho} px`).toBeGreaterThanOrEqual(0);
+          expect(caja!.x + caja!.width, `Resolver se sale por la derecha a ${ancho} px`).toBeLessThanOrEqual(ancho);
+        }
+      } finally {
+        if (tamanoOriginal) {
+          await pagina.setViewportSize(tamanoOriginal);
+        }
+      }
+    });
   });
 
   test("4. Abrir la ficha del cliente", async () => {

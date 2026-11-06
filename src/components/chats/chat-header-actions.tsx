@@ -10,6 +10,7 @@ import type { CrmStage } from "@/features/crm/types";
 import { BotonLlamar } from "@/features/llamadas/components/BotonLlamar";
 import { AssignChatControl } from "./assign-chat-control";
 import { BotonMapaDelLead } from "@/features/mapa-del-lead/components/BotonMapaDelLead";
+import { ChevronRight } from "lucide-react";
 
 type ChatHeaderActionsProps = {
   contactId: string | null;
@@ -77,6 +78,35 @@ export function ChatHeaderActions({
   );
 }
 
+/*
+  Resolver (y Posponer) FIJO a la derecha de la barra del celular.
+
+  A 360-375 px la barra no entra entera y Resolver, que va al final, quedaba fuera de la pantalla:
+  habia que deslizar para encontrarlo. Ahora queda pegado al borde derecho (sticky) y lo demas se
+  desliza por debajo; el fondo tapa lo que pasa detras y el pr-3 es su propio margen, porque la
+  fila ya no lo tiene a la derecha.
+
+  Las mismas clases en la barra real y en la silueta, para que al llegar los datos no salte.
+*/
+const CLASES_RESOLVER_FIJO = "order-last sticky right-0 z-10 flex items-center gap-1.5 bg-card pr-3";
+
+/*
+  La flechita que avisa que hay mas botones a la izquierda de Resolver, deslizando.
+
+  Oculta por defecto: la muestra la fila del panel (group/barra) cuando su data-hay-mas es true, y
+  se va sola al llegar al final. Es decorativa: no se toca ni la lee el lector de pantalla.
+*/
+function FlechitaHayMas() {
+  return (
+    <span
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-y-0 right-full hidden w-7 items-center justify-end bg-gradient-to-l from-card via-card/80 to-transparent group-data-[hay-mas=true]/barra:flex"
+    >
+      <ChevronRight className="size-4 text-muted-foreground" />
+    </span>
+  );
+}
+
 /**
  * La barra en silueta, mientras llegan los datos del chat (la fila de la lista no los traia).
  *
@@ -90,7 +120,8 @@ export function BarraDeAccionesEnSilueta() {
       <Skeleton className="h-[1.15rem] w-8 rounded-full" />
       <span className="mx-0.5 h-5 w-px bg-border" />
       <Skeleton className="size-8 rounded-lg" />
-      <div className="order-last flex items-center gap-1.5">
+      <div className={CLASES_RESOLVER_FIJO}>
+        <FlechitaHayMas />
         <span className="mx-0.5 h-5 w-px bg-border" />
         <Skeleton className="h-8 w-11 rounded-lg" />
       </div>
@@ -143,7 +174,8 @@ export function BarraDeAccionesDelChat({
       <span aria-hidden="true" className="mx-0.5 h-5 w-px bg-border" />
       <AssignChatControl conversationId={conversationId} assignee={assignee} source={source} compacto />
       {contactId ? <BotonMapaDelLead chatKey={`${source}:${conversationId}`} compacto /> : null}
-      <div className="order-last flex items-center gap-1.5">
+      <div className={CLASES_RESOLVER_FIJO}>
+        <FlechitaHayMas />
         <span aria-hidden="true" className="mx-0.5 h-5 w-px bg-border" />
         {/* Resolver y Posponer en UN boton con menu. Sin ficha del CRM no se puede posponer:
             ahi queda solo el de resolver. */}
