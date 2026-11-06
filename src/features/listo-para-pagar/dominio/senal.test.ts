@@ -2,7 +2,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { armarEncabezadoDelAviso, esListoParaPagar, mensajeDeCierre, mitadDelPrecio } from "./senal";
+import {
+  armarAvisoParaElLider,
+  armarEncabezadoDelAviso,
+  decidirMarca,
+  esListoParaPagar,
+  mensajeDeCierre,
+  mitadDelPrecio,
+  TITULO_PARA_EL_LIDER,
+} from "./senal";
 
 test("los motivos de señal de compra dan true", () => {
   assert.equal(esListoParaPagar("Dijo para cuándo lo necesita: señal de compra…"), true);
@@ -49,4 +57,54 @@ test("el encabezado del aviso", () => {
     motivo: "Quiere separar o comprar el combo",
   });
   assert.equal(listo[0], "🔥 *LISTO PARA PAGAR*");
+});
+
+// ---- Parte 3: pasarle el aviso al líder a los 5 minutos sin respuesta ----
+
+const AVISADO = new Date("2026-11-04T15:00:00.000Z"); // miércoles 10 a. m. en Bogotá
+const minutosDespues = (minutos: number) => new Date(AVISADO.getTime() + minutos * 60_000);
+const marca = (cambios: Partial<Parameters<typeof decidirMarca>[0]> = {}) =>
+  decidirMarca({
+    estado: "pendiente",
+    avisadoEn: AVISADO,
+    ahora: minutosDespues(5),
+    huboRespuestaHumana: false,
+    enHorario: true,
+    ...cambios,
+  });
+
+test("con 4 minutos no escala; con 5 sí", () => {
+  assert.equal(marca({ ahora: minutosDespues(4) }), "nada");
+  assert.equal(marca({ ahora: minutosDespues(5) }), "escalar");
+});
+
+test("con respuesta humana queda atendido y no escala", () => {
+  assert.equal(marca({ huboRespuestaHumana: true }), "atendido");
+});
+
+test("no escala si ya está escalado, ni fuera de horario", () => {
+  assert.equal(marca({ estado: "escalado" }), "nada");
+  assert.equal(marca({ estado: "sin_destino" }), "nada");
+  assert.equal(marca({ enHorario: false }), "nada");
+});
+
+test("a más de 24 h se cierra, aunque sea fuera de horario", () => {
+  assert.equal(marca({ ahora: minutosDespues(24 * 60 + 1) }), "cerrar");
+  assert.equal(marca({ ahora: minutosDespues(24 * 60 + 1), enHorario: false }), "cerrar");
+});
+
+test("el aviso para el líder", () => {
+  const texto = armarAvisoParaElLider({
+    cliente: "Ana",
+    asesora: "Luisa",
+    enlace: "https://app.aizenbot.com/c/1234",
+    cierre: "¡Listo! Te lo aparto",
+  });
+  assert.equal(TITULO_PARA_EL_LIDER, "🔥 LISTO PARA PAGAR — sin respuesta en 5 min");
+  assert.ok(texto.startsWith(`*${TITULO_PARA_EL_LIDER}*`));
+  assert.ok(texto.includes("👤 Ana"));
+  assert.ok(texto.includes("Luisa"));
+  assert.ok(texto.includes("https://app.aizenbot.com/c/1234"));
+  assert.ok(texto.endsWith("¡Listo! Te lo aparto"));
+  assert.ok(armarAvisoParaElLider({ cliente: "Ana", asesora: null, enlace: "x", cierre: "y" }).includes("nadie todavía"));
 });

@@ -9,6 +9,7 @@ import { purgeOldWebhookEventLogs } from "@/lib/webhook-log-retention";
 import { ejecutarSeguimientosV3 } from "@/features/agente-v3/servicios/seguimientos";
 import { avisarClientesEsperando } from "@/features/agente-v3/servicios/cliente-esperando";
 import { rescatarMensajesSinDecidir } from "@/features/agente-v3/servicios/rescate-de-mensajes";
+import { revisarListoParaPagar } from "@/features/listo-para-pagar/servicios/listo-para-pagar";
 import { rescatarChatsHuerfanos } from "@/lib/rescate-de-chats-huerfanos";
 import { repartirChatsDeMadrugada } from "@/lib/reparto-de-madrugada";
 import { transcribirAudiosPendientes } from "@/lib/transcripcion-de-audios";
@@ -112,6 +113,17 @@ async function handleCron(request: Request) {
     mensajesRescatados = await rescatarMensajesSinDecidir();
   } catch (error) {
     console.error("[cron/follows] rescate de mensajes error", error);
+  }
+
+  /*
+    LISTO PARA PAGAR (parte 3): un aviso "Listo para pagar" que lleva 5 minutos sin que nadie del
+    equipo le escriba al cliente, en horario, le llega al líder de ventas. En cada vuelta, sin el
+    filtro de minutos pares: 5 minutos son 5 minutos.
+  */
+  try {
+    await revisarListoParaPagar();
+  } catch (error) {
+    console.error("[cron/follows] listo para pagar error", error);
   }
 
   /*
