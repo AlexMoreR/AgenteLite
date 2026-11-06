@@ -40,7 +40,50 @@ export type FilaUltimoMensaje = {
   deletedAt: Date | null;
   type: MessageTypeDeFila | null;
   status: string | null;
+  /**
+   * Desde cuando el cliente espera respuesta: el PRIMER mensaje suyo despues de la ultima
+   * respuesta valida. `null` = ya contestado (o el cliente no escribio en los ultimos dias).
+   * Es la misma regla de `sqlIdsSinResponder`: no es null exactamente en los chats del filtro.
+   */
+  sinResponderDesde: Date | null;
 };
+
+/**
+ * Los dos LEFT JOIN LATERAL de "sin responder desde" para la conversacion con alias `c`
+ * (WhatsApp normal). Dejan la columna `sr."sinResponderDesde"`; nunca quitan ni duplican filas.
+ *
+ * 1. La ultima saliente valida (no SYSTEM, no FAILED, no estado de WhatsApp): recorre el indice
+ *    (conversationId, createdAt) de atras para adelante y se detiene en la primera (LIMIT 1).
+ * 2. El MIN(createdAt) de las entrantes (no SYSTEM) posteriores a esa saliente. El HAVING da
+ *    cero filas (null) si la ultima de esas entrantes tiene mas de `dias` dias.
+ * No abre el rawPayload.
+ */
+function sqlLateralSinResponderDesde(input: { workspaceId: string; dias: number }): Prisma.Sql {
+  return Prisma.sql`
+    LEFT JOIN LATERAL (
+      SELECT s."createdAt"
+      FROM "Message" s
+      WHERE s."conversationId" = c."id"
+        AND s."workspaceId" = ${input.workspaceId}
+        AND s."isStatusBroadcast" = false
+        AND s."direction" = 'OUTBOUND'
+        AND s."type" <> 'SYSTEM'
+        AND s."status" <> 'FAILED'
+      ORDER BY s."createdAt" DESC
+      LIMIT 1
+    ) respuesta ON true
+    LEFT JOIN LATERAL (
+      SELECT MIN(e."createdAt") AS "sinResponderDesde"
+      FROM "Message" e
+      WHERE e."conversationId" = c."id"
+        AND e."workspaceId" = ${input.workspaceId}
+        AND e."isStatusBroadcast" = false
+        AND e."direction" = 'INBOUND'
+        AND e."type" <> 'SYSTEM'
+        AND e."createdAt" > COALESCE(respuesta."createdAt", TIMESTAMP '-infinity')
+      HAVING MAX(e."createdAt") > now() - make_interval(days => ${input.dias})
+    ) sr ON true`;
+}
 
 export function sqlUltimoMensajeDeChats(input: {
   workspaceId: string;
@@ -48,8 +91,11 @@ export function sqlUltimoMensajeDeChats(input: {
   /**
    * La bandeja (API de lista) no muestra mensajes de sistema como vista previa, salvo las
    * llamadas. La pagina servida (SSR) nunca tuvo ese filtro: se respeta tal cual en cada lugar.
+   * No cambia `sinResponderDesde`.
    */
   ocultarSistemaSalvoLlamadas: boolean;
+  /** Hasta donde se mira hacia atras para "sin responder" (DIAS_DE_SIN_RESPONDER). */
+  diasSinResponder: number;
 }): Prisma.Sql {
   const filtroDeSistema = input.ocultarSistemaSalvoLlamadas
     ? Prisma.sql`AND (m."type" IS DISTINCT FROM 'SYSTEM' OR (m."rawPayload"->>'source') = 'llamada')`
@@ -65,7 +111,8 @@ export function sqlUltimoMensajeDeChats(input: {
       u."deletedAt" AS "deletedAt",
       u."type" AS "type",
       -- El acuse del ULTIMO mensaje, para dibujar el chulo en la fila de la lista.
-      u."status" AS "status"
+      u."status" AS "status",
+      sr."sinResponderDesde" AS "sinResponderDesde"
     FROM (SELECT DISTINCT unnest(ARRAY[${Prisma.join(input.conversationIds)}]::text[]) AS "id") c
     CROSS JOIN LATERAL (
       SELECT m."id", m."content", m."direction", m."createdAt", m."deletedAt", m."type", m."status"
@@ -78,7 +125,24 @@ export function sqlUltimoMensajeDeChats(input: {
       ORDER BY m."createdAt" DESC, m."id" DESC
       LIMIT 1
     ) u
+    ${sqlLateralSinResponderDesde({ workspaceId: input.workspaceId, dias: input.diasSinResponder })}
     ORDER BY c."id"
+  `;
+}
+
+/**
+ * "Sin responder desde" de UNA conversacion de WhatsApp normal (los resumenes que refrescan una
+ * fila). Misma regla que la columna de `sqlUltimoMensajeDeChats`; da una fila siempre.
+ */
+export function sqlSinResponderDesdeDeChat(input: {
+  workspaceId: string;
+  conversationId: string;
+  dias: number;
+}): Prisma.Sql {
+  return Prisma.sql`
+    SELECT sr."sinResponderDesde" AS "sinResponderDesde"
+    FROM (SELECT ${input.conversationId}::text AS "id") c
+    ${sqlLateralSinResponderDesde({ workspaceId: input.workspaceId, dias: input.dias })}
   `;
 }
 
@@ -158,4 +222,32 @@ export function sqlOficialQuedoSinResponder(dias: number): Prisma.Sql {
         AND saliente."type"::text <> 'SYSTEM'
         AND saliente."status"::text <> 'FAILED'
     ), TIMESTAMP '1970-01-01')`;
+}
+
+/**
+ * "Sin responder desde" de la linea oficial, como expresion para el SELECT: la conversacion va
+ * con el alias `c`. Misma regla que en WhatsApp normal: la ultima saliente valida con LIMIT 1 por
+ * el indice (conversationId, createdAt), y el MIN(createdAt) de las entrantes posteriores; null
+ * si ya se contesto o si la ultima de esas entrantes tiene mas de `dias` dias.
+ * No es null exactamente cuando `sqlOficialQuedoSinResponder` es verdadera. No abre el rawPayload.
+ */
+export function sqlOficialSinResponderDesde(dias: number): Prisma.Sql {
+  return Prisma.sql`(
+      SELECT CASE
+          WHEN MAX(entrante."createdAt") > now() - make_interval(days => ${dias}) THEN MIN(entrante."createdAt")
+        END
+      FROM "OfficialApiMessage" entrante
+      WHERE entrante."conversationId" = c."id"
+        AND entrante."direction" = 'INBOUND'
+        AND entrante."type"::text <> 'SYSTEM'
+        AND entrante."createdAt" > COALESCE((
+          SELECT saliente."createdAt" FROM "OfficialApiMessage" saliente
+          WHERE saliente."conversationId" = c."id"
+            AND saliente."direction" = 'OUTBOUND'
+            AND saliente."type"::text <> 'SYSTEM'
+            AND saliente."status"::text <> 'FAILED'
+          ORDER BY saliente."createdAt" DESC
+          LIMIT 1
+        ), TIMESTAMP '-infinity')
+    )`;
 }

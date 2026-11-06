@@ -41,6 +41,8 @@ export type OfficialApiChatConversationSummary = {
   // Asesora que atiende el chat (null = sin asignar).
   assignedTo: { id: string; name: string | null; email: string } | null;
   incomingCount: number;
+  // Desde cuando el cliente espera respuesta (el primero sin contestar). Null = ya contestado.
+  sinResponderDesde: Date | null;
   lastMessage: {
     id: string;
     content: string | null;

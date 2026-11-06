@@ -43,6 +43,7 @@ import {
   necesitaIdsSinResponder,
   whereDeFiltros,
 } from "@/features/chats/services/filtros-de-bandeja";
+import { DIAS_DE_SIN_RESPONDER } from "@/features/chats/domain/filtros-de-bandeja";
 import { isSnoozed } from "@/lib/lead-snooze";
 import { estadoQueAplica, hayBusqueda, whereDeBusquedaDeChats } from "@/lib/busqueda-de-chats";
 import { syncLeadLifecycleForContacts } from "@/lib/contact-default-tags";
@@ -86,6 +87,8 @@ type UnifiedConversation = {
   lastMessage: string | null;
   lastMessageType?: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "CONTACTS" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
   lastMessageDirection?: "INBOUND" | "OUTBOUND" | null;
+  /** Desde cuando el cliente espera respuesta. Null = ya contestado. */
+  sinResponderDesde?: Date | null;
   lastMessageStatus?: string | null;
   lastMessageAt?: Date | null;
   activeProductContext?: ActiveProductContextSummary | null;
@@ -624,6 +627,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           workspaceId: membership.workspace.id,
           conversationIds: activeAgentConversationIds,
           ocultarSistemaSalvoLlamadas: false,
+          diasSinResponder: DIAS_DE_SIN_RESPONDER,
         }),
       )
     : Promise.resolve([] as FilaUltimoMensaje[]);
@@ -857,6 +861,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         : null,
       lastMessageType: latestMessage?.type ?? null,
       lastMessageDirection: latestMessage?.direction ?? null,
+      sinResponderDesde: latestMessage?.sinResponderDesde ?? null,
       lastMessageStatus: latestMessage?.status ?? null,
       lastMessageAt: latestMessage?.createdAt ?? null,
       activeProductContext,
@@ -888,6 +893,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     lastMessage: conversation.lastMessage?.content ?? null,
     lastMessageType: conversation.lastMessage?.type ?? null,
     lastMessageDirection: conversation.lastMessage?.direction ?? null,
+    sinResponderDesde: conversation.sinResponderDesde ?? null,
     lastMessageAt: conversation.lastMessage?.createdAt ?? null,
     activeProductContext: null,
   }));
@@ -1359,6 +1365,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           lastMessage: item.lastMessage,
           lastMessageType: item.lastMessageType ?? null,
           lastMessageDirection: item.lastMessageDirection,
+          // Sin esto la primera carga llega sin "sin responder desde" (solo lo traeria /list).
+          sinResponderDesde: item.sinResponderDesde ?? null,
           lastMessageStatus: item.lastMessageStatus,
           lastMessageAt: item.lastMessageAt,
           href: `/cliente/chats?chatKey=${encodeURIComponent(item.key)}${selectedConnectionKey ? `&connection=${encodeURIComponent(selectedConnectionKey)}` : ""}${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ""}${assignedFilter !== "all" ? `&assigned=${assignedFilter}` : ""}${statusFilter !== "open" ? `&status=${statusFilter}` : ""}${paramsDeFiltros(filtros)
