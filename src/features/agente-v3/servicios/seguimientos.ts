@@ -333,7 +333,7 @@ export async function ejecutarSeguimientosV3(
               origen: `v3-${etiquetaDelPaso(toca.minutos)}`,
             });
       // Los recordatorios del paso hasta el que toca: se dan por vistos al salir o al frenarse del todo.
-      const vistos = delPaso.filter((fila) => fila.minutos <= toca.minutos).map((fila) => fila.minutos);
+      const marcados = delPaso.filter((fila) => fila.minutos <= toca.minutos).map((fila) => fila.minutos);
       if (!redactado.enviar) {
         frenados += 1;
         anotar(redactado.motivo);
@@ -342,7 +342,7 @@ export async function ejecutarSeguimientosV3(
         if (!redactado.reprogramar) {
           await guardarEstado(conversacion.id, {
             ...estado,
-            seguimientosEnviados: [...new Set([...yaSalieron, ...vistos])],
+            seguimientosEnviados: [...new Set([...yaSalieron, ...marcados])],
           });
         }
         continue;
@@ -367,7 +367,7 @@ export async function ejecutarSeguimientosV3(
         anotar(frenoFinal.motivo);
         await guardarEstado(conversacion.id, {
           ...estado,
-          seguimientosEnviados: [...new Set([...yaSalieron, ...vistos])],
+          seguimientosEnviados: [...new Set([...yaSalieron, ...marcados])],
         });
         continue;
       }
@@ -413,7 +413,7 @@ export async function ejecutarSeguimientosV3(
         */
         await guardarEstado(conversacion.id, {
           ...estado,
-          seguimientosEnviados: [...new Set([...yaSalieron, ...vistos])],
+          seguimientosEnviados: [...new Set([...yaSalieron, ...marcados])],
         });
         enviados += 1;
         enviadosEnLaLinea += 1;
