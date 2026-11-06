@@ -227,7 +227,6 @@ function buildOfficialChatsCacheKey(input: {
   assignedFilter?: OfficialChatsAssignedFilter;
   currentUserId?: string;
   filtros?: FiltrosDeBandeja;
-  soloIds?: string[];
 }) {
   return JSON.stringify({
     workspaceId: input.workspaceId,
@@ -243,9 +242,6 @@ function buildOfficialChatsCacheKey(input: {
     // Los filtros nuevos TIENEN que entrar en la clave: si no, la lista filtrada por etapa se le
     // sirve despues a quien no filtro nada, y al reves.
     filtros: input.filtros ?? SIN_FILTROS,
-    // Traer solo esos chats (la vista "Esperando respuesta") es otra lista: sin esto se serviria la
-    // pagina de uno a quien pidio otros. Ordenados, para que el mismo pedido reuse la memoria.
-    soloIds: input.soloIds ? [...input.soloIds].sort() : null,
   });
 }
 
@@ -270,11 +266,6 @@ export async function getOfficialApiChatsData(input: {
   currentUserId?: string;
   /** Etapa del embudo y "sin responder", los mismos que se aplican al canal viejo. */
   filtros?: FiltrosDeBandeja;
-  /**
-   * Solo estos chats (ids de OfficialApiConversation), con los mismos filtros que el resto: la
-   * vista "Esperando respuesta" de /list. Sin esto, la lista de siempre. Una lista vacia no trae nada.
-   */
-  soloIds?: string[];
 }): Promise<OfficialApiChatsData> {
   try {
     return await loadOfficialApiChatsData(input);
@@ -301,7 +292,6 @@ async function loadOfficialApiChatsData(input: {
   /** Quien esta mirando la bandeja. Hace falta para resolver "Mias". */
   currentUserId?: string;
   filtros?: FiltrosDeBandeja;
-  soloIds?: string[];
 }): Promise<OfficialApiChatsData> {
   const INITIAL_MESSAGE_LIMIT = 20;
   const config = await getOfficialApiConfigByWorkspaceId(input.workspaceId);
@@ -328,7 +318,6 @@ async function loadOfficialApiChatsData(input: {
     assignedFilter: input.assignedFilter,
     currentUserId: input.currentUserId,
     filtros: input.filtros,
-    soloIds: input.soloIds,
   });
   const cachedEntry = officialChatsCache.get(cacheKey);
   if (cachedEntry && cachedEntry.expiresAt > Date.now()) {
@@ -402,13 +391,6 @@ async function loadOfficialApiChatsData(input: {
   const filtros = input.filtros ?? SIN_FILTROS;
   const { etapa: officialStageFilter, sinResponder: officialPendingFilter } =
     await fragmentosDeFiltrosOficiales(filtros, input.workspaceId);
-
-  // Solo esos chats (ver `soloIds`). Sin la opcion no cambia nada.
-  const officialSoloIdsFilter = input.soloIds
-    ? input.soloIds.length
-      ? Prisma.sql`AND c."id" IN (${Prisma.join(input.soloIds)})`
-      : Prisma.sql`AND false`
-    : Prisma.empty;
 
   type OfficialConversationDetailRow = {
     conversationId: string;
@@ -719,7 +701,6 @@ async function loadOfficialApiChatsData(input: {
           ${officialAssignedFilter}
           ${officialStageFilter}
           ${officialPendingFilter}
-          ${officialSoloIdsFilter}
           ${officialSearchFilter}
         ORDER BY c."lastMessageAt" DESC NULLS LAST, c."updatedAt" DESC
         LIMIT ${conversationListLimit}
@@ -758,7 +739,6 @@ async function loadOfficialApiChatsData(input: {
             ${officialAssignedFilter}
             ${officialStageFilter}
             ${officialPendingFilter}
-            ${officialSoloIdsFilter}
           ORDER BY c."lastMessageAt" DESC NULLS LAST, c."updatedAt" DESC
           LIMIT ${conversationListLimit}
         ),

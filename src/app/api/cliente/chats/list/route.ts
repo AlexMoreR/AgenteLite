@@ -16,9 +16,7 @@ import {
   type PosicionEnBandeja,
 } from "@/lib/cursor-de-bandeja";
 import {
-  SIN_FILTROS,
   idsSinResponder,
-  leerEsperaDeBandeja,
   leerFiltrosDeBandeja,
   necesitaIdsSinResponder,
   whereDeFiltros,
@@ -37,13 +35,6 @@ import {
   type MessageTypeDeFila,
 } from "@/lib/ultimo-mensaje-de-chats";
 import { whereEsMio } from "@/lib/chats-asignacion-compartida";
-import {
-  clavesEnEsperaParaLista,
-  esperaDelNegocio,
-  paginaDeClaves,
-  type ChatEnEspera,
-  type QuienMira,
-} from "@/features/chats/services/espera-de-chats";
 
 type UnifiedConversation = {
   key: string;
@@ -589,178 +580,6 @@ async function getAgentConversationList(input: {
   };
 }
 
-type DatosOficiales = Awaited<ReturnType<typeof getOfficialApiChatsData>>;
-
-/** Las filas de la linea oficial con la forma de la lista (y los telefonos tapados si monitorea). */
-function filasDeLaLineaOficial(oficial: DatosOficiales, tapar: boolean, nombreLineaOficial: string | null) {
-  return oficial.conversations.map((conversation) => {
-    const titulo =
-      conversation.contact.name?.trim() || conversation.contact.phoneNumber?.trim() || conversation.contact.waId;
-    const telefono = conversation.contact.phoneNumber?.trim() || conversation.contact.waId;
-    return {
-      key: `official:${conversation.id}`,
-      source: "official" as const,
-      conversationId: conversation.id,
-      label: tapar ? enmascararSiEsTelefono(titulo) : titulo,
-      secondaryLabel: tapar ? enmascararTelefono(telefono) : telefono,
-      contactId: conversation.contact.crmContactId ?? undefined,
-      tags: [],
-      avatarUrl: null,
-      crmStage: conversation.contact.crmStage ?? null,
-      incomingCount: conversation.incomingCount ?? 0,
-      assignedToName: conversation.assignedTo?.name?.trim() || conversation.assignedTo?.email || null,
-      channelName: nombreLineaOficial,
-      channelType: "whatsapp_official" as const,
-      lastMessage: conversation.lastMessage?.content ?? null,
-      lastMessageType: conversation.lastMessage?.type ?? null,
-      lastMessageDirection: conversation.lastMessage?.direction ?? null,
-      lastMessageAt: conversation.lastMessage?.createdAt ?? null,
-    };
-  });
-}
-
-/**
- * `espera=1`: los chats que esperan respuesta de una persona, del que mas lleva al que menos.
- *
- * 1. La lista del negocio sale de la misma memoria de 60 s que /counts, con el mismo recorte por
- *    persona: el numero de la pastilla y las filas coinciden. Respeta Todas / Mias / la linea
- *    elegida; las condiciones y el estado no aplican (son abiertos o pendientes por definicion).
- * 2. Se corta la pagina sobre esa lista ordenada (por eso `nextCursor` va en null y se pagina por
- *    `nextOffset`: el cursor de la bandeja ordena por ultimo mensaje, no por espera).
- * 3. Las filas se traen por id con los mismos permisos de siempre, de las dos fuentes. La linea
- *    oficial entra en cualquier pagina (no solo con `incluirOficial=1`).
- * 4. Al final se reordenan segun la espera: dedupeAndSortConversationListRows ordena por ultimo
- *    mensaje y aca el orden es otro.
- * 5. Si la lectura falla, `ok` con la lista vacia y `esperaNoDisponible`: la pantalla vuelve a Mias
- *    o Todas en vez de quedarse cargando.
- */
-async function listaEnEspera(input: {
-  workspaceId: string;
-  userId: string;
-  isManager: boolean;
-  assignedFilter: string;
-  conexionElegida: string;
-  visibleChannelIds: string[] | null;
-  monitoredChannelIds: string[];
-  soloIds: string[];
-  offset: number;
-  limit: number;
-  t: MedidorServerTiming;
-}) {
-  const base = { ok: true, assignedFilter: input.assignedFilter, isManager: input.isManager, espera: true };
-
-  const canalElegido = input.conexionElegida.startsWith("channel:")
-    ? input.conexionElegida.slice("channel:".length)
-    : null;
-  const canales = await canalesDelNegocio(input.workspaceId);
-  // Igual que /counts y que la lista de siempre: la oficial entra sin linea elegida o con la oficial.
-  const incluirOficial = canalElegido
-    ? canales.find((canal) => canal.id === canalElegido)?.provider === "OFFICIAL_API"
-    : true;
-  const nombreLineaOficial = canales.find((canal) => canal.provider === "OFFICIAL_API")?.name?.trim() || null;
-  /*
-    El mismo recorte que /counts: la monitora, todo lo de sus lineas; la asesora, solo lo suyo
-    (principal o segunda); dueño, administrador y supervisora, sus lineas visibles.
-  */
-  const quien: QuienMira =
-    input.monitoredChannelIds.length > 0
-      ? {
-          userId: input.userId,
-          canales: input.visibleChannelIds
-            ? input.monitoredChannelIds.filter((id) => input.visibleChannelIds!.includes(id))
-            : input.monitoredChannelIds,
-          soloMios: false,
-          canalElegido,
-          incluirOficial,
-        }
-      : {
-          userId: input.userId,
-          canales: input.visibleChannelIds,
-          soloMios: !input.isManager,
-          canalElegido,
-          incluirOficial,
-        };
-
-  let chats: ChatEnEspera[];
-  try {
-    chats = await esperaDelNegocio(input.workspaceId);
-  } catch (error) {
-    console.error("[chats/list] no se pudo leer la espera", error);
-    return NextResponse.json({
-      ...base,
-      conversations: [],
-      hasMore: false,
-      nextOffset: input.offset,
-      nextCursor: null,
-      total: 0,
-      evolutionInstanceNames: [],
-      esperaNoDisponible: true,
-    });
-  }
-  input.t.marca("espera");
-
-  const claves = clavesEnEsperaParaLista(chats, quien, input.assignedFilter);
-  const { pagina, hasMore, nextOffset } = paginaDeClaves(claves, {
-    offset: input.offset,
-    limit: input.limit,
-    ids: input.soloIds,
-  });
-  const idsDelCanalViejo = pagina.filter((clave) => clave.startsWith("agent:")).map((clave) => clave.slice("agent:".length));
-  const idsOficiales = pagina
-    .filter((clave) => clave.startsWith("official:"))
-    .map((clave) => clave.slice("official:".length));
-
-  const [viejo, oficial] = await Promise.all([
-    idsDelCanalViejo.length
-      ? getAgentConversationList({
-          workspaceId: input.workspaceId,
-          searchQuery: "",
-          selectedConnectionKey: input.conexionElegida,
-          assignedFilter: input.assignedFilter,
-          statusFilter: "open",
-          filtros: SIN_FILTROS,
-          currentUserId: input.userId,
-          visibleChannelIds: input.visibleChannelIds,
-          monitoredChannelIds: input.monitoredChannelIds,
-          soloIds: idsDelCanalViejo,
-          offset: 0,
-          cursor: null,
-          limit: idsDelCanalViejo.length,
-        })
-      : null,
-    idsOficiales.length
-      ? getOfficialApiChatsData({
-          workspaceId: input.workspaceId,
-          includeSelectedConversation: false,
-          statusFilter: "open",
-          assignedFilter: input.assignedFilter as Parameters<typeof getOfficialApiChatsData>[0]["assignedFilter"],
-          filtros: SIN_FILTROS,
-          currentUserId: input.userId,
-          soloIds: idsOficiales,
-        })
-      : null,
-  ]);
-  input.t.marca("lista");
-
-  const posicion = new Map(pagina.map((clave, indice) => [clave, indice]));
-  const filas = [
-    ...(viejo?.conversations ?? []),
-    ...(oficial ? filasDeLaLineaOficial(oficial, input.monitoredChannelIds.length > 0, nombreLineaOficial) : []),
-  ]
-    .filter((fila) => posicion.has(fila.key))
-    .sort((a, b) => posicion.get(a.key)! - posicion.get(b.key)!);
-
-  return NextResponse.json({
-    ...base,
-    conversations: filas,
-    hasMore,
-    nextOffset,
-    nextCursor: null,
-    total: filas.length,
-    evolutionInstanceNames: viejo?.evolutionInstanceNames ?? [],
-  });
-}
-
 export const GET = conServerTiming(manejarGet, { log: "chats/list" });
 
 async function manejarGet(request: Request, t: MedidorServerTiming) {
@@ -862,35 +681,15 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
   });
   t.marca("permisos");
 
-  const conexionElegida = await resolverConexionElegida({
-    workspaceId: membership.workspace.id,
-    connectionKey: selectedConnectionKey,
-    visibleChannelIds,
-  });
-
-  // "Esperando respuesta". Con texto en el buscador manda la busqueda y la vista no se aplica.
-  const leer = (clave: string) => requestUrl.searchParams.get(clave);
-  if (leerEsperaDeBandeja(leer) && !hayBusqueda(searchQuery)) {
-    return listaEnEspera({
-      workspaceId: membership.workspace.id,
-      userId: session.user.id,
-      isManager,
-      assignedFilter,
-      conexionElegida,
-      visibleChannelIds,
-      monitoredChannelIds,
-      soloIds,
-      offset,
-      limit,
-      t,
-    });
-  }
-
-  const filtros = leerFiltrosDeBandeja(leer);
+  const filtros = leerFiltrosDeBandeja((clave) => requestUrl.searchParams.get(clave));
   const data = await getAgentConversationList({
     workspaceId: membership.workspace.id,
     searchQuery,
-    selectedConnectionKey: conexionElegida,
+    selectedConnectionKey: await resolverConexionElegida({
+      workspaceId: membership.workspace.id,
+      connectionKey: selectedConnectionKey,
+      visibleChannelIds,
+    }),
     assignedFilter,
     statusFilter,
     filtros,
@@ -926,7 +725,30 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     });
     t.marca("oficial");
     const tapar = monitoredChannelIds.length > 0;
-    const filasOficiales = filasDeLaLineaOficial(oficial, tapar, nombreLineaOficial);
+    const filasOficiales = oficial.conversations.map((conversation) => {
+      const titulo =
+        conversation.contact.name?.trim() || conversation.contact.phoneNumber?.trim() || conversation.contact.waId;
+      const telefono = conversation.contact.phoneNumber?.trim() || conversation.contact.waId;
+      return {
+        key: `official:${conversation.id}`,
+        source: "official" as const,
+        conversationId: conversation.id,
+        label: tapar ? enmascararSiEsTelefono(titulo) : titulo,
+        secondaryLabel: tapar ? enmascararTelefono(telefono) : telefono,
+        contactId: conversation.contact.crmContactId ?? undefined,
+        tags: [],
+        avatarUrl: null,
+        crmStage: conversation.contact.crmStage ?? null,
+        incomingCount: conversation.incomingCount ?? 0,
+        assignedToName: conversation.assignedTo?.name?.trim() || conversation.assignedTo?.email || null,
+        channelName: nombreLineaOficial,
+        channelType: "whatsapp_official" as const,
+        lastMessage: conversation.lastMessage?.content ?? null,
+        lastMessageType: conversation.lastMessage?.type ?? null,
+        lastMessageDirection: conversation.lastMessage?.direction ?? null,
+        lastMessageAt: conversation.lastMessage?.createdAt ?? null,
+      };
+    });
     // Las dos fuentes ya vienen filtradas por `q` (ver getAgentConversationList).
     const conversaciones = dedupeAndSortConversationListRows([
       ...datosDeLista.conversations,

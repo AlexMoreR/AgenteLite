@@ -481,16 +481,6 @@ export function leerFiltrosDeBandeja(
   return { condiciones };
 }
 
-/**
- * La vista "Esperando respuesta" (`espera=1` en la direccion): los chats que esperan a una persona,
- * del que mas lleva al que menos (ver espera-de-chats.ts). No es una condicion del modal: viaja
- * aparte, igual que la asignacion y el estado. Sirve a la pantalla y a la API, como
- * leerFiltrosDeBandeja.
- */
-export function leerEsperaDeBandeja(leer: (clave: string) => string | null | undefined): boolean {
-  return (leer("espera") ?? "").trim() === "1";
-}
-
 /** Los filtros como pares para armar una direccion. Lo que esta vacio no viaja. */
 export function paramsDeFiltros(filtros: FiltrosDeBandeja): Array<[string, string]> {
   const textos = filtros.condiciones.filter(condicionCompleta).map(textoDeCondicionEnUrl);
