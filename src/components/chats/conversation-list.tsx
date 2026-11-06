@@ -543,9 +543,9 @@ export function ConversationList({
       return;
     }
 
-    // Ya NO se precarga la pagina con el router (prefetch del href): abrir un chat no navega, asi que precargar el server
-    // Ya NO se hace router.prefetch(href): abrir un chat no navega, asi que precargar el server
-    // component solo dispararia las consultas caras de la pagina con pasar el mouse. Lo util es
+    prefetchedHrefsRef.current.add(href);
+    // Ya NO se precarga la pagina con el router (prefetch del href): abrir un chat no navega, asi
+    // que precargar el server component solo dispararia las consultas caras de la pagina con pasar el mouse. Lo util es
     // calentar el chat en si, que es lo que se muestra.
     void warmConversationCache(conversation.id);
   }, []);
