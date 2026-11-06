@@ -1,2 +1,0 @@
-## Advertencias de operación
-- `aprobacion_por_voz_zonas`: desde el 5-nov-2026 las tarjetas con zona CHATS, BOT_VENTAS y LIBRO_V3 se aprueban por voz con `aprobar_tarjeta` (tarea, plan y sí final) igual que en la pantalla, y el Coordinador las toma sin "Aprobar en pantalla"; antes de aprobar, Claude le lee al dueño en dos líneas qué cambia y qué riesgo tiene. Meta Ads con gasto (presupuesto, prender campañas, gasto nuevo) sigue pidiendo el sí del dueño y la pantalla para arrancar.
