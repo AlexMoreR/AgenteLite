@@ -23,6 +23,13 @@ import {
   whereDeBusquedaDeChatsOficiales,
 } from "@/lib/busqueda-de-chats";
 import { whereEsMio } from "@/lib/chats-asignacion-compartida";
+import { canalesDelNegocio } from "@/lib/canales-del-negocio";
+import {
+  esperaDelNegocio,
+  esperaParaPersona,
+  type EsperaDeChats,
+  type QuienMira,
+} from "@/features/chats/services/espera-de-chats";
 
 export const dynamic = "force-dynamic";
 
@@ -174,6 +181,37 @@ async function countOfficialConversations(input: {
   });
 }
 
+/**
+ * "Esperando respuesta" de lo que ve esta persona (ver features/chats/services/espera-de-chats.ts).
+ *
+ * La lista de todo el negocio sale de la memoria (un minuto) y aca solo se recorta. Respeta la
+ * linea elegida -la oficial entra solo si esa conexion la admite, igual que
+ * countOfficialConversations- y no mira ni el buscador ni las condiciones de la bandeja.
+ *
+ * Si falla devuelve null: el error queda en el log y los contadores responden igual.
+ */
+async function calcularEspera(input: {
+  workspaceId: string;
+  conexionElegida: string;
+  quien: Omit<QuienMira, "canalElegido" | "incluirOficial">;
+}): Promise<EsperaDeChats | null> {
+  try {
+    const canalElegido = input.conexionElegida.startsWith("channel:")
+      ? input.conexionElegida.slice("channel:".length)
+      : null;
+    let incluirOficial = !input.conexionElegida;
+    if (canalElegido) {
+      const canales = await canalesDelNegocio(input.workspaceId);
+      incluirOficial = canales.find((canal) => canal.id === canalElegido)?.provider === "OFFICIAL_API";
+    }
+    const chats = await esperaDelNegocio(input.workspaceId);
+    return esperaParaPersona(chats, { ...input.quien, canalElegido, incluirOficial });
+  } catch (error) {
+    console.error("[chats/counts] no se pudo calcular la espera", error);
+    return null;
+  }
+}
+
 export const GET = conServerTiming(manejarGet, { log: "chats/counts" });
 
 async function manejarGet(request: Request, t: MedidorServerTiming) {
@@ -304,6 +342,27 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
   const monitoreados = isManager
     ? []
     : await canalesQueMonitorea({ workspaceId: membership.workspace.id, userId: session.user.id });
+
+  /*
+    Lo que ve cada persona: la monitora, sus lineas; la asesora, solo sus chats (principal o
+    segunda); dueño, administrador y supervisora, las lineas que tienen visibles.
+  */
+  const espera = await calcularEspera({
+    workspaceId: membership.workspace.id,
+    conexionElegida,
+    quien:
+      monitoreados.length > 0
+        ? {
+            userId: session.user.id,
+            canales: visibleChannelIds
+              ? monitoreados.filter((id) => visibleChannelIds.includes(id))
+              : monitoreados,
+            soloMios: false,
+          }
+        : { userId: session.user.id, canales: visibleChannelIds, soloMios: !isManager },
+  });
+  t.marca("espera");
+
   if (monitoreados.length > 0) {
     const deSusLineas: Prisma.ConversationWhereInput = { AND: [baseWhere, { channelId: { in: monitoreados } }] };
     const [mine, unassigned, all] = await Promise.all([
@@ -319,6 +378,7 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
         unassigned: unassigned + officialUnassigned,
         all: all + officialAll,
       },
+      espera,
     });
   }
 
@@ -332,6 +392,7 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
       ok: true,
       isManager,
       counts: { mine: mine + officialMine, unassigned: 0, all: mine + officialAll },
+      espera,
     });
   }
 
@@ -349,5 +410,6 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
       unassigned: unassigned + officialUnassigned,
       all: all + officialAll,
     },
+    espera,
   });
 }
