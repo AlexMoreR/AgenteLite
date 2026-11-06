@@ -36,8 +36,10 @@ import { PREFIJO_FOLLOW_TRAS_ASESORA } from "@/features/seguimiento-inteligente/
 import { tipoDeSeguimiento, type TipoDeSeguimiento } from "@/features/seguimientos/dominio/apagado";
 import { anotarSeguimientosApagados, revisarApagadoDelChat } from "@/features/seguimientos/services/apagado";
 import { revisarDiaSiguienteAlEnviar } from "@/features/seguimiento-inteligente/servicios/dia-siguiente-al-enviar";
+import { revisarAntesDeEnviar } from "@/features/seguimientos/dominio/seguimiento-que-escucha";
 import {
   marcaDelSeguimiento,
+  MOTIVO_PROMESA_DE_ENVIO,
   redactarSeguimientoQueEscucha,
   type MotivoDelRedactor,
   type SeguimientoRedactado,
@@ -1491,6 +1493,10 @@ async function enviarFlujoDelSeguimiento(input: {
   flowId: string;
   /** Seguimientos que escuchan: el redactor de los textos (solo en los automáticos). */
   redactar?: RedactorDelFollow | null;
+  /** La puerta de envío (solo en los automáticos): revisa el texto de cada paso antes de mandar el primero. */
+  puerta?: boolean;
+  /** Para el registro de la puerta. */
+  followId?: string;
 }) {
   const flujo = await getFlowReply({
     workspaceId: input.workspaceId,
@@ -1513,6 +1519,15 @@ async function enviarFlujoDelSeguimiento(input: {
       const redactado = await input.redactar(mensaje.content!.trim(), "flujo");
       if (redactado && !redactado.enviar) throw new FrenoDelRedactor(redactado);
       redactados[indice] = redactado;
+    }
+  }
+  // La puerta de envío: si un paso (texto o pie de foto/video) promete lo que no debe, no sale ninguno.
+  if (input.puerta) {
+    for (const [indice, original] of mensajes.entries()) {
+      const redactado = redactados[indice];
+      const texto = redactado?.enviar ? redactado.texto : original.content;
+      const freno = frenoDeLaPuerta(texto, original.content, { followId: input.followId ?? null, origen: "flujo" });
+      if (freno) throw freno;
     }
   }
   for (const [indice, original] of mensajes.entries()) {
@@ -1852,6 +1867,31 @@ class FrenoDelRedactor extends Error {
 }
 
 /**
+ * La puerta de envío de un seguimiento AUTOMÁTICO (6-nov-2026, chat 8927): justo antes de mandarlo,
+ * venga de la IA, del texto agendado, del día siguiente del combo o del pie de una foto. Si promete
+ * envío gratis, o llegada, pago o contraentrega que el texto agendado no dice, no sale nada: se
+ * cancela y queda anotado como frenado. null = puede salir.
+ */
+function frenoDeLaPuerta(
+  texto: string | null | undefined,
+  textoAgendado: string | null | undefined,
+  registro: { followId: string | null; origen: string },
+): FrenoDelRedactor | null {
+  if (!texto?.trim()) return null;
+  const problemas = revisarAntesDeEnviar(texto, textoAgendado ?? null);
+  if (!problemas.length) return null;
+  console.info("[follows] la puerta de envío frenó un seguimiento automático", { ...registro, problemas });
+  return new FrenoDelRedactor({
+    enviar: false,
+    texto: null,
+    deIA: false,
+    textoReemplazado: null,
+    motivo: MOTIVO_PROMESA_DE_ENVIO,
+    reprogramar: false,
+  });
+}
+
+/**
  * Seguimientos que escuchan al cliente (parte 2): el texto de un seguimiento AUTOMÁTICO lo escribe el
  * redactor leyendo la conversación. Si el contacto no tiene chat, devuelve null y sale el texto agendado.
  *
@@ -2068,6 +2108,8 @@ async function executeFollowRecord(follow: ClaimedFollowRow) {
           channelId: follow.channelId,
           flowId: action.flowId,
           redactar,
+          puerta: clase === "automatico",
+          followId: follow.id,
         });
         action.status = "EXECUTED";
         action.executedAt = new Date().toISOString();
@@ -2085,6 +2127,11 @@ async function executeFollowRecord(follow: ClaimedFollowRow) {
           : null;
       if (redactado && !redactado.enviar) throw new FrenoDelRedactor(redactado);
       const contenido = redactado?.enviar ? redactado.texto : action.content;
+      // La puerta de envío: también cubre el texto sin IA y el pie de una foto o video.
+      if (clase === "automatico") {
+        const freno = frenoDeLaPuerta(contenido, action.content, { followId: follow.id, origen: "follow" });
+        if (freno) throw freno;
+      }
 
       const sendResult = await sendFollowMessage({
         workspaceId: follow.workspaceId,
