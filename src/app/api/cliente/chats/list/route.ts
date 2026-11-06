@@ -22,6 +22,7 @@ import {
   whereDeFiltros,
   type FiltrosDeBandeja,
 } from "@/features/chats/services/filtros-de-bandeja";
+import { DIAS_DE_SIN_RESPONDER } from "@/features/chats/domain/filtros-de-bandeja";
 import { isSnoozed } from "@/lib/lead-snooze";
 import { canalesQueMonitorea, enmascararSiEsTelefono, enmascararTelefono } from "@/lib/modo-monitoreo";
 import { esSupervisora } from "@/lib/permisos-del-equipo";
@@ -57,6 +58,8 @@ type UnifiedConversation = {
   // Solo tipos: la base ya podia devolver CONTACTS; ahora el tipo lo dice (igual que la pagina).
   lastMessageType?: MessageTypeDeFila | null;
   lastMessageDirection?: "INBOUND" | "OUTBOUND" | null;
+  /** Desde cuando el cliente espera respuesta. Null = ya contestado. */
+  sinResponderDesde?: Date | null;
   lastMessageStatus?: string | null;
   lastMessageAt?: Date | null;
 };
@@ -357,6 +360,7 @@ async function getAgentConversationList(input: {
           workspaceId: input.workspaceId,
           conversationIds: activeAgentConversationIds,
           ocultarSistemaSalvoLlamadas: true,
+          diasSinResponder: DIAS_DE_SIN_RESPONDER,
         }),
       )
     : Promise.resolve([] as FilaUltimoMensaje[]);
@@ -522,6 +526,7 @@ async function getAgentConversationList(input: {
         : null,
       lastMessageType: latestMessage?.type ?? null,
       lastMessageDirection: latestMessage?.direction ?? null,
+      sinResponderDesde: latestMessage?.sinResponderDesde ?? null,
       lastMessageStatus: latestMessage?.status ?? null,
       lastMessageAt: latestMessage?.createdAt ?? null,
     };
@@ -746,6 +751,7 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
         lastMessage: conversation.lastMessage?.content ?? null,
         lastMessageType: conversation.lastMessage?.type ?? null,
         lastMessageDirection: conversation.lastMessage?.direction ?? null,
+        sinResponderDesde: conversation.sinResponderDesde ?? null,
         lastMessageAt: conversation.lastMessage?.createdAt ?? null,
       };
     });

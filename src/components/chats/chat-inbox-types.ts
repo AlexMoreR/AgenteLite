@@ -46,6 +46,11 @@ export type SharedInboxConversationItem = {
   lastMessage: string | null;
   lastMessageType?: SharedInboxMessageItem["type"] | null;
   lastMessageDirection?: "INBOUND" | "OUTBOUND" | null;
+  /**
+   * Desde cuando el cliente espera respuesta (el primero sin contestar). OJO con la diferencia:
+   * undefined = la fila no trae el dato; null = ya contestado.
+   */
+  sinResponderDesde?: Date | string | null;
   /** Acuse del ultimo mensaje. Solo se dibuja si es NUESTRO: al del cliente no le corresponde. */
   lastMessageStatus?: string | null;
   lastMessageAt?: Date | null;

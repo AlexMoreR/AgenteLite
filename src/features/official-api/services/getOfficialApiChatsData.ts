@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getOfficialApiConfigByWorkspaceId, hasOfficialApiBaseCredentials } from "@/lib/official-api-config";
 import { downloadOfficialApiMedia, extractMediaRefFromRawPayload } from "@/lib/official-api-media";
 import { cifrasParaBuscarElTelefono, estadoQueAplica } from "@/lib/busqueda-de-chats";
-import { sqlOficialQuedoSinResponder } from "@/lib/ultimo-mensaje-de-chats";
+import { sqlOficialQuedoSinResponder, sqlOficialSinResponderDesde } from "@/lib/ultimo-mensaje-de-chats";
 import type { OfficialApiChatsData } from "@/features/official-api/types/official-api";
 import {
   DIAS_DE_SIN_RESPONDER,
@@ -607,6 +607,10 @@ async function loadOfficialApiChatsData(input: {
       ? fetchConversationDetail(requestedConversationId)
       : null;
 
+  // "Sin responder" como fecha para cada fila: desde cuando espera el cliente (null = ya
+  // contestado). Misma regla que el filtro "Sin responder" (sqlOficialQuedoSinResponder).
+  const sinResponderDesde = sqlOficialSinResponderDesde(DIAS_DE_SIN_RESPONDER);
+
   const conversationRows = searchQuery
     ? await prisma.$queryRaw<Array<{
         id: string;
@@ -628,6 +632,7 @@ async function loadOfficialApiChatsData(input: {
         lastMessageType: string | null;
         lastMessageMediaUrl: string | null;
         lastMessageRawPayload: unknown;
+        sinResponderDesde: Date | null;
       }>>`
         SELECT
           c."id",
@@ -648,7 +653,8 @@ async function loadOfficialApiChatsData(input: {
           lm."status"::text AS "lastMessageStatus",
           lm."type"::text AS "lastMessageType",
           lm."mediaUrl" AS "lastMessageMediaUrl",
-          lm."rawPayload" AS "lastMessageRawPayload"
+          lm."rawPayload" AS "lastMessageRawPayload",
+          ${sinResponderDesde} AS "sinResponderDesde"
         FROM "OfficialApiConversation" c
         INNER JOIN "OfficialApiContact" ct
           ON ct."id" = c."contactId"
@@ -723,6 +729,7 @@ async function loadOfficialApiChatsData(input: {
         lastMessageType: string | null;
         lastMessageMediaUrl: string | null;
         lastMessageRawPayload: unknown;
+        sinResponderDesde: Date | null;
       }>>`
         WITH filtered_conversations AS (
           SELECT
@@ -798,8 +805,11 @@ async function loadOfficialApiChatsData(input: {
           lm."status" AS "lastMessageStatus",
           lm."type" AS "lastMessageType",
           lm."mediaUrl" AS "lastMessageMediaUrl",
-          lm."rawPayload" AS "lastMessageRawPayload"
+          lm."rawPayload" AS "lastMessageRawPayload",
+          ${sinResponderDesde} AS "sinResponderDesde"
         FROM filtered_conversations fc
+        -- "Sin responder desde" se arma con el alias c; aca la conversacion es fc.
+        CROSS JOIN LATERAL (SELECT fc."id" AS "id") c
         INNER JOIN "OfficialApiContact" ct
           ON ct."id" = fc."contactId"
         -- Etapa del embudo para pintar la chapita (Nuevo / Frio / Tibio...) en la lista.
@@ -829,6 +839,7 @@ async function loadOfficialApiChatsData(input: {
       ? { id: row.assignedToUserId, name: row.assignedToName, email: row.assignedToEmail ?? "" }
       : null,
     incomingCount: row.incomingCount,
+    sinResponderDesde: row.sinResponderDesde ? new Date(row.sinResponderDesde) : null,
     lastMessage: row.lastMessageId && row.lastMessageDirection && row.lastMessageCreatedAt && row.lastMessageStatus
       ? {
           id: row.lastMessageId,
@@ -860,6 +871,7 @@ async function loadOfficialApiChatsData(input: {
       contact: conversation.contact,
       assignedTo: conversation.assignedTo ?? null,
       incomingCount: conversation.incomingCount,
+      sinResponderDesde: conversation.sinResponderDesde,
       lastMessage: conversation.lastMessage ?? null,
     })),
     selectedConversation,

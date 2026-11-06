@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { whereEsMio } from "@/lib/chats-asignacion-compartida";
+import { sqlSinResponderDesdeDeChat } from "@/lib/ultimo-mensaje-de-chats";
+import { DIAS_DE_SIN_RESPONDER } from "@/features/chats/domain/filtros-de-bandeja";
 
 export type ChatConversationSummary = {
   id: string;
@@ -17,6 +19,8 @@ export type ChatConversationSummary = {
   lastMessage: string | null;
   lastMessageType: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" | "LOCATION" | "BUTTON" | "TEMPLATE" | "SYSTEM" | "INTERACTIVE" | null;
   lastMessageDirection: "INBOUND" | "OUTBOUND" | null;
+  /** Desde cuando el cliente espera respuesta (el primero sin contestar). Null = ya contestado. */
+  sinResponderDesde: Date | null;
   /*
     El acuse del ultimo mensaje: es lo que dibuja el chulito en la fila de la lista.
 
@@ -78,6 +82,19 @@ async function getIncomingCountForConversation(input: { workspaceId: string; con
   return Number(rows[0]?.incomingCount ?? 0);
 }
 
+/** "Sin responder desde" del chat, con la misma regla que la lista (lib/ultimo-mensaje-de-chats). */
+async function getSinResponderDesdeForConversation(input: { workspaceId: string; conversationId: string }) {
+  const rows = await prisma.$queryRaw<Array<{ sinResponderDesde: Date | null }>>(
+    sqlSinResponderDesdeDeChat({
+      workspaceId: input.workspaceId,
+      conversationId: input.conversationId,
+      dias: DIAS_DE_SIN_RESPONDER,
+    }),
+  );
+
+  return rows[0]?.sinResponderDesde ?? null;
+}
+
 export async function getAgentConversationSummaryByConversationId(input: {
   workspaceId: string;
   conversationId: string;
@@ -114,7 +131,7 @@ export async function getAgentConversationSummaryByConversationId(input: {
 
   const contact = conversation.contact;
 
-  const [lastMessageRows, contactTagRows, incomingCount] = await Promise.all([
+  const [lastMessageRows, contactTagRows, incomingCount, sinResponderDesde] = await Promise.all([
     prisma.message.findMany({
       where: {
         workspaceId: input.workspaceId,
@@ -148,6 +165,10 @@ export async function getAgentConversationSummaryByConversationId(input: {
       workspaceId: input.workspaceId,
       conversationId: conversation.id,
     }),
+    getSinResponderDesdeForConversation({
+      workspaceId: input.workspaceId,
+      conversationId: conversation.id,
+    }),
   ]);
 
   const lastMessage = lastMessageRows[0] ?? null;
@@ -166,6 +187,7 @@ export async function getAgentConversationSummaryByConversationId(input: {
     lastMessage: getConversationPreviewText(lastMessage),
     lastMessageType: lastMessage?.type ?? null,
     lastMessageDirection: lastMessage?.direction ?? null,
+    sinResponderDesde,
     lastMessageStatus: lastMessage?.status ?? null,
     lastMessageAt: lastMessage?.createdAt ?? null,
     channelType: "whatsapp",
@@ -241,7 +263,7 @@ export async function getAgentConversationSummaryByPhoneNumber(input: {
     return null;
   }
 
-  const [lastMessageRows, contactTagRows, incomingCount] = await Promise.all([
+  const [lastMessageRows, contactTagRows, incomingCount, sinResponderDesde] = await Promise.all([
     prisma.message.findMany({
       where: {
         workspaceId: input.workspaceId,
@@ -275,6 +297,10 @@ export async function getAgentConversationSummaryByPhoneNumber(input: {
       workspaceId: input.workspaceId,
       conversationId: conversation.id,
     }),
+    getSinResponderDesdeForConversation({
+      workspaceId: input.workspaceId,
+      conversationId: conversation.id,
+    }),
   ]);
 
   const lastMessage = lastMessageRows[0] ?? null;
@@ -293,6 +319,7 @@ export async function getAgentConversationSummaryByPhoneNumber(input: {
     lastMessage: getConversationPreviewText(lastMessage),
     lastMessageType: lastMessage?.type ?? null,
     lastMessageDirection: lastMessage?.direction ?? null,
+    sinResponderDesde,
     lastMessageStatus: lastMessage?.status ?? null,
     lastMessageAt: lastMessage?.createdAt ?? null,
     channelType: "whatsapp",
