@@ -1,6 +1,8 @@
 import { rutaDelAvisoDelBot } from "@/features/avisos-gravedad/dominio/reglas";
 import { anotarAvisoDelBot, leerConfigGravedad, pushAAlexander } from "@/features/avisos-gravedad/servicios/enrutador";
 import { registrarEscalado } from "@/features/embudo/servicios/eventos";
+import { armarEncabezadoDelAviso, esListoParaPagar } from "@/features/listo-para-pagar/dominio/senal";
+import { leerMensajeDeCierre } from "@/features/listo-para-pagar/servicios/listo-para-pagar";
 import { decidirViaDeAvisos } from "@/lib/anti-bloqueo/reglas";
 import { leerConfigAntiBloqueo } from "@/lib/anti-bloqueo/servicio";
 import { sendEvolutionTextMessageWithReconnect } from "@/lib/evolution";
@@ -220,16 +222,50 @@ export async function avisarAsesorPorWhatsApp(input: {
         );
     const claveDelUltimo = `agente-v3:ultimo-aviso:${input.conversationId}`;
 
-    if (ruta && gravedad && destinos.length === 0) {
-      // Sin WhatsApp: push a la asesora (no tiene número) o a Alexander (nadie disponible).
-      const filaPrevia = await prisma.appSetting.findUnique({ where: { key: claveDelUltimo } });
-      const previo = filaPrevia?.value ? Date.parse(filaPrevia.value) : 0;
-      if (previo && Date.now() - previo < ESPERA_ENTRE_AVISOS_MS) {
+    /*
+      LISTO PARA PAGAR: el V3 pidió asesora por una señal de compra (dio fecha, dijo "apártalo",
+      pidió la cuenta). Ese aviso no espera los 10 minutos de un aviso normal reciente: tiene su
+      propio control, en su propia fila, y al salir se marcan las dos para que un aviso normal no
+      suene justo después. Va seguido del mensaje de cierre para que la asesora lo copie.
+    */
+    const listoParaPagar = esListoParaPagar(input.motivo);
+    const claveDelListo = `agente-v3:ultimo-aviso-listo:${input.conversationId}`;
+    if (listoParaPagar) {
+      const filaDelListo = await prisma.appSetting.findUnique({ where: { key: claveDelListo } });
+      const previoListo = filaDelListo?.value ? Date.parse(filaDelListo.value) : 0;
+      if (previoListo && Date.now() - previoListo < ESPERA_ENTRE_AVISOS_MS) {
         return 0;
       }
+    }
+    const cierre = listoParaPagar ? await leerMensajeDeCierre(input.workspaceId, input.conversationId) : null;
+    const marcarAvisoEntregado = async () => {
+      const ahora = new Date().toISOString();
+      for (const key of listoParaPagar ? [claveDelListo, claveDelUltimo] : [claveDelUltimo]) {
+        await prisma.appSetting
+          .upsert({ where: { key }, create: { key, value: ahora }, update: { value: ahora } })
+          .catch(() => {});
+      }
+    };
+
+    if (ruta && gravedad && destinos.length === 0) {
+      // Sin WhatsApp: push a la asesora (no tiene número) o a Alexander (nadie disponible).
+      if (!listoParaPagar) {
+        const filaPrevia = await prisma.appSetting.findUnique({ where: { key: claveDelUltimo } });
+        const previo = filaPrevia?.value ? Date.parse(filaPrevia.value) : 0;
+        if (previo && Date.now() - previo < ESPERA_ENTRE_AVISOS_MS) {
+          return 0;
+        }
+      }
       const payload = {
-        title: ruta.pushAlexander ? "Chat sin asesora disponible" : "🔔 Necesita atención",
-        body: `${input.cliente}: ${input.motivo}`.slice(0, 180),
+        title: listoParaPagar
+          ? "🔥 LISTO PARA PAGAR"
+          : ruta.pushAlexander
+            ? "Chat sin asesora disponible"
+            : "🔔 Necesita atención",
+        // Por push no sale el segundo WhatsApp: el mensaje de cierre va en el cuerpo.
+        body: listoParaPagar
+          ? `${input.cliente}: ${cierre}`.slice(0, 300)
+          : `${input.cliente}: ${input.motivo}`.slice(0, 180),
         tag: `atencion:${input.conversationId}`,
         url: `/cliente/chats?chatKey=agent:${input.conversationId}&assigned=all`,
       };
@@ -243,16 +279,13 @@ export async function avisarAsesorPorWhatsApp(input: {
         }
       }
       if (entregados > 0) {
-        const ahora = new Date().toISOString();
-        await prisma.appSetting
-          .upsert({ where: { key: claveDelUltimo }, create: { key: claveDelUltimo, value: ahora }, update: { value: ahora } })
-          .catch(() => {});
+        await marcarAvisoEntregado();
       }
       void anotarAvisoDelBot({
         workspaceId: input.workspaceId,
         conversationId: input.conversationId,
         gravedad: ruta.gravedad,
-        titulo: `${ruta.pushAlexander ? "Sin asesora disponible" : "Necesita atención"}: ${input.motivo}`,
+        titulo: `${listoParaPagar ? "Listo para pagar" : ruta.pushAlexander ? "Sin asesora disponible" : "Necesita atención"}: ${input.motivo}`,
         canales: entregados > 0 ? [ruta.pushAlexander ? "alexander_push" : "asesora_push"] : [],
       });
       return entregados > 0 ? 1 : 0;
@@ -284,10 +317,12 @@ export async function avisarAsesorPorWhatsApp(input: {
       Va en su propia fila y no en el estado del agente a propósito: el estado lo reescribe el
       motor al terminar el turno, y pisaría esta marca sin enterarse.
     */
-    const filaDelUltimo = await prisma.appSetting.findUnique({ where: { key: claveDelUltimo } });
-    const ultimo = filaDelUltimo?.value ? Date.parse(filaDelUltimo.value) : 0;
-    if (ultimo && Date.now() - ultimo < ESPERA_ENTRE_AVISOS_MS) {
-      return 0;
+    if (!listoParaPagar) {
+      const filaDelUltimo = await prisma.appSetting.findUnique({ where: { key: claveDelUltimo } });
+      const ultimo = filaDelUltimo?.value ? Date.parse(filaDelUltimo.value) : 0;
+      if (ultimo && Date.now() - ultimo < ESPERA_ENTRE_AVISOS_MS) {
+        return 0;
+      }
     }
 
     /*
@@ -312,13 +347,11 @@ export async function avisarAsesorPorWhatsApp(input: {
       : null;
     const nombreDeLaAsesora = asesora?.name?.trim() || asesora?.email || null;
 
-    const encabezado = [
-      "🔔 *Necesita atención*",
-      "",
-      `👤 ${input.cliente}`,
-      `📱 ${input.telefonoDelCliente}`,
-      `📌 ${input.motivo}`,
-    ];
+    const encabezado = armarEncabezadoDelAviso({
+      cliente: input.cliente,
+      telefono: input.telefonoDelCliente,
+      motivo: input.motivo,
+    });
     const textoParaAsesora = [...encabezado, "", enlace].join("\n");
     const textoParaAdministrador = [
       ...encabezado,
@@ -339,13 +372,22 @@ export async function avisarAsesorPorWhatsApp(input: {
           const dispositivos = await sendPushToUser({
             userId,
             payload: {
-              title: "🔔 Necesita atención",
-              body: [
-                `${input.cliente}: ${input.motivo}`,
-                destino.soloDe === null ? `Asignado a: ${nombreDeLaAsesora ?? "nadie todavía"}` : null,
-              ]
-                .filter(Boolean)
-                .join("\n"),
+              title: listoParaPagar ? "🔥 LISTO PARA PAGAR" : "🔔 Necesita atención",
+              body: listoParaPagar
+                ? // Por push no sale el segundo WhatsApp: el mensaje de cierre va en el cuerpo.
+                  [
+                    `${input.cliente}: ${cierre}`,
+                    destino.soloDe === null ? `Asignado a: ${nombreDeLaAsesora ?? "nadie todavía"}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join("\n")
+                    .slice(0, 300)
+                : [
+                    `${input.cliente}: ${input.motivo}`,
+                    destino.soloDe === null ? `Asignado a: ${nombreDeLaAsesora ?? "nadie todavía"}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join("\n"),
               tag: `atencion:${input.conversationId}`,
               url: `/cliente/chats?chatKey=agent:${input.conversationId}&assigned=all`,
             },
@@ -370,6 +412,22 @@ export async function avisarAsesorPorWhatsApp(input: {
         if (destino.soloDe !== null && destino.soloDe === asignadaAhoraA) {
           llegoALaAsesora = true;
         }
+        if (cierre) {
+          // Segundo WhatsApp, solo con el mensaje de cierre, para copiarlo y mandarlo tal cual.
+          // Si falla, el aviso de arriba ya salió y sigue contando.
+          try {
+            await sendEvolutionTextMessageWithReconnect({
+              instanceName: canal.evolutionInstanceName,
+              phoneNumber: destino.numero,
+              text: cierre,
+            });
+          } catch (error) {
+            console.warn("[avisos] no se pudo mandar el mensaje de cierre", {
+              numero: destino.numero,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
       } catch (error) {
         console.warn("[avisos] no se pudo avisar", {
           numero: destino.numero,
@@ -379,10 +437,7 @@ export async function avisarAsesorPorWhatsApp(input: {
     }
 
     if (enviados > 0) {
-      const ahora = new Date().toISOString();
-      await prisma.appSetting
-        .upsert({ where: { key: claveDelUltimo }, create: { key: claveDelUltimo, value: ahora }, update: { value: ahora } })
-        .catch(() => {});
+      await marcarAvisoEntregado();
     }
 
     if (ruta) {
@@ -390,7 +445,7 @@ export async function avisarAsesorPorWhatsApp(input: {
         workspaceId: input.workspaceId,
         conversationId: input.conversationId,
         gravedad: ruta.gravedad,
-        titulo: `Necesita atención: ${input.motivo}`,
+        titulo: `${listoParaPagar ? "Listo para pagar" : "Necesita atención"}: ${input.motivo}`,
         canales: enviados > 0 ? [via.tipo === "push" ? "asesora_push" : "asesora_whatsapp"] : [],
       });
     }
