@@ -379,6 +379,13 @@ await prueba("negrita: los asteriscos no esconden el valor del envío ni una fra
   const prohibida = sq.revisarSeguimiento("¿Sigues *interesada* en la camilla?", BASE);
   assert.notDeepEqual(prohibida, []);
   assert.ok(prohibida.some((p) => /sigues interesad/i.test(p)), prohibida.join(" | "));
+  // Un asterisco pegado entre dos palabras corta como un espacio: "envío*gratis*" no esconde el "gratis".
+  for (const texto of ["La camilla te llega con envío*gratis* ¿Te la separo?", "La camilla te llega con *envío*gratis ¿Te la separo?"]) {
+    const p = sq.revisarSeguimiento(texto, BASE);
+    assert.ok(p.some((x) => /gratis/i.test(x)), `${texto}: ${p.join(" | ")}`);
+  }
+  const contra = sq.revisarSeguimiento("¿Te la separo y pagas*contraentrega*?", { ...BASE, producto: "Camilla plegable" });
+  assert.ok(contra.some((x) => /contraentrega/i.test(x)), contra.join(" | "));
 });
 
 await prueba("negrita: «*50* %» sigue siendo la regla del anticipo, no una cifra inventada", () => {
