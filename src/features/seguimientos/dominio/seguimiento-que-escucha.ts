@@ -121,12 +121,18 @@ export type RevisionDelSeguimiento = {
   yaEnviados: string[];
   /** El texto del libro V3 (precios, envios, formas de pago): de ahi pueden salir cifras. */
   textoDelLibro: string | null;
+  /** El producto del chat: la contraentrega solo vale si es un Combo. null o ausente = no se sabe. */
+  producto?: string | null;
 };
 
 /**
  * Los problemas de un seguimiento propuesto (vacio = se puede mandar). Se rechaza si tiene mas de 2
- * lineas, una frase prohibida, no termina en pregunta, se parece a uno ya enviado o trae un precio,
- * una cifra o una fecha que no esta ni en el libro ni en la conversacion.
+ * lineas, una frase prohibida, no termina en pregunta, se parece a uno ya enviado, vuelve a preguntar
+ * lo que el cliente ya dijo (o no cierra pidiendo apartar cuando ya dio la ciudad), trae un precio,
+ * una cifra o una fecha que no esta ni en el libro ni en la conversacion, o rompe una regla del libro:
+ * da el valor del envio, dice "envio gratis" sin la condicion del 50 % (o "sin costo de envio"),
+ * ofrece contraentrega en un producto que no es el Combo o promete que llega a San Andres, Leticia,
+ * Inirida o Mitu.
  */
 export function revisarSeguimiento(texto: string, contexto: RevisionDelSeguimiento): string[] {
   const limpio = (texto ?? "").trim();
@@ -145,6 +151,9 @@ export function revisarSeguimiento(texto: string, contexto: RevisionDelSeguimien
   // Lo que el cliente ya dijo: no se le vuelve a preguntar y, si dio la ciudad, se cierra pidiendo apartar.
   problemas.push(...problemasConLoQueDijo(limpio, loQueDijoElCliente(contexto.conversacion)));
 
+  // Lo que el libro prohibe: valor del envio, envio gratis sin condicion, contraentrega fuera del Combo...
+  problemas.push(...problemasConElLibro(limpio, contexto.producto ?? null));
+
   const fuente = [contexto.textoDelLibro ?? "", ...contexto.conversacion.map((l) => l.texto)].join("\n");
   const indice = indiceDeLaFuente(fuente);
   // El "50 %" del cierre de apartar es la regla del anticipo, no una cifra inventada. Solo esa forma:
@@ -155,6 +164,81 @@ export function revisarSeguimiento(texto: string, contexto: RevisionDelSeguimien
   }
 
   return [...new Set(problemas)];
+}
+
+/* ----------------------------------------------------------------------------------------------
+   Las reglas del libro V3 que el seguimiento no puede romper (el libro solo se respeta, no se edita).
+---------------------------------------------------------------------------------------------- */
+
+/** Minusculas y sin tildes, pero con "$", puntos y comas (para reconocer un valor en pesos). */
+function sinTildes(texto: string): string {
+  return texto.toLowerCase().normalize("NFD").replace(/\p{M}/gu, "");
+}
+
+/**
+ * Un valor en pesos: "$20.000", "20 mil", "20.000", "15000 pesos". Un plazo ("2 a 4 dias") no es
+ * un valor: no lleva "$", ni "mil", ni separador de miles.
+ */
+const VALOR = String.raw`(?:\$\s*\d[\d.,]*(?:\s*mil\b)?|\d[\d.,]*\s*(?:mil|pesos)\b|\d{1,3}(?:[.,]\d{3})+)`;
+
+/** Formas de dar el valor del envio. "$350.000 con envio incluido" no es una: es el precio del producto. */
+const VALOR_DEL_ENVIO = [
+  /\bfletes?\b/,
+  new RegExp(
+    `\\benvios?(?: (?:a|hasta|para) [a-z ]{1,25}?)?\\s*(?:te |le |les |nos )?(?:cuesta|cuestan|vale|valen|sale|sale en|queda en|tiene un (?:costo|valor) de|es de|cobra|cobramos|:)\\s*(?:de |en |por )?${VALOR}`,
+  ),
+  new RegExp(`\\benvios? (?:de|por|en) ${VALOR}`),
+  new RegExp(`${VALOR}\\s*(?:de|del|por|para|en)(?: el)? envios?\\b`),
+];
+const ENVIO_GRATIS = /\b(envios? (gratis|gratuitos?)|gratis el envio)\b/;
+const CONDICION_DEL_50 = /\b50\s?(%|por ciento)/;
+const SIN_COSTO_DE_ENVIO = /\bsin (costo|cobro|valor)( alguno)? (de|del|en el|por el) envios?\b/;
+/** "contraentrega solo en el Combo": aclarar la regla no es ofrecerla. */
+const CONTRAENTREGA_SOLO_EN_EL_COMBO = /\bsolo (aplica |es |funciona |va )?(en|con|para|al|a) (el )?combo\b/;
+/** Prometer que llega o que se envia; lo negado ("no llega") no promete nada y se quita antes. */
+const PROMETE_LLEGADA = /\b(llegan?|te (lo|la|los|las) (enviamos|mandamos|despachamos)|(enviamos|mandamos|despachamos))\b/;
+const NIEGA_LLEGADA = /\bno (te |le |les )?(lo |la |los |las )?(llegan?|enviamos|mandamos|despachamos)\b/g;
+const NOMBRE_SIN_COBERTURA: Record<string, string> = {
+  "san andres": "San Andrés",
+  leticia: "Leticia",
+  inirida: "Inírida",
+  mitu: "Mitú",
+};
+
+/** Los problemas del texto contra las reglas del libro (los recibe la IA al reintentar). */
+function problemasConElLibro(texto: string, producto: string | null): string[] {
+  const problemas: string[] = [];
+  const bajo = sinTildes(texto);
+  const textoNormal = normalizar(texto);
+
+  if (VALOR_DEL_ENVIO.some((patron) => patron.test(bajo))) {
+    problemas.push("da el valor del envío: no lo des, el libro no lo permite");
+  }
+  if (SIN_COSTO_DE_ENVIO.test(textoNormal)) {
+    problemas.push("dice «sin costo de envío»: el envío gratis solo va con su condición, apartando con el 50 %");
+  } else if (ENVIO_GRATIS.test(textoNormal) && !CONDICION_DEL_50.test(bajo)) {
+    problemas.push("dice «envío gratis» sin su condición: solo si aparta con el 50 %");
+  }
+
+  const esCombo = /\bcombo\b/.test(normalizar(producto ?? ""));
+  if (CONTRAENTREGA.test(textoNormal) && !esCombo && !CONTRAENTREGA_SOLO_EN_EL_COMBO.test(textoNormal)) {
+    problemas.push(
+      producto?.trim()
+        ? `ofrece contraentrega y el producto (${producto.trim()}) no es el Combo: la contraentrega solo aplica al Combo`
+        : "ofrece contraentrega y no se sabe si el producto es el Combo: la contraentrega solo aplica al Combo",
+    );
+  }
+
+  for (const frase of texto.split(/[.!?¿¡\n]+/)) {
+    const normal = normalizar(frase).replace(NIEGA_LLEGADA, " ");
+    if (!PROMETE_LLEGADA.test(normal)) continue;
+    const ciudad = Object.keys(NOMBRE_SIN_COBERTURA).find((c) => new RegExp(`(^| )${c}( |$)`).test(normal));
+    if (ciudad) {
+      problemas.push(`promete que llega a ${NOMBRE_SIN_COBERTURA[ciudad]}: no hay envío asegurado a esa ciudad`);
+      break;
+    }
+  }
+  return problemas;
 }
 
 /** Las preguntas del texto, normalizadas: de cada oracion con "?", lo que va desde su "¿" (si lo tiene). */
@@ -596,6 +680,7 @@ export function elegirTexto(
     conversacion: input.conversacion,
     yaEnviados: input.yaEnviados,
     textoDelLibro: [input.textoDelLibro ?? "", input.producto ?? ""].join("\n"),
+    producto: input.producto,
   };
 
   for (const propuesta of input.propuestas.slice(0, INTENTOS_MAXIMOS)) {

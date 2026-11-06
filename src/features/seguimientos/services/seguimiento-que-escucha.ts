@@ -177,6 +177,8 @@ export async function redactarSeguimientoQueEscucha(input: {
       conversacion: chat.lineas,
       yaEnviados: yaEnviados.textos,
       textoDelLibro: [datosDelLibro ?? "", producto?.nombre ?? ""].join("\n"),
+      // Sin el producto, los reintentos de la IA no verian la regla de la contraentrega (solo en el Combo).
+      producto: producto?.nombre ?? null,
     };
     const propuestas = await pedirPropuestas(apiKey, pedido, revision);
 
