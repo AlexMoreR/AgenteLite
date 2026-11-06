@@ -10,6 +10,7 @@ import type {
 } from "./chat-inbox-types";
 import { getMessagePreviewText, isActivityMessage } from "./chat-inbox-format";
 import { mergeConversationSnapshots } from "./chat-history-cache";
+import { siguienteSinResponderDesde } from "@/features/chats/domain/sin-responder";
 
 export function normalizeLiveConversationSnapshot(value: unknown): LiveConversationSnapshot | null {
   if (!value || typeof value !== "object") {
@@ -203,6 +204,34 @@ function inferChannelTypeFromId(
   return id?.startsWith("official:") ? "whatsapp_official" : "whatsapp";
 }
 
+/*
+  "Sin responder desde" de una fila despues de un mensaje que llega en vivo, cuando el aviso no
+  trae el dato del servidor. Parte del valor que ya tenia la fila (`actual`):
+  - sin direccion no se sabe nada del mensaje: queda como estaba;
+  - si no, manda la regla de siguienteSinResponderDesde (saliente valida la quita, SYSTEM y
+    FAILED no cambian nada, entrante mantiene la fecha del primero).
+  La burbuja local que fallo trae "error" en vez de "FAILED": es lo mismo.
+*/
+function sinResponderTrasMensaje(
+  actual: SharedInboxConversationItem["sinResponderDesde"],
+  mensaje: {
+    direccion: "INBOUND" | "OUTBOUND" | null | undefined;
+    tipo: string | null | undefined;
+    status: string | null | undefined;
+    fecha: Date | string | null | undefined;
+  },
+): SharedInboxConversationItem["sinResponderDesde"] {
+  if (mensaje.direccion !== "INBOUND" && mensaje.direccion !== "OUTBOUND") {
+    return actual;
+  }
+  return siguienteSinResponderDesde<Date | string | null>(actual ?? null, {
+    direccion: mensaje.direccion,
+    tipo: mensaje.tipo,
+    status: mensaje.status === "error" ? "FAILED" : mensaje.status,
+    fecha: mensaje.fecha ?? null,
+  });
+}
+
 export function buildConversationItemFromSnapshot(
   snapshot: LiveConversationSnapshot,
   existing?: SharedInboxConversationItem | null,
@@ -269,6 +298,16 @@ export function buildConversationItemFromSnapshot(
     lastMessageStatus:
       latestMessage?.outboundStatusLabel ?? existing?.lastMessageStatus ?? null,
     lastMessageAt: latestMessage?.createdAt ?? existing?.lastMessageAt ?? null,
+    // Abrir el chat borra el contador verde (arriba), pero NO la marca "Sin responder": esa solo
+    // la quita una respuesta de verdad.
+    sinResponderDesde: latestMessage
+      ? sinResponderTrasMensaje(existing?.sinResponderDesde, {
+          direccion: latestMessage.direction,
+          tipo: latestMessage.type,
+          status: latestMessage.outboundStatusLabel,
+          fecha: latestMessage.createdAt,
+        })
+      : existing?.sinResponderDesde,
     href: existing?.href ?? "",
   };
 
@@ -321,6 +360,20 @@ export function buildConversationItemFromListSnapshot(
     // No usar existing como fallback para lastMessageAt: si el snapshot trae null pero existing
     // tiene una fecha vieja, el item quedaría anclado en su posición anterior en el sort.
     lastMessageAt: snapshot.lastMessageAt ?? null,
+    /*
+      Si el aviso trae el dato del servidor (incluido null = ya contestado) manda ese. Si no, se
+      calcula con el mensaje que trae. NO usar `??`: un null perderia contra el valor viejo y la
+      marca quedaria pegada.
+    */
+    sinResponderDesde:
+      snapshot.sinResponderDesde !== undefined
+        ? snapshot.sinResponderDesde
+        : sinResponderTrasMensaje(existing?.sinResponderDesde, {
+            direccion: snapshot.lastMessageDirection,
+            tipo: snapshot.lastMessageType,
+            status: snapshot.lastMessageStatus,
+            fecha: snapshot.lastMessageAt,
+          }),
     href: existing?.href ?? "",
   };
 }
@@ -400,14 +453,22 @@ export function mergeConversationListItem(
   // La etapa del CRM no viaja en los snapshots de realtime; si el update entrante no la trae,
   // conservamos la que ya teniamos para que el badge no desaparezca hasta la proxima carga.
   const crmStage = next.crmStage ?? existing.crmStage ?? null;
+  /*
+    "Sin responder" sale de `next` siempre que lo traiga, tambien cuando `existing` es mas nuevo:
+    si no, un envio propio que fallo dejaria la marca quitada para siempre en vez de volver con el
+    siguiente refresco del servidor. Solo si `next` no trae el dato se conserva el de antes.
+  */
+  const sinResponderDesde =
+    next.sinResponderDesde !== undefined ? next.sinResponderDesde : existing.sinResponderDesde;
 
   if (existingAt <= nextAt) {
-    return { ...next, crmStage };
+    return { ...next, crmStage, sinResponderDesde };
   }
 
   return {
     ...next,
     crmStage,
+    sinResponderDesde,
     incomingCount: Math.max(existing.incomingCount ?? 0, next.incomingCount ?? 0),
     // Si ya tenemos una versión más reciente del preview en memoria, debemos
     // conservarla completa para no mezclar contenido viejo con timestamps nuevos.
@@ -474,6 +535,9 @@ export function areConversationListItemsEqual(
     // Sin esto, pasar de ENVIADO a ENTREGADO se considera "la misma fila" y el chulito no cambia.
     (left.lastMessageStatus ?? null) === (right.lastMessageStatus ?? null) &&
     getConversationLastMessageTimestamp(left.lastMessageAt) === getConversationLastMessageTimestamp(right.lastMessageAt) &&
+    // Por tiempo (puede venir como Date o como texto): sin esto, quitar o poner la marca "Sin
+    // responder" se consideraba "la misma fila" y no se veia.
+    getConversationLastMessageTimestamp(left.sinResponderDesde) === getConversationLastMessageTimestamp(right.sinResponderDesde) &&
     left.incomingCount === right.incomingCount &&
     left.channelType === right.channelType &&
     left.href === right.href &&
