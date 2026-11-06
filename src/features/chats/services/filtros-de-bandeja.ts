@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
+import { sqlIdsSinResponder } from "@/lib/ultimo-mensaje-de-chats";
 
 import {
   DIAS_DE_SIN_RESPONDER,
@@ -125,6 +126,10 @@ const cacheSinResponder = new Map<string, { vence: number; ids: string[] }>();
  * posterior a la ultima entrante" por conversacion) tardaba 108 segundos contra la base de
  * verdad; asi tarda menos de dos decimas.
  *
+ * Una saliente que fallo (status FAILED) tampoco: no le llego al cliente. El bot, los seguimientos
+ * y los envios automaticos SI cuentan. La regla completa: ../domain/sin-responder.ts; el SQL vive
+ * en src/lib/ultimo-mensaje-de-chats.ts para poder probarlo en PGlite (check-sin-responder.mjs).
+ *
  * Las notas internas y de actividad NO cuentan como respuesta: se guardan como salientes, y la
  * nota de auto-asignacion es una de ellas, asi que sin excluirlas toda conversacion nueva
  * figuraria como ya contestada. Todas son de tipo SYSTEM, y por eso alcanza con mirar el tipo:
@@ -154,24 +159,9 @@ export async function idsSinResponder(input: {
     ? [input.channelId]
     : input.visibleChannelIds;
 
-  const filtroDeCanales = canales
-    ? canales.length > 0
-      ? Prisma.sql`AND m."channelId" IN (${Prisma.join(canales)})`
-      : Prisma.sql`AND false`
-    : Prisma.empty;
-
-  const filas = await prisma.$queryRaw<Array<{ conversationId: string }>>`
-    SELECT m."conversationId" AS "conversationId"
-    FROM "Message" m
-    WHERE m."workspaceId" = ${input.workspaceId}
-      AND m."isStatusBroadcast" = false
-      AND m."type" <> 'SYSTEM'
-      AND m."createdAt" > now() - make_interval(days => ${DIAS_DE_SIN_RESPONDER})
-      ${filtroDeCanales}
-    GROUP BY m."conversationId"
-    HAVING MAX(m."createdAt") FILTER (WHERE m."direction" = 'INBOUND')
-         > COALESCE(MAX(m."createdAt") FILTER (WHERE m."direction" = 'OUTBOUND'), TIMESTAMP '1970-01-01')
-  `;
+  const filas = await prisma.$queryRaw<Array<{ conversationId: string }>>(
+    sqlIdsSinResponder({ workspaceId: input.workspaceId, canales, dias: DIAS_DE_SIN_RESPONDER }),
+  );
 
   const ids = filas.map((fila) => fila.conversationId);
   cacheSinResponder.set(clave, { vence: Date.now() + VIDA_DE_LA_CACHE_MS, ids });

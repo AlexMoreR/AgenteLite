@@ -4,8 +4,10 @@ import { prisma } from "@/lib/prisma";
 import { getOfficialApiConfigByWorkspaceId, hasOfficialApiBaseCredentials } from "@/lib/official-api-config";
 import { downloadOfficialApiMedia, extractMediaRefFromRawPayload } from "@/lib/official-api-media";
 import { cifrasParaBuscarElTelefono, estadoQueAplica } from "@/lib/busqueda-de-chats";
+import { sqlOficialQuedoSinResponder } from "@/lib/ultimo-mensaje-de-chats";
 import type { OfficialApiChatsData } from "@/features/official-api/types/official-api";
 import {
+  DIAS_DE_SIN_RESPONDER,
   SIN_ASIGNAR,
   SIN_FILTROS,
   condicionCompleta,
@@ -135,16 +137,12 @@ export async function fragmentosDeFiltrosOficiales(
   const ultimoDelCliente = Prisma.sql`(SELECT MAX(entrante."createdAt") FROM "OfficialApiMessage" entrante
       WHERE entrante."conversationId" = c."id" AND entrante."direction" = 'INBOUND')`;
   /*
-    Las notas de actividad se guardan como salientes de tipo SYSTEM: no son una respuesta, y sin
-    excluirlas cualquier chat con una nota figuraria como ya contestado. Aca si se puede preguntar
-    de la forma evidente: el canal oficial tiene decenas de conversaciones, no miles.
+    "Sin responder" con la misma regla que WhatsApp normal (src/lib/ultimo-mensaje-de-chats.ts):
+    sin SYSTEM en ningun sentido, una saliente FAILED no es respuesta y solo cuenta lo que el
+    cliente escribio en los ultimos DIAS_DE_SIN_RESPONDER dias. `ultimoDelCliente` queda como
+    estaba: lo usa tambien "callado N+ dias".
   */
-  const quedoSinResponder = Prisma.sql`${ultimoDelCliente} > COALESCE((
-      SELECT MAX(saliente."createdAt") FROM "OfficialApiMessage" saliente
-      WHERE saliente."conversationId" = c."id"
-        AND saliente."direction" = 'OUTBOUND'
-        AND saliente."type"::text <> 'SYSTEM'
-    ), TIMESTAMP '1970-01-01')`;
+  const quedoSinResponder = sqlOficialQuedoSinResponder(DIAS_DE_SIN_RESPONDER);
 
   const condiciones = filtros.condiciones.filter(condicionCompleta);
   // La linea oficial como WhatsAppChannel: solo se busca si hay una condicion "Línea".

@@ -35,6 +35,7 @@
     "test:v3-mapa": "node scripts/check-v3-mapa.mjs",
     "test:espera-bandeja": "node scripts/check-espera-bandeja.mjs",
     "test:velocidad-bandeja": "node scripts/check-velocidad-bandeja.mjs",
+    "test:sin-responder": "npx tsx --test src/features/chats/domain/sin-responder.test.ts && node scripts/check-sin-responder.mjs",
     "test:coach": "node scripts/check-coach.mjs",
     "test:coach-acciones": "node scripts/check-coach-acciones.mjs",
     "test:coach-resueltos": "node scripts/check-coach-resueltos.mjs",

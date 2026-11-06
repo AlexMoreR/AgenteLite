@@ -93,3 +93,69 @@ export function sqlPayloadDeMensajes(input: { workspaceId: string; messageIds: s
       AND m."id" IN (${Prisma.join(input.messageIds)})
   `;
 }
+
+/*
+  "Sin responder": la misma regla en las dos fuentes (ver src/features/chats/domain/sin-responder.ts).
+  - Se ignoran los SYSTEM (notas internas, actividad y llamadas) en los dos sentidos.
+  - Responde una saliente que no es SYSTEM ni fallo (status FAILED): asesora, bot o envio automatico.
+  - Solo cuentan los chats con un mensaje del cliente en los ultimos `dias` dias.
+  No se abre el rawPayload: es lo que hacia lenta la consulta (diagnostico del 7-oct-2026).
+*/
+
+/**
+ * Las conversaciones de WhatsApp normal donde lo ultimo (sin SYSTEM) es del cliente.
+ *
+ * Una sola pasada agrupada que compara dos fechas por chat —la ultima entrante contra la ultima
+ * saliente valida—. Se mira solo lo de los ultimos `dias` dias: una respuesta mas vieja es
+ * anterior a cualquier entrante de la ventana, asi que no cambia el resultado.
+ *
+ * `canales`: `null` = todas las lineas; `[]` = ninguna.
+ */
+export function sqlIdsSinResponder(input: {
+  workspaceId: string;
+  canales: string[] | null;
+  dias: number;
+}): Prisma.Sql {
+  const filtroDeCanales = input.canales
+    ? input.canales.length > 0
+      ? Prisma.sql`AND m."channelId" IN (${Prisma.join(input.canales)})`
+      : Prisma.sql`AND false`
+    : Prisma.empty;
+
+  return Prisma.sql`
+    SELECT m."conversationId" AS "conversationId"
+    FROM "Message" m
+    WHERE m."workspaceId" = ${input.workspaceId}
+      AND m."isStatusBroadcast" = false
+      AND m."type" <> 'SYSTEM'
+      AND m."createdAt" > now() - make_interval(days => ${input.dias})
+      ${filtroDeCanales}
+    GROUP BY m."conversationId"
+    HAVING MAX(m."createdAt") FILTER (WHERE m."direction" = 'INBOUND')
+         > COALESCE(
+             MAX(m."createdAt") FILTER (WHERE m."direction" = 'OUTBOUND' AND m."status" <> 'FAILED'),
+             TIMESTAMP '1970-01-01'
+           )
+  `;
+}
+
+/**
+ * La condicion "quedo sin responder" de la linea oficial, para el WHERE de la bandeja: la
+ * conversacion va con el alias `c`. Da NULL si el cliente no escribio en los ultimos `dias` dias
+ * (quien la niegue tiene que envolverla en COALESCE(..., false)).
+ */
+export function sqlOficialQuedoSinResponder(dias: number): Prisma.Sql {
+  return Prisma.sql`(
+      SELECT MAX(entrante."createdAt") FROM "OfficialApiMessage" entrante
+      WHERE entrante."conversationId" = c."id"
+        AND entrante."direction" = 'INBOUND'
+        AND entrante."type"::text <> 'SYSTEM'
+        AND entrante."createdAt" > now() - make_interval(days => ${dias})
+    ) > COALESCE((
+      SELECT MAX(saliente."createdAt") FROM "OfficialApiMessage" saliente
+      WHERE saliente."conversationId" = c."id"
+        AND saliente."direction" = 'OUTBOUND'
+        AND saliente."type"::text <> 'SYSTEM'
+        AND saliente."status"::text <> 'FAILED'
+    ), TIMESTAMP '1970-01-01')`;
+}
