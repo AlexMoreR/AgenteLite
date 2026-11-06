@@ -32,3 +32,48 @@ export type EsperaDeChats = {
   /** Los que esperan, el que mas lleva esperando primero. */
   chats: ChatEsperando[];
 };
+
+/**
+ * Los parametros de la direccion que ya eligen que mirar. Si viene cualquiera (un enlace a un chat,
+ * una lista guardada, un filtro, la busqueda), la bandeja respeta eso y no elige la vista inicial.
+ */
+export const PARAMETROS_QUE_ELIGEN_LA_VISTA = [
+  "chatKey",
+  "conversacion",
+  "assigned",
+  "q",
+  "status",
+  "c",
+  "stage",
+  "tag",
+  "pending",
+  "espera",
+] as const;
+
+/** Con que vista abre la bandeja: la pestaña (Mias o Todas) y si arranca en "Esperando respuesta". */
+export type VistaInicialDeBandeja = { assigned: "mine" | "all"; espera: boolean };
+
+/**
+ * La vista con que abre la bandeja cuando la direccion no pide nada. Funcion pura (la usara la
+ * pantalla; la prueba la llama directo).
+ *
+ * - Asesora con chats suyos esperando: "Esperando respuesta" dentro de Mias, para que vea primero
+ *   lo que lleva mas tiempo sin contestar.
+ * - Asesora sin chats esperando: Mias, como siempre.
+ * - Dueño, administrador, supervisora o monitora (`veTodas`): Todas, como siempre.
+ *
+ * Devuelve null si la direccion ya trae algo de PARAMETROS_QUE_ELIGEN_LA_VISTA: se respeta lo que
+ * venga.
+ */
+export function vistaInicialDeBandeja(input: {
+  leer: (clave: string) => string | null | undefined;
+  /** Dueño, administrador, supervisora o monitora: abren en Todas. */
+  veTodas: boolean;
+  /** Cuantos chats de esta persona estan esperando (el `mine` de /counts). */
+  suyosEsperando: number;
+}): VistaInicialDeBandeja | null {
+  const traeAlgo = PARAMETROS_QUE_ELIGEN_LA_VISTA.some((clave) => Boolean(input.leer(clave)?.trim()));
+  if (traeAlgo) return null;
+  if (input.veTodas) return { assigned: "all", espera: false };
+  return { assigned: "mine", espera: input.suyosEsperando > 0 };
+}
