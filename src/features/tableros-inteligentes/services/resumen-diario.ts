@@ -3,7 +3,7 @@ import { QUIEN_AUTOMATICO, aprobacionAutomaticaPrendida } from "./aprobacion-aut
 import { resumenCorto, tituloCorto } from "./resumen-corto";
 import { avisosPrendidos, enSilencioDeAvisos, enviarAlDueno } from "./avisos-al-dueno";
 import { leerCuposDelDia, type CuposDelDia } from "./coordinador-en-vivo";
-import { pendientesDelDueno, todoElNegocio } from "./tableros";
+import { linkDeTerminadosDelDia, pendientesDelDueno, todoElNegocio } from "./tableros";
 
 /*
   RESUMEN DIARIO del Tablero IA (22-oct-2026; formato corto el 26-oct-2026). Es el texto corto de 2 líneas que se
@@ -14,7 +14,8 @@ import { pendientesDelDueno, todoElNegocio } from "./tableros";
 
   30-oct-2026 (Sistemas pasa a Emanuel; Alexander solo recibe esto): el resumen vuelve a salir por WhatsApp, UNA vez al
   día (entre las 6 y las 9 p. m. de Bogotá, por la línea Admin, con el silencio de la noche y el interruptor de los
-  avisos), de MÁXIMO 4 líneas (6 desde el 31-oct, ver abajo): qué se arregló, qué falló y qué está pendiente. Sin links ni listas para revisar.
+  avisos), de MÁXIMO 4 líneas (6 desde el 31-oct y 7 con el link desde el 6-nov, ver abajo): qué se arregló, qué falló y
+  qué está pendiente. Sin listas para revisar.
   Lo manda enviarResumenDiarioAlDueno desde el reloj (api/cron/follows). Esto CAMBIA lo del 26-oct ("ya no se manda").
 
   31-oct-2026 (cupos por sistema, parte 3): el resumen pasa de MÁXIMO 4 a MÁXIMO 6 líneas (lo pide la tarjeta: cambia la
@@ -22,6 +23,12 @@ import { pendientesDelDueno, todoElNegocio } from "./tableros";
   del día que guarda el latido, coordinador-en-vivo.ts) y la línea para el dueño "📈 Ahora corren hasta X tareas a la vez;
   antes se terminaban N por día (promedio de los 7 días antes del 31-oct) y hoy M". N es el promedio de las listas del 24 al
   30-oct, calculado una vez y guardado en AppSetting. Un día sin movimiento sigue sin mandar nada.
+
+  6-nov-2026 (decisión del dueño: ya no recibe un WhatsApp por cada tarea terminada, avisos-de-terminadas.ts): lo
+  terminado le llega solo en este resumen. El WhatsApp lleva al final UNA línea más con el link a la lista de lo trabajado
+  ese día ("📋 Ver lo trabajado hoy: <link>", pestaña "Trabajos terminados" filtrada por el día; textoDelWhatsAppDelResumen),
+  así que son hasta 7 líneas. La caja "Resumen de hoy" de la pantalla queda igual, sin link. Un día sin movimiento sigue
+  sin mandar nada (ni el link).
 
   26-oct-2026 (decisión del dueño: "WhatsApp solo cuando sea súper importante, lo demás lo miro en el tablero"):
   YA NO SE MANDA POR WHATSAPP. Los únicos avisos al dueño son los de avisos-al-dueno.ts (Sistemas detenido o
@@ -197,8 +204,8 @@ export const haySinMovimiento = (cifras: CifrasDelDia) =>
   !cifras.listas && !cifras.conProblema && !cifras.esperando && !cifras.chocaronConMain;
 
 /**
- * El texto que se manda por WhatsApp y se ve en la caja "Resumen de hoy": 4 líneas fijas (título, qué se arregló, qué
- * falló y qué está pendiente), sin links ni listas. Texto vacío si todas las cifras son 0 (entonces no se manda nada).
+ * El texto que se ve en la caja "Resumen de hoy" y es la base del WhatsApp: 4 líneas fijas (título, qué se arregló, qué
+ * falló y qué está pendiente), sin links ni listas (el WhatsApp le suma la línea del link: textoDelWhatsAppDelResumen). Texto vacío si todas las cifras son 0 (entonces no se manda nada).
  * La línea "Falló" lleva siempre entre paréntesis cuántas tareas chocaron con main ese día, también cuando no falló nada.
  * 31-oct-2026: hasta 2 líneas más, solo con datos: los máximos de "corriendo a la vez / en fila" y la de antes y hoy.
  */
@@ -212,6 +219,18 @@ export function textoDelResumen(cifras: CifrasDelDia): string {
     `👆 Pendiente: ${cifras.esperando ? cuantas(cifras.esperando, "tarea", "tareas") : "nada"}`,
     ...lineasDeCupos(cifras),
   ].join("\n");
+}
+
+/** Las líneas del resumen por WhatsApp: hasta 6 del texto de la pantalla y la del link (6-nov-2026). */
+export const MAXIMO_LINEAS_DEL_RESUMEN = 7;
+
+/**
+ * El WhatsApp del resumen (6-nov-2026): el mismo texto de la caja "Resumen de hoy" y, al final, el link a la lista de lo
+ * trabajado ese día. Vacío si el texto está vacío (día sin movimiento: no sale nada, ni el link).
+ */
+export function textoDelWhatsAppDelResumen(textoDeLaPantalla: string, dia: string): string {
+  if (!textoDeLaPantalla) return "";
+  return `${textoDeLaPantalla}\n📋 Ver lo trabajado hoy: ${linkDeTerminadosDelDia(dia)}`;
 }
 
 /** Las 2 líneas de los cupos (31-oct-2026): cada una sale solo si hay sus datos. */
@@ -434,10 +453,10 @@ export async function enviarResumenDiarioAlDueno(ahora: Date = new Date()): Prom
         await cuantasChocaronConMain(workspaceId, dia),
         await extrasDelResumen(workspaceId, dia),
       );
-      const texto = textoDelResumen(cifras);
+      const texto = textoDelWhatsAppDelResumen(textoDelResumen(cifras), dia);
       if (texto) {
-        // 31-oct-2026: hasta 6 líneas (las 4 de siempre y las 2 de los cupos).
-        const envio = await enviarAlDueno(workspaceId, texto, 6);
+        // Hasta 7 líneas: las 4 de siempre, las 2 de los cupos (31-oct-2026) y la del link (6-nov-2026).
+        const envio = await enviarAlDueno(workspaceId, texto, MAXIMO_LINEAS_DEL_RESUMEN);
         if (!envio.salio) continue; // se vuelve a intentar en el próximo minuto, hasta las 9 p. m.
         enviados += 1;
       }

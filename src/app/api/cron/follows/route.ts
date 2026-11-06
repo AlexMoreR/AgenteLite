@@ -221,8 +221,9 @@ async function handleCron(request: Request) {
     quedaron POR_APROBAR (regla del dueño 25-oct, salvo dinero o Meta Ads; apagado "Aprobar tareas solo", solo las
     de riesgo bajo) y revisa si hay que avisarle al dueño por WhatsApp (línea Admin) que Sistemas se detuvo o lo
     necesita: Coordinador caído, sin trabajo, trabado, necesita al dueño (avisos-al-dueno.ts; los técnicos van a Emanuel). El resumen diario (4 líneas) sale una vez al día
-    (resumen-diario.ts). También avisa cuando el Coordinador deja una tarjeta en HECHO ("✅ ¡Listo! Terminó la tarea
-    T-123", avisos-de-terminadas.ts). Una vez al día archiva las HECHO y FALLIDO de más de 3 días (archivadas.ts).
+    (resumen-diario.ts; desde el 6-nov-2026 con el link a lo trabajado ese día). Cuando el Coordinador deja una tarjeta en
+    HECHO deja una alerta BAJA en la campanita, sin WhatsApp desde el 6-nov-2026 (avisos-de-terminadas.ts). Una vez al
+    día archiva las HECHO y FALLIDO de más de 3 días (archivadas.ts).
     Sin nada pendiente son un par de lecturas; en segundo plano.
   */
   after(async () => {
@@ -243,7 +244,7 @@ async function handleCron(request: Request) {
       console.error("[cron/follows] avisos al dueno del tablero error", error);
     }
     try {
-      // Resumen diario a Alexander (máximo 4 líneas, una vez al día, por la línea Admin).
+      // Resumen diario a Alexander (hasta 7 líneas con el link de lo trabajado, una vez al día, por la línea Admin).
       await enviarResumenDiarioAlDueno();
     } catch (error) {
       console.error("[cron/follows] resumen diario del tablero error", error);
