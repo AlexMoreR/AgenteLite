@@ -71,6 +71,8 @@ import {
 } from "@/lib/mcp/ventas-por-campana";
 import { getFlowReply } from "@/lib/agent-product-flow";
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
+import { ORIGENES_DE_SEGUIMIENTO } from "@/features/seguimientos/dominio/seguimiento-que-escucha";
 import { parseWorkspaceBusinessConfig } from "@/lib/workspace-business-config";
 
 /*
@@ -221,6 +223,11 @@ const HERRAMIENTAS_DE_LECTURA = [
         quien: { type: "string", enum: ["agente", "cliente", "todos"], description: "Por defecto: todos" },
         dias: { type: "number", description: "Cuantos dias hacia atras (1 a 60, por defecto 7)" },
         limite: { type: "number", description: "Maximo de resultados (1 a 100, por defecto 40)" },
+        solo_seguimientos: {
+          type: "boolean",
+          description:
+            "Solo los mensajes de seguimiento (los Follow y los recordatorios del reloj del V3), sin las respuestas del bot. Trae ademas 'total' con todos los que hay, aunque pasen el limite.",
+        },
       },
       required: ["texto"],
       additionalProperties: false,
@@ -1066,24 +1073,35 @@ async function buscarMensajes(args: Argumentos, contexto: Contexto) {
   const dias = numero(args, "dias", 1, 60, 7);
   const limite = numero(args, "limite", 1, 100, 40);
   const desde = new Date(Date.now() - dias * 24 * 60 * 60 * 1000);
+  // Solo seguimientos (6-nov-2026): para contar cuantos seguimientos dijeron una frase sin que las
+  // respuestas del bot gasten el limite. Se reconocen por la marca `rawPayload.source`.
+  const soloSeguimientos = args.solo_seguimientos === true;
+
+  const donde: Prisma.MessageWhereInput = {
+    workspaceId: contexto.workspaceId,
+    createdAt: { gte: desde },
+    deletedAt: null,
+    type: { not: "SYSTEM" },
+    // Tambien dentro de lo que se dijo en los audios: un precio dicho de viva voz es igual de real.
+    OR: [
+      { content: { contains: buscado, mode: "insensitive" } },
+      { transcripcion: { contains: buscado, mode: "insensitive" } },
+    ],
+    ...(soloSeguimientos
+      ? {
+          direction: "OUTBOUND" as const,
+          AND: [{ OR: ORIGENES_DE_SEGUIMIENTO.map((source) => ({ rawPayload: { path: ["source"], equals: source } })) }],
+        }
+      : {}),
+    ...(!soloSeguimientos && quien === "cliente" ? { direction: "INBOUND" as const } : {}),
+    ...(!soloSeguimientos && quien === "agente" ? { direction: "OUTBOUND" as const } : {}),
+  };
 
   // Se piden de mas cuando se filtra por agente: quien lo dijo se sabe recien al leer cada mensaje.
   const filas = await prisma.message.findMany({
-    where: {
-      workspaceId: contexto.workspaceId,
-      createdAt: { gte: desde },
-      deletedAt: null,
-      type: { not: "SYSTEM" },
-      // Tambien dentro de lo que se dijo en los audios: un precio dicho de viva voz es igual de real.
-      OR: [
-        { content: { contains: buscado, mode: "insensitive" } },
-        { transcripcion: { contains: buscado, mode: "insensitive" } },
-      ],
-      ...(quien === "cliente" ? { direction: "INBOUND" as const } : {}),
-      ...(quien === "agente" ? { direction: "OUTBOUND" as const } : {}),
-    },
+    where: donde,
     orderBy: { createdAt: "desc" },
-    take: quien === "agente" ? limite * 3 : limite,
+    take: quien === "agente" && !soloSeguimientos ? limite * 3 : limite,
     select: {
       conversationId: true,
       createdAt: true,
@@ -1098,13 +1116,15 @@ async function buscarMensajes(args: Argumentos, contexto: Contexto) {
 
   const resultados = filas
     .map((fila) => ({ fila, dijo: quienDijo(fila) }))
-    .filter(({ dijo }) => quien !== "agente" || dijo === "agente_o_flujo")
+    .filter(({ dijo }) => soloSeguimientos || quien !== "agente" || dijo === "agente_o_flujo")
     .slice(0, limite);
+  const total = soloSeguimientos ? await prisma.message.count({ where: donde }) : null;
 
   return {
     buscado,
     desde: hora(desde),
     encontrados: resultados.length,
+    ...(total !== null ? { solo_seguimientos: true, total } : {}),
     resultados: resultados.map(({ fila, dijo }) => ({
       conversacion_id: fila.conversationId,
       contacto: fila.contact?.name || fila.contact?.phoneNumber || null,

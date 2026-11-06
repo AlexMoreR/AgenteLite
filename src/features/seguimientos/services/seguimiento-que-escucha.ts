@@ -9,6 +9,8 @@ import {
   armarPedidoDeSeguimiento,
   elegirTexto,
   INTENTOS_MAXIMOS,
+  ORIGENES_DE_SEGUIMIENTO,
+  quitarTemaDeEnvioYPago,
   revisarSeguimiento,
   type RevisionDelSeguimiento,
 } from "@/features/seguimientos/dominio/seguimiento-que-escucha";
@@ -45,9 +47,14 @@ const MENSAJES_MAXIMOS = 1_000;
 
 /** Motivo con el que se cancela un seguimiento cuando ningun texto paso la revision. */
 export const MOTIVO_SIN_TEXTO = "seguimiento_sin_texto_valido" as const;
+/**
+ * Motivo con el que se cancela un seguimiento automatico que la puerta de envio rechazo (prometia
+ * envio gratis, llegada, pago o contraentrega que el texto agendado no dice): no sale nada.
+ */
+export const MOTIVO_PROMESA_DE_ENVIO = "seguimiento_con_promesa_de_envio" as const;
 /** Motivo con el que se corre a la vuelta siguiente porque ya se lleno el tope de la vuelta. */
 export const MOTIVO_TOPE_DE_LA_VUELTA = "tope_de_redacciones" as const;
-export type MotivoDelRedactor = typeof MOTIVO_SIN_TEXTO;
+export type MotivoDelRedactor = typeof MOTIVO_SIN_TEXTO | typeof MOTIVO_PROMESA_DE_ENVIO;
 
 export type SeguimientoRedactado =
   | {
@@ -155,11 +162,18 @@ export async function redactarSeguimientoQueEscucha(input: {
       seguimientosYaEnviados(input.conversationId),
     ]);
 
+    /*
+      Sin lo que hable de envio, gratis, contraentrega o pago (6-nov-2026, chat 8927): «Cómo hablamos»
+      permite "envío gratis a ciudades principales si lo separas con el 50%" y el redactor lo copiaba.
+      El libro no cambia: solo lo que ve la IA.
+    */
+    const comoHablamos = quitarTemaDeEnvioYPago(libro?.comoHablamos).trim();
+    const descripcion = quitarTemaDeEnvioYPago(producto?.descripcion).trim();
     const datosDelLibro =
       [
-        libro?.comoHablamos?.trim() || "",
+        comoHablamos,
         producto ? `Producto: ${producto.nombre}${producto.precio ? `, precio ${producto.precio}` : ""}` : "",
-        producto?.descripcion ? `Descripción: ${producto.descripcion}` : "",
+        descripcion ? `Descripción: ${descripcion}` : "",
       ]
         .filter(Boolean)
         .join("\n") || null;
@@ -179,6 +193,8 @@ export async function redactarSeguimientoQueEscucha(input: {
       textoDelLibro: [datosDelLibro ?? "", producto?.nombre ?? ""].join("\n"),
       // Sin el producto, los reintentos de la IA no verian la regla de la contraentrega (solo en el Combo).
       producto: producto?.nombre ?? null,
+      // Una promesa de llegada, pago o contraentrega solo vale si el texto agendado ya la trae.
+      textoAgendado: input.textoFijo,
     };
     const propuestas = await pedirPropuestas(apiKey, pedido, revision);
 
@@ -412,9 +428,6 @@ function aLineas(mensajes: MensajeLeido[]): Linea[] {
     })
     .filter((linea) => linea.texto);
 }
-
-/** Los origenes de los seguimientos automaticos de texto: los follows y los del reloj del V3 (parte 3). */
-const ORIGENES_DE_SEGUIMIENTO = ["follow", "agente-v3-seguimiento", "agente-v3-seguimiento-ia"];
 
 /** Los seguimientos que ya le llegaron a este chat (texto y fecha). */
 async function seguimientosYaEnviados(conversationId: string) {
