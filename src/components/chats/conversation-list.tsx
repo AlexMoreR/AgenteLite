@@ -11,6 +11,7 @@ import { ConversationRowMenu } from "./conversation-row-menu";
 import { useChatsFijados } from "./chats-fijados-store";
 import { TAG_BADGE_CLASS, getTagBadgeColors } from "@/lib/tag-badge";
 import { ContactAvatar } from "./contact-avatar";
+import { EtiquetaSinResponder } from "./etiqueta-sin-responder";
 import { warmConversationCache } from "./chat-conversation-warmup";
 import { clearPendingConversationSelection, setPendingConversationSelection } from "./chat-selection-store";
 import { readConversationFromCache } from "./chat-history-cache";
@@ -154,24 +155,32 @@ const MAX_VISIBLE_TAGS = 2;
 function ConversationTagsRow({
   tags,
   conversationId,
+  sinResponderDesde,
+  resuelto,
 }: {
   tags: NonNullable<SharedInboxConversationItem["tags"]>;
   conversationId: string;
+  /** Desde cuando espera el cliente (null o undefined = no espera). */
+  sinResponderDesde: SharedInboxConversationItem["sinResponderDesde"];
+  resuelto: boolean;
 }) {
   const visibleTags = tags.slice(0, MAX_VISIBLE_TAGS);
   const hidden = tags.length - visibleTags.length;
+  // "Sin responder · X min" va de primera, antes de las etiquetas, y sale aunque no haya ninguna.
+  const conMarca = Boolean(sinResponderDesde) && !resuelto;
 
   // La etapa NO va aca: vive debajo del avatar, alineada con esta misma fila. Estuvo un rato en
   // los dos lugares y se veia dos veces por conversacion.
   // El lugar se reserva SIEMPRE (aunque no haya etiquetas): todas las filas miden lo mismo y la
   // lista puede calcular sin medir que filas se ven (ver ventana-de-la-lista).
-  if (!visibleTags.length) {
+  if (!visibleTags.length && !conMarca) {
     return <div className="h-[22px]" aria-hidden="true" />;
   }
 
   return (
     <div className="h-[22px] pt-0.5">
       <div className="flex flex-nowrap items-center gap-1 overflow-hidden">
+        {conMarca ? <EtiquetaSinResponder desde={sinResponderDesde ?? null} resuelto={resuelto} /> : null}
         {visibleTags.map((tag) => (
           <Badge
             key={`${conversationId}:${tag.label}`}
@@ -410,7 +419,12 @@ const ConversationListItem = memo(function ConversationListItem({
           ) : null}
         </div>
 
-        <ConversationTagsRow tags={conversation.tags ?? []} conversationId={conversation.id} />
+        <ConversationTagsRow
+          tags={conversation.tags ?? []}
+          conversationId={conversation.id}
+          sinResponderDesde={conversation.sinResponderDesde}
+          resuelto={conversation.status === "CLOSED" || conversation.status === "ARCHIVED"}
+        />
       </div>
     </Link>
   );
