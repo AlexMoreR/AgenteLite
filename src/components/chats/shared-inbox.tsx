@@ -3057,11 +3057,6 @@ export function SharedInbox({
   }, [renderedConversation, selectedConversationKey]);
 
   /*
-    La fila de la lista del chat abierto. Ya trae etapa, asignada, agente y estado (misma consulta
-    de la lista): con eso la barra se dibuja AL TOCAR, sin esperar a /live, que despues la corrige
-    si algo cambio. 0 pedidos mas.
-  */
-  /*
     Con el filtro "Sin responder" puesto, lo ya respondido sale de la lista sin recargar: la asesora
     contesta, el chat abierto se queda hasta que cambia de chat y ahi sale. Tambien tapa la cache de
     60 s del filtro en el servidor (un chat recien contestado no reaparece). Un chat recien escrito
@@ -3080,6 +3075,11 @@ export function SharedInbox({
     );
   }, [displayedConversationItems, selectedConversationKey, sinResponderPuesto]);
 
+  /*
+    La fila de la lista del chat abierto. Ya trae etapa, asignada, agente y estado (misma consulta
+    de la lista): con eso la barra se dibuja AL TOCAR, sin esperar a /live, que despues la corrige
+    si algo cambio. 0 pedidos mas.
+  */
   const filaDelChatAbierto = useMemo(
     () =>
       selectedConversationKey.startsWith("agent:")
