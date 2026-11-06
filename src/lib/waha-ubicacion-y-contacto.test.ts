@@ -644,3 +644,81 @@ for (const nombre of Object.keys(regresion) as (keyof typeof regresion)[]) {
     );
   });
 }
+
+/*
+  8) Fotos y videos conservan su ancho y alto (y el video su miniatura) para que la burbuja les
+  reserve el lugar antes de cargar (Chats, parte 3). La miniatura de una FOTO no se guarda, y el
+  tipo, el texto y la URL salen igual que antes.
+*/
+function conArchivo(mimetype: string, nodo: Record<string, unknown>, body = "") {
+  return {
+    ...base,
+    payload: {
+      id: "false_573001112233@c.us_MED1",
+      timestamp: 1760000200,
+      from: "573001112233@c.us",
+      fromMe: false,
+      source: "app",
+      body,
+      hasMedia: true,
+      media: { url: "https://waha.local/api/files/ventas/MED1", mimetype },
+      _data: { pushName: "Ana", Message: nodo },
+    },
+  };
+}
+
+test("8a) video: ancho, alto y miniatura (JPEGThumbnail de WAHA) se conservan", () => {
+  const resultado = traducirEventoWaha(
+    conArchivo("video/mp4", {
+      videoMessage: { width: 480, height: 848, JPEGThumbnail: "/9j/4AAQ", seconds: 12 },
+    }),
+  );
+  assert.deepEqual(mensajeDe(resultado), {
+    videoMessage: {
+      url: "https://waha.local/api/files/ventas/MED1",
+      mimetype: "video/mp4",
+      caption: "",
+      width: 480,
+      height: 848,
+      jpegThumbnail: "/9j/4AAQ",
+    },
+  });
+  assert.equal(extractEvolutionMessageType(resultado.evolution as Record<string, unknown>), "VIDEO");
+});
+
+test("8b) foto: ancho y alto si, miniatura no; el texto sigue siendo el caption", () => {
+  const resultado = traducirEventoWaha(
+    conArchivo(
+      "image/jpeg",
+      { imageMessage: { Width: 1080, Height: 1920, JPEGThumbnail: "abc", caption: "Mira" } },
+      "Mira",
+    ),
+  );
+  assert.deepEqual(mensajeDe(resultado), {
+    imageMessage: {
+      url: "https://waha.local/api/files/ventas/MED1",
+      mimetype: "image/jpeg",
+      caption: "Mira",
+      width: 1080,
+      height: 1920,
+    },
+  });
+  assert.equal(extractEvolutionMessageType(resultado.evolution as Record<string, unknown>), "IMAGE");
+});
+
+test("8c) medidas invalidas, miniatura gigante o un sticker: no se agrega nada", () => {
+  const video = traducirEventoWaha(
+    conArchivo("video/mp4", {
+      videoMessage: { width: 0, height: "720", JPEGThumbnail: "A".repeat(60_001) },
+    }),
+  );
+  assert.deepEqual(mensajeDe(video), {
+    videoMessage: { url: "https://waha.local/api/files/ventas/MED1", mimetype: "video/mp4", caption: "" },
+  });
+  const sticker = traducirEventoWaha(
+    conArchivo("image/webp", { stickerMessage: { width: 512, height: 512 } }),
+  );
+  assert.deepEqual(mensajeDe(sticker), {
+    stickerMessage: { url: "https://waha.local/api/files/ventas/MED1", mimetype: "image/webp", caption: "" },
+  });
+});

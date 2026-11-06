@@ -361,6 +361,137 @@ export function bytesLikeToBase64(value: unknown) {
   return toBase64(numericEntries);
 }
 
+/*
+  El tamaño de una foto o un video, para reservarle el lugar ANTES de que cargue.
+
+  Sin esto la burbuja nacia chica y crecia al llegar la foto -en ancho y en alto-, y el hilo
+  saltaba. WhatsApp manda el ancho y el alto dentro del mensaje (`width`/`height` del nodo
+  `imageMessage` o `videoMessage`); se leen de ahi, sin guardar nada nuevo en la base.
+
+  Solo el nodo PRINCIPAL del mensaje: una busqueda a cualquier profundidad encontraria la foto
+  del mensaje citado (`contextInfo.quotedMessage`) y daria un tamaño equivocado.
+
+  Los gateways cambian las mayusculas: Evolution guarda `data.message.imageMessage` y evogo
+  `data.Message.ImageMessage` o `data.Message.imageMessage`. Se aceptan todas.
+*/
+export type TamanoDelMedio = { ancho: number; alto: number };
+
+/** Un lado de mas de esto no es una foto de WhatsApp, es un dato roto. */
+const LADO_MAXIMO_CREIBLE = 20_000;
+/*
+  La miniatura del video viaja a la copia del navegador, que no tiene tope en bytes y ya tuvo
+  problemas por tamaño: una de mas de ~45 KB no se usa (las de WhatsApp pesan unos 5 KB).
+*/
+export const MINIATURA_MAXIMA_CARACTERES = 60_000;
+
+function registroSinMayusculas(valor: unknown, clave: string): Record<string, unknown> | null {
+  if (!isObjectRecord(valor)) {
+    return null;
+  }
+  const directo = getNestedRecord(valor, clave);
+  if (directo) {
+    return directo;
+  }
+  const buscada = clave.toLowerCase();
+  for (const [nombre, dentro] of Object.entries(valor)) {
+    if (nombre.toLowerCase() === buscada && isObjectRecord(dentro)) {
+      return dentro;
+    }
+  }
+  return null;
+}
+
+function valorSinMayusculas(valor: Record<string, unknown> | null, ...claves: string[]): unknown {
+  if (!valor) {
+    return undefined;
+  }
+  const buscadas = new Set(claves.map((clave) => clave.toLowerCase()));
+  for (const [nombre, dentro] of Object.entries(valor)) {
+    if (buscadas.has(nombre.toLowerCase())) {
+      return dentro;
+    }
+  }
+  return undefined;
+}
+
+/** El nodo `imageMessage` o `videoMessage` del mensaje principal, venga como venga escrito. */
+function nodoPrincipalDelMedio(rawPayload: unknown, tipo: "IMAGE" | "VIDEO") {
+  const raiz = registroSinMayusculas(rawPayload, "evolution") ?? (isObjectRecord(rawPayload) ? rawPayload : null);
+  const data = registroSinMayusculas(raiz, "data");
+  const mensaje = registroSinMayusculas(data, "message") ?? registroSinMayusculas(raiz, "message");
+  return registroSinMayusculas(mensaje, tipo === "IMAGE" ? "imageMessage" : "videoMessage");
+}
+
+function ladoValido(valor: unknown): number | null {
+  const numero =
+    typeof valor === "number"
+      ? valor
+      : typeof valor === "string" && /^\d+$/.test(valor.trim())
+        ? Number(valor.trim())
+        : NaN;
+  return Number.isFinite(numero) && numero >= 1 && numero <= LADO_MAXIMO_CREIBLE ? Math.round(numero) : null;
+}
+
+export function extraerTamanoDelMedio(rawPayload: unknown, tipo: "IMAGE" | "VIDEO"): TamanoDelMedio | null {
+  /*
+    Lo que manda la asesora desde el CRM usa siempre la caja fija. La burbuja optimista no sabe
+    el tamaño, y si la respuesta del gateway (guardada en `evolution`) lo trajera, la burbuja
+    cambiaria de alto al guardarse: justo el salto que se quiere evitar.
+  */
+  if (isObjectRecord(rawPayload) && rawPayload.source === "manual") {
+    return null;
+  }
+  const nodo = nodoPrincipalDelMedio(rawPayload, tipo);
+  const ancho = ladoValido(valorSinMayusculas(nodo, "width"));
+  const alto = ladoValido(valorSinMayusculas(nodo, "height"));
+  return ancho && alto ? { ancho, alto } : null;
+}
+
+/**
+ * La miniatura del video como `data:image/jpeg;base64,...`, para usarla de póster.
+ *
+ * Llega como texto en base64 (evogo, y lo que guarda la traduccion de WAHA) o como bytes
+ * (Baileys/Evolution). Sin miniatura, o si es demasiado grande, el video queda en su caja negra.
+ */
+export function extraerMiniaturaDelVideo(rawPayload: unknown): string | null {
+  const nodo = nodoPrincipalDelMedio(rawPayload, "VIDEO");
+  const crudo = valorSinMayusculas(nodo, "jpegThumbnail");
+  let base64: string | null = null;
+  if (typeof crudo === "string") {
+    const limpio = crudo.trim();
+    // Solo base64 de verdad: va dentro de un atributo `poster`.
+    base64 = /^[A-Za-z0-9+/]+={0,2}$/.test(limpio) ? limpio : null;
+  } else if (isObjectRecord(crudo) && Array.isArray(crudo.data)) {
+    // Un Buffer de Node pasado a JSON: { type: "Buffer", data: [...] }.
+    base64 = bytesLikeToBase64(crudo.data);
+  } else {
+    base64 = bytesLikeToBase64(crudo);
+  }
+  if (!base64 || base64.length > MINIATURA_MAXIMA_CARACTERES) {
+    return null;
+  }
+  return `data:image/jpeg;base64,${base64}`;
+}
+
+/**
+ * La caja en la que se dibuja el medio: entra en los topes sin perder la proporcion.
+ *
+ * El lado minimo evita una tira de pocos pixeles con una foto muy alargada (ahi la foto se
+ * recorta por los bordes, `object-cover`) y deja lugar a los controles del video.
+ */
+export function calcularCajaDelMedio(
+  tamano: TamanoDelMedio | null,
+  topes: { anchoMaximo: number; altoMaximo: number; ladoMinimo: number },
+): TamanoDelMedio | null {
+  if (!tamano) {
+    return null;
+  }
+  const escala = Math.min(topes.anchoMaximo / tamano.ancho, topes.altoMaximo / tamano.alto);
+  const ancho = Math.min(topes.anchoMaximo, Math.max(topes.ladoMinimo, Math.round(tamano.ancho * escala)));
+  const alto = Math.min(topes.altoMaximo, Math.max(topes.ladoMinimo, Math.round(tamano.alto * escala)));
+  return { ancho, alto };
+}
+
 export function collectImagePreviewUrls(message: SharedInboxMessageItem) {
   if (isObjectRecord(message.rawPayload)) {
     const cachedPreviewUrls = imagePreviewUrlCache.get(message.rawPayload);

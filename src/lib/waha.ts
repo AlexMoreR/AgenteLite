@@ -841,6 +841,42 @@ function nodoSegunMime(mimetype: string): string {
   return "documentMessage";
 }
 
+/** La miniatura de un video que se guarda: las de WhatsApp pesan unos 5 KB; una de mas no se guarda. */
+const MINIATURA_DE_VIDEO_MAXIMA = 60_000;
+
+/**
+ * El ancho y el alto de una foto o un video, y la miniatura solo del video.
+ *
+ * El nodo del mensaje se arma a mano y se perdian: sin el tamaño la burbuja no sabe cuanto lugar
+ * reservar y el chat salta al cargar la foto (Chats, parte 3). Se leen del MISMO nodo crudo de
+ * WhatsApp y se copian tal cual; no cambia nada mas del mensaje. La miniatura de las fotos NO se
+ * guarda: no hace falta para reservar el lugar y solo inflaria el payload.
+ */
+function medidasDelMedio(
+  bloqueDelMensaje: Record<string, unknown> | null,
+  nodo: string,
+): Record<string, unknown> {
+  if (!bloqueDelMensaje || (nodo !== "imageMessage" && nodo !== "videoMessage")) {
+    return {};
+  }
+  const crudo = campoCrudo(bloqueDelMensaje, nodo);
+  if (!crudo || typeof crudo !== "object") {
+    return {};
+  }
+  const nodoCrudo = crudo as Record<string, unknown>;
+  const lado = (valor: unknown) =>
+    typeof valor === "number" && Number.isInteger(valor) && valor > 0 ? valor : null;
+  const ancho = lado(campoCrudo(nodoCrudo, "width"));
+  const alto = lado(campoCrudo(nodoCrudo, "height"));
+  const miniatura = nodo === "videoMessage" ? campoCrudo(nodoCrudo, "jpegThumbnail") : undefined;
+  return {
+    ...(ancho && alto ? { width: ancho, height: alto } : {}),
+    ...(typeof miniatura === "string" && miniatura.length > 0 && miniatura.length <= MINIATURA_DE_VIDEO_MAXIMA
+      ? { jpegThumbnail: miniatura }
+      : {}),
+  };
+}
+
 export function traducirEventoWaha(
   cuerpo: unknown,
 ):
@@ -1208,6 +1244,7 @@ export function traducirEventoWaha(
                 // Sin archivo se deja dicho QUE mando, para que la fila de la lista no quede muda.
                 caption: textoVisible || (mediaSinArchivo ? avisoDeMediaPerdida(mimetype) : ""),
                 ...(nombreDelArchivo ? { fileName: nombreDelArchivo } : {}),
+                ...medidasDelMedio(bloqueDelMensaje, nodoSegunMime(mimetype)),
               },
             }
           : enlaceConVistaPrevia

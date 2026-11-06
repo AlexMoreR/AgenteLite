@@ -64,7 +64,22 @@ import {
   collectImagePreviewUrls,
   extractChatAdPreview,
   extraerVistaPreviaDeEnlace,
+  extraerTamanoDelMedio,
+  extraerMiniaturaDelVideo,
+  calcularCajaDelMedio,
 } from "./chat-inbox-media";
+
+/*
+  Topes de la caja de fotos y videos (Chats, parte 3: sin saltos).
+
+  Con el tamaño que manda WhatsApp, la caja se fija ANTES de que cargue el archivo, asi el hilo
+  no se mueve. Sin tamaño (mensajes viejos o mandados desde el CRM) se usa una caja fija, igual
+  mientras carga y despues, y la foto se recorta por los bordes; completa se ve al tocarla.
+*/
+const TOPES_DE_FOTO = { anchoMaximo: 360, altoMaximo: 260, ladoMinimo: 120 };
+const FOTO_SIN_TAMANO = { ancho: 260, alto: 220 };
+// El minimo deja lugar a los controles del reproductor.
+const TOPES_DE_VIDEO = { anchoMaximo: 260, altoMaximo: 260, ladoMinimo: 140 };
 
 /*
   Los enlaces que llegan en un mensaje se pueden tocar.
@@ -854,6 +869,10 @@ export const MessageBubble = memo(function MessageBubble({
     return isImageMessage ? collectImagePreviewUrls(message) : [];
   }, [archivoRecuperado, isImageMessage, message]);
   const imagePreviewUrl = imagePreviewUrls[imagePreviewIndex] ?? null;
+  const cajaDeLaFoto = useMemo(
+    () => (isImageMessage ? calcularCajaDelMedio(extraerTamanoDelMedio(message.rawPayload, "IMAGE"), TOPES_DE_FOTO) : null),
+    [isImageMessage, message.rawPayload],
+  );
   const audioUrl = useMemo(
     () =>
       archivoRecuperado?.tipo === "AUDIO"
@@ -871,6 +890,14 @@ export const MessageBubble = memo(function MessageBubble({
           ? extractMediaUrlFromPayload(message, "VIDEO")
           : null,
     [archivoRecuperado, message],
+  );
+  const cajaDelVideo = useMemo(
+    () => (videoUrl ? calcularCajaDelMedio(extraerTamanoDelMedio(message.rawPayload, "VIDEO"), TOPES_DE_VIDEO) : null),
+    [videoUrl, message.rawPayload],
+  );
+  const posterDelVideo = useMemo(
+    () => (videoUrl ? extraerMiniaturaDelVideo(message.rawPayload) : null),
+    [videoUrl, message.rawPayload],
   );
   const stickerUrl = useMemo(
     () =>
@@ -1522,12 +1549,20 @@ export const MessageBubble = memo(function MessageBubble({
               {renderMessageText(contenidoVisible)}
             </div>
           ) : hasImagePreview ? (
-            <div className="space-y-2 max-w-[360px]">
+            /*
+              El ancho y la proporcion se fijan aca, no los decide la foto al cargar: antes la burbuja
+              tomaba el ancho de la foto y crecia en ancho y en alto, y el hilo saltaba. En el
+              celular la caja se encoge (max-w-full) sin perder la proporcion.
+            */
+            <div className="max-w-full space-y-2" style={{ width: (cajaDeLaFoto ?? FOTO_SIN_TAMANO).ancho }}>
               <div className="relative">
                 <button
                   type="button"
                   onClick={openImageViewer}
-                  className="group block w-full cursor-zoom-in overflow-hidden rounded-xl"
+                  className="group block w-full cursor-zoom-in overflow-hidden rounded-xl bg-muted"
+                  style={{
+                    aspectRatio: `${(cajaDeLaFoto ?? FOTO_SIN_TAMANO).ancho} / ${(cajaDeLaFoto ?? FOTO_SIN_TAMANO).alto}`,
+                  }}
                   aria-label="Abrir imagen en pantalla completa"
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1537,8 +1572,7 @@ export const MessageBubble = memo(function MessageBubble({
                     loading="lazy"
                     decoding="async"
                     onError={handleImageError}
-                    // Alto minimo reservado: mientras la foto carga ya ocupa su lugar y el hilo no salta.
-                    className="max-h-[260px] min-h-[120px] w-full rounded-xl bg-muted object-cover transition duration-200 group-hover:scale-[1.01]"
+                    className="block h-full w-full rounded-xl bg-muted object-cover transition duration-200 group-hover:scale-[1.01]"
                   />
                   <span className="pointer-events-none absolute inset-0 rounded-xl ring-1 ring-inset ring-black/5 transition group-hover:bg-black/5" />
                 </button>
@@ -1656,10 +1690,16 @@ export const MessageBubble = memo(function MessageBubble({
                 : null}
             </div>
           ) : imagePreviewExhausted ? (
-            <div className="space-y-2">
-              <div className={`flex h-[180px] w-full items-center justify-center rounded-xl border border-dashed ${
-                outbound ? "border-[var(--chat-out-border)] bg-[var(--chat-out-overlay)] text-[var(--chat-out-text-soft)]" : "border-border bg-muted text-muted-foreground"
-              }`}>
+            // La misma caja que le tocaba a la foto: si falla, el hilo no cambia de alto.
+            <div className="max-w-full space-y-2" style={{ width: (cajaDeLaFoto ?? FOTO_SIN_TAMANO).ancho }}>
+              <div
+                className={`flex w-full items-center justify-center rounded-xl border border-dashed ${
+                  outbound ? "border-[var(--chat-out-border)] bg-[var(--chat-out-overlay)] text-[var(--chat-out-text-soft)]" : "border-border bg-muted text-muted-foreground"
+                }`}
+                style={{
+                  aspectRatio: `${(cajaDeLaFoto ?? FOTO_SIN_TAMANO).ancho} / ${(cajaDeLaFoto ?? FOTO_SIN_TAMANO).alto}`,
+                }}
+              >
                 <span className="text-sm font-medium">Imagen no disponible</span>
               </div>
               {renderMessageText(contenidoVisible)}
@@ -1670,13 +1710,21 @@ export const MessageBubble = memo(function MessageBubble({
                 {/*
                   preload="none": el video no se baja hasta que la asesora le da play (antes cada
                   video del hilo pedia sus datos al abrir el chat). Tamano fijo: con preload="none"
-                  el navegador no sabe cuanto mide, y asi el hilo no salta al cargarlo.
+                  el navegador no sabe cuanto mide, y asi el hilo no salta al cargarlo. Con el tamaño
+                  que manda WhatsApp la caja toma su proporcion; sin el, la caja de siempre.
+                  La miniatura que viene en el mensaje es el poster: se ve sin bajar el video.
                 */}
                 <video
                   src={videoUrl}
                   controls
                   preload="none"
-                  className="h-[240px] w-[260px] max-w-full rounded-xl bg-black object-contain"
+                  poster={posterDelVideo ?? undefined}
+                  className={`max-w-full rounded-xl bg-black object-contain ${cajaDelVideo ? "h-auto" : "h-[240px] w-[260px]"}`}
+                  style={
+                    cajaDelVideo
+                      ? { width: cajaDelVideo.ancho, aspectRatio: `${cajaDelVideo.ancho} / ${cajaDelVideo.alto}` }
+                      : undefined
+                  }
                 />
                 {/* Arriba y no abajo: el reproductor pone sus propios botones en el borde
                     inferior y la hora quedaría tapada por el play y el volumen. */}
@@ -1693,14 +1741,15 @@ export const MessageBubble = memo(function MessageBubble({
             </div>
           ) : stickerUrl ? (
             <div className="space-y-2">
-              <div className="inline-flex max-w-[220px] items-center justify-center overflow-hidden rounded-xl border border-border bg-card">
+              {/* Caja cuadrada fija (los stickers de WhatsApp son de 512x512): no crece al cargar. */}
+              <div className="flex aspect-square w-[220px] max-w-full items-center justify-center overflow-hidden rounded-xl border border-border bg-card">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={stickerUrl}
                   alt={message.content?.trim() || "Sticker"}
                   loading="lazy"
                   decoding="async"
-                  className="h-auto w-full max-w-[220px] object-contain"
+                  className="h-full w-full object-contain"
                 />
               </div>
               {renderMessageText(contenidoVisible)}
@@ -1878,7 +1927,8 @@ export const MessageBubble = memo(function MessageBubble({
                       alt=""
                       loading="lazy"
                       decoding="async"
-                      className="h-auto max-h-[160px] w-full object-cover"
+                      // Alto fijo: con h-auto la tarjeta crecia al decodificar la miniatura.
+                      className="block h-[160px] w-full object-cover"
                     />
                   ) : null}
                   <div className="space-y-0.5 px-2.5 py-2">
