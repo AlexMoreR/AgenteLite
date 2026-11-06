@@ -9,6 +9,8 @@ import { cargar } from "./supervisor-cargar.mjs";
 
 const settings = new Map();
 const enviados = { push: [], whatsapp: [] };
+/** Para simular que el gateway falla: los WhatsApp a estos números lanzan (y no se cuentan como enviados). */
+const NUMEROS_QUE_FALLAN = new Set();
 const MIEMBROS = [
   { userId: "alex", role: "OWNER", isActive: true, name: "Magilus" },
   { userId: "ingrid", role: "MEMBER", isActive: true, name: "Ingrid Sanchez" },
@@ -52,8 +54,9 @@ const mocks = {
     },
   },
   "@/lib/evolution": {
-    sendEvolutionTextMessageWithReconnect: async ({ phoneNumber, text }) => {
-      enviados.whatsapp.push({ phoneNumber, text });
+    sendEvolutionTextMessageWithReconnect: async ({ phoneNumber, text, limiteMs }) => {
+      if (NUMEROS_QUE_FALLAN.has(phoneNumber)) throw new Error(`gateway caído al enviar a ${phoneNumber}`);
+      enviados.whatsapp.push({ phoneNumber, text, limiteMs });
     },
   },
   "@/lib/anti-bloqueo/servicio": { leerConfigAntiBloqueo: async () => ({ avisos: { canalInternoId: "linea-admin" } }) },
@@ -214,9 +217,10 @@ await prueba("no responde → segundo aviso (asesora + supervisora) → ESCALA c
   assert.equal(res.eventos.length, 0);
   res = vuelta(res.estado, { chats: [maria()], ahora: mas(T0, 25) });
   assert.deepEqual(res.eventos.map((e) => e.tipo), ["escalar"]);
-  assert.equal(res.eventos[0].gravedad, "IMPORTANTE", "caliente sin monto: push, sin WhatsApp");
+  assert.equal(res.eventos[0].gravedad, "IMPORTANTE", "caliente sin monto: IMPORTANTE (push)");
   const a = res.estado.acciones.c1;
   assert.equal(a.estado, "ESCALADA");
+  assert.deepEqual(a.whatsappAlexander, { estado: "PENDIENTE", intentos: 0, enviadoEn: null, motivo: null }, "toda escalada deja el WhatsApp a Alexander pendiente");
   const t = r.tarjetaDeAccion(a, mas(T0, 25));
   tarjetaEscalada = t;
   for (const campo of ["quePaso", "cliente", "responsable", "intentos", "porQue", "riesgo", "solucion", "accionDeAlexander", "enlace"]) {
@@ -287,7 +291,7 @@ await prueba("fuera de horario: nada nuevo (salvo un pago), el plazo laboral se 
   assert.equal(p.eventos[0].gravedad, "IMPORTANTE");
 });
 
-await prueba("canal de la escalada: WhatsApp solo con plata en juego; lead tibio = solo pantalla", () => {
+await prueba("gravedad de la escalada: CRÍTICO con plata en juego; lead tibio sin push (el WhatsApp va en toda escalada)", () => {
   const ahora = T0;
   assert.equal(r.gravedadDeEscalada("PAGO", ahora), "CRITICO");
   assert.equal(r.gravedadDeEscalada("COTIZACION", ahora), "CRITICO");
@@ -313,6 +317,7 @@ await prueba("canal de la escalada: WhatsApp solo con plata en juego; lead tibio
   res = vuelta(res.estado, { chats: [tibio], ahora: mas(T0, 20) });
   res = vuelta(res.estado, { chats: [tibio], ahora: mas(T0, 30) });
   assert.deepEqual(res.eventos.map((e) => [e.tipo, e.gravedad]), [["escalar", "OBSERVACION"]]);
+  assert.equal(res.estado.acciones.c1.whatsappAlexander.estado, "PENDIENTE", "el tibio también manda WhatsApp a Alexander");
 });
 
 await prueba("sin asesora → la supervisora es responsable; sin supervisora → escala directo", () => {
@@ -339,7 +344,7 @@ await prueba("chat ganado/perdido o cerrado → YA_NO_APLICA (no cuenta ni como 
   assert.equal(vuelta(estado, { chats: [], ahora: mas(T0, 30) }).estado.acciones.c1.estado, "YA_NO_APLICA");
 });
 
-await prueba("repetición: 3 plazos vencidos de la misma asesora en el día → UNA tarjeta de patrón (push, sin WhatsApp)", () => {
+await prueba("repetición: 3 plazos vencidos de la misma asesora en el día → UNA tarjeta de patrón (push y WhatsApp a Alexander)", () => {
   let estado = r.estadoVacio();
   const ids = ["c1", "c2", "c3"];
   const chats = ids.map((id) => maria({ conversationId: id }));
@@ -354,6 +359,7 @@ await prueba("repetición: 3 plazos vencidos de la misma asesora en el día → 
   const p = res.estado.acciones[patron[0].accionId];
   assert.equal(p.tipo, "patron_dia");
   assert.equal(p.conteo, 3);
+  assert.equal(p.whatsappAlexander.estado, "PENDIENTE");
   estado = res.estado;
   const otra = vuelta(estado, { chats: chats.map((c) => ({ ...c, ultimaRespuestaHumanaEn: mas(T0, 18) })), ahora: mas(T0, 20) });
   assert.equal(otra.eventos.filter((e) => e.tipo === "escalar").length, 0, "el patrón del día no se repite");
@@ -587,7 +593,7 @@ await prueba("ENCENDIDO + avisos por gravedad con las alertas 'solo urgentes' AP
   assert.match(enviados.whatsapp[0].text, /Bot \/ sistema/);
 });
 
-await prueba("servicio: caliente → push + WhatsApp (línea interna) a la asesora; vence → escala a Alexander (UN push, sin WhatsApp)", async () => {
+await prueba("servicio: caliente → push + WhatsApp (línea interna) a la asesora; vence → escala a Alexander (UN push y UN WhatsApp)", async () => {
   reiniciar();
   settings.set("supervisor:accionable:ws1", JSON.stringify({ activo: true }));
   const config = await servicio.leerConfigAccionable(WS);
@@ -605,7 +611,16 @@ await prueba("servicio: caliente → push + WhatsApp (línea interna) a la aseso
   await servicio.gestionarAcciones({ workspaceId: WS, hallazgos: [], chats: [maria()], ahora: mas(T0, 25), config });
   assert.deepEqual(enviados.push.map((p) => p.userId), ["alex"]);
   assert.match(enviados.push[0].body, /Maria Bautista/);
-  assert.equal(enviados.whatsapp.length, 0, "sin plata en juego no hay WhatsApp");
+  assert.equal(enviados.whatsapp.length, 1, "toda escalada manda WhatsApp a Alexander, aunque no haya plata en juego");
+  assert.equal(enviados.whatsapp[0].phoneNumber, "573000002277");
+  assert.equal(enviados.whatsapp[0].limiteMs, 20000);
+  for (const parte of ["IMPORTANTE", "Laura Gómez", "Maria Bautista", "Tu acción", "app.aizenbot.com/c/1000"]) {
+    assert.ok(enviados.whatsapp[0].text.includes(parte), `el WhatsApp trae "${parte}"`);
+  }
+  assert.ok(!enviados.whatsapp[0].text.includes("3001234567"), "nunca el teléfono completo");
+  const guardado = JSON.parse(settings.get("supervisor:accionable:estado:ws1")).acciones.c1.whatsappAlexander;
+  assert.equal(guardado.estado, "ENVIADO");
+  assert.equal(guardado.enviadoEn, mas(T0, 25).toISOString());
   const panel = await servicio.leerPanelAccionable(WS, [], mas(T0, 26));
   assert.equal(panel.prioridades.visibles.length, 1);
   await servicio.marcarAtendida(WS, "c1", "alex", mas(T0, 27));
@@ -686,8 +701,7 @@ await prueba("líder: la asesora no respondió ni el aviso ni el segundo → UN 
   reiniciarConLider();
   const { push, whatsapp } = await hastaLaEscalada();
   assert.deepEqual(push.map((p) => p.userId), ["alex"], "Alexander recibe su push como hoy; el líder no recibe push si le llegó el WhatsApp");
-  assert.equal(whatsapp.length, 1, "un solo WhatsApp, al líder");
-  assert.equal(whatsapp[0].phoneNumber, NUM_YAIR);
+  assert.deepEqual(whatsapp.map((w) => w.phoneNumber), [NUM_YAIR, "573000002277"], "un WhatsApp al líder y el de la escalada a Alexander");
   const texto = whatsapp[0].text;
   for (const parte of ["Laura Gómez", "+573001234567", "separar el combo", "Lleva esperando 45 min", "app.aizenbot.com/c/1000", "Maria Bautista", "aviso (10:00)", "segundo aviso (10:15)", "Tú decides si lo tomas"]) {
     assert.ok(texto.includes(parte), `el WhatsApp al líder trae "${parte}":\n${texto}`);
@@ -723,7 +737,7 @@ await prueba("líder: si la responsable ES el líder, no sale nada a su número 
   reiniciarConLider("maria");
   const { push, whatsapp } = await hastaLaEscalada();
   assert.deepEqual(push.map((p) => p.userId), ["alex"]);
-  assert.equal(whatsapp.length, 0, "ni al líder ni a nadie (caliente sin plata: Alexander sin WhatsApp)");
+  assert.deepEqual(whatsapp.map((w) => w.phoneNumber), ["573000002277"], "nada al líder; solo el WhatsApp de la escalada a Alexander");
 });
 
 await prueba("líder: sin líder elegido o con el líder inactivo no sale WhatsApp ni push extra a nadie (tampoco a la supervisora)", async () => {
@@ -731,7 +745,7 @@ await prueba("líder: sin líder elegido o con el líder inactivo no sale WhatsA
     reiniciarConLider(lider);
     const { push, whatsapp } = await hastaLaEscalada();
     assert.deepEqual(push.map((p) => p.userId), ["alex"], `lider=${lider}`);
-    assert.equal(whatsapp.length, 0, `lider=${lider}`);
+    assert.deepEqual(whatsapp.map((w) => w.phoneNumber), ["573000002277"], `lider=${lider}: solo el WhatsApp de la escalada a Alexander`);
     const estado = JSON.parse(settings.get("supervisor:accionable:estado:ws1"));
     assert.equal(estado.acciones.c1.liderAvisadoEn ?? null, null);
   }
@@ -741,7 +755,7 @@ await prueba("líder: sin número de avisos le llega la notificación del CRM y 
   reiniciarConLider("pedro");
   const { push, whatsapp } = await hastaLaEscalada();
   assert.deepEqual(push.map((p) => p.userId).sort(), ["alex", "pedro"]);
-  assert.equal(whatsapp.length, 0);
+  assert.deepEqual(whatsapp.map((w) => w.phoneNumber), ["573000002277"], "al líder no; solo el de la escalada a Alexander");
   const alLider = push.find((p) => p.userId === "pedro");
   assert.match(alLider.title, /Laura Gómez sin respuesta/);
   assert.equal(alLider.url, "/c/1000");
@@ -752,12 +766,15 @@ await prueba("líder: contacto con identificador de WhatsApp (no teléfono) → 
   reiniciarConLider();
   CONTACTOS.set("c1", { phoneNumber: "175775932239983", metadata: { whatsappLid: true, discoveredPhoneNumber: "573005551234" } });
   let { whatsapp } = await hastaLaEscalada(maria({ telefono: "175775932239983" }));
+  assert.ok(whatsapp.every((w) => !w.text.includes("175775932239983")), "ni el de Alexander lleva el identificador");
+  whatsapp = whatsapp.filter((w) => w.phoneNumber === NUM_YAIR);
   assert.equal(whatsapp.length, 1);
   assert.ok(whatsapp[0].text.includes("+573005551234"));
   assert.ok(!whatsapp[0].text.includes("175775932239983"));
   reiniciarConLider();
   CONTACTOS.set("c1", { phoneNumber: "175775932239983", metadata: { whatsappLid: true } });
   ({ whatsapp } = await hastaLaEscalada(maria({ telefono: "175775932239983" })));
+  whatsapp = whatsapp.filter((w) => w.phoneNumber === NUM_YAIR);
   assert.equal(whatsapp.length, 1);
   assert.ok(whatsapp[0].text.includes("sin número real"));
   assert.ok(whatsapp[0].text.includes("app.aizenbot.com/c/1000"), "queda el link");
@@ -1760,6 +1777,170 @@ await prueba("sugerido (4-nov): el cliente solo pidió la foto y antes habló de
   // Sin nada sin responder ni pedido de asesor → neutro (ya no cae a "toda la conversación").
   const neutro = det.sugeridoParaElChat(chatNov(CHARLA_YAIR), bogNov("13:53"), null);
   assert.equal(neutro, "¡Hola! ¿Te quedó alguna duda? Con gusto te ayudo 😊");
+});
+
+/* ------------------------------------------------------------------ WhatsApp de toda escalada a Alexander (6-nov-2026) */
+
+const NUM_ALEX = "573000002277";
+/** Una acción ESCALADA (pura) del chat `id`, escalada a los `min` minutos de T0. */
+function escaladaPura(id, min = 25) {
+  let estado = r.estadoVacio();
+  const chats = [maria({ conversationId: id })];
+  for (const m of [0, 15, min]) estado = vuelta(estado, { chats, hallazgos: m === 0 ? [hallazgo(CALIENTE, [id])] : [], ahora: mas(T0, m) }).estado;
+  return estado.acciones[id];
+}
+
+await prueba("whatsappsPendientes: solo ESCALADA con PENDIENTE, de la más vieja a la más nueva; fuera de horario ninguna; las viejas sin el campo nunca", () => {
+  const vieja = { ...escaladaPura("c1"), escaladaEn: mas(T0, 10).toISOString() };
+  const nueva = { ...escaladaPura("c2"), escaladaEn: mas(T0, 20).toISOString() };
+  const enviada = { ...escaladaPura("c3"), whatsappAlexander: { estado: "ENVIADO", intentos: 0, enviadoEn: T0.toISOString(), motivo: null } };
+  const resuelta = { ...escaladaPura("c4"), estado: "RESUELTA_TRAS_ESCALAR" };
+  const atendida = { ...escaladaPura("c5"), estado: "ATENDIDA_POR_ALEXANDER" };
+  const sinCampo = { ...escaladaPura("c6") };
+  delete sinCampo.whatsappAlexander;
+  const noSalio = { ...escaladaPura("c7"), whatsappAlexander: { estado: "NO_SALIO", intentos: 6, enviadoEn: null, motivo: "x" } };
+  const estado = { acciones: Object.fromEntries([nueva, vieja, enviada, resuelta, atendida, sinCampo, noSalio].map((a) => [a.id, a])), historial: [] };
+  assert.deepEqual(r.whatsappsPendientes(estado, mas(T0, 30)).map((a) => a.id), ["c1", "c2"]);
+  assert.deepEqual(r.whatsappsPendientes(estado, NOCHE), [], "de noche esperan a las 8 a. m.");
+  const DOMINGO_MEDIODIA = new Date("2026-10-11T17:00:00Z");
+  assert.deepEqual(r.whatsappsPendientes(estado, DOMINGO_MEDIODIA), [], "el domingo tampoco");
+});
+
+await prueba("anotarIntentoWhatsApp: éxito → ENVIADO con hora; falla → un intento más y el motivo; a los 6 → NO_SALIO", () => {
+  const a = escaladaPura("c1");
+  const ok = r.anotarIntentoWhatsApp(a, { ok: true }, mas(T0, 30));
+  assert.deepEqual(ok.whatsappAlexander, { estado: "ENVIADO", intentos: 0, enviadoEn: mas(T0, 30).toISOString(), motivo: null });
+  assert.equal(a.whatsappAlexander.estado, "PENDIENTE", "no toca la acción de entrada");
+  let b = a;
+  for (let i = 1; i < r.MAX_INTENTOS_WHATSAPP; i += 1) {
+    b = r.anotarIntentoWhatsApp(b, { ok: false, motivo: `falla ${i}` }, mas(T0, 30 + i));
+    assert.equal(b.whatsappAlexander.estado, "PENDIENTE");
+    assert.equal(b.whatsappAlexander.intentos, i);
+    assert.equal(b.whatsappAlexander.motivo, `falla ${i}`);
+  }
+  b = r.anotarIntentoWhatsApp(b, { ok: false, motivo: "falla 6" }, mas(T0, 40));
+  assert.equal(r.MAX_INTENTOS_WHATSAPP, 6);
+  assert.deepEqual(b.whatsappAlexander, { estado: "NO_SALIO", intentos: 6, enviadoEn: null, motivo: "falla 6" });
+});
+
+await prueba("servicio: si el WhatsApp a Alexander falla, reintenta en cada vuelta; a los 6 intentos queda NO_SALIO con UN push propio y no se intenta más", async () => {
+  reiniciarConLider(null);
+  NUMEROS_QUE_FALLAN.add(NUM_ALEX);
+  try {
+    const { config, push, whatsapp } = await hastaLaEscalada();
+    assert.equal(whatsapp.length, 0);
+    assert.deepEqual(push.map((p) => p.tag), ["accionable:c1"], "el push de la escalada sale igual");
+    const leer = () => JSON.parse(settings.get("supervisor:accionable:estado:ws1")).acciones.c1.whatsappAlexander;
+    assert.equal(leer().estado, "PENDIENTE");
+    assert.equal(leer().intentos, 1);
+    assert.match(leer().motivo, /gateway caído/);
+    assert.ok(!leer().motivo.includes(NUM_ALEX), "el motivo guardado no lleva el número");
+    for (const [i, min] of [30, 35, 40, 45].entries()) {
+      limpiarEnvios();
+      await servicio.gestionarAcciones({ workspaceId: WS, hallazgos: [], chats: [maria()], ahora: mas(T0, min), config });
+      assert.equal(leer().intentos, i + 2);
+      assert.equal(leer().estado, "PENDIENTE");
+      assert.equal(enviados.push.length, 0, "sin push mientras reintenta");
+    }
+    limpiarEnvios();
+    const res = await servicio.gestionarAcciones({ workspaceId: WS, hallazgos: [], chats: [maria()], ahora: mas(T0, 50), config });
+    assert.equal(leer().estado, "NO_SALIO");
+    assert.equal(leer().intentos, 6);
+    assert.equal(enviados.push.length, 1);
+    assert.equal(enviados.push[0].userId, "alex");
+    assert.equal(enviados.push[0].tag, "accionable:whatsapp:c1");
+    assert.match(enviados.push[0].title, /No salió el WhatsApp/);
+    assert.match(enviados.push[0].body, /Laura Gómez/);
+    assert.equal(enviados.push[0].url, "/c/1000");
+    assert.equal(res.enviados, 1, "el push cuenta en enviados");
+    limpiarEnvios();
+    NUMEROS_QUE_FALLAN.clear();
+    for (const min of [55, 60]) await servicio.gestionarAcciones({ workspaceId: WS, hallazgos: [], chats: [maria()], ahora: mas(T0, min), config });
+    assert.equal(enviados.push.length + enviados.whatsapp.length, 0, "NO_SALIO no se intenta más ni repite el push");
+  } finally {
+    NUMEROS_QUE_FALLAN.clear();
+  }
+});
+
+await prueba("servicio: un intento fallido corta el recorrido (las demás esperan sin gastar intentos); al volver la línea salen todas en orden", async () => {
+  reiniciarConLider(null);
+  const c1 = { ...escaladaPura("c1"), escaladaEn: mas(T0, 25).toISOString() };
+  const c2 = { ...escaladaPura("c2"), escaladaEn: mas(T0, 26).toISOString(), cliente: "Pedro Pérez" };
+  settings.set("supervisor:accionable:estado:ws1", JSON.stringify({ acciones: { c2, c1 }, historial: [] }));
+  const config = await servicio.leerConfigAccionable(WS);
+  const chats = [maria(), maria({ conversationId: "c2" })];
+  NUMEROS_QUE_FALLAN.add(NUM_ALEX);
+  try {
+    await servicio.gestionarAcciones({ workspaceId: WS, hallazgos: [], chats, ahora: mas(T0, 30), config });
+  } finally {
+    NUMEROS_QUE_FALLAN.clear();
+  }
+  let guardado = JSON.parse(settings.get("supervisor:accionable:estado:ws1")).acciones;
+  assert.equal(guardado.c1.whatsappAlexander.intentos, 1, "la más vieja gastó su intento");
+  assert.equal(guardado.c2.whatsappAlexander.intentos, 0, "la otra espera sin gastar intentos");
+  limpiarEnvios();
+  const res = await servicio.gestionarAcciones({ workspaceId: WS, hallazgos: [], chats, ahora: mas(T0, 35), config });
+  assert.equal(enviados.whatsapp.length, 2, "sin tope ni agrupado: un WhatsApp por escalada");
+  assert.ok(enviados.whatsapp[0].text.includes("Laura Gómez") && enviados.whatsapp[1].text.includes("Pedro Pérez"), "de la más vieja a la más nueva");
+  assert.equal(res.enviados, 2);
+  guardado = JSON.parse(settings.get("supervisor:accionable:estado:ws1")).acciones;
+  assert.equal(guardado.c1.whatsappAlexander.estado, "ENVIADO");
+  assert.equal(guardado.c2.whatsappAlexander.estado, "ENVIADO");
+});
+
+await prueba("servicio: apagado de emergencia (whatsapp.activo: false en avisos:gravedad) → no sale, no gasta intentos y queda pendiente; al prenderlo sale", async () => {
+  reiniciarConLider(null);
+  settings.set("avisos:gravedad:ws1", JSON.stringify({ whatsapp: { activo: false } }));
+  const { config, push, whatsapp } = await hastaLaEscalada();
+  assert.equal(whatsapp.length, 0);
+  assert.deepEqual(push.map((p) => p.userId), ["alex"], "el push sigue");
+  const leer = () => JSON.parse(settings.get("supervisor:accionable:estado:ws1")).acciones.c1.whatsappAlexander;
+  assert.deepEqual(leer(), { estado: "PENDIENTE", intentos: 0, enviadoEn: null, motivo: null });
+  for (const min of [30, 35, 40, 45, 50, 55, 60]) await servicio.gestionarAcciones({ workspaceId: WS, hallazgos: [], chats: [maria()], ahora: mas(T0, min), config });
+  assert.equal(leer().intentos, 0, "apagado nunca gasta intentos");
+  settings.set("avisos:gravedad:ws1", JSON.stringify({ whatsapp: { activo: true } }));
+  enrutador.olvidarConfigGravedad();
+  limpiarEnvios();
+  await servicio.gestionarAcciones({ workspaceId: WS, hallazgos: [], chats: [maria()], ahora: mas(T0, 65), config });
+  assert.deepEqual(enviados.whatsapp.map((w) => w.phoneNumber), [NUM_ALEX]);
+  assert.equal(leer().estado, "ENVIADO");
+});
+
+await prueba("servicio: escalada de noche → sin WhatsApp; sale a las 8 a. m. si sigue escalada, y no sale si ya se resolvió", async () => {
+  const MANANA = new Date("2026-10-07T13:00:00Z"); // miércoles 8:00 Bogotá
+  for (const resuelta of [false, true]) {
+    reiniciarConLider(null);
+    const config = await servicio.leerConfigAccionable(WS);
+    const h = [hallazgo("ATENCION:pago-sin-respuesta:maria", ["c1"])];
+    const c = maria({ textosPendientes: ["ya pagué"], ultimoClienteEn: mas(NOCHE, -5) });
+    await servicio.gestionarAcciones({ workspaceId: WS, hallazgos: h, chats: [c], ahora: NOCHE, config });
+    limpiarEnvios();
+    await servicio.gestionarAcciones({ workspaceId: WS, hallazgos: h, chats: [c], ahora: mas(NOCHE, 10), config });
+    const accion = JSON.parse(settings.get("supervisor:accionable:estado:ws1")).acciones.c1;
+    assert.equal(accion.estado, "ESCALADA");
+    assert.equal(accion.whatsappAlexander.estado, "PENDIENTE");
+    assert.equal(enviados.whatsapp.length, 0, "de noche nunca WhatsApp");
+    await servicio.gestionarAcciones({ workspaceId: WS, hallazgos: [], chats: [c], ahora: mas(NOCHE, 120), config });
+    assert.equal(enviados.whatsapp.length, 0);
+    limpiarEnvios();
+    const deDia = resuelta ? { ...c, ultimaRespuestaHumanaEn: mas(MANANA, -30) } : c;
+    await servicio.gestionarAcciones({ workspaceId: WS, hallazgos: [], chats: [deDia], ahora: MANANA, config });
+    if (resuelta) {
+      assert.equal(enviados.whatsapp.length, 0, "resuelta antes de las 8: no sale");
+    } else {
+      assert.deepEqual(enviados.whatsapp.map((w) => w.phoneNumber), [NUM_ALEX], "a las 8 a. m. sale");
+    }
+  }
+});
+
+await prueba("servicio: una escalada vieja (sin whatsappAlexander) nunca genera WhatsApp", async () => {
+  reiniciarConLider(null);
+  const vieja = escaladaPura("c1");
+  delete vieja.whatsappAlexander;
+  settings.set("supervisor:accionable:estado:ws1", JSON.stringify({ acciones: { c1: vieja }, historial: [] }));
+  const config = await servicio.leerConfigAccionable(WS);
+  await servicio.gestionarAcciones({ workspaceId: WS, hallazgos: [], chats: [maria()], ahora: mas(T0, 30), config });
+  assert.equal(enviados.whatsapp.length, 0);
 });
 
 console.log(`\n${pruebas} pruebas OK`);
