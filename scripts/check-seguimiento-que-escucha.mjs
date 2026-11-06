@@ -349,6 +349,43 @@ await prueba("el cierre de apartar tiene la frase exacta, sin promesa de llegada
   assert.ok(suelto.some((p) => /«50»/.test(p)), suelto.join(" | "));
 });
 
+/* ----------------------------------------------------------------------------------------------
+   La negrita de WhatsApp (*así*): el revisor mira el texto sin asteriscos, pero lo que sale los conserva
+---------------------------------------------------------------------------------------------- */
+
+const AGENDADO_50 = "¿Te la aparto con el 50 % para empezar la fabricación?";
+
+await prueba("negrita: una propuesta con *asteriscos* que cumple sale idéntica, de la IA y con sus asteriscos", () => {
+  const conNegrita = "La *camilla* está en cuero tex con garantía de *1 año*. ¿Quieres apartarla con el *50 %* para empezar la fabricación?";
+  const sinCiudad = [linea("cliente", "Hola, vi el anuncio de la camilla", 0), linea("negocio", "¡Hola! Te comparto las fotos", 1)];
+  const r = sq.elegirTexto({
+    conversacion: sinCiudad,
+    yaEnviados: [],
+    textoDelLibro: "Camilla en cuero tex con garantía de 1 año.",
+    producto: "Camilla plegable",
+    propuestas: [conNegrita],
+    textoFijo: AGENDADO_50,
+  });
+  assert.equal(r.enviar, true, JSON.stringify(r.descartados ?? []));
+  assert.equal(r.origen, "ia");
+  assert.equal(r.texto, conNegrita);
+  assert.match(r.texto, /\*camilla\*/);
+});
+
+await prueba("negrita: los asteriscos no esconden el valor del envío ni una frase prohibida", () => {
+  const sinLibro = { ...BASE, textoDelLibro: null };
+  const envio = sq.revisarSeguimiento("El *envío* de *$20.000* ya está listo ¿te lo aparto?", sinLibro);
+  assert.ok(envio.some((p) => /da el valor del envío/.test(p)), envio.join(" | "));
+  const prohibida = sq.revisarSeguimiento("¿Sigues *interesada* en la camilla?", BASE);
+  assert.notDeepEqual(prohibida, []);
+  assert.ok(prohibida.some((p) => /sigues interesad/i.test(p)), prohibida.join(" | "));
+});
+
+await prueba("negrita: «*50* %» sigue siendo la regla del anticipo, no una cifra inventada", () => {
+  const problemas = sq.revisarSeguimiento("¿Te la aparto con el *50* %?", { ...BASE, textoAgendado: AGENDADO_50 });
+  assert.deepEqual(problemas.filter((p) => /no está ni en el libro ni en la conversación/.test(p)), [], problemas.join(" | "));
+});
+
 await prueba("con la IA sin propuestas sale el cierre exacto; las preguntas de ciudad no salen como respaldo", () => {
   const entrada = { ...REV_BOGOTA, producto: "Camilla plegable", propuestas: [] };
   let r = sq.elegirTexto({ ...entrada, textoFijo: "¿A qué ciudad te lo enviamos?" });
@@ -749,6 +786,17 @@ await prueba("si la IA propone algo que no pasa la revisión, se le pide otra (h
   assert.equal(ia.pedidos.length, 3);
   assert.equal(r.texto, BUENA);
   assert.match(ia.pedidos[1].messages.at(-1).content, /no cumple/);
+});
+
+await prueba("negrita: la respuesta de la IA con **doble** o ***triple*** asterisco sale con uno solo por lado", async () => {
+  reiniciarBase();
+  // El cliente ya dio la ciudad (Montería, en el audio): el texto la nombra y termina pidiendo apartar.
+  reiniciarIa(["La **camilla** te llega a Montería sin problema ¿Te la aparto con el ***50 %***?"]);
+  const r = await redactar({ ...ENTRADA, textoFijo: "La silla te llega sin problema ¿Te la aparto con el 50 %?" });
+  assert.equal(r.enviar, true);
+  assert.equal(r.deIA, true);
+  assert.equal(r.texto, "La *camilla* te llega a Montería sin problema ¿Te la aparto con el *50 %*?");
+  assert.ok(!r.texto.includes("**"), r.texto);
 });
 
 await prueba("en los reintentos la IA ve las reglas (contraentrega fuera del Combo, envío gratis aunque lleve el 50 %)", async () => {
