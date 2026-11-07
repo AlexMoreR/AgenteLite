@@ -22,7 +22,13 @@ import {
   whereDeFiltros,
   type FiltrosDeBandeja,
 } from "@/features/chats/services/filtros-de-bandeja";
-import { DIAS_DE_SIN_RESPONDER } from "@/features/chats/domain/filtros-de-bandeja";
+import { DIAS_DE_SIN_RESPONDER, SIN_FILTROS, leerEspera } from "@/features/chats/domain/filtros-de-bandeja";
+import {
+  listaDeEsperaDeLaBandeja,
+  ordenarSegunEspera,
+  paginaDeEspera,
+  type ChatEsperando,
+} from "@/features/chats/services/espera-de-chats";
 import { isSnoozed } from "@/lib/lead-snooze";
 import { canalesQueMonitorea, enmascararSiEsTelefono, enmascararTelefono } from "@/lib/modo-monitoreo";
 import { esSupervisora } from "@/lib/permisos-del-equipo";
@@ -585,6 +591,38 @@ async function getAgentConversationList(input: {
   };
 }
 
+type DatosOficiales = Awaited<ReturnType<typeof getOfficialApiChatsData>>;
+
+/** Una fila de la lista a partir de un chat de la API oficial (mismo formato que page.tsx). */
+function filaOficial(
+  conversation: DatosOficiales["conversations"][number],
+  opciones: { tapar: boolean; nombreLineaOficial: string | null },
+) {
+  const titulo =
+    conversation.contact.name?.trim() || conversation.contact.phoneNumber?.trim() || conversation.contact.waId;
+  const telefono = conversation.contact.phoneNumber?.trim() || conversation.contact.waId;
+  return {
+    key: `official:${conversation.id}`,
+    source: "official" as const,
+    conversationId: conversation.id,
+    label: opciones.tapar ? enmascararSiEsTelefono(titulo) : titulo,
+    secondaryLabel: opciones.tapar ? enmascararTelefono(telefono) : telefono,
+    contactId: conversation.contact.crmContactId ?? undefined,
+    tags: [],
+    avatarUrl: null,
+    crmStage: conversation.contact.crmStage ?? null,
+    incomingCount: conversation.incomingCount ?? 0,
+    assignedToName: conversation.assignedTo?.name?.trim() || conversation.assignedTo?.email || null,
+    channelName: opciones.nombreLineaOficial,
+    channelType: "whatsapp_official" as const,
+    lastMessage: conversation.lastMessage?.content ?? null,
+    lastMessageType: conversation.lastMessage?.type ?? null,
+    lastMessageDirection: conversation.lastMessage?.direction ?? null,
+    sinResponderDesde: conversation.sinResponderDesde ?? null,
+    lastMessageAt: conversation.lastMessage?.createdAt ?? null,
+  };
+}
+
 export const GET = conServerTiming(manejarGet, { log: "chats/list" });
 
 async function manejarGet(request: Request, t: MedidorServerTiming) {
@@ -687,14 +725,36 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
   t.marca("permisos");
 
   const filtros = leerFiltrosDeBandeja((clave) => requestUrl.searchParams.get(clave));
+  const conexionElegida = await resolverConexionElegida({
+    workspaceId: membership.workspace.id,
+    connectionKey: selectedConnectionKey,
+    visibleChannelIds,
+  });
+
+  /*
+    `espera=1`: la lista "Esperando respuesta", del que mas lleva esperando al que menos. Con texto
+    en el buscador la busqueda manda y `espera` no se aplica. Sin `espera`, todo sigue como antes.
+  */
+  if (leerEspera((clave) => requestUrl.searchParams.get(clave)) && !searchQuery) {
+    return responderEsperando({
+      t,
+      workspaceId: membership.workspace.id,
+      userId: session.user.id,
+      isManager,
+      assignedFilter,
+      conexionElegida,
+      visibleChannelIds,
+      monitoredChannelIds,
+      fijados: soloIds,
+      offset,
+      limit,
+    });
+  }
+
   const data = await getAgentConversationList({
     workspaceId: membership.workspace.id,
     searchQuery,
-    selectedConnectionKey: await resolverConexionElegida({
-      workspaceId: membership.workspace.id,
-      connectionKey: selectedConnectionKey,
-      visibleChannelIds,
-    }),
+    selectedConnectionKey: conexionElegida,
     assignedFilter,
     statusFilter,
     filtros,
@@ -730,31 +790,9 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     });
     t.marca("oficial");
     const tapar = monitoredChannelIds.length > 0;
-    const filasOficiales = oficial.conversations.map((conversation) => {
-      const titulo =
-        conversation.contact.name?.trim() || conversation.contact.phoneNumber?.trim() || conversation.contact.waId;
-      const telefono = conversation.contact.phoneNumber?.trim() || conversation.contact.waId;
-      return {
-        key: `official:${conversation.id}`,
-        source: "official" as const,
-        conversationId: conversation.id,
-        label: tapar ? enmascararSiEsTelefono(titulo) : titulo,
-        secondaryLabel: tapar ? enmascararTelefono(telefono) : telefono,
-        contactId: conversation.contact.crmContactId ?? undefined,
-        tags: [],
-        avatarUrl: null,
-        crmStage: conversation.contact.crmStage ?? null,
-        incomingCount: conversation.incomingCount ?? 0,
-        assignedToName: conversation.assignedTo?.name?.trim() || conversation.assignedTo?.email || null,
-        channelName: nombreLineaOficial,
-        channelType: "whatsapp_official" as const,
-        lastMessage: conversation.lastMessage?.content ?? null,
-        lastMessageType: conversation.lastMessage?.type ?? null,
-        lastMessageDirection: conversation.lastMessage?.direction ?? null,
-        sinResponderDesde: conversation.sinResponderDesde ?? null,
-        lastMessageAt: conversation.lastMessage?.createdAt ?? null,
-      };
-    });
+    const filasOficiales = oficial.conversations.map((conversation) =>
+      filaOficial(conversation, { tapar, nombreLineaOficial }),
+    );
     // Las dos fuentes ya vienen filtradas por `q` (ver getAgentConversationList).
     const conversaciones = dedupeAndSortConversationListRows([
       ...datosDeLista.conversations,
@@ -778,5 +816,146 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     assignedFilter,
     isManager,
     ...datosDeLista,
+  });
+}
+
+/**
+ * GET /list?espera=1: los chats que esperan respuesta de una persona, del que mas lleva al que menos.
+ *
+ *  1. La lista sale de la memoria de 60 s y del mismo recorte por persona que el numero de /counts
+ *     (features/chats/services/espera-de-chats.ts), con la pestaña (Todas, Mias...) y la linea.
+ *  2. Se pagina sobre ESA lista con `offset` (sin cursor: el orden no es el de la base). `nextOffset`
+ *     y `hasMore` salen de ella, asi el scroll no repite ni salta chats.
+ *  3. Las filas se traen por id con los mismos permisos de siempre: las de WhatsApp con
+ *     getAgentConversationList y las de la linea oficial con getOfficialApiChatsData. La oficial
+ *     entra en cualquier pagina, no solo en la primera.
+ *  4. Al final se reordenan segun la lista de esperas (las filas vienen por ultimo mensaje).
+ * Con `ids=` (fijados) devuelve solo los fijados que ademas estan esperando.
+ * Si la espera no se puede leer, responde ok con la lista vacia y `esperaNoDisponible: true`.
+ */
+async function responderEsperando(input: {
+  t: MedidorServerTiming;
+  workspaceId: string;
+  userId: string;
+  isManager: boolean;
+  assignedFilter: string;
+  conexionElegida: string;
+  visibleChannelIds: string[] | null;
+  monitoredChannelIds: string[];
+  /** Los fijados pedidos con `ids=` (vacio si no vinieron). */
+  fijados: string[];
+  offset: number;
+  limit: number;
+}) {
+  const respuestaBase = { ok: true, assignedFilter: input.assignedFilter, isManager: input.isManager, nextCursor: null };
+
+  /*
+    Quien mira, igual que /counts: la monitora (que no es jefa ni supervisora) ve sus lineas; la
+    asesora, solo sus chats; dueño, administrador y supervisora, las lineas que tienen visibles.
+  */
+  const monitoreados = input.isManager ? [] : input.monitoredChannelIds;
+  let lista: ChatEsperando[];
+  try {
+    lista = await listaDeEsperaDeLaBandeja({
+      workspaceId: input.workspaceId,
+      conexionElegida: input.conexionElegida,
+      quien:
+        monitoreados.length > 0
+          ? {
+              userId: input.userId,
+              canales: input.visibleChannelIds
+                ? monitoreados.filter((id) => input.visibleChannelIds!.includes(id))
+                : monitoreados,
+              soloMios: false,
+            }
+          : { userId: input.userId, canales: input.visibleChannelIds, soloMios: !input.isManager },
+      asignacion: input.assignedFilter,
+    });
+  } catch (error) {
+    console.error("[chats/list] no se pudo calcular la espera", error);
+    return NextResponse.json({
+      ...respuestaBase,
+      conversations: [],
+      hasMore: false,
+      nextOffset: input.offset,
+      total: 0,
+      evolutionInstanceNames: [],
+      esperaNoDisponible: true,
+    });
+  }
+  input.t.marca("espera");
+
+  const { pagina, nextOffset, hasMore } =
+    input.fijados.length > 0
+      ? {
+          pagina: lista.filter((chat) => input.fijados.some((id) => chat.key === `agent:${id}`)),
+          nextOffset: 0,
+          hasMore: false,
+        }
+      : paginaDeEspera(lista, input.offset, input.limit);
+  const claves = pagina.map((chat) => chat.key);
+  const idsDe = (prefijo: string) =>
+    claves.filter((clave) => clave.startsWith(prefijo)).map((clave) => clave.slice(prefijo.length));
+  const idsWhatsapp = idsDe("agent:");
+  const idsOficiales = idsDe("official:");
+
+  // WhatsApp: los mismos filtros de permisos que la lista normal, sin condiciones ni busqueda.
+  const whatsapp = idsWhatsapp.length
+    ? await getAgentConversationList({
+        workspaceId: input.workspaceId,
+        searchQuery: "",
+        selectedConnectionKey: input.conexionElegida,
+        assignedFilter: input.assignedFilter,
+        statusFilter: "open",
+        filtros: SIN_FILTROS,
+        currentUserId: input.userId,
+        visibleChannelIds: input.visibleChannelIds,
+        monitoredChannelIds: input.monitoredChannelIds,
+        soloIds: idsWhatsapp,
+        offset: 0,
+        cursor: null,
+        limit: idsWhatsapp.length,
+      })
+    : null;
+  input.t.marca("lista");
+
+  let filasOficiales: Array<ReturnType<typeof filaOficial>> = [];
+  if (idsOficiales.length) {
+    const oficial = await getOfficialApiChatsData({
+      workspaceId: input.workspaceId,
+      // Solo la lista: sin abrir (ni marcar leido) ningun chat.
+      includeSelectedConversation: false,
+      statusFilter: "open",
+      assignedFilter: input.assignedFilter as Parameters<typeof getOfficialApiChatsData>[0]["assignedFilter"],
+      filtros: SIN_FILTROS,
+      currentUserId: input.userId,
+      soloIds: idsOficiales,
+    });
+    const nombreLineaOficial =
+      whatsapp?.nombreLineaOficial ??
+      ((await canalesDelNegocio(input.workspaceId))
+        .find((canal) => canal.provider === "OFFICIAL_API")
+        ?.name?.trim() || null);
+    const tapar = input.monitoredChannelIds.length > 0;
+    filasOficiales = oficial.conversations.map((conversation) =>
+      filaOficial(conversation, { tapar, nombreLineaOficial }),
+    );
+    input.t.marca("oficial");
+  }
+
+  const conversaciones = ordenarSegunEspera(
+    dedupeAndSortConversationListRows([...(whatsapp?.conversations ?? []), ...filasOficiales] as Array<
+      UnifiedConversation | (typeof filasOficiales)[number]
+    >),
+    claves,
+  );
+
+  return NextResponse.json({
+    ...respuestaBase,
+    conversations: conversaciones,
+    hasMore,
+    nextOffset,
+    total: conversaciones.length,
+    evolutionInstanceNames: whatsapp?.evolutionInstanceNames ?? [],
   });
 }

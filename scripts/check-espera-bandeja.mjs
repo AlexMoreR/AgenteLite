@@ -1,4 +1,5 @@
-// Pruebas de "Esperando respuesta" (parte 1: el calculo y el campo `espera` de /counts).
+// Pruebas de "Esperando respuesta" (parte 1: el calculo y el campo `espera` de /counts; parte 2:
+// la lista GET /api/cliente/chats/list?espera=1 y la vista inicial de la bandeja).
 //
 // - El SQL de src/features/chats/services/espera-de-chats.ts corre en un Postgres embebido
 //   (PGlite) con chats armados a mano: cuales entran, cuales no y desde cuando cuenta el reloj.
@@ -218,6 +219,10 @@ await chatOficial("of_otro_negocio", [[IN, 1]], { config: "cfg_otro" });
 const pg = require("pg");
 const escenario = { userRole: "CLIENTE", memberRole: "OWNER", monitorIds: [], falla: false };
 const sqls = [];
+/** Los ids de chats que existen en PGlite: la lista los pide por id y el pool falso los devuelve. */
+const idsConocidos = { agent: new Set(), official: new Set() };
+/** Los ids que pidio cada consulta de filas (para saber que se trajo y que no). */
+const pedidos = { agent: [], official: [] };
 
 function columnas(sql) {
   const m = /^SELECT (.*?) FROM "public"\."(\w+)"/s.exec(sql);
@@ -277,16 +282,62 @@ class PoolFalso extends pg.Pool {
         rowCount: res.rows.length,
       };
     }
+    // La configuracion de la linea oficial (SQL directo): conectada, para que la lista la lea.
+    if (text.includes('FROM "OfficialApiClientConfig"') && text.includes('"accessToken"')) {
+      const cols = ["id", "workspaceId", "accessToken", "phoneNumberId", "wabaId", "webhookVerifyToken", "appSecret", "status"];
+      return { fields: cols.map((name) => ({ name, dataTypeID: 25 })), rows: [["cfg_1", "x1", "t", "p", "w", "v", "s", "CONNECTED"]], rowCount: 1 };
+    }
+    // La lista de la linea oficial por id (soloIds): una fila por cada chat oficial pedido.
+    if (text.includes("filtered_conversations")) {
+      const ids = (q.values ?? []).filter((v) => idsConocidos.official.has(v));
+      pedidos.official.push(ids);
+      const cols = [
+        ["id", 25], ["contactId", 25], ["contactName", 25], ["contactPhoneNumber", 25], ["contactWaId", 25],
+        ["crmContactId", 25], ["crmStage", 25], ["assignedToUserId", 25], ["assignedToName", 25],
+        ["assignedToEmail", 25], ["incomingCount", 23], ["lastMessageId", 25], ["lastMessageContent", 25],
+        ["lastMessageDirection", 25], ["lastMessageCreatedAt", 1114], ["lastMessageStatus", 25],
+        ["lastMessageType", 25], ["lastMessageMediaUrl", 25], ["lastMessageRawPayload", 3802], ["sinResponderDesde", 1114],
+      ];
+      return {
+        fields: cols.map(([name, dataTypeID]) => ({ name, dataTypeID })),
+        rows: ids.map((id) => [
+          id, `oc_${id}`, id, "573000000000", "573000000000", null, null, null, null, null, 1, `om_${id}`, "hola",
+          "INBOUND", "2026-10-08 10:00:00.000", "RECEIVED", "TEXT", null, "{}", null,
+        ]),
+        rowCount: ids.length,
+      };
+    }
     // Los count() de los contadores: aca no importa el numero.
     const conteo = /AS "(_count\$_all)"/.exec(text);
     if (conteo) return { fields: [{ name: conteo[1], dataTypeID: 23 }], rows: [[0]], rowCount: 1 };
     const info = columnas(text);
     if (!info) return { fields: [], rows: [], rowCount: 1 };
-    return {
-      fields: info.cols.map((c) => ({ name: c, dataTypeID: valor(info.tabla, c)[0] })),
-      rows: [info.cols.map((c) => valor(info.tabla, c)[1])],
-      rowCount: 1,
-    };
+    const fields = info.cols.map((c) => ({ name: c, dataTypeID: valor(info.tabla, c)[0] }));
+    // La lista del canal viejo por id (soloIds): una fila por cada chat pedido que existe.
+    const idsPedidos = (q.values ?? []).filter((v) => idsConocidos.agent.has(v));
+    if (info.tabla === "Conversation" && idsPedidos.length) {
+      pedidos.agent.push(idsPedidos);
+      return {
+        fields,
+        // Cada chat con su propio contacto: la lista junta los chats del mismo contacto y linea.
+        rows: idsPedidos.map((id) =>
+          info.cols.map((c) => (c === "id" ? id : c === "contactId" ? `ct_${id}` : valor(info.tabla, c)[1])),
+        ),
+        rowCount: idsPedidos.length,
+      };
+    }
+    // Y esos contactos, cuando Prisma los pide aparte.
+    const contactosPedidos = (q.values ?? []).filter(
+      (v) => typeof v === "string" && v.startsWith("ct_") && idsConocidos.agent.has(v.slice(3)),
+    );
+    if (info.tabla === "Contact" && contactosPedidos.length) {
+      return {
+        fields,
+        rows: contactosPedidos.map((id) => info.cols.map((c) => (c === "id" ? id : valor(info.tabla, c)[1]))),
+        rowCount: contactosPedidos.length,
+      };
+    }
+    return { fields, rows: [info.cols.map((c) => valor(info.tabla, c)[1])], rowCount: 1 };
   }
   async connect() {
     return { query: (q) => this.query(q), release() {}, on() {}, removeListener() {} };
@@ -596,6 +647,263 @@ await prueba("ruta: si la espera falla, espera null, queda en el log y los conta
   escenario.falla = false;
   const otra = await pedir("http://x/api/cliente/chats/counts");
   assert.ok(otra.cuerpo.espera && otra.cuerpo.espera.all === 3);
+});
+
+/* ------------------------------------------------------------------------------------------------
+   6. Parte 2: la lista "Esperando" (funciones puras)
+------------------------------------------------------------------------------------------------ */
+const dominio = cargar("@/features/chats/domain/espera-de-chats");
+const filtrosDominio = cargar("@/features/chats/domain/filtros-de-bandeja");
+
+await prueba("lista: el que mas lleva primero; si empatan, por key", async () => {
+  const chats = [
+    { key: "agent:b", desde: "2026-11-06T10:00:00.000Z" },
+    { key: "official:a", desde: "2026-11-06T09:00:00.000Z" },
+    { key: "agent:a", desde: "2026-11-06T10:00:00.000Z" },
+    { key: "agent:c", desde: "2026-11-06T08:00:00.000Z" },
+  ];
+  assert.deepEqual(dominio.ordenarEsperando(chats).map((c) => c.key), ["agent:c", "official:a", "agent:a", "agent:b"]);
+});
+
+await prueba("lista: las paginas siguen sin repetir ni saltar, y hasMore/nextOffset salen de la lista", async () => {
+  const lista = Array.from({ length: 7 }, (_, i) => `k${i}`);
+  const p1 = dominio.paginaDeEspera(lista, 0, 3);
+  assert.deepEqual(p1, { pagina: ["k0", "k1", "k2"], nextOffset: 3, hasMore: true });
+  const p2 = dominio.paginaDeEspera(lista, p1.nextOffset, 3);
+  assert.deepEqual(p2, { pagina: ["k3", "k4", "k5"], nextOffset: 6, hasMore: true });
+  const p3 = dominio.paginaDeEspera(lista, p2.nextOffset, 3);
+  assert.deepEqual(p3, { pagina: ["k6"], nextOffset: 7, hasMore: false });
+  assert.deepEqual(dominio.paginaDeEspera(lista, 50, 3), { pagina: [], nextOffset: 50, hasMore: false });
+});
+
+await prueba("lista: las filas se reordenan segun la espera y sobra lo que no esta en ella", async () => {
+  const filas = [{ key: "a" }, { key: "b" }, { key: "x" }, { key: "c" }];
+  assert.deepEqual(dominio.ordenarSegunEspera(filas, ["c", "a", "falta", "b"]).map((f) => f.key), ["c", "a", "b"]);
+});
+
+await prueba("direccion: espera=1 se lee sin Prisma", async () => {
+  const leer = (q) => (clave) => new URLSearchParams(q).get(clave);
+  assert.equal(filtrosDominio.leerEspera(leer("espera=1")), true);
+  assert.equal(filtrosDominio.leerEspera(leer("espera=0")), false);
+  assert.equal(filtrosDominio.leerEspera(leer("")), false);
+  // El archivo del dominio no importa Prisma (lo usa la pantalla).
+  for (const archivo of ["src/features/chats/domain/filtros-de-bandeja.ts", "src/features/chats/domain/espera-de-chats.ts"]) {
+    assert.ok(!/from "@prisma\/client"|@\/lib\/prisma/.test(fs.readFileSync(archivo, "utf8")), archivo);
+  }
+});
+
+await prueba("vista inicial: todos los casos", async () => {
+  const leer = (q) => (clave) => new URLSearchParams(q).get(clave);
+  const vista = (q, veTodas, esperandoMios) => dominio.vistaInicialDeLaBandeja({ leer: leer(q), veTodas, esperandoMios });
+  // Dueño, admin, supervisora o monitora: Todas (tengan o no chats esperando).
+  assert.deepEqual(vista("", true, 5), { origen: "defecto", assigned: "all", espera: false });
+  assert.deepEqual(vista("", true, 0), { origen: "defecto", assigned: "all", espera: false });
+  // Asesora con chats esperando: Esperando con Mias; sin chats, o sin saberlo: Mias.
+  assert.deepEqual(vista("", false, 2), { origen: "defecto", assigned: "mine", espera: true });
+  assert.deepEqual(vista("", false, 0), { origen: "defecto", assigned: "mine", espera: false });
+  assert.deepEqual(vista("", false, null), { origen: "defecto", assigned: "mine", espera: false });
+  // La conexion sola no elige la vista.
+  assert.deepEqual(vista("connection=channel:x", false, 2), { origen: "defecto", assigned: "mine", espera: true });
+  // Cualquiera de estos en la direccion: se respeta lo que viene.
+  for (const q of [
+    "chatKey=agent:1",
+    "conversacion=1",
+    "assigned=all",
+    "q=juan",
+    "status=resolved",
+    "c=etapa:es:NUEVO",
+    "stage=NUEVO",
+    "tag=t1",
+    "pending=1",
+    "espera=1",
+  ]) {
+    assert.deepEqual(vista(q, false, 2), { origen: "direccion" }, q);
+    assert.deepEqual(vista(q, true, 0), { origen: "direccion" }, q);
+  }
+  // Vacios no cuentan.
+  assert.deepEqual(vista("q=&assigned=", false, 1), { origen: "defecto", assigned: "mine", espera: true });
+});
+
+/* ------------------------------------------------------------------------------------------------
+   7. Parte 2: GET /api/cliente/chats/list?espera=1
+------------------------------------------------------------------------------------------------ */
+for (const fila of (await db.query(`SELECT "id" FROM "Conversation"`)).rows) idsConocidos.agent.add(fila.id);
+for (const fila of (await db.query(`SELECT "id" FROM "OfficialApiConversation"`)).rows) idsConocidos.official.add(fila.id);
+const lista = cargar("@/app/api/cliente/chats/list/route");
+async function pedirLista(url) {
+  sqls.length = 0;
+  pedidos.agent.length = 0;
+  pedidos.official.length = 0;
+  console.log = () => {};
+  console.error = (...args) => errores.push(args.map(String).join(" "));
+  try {
+    const res = await lista.GET(new Request(url));
+    const cuerpo = await res.json();
+    assert.equal(cuerpo.ok, true, JSON.stringify(cuerpo));
+    return { cuerpo, consultas: sqls.length, consultasDeEspera: sqls.filter(esConsultaDeEspera).length };
+  } finally {
+    console.log = logOriginal;
+    console.error = errorOriginal;
+  }
+}
+/** Recorre la lista entera pagina por pagina, como el scroll de la bandeja. */
+async function recorrer(base, limit) {
+  const claves = [];
+  let offset = 0;
+  for (let vuelta = 0; vuelta < 50; vuelta++) {
+    const { cuerpo } = await pedirLista(`${base}&limit=${limit}&offset=${offset}`);
+    assert.equal(cuerpo.nextCursor, null, "sin cursor: el scroll cae a nextOffset");
+    claves.push(...cuerpo.conversations.map((c) => c.key));
+    if (!cuerpo.hasMore) return claves;
+    assert.ok(cuerpo.nextOffset > offset, "el offset avanza");
+    offset = cuerpo.nextOffset;
+  }
+  throw new Error("la lista no termina");
+}
+const comoDueno = () => {
+  escenario.userRole = "CLIENTE";
+  escenario.memberRole = "OWNER";
+  sesion.actual = { user: { id: "x1", role: "CLIENTE" } };
+  permisos.vaciarCachesDePermisos();
+};
+const comoAsesora = () => {
+  escenario.userRole = "EMPLEADO";
+  escenario.memberRole = "AGENT";
+  sesion.actual = { user: { id: "x1", role: "EMPLEADO" } };
+  permisos.vaciarCachesDePermisos();
+};
+
+await prueba("ruta /list: dueño en Todas, del que mas lleva al que menos, mezclando WhatsApp y oficial", async () => {
+  comoDueno();
+  espera.vaciarCacheDeEspera();
+  const contadores = (await pedir("http://x/api/cliente/chats/counts")).cuerpo.espera;
+  const esperado = dominio.ordenarEsperando(contadores.chats).map((c) => c.key);
+  const { cuerpo, consultasDeEspera } = await pedirLista("http://x/api/cliente/chats/list?espera=1&assigned=all&limit=40");
+  assert.equal(consultasDeEspera, 0, "la misma memoria de 60 s que /counts");
+  assert.deepEqual(cuerpo.conversations.map((c) => c.key), esperado, "mismas filas y en el orden de la espera");
+  assert.equal(cuerpo.hasMore, false);
+  assert.equal(cuerpo.nextOffset, esperado.length);
+  assert.ok(esperado.some((k) => k.startsWith("official:")) && esperado.some((k) => k.startsWith("agent:")));
+  assert.equal(cuerpo.esperaNoDisponible, undefined);
+});
+
+await prueba("ruta /list: la pagina 2 sigue sin repetir ni saltar filas (oficial en cualquier pagina)", async () => {
+  const todas = (await pedirLista("http://x/api/cliente/chats/list?espera=1&assigned=all&limit=40")).cuerpo.conversations.map((c) => c.key);
+  for (const limit of [1, 2, 3, 5]) {
+    const paginado = await recorrer("http://x/api/cliente/chats/list?espera=1&assigned=all", limit);
+    assert.deepEqual(paginado, todas, `limit ${limit}`);
+    assert.equal(new Set(paginado).size, paginado.length, "sin repetidos");
+  }
+  // La primera oficial no esta en la primera pagina de 3: igual sale, sin incluirOficial=1.
+  const posicionOficial = todas.findIndex((k) => k.startsWith("official:"));
+  assert.ok(posicionOficial >= 3, `la oficial deberia caer despues de la pagina 1 (esta en ${posicionOficial})`);
+  const pagina = Math.floor(posicionOficial / 3) * 3;
+  const { cuerpo } = await pedirLista(`http://x/api/cliente/chats/list?espera=1&assigned=all&limit=3&offset=${pagina}`);
+  assert.ok(cuerpo.conversations.some((c) => c.source === "official"), JSON.stringify(cuerpo.conversations.map((c) => c.key)));
+});
+
+await prueba("ruta /list: linea oficial respondida solo por automatizacion sale; con manual no", async () => {
+  const claves = (await pedirLista("http://x/api/cliente/chats/list?espera=1&assigned=all&limit=40")).cuerpo.conversations.map((c) => c.key);
+  assert.ok(claves.includes("official:of_solo_bot"));
+  assert.ok(!claves.includes("official:of_manual"));
+  assert.ok(!claves.includes("agent:con_manual"));
+});
+
+await prueba("ruta /list: dueño en Mias ve solo lo suyo; sin asignar solo lo que no tiene asesora", async () => {
+  const mias = (await pedirLista("http://x/api/cliente/chats/list?espera=1&assigned=mine&limit=40")).cuerpo.conversations.map((c) => c.key);
+  assert.deepEqual([...mias].sort(), ["agent:de_ana_y_maria", "agent:de_maria", "official:of_sin_respuesta"]);
+  const sinAsignar = (await pedirLista("http://x/api/cliente/chats/list?espera=1&assigned=unassigned&limit=40")).cuerpo.conversations.map((c) => c.key);
+  assert.ok(sinAsignar.length > 0);
+  assert.ok(!sinAsignar.some((k) => ["agent:de_maria", "agent:de_ana_y_maria", "agent:otro_canal", "official:of_sin_respuesta"].includes(k)));
+});
+
+await prueba("ruta /list: la linea elegida filtra (y la oficial no entra si no es esa linea)", async () => {
+  const claves = (await pedirLista("http://x/api/cliente/chats/list?espera=1&assigned=all&limit=40&connection=channel:x1")).cuerpo.conversations.map((c) => c.key);
+  assert.ok(claves.length > 0);
+  assert.ok(claves.every((k) => k.startsWith("agent:")));
+  assert.ok(!claves.includes("agent:otro_canal"));
+});
+
+await prueba("ruta /list: asesora solo ve lo suyo, aunque pida Todas", async () => {
+  comoAsesora();
+  for (const assigned of ["all", "mine", "unassigned", ""]) {
+    const { cuerpo } = await pedirLista(`http://x/api/cliente/chats/list?espera=1&assigned=${assigned}&limit=40`);
+    assert.deepEqual(cuerpo.conversations.map((c) => c.key).sort(), ["agent:de_ana_y_maria", "agent:de_maria", "official:of_sin_respuesta"], assigned);
+    // Solo se pidieron a la base sus chats.
+    assert.deepEqual(pedidos.agent.flat().sort(), ["de_ana_y_maria", "de_maria"]);
+  }
+  const paginado = await recorrer("http://x/api/cliente/chats/list?espera=1&assigned=mine", 1);
+  assert.equal(paginado.length, 3);
+});
+
+await prueba("ruta /list: con ids= (fijados) devuelve solo los que ademas estan esperando", async () => {
+  comoDueno();
+  // Los ids reales son cuid (letras y numeros): la ruta descarta los demas.
+  const negocio = { workspaceId: "x1", channelId: "x1", contacto: { workspaceId: "x1" } };
+  await chat("fijado1", [[IN, 2]], negocio);
+  await chat("fijado2", [[IN, 3], [OUT, 2, { source: "manual" }]], negocio);
+  await chat("fijado3", [[IN, 2]], negocio);
+  for (const tabla of ["Message", "Conversation"]) {
+    const campo = tabla === "Message" ? "createdAt" : "lastMessageAt";
+    const columna = tabla === "Message" ? "conversationId" : "id";
+    await db.query(
+      `UPDATE "${tabla}" SET "${campo}" = "${campo}" + ($1 || ' milliseconds')::interval WHERE "${columna}" IN ('fijado1','fijado2','fijado3')`,
+      [String(corrimiento)],
+    );
+  }
+  for (const id of ["fijado1", "fijado2", "fijado3"]) idsConocidos.agent.add(id);
+  espera.vaciarCacheDeEspera();
+  const { cuerpo } = await pedirLista("http://x/api/cliente/chats/list?espera=1&assigned=all&ids=agent:fijado1,fijado2,fijado3");
+  assert.deepEqual(cuerpo.conversations.map((c) => c.key).sort(), ["agent:fijado1", "agent:fijado3"]);
+  assert.deepEqual(pedidos.agent.flat().sort(), ["fijado1", "fijado3"], "fijado2 ya tiene respuesta: ni se pide");
+  assert.equal(cuerpo.hasMore, false);
+});
+
+await prueba("oficial: soloIds trae solo esos chats y entra en la clave de su memoria", async () => {
+  const { getOfficialApiChatsData } = cargar("@/features/official-api/services/getOfficialApiChatsData");
+  const base = { workspaceId: "x1", includeSelectedConversation: false, statusFilter: "open", assignedFilter: "all", currentUserId: "x1" };
+  const uno = await getOfficialApiChatsData({ ...base, soloIds: ["of_solo_bot"] });
+  assert.deepEqual(uno.conversations.map((c) => c.id), ["of_solo_bot"]);
+  const otro = await getOfficialApiChatsData({ ...base, soloIds: ["of_fallido"] });
+  assert.deepEqual(otro.conversations.map((c) => c.id), ["of_fallido"], "no sirve la memoria del pedido anterior");
+  // Una lista vacia no trae nada (nunca todos).
+  pedidos.official.length = 0;
+  const vacia = await getOfficialApiChatsData({ ...base, soloIds: [] });
+  assert.deepEqual(vacia.conversations, []);
+});
+
+await prueba("ruta /list: con texto en el buscador la busqueda manda y espera no se aplica", async () => {
+  const { cuerpo, consultasDeEspera } = await pedirLista("http://x/api/cliente/chats/list?espera=1&assigned=all&q=juan&limit=20");
+  assert.equal(consultasDeEspera, 0);
+  assert.equal(pedidos.agent.length, 0, "no pide por id: es la lista normal");
+  assert.equal(cuerpo.esperaNoDisponible, undefined);
+});
+
+await prueba("ruta /list: sin espera, nada cambia (no lee la espera)", async () => {
+  espera.vaciarCacheDeEspera();
+  const { cuerpo, consultasDeEspera } = await pedirLista("http://x/api/cliente/chats/list?assigned=all&limit=20");
+  assert.equal(consultasDeEspera, 0);
+  assert.equal(cuerpo.esperaNoDisponible, undefined);
+  assert.equal(pedidos.agent.length, 0);
+});
+
+await prueba("ruta /list: si la espera falla responde ok, vacia, hasMore false y esperaNoDisponible", async () => {
+  espera.vaciarCacheDeEspera();
+  escenario.falla = true;
+  errores.length = 0;
+  try {
+    const { cuerpo } = await pedirLista("http://x/api/cliente/chats/list?espera=1&assigned=all&limit=20");
+    assert.deepEqual(cuerpo.conversations, []);
+    assert.equal(cuerpo.hasMore, false);
+    assert.equal(cuerpo.esperaNoDisponible, true);
+    assert.equal(cuerpo.nextCursor, null);
+    assert.ok(errores.some((e) => e.includes("no se pudo calcular la espera")));
+    assert.ok(!JSON.stringify(cuerpo).includes("simulado"), "el error interno no sale en la respuesta");
+  } finally {
+    escenario.falla = false;
+  }
+  const otra = await pedirLista("http://x/api/cliente/chats/list?espera=1&assigned=all&limit=20");
+  assert.ok(otra.cuerpo.conversations.length > 0, "el error no se guarda");
 });
 
 await db.close();

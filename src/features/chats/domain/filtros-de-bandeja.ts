@@ -481,6 +481,15 @@ export function leerFiltrosDeBandeja(
   return { condiciones };
 }
 
+/**
+ * `espera=1`: la vista "Esperando respuesta" (los chats que esperan a una persona, del que mas lleva
+ * al que menos). Va aparte de las condiciones porque no se combina con ellas: con `espera` la lista
+ * ignora condiciones y estado. Sin Prisma: la lee igual la pantalla que la API.
+ */
+export function leerEspera(leer: (clave: string) => string | null | undefined): boolean {
+  return (leer("espera") ?? "").trim() === "1";
+}
+
 /** Los filtros como pares para armar una direccion. Lo que esta vacio no viaja. */
 export function paramsDeFiltros(filtros: FiltrosDeBandeja): Array<[string, string]> {
   const textos = filtros.condiciones.filter(condicionCompleta).map(textoDeCondicionEnUrl);

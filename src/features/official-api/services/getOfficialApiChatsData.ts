@@ -225,6 +225,7 @@ function buildOfficialChatsCacheKey(input: {
   assignedFilter?: OfficialChatsAssignedFilter;
   currentUserId?: string;
   filtros?: FiltrosDeBandeja;
+  soloIds?: string[];
 }) {
   return JSON.stringify({
     workspaceId: input.workspaceId,
@@ -240,6 +241,8 @@ function buildOfficialChatsCacheKey(input: {
     // Los filtros nuevos TIENEN que entrar en la clave: si no, la lista filtrada por etapa se le
     // sirve despues a quien no filtro nada, y al reves.
     filtros: input.filtros ?? SIN_FILTROS,
+    // Solo cuando viene: sin `soloIds` la clave queda igual que antes.
+    ...(input.soloIds ? { soloIds: [...input.soloIds].sort() } : {}),
   });
 }
 
@@ -264,6 +267,11 @@ export async function getOfficialApiChatsData(input: {
   currentUserId?: string;
   /** Etapa del embudo y "sin responder", los mismos que se aplican al canal viejo. */
   filtros?: FiltrosDeBandeja;
+  /**
+   * Solo estos chats (ids de OfficialApiConversation), con los mismos filtros que el resto. Lo usa
+   * la lista "Esperando" (/list?espera=1). Sin esto, nada cambia.
+   */
+  soloIds?: string[];
 }): Promise<OfficialApiChatsData> {
   try {
     return await loadOfficialApiChatsData(input);
@@ -290,6 +298,7 @@ async function loadOfficialApiChatsData(input: {
   /** Quien esta mirando la bandeja. Hace falta para resolver "Mias". */
   currentUserId?: string;
   filtros?: FiltrosDeBandeja;
+  soloIds?: string[];
 }): Promise<OfficialApiChatsData> {
   const INITIAL_MESSAGE_LIMIT = 20;
   const config = await getOfficialApiConfigByWorkspaceId(input.workspaceId);
@@ -316,6 +325,7 @@ async function loadOfficialApiChatsData(input: {
     assignedFilter: input.assignedFilter,
     currentUserId: input.currentUserId,
     filtros: input.filtros,
+    soloIds: input.soloIds,
   });
   const cachedEntry = officialChatsCache.get(cacheKey);
   if (cachedEntry && cachedEntry.expiresAt > Date.now()) {
@@ -386,6 +396,13 @@ async function loadOfficialApiChatsData(input: {
    * y un filtro que se aplique en una sola deja pasar la otra ENTERA: la asesora pide "solo los
    * Calientes" y le siguen apareciendo los del canal oficial, sin ningun aviso de que eso pasa.
    */
+  // Solo los chats pedidos (lista "Esperando"). Una lista vacia no trae ninguno, nunca todos.
+  const officialSoloIdsFilter = input.soloIds
+    ? input.soloIds.length
+      ? Prisma.sql`AND c."id" IN (${Prisma.join(input.soloIds)})`
+      : Prisma.sql`AND false`
+    : Prisma.empty;
+
   const filtros = input.filtros ?? SIN_FILTROS;
   const { etapa: officialStageFilter, sinResponder: officialPendingFilter } =
     await fragmentosDeFiltrosOficiales(filtros, input.workspaceId);
@@ -705,6 +722,7 @@ async function loadOfficialApiChatsData(input: {
           ${officialAssignedFilter}
           ${officialStageFilter}
           ${officialPendingFilter}
+          ${officialSoloIdsFilter}
           ${officialSearchFilter}
         ORDER BY c."lastMessageAt" DESC NULLS LAST, c."updatedAt" DESC
         LIMIT ${conversationListLimit}
@@ -744,6 +762,7 @@ async function loadOfficialApiChatsData(input: {
             ${officialAssignedFilter}
             ${officialStageFilter}
             ${officialPendingFilter}
+            ${officialSoloIdsFilter}
           ORDER BY c."lastMessageAt" DESC NULLS LAST, c."updatedAt" DESC
           LIMIT ${conversationListLimit}
         ),

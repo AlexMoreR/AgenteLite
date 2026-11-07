@@ -2,11 +2,17 @@ import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { CacheConTtl } from "@/lib/cache-en-memoria";
+import { canalesDelNegocio } from "@/lib/canales-del-negocio";
 import { esDeQuien } from "@/lib/chats-asignacion-compartida";
 import { normalizarEtiqueta } from "@/lib/llamada-pide-resultado";
 import { ORIGENES_HUMANOS, claseDelEvento } from "@/lib/turno-de-la-conversacion";
 
-import { VENTANA_DE_ESPERA_MS, type EsperaDeChats } from "../domain/espera-de-chats";
+import {
+  VENTANA_DE_ESPERA_MS,
+  ordenarEsperando,
+  type ChatEsperando,
+  type EsperaDeChats,
+} from "../domain/espera-de-chats";
 
 export * from "../domain/espera-de-chats";
 
@@ -297,4 +303,44 @@ export function esperaParaPersona(chats: ChatEnEspera[], quien: QuienMira): Espe
     mia: esDeQuien(chat, quien.userId),
   }));
   return { mine: lista.filter((chat) => chat.mia).length, all: lista.length, chats: lista };
+}
+
+/**
+ * La lista "Esperando" de la bandeja (GET /api/cliente/chats/list?espera=1), ya ordenada.
+ *
+ * Sale de la MISMA memoria de 60 s y del MISMO recorte por persona que el numero de /counts, para
+ * que el numero y las filas coincidan. Encima se aplica la pestaña: Mias (solo lo suyo), Sin
+ * asignar o una asesora (`user:<ids>`, como en el canal viejo: solo la principal); Todas no recorta.
+ * Las condiciones y el estado no cuentan: solo entran abiertos o pendientes.
+ *
+ * Si la base falla, tira el error: quien llama decide que responder.
+ */
+export async function listaDeEsperaDeLaBandeja(input: {
+  workspaceId: string;
+  /** La conexion ya resuelta (resolverConexionElegida): "" o "channel:<id>". */
+  conexionElegida: string;
+  quien: Omit<QuienMira, "canalElegido" | "incluirOficial">;
+  /** "all" | "mine" | "unassigned" | "user:<id>,<id>". */
+  asignacion: string;
+}): Promise<ChatEsperando[]> {
+  // La linea elegida y si la oficial entra: igual que calcularEspera en /counts.
+  const canalElegido = input.conexionElegida.startsWith("channel:")
+    ? input.conexionElegida.slice("channel:".length)
+    : null;
+  let incluirOficial = !input.conexionElegida;
+  if (canalElegido) {
+    const canales = await canalesDelNegocio(input.workspaceId);
+    incluirOficial = canales.find((canal) => canal.id === canalElegido)?.provider === "OFFICIAL_API";
+  }
+
+  const asesorasPedidas = input.asignacion.startsWith("user:")
+    ? input.asignacion.slice("user:".length).split(",")
+    : null;
+  const chats = (await esperaDelNegocio(input.workspaceId)).filter((chat) => {
+    if (input.asignacion === "unassigned") return !chat.assignedToUserId;
+    if (asesorasPedidas) return Boolean(chat.assignedToUserId && asesorasPedidas.includes(chat.assignedToUserId));
+    return true;
+  });
+  const { chats: visibles } = esperaParaPersona(chats, { ...input.quien, canalElegido, incluirOficial });
+  return ordenarEsperando(input.asignacion === "mine" ? visibles.filter((chat) => chat.mia) : visibles);
 }

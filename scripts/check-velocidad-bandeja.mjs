@@ -429,6 +429,22 @@ await prueba("consultas: asesora con linea elegida y scroll, caliente <= 7 (ante
   assert.ok(caliente.consultas <= 7, `caliente: ${caliente.consultas}`);
 });
 
+await prueba("consultas: espera=1 (lista Esperando) se mide aparte; Todas y Mias no cambian", async () => {
+  const { vaciarCacheDeEspera } = cargar("@/features/chats/services/espera-de-chats");
+  // Los topes de Todas y Mias de arriba siguen iguales: sin `espera` la ruta no la lee.
+  const sinEspera = await pedir("http://x/api/cliente/chats/list?assigned=mine&limit=20");
+  assert.ok(!sinEspera.sqls.some((s) => s.includes("WITH candidatas AS")), "sin espera=1 no se lee la espera");
+  vaciarCacheDeEspera();
+  const url = "http://x/api/cliente/chats/list?assigned=mine&limit=20&espera=1";
+  const fria = await pedir(url);
+  const caliente = await pedir(url);
+  // Dato nuevo (sin tope todavia): fria trae las 2 consultas de la espera; caliente, de la memoria.
+  console.log(`   espera=1 asesora: fria ${fria.consultas}, caliente ${caliente.consultas}`);
+  assert.equal(fria.sqls.filter((s) => s.includes("WITH candidatas AS")).length, 2);
+  assert.equal(caliente.sqls.filter((s) => s.includes("WITH candidatas AS")).length, 0);
+  assert.ok(caliente.consultas <= fria.consultas);
+});
+
 await prueba("consultas: con cursor no hay OFFSET de filas, el where arranca despues del cursor", async () => {
   const cursor = codificarCursor({ id: "c1", lastMessageAt: new Date("2026-10-08T10:00:00Z"), updatedAt: new Date() });
   const { sqls: hechas } = await pedir(
