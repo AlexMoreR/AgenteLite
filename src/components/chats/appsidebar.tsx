@@ -28,7 +28,7 @@ import {
   type FiltrosDeBandeja,
 } from "@/features/chats/domain/filtros-de-bandeja";
 import { filtroSinResponderPuesto } from "@/features/chats/domain/sin-responder";
-import { asignacionDeEsperando, hrefDeEsperando, numeroDeEsperando } from "./chat-inbox-conversation-utils";
+import { hrefDeEsperando } from "./chat-inbox-conversation-utils";
 import { CRM_STAGE_META } from "@/features/crm/domain/crm-config";
 import { iniciarMedicion, terminarMedicionAlPintar } from "@/lib/metricas-chats";
 
@@ -208,7 +208,6 @@ export const AppSidebar = React.memo(function AppSidebar({
   statusFilter = "open",
   assignedCounts = null,
   enEspera = false,
-  numerosDeEspera = null,
   isManager = false,
   filtros = SIN_FILTROS,
   hasMoreConversationItems = false,
@@ -543,12 +542,6 @@ export const AppSidebar = React.memo(function AppSidebar({
     - Estando en Esperando, Todas/Mias cambian de grupo sin salir; tocar el grupo en el que ya se
       esta (la asesora, Mias) sale de Esperando.
   */
-  const asignacionEsperando = asignacionDeEsperando(
-    assignedFilter,
-    isManager,
-    !enEspera && (Boolean(listaActiva) || statusFilter !== "open" || hayFiltrosPuestos(filtros)),
-  );
-  const numeroEsperando = numeroDeEsperando(numerosDeEspera, asignacionEsperando);
   const irAEsperando = React.useCallback(
     (asignacion: "all" | "mine", espera: boolean) => {
       if (asignacion !== assignedFilter) {
@@ -656,24 +649,7 @@ export const AppSidebar = React.memo(function AppSidebar({
                 );
               })}
 
-              {/* "Esperando": para todos, tambien la asesora (ver irAEsperando). */}
-              <button
-                type="button"
-                aria-pressed={enEspera}
-                onClick={() => irAEsperando(asignacionEsperando, !enEspera)}
-                title={enEspera ? "Quitar Esperando" : "Chats que esperan respuesta de una persona"}
-                className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1 text-[13px] font-medium transition ${
-                  enEspera
-                    ? "border-transparent bg-primary text-primary-foreground"
-                    : "border-border text-muted-foreground hover:bg-muted"
-                }`}
-              >
-                Esperando
-                {numeroEsperando !== null ? (
-                  <span className="text-[11px] font-semibold leading-none">{numeroEsperando}</span>
-                ) : null}
-              </button>
-
+              {/* La pastilla "Esperando" se quitó a pedido de Alex (07-11-2026): quedó solo "No leído". */}
               {/*
                 "Sin responder" a un toque (parte 4 de la marca), fuera del map de Todas/Mias para que
                 tambien la vea la asesora, que solo tiene "Mias". Lleva el numero de /counts (`sinResponder`), pedido por Alex.
