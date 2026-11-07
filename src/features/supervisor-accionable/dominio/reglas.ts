@@ -1471,7 +1471,7 @@ export type ChatDelPatron = {
   enlace: string;
 };
 
-export const DOMINIO = "https://app.aizenbot.com";
+export const DOMINIO = "https://crm.magilus.com";
 export const RUTA_DEL_SUPERVISOR = "/cliente/direccion/supervisor";
 
 export function enlaceAlChat(conversationId: string): string {

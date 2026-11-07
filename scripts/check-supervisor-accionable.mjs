@@ -602,7 +602,7 @@ await prueba("servicio: caliente → push + WhatsApp (línea interna) a la aseso
   await servicio.gestionarAcciones({ workspaceId: WS, hallazgos: h, chats: [maria()], ahora: T0, config });
   assert.deepEqual(enviados.push.map((p) => p.userId), ["maria"]);
   assert.deepEqual(enviados.whatsapp.map((w) => w.phoneNumber), ["573000001111"]);
-  assert.match(enviados.whatsapp[0].text, /app\.aizenbot\.com\/c\/1000/);
+  assert.match(enviados.whatsapp[0].text, /crm\.magilus\.com\/c\/1000/);
   enviados.push.length = 0;
   enviados.whatsapp.length = 0;
   await servicio.gestionarAcciones({ workspaceId: WS, hallazgos: h, chats: [maria()], ahora: mas(T0, 15), config });
@@ -615,7 +615,7 @@ await prueba("servicio: caliente → push + WhatsApp (línea interna) a la aseso
   assert.equal(enviados.whatsapp.length, 1, "toda escalada manda WhatsApp a Alexander, aunque no haya plata en juego");
   assert.equal(enviados.whatsapp[0].phoneNumber, "573000002277");
   assert.equal(enviados.whatsapp[0].limiteMs, 20000);
-  for (const parte of ["IMPORTANTE", "Laura Gómez", "Maria Bautista", "Tu acción", "app.aizenbot.com/c/1000"]) {
+  for (const parte of ["IMPORTANTE", "Laura Gómez", "Maria Bautista", "Tu acción", "crm.magilus.com/c/1000"]) {
     assert.ok(enviados.whatsapp[0].text.includes(parte), `el WhatsApp trae "${parte}"`);
   }
   assert.ok(!enviados.whatsapp[0].text.includes("3001234567"), "nunca el teléfono completo");
@@ -643,7 +643,7 @@ await prueba("servicio: 'ya pagué' que vence → push + UN WhatsApp a Alexander
   assert.deepEqual(enviados.push.map((p) => p.userId), ["alex"]);
   assert.equal(enviados.whatsapp.length, 1);
   assert.equal(enviados.whatsapp[0].phoneNumber, "573000002277");
-  for (const parte of ["CRÍTICO", "Laura Gómez", "Maria Bautista", "Aviso a Maria Bautista a las 10:00", "Tu acción", "app.aizenbot.com/c/1000"]) {
+  for (const parte of ["CRÍTICO", "Laura Gómez", "Maria Bautista", "Aviso a Maria Bautista a las 10:00", "Tu acción", "crm.magilus.com/c/1000"]) {
     assert.ok(enviados.whatsapp[0].text.includes(parte), `el WhatsApp trae "${parte}"`);
   }
   assert.ok(!enviados.whatsapp[0].text.includes("3001234567"));
@@ -704,7 +704,7 @@ await prueba("líder: la asesora no respondió ni el aviso ni el segundo → UN 
   assert.deepEqual(push.map((p) => p.userId), ["alex"], "Alexander recibe su push como hoy; el líder no recibe push si le llegó el WhatsApp");
   assert.deepEqual(whatsapp.map((w) => w.phoneNumber), [NUM_YAIR, "573000002277"], "un WhatsApp al líder y el de la escalada a Alexander");
   const texto = whatsapp[0].text;
-  for (const parte of ["Laura Gómez", "+573001234567", "separar el combo", "Lleva esperando 45 min", "app.aizenbot.com/c/1000", "Maria Bautista", "aviso (10:00)", "segundo aviso (10:15)", "Tú decides si lo tomas"]) {
+  for (const parte of ["Laura Gómez", "+573001234567", "separar el combo", "Lleva esperando 45 min", "crm.magilus.com/c/1000", "Maria Bautista", "aviso (10:00)", "segundo aviso (10:15)", "Tú decides si lo tomas"]) {
     assert.ok(texto.includes(parte), `el WhatsApp al líder trae "${parte}":\n${texto}`);
   }
   assert.ok(!texto.includes("https://"), "el link va sin https:// (sin vista previa)");
@@ -778,7 +778,7 @@ await prueba("líder: contacto con identificador de WhatsApp (no teléfono) → 
   whatsapp = whatsapp.filter((w) => w.phoneNumber === NUM_YAIR);
   assert.equal(whatsapp.length, 1);
   assert.ok(whatsapp[0].text.includes("sin número real"));
-  assert.ok(whatsapp[0].text.includes("app.aizenbot.com/c/1000"), "queda el link");
+  assert.ok(whatsapp[0].text.includes("crm.magilus.com/c/1000"), "queda el link");
   assert.ok(!whatsapp[0].text.includes("175775932239983"));
   assert.equal(r.telefonoParaElLider("175775932239983"), "sin número real");
   assert.equal(r.telefonoParaElLider(null), "sin número real");
@@ -1086,7 +1086,7 @@ await prueba("servicio fuera de horario: push + WhatsApp (línea interna) a Ingr
   assert.match(enviados.push[0].title, /Fuera de horario/);
   assert.deepEqual(enviados.whatsapp.map((w) => w.phoneNumber), ["573000003333"]);
   assert.match(enviados.whatsapp[0].text, /fuera de horario/);
-  assert.match(enviados.whatsapp[0].text, /app\.aizenbot\.com\/c\/1000/);
+  assert.match(enviados.whatsapp[0].text, /crm\.magilus\.com\/c\/1000/);
   assert.ok(!enviados.whatsapp[0].text.includes("3001234567"));
   const pedidos = await servicio.leerPedidosDelSupervisor(WS, "ingrid");
   assert.equal(pedidos.length, 1);
@@ -1422,7 +1422,7 @@ await prueba("tarjeta de incidente: lleva a la alerta concreta (?alerta=<clave>#
   assert.equal(t.claveAlerta, inc.clave);
   assert.equal(t.enlace, `/cliente/direccion/supervisor?alerta=${encodeURIComponent(inc.clave)}#alerta-INC-libro-v187-combo-camilla`);
   assert.equal(r.anclaDeAlerta(inc.clave), "alerta-INC-libro-v187-combo-camilla");
-  assert.ok(r.textoWhatsAppDeLaTarjeta(t).includes(`https://app.aizenbot.com/cliente/direccion/supervisor?alerta=`));
+  assert.ok(r.textoWhatsAppDeLaTarjeta(t).includes(`https://crm.magilus.com/cliente/direccion/supervisor?alerta=`));
 
   // El panel completo: patrón escalado + incidente crítico.
   settings.clear();

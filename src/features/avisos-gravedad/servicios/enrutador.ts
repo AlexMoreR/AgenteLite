@@ -40,7 +40,7 @@ export const claveConfigGravedad = (workspaceId: string) => `avisos:gravedad:${w
 const claveEstado = (workspaceId: string) => `avisos:gravedad:estado:${workspaceId}`;
 const claveResumen = (workspaceId: string, fecha: string) => `avisos:gravedad:resumen:${workspaceId}:${fecha}`;
 
-const ENLACE_SUPERVISOR = "https://app.aizenbot.com/cliente/direccion/supervisor";
+const ENLACE_SUPERVISOR = "https://crm.magilus.com/cliente/direccion/supervisor";
 
 const cacheConfig = new Map<string, { config: ConfigGravedad; vence: number }>();
 
@@ -309,7 +309,7 @@ async function enlaceDelIncidente(workspaceId: string, inc: Incidente): Promise<
   const conversacion = await prisma.conversation
     .findFirst({ where: { id: chat, workspaceId }, select: { numero: true } })
     .catch(() => null);
-  return conversacion?.numero ? `https://app.aizenbot.com/c/${conversacion.numero}` : ENLACE_SUPERVISOR;
+  return conversacion?.numero ? `https://crm.magilus.com/c/${conversacion.numero}` : ENLACE_SUPERVISOR;
 }
 
 function textoWhatsAppCritico(inc: Incidente, motivo: string, enlace: string): string {
