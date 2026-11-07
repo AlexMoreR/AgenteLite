@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Check, ChevronDown, UserCheck, UserPlus, Users, X } from "lucide-react";
+import { CLASES_BOTON_DE_LA_BARRA, CLASES_ETIQUETA_DE_LA_BARRA } from "@/components/chats/boton-de-la-barra";
 import {
   asignarSegundoAsesorAction,
   assignChatAction,
@@ -513,7 +514,7 @@ export function AssignChatControl({
           ref={botonCompactoRef}
           type="button"
           onClick={handleToggle}
-          className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-card transition hover:bg-muted disabled:opacity-60"
+          className={CLASES_BOTON_DE_LA_BARRA}
           title={assignee ? `Asignado a ${buttonLabel}` : "Asignar chat"}
           aria-label={assignee ? `Asignado a ${buttonLabel}` : "Asignar chat"}
           aria-haspopup="menu"
@@ -524,6 +525,7 @@ export function AssignChatControl({
           ) : (
             <UserPlus className="size-4 text-foreground/80" />
           )}
+          <span className={CLASES_ETIQUETA_DE_LA_BARRA}>{assignee ? "Asignado" : "Asignar"}</span>
         </button>
       ) : (
       <button

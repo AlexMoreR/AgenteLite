@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { updateConversationStatusAction } from "@/app/actions/chats-actions";
 import { CHAT_STATUS_CHANGED_EVENT, type ChatStatusChangedDetail } from "@/components/chats/chat-inbox-types";
 import { irALaBandejaLimpia } from "@/components/chats/ir-a-la-bandeja-limpia";
+import { CLASES_BOTON_DE_LA_BARRA, CLASES_ETIQUETA_DE_LA_BARRA } from "@/components/chats/boton-de-la-barra";
 
 type ResolveChatControlProps = {
   conversationId: string;
@@ -102,7 +103,7 @@ export function ResolveChatControl({
     );
   }
 
-  // En la barra de abajo de la cabecera (celular): solo el icono, en un cuadrito.
+  // En la barra de abajo de la cabecera (celular): el icono con su etiqueta corta debajo.
   if (compacto) {
     return (
       <button
@@ -112,13 +113,14 @@ export function ResolveChatControl({
         aria-pressed={resolved}
         aria-label={resolved ? "Reabrir conversación" : "Resolver conversación"}
         title={resolved ? "Reabrir conversación" : "Resolver conversación"}
-        className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-card transition hover:bg-muted disabled:opacity-60"
+        className={CLASES_BOTON_DE_LA_BARRA}
       >
         {resolved ? (
           <RotateCcw className="size-4 text-amber-600" />
         ) : (
           <CheckCircle2 className="size-4 text-emerald-600" />
         )}
+        <span className={CLASES_ETIQUETA_DE_LA_BARRA}>{resolved ? "Reabrir" : "Resolver"}</span>
       </button>
     );
   }

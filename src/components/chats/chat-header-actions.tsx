@@ -10,6 +10,7 @@ import { SnoozeChatControl } from "./snooze-chat-control";
 import type { CrmStage } from "@/features/crm/types";
 import { BotonLlamar } from "@/features/llamadas/components/BotonLlamar";
 import { AssignChatControl } from "./assign-chat-control";
+import { ALTO_DE_LA_BARRA } from "./boton-de-la-barra";
 
 type ChatHeaderActionsProps = {
   contactId: string | null;
@@ -109,11 +110,11 @@ export function BarraDeAccionesEnSilueta() {
       <Skeleton className="h-5 w-14 rounded-full" />
       <Skeleton className="h-[1.15rem] w-8 rounded-full" />
       <span className="mx-0.5 h-5 w-px bg-border" />
-      <Skeleton className="size-8 rounded-lg" />
+      <Skeleton className={`${ALTO_DE_LA_BARRA} w-12 rounded-lg`} />
       <div className={CLASES_SALIDAS_FIJAS}>
         <FlechitaHayMas />
         <span className="mx-0.5 h-5 w-px bg-border" />
-        <Skeleton className="h-8 w-11 rounded-lg" />
+        <Skeleton className={`${ALTO_DE_LA_BARRA} w-12 rounded-lg`} />
       </div>
     </div>
   );
