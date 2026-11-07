@@ -109,7 +109,12 @@ async function atender(pedido: Pedido, contexto: { workspaceId: string; userId: 
           "conversacion, anotarla en ese momento con cerebro_escribir (modo agregar) en el documento 'Decisiones de Magilus', sin pedirle " +
           "ninguna frase: solo la conclusion en una o dos lineas, nunca la charla entera, y avisarle en una linea 'Lo anote en Decisiones " +
           "de Magilus'. Si el documento no existe, crearlo (modo crear). Reemplazar todo un documento SI exige que el dueno diga " +
-          "'si, escribelo en el cerebro' (texto_confirmacion, tal cual). Nunca borra nada.",
+          "'si, escribelo en el cerebro' (texto_confirmacion, tal cual). Nunca borra nada. " +
+          "INSTRUCCIONES DE LOS SEGUIMIENTOS CON IA (ver_instrucciones_de_seguimientos, cambiar_instrucciones_de_seguimientos, " +
+          "historial_de_instrucciones_de_seguimientos, volver_instrucciones_de_seguimientos): lo que la IA tiene en cuenta al escribir " +
+          "los seguimientos automaticos (tambien los del reloj del V3). Leer siempre antes; cambiar primero sin confirmado para leerle " +
+          "a la persona el antes y el despues, y solo con su si confirmado=true y version_leida. Queda activo al instante y se " +
+          "deshace con volver_instrucciones_de_seguimientos. Los candados (envio y pago, 2 lineas, no inventar) no se cambian.",
       });
     }
     case "ping":

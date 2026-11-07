@@ -14,6 +14,8 @@ import {
   revisarSeguimiento,
   type RevisionDelSeguimiento,
 } from "@/features/seguimientos/dominio/seguimiento-que-escucha";
+import { instruccionesParaElPedido } from "@/features/seguimientos/dominio/instrucciones-de-seguimiento";
+import { leerInstruccionesParaRedactar } from "@/features/seguimientos/services/instrucciones-de-seguimiento";
 
 /**
  * SEGUIMIENTOS QUE ESCUCHAN AL CLIENTE (parte 2: el redactor).
@@ -23,6 +25,9 @@ import {
  * que ya le llegaron, el producto y el libro del V3, y le pide a la IA un mensaje que hable de lo que
  * ESE cliente dijo. Lo que proponga pasa por el revisor de la parte 1 (`elegirTexto`): si no pasa,
  * sale el cierre de apartar (si ya dio la ciudad), o el texto fijo, o la pregunta del producto, o nada.
+ *
+ * Las instrucciones para la IA se pueden ajustar por el MCP (instrucciones-de-seguimiento.ts): sin
+ * nada guardado son las de siempre. Los seguimientos del reloj del V3 usan este mismo redactor.
  *
  * Con el interruptor `seguimientos-que-escuchan:apagado` = "si", o sin la clave de OpenAI, devuelve
  * el texto fijo tal cual: el comportamiento de antes. No cambia cuando sale cada seguimiento ni
@@ -156,10 +161,12 @@ export async function redactarSeguimientoQueEscucha(input: {
     const chat = await leerConversacion(input.workspaceId, input.conversationId);
     if (!chat) return textoFijoTalCual(input.textoFijo, "conversación no encontrada: texto fijo");
 
-    const [producto, libro, yaEnviados] = await Promise.all([
+    const [producto, libro, yaEnviados, instrucciones] = await Promise.all([
       leerProducto(input.workspaceId, chat.productoId),
       leerLibro(input.workspaceId).catch(() => null),
       seguimientosYaEnviados(input.conversationId),
+      // Las cambiadas por el MCP (nunca lanza: rotas o sin leer = las de siempre).
+      leerInstruccionesParaRedactar(input.workspaceId),
     ]);
 
     /*
@@ -178,13 +185,16 @@ export async function redactarSeguimientoQueEscucha(input: {
         .filter(Boolean)
         .join("\n") || null;
 
+    const paso = input.paso ?? pasoDelSilencio(yaEnviados.fechas, chat.ultimoDelCliente);
     const pedido = armarPedidoDeSeguimiento({
       lineas: chat.lineas,
       producto: producto?.nombre ?? null,
-      paso: input.paso ?? pasoDelSilencio(yaEnviados.fechas, chat.ultimoDelCliente),
+      paso,
       yaEnviados: yaEnviados.textos,
       datosDelLibro,
       soloMandoElAnuncio: chat.soloMandoElAnuncio,
+      // Global, del producto del chat y de este numero de seguimiento; los candados van siempre.
+      personalizadas: instruccionesParaElPedido(instrucciones, chat.productoId, paso),
     });
 
     const revision: RevisionDelSeguimiento = {

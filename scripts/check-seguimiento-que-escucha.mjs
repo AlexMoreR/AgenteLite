@@ -1318,6 +1318,27 @@ await prueba("buscar_mensajes: la opción solo_seguimientos filtra por la marca 
   assert.deepEqual(sq.ORIGENES_DE_SEGUIMIENTO, ["follow", "agente-v3-seguimiento", "agente-v3-seguimiento-ia"]);
 });
 
+await prueba("el redactor lee las instrucciones del MCP de su negocio; sin nada guardado van las 15 reglas de siempre", async () => {
+  reiniciarBase();
+  reiniciarIa([BUENA]);
+  const original = prismaFalso.appSetting.findUnique;
+  const claves = [];
+  prismaFalso.appSetting.findUnique = async (args) => {
+    claves.push(args.where.key);
+    return original(args);
+  };
+  try {
+    await redactar();
+  } finally {
+    prismaFalso.appSetting.findUnique = original;
+  }
+  assert.ok(claves.includes("seguimientos-que-escuchan:instrucciones:ws-1"), claves.join(" | "));
+  const sistema = ia.pedidos[0].messages[0].content;
+  assert.equal(sistema.split("\n").length, 15);
+  assert.ok(!sistema.includes(sq.TITULO_DE_LOS_CANDADOS));
+  assert.equal(sq.REGLAS_EDITABLES_ORIGINALES.length + sq.CANDADOS.length, 15);
+});
+
 console.info = consolaOriginal.info;
 console.warn = consolaOriginal.warn;
 

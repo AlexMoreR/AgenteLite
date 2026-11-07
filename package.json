@@ -112,6 +112,7 @@
     "test:dia-siguiente": "node scripts/check-dia-siguiente.mjs",
     "test:tras-asesora-cierre": "node scripts/check-tras-asesora-cierre.mjs",
     "test:seguimiento-que-escucha": "node scripts/check-seguimiento-que-escucha.mjs",
+    "test:instrucciones-de-seguimiento": "node scripts/check-instrucciones-de-seguimiento.mjs",
     "test:aviso-pausa": "node scripts/check-aviso-pausa.mjs",
     "test:pausa-lectura-segura": "node scripts/check-pausa-lectura-segura.mjs",
     "test:listas-bandeja": "node scripts/check-listas-bandeja.mjs",

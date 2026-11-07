@@ -739,8 +739,123 @@ function bloqueDeLoQueDijo(dicho: LoQueDijoElCliente): string[] {
 }
 
 /**
+ * Las 15 reglas de siempre, en su orden. `candado: true` = no se puede cambiar desde el MCP (se manda
+ * siempre, al final, aunque el texto global este personalizado). Las demas son las editables: tono,
+ * que mencionar del cliente, como cerrar, que no repetir y frases a evitar.
+ */
+const REGLAS_ORIGINALES: { texto: string; candado: boolean }[] = [
+  {
+    texto: "Escribes UN mensaje de seguimiento por WhatsApp para un cliente que dejó de contestar. Tuteas, en español de Colombia.",
+    candado: false,
+  },
+  {
+    texto:
+      "Menciona algo que ESTE cliente dijo en la conversación: el color, el producto, la ciudad, para cuándo lo necesita o la duda que tuvo. Si no dijo nada de eso, habla del producto que le interesa.",
+    candado: false,
+  },
+  {
+    texto: "Trae algo nuevo o útil para él (un dato del producto que esté en los DATOS DEL NEGOCIO); no repitas lo que ya le dijimos.",
+    candado: false,
+  },
+  {
+    texto: "Cierra con UNA sola pregunta fácil de contestar (de sí o no, o de elegir entre dos), al final del mensaje.",
+    candado: false,
+  },
+  { texto: `Máximo ${LINEAS_MAXIMAS} líneas y unas 35 palabras.`, candado: true },
+  {
+    texto: "No inventes precios, cifras ni fechas: solo puedes usar los que estén en la conversación o en los DATOS DEL NEGOCIO.",
+    candado: true,
+  },
+  {
+    texto:
+      'Nunca escribas "pero" (usa "sin embargo"), "¿sigues interesada?", "cuando puedas me avisas", "¿pudiste ver lo que te envié?", "aquí estoy para ayudarte" ni "si te queda alguna duda". No trates de usted.',
+    candado: false,
+  },
+  { texto: "No repitas ni parafrasees los SEGUIMIENTOS YA ENVIADOS.", candado: false },
+  {
+    texto:
+      "Nunca preguntes lo que el cliente ya respondió (mira LO QUE EL CLIENTE YA DIJO): ni la ciudad, ni para cuándo lo necesita, ni el color, ni su servicio o negocio.",
+    candado: false,
+  },
+  {
+    texto: `Si ya dio la ciudad, nómbrala y termina pidiendo apartar. Por ejemplo, si dijo Bogotá: "${cierreDeApartar("Bogotá")}"`,
+    candado: false,
+  },
+  { texto: "Menciona algo concreto que dijo el cliente, no un mensaje genérico.", candado: false },
+  // 6-nov-2026 (chat 8927): las condiciones de envio y pago las da la asesora o el bot al responder.
+  {
+    texto:
+      'No hables del envío ni de su valor, ni digas "gratis" o "sin costo", ni a qué ciudades llega ni "te llega", ni de contraentrega, ni de formas de pago, anticipo o el 50 %.',
+    candado: true,
+  },
+  {
+    texto: "No inventes nada: ni productos, ni colores, ni condiciones que no estén en la conversación o en los DATOS DEL NEGOCIO.",
+    candado: true,
+  },
+  { texto: "Si el cliente ya separó, ya pagó o dijo que no le interesa, no le pidas apartar.", candado: true },
+  { texto: "Responde solo con el texto del mensaje, sin comillas ni explicaciones.", candado: true },
+];
+
+/** Las reglas que se pueden cambiar desde el MCP (el texto global de la version 0). */
+export const REGLAS_EDITABLES_ORIGINALES: readonly string[] = REGLAS_ORIGINALES.filter((r) => !r.candado).map((r) => r.texto);
+
+/** Las reglas fijas: van siempre, al final, aunque el texto global este personalizado. */
+export const CANDADOS: readonly string[] = REGLAS_ORIGINALES.filter((r) => r.candado).map((r) => r.texto);
+
+const REGLA_DEL_ANUNCIO =
+  "Este cliente solo mandó el texto del anuncio y no escribió nada más: haz una pregunta corta y concreta sobre el producto del anuncio.";
+
+/** Antes de los candados cuando hay instrucciones personalizadas. */
+export const TITULO_DE_LOS_CANDADOS = "Estas reglas se cumplen siempre, aunque algo de arriba diga otra cosa:";
+
+/**
+ * Las instrucciones guardadas desde el MCP que tocan a ESTE seguimiento (ya elegidas por producto y
+ * por numero). null en cada una = no hay; todo null = las reglas de siempre, igual que antes.
+ */
+export type InstruccionesDelPedido = {
+  /** Reemplaza las reglas editables. */
+  global: string | null;
+  /** Se agrega para el producto del chat. */
+  producto: string | null;
+  /** Se agrega para este numero de seguimiento desde que el cliente callo. */
+  numero: string | null;
+};
+
+/**
+ * Un texto personalizado sin lo que hable de envio, gratis, contraentrega o pago (la regla del
+ * 6-nov-2026 no se cambia por voz): eso no le llega a la IA. Vacio = no queda nada.
+ */
+export function textoPersonalizadoParaLaIA(texto: string | null | undefined): string {
+  return quitarTemaDeEnvioYPago(texto).trim();
+}
+
+/** Las reglas del pedido: las de siempre (sin nada guardado) o las personalizadas con los candados al final. */
+function reglasDelPedido(input: { soloMandoElAnuncio: boolean; paso: number; personalizadas?: InstruccionesDelPedido | null }): string[] {
+  const global = input.personalizadas?.global != null ? textoPersonalizadoParaLaIA(input.personalizadas.global) : null;
+  const producto = textoPersonalizadoParaLaIA(input.personalizadas?.producto);
+  const numero = textoPersonalizadoParaLaIA(input.personalizadas?.numero);
+
+  // Sin nada guardado: exactamente las de siempre, en su orden (las mismas de antes del 7-nov-2026).
+  if (!global && !producto && !numero) {
+    const reglas = REGLAS_ORIGINALES.map((r) => r.texto);
+    if (input.soloMandoElAnuncio) reglas.push(REGLA_DEL_ANUNCIO);
+    return reglas;
+  }
+
+  return [
+    ...(global ? [global] : REGLAS_EDITABLES_ORIGINALES),
+    ...(input.soloMandoElAnuncio ? [REGLA_DEL_ANUNCIO] : []),
+    ...(producto ? [`Para el producto de este cliente: ${producto}`] : []),
+    ...(numero ? [`Para este seguimiento (el número ${input.paso} desde que el cliente dejó de contestar): ${numero}`] : []),
+    TITULO_DE_LOS_CANDADOS,
+    ...CANDADOS,
+  ];
+}
+
+/**
  * Las instrucciones y el contexto para que la IA escriba el seguimiento de ESTE cliente.
- * `paso` es el numero del seguimiento (1 = el primero despues del silencio).
+ * `paso` es el numero del seguimiento (1 = el primero despues del silencio). `personalizadas` son
+ * las que se cambiaron por el MCP (ver instrucciones-de-seguimiento.ts); sin ellas, las de siempre.
  */
 export function armarPedidoDeSeguimiento(input: {
   lineas: Linea[];
@@ -749,30 +864,9 @@ export function armarPedidoDeSeguimiento(input: {
   yaEnviados: string[];
   datosDelLibro: string | null;
   soloMandoElAnuncio: boolean;
+  personalizadas?: InstruccionesDelPedido | null;
 }): { instrucciones: string; contexto: string } {
-  const reglas = [
-    "Escribes UN mensaje de seguimiento por WhatsApp para un cliente que dejó de contestar. Tuteas, en español de Colombia.",
-    "Menciona algo que ESTE cliente dijo en la conversación: el color, el producto, la ciudad, para cuándo lo necesita o la duda que tuvo. Si no dijo nada de eso, habla del producto que le interesa.",
-    "Trae algo nuevo o útil para él (un dato del producto que esté en los DATOS DEL NEGOCIO); no repitas lo que ya le dijimos.",
-    "Cierra con UNA sola pregunta fácil de contestar (de sí o no, o de elegir entre dos), al final del mensaje.",
-    `Máximo ${LINEAS_MAXIMAS} líneas y unas 35 palabras.`,
-    "No inventes precios, cifras ni fechas: solo puedes usar los que estén en la conversación o en los DATOS DEL NEGOCIO.",
-    'Nunca escribas "pero" (usa "sin embargo"), "¿sigues interesada?", "cuando puedas me avisas", "¿pudiste ver lo que te envié?", "aquí estoy para ayudarte" ni "si te queda alguna duda". No trates de usted.',
-    "No repitas ni parafrasees los SEGUIMIENTOS YA ENVIADOS.",
-    "Nunca preguntes lo que el cliente ya respondió (mira LO QUE EL CLIENTE YA DIJO): ni la ciudad, ni para cuándo lo necesita, ni el color, ni su servicio o negocio.",
-    `Si ya dio la ciudad, nómbrala y termina pidiendo apartar. Por ejemplo, si dijo Bogotá: "${cierreDeApartar("Bogotá")}"`,
-    "Menciona algo concreto que dijo el cliente, no un mensaje genérico.",
-    // 6-nov-2026 (chat 8927): las condiciones de envio y pago las da la asesora o el bot al responder.
-    'No hables del envío ni de su valor, ni digas "gratis" o "sin costo", ni a qué ciudades llega ni "te llega", ni de contraentrega, ni de formas de pago, anticipo o el 50 %.',
-    "No inventes nada: ni productos, ni colores, ni condiciones que no estén en la conversación o en los DATOS DEL NEGOCIO.",
-    "Si el cliente ya separó, ya pagó o dijo que no le interesa, no le pidas apartar.",
-    "Responde solo con el texto del mensaje, sin comillas ni explicaciones.",
-  ];
-  if (input.soloMandoElAnuncio) {
-    reglas.push(
-      "Este cliente solo mandó el texto del anuncio y no escribió nada más: haz una pregunta corta y concreta sobre el producto del anuncio.",
-    );
-  }
+  const reglas = reglasDelPedido(input);
 
   const conversacion = input.lineas
     .slice(-LINEAS_DE_CONTEXTO)
