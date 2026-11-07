@@ -3,14 +3,17 @@
  *
  * El seguimiento automatico de hoy es una plantilla igual para todos ("¿Pudiste ver lo que te
  * envié?"): el cliente no la contesta porque no habla de lo suyo. Aqui esta:
- *  - el pedido para la IA: mencionar lo que ESE cliente dijo (color, producto, ciudad, para cuando,
- *    duda), traer algo nuevo o util y cerrar con una pregunta facil, en maximo 2 lineas;
+ *  - el pedido para la IA: hacerle seguimiento al PROYECTO del cliente, no a la venta (pedido del
+ *    dueño, 6-nov-2026): retomar lo que dijo (el servicio que va a ofrecer, si esta empezando, la
+ *    ciudad, para cuando) y cerrar con UNA pregunta corta, con 1 a 3 palabras en negrita;
  *  - la revision del texto que proponga: si no pasa, no sale;
- *  - la cadena de respaldo: propuesta de la IA -> cierre de apartar (si ya dio la ciudad) -> texto
- *    fijo (si pasa la revision) -> pregunta del producto del anuncio -> no se manda nada.
+ *  - la cadena de respaldo: propuesta de la IA -> pregunta del proyecto (si esta empezando, se sabe
+ *    el servicio y no dio fecha) -> cierre de apartar (si ya dio la ciudad) -> texto fijo (si pasa la
+ *    revision) -> pregunta del producto del anuncio -> no se manda nada.
  *
  * El revisor tambien hace cumplir "lo que el cliente ya dijo": no se le vuelve a preguntar la ciudad,
- * el color, la fecha ni el servicio, y si ya dio la ciudad el texto la nombra y pide apartar.
+ * el color, la fecha ni el servicio. Ningun seguimiento empieza con "¿ya decidiste?", "¿pudiste
+ * revisar?" ni "¿te lo aparto?", y el de la IA no pide apartar ni separar.
  */
 
 import type { Linea } from "@/lib/sugerencia-de-respuesta";
@@ -30,6 +33,13 @@ export const LINEAS_MAXIMAS = 2;
 
 /** Intentos de la IA: el primero y 2 reintentos. */
 export const INTENTOS_MAXIMOS = 3;
+
+/** Palabras que puede tener la pregunta de un seguimiento escrito por la IA. */
+export const PALABRAS_MAXIMAS_DE_LA_PREGUNTA = 15;
+
+/** Palabras en negrita (entre asteriscos) que debe traer un seguimiento escrito por la IA. */
+export const NEGRITA_MINIMA = 1;
+export const NEGRITA_MAXIMA = 3;
 
 /** Desde este parecido (0 a 1) un texto cuenta como repeticion de uno ya enviado. */
 export const PARECIDO_MAXIMO = 0.6;
@@ -138,8 +148,9 @@ export type RevisionDelSeguimiento = {
 
 /**
  * Los problemas de un seguimiento propuesto (vacio = se puede mandar). Se rechaza si tiene mas de 2
- * lineas, una frase prohibida, no termina en pregunta, se parece a uno ya enviado, vuelve a preguntar
- * lo que el cliente ya dijo (o no cierra pidiendo apartar cuando ya dio la ciudad), trae un precio,
+ * lineas, una frase prohibida, no termina en pregunta, empieza con "¿ya decidiste?", "¿pudiste
+ * revisar?" o "¿te lo aparto?" (aunque lleve saludo), se parece a uno ya enviado, vuelve a preguntar
+ * lo que el cliente ya dijo (tambien "¿ya tienes fecha?" si ya la dio), trae un precio,
  * una cifra o una fecha que no esta ni en el libro ni en la conversacion, o rompe una regla del libro:
  * da el valor del envio, ofrece contraentrega en un producto que no es el Combo o promete que llega a
  * San Andres, Leticia, Inirida o Mitu. Ademas, la regla de los seguimientos automaticos (6-nov-2026,
@@ -149,12 +160,11 @@ export type RevisionDelSeguimiento = {
  * que caer en las mismas reglas que sin negrita. Un asterisco entre dos letras o numeros se vuelve un
  * espacio ("envio*gratis*" no puede quedar "enviogratis" y esconder el "gratis"). Solo se quitan para
  * revisar: lo que se manda los conserva (elegirTexto devuelve la propuesta tal cual).
+ * Las reglas que solo valen para el texto de la IA (negrita, pregunta corta, no pedir apartar) estan
+ * en revisarPropuestaDeLaIA: los textos de respaldo (como el cierre de apartar) no las cumplen.
  */
 export function revisarSeguimiento(texto: string, contexto: RevisionDelSeguimiento): string[] {
-  const limpio = (texto ?? "")
-    .replace(/(?<=[\p{L}\p{N}])\*+(?=[\p{L}\p{N}])/gu, " ")
-    .replace(/\*/g, "")
-    .trim();
+  const limpio = sinNegrita(texto);
   if (!limpio) return ["está vacío"];
 
   const problemas: string[] = [];
@@ -164,10 +174,16 @@ export function revisarSeguimiento(texto: string, contexto: RevisionDelSeguimien
   // Las frases prohibidas, el largo, una sola pregunta y que termine en pregunta.
   problemas.push(...problemasDeSeguimiento(limpio));
 
+  // Hacerle seguimiento al proyecto, no a la venta: no se empieza preguntando por la decision.
+  const inicio = inicioProhibido(limpio);
+  if (inicio) {
+    problemas.push(`empieza con «${inicio}»: no preguntes por la decisión, pregunta por su proyecto`);
+  }
+
   const repetido = contexto.yaEnviados.find((enviado) => enviado.trim() && parecido(limpio, enviado) >= PARECIDO_MAXIMO);
   if (repetido !== undefined) problemas.push(`se parece a un seguimiento ya enviado («${repetido.trim().slice(0, 60)}»)`);
 
-  // Lo que el cliente ya dijo: no se le vuelve a preguntar y, si dio la ciudad, se cierra pidiendo apartar.
+  // Lo que el cliente ya dijo: no se le vuelve a preguntar.
   problemas.push(...problemasConLoQueDijo(limpio, loQueDijoElCliente(contexto.conversacion)));
 
   // Lo que el libro prohibe: valor del envio, envio gratis sin condicion, contraentrega fuera del Combo...
@@ -186,6 +202,77 @@ export function revisarSeguimiento(texto: string, contexto: RevisionDelSeguimien
   }
 
   return [...new Set(problemas)];
+}
+
+/** El texto sin la negrita de WhatsApp (un asterisco entre dos letras o numeros queda un espacio). */
+function sinNegrita(texto: string): string {
+  return (texto ?? "")
+    .replace(/(?<=[\p{L}\p{N}])\*+(?=[\p{L}\p{N}])/gu, " ")
+    .replace(/\*/g, "")
+    .trim();
+}
+
+/**
+ * Como NO puede empezar un seguimiento (pedido del dueño, 6-nov-2026): preguntando por la decision.
+ * Sobre el texto normalizado; delante puede ir un saludo con hasta 2 palabras ("Hola Laura", "Buenas
+ * tardes"). "Anotado para Bogotá 🙌 ¿Te lo aparto…?" no empieza asi: lo primero es "Anotado".
+ */
+const SALUDO_DEL_INICIO = String.raw`(?:(?:hola|holi|buenas|buenos dias|buenas tardes|buenas noches|buen dia|hey|que mas)(?: [a-z]+){0,2} )?`;
+const INICIOS_PROHIBIDOS = new RegExp(
+  `^${SALUDO_DEL_INICIO}((?:ya )?(?:te |lo |la )?decidiste|(?:ya )?pudiste revisar\\w*|te (?:lo|la|los|las) (?:aparto|separo))\\b`,
+);
+
+/** La frase prohibida con la que empieza el texto ("ya decidiste"), o null. */
+function inicioProhibido(texto: string): string | null {
+  const m = INICIOS_PROHIBIDOS.exec(normalizar(texto));
+  return m ? m[1] : null;
+}
+
+/** Pedir apartar o separar en cualquier parte ("¿te la separo?", "apártalo"). "Aparte de eso" no cuenta. */
+const HABLA_DE_APARTAR = /\b(aparto|apartas|apartamos|apartar\w*|apartal[oa]s?|apartad[oa]s?|apartemos|aparte(?! de\b)|separ\w*)\b/;
+
+/** Lo que va en negrita (entre asteriscos) en el texto original. */
+function palabrasEnNegrita(texto: string): string[] {
+  return [...(texto ?? "").matchAll(/\*([^*\n]+)\*/g)].flatMap((m) => normalizar(m[1]).split(" ").filter(Boolean));
+}
+
+/**
+ * Las reglas que solo valen para el texto que propone la IA (pedido del dueño, 6-nov-2026): 1 a 3
+ * palabras en negrita, una sola pregunta de maximo 15 palabras y nada de pedir apartar o separar.
+ * Los respaldos fijos no pasan por aqui (el cierre de apartar, por ejemplo, si pide apartar).
+ */
+function problemasDeLaPropuesta(texto: string): string[] {
+  const problemas: string[] = [];
+  const negrita = palabrasEnNegrita(texto);
+  if (negrita.length < NEGRITA_MINIMA) {
+    problemas.push(`no trae negrita: pon entre asteriscos de ${NEGRITA_MINIMA} a ${NEGRITA_MAXIMA} palabras clave, como *pestañas*`);
+  } else if (negrita.length > NEGRITA_MAXIMA) {
+    problemas.push(`tiene ${negrita.length} palabras en negrita: máximo ${NEGRITA_MAXIMA}`);
+  }
+
+  const limpio = sinNegrita(texto);
+  // Mas de una pregunta ya lo rechaza revisarSeguimiento; aqui, el largo de cada una.
+  for (const pregunta of preguntasDelTexto(limpio)) {
+    const palabras = pregunta.split(" ").filter(Boolean).length;
+    if (palabras > PALABRAS_MAXIMAS_DE_LA_PREGUNTA) {
+      problemas.push(`la pregunta tiene ${palabras} palabras: máximo ${PALABRAS_MAXIMAS_DE_LA_PREGUNTA}, que sea corta`);
+    }
+  }
+
+  if (HABLA_DE_APARTAR.test(normalizar(limpio))) {
+    problemas.push("pide apartar o separar: no preguntes por la compra, pregunta por su proyecto");
+  }
+  return problemas;
+}
+
+/**
+ * La revision de una propuesta de la IA: la de todo seguimiento (revisarSeguimiento) mas las reglas
+ * del texto de la IA (negrita, pregunta corta, no pedir apartar). Vacio = puede salir.
+ */
+export function revisarPropuestaDeLaIA(texto: string, contexto: RevisionDelSeguimiento): string[] {
+  const problemas = revisarSeguimiento(texto, contexto);
+  if (problemas.includes("está vacío")) return problemas;
+  return [...new Set([...problemas, ...problemasDeLaPropuesta(texto)])];
 }
 
 /* ----------------------------------------------------------------------------------------------
@@ -403,14 +490,15 @@ function preguntasDelTexto(texto: string): string[] {
 /** Pedir apartar o separar valen igual ("¿te lo aparto?", "¿te la separo?"). */
 const PIDE_APARTAR = /\b(apart|separ)\w*/;
 const PREGUNTA_EL_COLOR = /\b(que|cual) colou?r(es)?\b/;
-const PREGUNTA_LA_FECHA = /\b(para cuando|que fecha)\b/;
+/** "¿Para cuándo?", "¿qué fecha?" y "¿ya tienes fecha…?" (la pregunta del ejemplo del dueño). */
+const PREGUNTA_LA_FECHA = /\b(para cuando|que fecha|tienes (una |la )?fecha)\b/;
 const PREGUNTA_EL_SERVICIO = /\bque servicios?\b/;
 const PREGUNTA_A_DONDE = /\ba donde te (lo|la|los|las) (enviamos|mandamos)\b/;
 
 /**
- * ¿Hay que cerrar pidiendo apartar? Solo si dio la ciudad y nada lo impide: a una ciudad sin envio
- * asegurado, a quien ya compro, no le interesa o pidio contraentrega no se le exige (si se exigiera,
- * esos chats perderian todas las propuestas).
+ * ¿Sirve el cierre de apartar como respaldo? Solo si dio la ciudad y nada lo impide: no a una ciudad
+ * sin envio asegurado, ni a quien ya compro, no le interesa o pidio contraentrega. Desde el 6-nov-2026
+ * ya no se le exige a la IA (se le hace seguimiento al proyecto, no a la venta): es solo el respaldo.
  */
 function tocaElCierre(dicho: LoQueDijoElCliente): dicho is LoQueDijoElCliente & { ciudad: string } {
   return !!dicho.ciudad && !dicho.ciudadSinCobertura && !dicho.yaCompro && !dicho.noLeInteresa && !dicho.pidioContraentrega;
@@ -435,19 +523,6 @@ function problemasConLoQueDijo(texto: string, dicho: LoQueDijoElCliente): string
     problemas.push(`vuelve a preguntar el servicio: el cliente ya dijo ${dicho.servicio}`);
   }
 
-  if (tocaElCierre(dicho)) {
-    const ciudad = escaparRegex(normalizar(dicho.ciudad));
-    if (!new RegExp(`(^| )${ciudad}( |$)`).test(normalizar(texto))) {
-      problemas.push(`el cliente ya dijo la ciudad (${dicho.ciudad}): nómbrala en el mensaje`);
-    }
-    const ultima = preguntas.at(-1);
-    if (!ultima || !PIDE_APARTAR.test(ultima)) {
-      problemas.push(
-        `el cliente ya dijo la ciudad (${dicho.ciudad}): termina pidiendo apartar, por ejemplo «${cierreDeApartar(dicho.ciudad)}»`,
-      );
-    }
-  }
-
   if ((dicho.yaCompro || dicho.noLeInteresa) && pregunta(PIDE_APARTAR)) {
     problemas.push(
       dicho.yaCompro ? "el cliente ya confirmó la compra: no le pidas apartar" : "el cliente dijo que no le interesa: no le pidas apartar",
@@ -463,6 +538,15 @@ function problemasConLoQueDijo(texto: string, dicho: LoQueDijoElCliente): string
  */
 export function cierreDeApartar(ciudad: string): string {
   return `Anotado para ${ciudad} 🙌 ¿Te lo aparto para empezar a fabricarlo?`;
+}
+
+/**
+ * El ejemplo del dueño (6-nov-2026), como respaldo cuando la IA falla: para quien dijo que esta
+ * empezando, se sabe su servicio y no dio fecha. null si no aplica.
+ */
+export function preguntaDelProyecto(dicho: LoQueDijoElCliente): string | null {
+  if (!dicho.empezando || !dicho.servicio || dicho.fecha) return null;
+  return `Hola 🙌 Me contaste que vas a montar tu espacio de *${dicho.servicio}*. ¿Ya tienes fecha para empezar a atender?`;
 }
 
 /**
@@ -494,6 +578,8 @@ export type LoQueDijoElCliente = {
   fecha: string | null;
   /** El servicio o negocio del cliente: "uñas", "barbería"... */
   servicio: string | null;
+  /** Dijo que esta empezando su negocio: "voy a montar", "voy a abrir", "estoy empezando". */
+  empezando: boolean;
   yaCompro: boolean;
   noLeInteresa: boolean;
   pidioContraentrega: boolean;
@@ -643,6 +729,21 @@ function servicioDelTexto(texto: string, textoNormal: string): string | null {
   return SERVICIOS.find((s) => s.patron.test(s.conEnie ? `${minusculas} ${textoNormal}` : textoNormal))?.nombre ?? null;
 }
 
+/**
+ * "Esta empezando": va a montar o abrir su negocio, o apenas empieza. "Tengo un salón" no cuenta.
+ * Sobre el texto normalizado (sin tildes).
+ */
+const ESTA_EMPEZANDO = [
+  /\b(voy|vamos) a (montar|abrir|empezar|iniciar|arrancar)\b/,
+  /\b(estoy|estamos) (empezando|comenzando|iniciando|arrancando|montando|abriendo)\b/,
+  /\b(apenas|recien) (estoy |estamos )?(empezando|comenzando|iniciando|arrancando|empiezo|empezamos)\b/,
+  /\bquiero (montar|abrir|empezar|iniciar|poner) (mi|un|una)\b/,
+];
+
+function dijoQueEstaEmpezando(textoNormal: string): boolean {
+  return ESTA_EMPEZANDO.some((patron) => patron.test(textoNormal));
+}
+
 /** Frases de "no me interesa" (cada frase del mensaje por separado: "no me interesa el negro" no cuenta). */
 const NO_LE_INTERESA = [
   /^(ya )?no me interesa(n)?( (mas|por ahora|gracias|eso|ya))*$/,
@@ -689,6 +790,7 @@ export function loQueDijoElCliente(lineas: Linea[]): LoQueDijoElCliente {
     color: null,
     fecha: null,
     servicio: null,
+    empezando: false,
     yaCompro: false,
     noLeInteresa: false,
     pidioContraentrega: false,
@@ -701,6 +803,7 @@ export function loQueDijoElCliente(lineas: Linea[]): LoQueDijoElCliente {
     if (!resultado.color) resultado.color = colorDelTexto(textoNormal);
     if (!resultado.fecha) resultado.fecha = fechaDelTexto(textoNormal);
     if (!resultado.servicio) resultado.servicio = servicioDelTexto(linea.texto, textoNormal);
+    if (!resultado.empezando) resultado.empezando = dijoQueEstaEmpezando(textoNormal);
     if (!resultado.noLeInteresa) resultado.noLeInteresa = dijoQueNoLeInteresa(linea.texto);
     if (!resultado.pidioContraentrega) resultado.pidioContraentrega = CONTRAENTREGA.test(textoNormal);
   }
@@ -732,6 +835,7 @@ function bloqueDeLoQueDijo(dicho: LoQueDijoElCliente): string[] {
   if (dicho.color) datos.push(`- Color: ${dicho.color}`);
   if (dicho.fecha) datos.push(`- Para cuándo lo necesita: ${dicho.fecha}`);
   if (dicho.servicio) datos.push(`- Su servicio o negocio: ${dicho.servicio}`);
+  if (dicho.empezando) datos.push("- Está empezando: va a montar o abrir su negocio");
   if (dicho.yaCompro) datos.push("- Ya confirmó la compra o el pago: no le pidas apartar");
   if (dicho.noLeInteresa) datos.push("- Dijo que no le interesa: no le pidas apartar");
   if (dicho.pidioContraentrega) datos.push("- Preguntó por el pago contraentrega");
@@ -739,7 +843,7 @@ function bloqueDeLoQueDijo(dicho: LoQueDijoElCliente): string[] {
 }
 
 /**
- * Las 15 reglas de siempre, en su orden. `candado: true` = no se puede cambiar desde el MCP (se manda
+ * Las 16 reglas de siempre, en su orden. `candado: true` = no se puede cambiar desde el MCP (se manda
  * siempre, al final, aunque el texto global este personalizado). Las demas son las editables: tono,
  * que mencionar del cliente, como cerrar, que no repetir y frases a evitar.
  */
@@ -748,17 +852,27 @@ const REGLAS_ORIGINALES: { texto: string; candado: boolean }[] = [
     texto: "Escribes UN mensaje de seguimiento por WhatsApp para un cliente que dejó de contestar. Tuteas, en español de Colombia.",
     candado: false,
   },
+  // 6-nov-2026 (pedido del dueño): "hazle seguimiento al problema, no a la venta".
   {
     texto:
-      "Menciona algo que ESTE cliente dijo en la conversación: el color, el producto, la ciudad, para cuándo lo necesita o la duda que tuvo. Si no dijo nada de eso, habla del producto que le interesa.",
+      "Hazle seguimiento a SU PROYECTO, no a la venta: retoma lo que ESTE cliente dijo de su proyecto (el servicio que va a ofrecer, si está empezando, la ciudad o para cuándo lo necesita). Si no dijo nada de eso, habla del producto que le interesa.",
     candado: false,
   },
   {
-    texto: "Trae algo nuevo o útil para él (un dato del producto que esté en los DATOS DEL NEGOCIO); no repitas lo que ya le dijimos.",
+    texto: `Ejemplo: si dijo que va a montar su espacio de pestañas: "Hola 🙌 Me contaste que vas a montar tu espacio de *pestañas*. ¿Ya tienes fecha para empezar a atender?". Si ya te dijo la fecha o que sigue con el plan: "¿Te ayudo a dejar tu *combo* listo para esa fecha?"`,
     candado: false,
   },
   {
-    texto: "Cierra con UNA sola pregunta fácil de contestar (de sí o no, o de elegir entre dos), al final del mensaje.",
+    texto: `Cierra con UNA sola pregunta corta (máximo ${PALABRAS_MAXIMAS_DE_LA_PREGUNTA} palabras) sobre su proyecto, al final del mensaje.`,
+    candado: false,
+  },
+  {
+    texto: `Pon en negrita (entre asteriscos, como *pestañas*) de ${NEGRITA_MINIMA} a ${NEGRITA_MAXIMA} palabras clave.`,
+    candado: false,
+  },
+  {
+    texto:
+      'Nunca empieces con "¿ya decidiste?", "¿pudiste revisar?" ni "¿te lo aparto?", y no le preguntes si lo aparta o lo separa: pregunta por su proyecto.',
     candado: false,
   },
   { texto: `Máximo ${LINEAS_MAXIMAS} líneas y unas 35 palabras.`, candado: true },
@@ -774,11 +888,7 @@ const REGLAS_ORIGINALES: { texto: string; candado: boolean }[] = [
   { texto: "No repitas ni parafrasees los SEGUIMIENTOS YA ENVIADOS.", candado: false },
   {
     texto:
-      "Nunca preguntes lo que el cliente ya respondió (mira LO QUE EL CLIENTE YA DIJO): ni la ciudad, ni para cuándo lo necesita, ni el color, ni su servicio o negocio.",
-    candado: false,
-  },
-  {
-    texto: `Si ya dio la ciudad, nómbrala y termina pidiendo apartar. Por ejemplo, si dijo Bogotá: "${cierreDeApartar("Bogotá")}"`,
+      'Nunca preguntes lo que el cliente ya respondió (mira LO QUE EL CLIENTE YA DIJO): ni la ciudad, ni para cuándo lo necesita (si ya dio la fecha, no preguntes "¿ya tienes fecha?"), ni el color, ni su servicio o negocio.',
     candado: false,
   },
   { texto: "Menciona algo concreto que dijo el cliente, no un mensaje genérico.", candado: false },
@@ -899,7 +1009,7 @@ export type TextoElegido =
   | {
       enviar: true;
       texto: string;
-      origen: "ia" | "cierre" | "fijo" | "producto";
+      origen: "ia" | "proyecto" | "cierre" | "fijo" | "producto";
       /** Lo que se descarto antes, con sus problemas (para el registro). */
       descartados: { texto: string; problemas: string[] }[];
     }
@@ -907,7 +1017,9 @@ export type TextoElegido =
 
 /**
  * Decide que seguimiento sale, en orden: la primera propuesta de la IA que pase la revision (hasta 3
- * intentos); si ninguna pasa y el cliente ya dio la ciudad, el cierre de apartar (no si la ciudad no
+ * intentos, con las reglas del texto de la IA: negrita, pregunta corta, no pedir apartar); si ninguna
+ * pasa, la pregunta del proyecto (el ejemplo del dueño: esta empezando, se sabe el servicio y no dio
+ * fecha; tambien pasa por la revision); si el cliente ya dio la ciudad, el cierre de apartar (no si la ciudad no
  * tiene cobertura, ya compro, no le interesa o pidio contraentrega; y tambien pasa por la revision:
  * si ya se le mando, sigue); despues el texto fijo, solo si tambien pasa; si no, la pregunta del
  * producto del anuncio; si no hay producto, no se manda nada.
@@ -931,12 +1043,19 @@ export function elegirTexto(
   };
 
   for (const propuesta of input.propuestas.slice(0, INTENTOS_MAXIMOS)) {
-    const problemas = revisarSeguimiento(propuesta, revision);
+    const problemas = revisarPropuestaDeLaIA(propuesta, revision);
     if (!problemas.length) return { enviar: true, texto: propuesta.trim(), origen: "ia", descartados };
     descartados.push({ texto: propuesta, problemas });
   }
 
   const dicho = loQueDijoElCliente(input.conversacion);
+  const delProyecto = preguntaDelProyecto(dicho);
+  if (delProyecto) {
+    const problemas = revisarSeguimiento(delProyecto, revision);
+    if (!problemas.length) return { enviar: true, texto: delProyecto, origen: "proyecto", descartados };
+    descartados.push({ texto: delProyecto, problemas });
+  }
+
   if (tocaElCierre(dicho)) {
     const cierre = cierreDeApartar(dicho.ciudad);
     const problemas = revisarSeguimiento(cierre, revision);

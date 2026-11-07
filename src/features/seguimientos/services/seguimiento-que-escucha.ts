@@ -11,8 +11,9 @@ import {
   INTENTOS_MAXIMOS,
   ORIGENES_DE_SEGUIMIENTO,
   quitarTemaDeEnvioYPago,
-  revisarSeguimiento,
+  revisarPropuestaDeLaIA,
   type RevisionDelSeguimiento,
+  type TextoElegido,
 } from "@/features/seguimientos/dominio/seguimiento-que-escucha";
 import { instruccionesParaElPedido } from "@/features/seguimientos/dominio/instrucciones-de-seguimiento";
 import { leerInstruccionesParaRedactar } from "@/features/seguimientos/services/instrucciones-de-seguimiento";
@@ -23,8 +24,9 @@ import { leerInstruccionesParaRedactar } from "@/features/seguimientos/services/
  * Antes de mandar un seguimiento automatico de texto, lee la conversacion COMPLETA (textos, notas de
  * voz del cliente y de la asesora ya pasadas a texto, fotos y catalogos enviados), los seguimientos
  * que ya le llegaron, el producto y el libro del V3, y le pide a la IA un mensaje que hable de lo que
- * ESE cliente dijo. Lo que proponga pasa por el revisor de la parte 1 (`elegirTexto`): si no pasa,
- * sale el cierre de apartar (si ya dio la ciudad), o el texto fijo, o la pregunta del producto, o nada.
+ * ESE cliente dijo de su proyecto. Lo que proponga pasa por el revisor de la parte 1 (`elegirTexto`):
+ * si no pasa, sale la pregunta del proyecto (si esta empezando), o el cierre de apartar (si ya dio la
+ * ciudad), o el texto fijo, o la pregunta del producto, o nada.
  *
  * Las instrucciones para la IA se pueden ajustar por el MCP (instrucciones-de-seguimiento.ts): sin
  * nada guardado son las de siempre. Los seguimientos del reloj del V3 usan este mismo redactor.
@@ -230,18 +232,7 @@ export async function redactarSeguimientoQueEscucha(input: {
       texto: elegido.texto,
       deIA: elegido.origen === "ia",
       textoReemplazado: cambio ? input.textoFijo : null,
-      motivo:
-        elegido.origen === "ia"
-          ? "lo escribió la IA"
-          : elegido.origen === "cierre"
-            ? propuestas.length
-              ? "la IA no pasó la revisión: cierre de apartar"
-              : "la IA no respondió: cierre de apartar"
-            : elegido.origen === "fijo"
-              ? propuestas.length
-                ? "la IA no pasó la revisión: texto fijo"
-                : "la IA no respondió: texto fijo"
-              : "pregunta del producto del anuncio",
+      motivo: motivoDelElegido(elegido.origen, propuestas.length > 0),
     };
   } catch (error) {
     // Nunca frena un envio por un error propio: sale el texto de antes.
@@ -251,6 +242,23 @@ export async function redactarSeguimientoQueEscucha(input: {
       error: error instanceof Error ? error.message : String(error),
     });
     return textoFijoTalCual(input.textoFijo, "falló el redactor: texto fijo");
+  }
+}
+
+/** Por que salio ese texto (para el registro). `huboPropuestas` = la IA respondio pero no paso la revision. */
+function motivoDelElegido(origen: Extract<TextoElegido, { enviar: true }>["origen"], huboPropuestas: boolean): string {
+  const causa = huboPropuestas ? "la IA no pasó la revisión" : "la IA no respondió";
+  switch (origen) {
+    case "ia":
+      return "lo escribió la IA";
+    case "proyecto":
+      return `${causa}: pregunta del proyecto`;
+    case "cierre":
+      return `${causa}: cierre de apartar`;
+    case "fijo":
+      return `${causa}: texto fijo`;
+    default:
+      return "pregunta del producto del anuncio";
   }
 }
 
@@ -277,7 +285,8 @@ async function pedirPropuestas(
     const texto = limpiarRespuesta(respuesta);
     if (!texto) break;
     propuestas.push(texto);
-    const problemas = revisarSeguimiento(texto, revision);
+    // La misma revision que elegirTexto le hace a la IA (negrita, pregunta corta, no pedir apartar).
+    const problemas = revisarPropuestaDeLaIA(texto, revision);
     if (!problemas.length) break;
     mensajes.push(
       { role: "assistant", content: respuesta },

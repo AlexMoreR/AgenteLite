@@ -128,10 +128,10 @@ await prueba("el pedido para la IA lleva la conversación, lo ya enviado, el lib
     datosDelLibro: LIBRO,
     soloMandoElAnuncio: false,
   });
-  assert.match(pedido.instrucciones, /ESTE cliente dijo/);
-  assert.match(pedido.instrucciones, /color, el producto, la ciudad, para cuándo/);
-  assert.match(pedido.instrucciones, /algo nuevo o útil/);
-  assert.match(pedido.instrucciones, /UNA sola pregunta fácil/);
+  assert.match(pedido.instrucciones, /ESTE cliente dijo de su proyecto/);
+  assert.match(pedido.instrucciones, /el servicio que va a ofrecer, si está empezando, la ciudad o para cuándo/);
+  assert.doesNotMatch(pedido.instrucciones, /algo nuevo o útil/);
+  assert.match(pedido.instrucciones, /UNA sola pregunta corta \(máximo 15 palabras\)/);
   assert.match(pedido.instrucciones, /Máximo 2 líneas/);
   assert.doesNotMatch(pedido.instrucciones, /solo mandó el texto del anuncio/);
   assert.match(pedido.contexto, /Cliente: Me gusta la beige\. Es para Pereira/);
@@ -161,7 +161,9 @@ await prueba("el cliente dijo 'Bogotá': el pedido a la IA la trae como ciudad y
   const pedido = pedidoCon(lineas);
   assert.match(pedido.contexto, /LO QUE EL CLIENTE YA DIJO \(no lo vuelvas a preguntar\):\n- Ciudad: Bogotá/);
   assert.match(pedido.instrucciones, /Nunca preguntes lo que el cliente ya respondió/);
-  assert.match(pedido.instrucciones, /Anotado para Bogotá 🙌 ¿Te lo aparto para empezar a fabricarlo\?/);
+  // 6-nov-2026: ya no se le pide a la IA terminar pidiendo apartar (el cierre queda solo de respaldo).
+  assert.doesNotMatch(pedido.instrucciones, /termina pidiendo apartar/);
+  assert.doesNotMatch(pedido.instrucciones, /Anotado para Bogotá/);
   // 6-nov-2026: ni envío, ni gratis, ni ciudades, ni contraentrega, ni pago en el seguimiento.
   assert.match(pedido.instrucciones, /No hables del envío ni de su valor, ni digas "gratis" o "sin costo", ni a qué ciudades llega ni "te llega", ni de contraentrega, ni de formas de pago, anticipo o el 50 %/);
   assert.doesNotMatch(pedido.instrucciones, /envío gratis" junto con su condición/);
@@ -247,7 +249,7 @@ await prueba("quien confirmó la compra queda con yaCompro (y el pedido lo dice)
 });
 
 await prueba("elegirTexto: la cadena de respaldo IA → cierre → texto fijo → pregunta del producto → no se manda", () => {
-  const buena = "Laura, la beige para Pereira te llega en 2 a 4 días hábiles 🙌 ¿Te la separo?";
+  const buena = "Laura, la *beige* para Pereira te llega en 2 a 4 días hábiles 🙌 ¿Ya tienes el espacio listo?";
   const mala1 = "¿Pudiste ver lo que te envié?";
   const mala2 = "Laura, hoy te queda en $199.000 ¿Te la separo?";
   const fijoBueno = "¡Hola, Laura! ¿Te muestro otros colores de la camilla? 😊";
@@ -274,10 +276,10 @@ await prueba("elegirTexto: la cadena de respaldo IA → cierre → texto fijo �
   r = sq.elegirTexto({ ...conCiudad, propuestas: [mala1, mala2, mala1, buena], textoFijo: fijoBueno });
   assert.equal(r.origen, "cierre");
   assert.equal(r.texto, cierrePereira);
-  // El cierre ya se le mandó: sigue al texto fijo, que no nombra Pereira ni pide apartar, y a la pregunta del producto.
+  // El cierre ya se le mandó: sigue al texto fijo (desde el 6-nov-2026 no tiene que nombrar Pereira ni pedir apartar).
   r = sq.elegirTexto({ ...conCiudad, yaEnviados: [cierrePereira], propuestas: [], textoFijo: fijoBueno });
-  assert.equal(r.origen, "producto");
-  assert.deepEqual(r.descartados.map((d) => d.texto), [cierrePereira, fijoBueno]);
+  assert.equal(r.origen, "fijo");
+  assert.deepEqual(r.descartados.map((d) => d.texto), [cierrePereira]);
   // Sin ciudad: de la IA se pasa directo al texto fijo.
   r = sq.elegirTexto({ ...base, propuestas: [mala1, mala2, mala1, buena], textoFijo: fijoBueno });
   assert.equal(r.origen, "fijo");
@@ -313,7 +315,7 @@ const CHAT_BOGOTA = [
 const REV_BOGOTA = { conversacion: CHAT_BOGOTA, yaEnviados: [], textoDelLibro: null, textoAgendado: AGENDADO_LLEGADA };
 const CIERRE_BOGOTA = "Anotado para Bogotá 🙌 ¿Te lo aparto para empezar a fabricarlo?";
 
-await prueba("cliente dijo 'Bogotá': se rechaza preguntar la ciudad y se acepta nombrar Bogotá y pedir apartar", () => {
+await prueba("cliente dijo 'Bogotá': se rechaza preguntar la ciudad; ya no se exige nombrarla ni pedir apartar", () => {
   for (const texto of ["¿A qué ciudad te lo enviamos?", "¿A dónde te lo enviamos?", "¿Te ayudo con el envío a tu ciudad o con la forma de pago?"]) {
     const problemas = sq.revisarSeguimiento(texto, REV_BOGOTA);
     assert.ok(problemas.some((p) => /vuelve a preguntar la ciudad: el cliente ya dijo que es Bogotá/.test(p)), `${texto}: ${problemas.join(" | ")}`);
@@ -321,14 +323,12 @@ await prueba("cliente dijo 'Bogotá': se rechaza preguntar la ciudad y se acepta
   assert.deepEqual(sq.revisarSeguimiento("La camilla te llega a Bogotá en 2 a 4 días 🙌 ¿Te la aparto?", { ...REV_BOGOTA, textoDelLibro: LIBRO }), []);
   // 'Separar' vale igual que 'apartar'.
   assert.deepEqual(sq.revisarSeguimiento("A Bogotá te llega sin problema 🚚 ¿Te la separo?", REV_BOGOTA), []);
-  // No nombra la ciudad, o no pide apartar: se rechaza con el motivo (la IA lo recibe al reintentar).
-  const sinCiudad = sq.revisarSeguimiento("La camilla te llega sin problema 🚚 ¿Te la aparto?", REV_BOGOTA);
-  assert.ok(sinCiudad.some((p) => /ya dijo la ciudad \(Bogotá\): nómbrala/.test(p)), sinCiudad.join(" | "));
-  const sinApartar = sq.revisarSeguimiento("A Bogotá te llega sin problema 🚚 ¿Te muestro otras fotos?", REV_BOGOTA);
-  assert.ok(sinApartar.some((p) => /termina pidiendo apartar/.test(p)), sinApartar.join(" | "));
-  // "Bogotá" tiene que ir como palabra: "Bogotano" no cuenta.
-  const pegada = sq.revisarSeguimiento("Para el cliente bogotano ¿te la aparto?", REV_BOGOTA);
-  assert.ok(pegada.some((p) => /nómbrala/.test(p)), pegada.join(" | "));
+  // 6-nov-2026: no nombrar la ciudad o no pedir apartar ya no es un problema (seguimiento al proyecto).
+  assert.deepEqual(sq.revisarSeguimiento("La camilla te llega sin problema 🚚 ¿Te muestro otras fotos?", REV_BOGOTA), []);
+  assert.deepEqual(sq.revisarSeguimiento("¿Ya tienes el espacio listo para la camilla?", REV_BOGOTA), []);
+  // Y la IA, al revés, no puede pedir apartar aunque nombre la ciudad.
+  const ia = sq.revisarPropuestaDeLaIA("La *camilla* te llega a Bogotá en 2 a 4 días 🙌 ¿Te la aparto?", { ...REV_BOGOTA, textoDelLibro: LIBRO });
+  assert.ok(ia.some((p) => /pide apartar o separar/.test(p)), ia.join(" | "));
 });
 
 await prueba("el cierre de apartar tiene la frase exacta, sin promesa de llegada ni de pago, y pasa sin libro ni texto agendado", () => {
@@ -356,7 +356,7 @@ await prueba("el cierre de apartar tiene la frase exacta, sin promesa de llegada
 const AGENDADO_50 = "¿Te la aparto con el 50 % para empezar la fabricación?";
 
 await prueba("negrita: una propuesta con *asteriscos* que cumple sale idéntica, de la IA y con sus asteriscos", () => {
-  const conNegrita = "La *camilla* está en cuero tex con garantía de *1 año*. ¿Quieres apartarla con el *50 %* para empezar la fabricación?";
+  const conNegrita = "La *camilla* está en cuero tex con garantía de *1 año*. ¿Ya tienes el espacio listo para recibirla?";
   const sinCiudad = [linea("cliente", "Hola, vi el anuncio de la camilla", 0), linea("negocio", "¡Hola! Te comparto las fotos", 1)];
   const r = sq.elegirTexto({
     conversacion: sinCiudad,
@@ -531,9 +531,10 @@ await prueba("elegirTexto pasa el producto al revisor: la contraentrega fuera de
   let r = sq.elegirTexto({ ...rev, producto: "Camilla plegable", propuestas: [propuesta], textoFijo: null });
   assert.equal(r.origen, "producto");
   assert.ok(r.descartados[0].problemas.some((x) => /contraentrega/.test(x)));
-  // En el Combo, con un texto agendado que ya ofrece la contraentrega, sí sale.
-  r = sq.elegirTexto({ ...rev, producto: "Combo Spa", propuestas: [propuesta], textoFijo: "¿Te lo mandamos con pago contraentrega?" });
-  assert.equal(r.origen, "ia");
+  // En el Combo, con un texto agendado que ya ofrece la contraentrega, sí sale (con negrita y sin pedir apartar).
+  const enElCombo = "Te lo mandamos con pago *contraentrega* ¿Ya tienes el espacio listo?";
+  r = sq.elegirTexto({ ...rev, producto: "Combo Spa", propuestas: [enElCombo], textoFijo: "¿Te lo mandamos con pago contraentrega?" });
+  assert.equal(r.origen, "ia", JSON.stringify(r.descartados));
 });
 
 /* ----------------------------------------------------------------------------------------------
@@ -743,7 +744,7 @@ function reiniciarIa(respuestas = []) {
 
 const FIJO = "¡Hola, Laura! ¿Pudiste ver lo que te envié? 😊";
 const FIJO_BUENO = "¡Hola, Laura! ¿Te muestro otros colores de la silla? 😊";
-const BUENA = "Laura, la silla Isabela en palo rosa para Montería queda divina 🙌 ¿Te la separo?";
+const BUENA = "Laura, la silla Isabela en *palo rosa* para Montería queda divina 🙌 ¿Ya tienes el espacio listo?";
 const ENTRADA = { conversationId: "conv-1", workspaceId: "ws-1", textoFijo: FIJO, paso: null, origen: "follow" };
 const consolaOriginal = { info: console.info, warn: console.warn };
 console.info = () => {};
@@ -798,11 +799,11 @@ await prueba("si la IA propone algo que no pasa la revisión, se le pide otra (h
 await prueba("negrita: la respuesta de la IA con **doble** o ***triple*** asterisco sale con uno solo por lado", async () => {
   reiniciarBase();
   // El cliente ya dio la ciudad (Montería, en el audio): el texto la nombra y termina pidiendo apartar.
-  reiniciarIa(["La **camilla** te llega a Montería sin problema ¿Te la aparto con el ***50 %***?"]);
+  reiniciarIa(["La **camilla** te llega a Montería sin problema ¿Ya tienes el ***espacio*** listo?"]);
   const r = await redactar({ ...ENTRADA, textoFijo: "La silla te llega sin problema ¿Te la aparto con el 50 %?" });
   assert.equal(r.enviar, true);
   assert.equal(r.deIA, true);
-  assert.equal(r.texto, "La *camilla* te llega a Montería sin problema ¿Te la aparto con el *50 %*?");
+  assert.equal(r.texto, "La *camilla* te llega a Montería sin problema ¿Ya tienes el *espacio* listo?");
   assert.ok(!r.texto.includes("**"), r.texto);
 });
 
@@ -893,7 +894,7 @@ await prueba("con el interruptor apagado sale el texto de antes", async () => {
 await prueba("cliente que solo mandó el anuncio: se le pide a la IA la pregunta del producto", async () => {
   reiniciarBase();
   base.mensajes = [msg("m1", "INBOUND", "TEXT", "Hola, vi el anuncio de la silla", 0)];
-  reiniciarIa(["¿Te comparto los colores de la Silla Isabela?"]);
+  reiniciarIa(["¿Te comparto los colores de la *Silla Isabela*?"]);
   const r = await redactar();
   assert.match(ia.pedidos[0].messages[0].content, /solo mandó el texto del anuncio/);
   assert.equal(r.deIA, true);
@@ -1037,7 +1038,7 @@ await prueba("V3, 15 min: el cliente dijo 'color beige me interesa' y el seguimi
     msg("m3", "INBOUND", "TEXT", "color beige me interesa", 10),
     msg("m4", "OUTBOUND", "TEXT", "¡Claro! La Silla Isabela vale 450.000", 11),
   ].reverse();
-  const BEIGE = "Laura, la silla Isabela en beige queda divina 🙌 ¿Te la separo?";
+  const BEIGE = "Laura, la silla Isabela en *beige* queda divina 🙌 ¿Ya tienes el espacio listo?";
   reiniciarIa([BEIGE]);
   const r = await correrRelojV3();
   assert.equal(r.enviados, 1);
@@ -1094,7 +1095,7 @@ await prueba("V3, 15 min: el cliente que solo mandó el anuncio recibe el texto 
     msg("m2", "OUTBOUND", "TEXT", "¡Hola! Te comparto la información de la silla", 0.5),
     msg("m3", "SYSTEM", "SYSTEM", "aviso del sistema", 1),
   ].reverse();
-  reiniciarIa(["Laura, la silla Isabela en beige queda divina 🙌 ¿Te la separo?"]);
+  reiniciarIa(["Laura, la silla Isabela en *beige* queda divina 🙌 ¿Ya tienes el espacio listo?"]);
   const r = await correrRelojV3();
   assert.equal(r.enviados, 1);
   assert.equal(ia.pedidos.length, 0);
@@ -1108,7 +1109,7 @@ await prueba("V3, 1 h: el cliente que solo mandó el anuncio recibe el texto de 
   reiniciarBase();
   reiniciarV3();
   base.mensajes = [msg("m1", "INBOUND", "TEXT", "Hola, vi el anuncio de la silla", 0), msg("m2", "OUTBOUND", "TEXT", "¡Hola!", 0.5)].reverse();
-  reiniciarIa(["Laura, la silla Isabela en beige queda divina 🙌 ¿Te la separo?"]);
+  reiniciarIa(["Laura, la silla Isabela en *beige* queda divina 🙌 ¿Ya tienes el espacio listo?"]);
   // Más de 60 minutos callado: vence el de 1 h. Las demás pruebas comparten `v3.ultimoEn`: se deja como estaba.
   const antes = v3.ultimoEn;
   v3.ultimoEn = new Date(AHORA_V3.getTime() - 70 * 60_000);
@@ -1134,7 +1135,7 @@ await prueba("V3: el cliente escribió después de nuestro primer mensaje (aunqu
     msg("m2", "OUTBOUND", "TEXT", "¡Hola! Te comparto la información de la silla", 0.5),
     msg("m3", "INBOUND", "TEXT", "color beige me interesa", 1),
   ].reverse();
-  const BEIGE = "Laura, la silla Isabela en beige queda divina 🙌 ¿Te la separo?";
+  const BEIGE = "Laura, la silla Isabela en *beige* queda divina 🙌 ¿Ya tienes el espacio listo?";
   reiniciarIa([BEIGE]);
   const r = await correrRelojV3();
   assert.equal(r.enviados, 1);
@@ -1148,7 +1149,7 @@ await prueba("V3: si falla la lectura de la bienvenida, el seguimiento sigue com
   reiniciarV3();
   // Solo el anuncio: con la lectura sana saldría sin IA. Falla solo la lectura de la revisión (sin producto).
   base.mensajes = [msg("m1", "INBOUND", "TEXT", "Hola, vi el anuncio de la silla", 0), msg("m2", "OUTBOUND", "TEXT", "¡Hola!", 0.5)].reverse();
-  const BEIGE = "Laura, la silla Isabela en beige queda divina 🙌 ¿Te la separo?";
+  const BEIGE = "Laura, la silla Isabela en *beige* queda divina 🙌 ¿Ya tienes el espacio listo?";
   reiniciarIa([BEIGE]);
   const original = prismaFalso.conversation.findFirst;
   let fallas = 0;
@@ -1188,7 +1189,7 @@ await prueba("V3 con el interruptor apagado: sale el texto de la regla del libro
   reiniciarBase();
   reiniciarV3();
   base.apagado = "si";
-  reiniciarIa(["Laura, la silla Isabela en beige queda divina 🙌 ¿Te la separo?"]);
+  reiniciarIa(["Laura, la silla Isabela en *beige* queda divina 🙌 ¿Ya tienes el espacio listo?"]);
   const r = await correrRelojV3();
   assert.equal(r.enviados, 1);
   assert.equal(ia.pedidos.length, 0);
@@ -1318,7 +1319,7 @@ await prueba("buscar_mensajes: la opción solo_seguimientos filtra por la marca 
   assert.deepEqual(sq.ORIGENES_DE_SEGUIMIENTO, ["follow", "agente-v3-seguimiento", "agente-v3-seguimiento-ia"]);
 });
 
-await prueba("el redactor lee las instrucciones del MCP de su negocio; sin nada guardado van las 15 reglas de siempre", async () => {
+await prueba("el redactor lee las instrucciones del MCP de su negocio; sin nada guardado van las 16 reglas de siempre", async () => {
   reiniciarBase();
   reiniciarIa([BUENA]);
   const original = prismaFalso.appSetting.findUnique;
@@ -1334,9 +1335,183 @@ await prueba("el redactor lee las instrucciones del MCP de su negocio; sin nada 
   }
   assert.ok(claves.includes("seguimientos-que-escuchan:instrucciones:ws-1"), claves.join(" | "));
   const sistema = ia.pedidos[0].messages[0].content;
-  assert.equal(sistema.split("\n").length, 15);
+  assert.equal(sistema.split("\n").length, 16);
   assert.ok(!sistema.includes(sq.TITULO_DE_LOS_CANDADOS));
-  assert.equal(sq.REGLAS_EDITABLES_ORIGINALES.length + sq.CANDADOS.length, 15);
+  assert.equal(sq.REGLAS_EDITABLES_ORIGINALES.length + sq.CANDADOS.length, 16);
+});
+
+/* ----------------------------------------------------------------------------------------------
+   6-nov-2026 (pedido del dueño): hacerle seguimiento al proyecto del cliente, no a la venta
+---------------------------------------------------------------------------------------------- */
+
+const EJEMPLO_DEL_DUENO = "Hola 🙌 Me contaste que vas a montar tu espacio de *pestañas*. ¿Ya tienes fecha para empezar a atender?";
+const SEGUNDO_EJEMPLO = "¿Te ayudo a dejar tu *combo* listo para esa fecha?";
+const sinAsteriscos = (texto) => texto.replace(/\*/g, "");
+
+await prueba("proyecto: las instrucciones traen los dos ejemplos del dueño y ya no piden apartar ni «algo nuevo o útil»", () => {
+  const { instrucciones } = pedidoCon(CHARLA);
+  assert.ok(instrucciones.includes(EJEMPLO_DEL_DUENO), "trae el primer ejemplo tal cual");
+  // El dueño lo escribió sin negrita: con la negrita quitada, la frase está igual.
+  assert.ok(sinAsteriscos(instrucciones).includes("¿Te ayudo a dejar tu combo listo para esa fecha?"), "trae el segundo ejemplo");
+  assert.ok(instrucciones.includes(SEGUNDO_EJEMPLO));
+  assert.doesNotMatch(instrucciones, /termina pidiendo apartar/);
+  assert.doesNotMatch(instrucciones, /algo nuevo o útil/);
+  assert.match(instrucciones, /Nunca empieces con "¿ya decidiste\?", "¿pudiste revisar\?" ni "¿te lo aparto\?"/);
+  assert.match(instrucciones, /negrita \(entre asteriscos, como \*pestañas\*\) de 1 a 3 palabras clave/);
+  // Las reglas nuevas son editables (no candados): el revisor las hace cumplir igual.
+  assert.ok(sq.REGLAS_EDITABLES_ORIGINALES.some((r) => r.includes(EJEMPLO_DEL_DUENO)));
+  assert.ok(!sq.CANDADOS.some((r) => /apartar/.test(r) && /termina/.test(r)));
+});
+
+const CHAT_PESTANAS = [
+  linea("cliente", "Hola, vi el anuncio del combo", 0),
+  linea("negocio", "¡Hola! Te comparto las fotos del combo", 1),
+  linea("cliente", "Voy a montar mi espacio de pestañas, soy de Pereira", 5),
+];
+const REV_PESTANAS = { conversacion: CHAT_PESTANAS, yaEnviados: [], textoDelLibro: null, producto: "Combo Spa" };
+
+await prueba("proyecto: 'voy a montar mi espacio de pestañas' y ciudad: la propuesta del ejemplo del dueño sale idéntica, de la IA", () => {
+  const dicho = sq.loQueDijoElCliente(CHAT_PESTANAS);
+  assert.equal(dicho.ciudad, "Pereira");
+  assert.equal(dicho.servicio, "pestañas");
+  assert.equal(dicho.empezando, true);
+  assert.match(pedidoCon(CHAT_PESTANAS).contexto, /- Está empezando: va a montar o abrir su negocio/);
+  assert.deepEqual(sq.revisarPropuestaDeLaIA(EJEMPLO_DEL_DUENO, REV_PESTANAS), []);
+  const r = sq.elegirTexto({ ...REV_PESTANAS, propuestas: [EJEMPLO_DEL_DUENO], textoFijo: FIJO_BUENO });
+  assert.equal(r.enviar, true);
+  assert.equal(r.origen, "ia");
+  assert.equal(r.texto, EJEMPLO_DEL_DUENO);
+});
+
+await prueba("proyecto: ningún seguimiento empieza con «¿ya decidiste?», «¿pudiste revisar?» o «¿te lo aparto?», con o sin saludo", () => {
+  const rev = { conversacion: [linea("cliente", "Hola, vi el anuncio", 0)], yaEnviados: [], textoDelLibro: null };
+  const malos = [
+    "¿Ya decidiste?",
+    "Hola 🙌 ¿Ya decidiste?",
+    "¡Hola, Laura! ¿Ya decidiste lo de la camilla?",
+    "¿Pudiste revisar la información?",
+    "Hola, ¿pudiste revisar las fotos?",
+    "¿Te lo aparto?",
+    "Hola Laura 🙌 ¿Te lo aparto?",
+    "Buenas tardes ¿te la aparto?",
+  ];
+  for (const texto of malos) {
+    const problemas = sq.revisarSeguimiento(texto, rev);
+    assert.ok(problemas.some((p) => /^empieza con/.test(p)), `${texto}: ${problemas.join(" | ")}`);
+  }
+  // El cierre de apartar empieza con "Anotado": sigue pasando como respaldo.
+  assert.deepEqual(sq.revisarSeguimiento(CIERRE_BOGOTA, { ...REV_BOGOTA, textoAgendado: null }), []);
+  assert.deepEqual(sq.revisarSeguimiento("Anotado para Bogotá 🙌 ¿Te lo aparto para empezar a fabricarlo?", REV_BOGOTA), []);
+  // Los textos de respaldo también pasan por esta regla: un texto fijo así no sale.
+  const r = sq.elegirTexto({ ...rev, producto: "Camilla plegable", propuestas: [], textoFijo: "Hola 🙌 ¿Te lo aparto?" });
+  assert.equal(r.origen, "producto");
+  assert.ok(r.descartados[0].problemas.some((p) => /^empieza con/.test(p)));
+});
+
+await prueba("proyecto: la IA necesita 1 a 3 palabras en negrita, una sola pregunta de máximo 15 palabras y no pedir apartar", () => {
+  const rev = REV_PESTANAS;
+  const casos = [
+    ["Me contaste que vas a montar tu espacio de pestañas. ¿Ya tienes fecha para empezar?", /no trae negrita/],
+    ["Me contaste que vas a montar *tu espacio de pestañas*. ¿Ya tienes fecha?", /4 palabras en negrita: máximo 3/],
+    ["Tu espacio de *pestañas* va bien. ¿Ya tienes fecha? ¿Te ayudo?", /hace más de una pregunta/],
+    [
+      "Tu espacio de *pestañas* va bien. ¿Ya tienes fecha para empezar a atender a tus primeras clientas en el nuevo local del centro?",
+      /la pregunta tiene 1[6-9] palabras: máximo 15/,
+    ],
+    ["Tu espacio de *pestañas* va bien. ¿Te lo aparto para esa fecha?", /pide apartar o separar/],
+    ["Tu espacio de *pestañas* va bien. ¿Quieres que te lo separe?", /pide apartar o separar/],
+    ["Lo separamos para tu espacio de *pestañas*. ¿Ya tienes fecha?", /pide apartar o separar/],
+  ];
+  for (const [texto, patron] of casos) {
+    const problemas = sq.revisarPropuestaDeLaIA(texto, rev);
+    assert.ok(problemas.some((p) => patron.test(p)), `${texto}: ${problemas.join(" | ")}`);
+    // Y elegirTexto no la deja salir como de la IA.
+    assert.notEqual(sq.elegirTexto({ ...rev, propuestas: [texto], textoFijo: null }).origen, "ia", texto);
+  }
+  // Con 1 a 3 palabras en negrita y una pregunta corta, pasa.
+  assert.deepEqual(sq.revisarPropuestaDeLaIA("Tu espacio de *pestañas* en *Pereira* va tomando forma. ¿Ya tienes fecha para abrir?", rev), []);
+  // "Aparte de eso" no es pedir apartar.
+  assert.deepEqual(sq.revisarPropuestaDeLaIA("Aparte de las *pestañas*, ¿vas a ofrecer cejas?", rev), []);
+});
+
+await prueba("proyecto: con la fecha ya dicha se rechaza «¿Ya tienes fecha…?» y se acepta «¿Te ayudo a dejar tu *combo* listo…?»", () => {
+  const conFecha = [...CHAT_PESTANAS, linea("cliente", "Lo necesito para diciembre", 6)];
+  const rev = { ...REV_PESTANAS, conversacion: conFecha };
+  assert.equal(sq.loQueDijoElCliente(conFecha).fecha, "lo necesito para diciembre");
+  const problemas = sq.revisarPropuestaDeLaIA(EJEMPLO_DEL_DUENO, rev);
+  assert.ok(problemas.some((p) => /vuelve a preguntar para cuándo lo necesita/.test(p)), problemas.join(" | "));
+  assert.ok(sq.revisarSeguimiento("¿Ya tienes fecha para abrir?", rev).some((p) => /vuelve a preguntar para cuándo/.test(p)));
+  assert.deepEqual(sq.revisarPropuestaDeLaIA(SEGUNDO_EJEMPLO, rev), []);
+  const r = sq.elegirTexto({ ...rev, propuestas: [EJEMPLO_DEL_DUENO, SEGUNDO_EJEMPLO], textoFijo: FIJO_BUENO });
+  assert.equal(r.origen, "ia");
+  assert.equal(r.texto, SEGUNDO_EJEMPLO);
+});
+
+/** Un chat del redactor con lo que dijo el cliente (sin audio, para no depender de la transcripción). */
+function chatDelCliente(texto) {
+  base.mensajes = [
+    msg("m1", "INBOUND", "TEXT", "Hola, vi el anuncio de la silla", 0),
+    msg("m2", "OUTBOUND", "IMAGE", "Silla Isabela", 1, { mediaUrl: "https://x/foto.jpg" }),
+    msg("m3", "INBOUND", "TEXT", texto, 10),
+  ].reverse();
+}
+
+await prueba("proyecto, redactor: la propuesta del ejemplo del dueño sale tal cual, de la IA (con la ciudad dicha)", async () => {
+  reiniciarBase();
+  chatDelCliente("Voy a montar mi espacio de pestañas, soy de Pereira");
+  reiniciarIa([EJEMPLO_DEL_DUENO]);
+  const r = await redactar({ ...ENTRADA, textoFijo: FIJO_BUENO });
+  assert.equal(r.enviar, true);
+  assert.equal(r.deIA, true);
+  assert.equal(r.texto, EJEMPLO_DEL_DUENO);
+  assert.equal(ia.pedidos.length, 1);
+});
+
+await prueba("proyecto, respaldo: con la IA caída, servicio conocido, está empezando y sin fecha sale el ejemplo del dueño (deIA: false)", async () => {
+  reiniciarBase();
+  chatDelCliente("Voy a montar mi espacio de pestañas, soy de Pereira");
+  reiniciarIa();
+  ia.falla = true;
+  let r = await redactar({ ...ENTRADA, textoFijo: FIJO_BUENO });
+  assert.equal(r.enviar, true);
+  assert.equal(r.deIA, false);
+  assert.equal(r.texto, EJEMPLO_DEL_DUENO);
+  assert.equal(r.motivo, "la IA no respondió: pregunta del proyecto");
+  assert.deepEqual(redactor.marcaDelSeguimiento(r), { seguimientoQueEscucha: { deIA: false, textoReemplazado: FIJO_BUENO } });
+
+  // Tiene un salón (no está empezando): ese texto no sale; con la ciudad sale el cierre de apartar.
+  reiniciarBase();
+  chatDelCliente("Tengo un salón de uñas, soy de Pereira");
+  reiniciarIa();
+  ia.falla = true;
+  r = await redactar({ ...ENTRADA, textoFijo: FIJO_BUENO });
+  assert.equal(r.deIA, false);
+  assert.doesNotMatch(r.texto, /Me contaste que vas a montar/);
+  assert.equal(r.texto, "Anotado para Pereira 🙌 ¿Te lo aparto para empezar a fabricarlo?");
+
+  // Con la fecha ya dicha tampoco sale.
+  reiniciarBase();
+  chatDelCliente("Voy a montar mi espacio de pestañas, lo necesito para diciembre");
+  reiniciarIa();
+  ia.falla = true;
+  r = await redactar({ ...ENTRADA, textoFijo: FIJO_BUENO });
+  assert.doesNotMatch(r.texto, /Me contaste que vas a montar/);
+  assert.equal(r.texto, FIJO_BUENO);
+});
+
+await prueba("proyecto: 'está empezando' se detecta con 'voy a montar', 'voy a abrir' y 'estoy empezando'; 'tengo un salón' no", () => {
+  for (const texto of ["Voy a montar mi spa", "Vamos a abrir una barbería", "Estoy empezando con las uñas", "Apenas estoy empezando"]) {
+    assert.equal(sq.loQueDijoElCliente([linea("cliente", texto, 0)]).empezando, true, texto);
+  }
+  for (const texto of ["Tengo un salón de uñas", "Ya tengo mi barbería hace 5 años", "Hola, vi el anuncio"]) {
+    assert.equal(sq.loQueDijoElCliente([linea("cliente", texto, 0)]).empezando, false, texto);
+  }
+  const salon = sq.loQueDijoElCliente([linea("cliente", "Tengo un salón de uñas", 0)]);
+  assert.equal(sq.preguntaDelProyecto(salon), null);
+  const pestanas = sq.loQueDijoElCliente([linea("cliente", "Voy a montar mi espacio de pestañas", 0)]);
+  assert.equal(sq.preguntaDelProyecto(pestanas), EJEMPLO_DEL_DUENO);
+  // Sin servicio conocido, tampoco.
+  assert.equal(sq.preguntaDelProyecto(sq.loQueDijoElCliente([linea("cliente", "Voy a montar mi negocio", 0)])), null);
 });
 
 console.info = consolaOriginal.info;
