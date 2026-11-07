@@ -1,2 +1,0 @@
-## Advertencias de operación
-- `sin_responder_en_bandeja`: la marca y la pastilla "Sin responder" de Chats cuentan al bot y a los seguimientos automáticos como respuesta (no es "sin respuesta humana"); el dato `espera` de /counts ("Esperando respuesta") no sigue esta misma regla, porque ahí el bot no cuenta; el filtro puede tardar hasta 1 min en mostrar un chat recién escrito (caché de 60 s), y un chat contestado sale de la lista al cambiar de chat, sin recargar.
