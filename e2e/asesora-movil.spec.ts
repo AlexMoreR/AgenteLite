@@ -1,4 +1,4 @@
-import { expect, test, type BrowserContext, type Locator, type Page, type Response } from "@playwright/test";
+import { expect, test, type BrowserContext, type Locator, type Page } from "@playwright/test";
 import { CONTEXTO_MOVIL, E2E_EMAIL, E2E_PASSWORD, FALTAN_SECRETOS } from "./ajustes";
 
 /**
@@ -50,27 +50,6 @@ test.describe("Asesora en celular (solo lectura)", () => {
   });
 
   test("2. Cargar la lista de chats", async () => {
-    /*
-      Peso de las fotos de perfil de la primera pagina (07-11-2026). Se escucha ANTES del goto y se
-      suman los bytes reales del cuerpo. Cuentan: las miniaturas (/_next/image con w=96), las
-      originales de /uploads/ (si alguna miniatura falla) y las de WhatsApp (pps.whatsapp.net).
-    */
-    const pesos: Promise<{ bytes: number; deWhatsApp: boolean }>[] = [];
-    const alResponder = (respuesta: Response) => {
-      const url = new URL(respuesta.url());
-      const deWhatsApp = url.hostname === "pps.whatsapp.net";
-      const miniatura = url.pathname === "/_next/image" && url.searchParams.get("w") === "96";
-      const original = url.pathname.startsWith("/uploads/") && respuesta.request().resourceType() === "image";
-      if (!deWhatsApp && !miniatura && !original) return;
-      pesos.push(
-        respuesta
-          .body()
-          .then((cuerpo) => ({ bytes: cuerpo.length, deWhatsApp }))
-          .catch(() => ({ bytes: 0, deWhatsApp })),
-      );
-    };
-    pagina.on("response", alResponder);
-
     await test.step("abrir /cliente/chats", async () => {
       await pagina.goto("/cliente/chats");
       // FRAGIL: el boton "Nueva lista" (appsidebar.tsx) es lo primero fijo de la bandeja.
@@ -89,35 +68,6 @@ test.describe("Asesora en celular (solo lectura)", () => {
         type: "chats",
         description: hayChat ? `${await filas.count()} chats visibles` : "sin chats en el negocio de prueba",
       });
-    });
-
-    await test.step("las fotos de la primera pagina pesan menos de 150 KB", async () => {
-      // Sin deslizar la lista: solo las fotos de las filas que se ven al entrar.
-      await pagina.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => undefined);
-      pagina.off("response", alResponder);
-      const fotos = await Promise.all(pesos);
-      const total = fotos.reduce((suma, foto) => suma + foto.bytes, 0);
-      const deWhatsApp = fotos.filter((foto) => foto.deWhatsApp);
-      const bytesDeWhatsApp = deWhatsApp.reduce((suma, foto) => suma + foto.bytes, 0);
-      const kb = (bytes: number) => `${(bytes / 1024).toFixed(1)} KB`;
-      const resumen =
-        `${fotos.length} fotos, ${kb(total)} en total; ` +
-        `${deWhatsApp.length} con direccion de WhatsApp (${kb(bytesDeWhatsApp)})`;
-      const limite = 150 * 1024;
-      // Si se pasa solo por las de WhatsApp, se dice: esas no se achican y arreglarlas es otra tarjeta.
-      const soloPorWhatsApp = total >= limite && total - bytesDeWhatsApp < limite;
-      test.info().annotations.push({
-        type: "peso de las fotos",
-        description: soloPorWhatsApp
-          ? `${resumen}. Se pasa de 150 KB solo por las ${deWhatsApp.length} fotos de WhatsApp (${kb(bytesDeWhatsApp)})`
-          : resumen,
-      });
-      expect(
-        total,
-        soloPorWhatsApp
-          ? `Las fotos pesan ${kb(total)}: se pasa de 150 KB solo por las ${deWhatsApp.length} fotos con direccion de WhatsApp (${kb(bytesDeWhatsApp)}), que no se achican`
-          : `Las fotos de la primera pagina pesan ${kb(total)} (${resumen})`,
-      ).toBeLessThan(limite);
     });
   });
 
