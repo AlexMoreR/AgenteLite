@@ -2491,25 +2491,34 @@ export const ConversationPanel = memo(function ConversationPanel({
                 como para perder de vista el final —antes solo salia si habian llegado mensajes,
                 asi que quien subia a buscar algo tenia que devolverse a mano— y si mientras tanto
                 llega algo, lleva encima cuantos mensajes son.
+
+                Si entraron mensajes mientras la asesora lee arriba, el boton dice "Ir al final" con
+                el numero de nuevos (7-nov-2026): la vista no se mueve sola, asi que tiene que saber
+                que llego algo. Sin mensajes nuevos queda la flecha redonda de siempre.
               */}
-              {showJumpToBottom || unreadCount > 0 ? (
+              {unreadCount > 0 ? (
                 <button
                   type="button"
                   onClick={onScrollToBottom}
-                  aria-label={
-                    unreadCount > 0
-                      ? `Ir al ultimo mensaje (${unreadCount} sin leer)`
-                      : "Ir al ultimo mensaje"
-                  }
+                  aria-label={`Ir al final (${unreadCount} ${unreadCount === 1 ? "mensaje nuevo" : "mensajes nuevos"})`}
+                  title="Ir al último mensaje"
+                  className="chat-ir-al-final absolute bottom-4 right-4 z-10 inline-flex h-10 cursor-pointer items-center gap-1.5 rounded-full border border-border bg-card pl-3 pr-2 text-[13px] font-semibold text-foreground shadow-lg transition hover:bg-muted"
+                >
+                  <ChevronDown className="h-4 w-4 shrink-0" aria-hidden="true" />
+                  <span>Ir al final</span>
+                  <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[var(--primary)] px-1 text-[11px] font-semibold leading-none text-[var(--primary-foreground)]">
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </span>
+                </button>
+              ) : showJumpToBottom ? (
+                <button
+                  type="button"
+                  onClick={onScrollToBottom}
+                  aria-label="Ir al ultimo mensaje"
                   title="Ir al último mensaje"
                   className="absolute bottom-4 right-4 z-10 inline-flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-border bg-card text-foreground shadow-lg transition hover:bg-muted"
                 >
                   <ChevronDown className="h-5 w-5" />
-                  {unreadCount > 0 ? (
-                    <span className="absolute -right-1 -top-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[var(--primary)] px-1 text-[10px] font-semibold leading-none text-white">
-                      {unreadCount > 99 ? "99+" : unreadCount}
-                    </span>
-                  ) : null}
                 </button>
               ) : null}
             </div>

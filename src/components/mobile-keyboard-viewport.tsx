@@ -2,6 +2,8 @@
 
 import * as React from "react";
 
+import { distanciaAlFinal, estaCercaDelFinal } from "@/components/chats/scroll-del-hilo";
+
 /**
  * Deja el campo de escribir ARRIBA del teclado en el celular.
  *
@@ -14,7 +16,8 @@ import * as React from "react";
  *
  * Ademas, al abrirse el teclado iOS empuja la pagina hacia arriba y deja media conversacion
  * fuera de cuadro. Como en el chat el cuerpo no scrollea, se lo devuelve a su lugar y se
- * mantiene la conversacion pegada al ultimo mensaje, como WhatsApp.
+ * mantiene la conversacion pegada al ultimo mensaje, como WhatsApp, pero SOLO si la asesora estaba
+ * cerca del final (7-nov-2026): si subio a leer lo anterior, abrir el teclado no la mueve.
  *
  * Lista cortada en iPhone (Alex, 12-10-2026): la bandeja mostraba 5 chats y debajo un gris.
  * La variable se quedaba pegada en la altura "con teclado": iOS hace zoom al tocar un campo y no
@@ -66,6 +69,10 @@ export function MobileKeyboardViewport() {
         return;
       }
 
+      // Antes de achicar el chat al alto del teclado: ¿estaba la asesora cerca del final?
+      const mensajes = document.querySelector<HTMLElement>(".chat-messages-scroll");
+      const estabaCercaDelFinal = mensajes ? estaCercaDelFinal(distanciaAlFinal(mensajes)) : false;
+
       raiz.style.setProperty("--app-viewport-height", `${alto}px`);
 
       // Solo en el chat: es la unica pantalla que no scrollea el cuerpo, asi que reacomodarla
@@ -80,10 +87,10 @@ export function MobileKeyboardViewport() {
         window.scrollTo(0, 0);
       }
 
-      // Si acaba de subir el teclado, la conversacion se queda en el ultimo mensaje.
+      // Si acaba de subir el teclado y estaba leyendo lo ultimo, la conversacion se queda en el
+      // ultimo mensaje. Si estaba arriba, no se la mueve.
       if (alto < altoPrevio - 80) {
-        const mensajes = document.querySelector(".chat-messages-scroll");
-        if (mensajes) {
+        if (mensajes && estabaCercaDelFinal) {
           window.requestAnimationFrame(() => {
             mensajes.scrollTop = mensajes.scrollHeight;
           });

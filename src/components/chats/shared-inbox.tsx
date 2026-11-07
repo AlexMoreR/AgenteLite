@@ -92,6 +92,15 @@ import { filtroSinResponderPuesto, seOcultaPorSinResponder } from "@/features/ch
 import { esperaPorClave, type EsperaDeChats } from "@/features/chats/domain/espera-de-chats";
 import { leerEspera } from "@/features/chats/domain/filtros-de-bandeja";
 import { ConversationPanel, type EnvioTerminado } from "./chat-conversation-panel";
+import {
+  contarNuevosAlFinal,
+  debeBajarAlFinal,
+  debeVerseElBotonDeBajar,
+  distanciaAlFinal,
+  estaPegadaAlFinal,
+  leerLlaveDelHilo,
+  type MotivoParaBajar,
+} from "./scroll-del-hilo";
 import { BarraDeAccionesDelChat, BarraDeAccionesEnSilueta, ChatHeaderActions } from "./chat-header-actions";
 import { MenuDelContacto } from "./menu-del-contacto";
 import { AssignChatControl } from "./assign-chat-control";
@@ -726,13 +735,25 @@ export function SharedInbox({
   const messagesScrollRef = useRef<HTMLDivElement | null>(null);
   const scrollFrameRef = useRef<number | null>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
-  const isNearBottomRef = useRef(true);
+  /*
+    Cuantos px le faltan a la asesora para el final, medido en cada scroll (y puesto en 0 cuando el
+    codigo la baja). Con esto se decide si un mensaje que entra o una foto que carga la bajan: ver
+    la regla en scroll-del-hilo.ts.
+  */
+  const distanciaAlFinalRef = useRef(0);
+  // Cuando la asesora movio por ultima vez la rueda, el dedo o el teclado dentro de la conversacion.
+  // Lo que el codigo programo ANTES de ese momento (reintentos de la apertura, una bajada pendiente)
+  // ya no la mueve.
+  const ultimoGestoRef = useRef(0);
+  // Hasta cuando dura la apertura del chat: las fotos que cargan en ese rato la acompañan al final.
+  const ventanaAperturaHastaRef = useRef(0);
+  const aperturaEnRef = useRef(0);
   const prevScrollKeyRef = useRef("");
   const lastScrollTopRef = useRef(0);
   const historyLoadArmedRef = useRef(false);
   const historyLoadConsumedRef = useRef(false);
   const loadMoreHistoryInFlightRef = useRef(false);
-  const loadMoreHistoryRestoreRef = useRef<{ scrollTop: number; scrollHeight: number } | null>(null);
+  const loadMoreHistoryRestoreRef = useRef<{ scrollTop: number; scrollHeight: number; ultimoId: string } | null>(null);
   // Mientras un chat recién se abre, los ajustes programáticos de scroll (pin al fondo)
   // disparan el listener de scroll y podrían "armar"/lanzar la carga de mensajes anteriores,
   // que ancla la vista arriba. Suprimimos esa carga hasta este timestamp tras abrir.
@@ -1913,10 +1934,12 @@ export function SharedInbox({
     bajaria a la fuerza mientras lee.
   */
   const reabrirVentanaDeApertura = useCallback(() => {
-    if (!isNearBottomRef.current) {
+    if (!estaPegadaAlFinal(distanciaAlFinalRef.current) || ultimoGestoRef.current > aperturaEnRef.current) {
       return;
     }
-    suppressHistoryLoadUntilRef.current = Math.max(suppressHistoryLoadUntilRef.current, Date.now() + 700);
+    const hasta = Date.now() + 700;
+    suppressHistoryLoadUntilRef.current = Math.max(suppressHistoryLoadUntilRef.current, hasta);
+    ventanaAperturaHastaRef.current = Math.max(ventanaAperturaHastaRef.current, hasta);
   }, []);
 
   /*
@@ -2730,10 +2753,6 @@ export function SharedInbox({
     loadMoreHistoryInFlightRef.current = true;
     setIsLoadingOlderMessages(true);
     historyRestoreGuardUntilRef.current = Date.now() + 4000;
-    loadMoreHistoryRestoreRef.current = {
-      scrollTop: container.scrollTop,
-      scrollHeight: container.scrollHeight,
-    };
 
     try {
       const response = await fetch(
@@ -2762,6 +2781,17 @@ export function SharedInbox({
       }
 
       shouldRestoreScroll = true;
+      /*
+        La posicion se mide AHORA, justo antes de agregar los antiguos, y no al pedirlos: si la
+        asesora siguio subiendo mientras cargaban, restaurar la medida vieja la hacia retroceder.
+        Se guarda tambien el ultimo mensaje: si mientras tanto entro uno nuevo, la medida ya no sirve.
+      */
+      const ahora = messagesScrollRef.current ?? container;
+      loadMoreHistoryRestoreRef.current = {
+        scrollTop: ahora.scrollTop,
+        scrollHeight: ahora.scrollHeight,
+        ultimoId: renderedMessagesRef.current.at(-1)?.id ?? "",
+      };
       // Base validada por id (ver baseParaMezclar). La pagina se pidio con el cursor de lo que se ve:
       // empalma con la copia aunque todavia no haya llegado el /live de apertura.
       setLiveConversation((current) =>
@@ -3095,8 +3125,12 @@ export function SharedInbox({
           return;
         }
 
+        // Enviar es una de las tres cosas que bajan la vista (ver scroll-del-hilo.ts).
+        if (!debeBajarAlFinal({ tipo: "enviar" })) {
+          return;
+        }
         container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
-        isNearBottomRef.current = true;
+        distanciaAlFinalRef.current = 0;
         setUnreadCount(0);
       });
 
@@ -3597,7 +3631,9 @@ export function SharedInbox({
       if (burbuja) {
         // Que el scroll de arriba no dispare la carga de mensajes viejos mientras se acomoda.
         suppressHistoryLoadUntilRef.current = Date.now() + 1500;
-        isNearBottomRef.current = false;
+        // Ya no esta al final: que una foto que carga no la devuelva abajo mientras se centra.
+        distanciaAlFinalRef.current = Number.POSITIVE_INFINITY;
+        ventanaAperturaHastaRef.current = 0;
         burbuja.scrollIntoView({ block: "center" });
         if (encontradoEn < 0) {
           encontradoEn = vueltas;
@@ -3808,7 +3844,7 @@ export function SharedInbox({
 
   // Reset scroll state when the user opens a different conversation.
   useEffect(() => {
-    isNearBottomRef.current = true;
+    distanciaAlFinalRef.current = 0;
     setUnreadCount(0);
     showJumpToBottomRef.current = false;
     setShowJumpToBottom(false);
@@ -3818,14 +3854,43 @@ export function SharedInbox({
     historyLoadConsumedRef.current = false;
   }, [selectedConversationId]);
 
+  /*
+    El contenedor de la conversacion (`.chat-messages-scroll`) solo existe mientras hay un chat
+    abierto. Los vigilantes del scroll se conectaban UNA vez, al cargar la bandeja: si en ese momento
+    no habia chat abierto (entrar a la lista y tocar uno, o volver a la lista en el celular) no
+    encontraban la conversacion y no volvian a intentarlo. La marca de "esta al final" se quedaba
+    en "si" aunque la asesora subiera, y al dibujarse los mensajes de arriba (crecen al acercarse a
+    ellos) el observador de tamaño creia que seguia abajo y la bajaba: el salto que vio Emanuel. Por
+    eso el contenedor se sigue aca, y los vigilantes se vuelven a conectar cada vez que aparece.
+  */
+  const [contenedorDeMensajes, setContenedorDeMensajes] = useState<HTMLDivElement | null>(null);
+  const contenedorDeMensajesRef = useRef<HTMLDivElement | null>(null);
+  // Sin lista de dependencias a proposito: el contenedor puede aparecer o irse en cualquier render.
+  // No hay cadena infinita: solo se actualiza el estado cuando el elemento de verdad cambio.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useLayoutEffect(() => {
+    if (messagesScrollRef.current !== contenedorDeMensajesRef.current) {
+      contenedorDeMensajesRef.current = messagesScrollRef.current;
+      setContenedorDeMensajes(messagesScrollRef.current);
+    }
+  });
+
   // Track whether the user is near the bottom of the message list and only arm
   // older-history loading after the user actually scrolls upward.
   useEffect(() => {
-    const container = messagesScrollRef.current;
+    const container = contenedorDeMensajes;
     if (!container) return;
-    const BOTTOM_SCROLL_THRESHOLD_PX = 24;
     const TOP_SCROLL_THRESHOLD_PX = 96;
-    const JUMP_TO_BOTTOM_THRESHOLD_PX = 220;
+
+    const actualizarBoton = (distancia: number) => {
+      // El boton aparece cuando ya se subio lo suficiente como para perder de vista el final.
+      // El margen es mas ancho que el de "estoy al fondo" para que no parpadee al desplazarse.
+      const debeMostrarse = debeVerseElBotonDeBajar(distancia);
+      if (debeMostrarse !== showJumpToBottomRef.current) {
+        showJumpToBottomRef.current = debeMostrarse;
+        setShowJumpToBottom(debeMostrarse);
+      }
+    };
 
     function handleScroll() {
       const el = container!;
@@ -3845,17 +3910,10 @@ export function SharedInbox({
 
       lastScrollTopRef.current = nextScrollTop;
 
-      const distFromBottom = el.scrollHeight - nextScrollTop - el.clientHeight;
-      isNearBottomRef.current = distFromBottom <= BOTTOM_SCROLL_THRESHOLD_PX;
-      if (isNearBottomRef.current) setUnreadCount(0);
-
-      // El boton aparece cuando ya se subio lo suficiente como para perder de vista el final.
-      // El margen es mas ancho que el de "estoy al fondo" para que no parpadee al desplazarse.
-      const debeMostrarse = distFromBottom > JUMP_TO_BOTTOM_THRESHOLD_PX;
-      if (debeMostrarse !== showJumpToBottomRef.current) {
-        showJumpToBottomRef.current = debeMostrarse;
-        setShowJumpToBottom(debeMostrarse);
-      }
+      const distancia = distanciaAlFinal(el);
+      distanciaAlFinalRef.current = distancia;
+      if (estaPegadaAlFinal(distancia)) setUnreadCount(0);
+      actualizarBoton(distancia);
 
       /*
         Quien dispara la carga es el observador de mas abajo, no un umbral de pixeles.
@@ -3867,9 +3925,34 @@ export function SharedInbox({
       */
     }
 
+    // La rueda, el dedo o las teclas son de la asesora; el scroll solo puede ser del codigo.
+    const alGesto = () => {
+      ultimoGestoRef.current = Date.now();
+    };
+    const TECLAS_QUE_DESPLAZAN = new Set(["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "]);
+    const alTeclear = (evento: KeyboardEvent) => {
+      if (TECLAS_QUE_DESPLAZAN.has(evento.key)) alGesto();
+    };
+    // Arrastrar la barra de desplazamiento: el clic cae en el propio contenedor, no en un mensaje.
+    const alApretar = (evento: PointerEvent) => {
+      if (evento.target === container) alGesto();
+    };
+
+    // Al conectarse se mide ya, sin esperar al primer scroll.
+    distanciaAlFinalRef.current = distanciaAlFinal(container);
     container.addEventListener("scroll", handleScroll, { passive: true });
-    return () => container.removeEventListener("scroll", handleScroll);
-  }, [router]);
+    container.addEventListener("wheel", alGesto, { passive: true });
+    container.addEventListener("touchmove", alGesto, { passive: true });
+    container.addEventListener("keydown", alTeclear);
+    container.addEventListener("pointerdown", alApretar);
+    return () => {
+      container.removeEventListener("scroll", handleScroll);
+      container.removeEventListener("wheel", alGesto);
+      container.removeEventListener("touchmove", alGesto);
+      container.removeEventListener("keydown", alTeclear);
+      container.removeEventListener("pointerdown", alApretar);
+    };
+  }, [contenedorDeMensajes]);
 
   /**
    * Al llegar arriba, trae los mensajes anteriores solo. UN solo camino (05-11-2026).
@@ -3886,7 +3969,7 @@ export function SharedInbox({
    * codigo (el pin al fondo) y sin eso cada apertura pediria historial sin que nadie lo pida.
    */
   useEffect(() => {
-    const contenedor = messagesScrollRef.current;
+    const contenedor = contenedorDeMensajes;
     if (!contenedor) {
       return;
     }
@@ -3917,8 +4000,9 @@ export function SharedInbox({
     return () => {
       contenedor.removeEventListener("scroll", alDesplazar);
     };
-    // Se rearma al cambiar de chat y cuando el chat pasa a tener historial para pedir.
-  }, [selectedConversationId, canLoadOlderMessages, router]);
+    // Se rearma al cambiar de chat, al aparecer el contenedor y cuando el chat pasa a tener
+    // historial para pedir.
+  }, [contenedorDeMensajes, selectedConversationId, canLoadOlderMessages, router]);
 
   // Smart scroll: auto-scroll only when near bottom; count new messages when scrolled up.
   useLayoutEffect(() => {
@@ -3931,23 +4015,32 @@ export function SharedInbox({
 
     if (currentKey === "empty" || !container) return;
 
-    if (loadMoreHistoryRestoreRef.current) {
-      const restore = loadMoreHistoryRestoreRef.current;
+    const anterior = leerLlaveDelHilo(prevKey);
+    const actual = leerLlaveDelHilo(currentKey);
+    const restore = loadMoreHistoryRestoreRef.current;
+    loadMoreHistoryRestoreRef.current = null;
+
+    // Solo se restaura si lo que cambio fue lo de arriba: si mientras tanto entro un mensaje al
+    // final, mantener la distancia al final la arrastraria hacia abajo.
+    if (restore && restore.ultimoId === actual.ultimoId) {
       // Al cargar mensajes antiguos arriba, el contenido inferior no cambia, así que
       // mantener (scrollHeight - scrollTop) constante conserva la vista exacta. Como ya
       // no hay virtualización, la altura es real: basta fijar antes del paint (este
       // useLayoutEffect) + un par de frames por si algún media termina de cargar.
       const distanceFromBottom = Math.max(0, restore.scrollHeight - restore.scrollTop);
+      const fijadoEn = Date.now();
       const pinScroll = () => {
         const el = messagesScrollRef.current;
         if (!el) return;
+        // Si en el medio la asesora volvio a mover la rueda o el dedo, su posicion manda.
+        if (ultimoGestoRef.current > fijadoEn) return;
         el.scrollTop = Math.max(0, el.scrollHeight - distanceFromBottom);
         // Quien acaba de pedir el historial esta leyendo hacia arriba, no esperando el
-        // ultimo mensaje: se deja constancia de que YA NO esta al fondo. Sin esto, el
-        // observador de tamaño creia que seguia abajo y devolvia la vista al final en
-        // cuanto una foto del historial terminaba de cargar.
+        // ultimo mensaje: se mide donde quedo de verdad. Sin esto, el observador de tamaño
+        // creia que seguia abajo y devolvia la vista al final en cuanto una foto del
+        // historial terminaba de cargar.
         lastScrollTopRef.current = el.scrollTop;
-        isNearBottomRef.current = false;
+        distanciaAlFinalRef.current = distanciaAlFinal(el);
       };
       pinScroll();
       window.requestAnimationFrame(pinScroll);
@@ -3955,7 +4048,6 @@ export function SharedInbox({
         historyRestoreGuardUntilRef.current,
         Date.now() + 1200,
       );
-      loadMoreHistoryRestoreRef.current = null;
       return;
     }
 
@@ -3963,68 +4055,72 @@ export function SharedInbox({
       if (scrollFrameRef.current !== null) {
         window.cancelAnimationFrame(scrollFrameRef.current);
       }
+      const programadoEn = Date.now();
 
       // En salto inmediato (no-smooth) fijamos el scroll YA, dentro de este useLayoutEffect
       // (antes del paint), para que no se vea un frame "arriba" antes del rAF. El rAF queda
       // como re-anclaje por si la altura cambia (media que termina de cargar, etc.).
       if (!smooth) {
         container.scrollTop = container.scrollHeight;
+        distanciaAlFinalRef.current = 0;
       }
 
       scrollFrameRef.current = window.requestAnimationFrame(() => {
         scrollFrameRef.current = window.requestAnimationFrame(() => {
+          scrollFrameRef.current = null;
+          // La bajada pendiente se cancela si en estos dos cuadros la asesora empezo a subir.
+          if (ultimoGestoRef.current > programadoEn) return;
           if (smooth) {
             container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
           } else {
             container.scrollTop = container.scrollHeight;
           }
 
-          isNearBottomRef.current = true;
+          distanciaAlFinalRef.current = 0;
           setUnreadCount(0);
-          scrollFrameRef.current = null;
         });
       });
     };
 
     if (!prevKey || prevKey === "empty") {
       // Initial load — jump to bottom without animation.
-      jumpToBottom(false);
+      if (debeBajarAlFinal({ tipo: "abrir" })) jumpToBottom(false);
       return;
     }
 
-    const prevConvId = prevKey.split("|")[0];
-    const curConvId = currentKey.split("|")[0];
-
-    if (prevConvId !== curConvId) {
+    if (anterior.chatId !== actual.chatId) {
       // Different conversation opened — always jump to bottom.
-      jumpToBottom(false);
+      if (debeBajarAlFinal({ tipo: "abrir" })) jumpToBottom(false);
       return;
     }
 
     // Same conversation: check for appended messages.
-    const prevCount = Number(prevKey.split("|")[1]) || 0;
-    const curCount = Number(currentKey.split("|")[1]) || 0;
+    const prevCount = anterior.cantidad;
+    const curCount = actual.cantidad;
     const added = curCount - prevCount;
-    if (added <= 0) {
-      // Mismo número de mensajes pero el contenido/altura pudo cambiar (p. ej. al pasar
-      // de la caché al detalle del servidor). Si el usuario está al fondo, lo mantenemos
-      // pegado abajo para que no parezca que "se subió".
-      if (isNearBottomRef.current) {
+
+    // First messages arriving (0 → N), or the lightweight preview (usually 1 message) turning
+    // into the real chat: it is still the opening, use a hard jump.
+    if (added > 0 && prevCount <= 1) {
+      jumpToBottom(false);
+      return;
+    }
+
+    if (anterior.ultimoId === actual.ultimoId || added < 0) {
+      // No entro nada al final: el contenido cambio arriba o se rehizo (p. ej. al pasar de la
+      // caché al detalle del servidor). Solo se la acompaña si estaba pegada al final; si subio,
+      // no se toca nada.
+      const enApertura = ventanaAperturaHastaRef.current > Date.now();
+      if (
+        debeBajarAlFinal({
+          tipo: "crecio-contenido",
+          distancia: distanciaAlFinalRef.current,
+          asesoraSeMovio: ultimoGestoRef.current > aperturaEnRef.current && enApertura,
+          enApertura,
+        })
+      ) {
         jumpToBottom(false);
       }
-      return;
-    }
-
-    // First messages arriving (0 → N): always jump to bottom regardless of scroll position.
-    if (prevCount === 0) {
-      jumpToBottom(false);
-      return;
-    }
-
-    // Transition from a lightweight preview (usually 1 message) to the real chat:
-    // use a hard jump so the final hydration doesn't leave the viewport slightly above.
-    if (prevCount <= 1) {
-      jumpToBottom(false);
       return;
     }
 
@@ -4032,12 +4128,15 @@ export function SharedInbox({
     // - Tu propio envío (burbuja optimista) → baja para verlo.
     // - Estás cerca del fondo (leyendo lo último) → baja natural al mensaje nuevo.
     // - Estás arriba en el historial → NO mueve el scroll; si es entrante, muestra
-    //   el contador "↓ N" de no leídos.
+    //   "Ir al final" con el contador de nuevos.
     const lastMessage = renderedMessagesRef.current.at(-1);
     const lastMessageIsOwnDraft =
       typeof lastMessage?.id === "string" && lastMessage.id.startsWith("optimistic:");
 
-    if (lastMessageIsOwnDraft || isNearBottomRef.current) {
+    if (
+      (lastMessageIsOwnDraft && debeBajarAlFinal({ tipo: "enviar" })) ||
+      debeBajarAlFinal({ tipo: "mensaje-nuevo", distancia: distanciaAlFinalRef.current, asesoraSeMovio: false })
+    ) {
       /*
         En la ventana de apertura, lo que trae el refresco (/live o la precarga con mensajes que la
         copia no tenia) entra de golpe: animado, la vista quedaba varios cuadros fuera del final
@@ -4047,11 +4146,11 @@ export function SharedInbox({
       return;
     }
 
-    // Scrolleado arriba: anclamos a la posición previa para que el re-render no la
-    // mueva, y contamos el no leído si el mensaje es entrante.
-    container.scrollTop = lastScrollTopRef.current;
-    if (lastMessage?.direction === "INBOUND") {
-      setUnreadCount((prev) => prev + added);
+    // Arriba en el historial: no se mueve NADA (un mensaje que entra abajo no corre lo que se esta
+    // leyendo). Solo se cuentan los nuevos del cliente para el boton.
+    const nuevos = contarNuevosAlFinal(anterior.ultimoId, renderedMessagesRef.current);
+    if (nuevos > 0) {
+      setUnreadCount((prev) => prev + nuevos);
     }
   }, [selectedConversationScrollKey, messageScrollBehavior]);
 
@@ -4060,6 +4159,7 @@ export function SharedInbox({
   // transiciones caché → SSR → /live (que cambian la altura), el chat siempre queda en el
   // último mensaje y no se ve "subido". No interfiere con la llegada de mensajes nuevos
   // (eso lo maneja el efecto de arriba), porque solo corre cuando cambia la conversación.
+  // Los reintentos se cancelan si la asesora ya movio la rueda o el dedo.
   const openedConversationIdRef = useRef("");
   useLayoutEffect(() => {
     if (messageScrollBehavior !== "bottom") return;
@@ -4068,23 +4168,28 @@ export function SharedInbox({
     openedConversationIdRef.current = convId;
     // Bloquea la carga automática de historial durante la apertura (los pines de scroll
     // disparan el listener y, si no, anclarían la vista arriba).
-    suppressHistoryLoadUntilRef.current = Date.now() + 700;
+    const abiertoEn = Date.now();
+    aperturaEnRef.current = abiertoEn;
+    suppressHistoryLoadUntilRef.current = abiertoEn + 700;
+    ventanaAperturaHastaRef.current = abiertoEn + 700;
 
-    const pinToBottom = () => {
+    const pinToBottom = (motivo: MotivoParaBajar) => {
       const el = messagesScrollRef.current;
-      if (!el) return;
+      if (!el || !debeBajarAlFinal(motivo)) return;
       el.scrollTop = el.scrollHeight;
       lastScrollTopRef.current = el.scrollTop;
-      isNearBottomRef.current = true;
+      distanciaAlFinalRef.current = 0;
     };
+    const reintentar = () =>
+      pinToBottom({ tipo: "reintento-apertura", asesoraSeMovio: ultimoGestoRef.current > abiertoEn });
 
-    pinToBottom();
+    pinToBottom({ tipo: "abrir" });
     const raf1 = window.requestAnimationFrame(() => {
-      pinToBottom();
-      window.requestAnimationFrame(pinToBottom);
+      reintentar();
+      window.requestAnimationFrame(reintentar);
     });
-    const t1 = window.setTimeout(pinToBottom, 80);
-    const t2 = window.setTimeout(pinToBottom, 250);
+    const t1 = window.setTimeout(reintentar, 80);
+    const t2 = window.setTimeout(reintentar, 250);
 
     return () => {
       window.cancelAnimationFrame(raf1);
@@ -4094,11 +4199,12 @@ export function SharedInbox({
   }, [renderedConversation, messageScrollBehavior]);
 
   // Cuando el contenido CRECE después del render (típicamente una imagen/media que termina
-  // de cargar), si el usuario está al fondo o el chat se acaba de abrir, volvemos a pegar
-  // la vista abajo. Sin esto, los chats con foto/video quedan a media altura al abrir.
+  // de cargar), si el usuario está pegado al fondo o el chat se acaba de abrir, volvemos a pegar
+  // la vista abajo. Sin esto, los chats con foto/video quedan a media altura al abrir. Si subio,
+  // nunca: ese crecimiento es de lo que se dibuja arriba mientras lee.
   useEffect(() => {
     if (messageScrollBehavior !== "bottom") return;
-    const container = messagesScrollRef.current;
+    const container = contenedorDeMensajes;
     const content = container?.firstElementChild;
     if (!container || !content) return;
 
@@ -4120,17 +4226,25 @@ export function SharedInbox({
         return;
       }
 
-      const justOpened = suppressHistoryLoadUntilRef.current > Date.now();
-      if (isNearBottomRef.current || justOpened) {
+      const enApertura = ventanaAperturaHastaRef.current > Date.now();
+      if (
+        debeBajarAlFinal({
+          tipo: "crecio-contenido",
+          // La ultima medida del scroll es de ANTES de crecer: dice si estaba pegada al final.
+          distancia: distanciaAlFinalRef.current,
+          asesoraSeMovio: ultimoGestoRef.current > aperturaEnRef.current && enApertura,
+          enApertura,
+        })
+      ) {
         el.scrollTop = el.scrollHeight;
         lastScrollTopRef.current = el.scrollTop;
-        isNearBottomRef.current = true;
+        distanciaAlFinalRef.current = 0;
       }
     });
 
     observer.observe(content);
     return () => observer.disconnect();
-  }, [messageScrollBehavior, selectedConversationId]);
+  }, [messageScrollBehavior, selectedConversationId, contenedorDeMensajes]);
 
   const scrollToBottom = useCallback(() => {
     const container = messagesScrollRef.current;
@@ -4140,7 +4254,8 @@ export function SharedInbox({
     historyRestoreGuardUntilRef.current = 0;
     loadMoreHistoryRestoreRef.current = null;
     container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
-    isNearBottomRef.current = true;
+    distanciaAlFinalRef.current = 0;
+    const pedidoEn = Date.now();
     setUnreadCount(0);
     // Se esconde ya, sin esperar a que termine el desplazamiento suave: si no, el boton se
     // queda a la vista durante toda la bajada y parece que no respondio al toque.
@@ -4150,9 +4265,10 @@ export function SharedInbox({
     // media altura. Se reafirma un par de veces —y solo si en el camino nadie volvio a subir.
     const reafirmarFondo = () => {
       const el = messagesScrollRef.current;
-      if (!el || !isNearBottomRef.current) return;
+      if (!el || ultimoGestoRef.current > pedidoEn) return;
       el.scrollTop = el.scrollHeight;
       lastScrollTopRef.current = el.scrollTop;
+      distanciaAlFinalRef.current = 0;
     };
     window.setTimeout(reafirmarFondo, 300);
     window.setTimeout(reafirmarFondo, 900);
