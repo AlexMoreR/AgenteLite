@@ -85,6 +85,32 @@ test.describe("Asesora en celular (solo lectura)", () => {
     chatAbierto = true;
   });
 
+  test("3b. Resolver se ve sin deslizar a 375 y 360 px", async () => {
+    test.skip(!chatAbierto, "No hay chat abierto.");
+    // Solo se mira: NUNCA se toca Resolver (resolveria el chat de verdad).
+    const tamanoOriginal = pagina.viewportSize();
+    try {
+      for (const ancho of [375, 360]) {
+        await test.step(`a ${ancho} px Resolver queda dentro de la pantalla`, async () => {
+          await pagina.setViewportSize({ width: ancho, height: tamanoOriginal?.height ?? 740 });
+          // FRAGIL: aria-label del boton de la barra (snooze-chat-control / resolve-chat-control).
+          // Con ficha es "Resolver o posponer"; sin ficha, "Resolver conversación" o "Reabrir conversación".
+          const resolver = pagina
+            .getByRole("button", { name: /^(Resolver o posponer|Resolver conversación|Reabrir conversación)$/ })
+            .filter({ visible: true })
+            .first();
+          await expect(resolver).toBeVisible();
+          const caja = await resolver.boundingBox();
+          expect(caja, "el boton de Resolver no tiene caja").not.toBeNull();
+          expect(caja!.x).toBeGreaterThanOrEqual(0);
+          expect(caja!.x + caja!.width).toBeLessThanOrEqual(ancho);
+        });
+      }
+    } finally {
+      if (tamanoOriginal) await pagina.setViewportSize(tamanoOriginal);
+    }
+  });
+
   test("4. Abrir la ficha del cliente", async () => {
     test.skip(!chatAbierto, "No hay chat abierto.");
 

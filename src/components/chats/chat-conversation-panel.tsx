@@ -153,6 +153,7 @@ import type {
 import { FichaDeCotizacion } from "@/features/cotizaciones/components/FichaDeCotizacion";
 import { CHAT_COMPOSER_RECENT_KEY, type ComposerEmojiTab } from "./chat-inbox-emojis";
 import { MessageBubble } from "./chat-message-bubble";
+import { useHayMasALaDerecha } from "./use-hay-mas-a-la-derecha";
 import { ChatFloatingDateBadge } from "./chat-floating-date-badge";
 import { esNotaInternaDelAgente } from "@/lib/notas-internas-del-agente";
 import { ComposerEmojiPicker, ComposerSendButton } from "./chat-composer";
@@ -485,6 +486,9 @@ export const ConversationPanel = memo(function ConversationPanel({
       return siguiente;
     });
   };
+  // Si en la barra quedan botones a la derecha, escondidos debajo de Resolver (que va fijo): con
+  // eso se muestra la flechita que avisa que hay mas al deslizar.
+  const [refBarraQueSeDesliza, barraHayMas] = useHayMasALaDerecha<HTMLDivElement>();
   /**
    * "Escribiendo…", como en WhatsApp.
    *
@@ -2202,7 +2206,16 @@ export const ConversationPanel = memo(function ConversationPanel({
             esta arriba, en linea.
           */}
           {(hasSettledConversation || barraAnticipada) && seleccionados.length === 0 && barraVisible && (headerBar || mediaConfig) ? (
-            <div className="flex min-w-0 shrink-0 items-center gap-1.5 overflow-x-auto border-b border-border bg-card px-3 py-1.5 @min-[520px]/chathdr:hidden">
+            /*
+              Resolver va fijo a la derecha (sticky, en chat-header-actions) y trae su propio
+              espacio a la derecha: por eso aca no hay pr-3 cuando hay barra, si no quedaria un
+              hueco al lado de Resolver. data-hay-mas prende la flechita que va pegada a Resolver.
+            */
+            <div
+              ref={refBarraQueSeDesliza}
+              data-hay-mas={barraHayMas ? "true" : "false"}
+              className={`group/barra flex min-w-0 shrink-0 items-center gap-1.5 overflow-x-auto border-b border-border bg-card py-1.5 pl-3 @min-[520px]/chathdr:hidden ${headerBar ? "" : "pr-3"}`}
+            >
               {headerBar}
               {!mediaConfig && barraAnticipada ? (
                 // Nota, seguimiento y etiquetas, en silueta hasta que el chat este cargado.

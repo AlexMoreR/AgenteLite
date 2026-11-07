@@ -1,5 +1,6 @@
 "use client";
 
+import { ChevronRight } from "lucide-react";
 import { InterruptorDeIA } from "./interruptor-ia";
 import { InterruptorDeSeguimientos } from "./interruptor-seguimientos";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -80,6 +81,28 @@ export function ChatHeaderActions({
  * Mismas piezas y mismo alto que BarraDeAccionesDelChat (etapa, agente, asignar y, al final,
  * resolver/posponer), para que al llegar los datos reales la barra no salte ni empuje los mensajes.
  */
+/*
+  Resolver y Posponer van fijos a la derecha de la barra (sticky): en un celular de 360 o 375 px se
+  ven sin deslizar, y lo demas pasa por debajo. El fondo tapa lo que se desliza y el pr-3 es el
+  espacio a la derecha que antes ponia la fila. Las mismas clases en la silueta, para que no salte.
+*/
+const CLASES_SALIDAS_FIJAS = "sticky right-0 z-10 order-last flex shrink-0 items-center gap-1.5 bg-card pr-3";
+
+/**
+ * La flechita que avisa que hay mas botones al deslizar. Va pegada a la izquierda de Resolver y
+ * solo se ve mientras la fila (group/barra) diga data-hay-mas="true"; al llegar al final, se va.
+ */
+function FlechitaHayMas() {
+  return (
+    <span
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-y-0 right-full hidden w-7 items-center justify-end bg-gradient-to-l from-card to-transparent text-muted-foreground group-data-[hay-mas=true]/barra:flex"
+    >
+      <ChevronRight className="size-4" />
+    </span>
+  );
+}
+
 export function BarraDeAccionesEnSilueta() {
   return (
     <div className="contents" aria-hidden="true">
@@ -87,7 +110,8 @@ export function BarraDeAccionesEnSilueta() {
       <Skeleton className="h-[1.15rem] w-8 rounded-full" />
       <span className="mx-0.5 h-5 w-px bg-border" />
       <Skeleton className="size-8 rounded-lg" />
-      <div className="order-last flex items-center gap-1.5">
+      <div className={CLASES_SALIDAS_FIJAS}>
+        <FlechitaHayMas />
         <span className="mx-0.5 h-5 w-px bg-border" />
         <Skeleton className="h-8 w-11 rounded-lg" />
       </div>
@@ -139,7 +163,8 @@ export function BarraDeAccionesDelChat({
       {source === "agent" ? <InterruptorDeSeguimientos key={conversationId} conversationId={conversationId} conEtiqueta /> : null}
       <span aria-hidden="true" className="mx-0.5 h-5 w-px bg-border" />
       <AssignChatControl conversationId={conversationId} assignee={assignee} source={source} compacto />
-      <div className="order-last flex items-center gap-1.5">
+      <div className={CLASES_SALIDAS_FIJAS}>
+        <FlechitaHayMas />
         <span aria-hidden="true" className="mx-0.5 h-5 w-px bg-border" />
         {/* Resolver y Posponer en UN boton con menu. Sin ficha del CRM no se puede posponer:
             ahi queda solo el de resolver. */}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Check, ChevronDown, UserCheck, UserPlus, Users, X } from "lucide-react";
 import {
@@ -105,6 +106,9 @@ export function AssignChatControl({
   }, [conversationId, traeSegundo, segundoDelServidorId]);
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
+  // Barra del celular: la lista se dibuja fuera de la fila (portal), asi que vive en otro lugar.
+  const listaRef = useRef<HTMLDivElement>(null);
+  const botonCompactoRef = useRef<HTMLButtonElement>(null);
   const segundoRef = useRef<HTMLDivElement>(null);
   const [segundoOpen, setSegundoOpen] = useState(false);
   const [segundoError, setSegundoError] = useState<string | null>(null);
@@ -145,13 +149,59 @@ export function AssignChatControl({
   useEffect(() => {
     if (!open) return;
     function onPointerDown(event: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+      const destino = event.target as Node;
+      // La lista de la barra del celular vive fuera del contenedor (portal): tocarla es tocar
+      // adentro. Si no, tocar una asesora cerraria la lista antes de asignar.
+      if (listaRef.current?.contains(destino)) return;
+      if (containerRef.current && !containerRef.current.contains(destino)) {
         setOpen(false);
       }
     }
     document.addEventListener("mousedown", onPointerDown);
     return () => document.removeEventListener("mousedown", onPointerDown);
   }, [open]);
+
+  /*
+    Barra del celular: la lista va `fixed`, contra la pantalla.
+
+    Era `absolute` dentro de la fila que se desliza de lado (overflow-x-auto), y esa fila la cortaba:
+    se veia apenas el comienzo. Se mide donde quedo el boton y se dibuja encima de todo, como la
+    lista de etapas (crm-stage-control): sin salirse de la pantalla por ningun lado y abriendo para
+    arriba si abajo no hay lugar. Al deslizar o cambiar el tamaño se vuelve a ubicar.
+  */
+  const [posicionLista, setPosicionLista] = useState<{
+    left: number;
+    top?: number;
+    bottom?: number;
+    alto: number;
+  } | null>(null);
+  useEffect(() => {
+    if (!open || !compacto) return;
+    const ubicar = () => {
+      const caja = botonCompactoRef.current?.getBoundingClientRect();
+      if (!caja) return;
+      const ancho = 224;
+      const margen = 12;
+      const izquierda = Math.min(Math.max(margen, caja.left), Math.max(margen, window.innerWidth - ancho - margen));
+      const espacioAbajo = window.innerHeight - caja.bottom - margen;
+      const espacioArriba = caja.top - margen;
+      const abreAbajo = espacioAbajo >= 240 || espacioAbajo >= espacioArriba;
+      setPosicionLista(
+        abreAbajo
+          ? { left: izquierda, top: caja.bottom + 4, alto: Math.max(120, espacioAbajo - 4) }
+          : { left: izquierda, bottom: window.innerHeight - caja.top + 4, alto: Math.max(120, espacioArriba - 4) },
+      );
+    };
+    ubicar();
+    window.addEventListener("resize", ubicar);
+    window.addEventListener("scroll", ubicar, true);
+    return () => {
+      window.removeEventListener("resize", ubicar);
+      window.removeEventListener("scroll", ubicar, true);
+      // Al cerrar se olvida: la proxima vez se mide de nuevo y no aparece un instante donde estaba.
+      setPosicionLista(null);
+    };
+  }, [open, compacto]);
 
   // La lista de "Agregar asesor" se cierra al tocar afuera, igual que la de "Asignar".
   useEffect(() => {
@@ -346,11 +396,121 @@ export function AssignChatControl({
       ) : null
     ) : null;
 
+  const contenidoDeLaLista = (
+    <>
+      <div className="border-b border-border px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        Asignar chat
+      </div>
+
+      {loading ? (
+        <div className="px-3 py-3 text-[12px] text-muted-foreground">Cargando equipo…</div>
+      ) : error ? (
+        <div className="px-3 py-3 text-[12px] text-red-500">{error}</div>
+      ) : (
+        <div className="max-h-72 min-h-0 overflow-y-auto py-1">
+          {/* Tomar / soltar / pasar a una companera, para quien no es jefe */}
+          {!isManager ? (
+            <>
+              {!assignedToMe ? (
+                <button
+                  type="button"
+                  disabled={isPending}
+                  onClick={() => currentUserId && handleAssign(currentUserId)}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-foreground transition hover:bg-muted disabled:opacity-50"
+                >
+                  <UserPlus className="h-3.5 w-3.5 text-emerald-500" />
+                  Tomar este chat
+                </button>
+              ) : null}
+              {assignedToMe ? (
+                <button
+                  type="button"
+                  disabled={isPending}
+                  onClick={() => handleAssign(null)}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-foreground transition hover:bg-muted disabled:opacity-50"
+                >
+                  Soltar chat
+                </button>
+              ) : null}
+
+              {/*
+                Pasar el chat a otra persona: es lo que hace falta cuando el cliente pregunta
+                algo que se le responde mejor desde otra experiencia. Solo sale si el chat es
+                propio o no tiene dueno; el de otra companera no se toca (eso es de jefes).
+              */}
+              {puedeTraspasar ? (
+                <>
+                  <div className="mt-1 border-t border-border px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Pasar a
+                  </div>
+                  {companeras.length === 0 ? (
+                    <div className="px-3 py-2 text-[12px] text-muted-foreground">
+                      No hay nadie mas en el equipo.
+                    </div>
+                  ) : (
+                    companeras.map((member) => (
+                      <button
+                        key={member.id}
+                        type="button"
+                        disabled={isPending}
+                        onClick={() => handleAssign(member.id)}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-foreground transition hover:bg-muted disabled:opacity-50"
+                      >
+                        <span className="min-w-0 truncate">{memberLabel(member)}</span>
+                      </button>
+                    ))
+                  )}
+                </>
+              ) : null}
+
+              {assignee && !assignedToMe ? (
+                <div className="px-3 py-2 text-[12px] text-muted-foreground">
+                  Asignado a {memberLabel(assignee)}
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                disabled={isPending}
+                onClick={() => handleAssign(null)}
+                className="flex w-full items-center justify-between px-3 py-2 text-left text-[13px] text-muted-foreground transition hover:bg-muted disabled:opacity-50"
+              >
+                <span>Sin asignar</span>
+                {!assignee ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : null}
+              </button>
+              {members.map((member) => {
+                const selected = assignee?.id === member.id;
+                return (
+                  <button
+                    key={member.id}
+                    type="button"
+                    disabled={isPending}
+                    onClick={() => handleAssign(member.id)}
+                    className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-[13px] text-foreground transition hover:bg-muted disabled:opacity-50"
+                  >
+                    <span className="min-w-0 truncate">
+                      {memberLabel(member)}
+                      {member.id === currentUserId ? " (tú)" : ""}
+                    </span>
+                    {selected ? <Check className="h-3.5 w-3.5 shrink-0 text-emerald-500" /> : null}
+                  </button>
+                );
+              })}
+            </>
+          )}
+        </div>
+      )}
+    </>
+  );
+
   return (
     <>
     <div ref={containerRef} className="relative">
       {compacto ? (
         <button
+          ref={botonCompactoRef}
           type="button"
           onClick={handleToggle}
           className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-card transition hover:bg-muted disabled:opacity-60"
@@ -384,116 +544,30 @@ export function AssignChatControl({
       </button>
       )}
 
-      {open ? (
-        /* En la barra del celular el boton queda a la IZQUIERDA: alineado a la derecha, la lista
-           se salia de la pantalla por ese lado y se veia cortada. Ahi abre hacia la derecha. */
+      {open && compacto && posicionLista && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              ref={listaRef}
+              // Para React el portal sigue dentro de la barra: los clics no siguen subiendo.
+              onClick={(evento) => evento.stopPropagation()}
+              style={{
+                ...(posicionLista.top === undefined ? {} : { top: posicionLista.top }),
+                ...(posicionLista.bottom === undefined ? {} : { bottom: posicionLista.bottom }),
+                left: posicionLista.left,
+                maxHeight: posicionLista.alto,
+              }}
+              className="fixed z-[100] flex w-56 max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-xl border border-border bg-popover shadow-[0_18px_50px_-24px_rgba(15,23,42,0.35)]"
+            >
+              {contenidoDeLaLista}
+            </div>,
+            document.body,
+          )
+        : null}
+      {open && !compacto ? (
         <div
-          className={`absolute ${compacto ? "left-0 w-56" : "right-0 w-60"} z-50 mt-1 overflow-hidden rounded-xl border border-border bg-popover shadow-[0_18px_50px_-24px_rgba(15,23,42,0.35)]`}
+          className="absolute right-0 w-60 z-50 mt-1 overflow-hidden rounded-xl border border-border bg-popover shadow-[0_18px_50px_-24px_rgba(15,23,42,0.35)]"
         >
-          <div className="border-b border-border px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Asignar chat
-          </div>
-
-          {loading ? (
-            <div className="px-3 py-3 text-[12px] text-muted-foreground">Cargando equipo…</div>
-          ) : error ? (
-            <div className="px-3 py-3 text-[12px] text-red-500">{error}</div>
-          ) : (
-            <div className="max-h-72 overflow-y-auto py-1">
-              {/* Tomar / soltar / pasar a una companera, para quien no es jefe */}
-              {!isManager ? (
-                <>
-                  {!assignedToMe ? (
-                    <button
-                      type="button"
-                      disabled={isPending}
-                      onClick={() => currentUserId && handleAssign(currentUserId)}
-                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-foreground transition hover:bg-muted disabled:opacity-50"
-                    >
-                      <UserPlus className="h-3.5 w-3.5 text-emerald-500" />
-                      Tomar este chat
-                    </button>
-                  ) : null}
-                  {assignedToMe ? (
-                    <button
-                      type="button"
-                      disabled={isPending}
-                      onClick={() => handleAssign(null)}
-                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-foreground transition hover:bg-muted disabled:opacity-50"
-                    >
-                      Soltar chat
-                    </button>
-                  ) : null}
-
-                  {/*
-                    Pasar el chat a otra persona: es lo que hace falta cuando el cliente pregunta
-                    algo que se le responde mejor desde otra experiencia. Solo sale si el chat es
-                    propio o no tiene dueno; el de otra companera no se toca (eso es de jefes).
-                  */}
-                  {puedeTraspasar ? (
-                    <>
-                      <div className="mt-1 border-t border-border px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        Pasar a
-                      </div>
-                      {companeras.length === 0 ? (
-                        <div className="px-3 py-2 text-[12px] text-muted-foreground">
-                          No hay nadie mas en el equipo.
-                        </div>
-                      ) : (
-                        companeras.map((member) => (
-                          <button
-                            key={member.id}
-                            type="button"
-                            disabled={isPending}
-                            onClick={() => handleAssign(member.id)}
-                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-foreground transition hover:bg-muted disabled:opacity-50"
-                          >
-                            <span className="min-w-0 truncate">{memberLabel(member)}</span>
-                          </button>
-                        ))
-                      )}
-                    </>
-                  ) : null}
-
-                  {assignee && !assignedToMe ? (
-                    <div className="px-3 py-2 text-[12px] text-muted-foreground">
-                      Asignado a {memberLabel(assignee)}
-                    </div>
-                  ) : null}
-                </>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    disabled={isPending}
-                    onClick={() => handleAssign(null)}
-                    className="flex w-full items-center justify-between px-3 py-2 text-left text-[13px] text-muted-foreground transition hover:bg-muted disabled:opacity-50"
-                  >
-                    <span>Sin asignar</span>
-                    {!assignee ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : null}
-                  </button>
-                  {members.map((member) => {
-                    const selected = assignee?.id === member.id;
-                    return (
-                      <button
-                        key={member.id}
-                        type="button"
-                        disabled={isPending}
-                        onClick={() => handleAssign(member.id)}
-                        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-[13px] text-foreground transition hover:bg-muted disabled:opacity-50"
-                      >
-                        <span className="min-w-0 truncate">
-                          {memberLabel(member)}
-                          {member.id === currentUserId ? " (tú)" : ""}
-                        </span>
-                        {selected ? <Check className="h-3.5 w-3.5 shrink-0 text-emerald-500" /> : null}
-                      </button>
-                    );
-                  })}
-                </>
-              )}
-            </div>
-          )}
+          {contenidoDeLaLista}
         </div>
       ) : null}
     </div>

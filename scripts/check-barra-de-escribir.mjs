@@ -28,8 +28,21 @@ const columna = clasesDe(panel, "@container/chathdr");
 assert.ok(columna.has("overflow-x-clip"), "la columna @container/chathdr debe tener overflow-x-clip");
 assert.ok(columna.has("min-w-0"), "la columna @container/chathdr debe tener min-w-0");
 
-const filaBotones = clasesDe(panel, "px-3 py-1.5 @min-[520px]/chathdr:hidden");
+const filaBotones = clasesDe(panel, "group/barra flex min-w-0");
 assert.ok(filaBotones.has("min-w-0") && filaBotones.has("overflow-x-auto"), "la segunda fila de botones debe desplazarse en su fila");
+assert.ok(filaBotones.has("@min-[520px]/chathdr:hidden"), "la segunda fila de botones es solo de la cabecera angosta");
+assert.ok(filaBotones.has("pl-3") && !filaBotones.has("px-3"), "la fila no lleva pr-3 cuando hay barra: el espacio lo pone Resolver");
+assert.ok(panel.includes("ref={refBarraQueSeDesliza}") && panel.includes("data-hay-mas="), "la fila avisa si queda algo a la derecha");
+
+// Resolver y Posponer quedan fijos a la derecha de la fila, con las mismas clases en la silueta.
+const acciones = fs.readFileSync(path.resolve("src/components/chats/chat-header-actions.tsx"), "utf8");
+const fijas = acciones.match(/const CLASES_SALIDAS_FIJAS = "([^"]+)"/);
+assert.ok(fijas, "falta la constante CLASES_SALIDAS_FIJAS");
+for (const clase of ["sticky", "right-0", "z-10", "order-last", "shrink-0", "bg-card", "pr-3"]) {
+  assert.ok(fijas[1].split(" ").includes(clase), `Resolver fijo debe tener ${clase}`);
+}
+assert.equal(acciones.match(/className=\{CLASES_SALIDAS_FIJAS\}/g)?.length, 2, "barra real y silueta usan las mismas clases");
+assert.ok(acciones.includes("group-data-[hay-mas=true]/barra:flex"), "la flechita se prende con data-hay-mas de la fila");
 
 const pestanas = clasesDe(panel, "items-center gap-4");
 // overflow-x-clip y no auto: auto también recortaría en vertical el subrayado de la pestaña activa (-mb-px).
