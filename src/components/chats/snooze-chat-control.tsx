@@ -11,6 +11,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { SNOOZE_PRESETS } from "@/lib/lead-snooze";
 import { CHAT_SNOOZED_EVENT, type ChatSnoozedDetail } from "@/components/chats/chat-inbox-types";
 import { ResolveChatControl } from "@/components/chats/resolve-chat-control";
+import { CLASES_BOTON_DE_LA_BARRA, CLASES_ETIQUETA_DE_LA_BARRA } from "@/components/chats/boton-de-la-barra";
 
 /**
  * Posponer el lead SIN salir del chat.
@@ -81,14 +82,20 @@ export function SnoozeChatControl({
               type="button"
               aria-label="Resolver o posponer"
               title="Resolver o posponer"
-              className="inline-flex h-8 shrink-0 items-center justify-center gap-0.5 rounded-lg border border-border bg-card px-1.5 transition hover:bg-muted disabled:opacity-60"
+              className={CLASES_BOTON_DE_LA_BARRA}
             >
-              {estado === "CLOSED" || estado === "ARCHIVED" ? (
-                <RotateCcw className="size-4 text-amber-600" />
-              ) : (
-                <CheckCircle2 className="size-4 text-emerald-600" />
-              )}
-              <ChevronDown className="size-3.5 text-muted-foreground" />
+              {/* La flechita al lado del icono avisa que abre un menu (resolver o posponer). */}
+              <span className="flex items-center gap-0.5">
+                {estado === "CLOSED" || estado === "ARCHIVED" ? (
+                  <RotateCcw className="size-4 text-amber-600" />
+                ) : (
+                  <CheckCircle2 className="size-4 text-emerald-600" />
+                )}
+                <ChevronDown className="size-3.5 text-muted-foreground" />
+              </span>
+              <span className={CLASES_ETIQUETA_DE_LA_BARRA}>
+                {estado === "CLOSED" || estado === "ARCHIVED" ? "Reabrir" : "Resolver"}
+              </span>
             </button>
           </PopoverTrigger>
           <PopoverContent align="end" sideOffset={6} className="w-56 rounded-lg border border-border bg-popover p-1 leading-5 text-popover-foreground">
