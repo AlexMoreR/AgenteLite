@@ -28,6 +28,7 @@ import {
   type FiltrosDeBandeja,
 } from "@/features/chats/domain/filtros-de-bandeja";
 import { filtroSinResponderPuesto } from "@/features/chats/domain/sin-responder";
+import { asignacionDeEsperando, hrefDeEsperando, numeroDeEsperando } from "./chat-inbox-conversation-utils";
 import { CRM_STAGE_META } from "@/features/crm/domain/crm-config";
 import { iniciarMedicion, terminarMedicionAlPintar } from "@/lib/metricas-chats";
 
@@ -40,6 +41,10 @@ type AppSidebarProps = {
   assignedFilter?: AssignedFilter;
   statusFilter?: StatusFilter;
   assignedCounts?: { mine: number; unassigned: number; all: number; sinResponder?: number } | null;
+  /** La vista "Esperando" (`espera=1`) esta puesta. */
+  enEspera?: boolean;
+  /** `espera.mine` y `espera.all` del ultimo /counts. null = sin dato: la pastilla va sin numero. */
+  numerosDeEspera?: { mine: number; all: number } | null;
   isManager?: boolean;
   filtros?: FiltrosDeBandeja;
   hasMoreConversationItems?: boolean;
@@ -202,6 +207,8 @@ export const AppSidebar = React.memo(function AppSidebar({
   assignedFilter = "all",
   statusFilter = "open",
   assignedCounts = null,
+  enEspera = false,
+  numerosDeEspera = null,
   isManager = false,
   filtros = SIN_FILTROS,
   hasMoreConversationItems = false,
@@ -426,7 +433,8 @@ export const AppSidebar = React.memo(function AppSidebar({
   */
   const vistaActual = firmaDeLaVista(queryDeFiltro(assignedFilter, statusFilter, filtros));
   const firmaMostrada = vistaPedida && vistaPedida.desde === vistaActual ? vistaPedida.firma : vistaActual;
-  const listaActiva = listaQueSeEstaMirando(listas, firmaMostrada);
+  // En "Esperando" no hay lista guardada abierta: la vista es otra aunque la pestaña coincida.
+  const listaActiva = enEspera ? null : listaQueSeEstaMirando(listas, firmaMostrada);
 
   const aplicarGuardado = React.useCallback(
     (query: string) => {
@@ -526,6 +534,34 @@ export const AppSidebar = React.memo(function AppSidebar({
   // La pastilla "Sin responder" va encendida si esta puesta la condicion `sin_responder:si`.
   const sinResponderPuesto = filtroSinResponderPuesto(filtros.condiciones);
 
+  /*
+    "ESPERANDO" (parte 4 de "Esperando respuesta"): un interruptor ENCIMA de Todas/Mias.
+
+    - Tocarla pone `espera=1` con Todas o Mias y la linea. Desde "Sin asignar", "Por asesora", una
+      lista guardada o con condiciones, las suelta y queda en Todas (o Mias, la asesora): asi el
+      numero de la pastilla y la lista dicen lo mismo. Tocarla de nuevo la quita.
+    - Estando en Esperando, Todas/Mias cambian de grupo sin salir; tocar el grupo en el que ya se
+      esta (la asesora, Mias) sale de Esperando.
+  */
+  const asignacionEsperando = asignacionDeEsperando(
+    assignedFilter,
+    isManager,
+    !enEspera && (Boolean(listaActiva) || statusFilter !== "open" || hayFiltrosPuestos(filtros)),
+  );
+  const numeroEsperando = numeroDeEsperando(numerosDeEspera, asignacionEsperando);
+  const irAEsperando = React.useCallback(
+    (asignacion: "all" | "mine", espera: boolean) => {
+      if (asignacion !== assignedFilter) {
+        iniciarMedicion(`pestana:${asignacion}`);
+        setPedido({ para: asignacion, desde: assignedFilter });
+      }
+      setVistaPedida(null);
+      setFilterMenuOpen(false);
+      irA(hrefDeEsperando({ searchAction, selectedConnectionKey, searchQuery, asignacion, espera }));
+    },
+    [assignedFilter, irA, searchAction, selectedConnectionKey, searchQuery],
+  );
+
   return (
     <aside
       className={`${mobileConversationActive ? "hidden md:flex" : "flex"} chat-inbox-sidebar min-h-0 flex-1 overflow-hidden border border-border bg-card p-0 shadow-none md:h-full md:shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)]`}
@@ -587,18 +623,27 @@ export const AppSidebar = React.memo(function AppSidebar({
               {(isManager ? PASTILLAS_A_LA_VISTA : (["mine"] as const)).map((valor) => {
                 // Con una lista abierta, la pintada es la lista; volver a Todas/Mias la cierra.
                 const activa = !listaActiva && filtroMostrado === valor;
+                // En "Esperando" la pintada llena es Esperando; el grupo va con borde de la marca.
+                const grupoDeEsperando = enEspera && activa;
                 const tab = ASSIGNED_FILTER_TABS.find((item) => item.value === valor);
                 return (
                   <button
                     key={valor}
                     type="button"
+                    aria-pressed={activa}
                     onClick={() =>
-                      listaActiva ? aplicarFiltros(valor, "open", SIN_FILTROS) : aplicarFiltros(valor, statusFilter)
+                      enEspera
+                        ? irAEsperando(valor, filtroMostrado !== valor)
+                        : listaActiva
+                          ? aplicarFiltros(valor, "open", SIN_FILTROS)
+                          : aplicarFiltros(valor, statusFilter)
                     }
                     className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1 text-[13px] font-medium transition ${
-                      activa
-                        ? "border-transparent bg-primary text-primary-foreground"
-                        : "border-border text-muted-foreground hover:bg-muted"
+                      grupoDeEsperando
+                        ? "border-primary text-primary hover:bg-primary/10"
+                        : activa
+                          ? "border-transparent bg-primary text-primary-foreground"
+                          : "border-border text-muted-foreground hover:bg-muted"
                     }`}
                   >
                     {tab?.label ?? "Todas"}
@@ -610,6 +655,24 @@ export const AppSidebar = React.memo(function AppSidebar({
                   </button>
                 );
               })}
+
+              {/* "Esperando": para todos, tambien la asesora (ver irAEsperando). */}
+              <button
+                type="button"
+                aria-pressed={enEspera}
+                onClick={() => irAEsperando(asignacionEsperando, !enEspera)}
+                title={enEspera ? "Quitar Esperando" : "Chats que esperan respuesta de una persona"}
+                className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1 text-[13px] font-medium transition ${
+                  enEspera
+                    ? "border-transparent bg-primary text-primary-foreground"
+                    : "border-border text-muted-foreground hover:bg-muted"
+                }`}
+              >
+                Esperando
+                {numeroEsperando !== null ? (
+                  <span className="text-[11px] font-semibold leading-none">{numeroEsperando}</span>
+                ) : null}
+              </button>
 
               {/*
                 "Sin responder" a un toque (parte 4 de la marca), fuera del map de Todas/Mias para que
@@ -826,8 +889,15 @@ export const AppSidebar = React.memo(function AppSidebar({
                   <MessageSquareText className="h-5 w-5" />
                 </span>
                 <div className="space-y-1">
-                  <h3 className="text-base font-semibold text-foreground">{emptyListTitle}</h3>
-                  <p className="text-sm leading-6 text-muted-foreground">{emptyListDescription}</p>
+                  {/* En "Esperando" la lista vacia es una buena noticia: se dice asi. */}
+                  <h3 className="text-base font-semibold text-foreground">
+                    {enEspera && !busqueda.trim() ? "Nadie está esperando" : emptyListTitle}
+                  </h3>
+                  <p className="text-sm leading-6 text-muted-foreground">
+                    {enEspera && !busqueda.trim()
+                      ? "Todos los chats tienen respuesta de una persona. Toca Esperando para volver a la bandeja."
+                      : emptyListDescription}
+                  </p>
                 </div>
               </div>
             </div>

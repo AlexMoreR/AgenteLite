@@ -1,6 +1,7 @@
 // Pruebas de "Esperando respuesta" (parte 1: el calculo y el campo `espera` de /counts; parte 2:
 // la lista GET /api/cliente/chats/list?espera=1 y la vista inicial de la bandeja; parte 3: la
-// marca «espera N min» de cada fila).
+// marca «espera N min» de cada fila; parte 4: la pastilla «Esperando», la vista en la bandeja y la
+// apertura de la asesora).
 //
 // - El SQL de src/features/chats/services/espera-de-chats.ts corre en un Postgres embebido
 //   (PGlite) con chats armados a mano: cuales entran, cuales no y desde cuando cuenta el reloj.
@@ -976,9 +977,277 @@ await prueba("pantalla: un solo reloj en la lista, nada por fila, y el efecto de
     bandeja,
     /\}, \[conversationListApiPath, searchQuery, selectedConnectionKey, statusFilter, ponerFiltrosNuevos, pedidoDeConteos\]\);/,
   );
-  assert.match(bandeja, /setEsperaPorClave\(esperaPorClave\(payload\.espera \?\? null\)\)/);
+  assert.match(bandeja, /setEsperaDelConteo\(payload\.espera \?\? null\)/);
+  assert.match(bandeja, /esperaPorClave\(esperaVigente\)/);
   assert.match(bandeja, /conversationItems=\{filasConEspera\}/);
   assert.ok(!/setConversationItems\([^)]*esperaDesde/.test(bandeja), "esperaDesde no se guarda en conversationItems");
+});
+
+/* ------------------------------------------------------------------------------------------------
+   Parte 4: la pastilla «Esperando», la vista en la bandeja y la apertura de la asesora
+------------------------------------------------------------------------------------------------ */
+const utils = cargar("@/components/chats/chat-inbox-conversation-utils");
+const leerHref = (href) => new URL(href, "http://x");
+
+await prueba("enlaces: abrir un chat conserva espera=1 (y Mias, la linea y el chatKey)", async () => {
+  const href = utils.buildConversationItemHrefFromParams(
+    "/cliente/chats", "channel:c1", "", { id: "agent:a1" }, "mine", "open", [], true,
+  );
+  const url = leerHref(href);
+  assert.equal(url.searchParams.get("chatKey"), "agent:a1");
+  assert.equal(url.searchParams.get("espera"), "1");
+  assert.equal(url.searchParams.get("assigned"), "mine");
+  assert.equal(url.searchParams.get("connection"), "channel:c1");
+  // Sin Esperando el enlace queda como siempre.
+  const sin = leerHref(utils.buildConversationItemHrefFromParams("/cliente/chats", "", "", { id: "agent:a1" }, "all", "open"));
+  assert.equal(sin.searchParams.has("espera"), false);
+  assert.equal(sin.searchParams.has("assigned"), false);
+});
+
+await prueba("enlaces: page.tsx conserva espera=1 en volver a la lista, el chat abierto y cada fila", async () => {
+  const pagina = fs.readFileSync(path.join(raiz, "app/cliente/chats/page.tsx"), "utf8");
+  const listaHref = pagina.slice(pagina.indexOf("const chatListHref"), pagina.indexOf("const selectedChatHref"));
+  assert.match(listaHref, /pideEspera \? \[\["espera", "1"\]\]/);
+  assert.match(listaHref, /\|\|\s*pideEspera/);
+  const abiertoHref = pagina.slice(pagina.indexOf("const selectedChatHref"), pagina.indexOf("let selectedConversation"));
+  assert.match(abiertoHref, /pideEspera \? \[\["espera", "1"\]\]/);
+  assert.match(pagina, /\$\{pideEspera \? "&espera=1" : ""\}`/);
+  assert.match(pagina, /esperaDelServidor=\{pideEspera\}/);
+});
+
+await prueba("pastilla: asignacion al tocar Esperando (Todas o Mias, nada mas)", async () => {
+  // Jefe
+  assert.equal(utils.asignacionDeEsperando("all", true), "all");
+  assert.equal(utils.asignacionDeEsperando("mine", true), "mine");
+  assert.equal(utils.asignacionDeEsperando("unassigned", true), "all");
+  assert.equal(utils.asignacionDeEsperando("user:ana", true), "all");
+  // Con una lista guardada o condiciones se suelta y queda Todas.
+  assert.equal(utils.asignacionDeEsperando("mine", true, true), "all");
+  // Asesora: siempre Mias.
+  assert.equal(utils.asignacionDeEsperando("all", false), "mine");
+  assert.equal(utils.asignacionDeEsperando("mine", false, true), "mine");
+});
+
+await prueba("pastilla: numero espera.all en Todas y espera.mine en Mias; sin dato, sin numero", async () => {
+  const espera = { mine: 2, all: 7, chats: [] };
+  assert.equal(utils.numeroDeEsperando(espera, "all"), 7);
+  assert.equal(utils.numeroDeEsperando(espera, "mine"), 2);
+  assert.equal(utils.numeroDeEsperando(null, "all"), null);
+  assert.equal(utils.numeroDeEsperando(undefined, "mine"), null);
+  assert.equal(utils.numeroDeEsperando({ mine: 0, all: 0, chats: [] }, "mine"), 0);
+});
+
+await prueba("pastilla: la direccion pone espera=1 con la asignacion y la linea; suelta estado y condiciones", async () => {
+  const conLinea = leerHref(utils.hrefDeEsperando({
+    searchAction: "/cliente/chats", selectedConnectionKey: "channel:c1", searchQuery: "", asignacion: "mine", espera: true,
+  }));
+  assert.deepEqual([...conLinea.searchParams.entries()].sort(), [["assigned", "mine"], ["connection", "channel:c1"], ["espera", "1"]]);
+  const todas = leerHref(utils.hrefDeEsperando({ searchAction: "/cliente/chats", asignacion: "all", espera: true }));
+  assert.deepEqual([...todas.searchParams.entries()], [["espera", "1"]]);
+  // Tocar de nuevo Esperando la quita y deja el grupo (Mias queda en la direccion y se respeta).
+  const fuera = leerHref(utils.hrefDeEsperando({ searchAction: "/cliente/chats", asignacion: "mine", espera: false }));
+  assert.deepEqual([...fuera.searchParams.entries()], [["assigned", "mine"]]);
+});
+
+await prueba("pastilla: appsidebar la muestra a todos, interruptor encima de Todas/Mias", async () => {
+  const barra = fs.readFileSync(path.join(raiz, "components/chats/appsidebar.tsx"), "utf8");
+  const pastilla = barra.slice(barra.indexOf("{/* \"Esperando\": para todos"), barra.indexOf("\"Sin responder\" a un toque"));
+  assert.ok(pastilla.length > 0, "la pastilla esta fuera del map de Todas/Mias (la ve la asesora)");
+  assert.match(pastilla, /onClick=\{\(\) => irAEsperando\(asignacionEsperando, !enEspera\)\}/);
+  assert.match(pastilla, /numeroEsperando !== null \?/);
+  // Estando en Esperando: otro grupo cambia sin salir; el mismo grupo (la asesora, Mias) sale.
+  assert.match(barra, /enEspera\s*\? irAEsperando\(valor, filtroMostrado !== valor\)/);
+  // En Esperando no hay lista guardada abierta.
+  assert.match(barra, /const listaActiva = enEspera \? null :/);
+});
+
+const fila = (id) => ({ id });
+await prueba("vista: un chat que ya no espera sale sin pedir nada; uno nuevo pide /list UNA vez", async () => {
+  const espera = { mine: 2, all: 3, chats: [
+    { key: "agent:a", desde: hace(30), mia: true },
+    { key: "agent:b", desde: hace(20), mia: false },
+    { key: "official:c", desde: hace(5), mia: true },
+  ] };
+  // Recien cargada: lo que ya esperaba se da por conocido (lo trae el scroll), sin pedido.
+  const conocidas = new Set(espera.chats.map((c) => c.key));
+  let r = utils.sincronizarConEspera({ items: [fila("agent:a"), fila("agent:x")], espera, asignacion: "all", yaPedidas: conocidas });
+  assert.deepEqual(r.items.map((i) => i.id), ["agent:a"], "agent:x ya no espera: sale");
+  assert.equal(r.pedirLista, false);
+  // Entra uno nuevo: se pide una vez.
+  const conNuevo = { ...espera, all: 4, chats: [...espera.chats, { key: "agent:nuevo", desde: hace(1), mia: false }] };
+  r = utils.sincronizarConEspera({ items: r.items, espera: conNuevo, asignacion: "all", yaPedidas: conocidas });
+  assert.equal(r.pedirLista, true);
+  assert.ok(r.faltan.includes("agent:nuevo"));
+  // El ciclo siguiente, con el mismo /counts, ya no pide aunque /list no lo haya traido.
+  const despues = new Set([...conocidas, ...r.faltan]);
+  r = utils.sincronizarConEspera({ items: r.items, espera: conNuevo, asignacion: "all", yaPedidas: despues });
+  assert.equal(r.pedirLista, false);
+  // En Mias solo cuentan los de quien mira.
+  r = utils.sincronizarConEspera({ items: [], espera: conNuevo, asignacion: "mine", yaPedidas: new Set() });
+  assert.deepEqual(r.faltan.sort(), ["agent:a", "official:c"]);
+  // Sin dato no se toca la lista.
+  const items = [fila("agent:a")];
+  r = utils.sincronizarConEspera({ items, espera: null, asignacion: "all", yaPedidas: new Set() });
+  assert.equal(r.items, items);
+  assert.equal(r.pedirLista, false);
+  // Sin cambios devuelve el mismo arreglo (no re-dibuja).
+  r = utils.sincronizarConEspera({ items, espera, asignacion: "all", yaPedidas: conocidas });
+  assert.equal(r.items, items);
+});
+
+await prueba("vista: red abierta 3 minutos (3 /counts) sin chats nuevos = 0 /list; con uno nuevo = 1", async () => {
+  const espera = { mine: 1, all: 1, chats: [{ key: "agent:a", desde: hace(30), mia: true }] };
+  let conocidas = new Set(espera.chats.map((c) => c.key));
+  let items = [fila("agent:a")];
+  let pedidosDeLista = 0;
+  const ciclo = (e) => {
+    const r = utils.sincronizarConEspera({ items, espera: e, asignacion: "mine", yaPedidas: conocidas });
+    conocidas = new Set([...conocidas, ...r.faltan]);
+    items = r.items;
+    if (r.pedirLista) pedidosDeLista += 1;
+  };
+  for (let minuto = 0; minuto < 3; minuto += 1) ciclo(espera);
+  assert.equal(pedidosDeLista, 0);
+  const conNuevo = { mine: 2, all: 2, chats: [...espera.chats, { key: "agent:b", desde: hace(0), mia: true }] };
+  for (let minuto = 0; minuto < 3; minuto += 1) ciclo(conNuevo);
+  assert.equal(pedidosDeLista, 1);
+  // El realtime no pide /list en Esperando (lo decide /counts).
+  const bandeja = fs.readFileSync(path.join(raiz, "components/chats/shared-inbox.tsx"), "utf8");
+  assert.match(bandeja, /if \(!yaEstaEnLaLista && !esAvisoLocal && !ordenDelServidorRef\.current\) \{/);
+});
+
+await prueba("vista: el numero de la pastilla es igual a las filas al bajar hasta el final", async () => {
+  const lista = Array.from({ length: 53 }, (_, i) => ({ key: `agent:c${String(i).padStart(2, "0")}`, desde: hace(100 - i), mia: i % 2 === 0 }));
+  const espera = { mine: lista.filter((c) => c.mia).length, all: lista.length, chats: lista };
+  for (const [asignacion, propias] of [["all", lista], ["mine", lista.filter((c) => c.mia)]]) {
+    // Primera pagina de 20 (la pantalla) y despues de a 40 (el scroll), como /list.
+    let { pagina, nextOffset, hasMore } = dominio.paginaDeEspera(propias, 0, 20);
+    let filas = pagina.map((c) => fila(c.key));
+    while (hasMore) {
+      const offset = Math.min(nextOffset, filas.length);
+      ({ pagina, nextOffset, hasMore } = dominio.paginaDeEspera(propias, offset, 40));
+      filas = Array.from(new Map([...filas, ...pagina.map((c) => fila(c.key))].map((f) => [f.id, f])).values());
+    }
+    assert.equal(filas.length, utils.numeroDeEsperando(espera, asignacion), asignacion);
+    assert.deepEqual(filas.map((f) => f.id), propias.map((c) => c.key), "en el orden del servidor");
+  }
+});
+
+await prueba("vista: el orden del servidor no se toca (ordenar, insertar, tiempo real)", async () => {
+  const a = { id: "agent:a", lastMessageAt: "2026-11-07T10:00:00.000Z" };
+  const b = { id: "agent:b", lastMessageAt: "2026-11-07T12:00:00.000Z" };
+  const orden = { ordenDelServidor: true };
+  assert.deepEqual(utils.sortConversationItems([a, b], orden).map((i) => i.id), ["agent:a", "agent:b"]);
+  assert.deepEqual(utils.sortConversationItems([a, b]).map((i) => i.id), ["agent:b", "agent:a"], "fuera de Esperando, por fecha");
+  const nuevo = { id: "agent:z", lastMessageAt: "2026-11-07T13:00:00.000Z" };
+  assert.deepEqual(utils.insertConversationItemByTimestamp([a, b], nuevo, orden).map((i) => i.id), ["agent:a", "agent:b"]);
+  // Un mensaje en tiempo real de un chat que no esta no entra; el que esta se actualiza en su lugar.
+  assert.deepEqual(utils.updateConversationItemInSortedList([a, b], "z", nuevo, orden).map((i) => i.id), ["agent:a", "agent:b"]);
+  const aConMensaje = { ...a, lastMessageAt: "2026-11-07T14:00:00.000Z", lastMessage: "hola" };
+  const tras = utils.updateConversationItemInSortedList([a, b], "a", aConMensaje, orden);
+  assert.deepEqual(tras.map((i) => i.id), ["agent:a", "agent:b"]);
+  assert.equal(tras[0].lastMessage, "hola");
+  // Y fuera de Esperando sigue subiendo arriba.
+  assert.deepEqual(utils.updateConversationItemInSortedList([b, a], "a", aConMensaje).map((i) => i.id), ["agent:a", "agent:b"]);
+});
+
+await prueba("vista: el refresco junta la pagina en su orden y lo cargado al bajar", async () => {
+  const items = ["agent:a", "agent:b", "agent:c", "agent:d"].map(fila);
+  const pagina = ["agent:b", "agent:a", "agent:n"].map(fila);
+  assert.deepEqual(utils.juntarPaginaDeEsperando(items, pagina, true).map((i) => i.id), ["agent:b", "agent:a", "agent:n", "agent:c", "agent:d"]);
+  // Si no hay mas, la lista es la pagina: lo que no vino ya no espera.
+  assert.deepEqual(utils.juntarPaginaDeEsperando(items, pagina, false).map((i) => i.id), ["agent:b", "agent:a", "agent:n"]);
+});
+
+await prueba("vista: contestar desde la pantalla saca el chat en el acto y baja el numero", async () => {
+  const T0 = T;
+  const espera = { mine: 2, all: 3, chats: [
+    { key: "agent:a", desde: hace(30), mia: true },
+    { key: "agent:b", desde: hace(20), mia: true },
+    { key: "agent:c", desde: hace(10), mia: false },
+  ] };
+  const contestadas = new Map([["agent:a", T0]]);
+  const vigente = utils.esperaSinContestadas(espera, contestadas, T0 + 30_000, 180_000);
+  assert.deepEqual(vigente.chats.map((c) => c.key), ["agent:b", "agent:c"]);
+  assert.equal(vigente.mine, 1);
+  assert.equal(vigente.all, 2);
+  assert.equal(utils.numeroDeEsperando(vigente, "mine"), 1);
+  // Si el cliente volvio a escribir despues de la respuesta, vuelve a esperar.
+  const otraVez = { ...espera, chats: [{ key: "agent:a", desde: new Date(T0 + 60_000).toISOString(), mia: true }] };
+  assert.equal(utils.esperaSinContestadas(otraVez, contestadas, T0 + 90_000, 180_000).chats.length, 1);
+  // Pasada la vigencia manda /counts.
+  assert.equal(utils.esperaSinContestadas(espera, contestadas, T0 + 200_000, 180_000).chats.length, 3);
+  assert.equal(utils.esperaSinContestadas(null, contestadas, T0, 180_000), null);
+  assert.equal(utils.esperaSinContestadas(espera, new Map(), T0, 180_000), espera);
+  // Solo reacciona al resultado bueno del envio (texto, o foto/archivo/audio/ubicacion); no toca el envio.
+  const bandeja = fs.readFileSync(path.join(raiz, "components/chats/shared-inbox.tsx"), "utf8");
+  const fin = bandeja.slice(bandeja.indexOf("const finalizeOptimisticSend"), bandeja.indexOf("const handleEnvioTerminado"));
+  assert.match(fin, /if \(result\?\.ok && !result\.suppressOptimistic\) \{[\s\S]*marcarContestadaEnEspera\(/);
+  const terminado = bandeja.slice(bandeja.indexOf("const handleEnvioTerminado"), bandeja.indexOf("const textoEnCursoRef"));
+  assert.match(terminado, /if \(envio\.tipo\) \{\s*marcarContestadaEnEspera\(conversationId\);/);
+});
+
+await prueba("bandeja: espera viaja en todos los /list (vista, refresco, scroll, fijados) y no en /counts", async () => {
+  const bandeja = fs.readFileSync(path.join(raiz, "components/chats/shared-inbox.tsx"), "utf8");
+  // armarParams (cambio de vista y refrescos), fijados y scroll.
+  assert.equal((bandeja.match(/params\.set\("espera", "1"\)/g) ?? []).length, 3);
+  const armar = bandeja.slice(bandeja.indexOf("const armarParams = () => {"), bandeja.indexOf("CAMBIO DE VISTA"));
+  assert.match(armar, /if \(enEspera\) params\.set\("espera", "1"\);/);
+  const conteos = bandeja.slice(bandeja.indexOf("const fetchCounts = async () => {"), bandeja.indexOf("const alCambiarVisibilidad"));
+  assert.ok(!conteos.includes("espera\", \"1"), "/counts no lo necesita");
+  // vistaDeLaUrl, claveDeVista y alCambiarVista conocen la vista.
+  assert.match(bandeja, /espera: leerEspera\(\(clave\) => params\.get\(clave\)\)/);
+  assert.match(bandeja, /espera \? "espera" : ""\]\.join\("::"\)/);
+  assert.match(bandeja, /espera: esperaDestino,\s*\} = vistaDeLaUrl\(destino\.searchParams/);
+  // Si /list responde esperaNoDisponible se vuelve a Mias o Todas.
+  assert.ok((bandeja.match(/esperaNoDisponible\) \{\s*(setVistaEnCurso\(false\);\s*)?salirDeEsperando\(\);/g) ?? []).length >= 2);
+  assert.ok((bandeja.match(/payload\?\.ok && payload\.esperaNoDisponible/g) ?? []).length >= 2);
+  assert.match(bandeja, /url\.searchParams\.delete\("espera"\);\s*window\.history\.replaceState/);
+});
+
+await prueba("apertura: vista inicial (parte 2) con la direccion como verdad", async () => {
+  const leer = (q) => (clave) => new URLSearchParams(q).get(clave);
+  // Asesora sin nada en la direccion y con chats esperando: Mias + Esperando (redirect).
+  assert.deepEqual(dominio.vistaInicialDeLaBandeja({ leer: leer(""), veTodas: false, esperandoMios: 3 }), { origen: "defecto", assigned: "mine", espera: true });
+  // Sin chats esperando o sin dato: Mias como siempre.
+  assert.equal(dominio.vistaInicialDeLaBandeja({ leer: leer(""), veTodas: false, esperandoMios: 0 }).espera, false);
+  assert.equal(dominio.vistaInicialDeLaBandeja({ leer: leer(""), veTodas: false, esperandoMios: null }).espera, false);
+  // Tocar Mias deja assigned=mine y se respeta; entrar con chatKey o con espera=1 tambien.
+  for (const q of ["assigned=mine", "chatKey=agent%3Aa1", "assigned=mine&espera=1", "chatKey=agent%3Aa1&espera=1"]) {
+    assert.equal(dominio.vistaInicialDeLaBandeja({ leer: leer(q), veTodas: false, esperandoMios: 5 }).origen, "direccion", q);
+  }
+  // La linea sola no elige vista (se conserva en el redirect).
+  assert.equal(dominio.vistaInicialDeLaBandeja({ leer: leer("connection=channel%3Ac1"), veTodas: false, esperandoMios: 1 }).origen, "defecto");
+});
+
+await prueba("apertura: page.tsx redirige a Mias + Esperando, no lee la espera para jefes y si falla, Mias", async () => {
+  const pagina = fs.readFileSync(path.join(raiz, "app/cliente/chats/page.tsx"), "utf8");
+  const apertura = pagina.slice(pagina.indexOf("const veTodasLaBandeja"), pagina.indexOf("let paginaDeEsperando"));
+  // Dueño, admin, supervisora y monitora: ni se entra al bloque (no se lee la espera).
+  assert.match(apertura, /const veTodasLaBandeja = isManager \|\| modoMonitoreo;/);
+  assert.match(apertura, /if \(!veTodasLaBandeja && vistaInicialDeLaBandeja\(/);
+  // La lectura va en try/catch: si falla, esperandoMios queda null = Mias, sin error.
+  assert.match(apertura, /try \{\s*esperandoMios = \(await leerListaDeEspera\("mine"\)\)\.length;\s*\} catch/);
+  assert.match(apertura, /\["assigned", "mine"\],\s*\["espera", "1"\],/);
+  assert.match(apertura, /redirect\(/);
+  // El redirect no queda dentro del try (si no, el catch se lo tragaria).
+  const enElTry = apertura.slice(apertura.indexOf("try {"), apertura.indexOf("} catch"));
+  assert.ok(!enElTry.includes("redirect("));
+});
+
+await prueba("servidor: con espera=1 la primera lista sale del mismo servicio y orden que /list", async () => {
+  const pagina = fs.readFileSync(path.join(raiz, "app/cliente/chats/page.tsx"), "utf8");
+  assert.match(pagina, /listaDeEsperaDeLaBandeja\(\{/);
+  assert.match(pagina, /paginaDeEspera\(\s*await leerListaDeEspera\(assignedFilter\),\s*0,\s*conversationListTake,\s*\)/);
+  assert.match(pagina, /ordenarSegunEspera\(mergedPorFecha, paginaDeEsperando\.claves\)/);
+  assert.match(pagina, /\{ id: \{ in: idsEsperandoDe\("agent:"\) \} \}/);
+  assert.match(pagina, /soloIds: idsEsperandoDe\("official:"\)/);
+  assert.match(pagina, /initialConversationOffset=\{paginaDeEsperando \? paginaDeEsperando\.nextOffset/);
+  // Quien mira: lo mismo que responderEsperando en /list.
+  const ruta = fs.readFileSync(path.join(raiz, "app/api/cliente/chats/list/route.ts"), "utf8");
+  assert.match(ruta, /soloMios: !input\.isManager/);
+  assert.match(pagina, /soloMios: !isManager/);
+  assert.match(pagina, /const monitoreadosDeLaEspera = isManager \? \[\] : canalesMonitoreados;/);
 });
 
 await db.close();

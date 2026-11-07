@@ -43,7 +43,14 @@ import {
   necesitaIdsSinResponder,
   whereDeFiltros,
 } from "@/features/chats/services/filtros-de-bandeja";
-import { DIAS_DE_SIN_RESPONDER } from "@/features/chats/domain/filtros-de-bandeja";
+import { DIAS_DE_SIN_RESPONDER, SIN_FILTROS, leerEspera } from "@/features/chats/domain/filtros-de-bandeja";
+import {
+  listaDeEsperaDeLaBandeja,
+  ordenarSegunEspera,
+  paginaDeEspera,
+  vistaInicialDeLaBandeja,
+  type QuienMira,
+} from "@/features/chats/services/espera-de-chats";
 import { isSnoozed } from "@/lib/lead-snooze";
 import { estadoQueAplica, hayBusqueda, whereDeBusquedaDeChats } from "@/lib/busqueda-de-chats";
 import { syncLeadLifecycleForContacts } from "@/lib/contact-default-tags";
@@ -266,6 +273,14 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const chatKeySolicitada = chatKeyDeLaUrl || chatKeyPorEnlaceDirecto;
   const selectedConnectionParam = typeof params.connection === "string" ? params.connection : "";
   const searchQuery = typeof params.q === "string" ? params.q.trim() : "";
+  const leerParametro = (clave: string) => (typeof params[clave] === "string" ? (params[clave] as string) : null);
+  /*
+    "Esperando" (espera=1): la primera lista sale del MISMO servicio y en el MISMO orden que
+    /api/cliente/chats/list?espera=1. Con texto en el buscador la busqueda manda, igual que alla.
+    Los enlaces de la pagina conservan `espera=1` siempre que venga en la direccion.
+  */
+  const pideEspera = leerEspera(leerParametro);
+  const esperaEnLaLista = pideEspera && !searchQuery;
 
   // La supervisora ve "Todas" y asigna como el jefe, pero sigue viendo solo sus lineas (canalesVisibles).
   const isManager =
@@ -430,13 +445,99 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     visibleChannelIds: canalesVisibles,
   });
 
+  /*
+    Quien mira la espera: lo MISMO que responderEsperando en /api/cliente/chats/list (y /counts),
+    para que la primera lista, el numero y el scroll coincidan. La monitora (que no es jefa ni
+    supervisora) ve sus lineas; la asesora, solo sus chats; los jefes, las lineas que tienen visibles.
+  */
+  const monitoreadosDeLaEspera = isManager ? [] : canalesMonitoreados;
+  const quienMiraLaEspera: Omit<QuienMira, "canalElegido" | "incluirOficial"> =
+    monitoreadosDeLaEspera.length > 0
+      ? {
+          userId: access.userId,
+          canales: canalesVisibles
+            ? monitoreadosDeLaEspera.filter((id) => canalesVisibles.includes(id))
+            : monitoreadosDeLaEspera,
+          soloMios: false,
+        }
+      : { userId: access.userId, canales: canalesVisibles, soloMios: !isManager };
+  const leerListaDeEspera = (asignacion: string) =>
+    listaDeEsperaDeLaBandeja({
+      workspaceId: membership.workspace.id,
+      conexionElegida,
+      quien: quienMiraLaEspera,
+      asignacion,
+    });
+
+  /*
+    LA APERTURA (vista inicial, parte 2). Sin nada en la direccion, la asesora con chats suyos
+    esperando entra a "Mias + Esperando" con un redirect: la direccion es la verdad, y atras/adelante
+    y recargar funcionan. Dueño, administrador, supervisora y monitora abren en Todas sin leer la
+    espera. Si la lectura falla, Mias como siempre, sin error. Tocar Mias deja `assigned=mine` en la
+    direccion, y con eso ya no se redirige.
+  */
+  const veTodasLaBandeja = isManager || modoMonitoreo;
+  if (!veTodasLaBandeja && vistaInicialDeLaBandeja({ leer: leerParametro, veTodas: false, esperandoMios: null }).origen === "defecto") {
+    let esperandoMios: number | null = null;
+    try {
+      esperandoMios = (await leerListaDeEspera("mine")).length;
+    } catch (error) {
+      console.error("[cliente/chats] no se pudo leer la espera al abrir", error);
+    }
+    const vistaInicial = vistaInicialDeLaBandeja({ leer: leerParametro, veTodas: false, esperandoMios });
+    if (vistaInicial.origen === "defecto" && vistaInicial.espera) {
+      redirect(
+        `/cliente/chats?${new URLSearchParams([
+          ...(selectedConnectionParam.trim() ? [["connection", selectedConnectionParam.trim()]] : []),
+          ["assigned", "mine"],
+          ["espera", "1"],
+        ]).toString()}`,
+      );
+    }
+  }
+
+  /*
+    La primera pagina de "Esperando", paginada sobre la lista de esperas como /list (offset sobre
+    ESA lista, no sobre la base). Si la espera no se puede leer, la direccion vuelve a la misma
+    pestaña sin `espera` (como hace la bandeja cuando /list responde esperaNoDisponible).
+  */
+  let paginaDeEsperando: { claves: string[]; hasMore: boolean; nextOffset: number } | null = null;
+  let esperaNoDisponible = false;
+  if (esperaEnLaLista) {
+    try {
+      const { pagina, hasMore, nextOffset } = paginaDeEspera(
+        await leerListaDeEspera(assignedFilter),
+        0,
+        conversationListTake,
+      );
+      paginaDeEsperando = { claves: pagina.map((chat) => chat.key), hasMore, nextOffset };
+    } catch (error) {
+      console.error("[cliente/chats] no se pudo leer la espera", error);
+      esperaNoDisponible = true;
+    }
+  }
+  if (esperaNoDisponible) {
+    const sinEspera = new URLSearchParams();
+    for (const [clave, valor] of Object.entries(params)) {
+      if (clave !== "espera" && typeof valor === "string") sinEspera.set(clave, valor);
+    }
+    const qs = sinEspera.toString();
+    redirect(qs ? `/cliente/chats?${qs}` : "/cliente/chats");
+  }
+  const idsEsperandoDe = (prefijo: string) =>
+    (paginaDeEsperando?.claves ?? [])
+      .filter((clave) => clave.startsWith(prefijo))
+      .map((clave) => clave.slice(prefijo.length));
+  // En "Esperando" no cuentan condiciones ni estado: solo abiertos o pendientes (igual que /list).
+  const filtrosDeLaLista = paginaDeEsperando ? SIN_FILTROS : filtros;
+
   /**
    * Las que quedaron sin responder, cuando ese filtro esta puesto.
    *
    * Se pide una vez y entra como una lista de ids: es lo mismo que mira el contador y lo que
    * devuelve el scroll infinito, asi que los tres coinciden.
    */
-  const conversacionesSinResponder = necesitaIdsSinResponder(filtros)
+  const conversacionesSinResponder = necesitaIdsSinResponder(filtrosDeLaLista)
     ? await idsSinResponder({
         workspaceId: membership.workspace.id,
         visibleChannelIds: canalesVisibles,
@@ -446,23 +547,38 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       })
     : null;
 
-  const conversationWhere: Prisma.ConversationWhereInput = {
-    workspaceId: membership.workspace.id,
-    AND: [
-      // Las condiciones del filtro (todas: Y). Ver features/chats/services/filtros-de-bandeja.
-      whereDeFiltros(filtros, conversacionesSinResponder),
-      // Los contactos bloqueados no aparecen en la bandeja (ver lib/bloqueo-de-contactos).
-      { contact: { bloqueadoEn: null } },
-      canalesVisibles ? { channelId: { in: canalesVisibles } } : {},
-      conexionElegida.startsWith("channel:")
-        ? { channelId: conexionElegida.slice("channel:".length) }
-        : {},
-      assignedWhere,
-      statusWhere,
-      // La misma busqueda que /api/cliente/chats/list (ver lib/busqueda-de-chats).
-      whereDeBusquedaDeChats(searchQuery),
-    ],
-  };
+  const conversationWhere: Prisma.ConversationWhereInput = paginaDeEsperando
+    ? {
+        // "Esperando": solo los chats de la pagina, con los mismos permisos de siempre.
+        workspaceId: membership.workspace.id,
+        AND: [
+          { id: { in: idsEsperandoDe("agent:") } },
+          { contact: { bloqueadoEn: null } },
+          canalesVisibles ? { channelId: { in: canalesVisibles } } : {},
+          conexionElegida.startsWith("channel:")
+            ? { channelId: conexionElegida.slice("channel:".length) }
+            : {},
+          assignedWhere,
+          { status: { in: ["OPEN", "PENDING"] } },
+        ],
+      }
+    : {
+        workspaceId: membership.workspace.id,
+        AND: [
+          // Las condiciones del filtro (todas: Y). Ver features/chats/services/filtros-de-bandeja.
+          whereDeFiltros(filtros, conversacionesSinResponder),
+          // Los contactos bloqueados no aparecen en la bandeja (ver lib/bloqueo-de-contactos).
+          { contact: { bloqueadoEn: null } },
+          canalesVisibles ? { channelId: { in: canalesVisibles } } : {},
+          conexionElegida.startsWith("channel:")
+            ? { channelId: conexionElegida.slice("channel:".length) }
+            : {},
+          assignedWhere,
+          statusWhere,
+          // La misma busqueda que /api/cliente/chats/list (ver lib/busqueda-de-chats).
+          whereDeBusquedaDeChats(searchQuery),
+        ],
+      };
 
   const [evolutionSettings, channels, agentConversationsRaw, selectedAgentConversationRow, officialChatsData] = await Promise.all([
     getEvolutionSettings(),
@@ -548,13 +664,15 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       q: searchQuery || undefined,
       includeSelectedConversation: true,
       // Respeta el filtro de la bandeja: resolver un chat oficial ahora lo saca de la lista.
-      statusFilter,
+      statusFilter: paginaDeEsperando ? "open" : statusFilter,
       // Y el de asignacion. Sin esto los chats del canal oficial entraban en la lista con
       // CUALQUIER pestaña: se leia "Mias 1" y abajo salian los de Ingrid y los sin asignar.
       assignedFilter,
       // Y los nuevos (etapa del embudo, sin responder), por lo mismo.
-      filtros,
+      filtros: filtrosDeLaLista,
       currentUserId: access.userId,
+      // "Esperando": solo los de la pagina (una lista vacia no trae ninguno).
+      ...(paginaDeEsperando ? { soloIds: idsEsperandoDe("official:") } : {}),
     }),
   ]);
 
@@ -583,7 +701,10 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   // pospuesto en el lote para que la lista dijera "no hay mas" y dejara de cargar al hacer
   // scroll, con miles de chats abajo que nunca se podian ver.
   const agentConversationsConsumidas = agentConversationsRaw.slice(0, conversationListTake);
-  const hasMoreConversationItems = agentConversationsRaw.length > conversationListTake;
+  // En "Esperando" se pagina sobre la lista de esperas (como /list), no sobre la base.
+  const hasMoreConversationItems = paginaDeEsperando
+    ? paginaDeEsperando.hasMore
+    : agentConversationsRaw.length > conversationListTake;
   // Buscando, los pospuestos si salen (lo mismo que la ruta de la lista).
   const agentConversationsBase = hayBusqueda(searchQuery)
     ? agentConversationsConsumidas
@@ -922,7 +1043,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         }))
       : filas;
 
-  const merged = taparSiHaceFalta(
+  const mergedPorFecha = taparSiHaceFalta(
     dedupeAndSortConversationListRows([
       ...agentRows,
       ...(shouldIncludeOfficialRows ? officialRows : []),
@@ -939,6 +1060,18 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         (item.lastMessage || "").toLowerCase().includes(q)
       );
     });
+  /*
+    "Esperando": el orden de la lista de esperas (el que mas lleva primero), como /list, y no el del
+    ultimo mensaje. El chat abierto por enlace que no esta esperando va arriba, para que se pueda abrir.
+  */
+  const merged = paginaDeEsperando
+    ? [
+        ...mergedPorFecha.filter(
+          (item) => item.key === selectedChatKeyParam && !paginaDeEsperando.claves.includes(item.key),
+        ),
+        ...ordenarSegunEspera(mergedPorFecha, paginaDeEsperando.claves),
+      ]
+    : mergedPorFecha;
 
   const selectedUnified = selectedChatKeyParam
     ? merged.find((item) => item.key === selectedChatKeyParam) || null
@@ -1040,7 +1173,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     searchQuery ||
     assignedFilter !== "all" ||
     statusFilter !== "open" ||
-    paramsDeFiltros(filtros).length > 0
+    paramsDeFiltros(filtros).length > 0 ||
+    pideEspera
       ? `?${new URLSearchParams([
           ...(selectedConnectionKey ? [["connection", selectedConnectionKey]] : []),
           ...(searchQuery ? [["q", searchQuery]] : []),
@@ -1050,6 +1184,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           ...(statusFilter !== "open" ? [["status", statusFilter]] : []),
           // Los filtros nuevos viajan igual que los viejos: sin esto, abrir un chat los borraba.
           ...paramsDeFiltros(filtros),
+          // Y "Esperando": volver a la lista no saca de la vista.
+          ...(pideEspera ? [["espera", "1"]] : []),
         ]).toString()}`
       : ""
   }`;
@@ -1061,6 +1197,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         ...(assignedFilter !== "all" ? [["assigned", assignedFilter]] : []),
         ...(statusFilter !== "open" ? [["status", statusFilter]] : []),
         ...paramsDeFiltros(filtros),
+        ...(pideEspera ? [["espera", "1"]] : []),
         ...(messagePage > 1 ? [["messagePage", String(messagePage)]] : []),
       ]).toString()}`
     : "";
@@ -1317,6 +1454,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         filtrosDelServidor={paramsDeFiltros(filtros)
           .map(([clave, valor]) => `${clave}=${valor}`)
           .join("&")}
+        esperaDelServidor={pideEspera}
         searchAction="/cliente/chats"
         selectedConversationId={selectedUnified?.key ?? ""}
         mobileConversationActive={Boolean(selectedChatKeyParam)}
@@ -1333,7 +1471,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         chatSignature={chatSignature}
         initialConversationBatchSize={conversationListTake}
         initialHasMoreConversations={hasMoreConversationItems}
-        initialConversationOffset={agentConversationsConsumidas.length}
+        initialConversationOffset={paginaDeEsperando ? paginaDeEsperando.nextOffset : agentConversationsConsumidas.length}
         conversationListApiPath="/api/cliente/chats/list"
         searchQuery={searchQuery}
         messageScrollBehavior={scrollMode === CHAT_MESSAGE_SCROLL_PRESERVE_QUERY ? "preserve" : "bottom"}
@@ -1371,7 +1509,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           lastMessageAt: item.lastMessageAt,
           href: `/cliente/chats?chatKey=${encodeURIComponent(item.key)}${selectedConnectionKey ? `&connection=${encodeURIComponent(selectedConnectionKey)}` : ""}${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ""}${assignedFilter !== "all" ? `&assigned=${assignedFilter}` : ""}${statusFilter !== "open" ? `&status=${statusFilter}` : ""}${paramsDeFiltros(filtros)
             .map(([clave, valor]) => `&${clave}=${encodeURIComponent(valor)}`)
-            .join("")}`,
+            .join("")}${pideEspera ? "&espera=1" : ""}`,
         }))}
         // La etapa viaja CON la conversación abierta: es la que usa "Qué decir ahora" para
         // elegir el guion. Sin esto el panel abría en blanco por no saber en qué etapa está.

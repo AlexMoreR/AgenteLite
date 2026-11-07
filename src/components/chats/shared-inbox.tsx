@@ -84,9 +84,13 @@ import {
   areConversationListItemsEqual,
   mergeConversationSnapshotIfChanged,
   updateConversationItemByContact,
+  esperaSinContestadas,
+  juntarPaginaDeEsperando,
+  sincronizarConEspera,
 } from "./chat-inbox-conversation-utils";
 import { filtroSinResponderPuesto, seOcultaPorSinResponder } from "@/features/chats/domain/sin-responder";
 import { esperaPorClave, type EsperaDeChats } from "@/features/chats/domain/espera-de-chats";
+import { leerEspera } from "@/features/chats/domain/filtros-de-bandeja";
 import { ConversationPanel, type EnvioTerminado } from "./chat-conversation-panel";
 import { BarraDeAccionesDelChat, BarraDeAccionesEnSilueta, ChatHeaderActions } from "./chat-header-actions";
 import { MenuDelContacto } from "./menu-del-contacto";
@@ -149,11 +153,11 @@ function debugConversationList(...args: unknown[]) {
   console.log("[SharedInbox][list]", ...args);
 }
 
-/** Pestaña y estado que dice la URL, con las mismas reglas que page.tsx y /list. */
+/** Pestaña, estado y "Esperando" que dice la URL, con las mismas reglas que page.tsx y /list. */
 function vistaDeLaUrl(
   params: { get: (clave: string) => string | null },
   puedeVerEquipo: boolean,
-): { assignedFilter: AssignedFilter; statusFilter: StatusFilter } {
+): { assignedFilter: AssignedFilter; statusFilter: StatusFilter; espera: boolean } {
   const asignada = params.get("assigned")?.trim() ?? "";
   const estado = params.get("status")?.trim() ?? "";
   const assignedFilter: AssignedFilter = !puedeVerEquipo
@@ -162,12 +166,15 @@ function vistaDeLaUrl(
       ? (asignada as AssignedFilter)
       : "all";
   const statusFilter: StatusFilter = estado === "all" || estado === "resolved" ? estado : "open";
-  return { assignedFilter, statusFilter };
+  return { assignedFilter, statusFilter, espera: leerEspera((clave) => params.get(clave)) };
 }
 
-function claveDeVista(q: string, conexion: string, asignada: string, estado: string, filtros: string) {
-  return [q.trim(), conexion.trim(), asignada, estado, filtros].join("::");
+function claveDeVista(q: string, conexion: string, asignada: string, estado: string, filtros: string, espera: boolean) {
+  return [q.trim(), conexion.trim(), asignada, estado, filtros, espera ? "espera" : ""].join("::");
 }
+
+/** Un chat contestado aca se descarta de la espera de /counts por este tiempo (ver esperaSinContestadas). */
+const CONTESTADA_VIGENTE_MS = 3 * 60_000;
 
 /*
   LAS ULTIMAS LISTAS, en memoria (maximo 5, una por vista).
@@ -462,6 +469,7 @@ export function SharedInbox({
   assignedFilter: assignedFilterDelServidor = "all",
   statusFilter: statusFilterDelServidor = "open",
   filtrosDelServidor = "",
+  esperaDelServidor = false,
   isManager = false,
   veTodoElEquipo = false,
   chatsFijados,
@@ -490,7 +498,7 @@ export function SharedInbox({
 }: SharedInboxProps) {
   const [conversationItems, setConversationItems] = useState<SharedInboxConversationItem[]>(() =>
     normalizeConversationItems(conversations, (item) =>
-      buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item, assignedFilterDelServidor, statusFilterDelServidor),
+      buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item, assignedFilterDelServidor, statusFilterDelServidor, [], esperaDelServidor),
     ),
   );
   const [hasMoreConversationItems, setHasMoreConversationItems] = useState(
@@ -540,7 +548,15 @@ export function SharedInbox({
     tambien: la URL vuelve y la vista con ella. Las reglas son las MISMAS que las del servidor
     (page.tsx): quien no ve al equipo queda siempre en "Mias".
   */
-  const { assignedFilter, statusFilter } = vistaDeLaUrl(parametrosDeLaUrl, isManager || veTodoElEquipo);
+  const { assignedFilter, statusFilter, espera: enEspera } = vistaDeLaUrl(parametrosDeLaUrl, isManager || veTodoElEquipo);
+  /*
+    "ESPERANDO" (espera=1): la lista va en el orden del servidor -el que mas lleva esperando primero-
+    y la mantiene al dia el /counts de cada 60 s (ver el efecto de sincronizarConEspera). Con texto
+    en el buscador del servidor (q) la busqueda manda, igual que en /list.
+  */
+  const ordenDelServidor = enEspera && !searchQuery.trim();
+  const ordenDelServidorRef = useRef(ordenDelServidor);
+  ordenDelServidorRef.current = ordenDelServidor;
   const paresDeFiltros = useMemo(
     () => paramsDeFiltros(leerFiltrosDeBandeja((clave) => parametrosDeLaUrl.get(clave))),
     [parametrosDeLaUrl],
@@ -551,6 +567,7 @@ export function SharedInbox({
     assignedFilter,
     statusFilter,
     paresDeFiltros.map(([clave, valor]) => `${clave}=${valor}`).join("&"),
+    enEspera,
   );
   const vistaDelServidorKey = claveDeVista(
     searchQuery,
@@ -558,12 +575,13 @@ export function SharedInbox({
     assignedFilterDelServidor,
     statusFilterDelServidor,
     filtrosDelServidor,
+    esperaDelServidor,
   );
   // El enlace de cada fila lleva la vista de AHORA (con los filtros nuevos tambien).
   const hrefDeFila = useCallback(
     (item: SharedInboxConversationItemLike, q: string = searchQuery) =>
-      buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, q, item, assignedFilter, statusFilter, paresDeFiltros),
-    [searchAction, selectedConnectionKey, searchQuery, assignedFilter, statusFilter, paresDeFiltros],
+      buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, q, item, assignedFilter, statusFilter, paresDeFiltros, enEspera),
+    [searchAction, selectedConnectionKey, searchQuery, assignedFilter, statusFilter, paresDeFiltros, enEspera],
   );
   /*
     "Volver a la lista" lleva a la vista de AHORA. El `backHref` del servidor se arma con los filtros
@@ -592,8 +610,41 @@ export function SharedInbox({
   }, [vistaEnCurso]);
 
   const [assignedCounts, setAssignedCounts] = useState<{ mine: number; unassigned: number; all: number; sinResponder?: number } | null>(null);
-  // `key` -> desde cuando espera, del `espera` del ultimo /counts (ver filasConEspera).
-  const [esperaPorClaveActual, setEsperaPorClave] = useState<Map<string, string>>(() => new Map());
+  // El `espera` del ultimo /counts: la marca de cada fila, el numero de "Esperando" y su lista.
+  const [esperaDelConteo, setEsperaDelConteo] = useState<EsperaDeChats | null>(null);
+  /*
+    Los chats que esta pantalla acaba de contestar (clave -> cuando). Salen en el acto de
+    "Esperando" y bajan el numero, aunque la memoria de 60 s del servidor todavia los traiga.
+  */
+  const [contestadasAca, setContestadasAca] = useState<ReadonlyMap<string, number>>(() => new Map());
+  const esperaVigente = useMemo(
+    () => esperaSinContestadas(esperaDelConteo, contestadasAca, Date.now(), CONTESTADA_VIGENTE_MS),
+    [esperaDelConteo, contestadasAca],
+  );
+  // `key` -> desde cuando espera (ver filasConEspera).
+  const esperaPorClaveActual = useMemo(() => esperaPorClave(esperaVigente), [esperaVigente]);
+  const esperaVigenteRef = useRef(esperaVigente);
+  esperaVigenteRef.current = esperaVigente;
+  const contestadasAcaRef = useRef(contestadasAca);
+  contestadasAcaRef.current = contestadasAca;
+  /*
+    Saca de una pagina de "Esperando" los chats recien contestados aca que el servidor todavia trae
+    (su memoria dura 60 s). Si el cliente volvio a escribir, /counts ya lo trae de nuevo y se queda.
+  */
+  const sinContestadasAca = useCallback((items: SharedInboxConversationItem[]) => {
+    const contestadas = contestadasAcaRef.current;
+    if (contestadas.size === 0) return items;
+    const siguenEsperando = new Set((esperaVigenteRef.current?.chats ?? []).map((chat) => chat.key));
+    const ahora = Date.now();
+    return items.filter((item) => {
+      const en = contestadas.get(item.id);
+      return en === undefined || ahora - en > CONTESTADA_VIGENTE_MS || siguenEsperando.has(item.id);
+    });
+  }, []);
+  const numerosDeEspera = useMemo(
+    () => (esperaVigente ? { mine: esperaVigente.mine, all: esperaVigente.all } : null),
+    [esperaVigente],
+  );
   // Se sube cada vez que alguien resuelve o reabre: vuelve a pedir los numeros de las pestañas en
   // el acto, en vez de esperar la vuelta de 15 s.
   const [pedidoDeConteos, setPedidoDeConteos] = useState(0);
@@ -845,8 +896,8 @@ export function SharedInbox({
           | null;
         if (!cancelled && payload?.ok && payload.counts) {
           setAssignedCounts(payload.counts);
-          // La marca «espera N min» de cada fila. null (no se pudo calcular) = sin marcas.
-          setEsperaPorClave(esperaPorClave(payload.espera ?? null));
+          // La marca «espera N min», el numero de "Esperando" y su lista. null (no se pudo calcular) = sin nada.
+          setEsperaDelConteo(payload.espera ?? null);
         }
       } catch {
         // Ignoramos errores de red: se reintenta en el siguiente intervalo.
@@ -906,10 +957,11 @@ export function SharedInbox({
   const alCambiarVista = useCallback(
     (href: string) => {
       const destino = new URL(href, window.location.href);
-      const { assignedFilter: asignadaDestino, statusFilter: estadoDestino } = vistaDeLaUrl(
-        destino.searchParams,
-        isManager || veTodoElEquipo,
-      );
+      const {
+        assignedFilter: asignadaDestino,
+        statusFilter: estadoDestino,
+        espera: esperaDestino,
+      } = vistaDeLaUrl(destino.searchParams, isManager || veTodoElEquipo);
       // La linea y la busqueda no cambian con un filtro: se comparan con las mismas de vistaKey.
       const claveDestino = claveDeVista(
         searchQuery,
@@ -919,6 +971,7 @@ export function SharedInbox({
         paramsDeFiltros(leerFiltrosDeBandeja((clave) => destino.searchParams.get(clave)))
           .map(([clave, valor]) => `${clave}=${valor}`)
           .join("&"),
+        esperaDestino,
       );
       if (claveDestino === vistaKey) {
         return;
@@ -934,6 +987,19 @@ export function SharedInbox({
   // navegación: una conversación nueva que llegó mientras no estabas en esta vista aparece
   // de una, sin recargar la página. Es un fetch único por cambio de deps (no un polling).
   const primeraListaRef = useRef(true);
+
+  /*
+    "Esperando" no se pudo leer (/list respondio `esperaNoDisponible`): se vuelve a la misma pestaña
+    (Mias o Todas) sin "Esperando". Se reemplaza la direccion, asi atras no vuelve a la vista rota.
+  */
+  const salirDeEsperando = useCallback(() => {
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has("espera")) return;
+    url.searchParams.delete("espera");
+    window.history.replaceState(null, "", `${url.pathname}${url.search}`);
+    toast.info("No se pudo cargar Esperando. Te dejamos en la bandeja de siempre.");
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -958,6 +1024,7 @@ export function SharedInbox({
       params.set("assigned", assignedFilter);
       if (statusFilter !== "open") params.set("status", statusFilter);
       ponerFiltrosNuevos(params);
+      if (enEspera) params.set("espera", "1");
       return params;
     };
 
@@ -1025,10 +1092,17 @@ export function SharedInbox({
                     hasMore?: boolean;
                     nextOffset?: number;
                     nextCursor?: string | null;
+                    esperaNoDisponible?: boolean;
                   }
                 | null)
             : null;
           if (cancelled) {
+            return;
+          }
+          if (payload?.ok && payload.esperaNoDisponible) {
+            // La lista de antes queda a la vista y la direccion vuelve a la pestaña sin "Esperando".
+            setVistaEnCurso(false);
+            salirDeEsperando();
             return;
           }
           if (!payload?.ok || !Array.isArray(payload.conversations)) {
@@ -1036,6 +1110,7 @@ export function SharedInbox({
           }
           const items = sortConversationItems(
             normalizeConversationItems(payload.conversations, (item) => hrefDeFila(item)),
+            { ordenDelServidor },
           );
           const lista = {
             items,
@@ -1083,6 +1158,8 @@ export function SharedInbox({
     (async () => {
       try {
         const params = armarParams();
+        // En "Esperando" el refresco trae la pagina mas grande: el chat que entra va al final.
+        if (ordenDelServidor) params.set("limit", String(CONVERSATION_LIST_LOAD_BATCH_SIZE));
 
         const response = await fetch(`${conversationListApiPath}?${params.toString()}`, {
           credentials: "same-origin",
@@ -1093,13 +1170,45 @@ export function SharedInbox({
         }
 
         const payload = (await response.json().catch(() => null)) as
-          | { ok?: boolean; conversations?: SharedInboxConversationItem[] }
+          | {
+              ok?: boolean;
+              conversations?: SharedInboxConversationItem[];
+              hasMore?: boolean;
+              nextOffset?: number;
+              esperaNoDisponible?: boolean;
+            }
           | null;
-        if (cancelled || !payload?.ok || !Array.isArray(payload.conversations)) {
+        if (cancelled || !payload?.ok) {
+          return;
+        }
+        if (payload.esperaNoDisponible) {
+          salirDeEsperando();
+          return;
+        }
+        if (!Array.isArray(payload.conversations)) {
           return;
         }
 
         const fresh = normalizeConversationItems(payload.conversations, (item) => hrefDeFila(item));
+
+        if (ordenDelServidor) {
+          // Orden del servidor: la pagina en su orden y despues lo cargado al bajar que no vino.
+          const hayMas = Boolean(payload.hasMore);
+          const siguiente = typeof payload.nextOffset === "number" ? payload.nextOffset : fresh.length;
+          conversationOffsetRef.current = hayMas ? Math.max(conversationOffsetRef.current, siguiente) : siguiente;
+          conversationCursorRef.current = null;
+          setHasMoreConversationItems(hayMas);
+          setConversationItems((current) => {
+            const currentById = new Map(current.map((item) => [item.id, item]));
+            const pagina = fresh.map((item) => mergeConversationListItem(item, currentById.get(item.id) ?? null));
+            const juntas = sinContestadasAca(juntarPaginaDeEsperando(current, pagina, hayMas));
+            return juntas.length === current.length &&
+              current.every((item, index) => areConversationListItemsEqual(item, juntas[index]))
+              ? current
+              : juntas;
+          });
+          return;
+        }
 
         setConversationItems((current) => {
           let next = current;
@@ -1152,7 +1261,7 @@ export function SharedInbox({
       return;
     }
     // Una vez por combinacion de fijados y filtros: si el servidor no lo devolvio, no se insiste.
-    const firma = [faltan.join(","), assignedFilter, statusFilter, selectedConnectionKey, searchQuery].join("|");
+    const firma = [faltan.join(","), assignedFilter, statusFilter, selectedConnectionKey, searchQuery, enEspera ? "espera" : ""].join("|");
     if (fijadosYaPedidosRef.current.has(firma)) {
       return;
     }
@@ -1168,6 +1277,8 @@ export function SharedInbox({
         params.set("assigned", assignedFilter);
         if (statusFilter !== "open") params.set("status", statusFilter);
         ponerFiltrosNuevos(params);
+        // En "Esperando" el servidor devuelve solo los fijados que ademas estan esperando.
+        if (enEspera) params.set("espera", "1");
 
         const respuesta = await fetch(`${conversationListApiPath}?${params.toString()}`, {
           credentials: "same-origin",
@@ -1185,7 +1296,15 @@ export function SharedInbox({
         setConversationItems((current) => {
           let next = current;
           for (const item of filas) {
-            if (item.id) next = updateConversationItemInSortedList(next, item.id, item);
+            if (!item.id) continue;
+            /*
+              En "Esperando" no se inserta por fecha: el fijado va al final de lo cargado (la lista
+              igual lo dibuja arriba, con los fijados) y al bajar no se repite.
+            */
+            next =
+              ordenDelServidorRef.current && !next.some((fila) => fila.id === item.id)
+                ? [...next, item]
+                : updateConversationItemInSortedList(next, item.id, item, { ordenDelServidor: ordenDelServidorRef.current });
           }
           return next;
         });
@@ -1197,7 +1316,7 @@ export function SharedInbox({
     return () => {
       cancelado = true;
     };
-  }, [fijadosEnVivo, assignedFilter, statusFilter, selectedConnectionKey, searchQuery, ponerFiltrosNuevos, conversationListApiPath, searchAction, hrefDeFila]);
+  }, [fijadosEnVivo, assignedFilter, statusFilter, selectedConnectionKey, searchQuery, enEspera, ponerFiltrosNuevos, conversationListApiPath, searchAction, hrefDeFila]);
 
   // Búsqueda aumentativa: trae del servidor los chats que coinciden por contenido de
   // mensaje o que están más allá de lo ya cargado, y los AGREGA (nunca quita) a la lista.
@@ -1253,7 +1372,9 @@ export function SharedInbox({
         setConversationItems((current) => {
           const currentIds = new Set(current.map((item) => item.id));
           const additions = normalized.filter((item) => item.id && !currentIds.has(item.id));
-          return additions.length === 0 ? current : sortConversationItems([...current, ...additions]);
+          return additions.length === 0
+            ? current
+            : sortConversationItems([...current, ...additions], { ordenDelServidor: ordenDelServidorRef.current });
         });
         setSearchMatchIds(new Set(normalized.map((item) => item.id)));
       } catch {
@@ -1415,8 +1536,15 @@ export function SharedInbox({
       return;
     }
 
-    const offset = conversationOffsetRef.current;
-    if (offset <= 0) {
+    /*
+      En "Esperando" se sigue desde lo que hay en pantalla: los que dejaron de esperar ya salieron
+      (sincronizarConEspera) y tambien salieron de la lista del servidor, asi la pagina siguiente no
+      salta a nadie. Puede ser 0 si se vacio la pantalla y quedan mas.
+    */
+    const offset = ordenDelServidor
+      ? Math.min(conversationOffsetRef.current, conversationItems.length)
+      : conversationOffsetRef.current;
+    if (offset <= 0 && !ordenDelServidor) {
       return;
     }
 
@@ -1456,6 +1584,9 @@ export function SharedInbox({
         params.set("status", statusFilter);
       }
       ponerFiltrosNuevos(params);
+      if (enEspera) {
+        params.set("espera", "1");
+      }
 
       const response = await fetch(`${conversationListApiPath}?${params.toString()}`, {
         credentials: "same-origin",
@@ -1477,8 +1608,14 @@ export function SharedInbox({
             hasMore?: boolean;
             nextOffset?: number;
             nextCursor?: string | null;
+            esperaNoDisponible?: boolean;
           }
         | null;
+
+      if (payload?.ok && payload.esperaNoDisponible) {
+        salirDeEsperando();
+        return;
+      }
 
       if (!payload?.ok || !Array.isArray(payload.conversations)) {
         debugConversationList("loadMore invalid payload", {
@@ -1506,7 +1643,9 @@ export function SharedInbox({
           ),
         ];
         const deduped = Array.from(new Map(merged.map((item) => [item.id, item])).values());
-        const sorted = sortConversationItems(deduped);
+        const sorted = ordenDelServidor
+          ? sinContestadasAca(sortConversationItems(deduped, { ordenDelServidor }))
+          : sortConversationItems(deduped);
 
         if (
           current.length === sorted.length &&
@@ -1590,6 +1729,62 @@ export function SharedInbox({
   }, [esperaPorClaveActual, filasDeLaBarraLateral]);
 
   /*
+    "ESPERANDO" AL DIA CON CADA /counts (cada 60 s), sin pedir nada para decidirlo.
+
+    - Un chat que ya no viene en `espera.chats` sale de la lista en el acto, sin pedir nada.
+    - Un chat que entra a esperar y la lista no tiene pide /list UNA vez (ver sincronizarConEspera).
+      Lo que ya estaba esperando cuando se cargo la vista (y todavia no se bajo a verlo) no cuenta
+      como nuevo: lo trae el scroll. Por eso, con la vista abierta y sin chats nuevos, no sale /list.
+    Con texto en el buscador no se toca nada: los resultados de la busqueda se quedan quietos.
+  */
+  const esperaConocidasRef = useRef<{ version: string; claves: Set<string> } | null>(null);
+  useEffect(() => {
+    if (!ordenDelServidor || searchInputValue.trim() || !esperaVigente) return;
+    // La lista a la vista todavia es la de otra vista: la de "Esperando" esta llegando.
+    if (vistaCargadaRef.current !== vistaKey) return;
+    const version = `${vistaKey}#${versionDeVista}`;
+    const anteriores = esperaConocidasRef.current?.version === version ? esperaConocidasRef.current.claves : null;
+    // Recien cargada la vista: lo que ya esperaba se da por conocido (no se pide).
+    const yaPedidas = anteriores ?? new Set(esperaVigente.chats.map((chat) => chat.key));
+    const { faltan, pedirLista } = sincronizarConEspera({
+      items: conversationItemsRef.current,
+      espera: esperaVigente,
+      asignacion: assignedFilter,
+      yaPedidas,
+    });
+    esperaConocidasRef.current = { version, claves: new Set([...yaPedidas, ...faltan]) };
+    setConversationItems(
+      (current) => sincronizarConEspera({ items: current, espera: esperaVigente, asignacion: assignedFilter, yaPedidas }).items,
+    );
+    if (pedirLista) {
+      setPedidoDeLista((actual) => actual + 1);
+    }
+  }, [ordenDelServidor, searchInputValue, esperaVigente, vistaKey, versionDeVista, assignedFilter]);
+
+  /*
+    La asesora contesto desde esta pantalla (envio bueno): el chat sale en el acto de "Esperando" y
+    el numero baja, sin esperar al /counts siguiente. No toca el envio: solo mira su resultado.
+  */
+  const marcarContestadaEnEspera = useCallback((idOClave: string) => {
+    const id = idOClave.trim();
+    if (!id) return;
+    const clave =
+      esperaVigenteRef.current?.chats.find((chat) => conversationIdMatchesKey(chat.key, id))?.key ??
+      conversationItemsRef.current.find((item) => conversationIdMatchesKey(item.id, id))?.id ??
+      null;
+    if (!clave) return;
+    const ahora = Date.now();
+    setContestadasAca((actual) => {
+      const siguiente = new Map([...actual].filter(([, en]) => ahora - en <= CONTESTADA_VIGENTE_MS));
+      siguiente.set(clave, ahora);
+      return siguiente;
+    });
+    if (ordenDelServidorRef.current) {
+      setConversationItems((current) => current.filter((item) => item.id !== clave));
+    }
+  }, []);
+
+  /*
     Abrir un chat apaga su aviso en la campanita, en el acto.
 
     La campanita vive en el encabezado de la app y pregunta por su cuenta cada minuto, asi que
@@ -1637,24 +1832,27 @@ export function SharedInbox({
       setHasMoreConversationItems(initialHasMoreConversations ?? conversations.length >= initialConversationBatchSize);
       setConversationItems(
         normalizeConversationItems(conversations, (item) =>
-          buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item, assignedFilter, statusFilter),
+          buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item, assignedFilter, statusFilter, [], esperaDelServidor),
         ),
       );
       return;
     }
 
+    // La lista "Esperando" del servidor ya viene en su orden: no se reordena por fecha.
+    const orden = { ordenDelServidor: esperaDelServidor && !searchQuery.trim() };
     setConversationItems((current) => {
       if (current.length === 0) {
         return sortConversationItems(
           normalizeConversationItems(conversations, (item) =>
-            buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item, assignedFilter, statusFilter),
+            buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item, assignedFilter, statusFilter, [], esperaDelServidor),
           ),
+          orden,
         );
       }
 
       const currentById = new Map(current.map((item) => [item.id, item]));
       const frescos = normalizeConversationItems(conversations, (item) =>
-        buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item, assignedFilter, statusFilter),
+        buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item, assignedFilter, statusFilter, [], esperaDelServidor),
       ).map((conversation) =>
         mergeConversationListItem(conversation, currentById.get(conversation.id) ?? null),
       );
@@ -1675,7 +1873,7 @@ export function SharedInbox({
       */
       const idsFrescos = new Set(frescos.map((item) => item.id));
       const cargadosAlBajar = current.filter((item) => !idsFrescos.has(item.id));
-      const sorted = sortConversationItems([...frescos, ...cargadosAlBajar]);
+      const sorted = sortConversationItems([...frescos, ...cargadosAlBajar], orden);
 
       if (
         current.length === sorted.length &&
@@ -1686,7 +1884,7 @@ export function SharedInbox({
 
       return sorted;
     });
-  }, [conversations, initialConversationBatchSize, initialConversationOffset, initialHasMoreConversations, searchAction, searchQuery, selectedConnectionKey, assignedFilterDelServidor, statusFilterDelServidor, vistaDelServidorKey]);
+  }, [conversations, initialConversationBatchSize, initialConversationOffset, initialHasMoreConversations, searchAction, searchQuery, selectedConnectionKey, assignedFilterDelServidor, statusFilterDelServidor, esperaDelServidor, vistaDelServidorKey]);
 
   useEffect(() => {
     selectedConversationRef.current = selectedConversation;
@@ -1990,7 +2188,9 @@ export function SharedInbox({
         setConversationItems((current) => {
           const currentItem = findConversationItemBySnapshotId(current, snapshot.id) ?? undefined;
           const updatedItem = normalizeRealtimeConversationItem(buildConversationItemFromSnapshot(snapshot, currentItem));
-          return updateConversationItemInSortedList(current, snapshot.id, updatedItem);
+          return updateConversationItemInSortedList(current, snapshot.id, updatedItem, {
+            ordenDelServidor: ordenDelServidorRef.current,
+          });
         });
       }
     }
@@ -2050,7 +2250,12 @@ export function SharedInbox({
       */
       const yaEstaEnLaLista = Boolean(findConversationItemBySnapshotId(conversationItemsRef.current, snapshot.id));
       const esAvisoLocal = (customEvent.detail as { local?: boolean } | undefined)?.local === true;
-      if (!yaEstaEnLaLista && !esAvisoLocal) {
+      /*
+        En "Esperando" un aviso de un chat que no esta en la lista NO pide /list: si ese chat empezo
+        a esperar, lo trae el /counts siguiente (sincronizarConEspera pide la lista una sola vez).
+        Asi la vista abierta no agrega pedidos por cada mensaje que entra.
+      */
+      if (!yaEstaEnLaLista && !esAvisoLocal && !ordenDelServidorRef.current) {
         if (esperaDelPedidoDeListaRef.current) {
           clearTimeout(esperaDelPedidoDeListaRef.current);
         }
@@ -2078,7 +2283,9 @@ export function SharedInbox({
             ? { ...mergedItem, incomingCount: 0 }
             : mergedItem,
         );
-        return updateConversationItemInSortedList(current, snapshot.id, updatedItem);
+        return updateConversationItemInSortedList(current, snapshot.id, updatedItem, {
+          ordenDelServidor: ordenDelServidorRef.current,
+        });
       });
     }
 
@@ -2735,9 +2942,12 @@ export function SharedInbox({
 
       if (result?.ok && !result.suppressOptimistic) {
         scheduleConversationRefreshAfterSend();
+        if (enviado) {
+          marcarContestadaEnEspera(enviado.envio?.chatKey ?? enviado.conversationId);
+        }
       }
     },
-    [scheduleConversationRefreshAfterSend],
+    [scheduleConversationRefreshAfterSend, marcarContestadaEnEspera],
   );
 
   /*
@@ -2776,8 +2986,12 @@ export function SharedInbox({
       if (conversationIdMatchesKey(selectedConversationKey, conversationId)) {
         scheduleConversationRefreshAfterSend();
       }
+      // Foto, archivo, nota de voz o ubicacion de la asesora: contesta. Un flujo (sin tipo) no se cuenta.
+      if (envio.tipo) {
+        marcarContestadaEnEspera(conversationId);
+      }
     },
-    [scheduleConversationRefreshAfterSend, selectedConversationKey],
+    [scheduleConversationRefreshAfterSend, selectedConversationKey, marcarContestadaEnEspera],
   );
 
   /*
@@ -4025,6 +4239,8 @@ export function SharedInbox({
         assignedFilter={assignedFilter}
         statusFilter={statusFilter}
         assignedCounts={assignedCounts}
+        enEspera={enEspera}
+        numerosDeEspera={numerosDeEspera}
         isManager={isManager || veTodoElEquipo}
         filtros={filtrosDeLaUrl}
         hasMoreConversationItems={hasMoreConversationItems}

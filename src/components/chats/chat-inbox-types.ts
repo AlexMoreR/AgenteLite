@@ -204,6 +204,8 @@ export type SharedInboxProps = {
    * "&"). Junto con assignedFilter/statusFilter dicen de que vista es la lista que vino del servidor.
    */
   filtrosDelServidor?: string;
+  /** El servidor armo `conversations` como la lista "Esperando" (`espera=1`), en su orden. */
+  esperaDelServidor?: boolean;
   isManager?: boolean;
   /**
    * Pestañas y filtros de jefe (Todas, Sin asignar, Por asesora) SIN serlo: es la monitora. Solo
