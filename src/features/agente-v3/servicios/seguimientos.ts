@@ -379,20 +379,34 @@ export async function ejecutarSeguimientosV3(
             text: texto,
           });
 
-          await prisma.message.create({
-            data: {
-              workspaceId: canal.workspaceId,
-              conversationId: conversacion.id,
-              channelId: canal.id,
-              contactId: conversacion.contactId,
-              direction: "OUTBOUND",
-              type: "TEXT",
-              status: "SENT",
-              content: texto,
-              sentAt: new Date(),
-              rawPayload: { source, evolution: resultado, ...(marca ?? {}) } as never,
-            },
-          });
+          /*
+            Se guarda con el id del mensaje de WhatsApp (`externalId`), igual que los seguimientos
+            viejos (follows.ts). Sin él, el eco que WhatsApp devuelve a los milisegundos no encontraba
+            este registro y creaba otro igual: el chat mostraba el seguimiento dos veces aunque al
+            cliente le llegó una sola (6-nov, •••• 2466: 3 a 5 casos por día).
+          */
+          const externalId = resultado.externalId?.trim() || "";
+          const datos = {
+            workspaceId: canal.workspaceId,
+            conversationId: conversacion.id,
+            channelId: canal.id,
+            contactId: conversacion.contactId,
+            direction: "OUTBOUND" as const,
+            type: "TEXT" as const,
+            status: "SENT" as const,
+            content: texto,
+            sentAt: new Date(),
+            rawPayload: { source, evolution: resultado, ...(marca ?? {}) } as never,
+          };
+          if (externalId) {
+            await prisma.message.upsert({
+              where: { channelId_externalId: { channelId: canal.id, externalId } },
+              create: { ...datos, externalId },
+              update: { ...datos, externalId },
+            });
+          } else {
+            await prisma.message.create({ data: datos });
+          }
         }
 
         /*
