@@ -12,6 +12,7 @@ import { useChatsFijados } from "./chats-fijados-store";
 import { TAG_BADGE_CLASS, getTagBadgeColors } from "@/lib/tag-badge";
 import { ContactAvatar } from "./contact-avatar";
 import { EtiquetaSinResponder } from "./etiqueta-sin-responder";
+import { marcaDeEspera, type ColorDeEspera } from "@/features/chats/domain/espera-de-chats";
 import { warmConversationCache } from "./chat-conversation-warmup";
 import { clearPendingConversationSelection, setPendingConversationSelection } from "./chat-selection-store";
 import { readConversationFromCache } from "./chat-history-cache";
@@ -149,6 +150,13 @@ function renderStageBadge(crmStage?: string | null) {
  */
 const MAX_VISIBLE_TAGS = 2;
 
+/** Los colores de la marca «espera N min»: los mismos tonos de la etiqueta "Sin responder". */
+const COLORES_DE_ESPERA: Record<ColorDeEspera, string> = {
+  gris: "bg-muted text-muted-foreground",
+  ambar: "bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300",
+  rojo: "bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300",
+};
+
 // Muestra hasta MAX_VISIBLE_TAGS etiquetas en una sola fila. Se encogen y se cortan
 // (truncate) para compartir el ancho disponible; si hay más, agrega un badge "+N".
 
@@ -156,30 +164,51 @@ function ConversationTagsRow({
   tags,
   conversationId,
   sinResponderDesde,
+  esperaDesde,
+  ahora,
   resuelto,
 }: {
   tags: NonNullable<SharedInboxConversationItem["tags"]>;
   conversationId: string;
   /** Desde cuando espera el cliente (null o undefined = no espera). */
   sinResponderDesde: SharedInboxConversationItem["sinResponderDesde"];
+  /** Desde cuando espera a una PERSONA (del /counts). undefined = no esta esperando. */
+  esperaDesde: SharedInboxConversationItem["esperaDesde"];
+  /** La hora del reloj de la lista (solo llega a las filas que esperan). */
+  ahora: number | undefined;
   resuelto: boolean;
 }) {
   const visibleTags = tags.slice(0, MAX_VISIBLE_TAGS);
   const hidden = tags.length - visibleTags.length;
+  /*
+    «espera N min» (el cliente espera a una persona; el bot no cuenta) va de primera, en esta misma
+    linea de alto fijo: la fila no cambia de alto y la lista virtual no salta. Si esta, reemplaza a
+    "Sin responder · X min": son dos relojes del mismo cliente esperando, y juntos daban dos minutos
+    distintos en la misma fila.
+  */
+  const espera = !resuelto && esperaDesde && ahora !== undefined ? marcaDeEspera(esperaDesde, ahora) : null;
   // "Sin responder · X min" va de primera, antes de las etiquetas, y sale aunque no haya ninguna.
-  const conMarca = Boolean(sinResponderDesde) && !resuelto;
+  const conMarca = !espera && Boolean(sinResponderDesde) && !resuelto;
 
   // La etapa NO va aca: vive debajo del avatar, alineada con esta misma fila. Estuvo un rato en
   // los dos lugares y se veia dos veces por conversacion.
   // El lugar se reserva SIEMPRE (aunque no haya etiquetas): todas las filas miden lo mismo y la
   // lista puede calcular sin medir que filas se ven (ver ventana-de-la-lista).
-  if (!visibleTags.length && !conMarca) {
+  if (!visibleTags.length && !conMarca && !espera) {
     return <div className="h-[22px]" aria-hidden="true" />;
   }
 
   return (
     <div className="h-[22px] pt-0.5">
       <div className="flex flex-nowrap items-center gap-1 overflow-hidden">
+        {espera ? (
+          <Badge
+            className={`shrink-0 border-transparent shadow-none ${TAG_BADGE_CLASS} normal-case ${COLORES_DE_ESPERA[espera.color]}`}
+            title="El cliente espera respuesta de una persona"
+          >
+            {espera.texto}
+          </Badge>
+        ) : null}
         {conMarca ? <EtiquetaSinResponder desde={sinResponderDesde ?? null} resuelto={resuelto} /> : null}
         {visibleTags.map((tag) => (
           <Badge
@@ -205,12 +234,15 @@ const ConversationListItem = memo(function ConversationListItem({
   conversation,
   isSelected,
   fijado,
+  ahora,
   onSelect,
   onPrefetch,
 }: {
   conversation: SharedInboxConversationItem;
   isSelected: boolean;
   fijado: boolean;
+  /** La hora del reloj de la lista; undefined en las filas que no esperan (asi no se redibujan). */
+  ahora: number | undefined;
   onSelect: (conversation: SharedInboxConversationItem) => void;
   onPrefetch: (conversation: SharedInboxConversationItem) => void;
 }) {
@@ -423,6 +455,8 @@ const ConversationListItem = memo(function ConversationListItem({
           tags={conversation.tags ?? []}
           conversationId={conversation.id}
           sinResponderDesde={conversation.sinResponderDesde}
+          esperaDesde={conversation.esperaDesde}
+          ahora={ahora}
           resuelto={conversation.status === "CLOSED" || conversation.status === "ARCHIVED"}
         />
       </div>
@@ -567,6 +601,28 @@ export function ConversationList({
   useEffect(() => {
     conversationsRef.current = conversations;
   }, [conversations]);
+
+  /*
+    UN solo reloj de 60 s para la marca «espera N min» de todas las filas (no uno por fila). Solo
+    corre si alguna fila esta esperando, y solo llega a esas filas (las demas reciben undefined y su
+    memo no se rompe). Con la pestaña oculta no sube; al volver se pone al dia de una. No pide nada
+    al servidor: el dato llega con el /counts de cada minuto.
+  */
+  const hayEsperando = conversations.some((conversation) => Boolean(conversation.esperaDesde));
+  const [ahoraDeEspera, setAhoraDeEspera] = useState(() => Date.now());
+  useEffect(() => {
+    if (!hayEsperando) return;
+    const tic = () => {
+      if (!document.hidden) setAhoraDeEspera(Date.now());
+    };
+    tic();
+    const intervalo = setInterval(tic, 60_000);
+    document.addEventListener("visibilitychange", tic);
+    return () => {
+      clearInterval(intervalo);
+      document.removeEventListener("visibilitychange", tic);
+    };
+  }, [hayEsperando]);
 
   // Medicion: cerca del final -> la pagina siguiente ya pintada (la lista crecio).
   const largoAnteriorRef = useRef(conversations.length);
@@ -802,6 +858,7 @@ export function ConversationList({
           conversation={conversation}
           isSelected={effectiveSelectedId === conversation.id}
           fijado={fijados.includes(conversation.id)}
+          ahora={conversation.esperaDesde ? ahoraDeEspera : undefined}
           onSelect={handleSelect}
           onPrefetch={handlePrefetch}
         />

@@ -124,3 +124,77 @@ export function vistaInicialDeLaBandeja(input: {
   if (input.veTodas) return { origen: "defecto", assigned: "all", espera: false };
   return { origen: "defecto", assigned: "mine", espera: (input.esperandoMios ?? 0) > 0 };
 }
+
+/* ------------------------------------------------------------------------------------------------
+   LA MARCA «espera N min» DE CADA FILA (parte 3)
+------------------------------------------------------------------------------------------------ */
+
+/** Por debajo de esto la marca va en gris; desde aca, en ambar. */
+export const MINUTOS_DE_ESPERA_AMBAR = 10;
+/** Desde esto la marca va en rojo. */
+export const MINUTOS_DE_ESPERA_ROJO = 15;
+
+export type ColorDeEspera = "gris" | "ambar" | "rojo";
+
+export type MarcaDeEspera = {
+  minutos: number;
+  texto: string;
+  color: ColorDeEspera;
+};
+
+const MINUTO_DE_ESPERA_MS = 60_000;
+const MINUTOS_POR_HORA_DE_ESPERA = 60;
+const MINUTOS_POR_DIA_DE_ESPERA = 24 * MINUTOS_POR_HORA_DE_ESPERA;
+
+/** Minutos enteros que lleva esperando (nunca negativo). `null` si no hay desde o la fecha no sirve. */
+export function minutosDeEspera(
+  desde: Date | string | number | null | undefined,
+  ahora: Date | string | number,
+): number | null {
+  if (desde === null || desde === undefined) return null;
+  const inicio = desde instanceof Date ? desde.getTime() : typeof desde === "number" ? desde : Date.parse(desde);
+  const fin = ahora instanceof Date ? ahora.getTime() : typeof ahora === "number" ? ahora : Date.parse(ahora);
+  if (!Number.isFinite(inicio) || !Number.isFinite(fin)) return null;
+  return Math.max(0, Math.floor((fin - inicio) / MINUTO_DE_ESPERA_MS));
+}
+
+/** «espera 12 min»; desde 60 min «espera 2 h 5 min» (o «espera 2 h» en la hora justa); desde 24 h «espera 3 d». */
+export function textoDeEspera(minutos: number): string {
+  if (minutos >= MINUTOS_POR_DIA_DE_ESPERA) return `espera ${Math.floor(minutos / MINUTOS_POR_DIA_DE_ESPERA)} d`;
+  if (minutos >= MINUTOS_POR_HORA_DE_ESPERA) {
+    const horas = Math.floor(minutos / MINUTOS_POR_HORA_DE_ESPERA);
+    const resto = minutos % MINUTOS_POR_HORA_DE_ESPERA;
+    return resto ? `espera ${horas} h ${resto} min` : `espera ${horas} h`;
+  }
+  return `espera ${minutos} min`;
+}
+
+/** Gris por debajo de 10 min, ambar de 10 a 14 y rojo desde 15. */
+export function colorDeEspera(minutos: number): ColorDeEspera {
+  if (minutos >= MINUTOS_DE_ESPERA_ROJO) return "rojo";
+  if (minutos >= MINUTOS_DE_ESPERA_AMBAR) return "ambar";
+  return "gris";
+}
+
+/** La marca de una fila, o `null` si el chat no esta esperando. */
+export function marcaDeEspera(
+  desde: Date | string | number | null | undefined,
+  ahora: Date | string | number,
+): MarcaDeEspera | null {
+  const minutos = minutosDeEspera(desde, ahora);
+  if (minutos === null) return null;
+  return { minutos, texto: textoDeEspera(minutos), color: colorDeEspera(minutos) };
+}
+
+/**
+ * `key` -> desde cuando espera, sacado del `espera` del ultimo /counts. Con `null` (no se pudo
+ * calcular) o sin chats queda vacio: ninguna fila lleva marca. Un chat que ya no viene en el
+ * siguiente /counts pierde la marca porque el mapa se arma de nuevo cada vez.
+ */
+export function esperaPorClave(espera: Pick<EsperaDeChats, "chats"> | null | undefined): Map<string, string> {
+  const mapa = new Map<string, string>();
+  for (const chat of espera?.chats ?? []) {
+    if (chat?.key && chat.desde) mapa.set(chat.key, chat.desde);
+  }
+  return mapa;
+}

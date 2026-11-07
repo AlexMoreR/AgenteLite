@@ -86,6 +86,7 @@ import {
   updateConversationItemByContact,
 } from "./chat-inbox-conversation-utils";
 import { filtroSinResponderPuesto, seOcultaPorSinResponder } from "@/features/chats/domain/sin-responder";
+import { esperaPorClave, type EsperaDeChats } from "@/features/chats/domain/espera-de-chats";
 import { ConversationPanel, type EnvioTerminado } from "./chat-conversation-panel";
 import { BarraDeAccionesDelChat, BarraDeAccionesEnSilueta, ChatHeaderActions } from "./chat-header-actions";
 import { MenuDelContacto } from "./menu-del-contacto";
@@ -591,6 +592,8 @@ export function SharedInbox({
   }, [vistaEnCurso]);
 
   const [assignedCounts, setAssignedCounts] = useState<{ mine: number; unassigned: number; all: number; sinResponder?: number } | null>(null);
+  // `key` -> desde cuando espera, del `espera` del ultimo /counts (ver filasConEspera).
+  const [esperaPorClaveActual, setEsperaPorClave] = useState<Map<string, string>>(() => new Map());
   // Se sube cada vez que alguien resuelve o reabre: vuelve a pedir los numeros de las pestañas en
   // el acto, en vez de esperar la vuelta de 15 s.
   const [pedidoDeConteos, setPedidoDeConteos] = useState(0);
@@ -834,10 +837,16 @@ export function SharedInbox({
         }
 
         const payload = (await response.json().catch(() => null)) as
-          | { ok?: boolean; counts?: { mine: number; unassigned: number; all: number; sinResponder?: number } }
+          | {
+              ok?: boolean;
+              counts?: { mine: number; unassigned: number; all: number; sinResponder?: number };
+              espera?: EsperaDeChats | null;
+            }
           | null;
         if (!cancelled && payload?.ok && payload.counts) {
           setAssignedCounts(payload.counts);
+          // La marca «espera N min» de cada fila. null (no se pudo calcular) = sin marcas.
+          setEsperaPorClave(esperaPorClave(payload.espera ?? null));
         }
       } catch {
         // Ignoramos errores de red: se reintenta en el siguiente intervalo.
@@ -1565,6 +1574,20 @@ export function SharedInbox({
         }),
     );
   }, [displayedConversationItems, filtrosDeLaUrl, selectedConversationKey]);
+
+  /*
+    La marca «espera N min» (parte 3 de "Esperando respuesta"). El dato llega en el /counts de cada
+    60 s y se agrega aca, al dibujar, por `key`: no se guarda en conversationItems, asi el tiempo
+    real (que reemplaza filas enteras) no lo pisa. El minuto lo sube el reloj de ConversationList,
+    sin pedir nada al servidor.
+  */
+  const filasConEspera = useMemo(() => {
+    if (esperaPorClaveActual.size === 0) return filasDeLaBarraLateral;
+    return filasDeLaBarraLateral.map((item) => {
+      const desde = esperaPorClaveActual.get(item.id);
+      return desde ? { ...item, esperaDesde: desde } : item;
+    });
+  }, [esperaPorClaveActual, filasDeLaBarraLateral]);
 
   /*
     Abrir un chat apaga su aviso en la campanita, en el acto.
@@ -3988,7 +4011,7 @@ export function SharedInbox({
       ) : null}
 
       <AppSidebar
-        conversationItems={filasDeLaBarraLateral}
+        conversationItems={filasConEspera}
         selectedConversationId={selectedConversationId}
         searchAction={searchAction}
         selectedConnectionKey={selectedConnectionKey}

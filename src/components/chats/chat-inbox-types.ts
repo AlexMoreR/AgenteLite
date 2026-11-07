@@ -51,6 +51,12 @@ export type SharedInboxConversationItem = {
    * undefined = la fila no trae el dato; null = ya contestado.
    */
   sinResponderDesde?: Date | string | null;
+  /**
+   * Desde cuando espera respuesta de una PERSONA (ISO), sacado del `espera.chats` del ultimo
+   * /counts. No se guarda en la lista: la bandeja lo agrega al dibujar, asi el tiempo real no lo
+   * pisa. undefined = no esta esperando (o no se pudo saber).
+   */
+  esperaDesde?: string;
   /** Acuse del ultimo mensaje. Solo se dibuja si es NUESTRO: al del cliente no le corresponde. */
   lastMessageStatus?: string | null;
   lastMessageAt?: Date | null;

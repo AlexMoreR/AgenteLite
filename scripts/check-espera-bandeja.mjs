@@ -1,5 +1,6 @@
 // Pruebas de "Esperando respuesta" (parte 1: el calculo y el campo `espera` de /counts; parte 2:
-// la lista GET /api/cliente/chats/list?espera=1 y la vista inicial de la bandeja).
+// la lista GET /api/cliente/chats/list?espera=1 y la vista inicial de la bandeja; parte 3: la
+// marca «espera N min» de cada fila).
 //
 // - El SQL de src/features/chats/services/espera-de-chats.ts corre en un Postgres embebido
 //   (PGlite) con chats armados a mano: cuales entran, cuales no y desde cuando cuenta el reloj.
@@ -904,6 +905,80 @@ await prueba("ruta /list: si la espera falla responde ok, vacia, hasMore false y
   }
   const otra = await pedirLista("http://x/api/cliente/chats/list?espera=1&assigned=all&limit=20");
   assert.ok(otra.cuerpo.conversations.length > 0, "el error no se guarda");
+});
+
+/* ------------------------------------------------------------------------------------------------
+   Parte 3: la marca «espera N min» de cada fila
+------------------------------------------------------------------------------------------------ */
+const T = Date.parse("2026-11-07T15:00:00.000Z");
+const hace = (minutos) => new Date(T - minutos * 60_000).toISOString();
+
+await prueba("marca: 9 min gris; 10 y 14 ambar; 15 rojo", async () => {
+  assert.equal(dominio.marcaDeEspera(hace(9), T).color, "gris");
+  assert.equal(dominio.marcaDeEspera(hace(0), T).color, "gris");
+  assert.equal(dominio.marcaDeEspera(hace(10), T).color, "ambar");
+  assert.equal(dominio.marcaDeEspera(hace(14), T).color, "ambar");
+  assert.equal(dominio.marcaDeEspera(hace(15), T).color, "rojo");
+  assert.equal(dominio.marcaDeEspera(hace(3 * 24 * 60), T).color, "rojo");
+});
+
+await prueba("marca: textos de 12 min, 2 h 5 min y 3 d (siempre con la palabra «espera»)", async () => {
+  assert.equal(dominio.marcaDeEspera(hace(12), T).texto, "espera 12 min");
+  assert.equal(dominio.marcaDeEspera(hace(125), T).texto, "espera 2 h 5 min");
+  assert.equal(dominio.marcaDeEspera(hace(3 * 24 * 60 + 70), T).texto, "espera 3 d");
+  assert.equal(dominio.textoDeEspera(59), "espera 59 min");
+  assert.equal(dominio.textoDeEspera(60), "espera 1 h");
+  assert.equal(dominio.textoDeEspera(24 * 60 - 1), "espera 23 h 59 min");
+  assert.equal(dominio.textoDeEspera(24 * 60), "espera 1 d");
+});
+
+await prueba("marca: sin desde, fecha rota o desde en el futuro", async () => {
+  assert.equal(dominio.marcaDeEspera(undefined, T), null);
+  assert.equal(dominio.marcaDeEspera(null, T), null);
+  assert.equal(dominio.marcaDeEspera("no-es-fecha", T), null);
+  assert.equal(dominio.marcaDeEspera(new Date(T + 90_000).toISOString(), T).texto, "espera 0 min");
+});
+
+await prueba("marca: el reloj sube cada minuto sin pedir nada (misma fecha, otra hora)", async () => {
+  const desde = hace(9);
+  assert.equal(dominio.marcaDeEspera(desde, T).texto, "espera 9 min");
+  assert.equal(dominio.marcaDeEspera(desde, T + 60_000).texto, "espera 10 min");
+  assert.equal(dominio.marcaDeEspera(desde, T + 60_000).color, "ambar");
+});
+
+await prueba("marca: el mapa sale del ultimo /counts; null o un chat que ya no viene = sin marca", async () => {
+  const primero = dominio.esperaPorClave({ mine: 1, all: 2, chats: [
+    { key: "agent:a", desde: hace(12), mia: true },
+    { key: "official:b", desde: hace(3), mia: false },
+  ] });
+  assert.equal(primero.get("agent:a"), hace(12));
+  assert.equal(primero.get("official:b"), hace(3));
+  const siguiente = dominio.esperaPorClave({ mine: 0, all: 1, chats: [{ key: "official:b", desde: hace(3), mia: false }] });
+  assert.equal(siguiente.has("agent:a"), false, "el que ya no espera pierde la marca");
+  assert.equal(dominio.esperaPorClave(null).size, 0);
+  assert.equal(dominio.esperaPorClave(undefined).size, 0);
+});
+
+await prueba("pantalla: un solo reloj en la lista, nada por fila, y el efecto de conteos no se dispara mas", async () => {
+  const lista = fs.readFileSync(path.join(raiz, "components/chats/conversation-list.tsx"), "utf8");
+  const bandeja = fs.readFileSync(path.join(raiz, "components/chats/shared-inbox.tsx"), "utf8");
+  assert.equal((lista.match(/setInterval\(/g) ?? []).length, 1, "un solo setInterval en conversation-list");
+  assert.match(lista, /setInterval\(tic, 60_000\)/);
+  assert.match(lista, /if \(!document\.hidden\) setAhoraDeEspera/, "con la pestaña oculta no sube");
+  const item = lista.slice(lista.indexOf("const ConversationListItem = memo("), lista.indexOf("const ESTILO_DE_FILA"));
+  assert.ok(!/setInterval|setTimeout/.test(item), "la fila no tiene temporizador propio");
+  // La marca vive en la linea de etiquetas, de alto fijo: no cambia el alto de la fila.
+  const filaDeEtiquetas = lista.slice(lista.indexOf("function ConversationTagsRow("), lista.indexOf("const ConversationListItem = memo("));
+  assert.match(filaDeEtiquetas, /espera\.texto/);
+  assert.match(filaDeEtiquetas, /h-\[22px\]/);
+  // El efecto de conteos conserva sus dependencias de siempre.
+  assert.match(
+    bandeja,
+    /\}, \[conversationListApiPath, searchQuery, selectedConnectionKey, statusFilter, ponerFiltrosNuevos, pedidoDeConteos\]\);/,
+  );
+  assert.match(bandeja, /setEsperaPorClave\(esperaPorClave\(payload\.espera \?\? null\)\)/);
+  assert.match(bandeja, /conversationItems=\{filasConEspera\}/);
+  assert.ok(!/setConversationItems\([^)]*esperaDesde/.test(bandeja), "esperaDesde no se guarda en conversationItems");
 });
 
 await db.close();
