@@ -192,7 +192,7 @@ async function abrirSesion(
   await pagina.getByRole("button", { name: "Entrar", exact: true }).click();
   await pagina.waitForURL((url) => !url.pathname.startsWith("/login"), { timeout: 30_000 });
   await pagina.goto("/cliente/chats");
-  await expect(pagina.getByRole("button", { name: "Cambiar filtro" }).first()).toBeAttached();
+  await expect(pagina.getByRole("button", { name: "Nueva lista" }).first()).toBeAttached();
   await pagina.locator(FILA).first().waitFor({ state: "visible", timeout: 20_000 });
   // La lista precarga los chats a la vista: se le da un momento.
   await pagina.waitForTimeout(4000);

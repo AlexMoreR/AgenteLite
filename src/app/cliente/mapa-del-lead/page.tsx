@@ -12,9 +12,8 @@ export const dynamic = "force-dynamic";
 type PageProps = { searchParams: Promise<Record<string, string | string[] | undefined>> };
 
 /**
- * MAPA DEL LEAD en su propia página (/cliente/mapa-del-lead?chatKey=agent:<id>). Es la misma vista
- * del botón de la bandeja; existe para enlazarla desde otras pantallas (Recuperación) y para abrirla
- * aparte. Permiso: el de la bandeja.
+ * MAPA DEL LEAD en su propia página (/cliente/mapa-del-lead?chatKey=agent:<id>). Existe para
+ * enlazarla desde otras pantallas (Recuperación). Permiso: el de la bandeja.
  */
 export default async function MapaDelLeadPage({ searchParams }: PageProps) {
   const access = await requireClientWorkspaceAccess("chats");

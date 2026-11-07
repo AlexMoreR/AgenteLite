@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, ChevronRight, MessageSquareText, Pencil, Plus, Search, SlidersHorizontal, Trash2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, MessageSquareText, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import { ConversationList } from "@/components/chats/conversation-list";
 import { ChatsRecientes, MensajesEncontradosLista, type ChatParaAbrir } from "./buscador-de-chats-secciones";
 import { useChatsRecientes } from "./busqueda-de-chats-store";
@@ -526,12 +526,6 @@ export const AppSidebar = React.memo(function AppSidebar({
   // La pastilla "Sin responder" va encendida si esta puesta la condicion `sin_responder:si`.
   const sinResponderPuesto = filtroSinResponderPuesto(filtros.condiciones);
 
-  // El + se marca cuando NO estas en la vista por defecto: abiertas y sin filtro de asignacion.
-  const filtersActive =
-    statusFilter !== "open" ||
-    (isManager && assignedFilter !== "all") ||
-    hayFiltrosPuestos(filtros);
-
   return (
     <aside
       className={`${mobileConversationActive ? "hidden md:flex" : "flex"} chat-inbox-sidebar min-h-0 flex-1 overflow-hidden border border-border bg-card p-0 shadow-none md:h-full md:shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)]`}
@@ -758,31 +752,6 @@ export const AppSidebar = React.memo(function AppSidebar({
               })}
               </>
               ) : null}
-            </div>
-
-            <div className="shrink-0">
-              <button
-                type="button"
-                onClick={() => abrirFiltro()}
-                aria-label="Cambiar filtro"
-                aria-expanded={filterMenuOpen}
-                aria-haspopup="dialog"
-                title="Cambiar filtro"
-                /*
-                  Un embudo, no un "+": el boton abre los filtros y un mas significa "agregar".
-                  Se leia como "nueva conversacion" (Alex, 25-09-2026).
-                */
-                className={`relative inline-flex h-7 w-7 items-center justify-center rounded-lg border transition hover:bg-muted hover:text-foreground ${
-                  filterMenuOpen || filtersActive
-                    ? "border-primary/40 bg-primary/10 text-primary"
-                    : "border-border text-muted-foreground"
-                }`}
-              >
-                <SlidersHorizontal className="h-3.5 w-3.5" />
-                {filtersActive ? (
-                  <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-primary" />
-                ) : null}
-              </button>
             </div>
           </div>
 

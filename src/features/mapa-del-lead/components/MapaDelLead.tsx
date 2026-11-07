@@ -115,11 +115,9 @@ function hrefDelChat(chatKey: string) {
 
 type Props = {
   datos: DatosDelLead;
-  /** Si viene, "Abrir chat" llama a esto (p. ej. cerrar el diálogo) además de navegar. */
-  alAbrirChat?: () => void;
 };
 
-function Lienzo({ datos, alAbrirChat }: Props) {
+function Lienzo({ datos }: Props) {
   const [ocultos, setOcultos] = useState<Set<TipoFiltrable>>(() => new Set());
   const [expandidos, setExpandidos] = useState<Set<string>>(() => new Set());
   const [elegido, setElegido] = useState<string | null>(null);
@@ -275,7 +273,6 @@ function Lienzo({ datos, alAbrirChat }: Props) {
             {nodoElegido.detalle.chatKey ? (
               <Link
                 href={hrefDelChat(nodoElegido.detalle.chatKey)}
-                onClick={() => alAbrirChat?.()}
                 className="mt-1 inline-flex h-9 items-center justify-center gap-1.5 rounded-full bg-primary px-4 text-sm font-semibold text-primary-foreground hover:opacity-90"
               >
                 <MessageCircle className="size-4" />
@@ -296,5 +293,3 @@ export function MapaDelLead(props: Props) {
     </ReactFlowProvider>
   );
 }
-
-export default MapaDelLead;

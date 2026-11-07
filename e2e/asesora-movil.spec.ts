@@ -52,8 +52,8 @@ test.describe("Asesora en celular (solo lectura)", () => {
   test("2. Cargar la lista de chats", async () => {
     await test.step("abrir /cliente/chats", async () => {
       await pagina.goto("/cliente/chats");
-      // FRAGIL: el boton "Cambiar filtro" (appsidebar.tsx) es lo primero fijo de la bandeja.
-      await expect(pagina.getByRole("button", { name: "Cambiar filtro" })).toBeVisible();
+      // FRAGIL: el boton "Nueva lista" (appsidebar.tsx) es lo primero fijo de la bandeja.
+      await expect(pagina.getByRole("button", { name: "Nueva lista" })).toBeVisible();
     });
 
     await test.step("esperar las filas de chats", async () => {
