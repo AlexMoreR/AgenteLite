@@ -2,7 +2,7 @@
  * LAS INSTRUCCIONES DE LOS SEGUIMIENTOS CON IA, editables por el MCP (pedido del dueño, 6-nov-2026).
  * Codigo puro, sin base.
  *
- * El redactor (`redactarSeguimientoQueEscucha`) le pide a la IA un seguimiento con 15 reglas. Desde aqui
+ * El redactor (`redactarSeguimientoQueEscucha`) le pide a la IA un seguimiento con 16 reglas. Desde aqui
  * se pueden ajustar por voz, con las mismas reglas que el libro V3: leer antes de cambiar, el cambio
  * queda activo al instante y se deshace en un paso.
  *  - Global: reemplaza las reglas editables (tono, que mencionar, como cerrar, que no repetir, frases a evitar).
@@ -77,7 +77,9 @@ export const LO_QUE_RECHAZA_EL_REVISOR: readonly string[] = [
   "Que no termine en pregunta o que haga más de una pregunta.",
   'Las frases prohibidas: "pero", "¿sigues interesada?", "cuando puedas me avisas", "¿pudiste ver lo que te envié?", "aquí estoy para ayudarte", "si te queda alguna duda", el trato de usted y el voseo.',
   "Que se parezca a un seguimiento ya enviado a ese chat.",
-  "Volver a preguntar lo que el cliente ya dijo (ciudad, color, para cuándo, su servicio) y, si ya dio la ciudad, no nombrarla o no cerrar pidiendo apartar.",
+  'Empezar con "¿ya decidiste?", "¿pudiste revisar?" o "¿te lo aparto?", aunque lleve saludo.',
+  "En el texto de la IA: que no traiga negrita en 1 a 3 palabras, que la pregunta pase de 15 palabras o que pida apartar o separar.",
+  'Volver a preguntar lo que el cliente ya dijo (ciudad, color, para cuándo o "¿ya tienes fecha?", su servicio).',
   "Pedir apartar a quien ya compró o dijo que no le interesa.",
   "Un precio, cifra o fecha que no esté en el libro, en el producto ni en la conversación.",
   'El valor del envío, "gratis", "sin costo" o "envío incluido" (ni con el 50 %).',
