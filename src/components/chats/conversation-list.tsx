@@ -310,6 +310,7 @@ const ConversationListItem = memo(function ConversationListItem({
             label={conversation.label ?? conversation.secondaryLabel ?? ""}
             className={getConversationAvatarClassName()}
             fallbackClassName="rounded-full bg-muted text-muted-foreground"
+            miniatura
           />
 
           {conversation.channelType ? (
