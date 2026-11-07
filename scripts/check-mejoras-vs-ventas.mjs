@@ -325,7 +325,10 @@ await prueba("pantalla: solo jefes, en el menú de Dirección después de Inform
   const nav = fs.readFileSync(`${RAIZ}/src/components/nav-direccion.tsx`, "utf8");
   assert.ok(nav.includes('{ title: "Mejoras vs ventas", view: "mejoras-vs-ventas", icon: ChartSpline }'));
   assert.ok(nav.indexOf('view: "informe"') < nav.indexOf('view: "mejoras-vs-ventas"') && nav.indexOf('view: "mejoras-vs-ventas"') < nav.indexOf('view: "alertas"'));
-  const nota = fs.readFileSync(`${RAIZ}/docs/cambios-pendientes/gdtd74h4.md`, "utf8");
+  // La nota vive en cambios-pendientes hasta que el Coordinador la junta en el manual (de noche) y
+  // la borra: despues la linea se busca en el manual.
+  const rutaNota = `${RAIZ}/docs/cambios-pendientes/gdtd74h4.md`;
+  const nota = fs.readFileSync(fs.existsSync(rutaNota) ? rutaNota : `${RAIZ}/docs/que-es-esta-aplicacion.md`, "utf8");
   const modulos = nota.split(/^## /m).find((parte) => parte.startsWith("Módulos"));
   assert.ok(modulos && modulos.includes("- `direccion/mejoras-vs-ventas`:"));
   // El servicio que va al navegador no importa el cliente de Gestión en el componente.
