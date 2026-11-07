@@ -54,6 +54,7 @@
     "test:mcp-embudo-por-paso": "node scripts/check-mcp-embudo-por-paso.mjs",
     "test:pauta": "node scripts/check-pauta.mjs",
     "test:mapa-colombia": "node scripts/check-mapa-colombia.mjs",
+    "test:mejoras-vs-ventas": "node scripts/check-mejoras-vs-ventas.mjs",
     "test:pauta-migracion": "node scripts/check-pauta-migracion.mjs",
     "test:mcp-ventas-por-campana": "node scripts/check-mcp-ventas-por-campana.mjs",
     "test:anti-bloqueo": "node scripts/check-anti-bloqueo.mjs",

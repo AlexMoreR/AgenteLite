@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { Bell, Bot, ChartNoAxesCombined, ChevronDown, Compass, Filter, GitCompareArrows, LifeBuoy, ListFilter, MapIcon, Megaphone, ServerCog, ShieldCheck, Target, type LucideIcon } from "lucide-react";
+import { Bell, Bot, ChartNoAxesCombined, ChartSpline, ChevronDown, Compass, Filter, GitCompareArrows, LifeBuoy, ListFilter, MapIcon, Megaphone, ServerCog, ShieldCheck, Target, type LucideIcon } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -46,6 +46,8 @@ const direccionViews: Array<{
   // Recuperación de leads: solo dueño / administrador.
   { title: "Recuperación", view: "recuperacion", icon: LifeBuoy },
   { title: "Informe", view: "informe", icon: ChartNoAxesCombined },
+  // Mejoras vs ventas: los cambios terminados del tablero Sistemas junto a leads, cotizaciones y ventas (solo lectura).
+  { title: "Mejoras vs ventas", view: "mejoras-vs-ventas", icon: ChartSpline },
   { title: "Alertas", view: "alertas", icon: Bell, href: "/cliente/alertas" },
 ];
 
