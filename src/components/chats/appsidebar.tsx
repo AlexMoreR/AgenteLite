@@ -39,7 +39,7 @@ type AppSidebarProps = {
   searchQuery?: string;
   assignedFilter?: AssignedFilter;
   statusFilter?: StatusFilter;
-  assignedCounts?: { mine: number; unassigned: number; all: number } | null;
+  assignedCounts?: { mine: number; unassigned: number; all: number; sinResponder?: number } | null;
   isManager?: boolean;
   filtros?: FiltrosDeBandeja;
   hasMoreConversationItems?: boolean;
@@ -613,7 +613,7 @@ export const AppSidebar = React.memo(function AppSidebar({
 
               {/*
                 "Sin responder" a un toque (parte 4 de la marca), fuera del map de Todas/Mias para que
-                tambien la vea la asesora, que solo tiene "Mias". Sin numero.
+                tambien la vea la asesora, que solo tiene "Mias". Lleva el numero de /counts (`sinResponder`), pedido por Alex.
 
                 No es un filtro nuevo: pone o quita la condicion `sin_responder:si` sobre lo que ya
                 hay, asi "Mias + Sin responder" muestra solo los mios. Con una lista abierta se suma a
@@ -641,7 +641,10 @@ export const AppSidebar = React.memo(function AppSidebar({
                     : "border-border text-muted-foreground hover:bg-muted"
                 }`}
               >
-                Sin responder
+                No leído
+                {assignedCounts && !listaActiva && typeof assignedCounts.sinResponder === "number" ? (
+                  <span className="text-[11px] font-semibold leading-none">{assignedCounts.sinResponder}</span>
+                ) : null}
               </button>
 
               {/*

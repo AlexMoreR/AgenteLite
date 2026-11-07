@@ -590,7 +590,7 @@ export function SharedInbox({
     return () => window.clearTimeout(temporizador);
   }, [vistaEnCurso]);
 
-  const [assignedCounts, setAssignedCounts] = useState<{ mine: number; unassigned: number; all: number } | null>(null);
+  const [assignedCounts, setAssignedCounts] = useState<{ mine: number; unassigned: number; all: number; sinResponder?: number } | null>(null);
   // Se sube cada vez que alguien resuelve o reabre: vuelve a pedir los numeros de las pestañas en
   // el acto, en vez de esperar la vuelta de 15 s.
   const [pedidoDeConteos, setPedidoDeConteos] = useState(0);
@@ -834,7 +834,7 @@ export function SharedInbox({
         }
 
         const payload = (await response.json().catch(() => null)) as
-          | { ok?: boolean; counts?: { mine: number; unassigned: number; all: number } }
+          | { ok?: boolean; counts?: { mine: number; unassigned: number; all: number; sinResponder?: number } }
           | null;
         if (!cancelled && payload?.ok && payload.counts) {
           setAssignedCounts(payload.counts);

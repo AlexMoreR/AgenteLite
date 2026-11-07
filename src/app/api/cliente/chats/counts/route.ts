@@ -363,6 +363,53 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
   });
   t.marca("espera");
 
+  /*
+    El numero de "No leido" (la pastilla "Sin responder"): cuenta con las MISMAS reglas que la lista
+    cuando esa pastilla se enciende, sobre lo que ya hay puesto. Se arma igual que los otros numeros,
+    con la condicion `sin_responder:si` sumada. La consulta pesada (idsSinResponder) sale de su cache.
+    Si falla, el resto de los contadores responde igual y la pastilla va sin numero.
+  */
+  const filtrosNoLeido: FiltrosDeBandeja = {
+    ...filtros,
+    condiciones: [
+      ...filtros.condiciones.filter((condicion) => condicion.campo !== "sin_responder"),
+      { campo: "sin_responder", operador: "si" },
+    ],
+  };
+  const verTodo = isManager || monitoreados.length > 0;
+  let noLeido: { where: Prisma.ConversationWhereInput; oficial: number } | null = null;
+  try {
+    const ids = await idsSinResponder({
+      workspaceId: membership.workspace.id,
+      visibleChannelIds,
+      channelId: conexionElegida.startsWith("channel:") ? conexionElegida.slice("channel:".length) : null,
+    });
+    noLeido = {
+      where: buildBaseWhere({
+        workspaceId: membership.workspace.id,
+        searchQuery,
+        selectedConnectionKey: conexionElegida,
+        statusFilter,
+        snoozedContactIds: snoozedRows.map((fila) => fila.id),
+        visibleChannelIds,
+        filtros: filtrosNoLeido,
+        sinResponder: ids,
+      }),
+      oficial: await countOfficialConversations({
+        workspaceId: membership.workspace.id,
+        searchQuery,
+        selectedConnectionKey: conexionElegida,
+        userId: session.user.id,
+        assignedTo: verTodo ? "all" : "mine",
+        statusFilter,
+        filtros: filtrosNoLeido,
+      }),
+    };
+  } catch (error) {
+    console.error("[chats/counts] no se pudo contar los no leidos", error);
+  }
+  t.marca("no_leido");
+
   if (monitoreados.length > 0) {
     const deSusLineas: Prisma.ConversationWhereInput = { AND: [baseWhere, { channelId: { in: monitoreados } }] };
     const [mine, unassigned, all] = await Promise.all([
@@ -370,6 +417,10 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
       prisma.conversation.count({ where: { AND: [deSusLineas, { assignedToUserId: null }] } }),
       prisma.conversation.count({ where: deSusLineas }),
     ]);
+    const sinResponder = noLeido
+      ? (await prisma.conversation.count({ where: { AND: [noLeido.where, { channelId: { in: monitoreados } }] } })) +
+        noLeido.oficial
+      : undefined;
     return NextResponse.json({
       ok: true,
       isManager,
@@ -377,6 +428,7 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
         mine: mine + officialMine,
         unassigned: unassigned + officialUnassigned,
         all: all + officialAll,
+        sinResponder,
       },
       espera,
     });
@@ -388,10 +440,14 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
       where: { AND: [baseWhere, whereEsMio(session.user.id)] },
     });
 
+    const sinResponder = noLeido
+      ? (await prisma.conversation.count({ where: { AND: [noLeido.where, whereEsMio(session.user.id)] } })) +
+        noLeido.oficial
+      : undefined;
     return NextResponse.json({
       ok: true,
       isManager,
-      counts: { mine: mine + officialMine, unassigned: 0, all: mine + officialAll },
+      counts: { mine: mine + officialMine, unassigned: 0, all: mine + officialAll, sinResponder },
       espera,
     });
   }
@@ -402,6 +458,7 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     prisma.conversation.count({ where: baseWhere }),
   ]);
 
+  const sinResponder = noLeido ? (await prisma.conversation.count({ where: noLeido.where })) + noLeido.oficial : undefined;
   return NextResponse.json({
     ok: true,
     isManager,
@@ -409,6 +466,7 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
       mine: mine + officialMine,
       unassigned: unassigned + officialUnassigned,
       all: all + officialAll,
+      sinResponder,
     },
     espera,
   });
