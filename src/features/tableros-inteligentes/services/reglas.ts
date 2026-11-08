@@ -293,6 +293,9 @@ export type CambioParaDeshacer = {
 /** Qué toca un cambio: los campos de la tarjeta, una conexión puntual o todo (crear / borrar). */
 function loQueToca(cambio: Pick<CambioParaDeshacer, "accion" | "despues" | "antes">): string {
   if (cambio.accion === "crear" || cambio.accion === "borrar") return "todo";
+  // Archivar y desarchivar (services/archivadas.ts) solo sacan o devuelven la tarjeta del tablero: no pisan un cambio
+  // de estado ni de campos, así que no impiden deshacerlo (8-nov-2026: las HECHO se archivan apenas terminan).
+  if (cambio.accion === "archivar" || cambio.accion === "desarchivar") return "archivo";
   if (cambio.accion === "conectar") {
     const datos = (cambio.despues ?? cambio.antes) as { conexionId?: unknown } | null;
     return `conexion:${typeof datos?.conexionId === "string" ? datos.conexionId : "?"}`;

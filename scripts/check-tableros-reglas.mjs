@@ -129,6 +129,24 @@ prueba("lo posterior ya deshecho, o un deshacer, no bloquea", () => {
   assert.equal(reglas.puedeDeshacer(cambio(), [deshecho, deshacer], "IDEA"), null);
 });
 
+prueba("archivar (8-nov-2026: las HECHO salen apenas terminan) no impide deshacer un cambio de estado anterior", () => {
+  const aHecho = cambio({ antes: { estado: "EN_CURSO" }, despues: { estado: "HECHO" } });
+  const archivo = cambio({
+    id: "c2",
+    accion: "archivar",
+    origen: "TRABAJADOR",
+    creadoEn: despues(1000),
+    antes: { archivadaEn: null },
+    despues: { archivadaEn: despues(1000).toISOString() },
+  });
+  assert.equal(reglas.puedeDeshacer(aHecho, [archivo], "HECHO"), null);
+  const desarchivo = cambio({ id: "c3", accion: "desarchivar", origen: "PANTALLA", creadoEn: despues(2000), antes: {}, despues: { archivadaEn: null } });
+  assert.equal(reglas.puedeDeshacer(aHecho, [archivo, desarchivo], "HECHO"), null);
+  // Un cambio de estado posterior sí lo sigue bloqueando.
+  const otroEstado = cambio({ id: "c4", creadoEn: despues(3000), antes: { estado: "HECHO" }, despues: { estado: "IDEA" } });
+  assert.ok(reglas.puedeDeshacer(aHecho, [archivo, otroEstado], "IDEA"));
+});
+
 prueba("una flecha posterior no bloquea deshacer un editar (tocan cosas distintas)", () => {
   const flecha = cambio({ id: "c2", accion: "conectar", creadoEn: despues(1000), antes: null, despues: { conexionId: "x" } });
   assert.equal(reglas.puedeDeshacer(cambio(), [flecha], "IDEA"), null);
@@ -677,6 +695,23 @@ prueba("filtro por grupos: atenúa la que no tiene nada en los grupos activos; '
   assert.equal(reglasNiveles.atenuadaPorGrupos({ ...cero, hecho: 3, siguen: 1 }, activos), false);
   assert.equal(reglasNiveles.atenuadaPorGrupos(cero, activos), false);
   assert.equal(reglasNiveles.atenuadaPorGrupos({ ...cero, hecho: 3 }, new Set([...activos, "hecho"])), false);
+});
+
+prueba("filtro 'Hecho' del mapa (8-nov-2026): oculta una HECHO suelta en la raíz; no una FALLIDO, una carpeta ni el centro de un nivel", () => {
+  const sinHecho = new Set(["teToca", "enCurso", "siguen"]);
+  const conHecho = new Set([...sinHecho, "hecho"]);
+  const cero = { teToca: 0, enCurso: 0, siguen: 0, hecho: 0 };
+  const suelta = { centro: "t577", hijas: [] };
+  // Una HECHO suelta en la entrada (como T-577 y T-578): con "Hecho" apagado se oculta; prendido, se ve.
+  assert.equal(reglasNiveles.centroOcultoPorGrupos(suelta, null, { ...cero, hecho: 1 }, sinHecho), true);
+  assert.equal(reglasNiveles.centroOcultoPorGrupos(suelta, null, { ...cero, hecho: 1 }, conHecho), false);
+  // Una FALLIDO suelta (te toca) y una carpeta sin hijas (sin contadores) no se ocultan.
+  assert.equal(reglasNiveles.centroOcultoPorGrupos(suelta, null, { ...cero, teToca: 1 }, sinHecho), false);
+  assert.equal(reglasNiveles.centroOcultoPorGrupos(suelta, null, cero, sinHecho), false);
+  // Una carpeta o madre con hijas no se oculta, aunque todo lo de adentro esté hecho.
+  assert.equal(reglasNiveles.centroOcultoPorGrupos({ centro: "m", hijas: ["h1"] }, null, { ...cero, hecho: 2 }, sinHecho), false);
+  // El centro del nivel en que uno entró nunca se oculta.
+  assert.equal(reglasNiveles.centroOcultoPorGrupos({ centro: "n", hijas: [] }, "n", { ...cero, hecho: 1 }, sinHecho), false);
 });
 
 /* ================================================================== FASE 2: el trabajador */

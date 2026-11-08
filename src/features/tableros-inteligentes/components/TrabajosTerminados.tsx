@@ -14,13 +14,14 @@ import { linkDeLaTarjetaEnPantalla } from "./DialogoDeTablero";
 
 /*
   La pestaña "Trabajos terminados" de Tablero IA (/cliente/tablero-ia?vista=terminados): las tarjetas ARCHIVADAS de
-  todos los tableros (las HECHO y FALLIDO salen solas del tablero 3 días después de terminar; services/archivadas.ts).
+  todos los tableros (8-nov-2026: las HECHO salen solas del tablero apenas terminan y las FALLIDO 3 días después;
+  services/archivadas.ts).
   Cada una con su código, título, tablero, la fecha en que terminó, el repo y el link al commit. Buscador por código,
   título o repo, y el botón Desarchivar, que la devuelve a su tablero. Solo el dueño o el ADMIN (como "Hoy").
 
   6-nov-2026: con `&dia=AAAA-MM-DD` en el link (el del resumen de las 6 p. m.) muestra lo que terminó ESE día, archivado
   o no, con la fecha arriba y el botón "Ver todos" para volver a la lista completa. Una tarjeta sin archivar no tiene
-  "Desarchivar" (ya está en su tablero): trae "Ver tarjeta".
+  "Desarchivar" (ya está en su tablero).
 */
 
 const ESPERA_BUSQUEDA_MS = 300;
@@ -68,25 +69,25 @@ function Fila({ tarjeta, ocupada, alDesarchivar }: { tarjeta: ArchivadaVista; oc
           ) : null}
         </p>
       </div>
-      {tarjeta.archivadaEn ? (
-        <Button
-          variant="outline"
-          className="h-11 shrink-0 md:h-9"
-          disabled={ocupada}
-          onClick={alDesarchivar}
-          aria-label={`Desarchivar ${tarjeta.codigo || tarjeta.titulo}`}
-        >
-          {ocupada ? <Loader2 className="animate-spin" aria-hidden /> : null}
-          Desarchivar
-        </Button>
-      ) : (
-        // Sin archivar: todavía está en su tablero, así que se abre ahí (desarchivar daría error).
-        <Button asChild variant="outline" className="h-11 shrink-0 md:h-9">
+      <div className="flex shrink-0 flex-wrap gap-2">
+        <Button asChild variant="outline" className="h-11 md:h-9">
           <Link href={linkDeLaTarjetaEnPantalla(tarjeta.id)} aria-label={`Ver tarjeta ${tarjeta.codigo || tarjeta.titulo}`}>
             Ver tarjeta
           </Link>
         </Button>
-      )}
+        {tarjeta.archivadaEn ? (
+          <Button
+            variant="outline"
+            className="h-11 md:h-9"
+            disabled={ocupada}
+            onClick={alDesarchivar}
+            aria-label={`Desarchivar ${tarjeta.codigo || tarjeta.titulo}`}
+          >
+            {ocupada ? <Loader2 className="animate-spin" aria-hidden /> : null}
+            Desarchivar
+          </Button>
+        ) : null}
+      </div>
     </li>
   );
 }
@@ -179,8 +180,8 @@ export function TrabajosTerminados({ dia = null, alVerTodos }: Props) {
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">
-            Las tarjetas Hechas o Fallidas salen solas del tablero 3 días después de terminar y quedan aquí, con todo su
-            historial. Ya no cuentan para el límite de 300.
+            Las tarjetas Hechas salen solas del tablero apenas terminan, y las Fallidas a los 3 días. Quedan aquí, con
+            todo su historial, y ya no cuentan para el límite de 300.
           </p>
         )}
       </div>
@@ -234,7 +235,7 @@ export function TrabajosTerminados({ dia = null, alVerTodos }: Props) {
                 ? `No hay trabajos terminados que coincidan con «${busqueda}»${dia ? " ese día" : ""}.`
                 : dia
                   ? "Ese día no terminó ninguna tarjeta."
-                  : "Todavía no hay trabajos archivados. Las tarjetas terminadas pasan aquí solas a los 3 días."}
+                  : "Todavía no hay trabajos archivados. Las tarjetas Hechas pasan aquí apenas terminan."}
           </p>
         )
       ) : null}

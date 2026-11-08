@@ -26,7 +26,7 @@ import { revisarAvisosAlDueno } from "@/features/tableros-inteligentes/services/
 import { enviarResumenDiarioAlDueno } from "@/features/tableros-inteligentes/services/resumen-diario";
 import { revisarAvisosDeTerminadas } from "@/features/tableros-inteligentes/services/avisos-de-terminadas";
 import { revisarAvisosAlEquipo } from "@/features/tableros-inteligentes/services/avisos-al-equipo";
-import { archivarLasTerminadas } from "@/features/tableros-inteligentes/services/archivadas";
+import { archivarLasHechas, archivarLasTerminadas } from "@/features/tableros-inteligentes/services/archivadas";
 import { barrerEtapasDeTodos } from "@/features/crm/services/barrido-de-etapas";
 
 function resolveCronSecret() {
@@ -234,8 +234,9 @@ async function handleCron(request: Request) {
     de riesgo bajo) y revisa si hay que avisarle al dueño por WhatsApp (línea Admin) que Sistemas se detuvo o lo
     necesita: Coordinador caído, sin trabajo, trabado, necesita al dueño (avisos-al-dueno.ts; los técnicos van a Emanuel). El resumen diario (4 líneas) sale una vez al día
     (resumen-diario.ts; desde el 6-nov-2026 con el link a lo trabajado ese día). Cuando el Coordinador deja una tarjeta en
-    HECHO deja una alerta BAJA en la campanita, sin WhatsApp desde el 6-nov-2026 (avisos-de-terminadas.ts). Una vez al
-    día archiva las HECHO y FALLIDO de más de 3 días (archivadas.ts).
+    HECHO deja una alerta BAJA en la campanita, sin WhatsApp desde el 6-nov-2026 (avisos-de-terminadas.ts). Desde el
+    8-nov-2026 cada vuelta archiva las HECHO que queden sin archivar (se archivan apenas terminan) y, una vez al día, las
+    FALLIDO de más de 3 días (archivadas.ts).
     Sin nada pendiente son un par de lecturas; en segundo plano.
   */
   after(async () => {
@@ -274,7 +275,14 @@ async function handleCron(request: Request) {
       console.error("[cron/follows] avisos al equipo del tablero error", error);
     }
     try {
-      // Una vez al día (la primera vuelta tras subir es la limpieza única): las terminadas salen del tablero.
+      // Cada vuelta (8-nov-2026): la red de seguridad de las HECHO que no se archivaron al terminar (las de antes de
+      // subir, las madres que cierran solas o cuyas hijas acaban de cerrar). Nunca lanza.
+      await archivarLasHechas();
+    } catch (error) {
+      console.error("[cron/follows] archivar hechas del tablero error", error);
+    }
+    try {
+      // Una vez al día (la primera vuelta tras subir es la limpieza única): las FALLIDO de más de 3 días salen del tablero.
       await archivarLasTerminadas();
     } catch (error) {
       console.error("[cron/follows] archivar terminadas del tablero error", error);

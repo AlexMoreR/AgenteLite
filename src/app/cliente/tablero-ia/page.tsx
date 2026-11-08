@@ -22,6 +22,7 @@ import {
   listarTableros,
   miembrosDelNegocio,
   personaQueAprueba,
+  tarjetaArchivada,
   tarjetaAsignada,
 } from "@/features/tableros-inteligentes/services/tableros";
 import { preferenciasDe } from "@/features/tableros-inteligentes/services/vistas-guardadas";
@@ -54,7 +55,9 @@ const uno = (valor: string | string[] | undefined) => (Array.isArray(valor) ? va
   ?tablero=<id> abre ese tablero; ?area=<tarjetaId> entra a esa tarjeta (ella al centro y sus hijas
   alrededor);
   ?tarjeta=<id> abre el tablero de esa tarjeta, en el nivel de su madre, con su ficha a la vista (es
-  el link que devuelve el MCP y el que usarán los avisos por WhatsApp de la fase 2).
+  el link que devuelve el MCP y el que usarán los avisos por WhatsApp de la fase 2). Si la tarjeta está archivada (las
+  HECHO salen del tablero apenas terminan, 8-nov-2026), abre SOLO su ficha, para consultar, sobre "Trabajos terminados"
+  (o el inicio, para quien no ve esa pestaña); cerrarla vuelve ahí.
   ?vista=coordinador abre la página de inicio en la pestaña "Coordinador en vivo" (solo el dueño o el ADMIN;
   para los demás se ignora).
   ?vista=hoy abre la pestaña "Hoy" (lo que terminó, falló o espera al dueño): es el link de los WhatsApp.
@@ -113,15 +116,17 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
 
   let tableroId = tableros.find((tablero) => tablero.id === pedidoTablero)?.id ?? null;
   let tarjetaInicial: string | null = null;
+  let pedidaEstaArchivada = false;
   if (pedidaTarjeta || (!tableroId && pedidoNivel)) {
     // Una tarjeta (o un nivel) sin tablero en el link: el tablero sale de la tarjeta.
     const tarjeta = await prisma.tarjetaTablero.findFirst({
       where: { id: pedidaTarjeta ?? pedidoNivel ?? "", tablero: { workspaceId: access.workspaceId }, borradoEn: null },
-      select: { id: true, tableroId: true },
+      select: { id: true, tableroId: true, archivadaEn: true },
     });
     if (tarjeta) {
       tableroId = tarjeta.tableroId;
       if (pedidaTarjeta) tarjetaInicial = tarjeta.id;
+      pedidaEstaArchivada = Boolean(pedidaTarjeta && tarjeta.archivadaEn);
     }
   }
   // Un link a un tablero (o tarjeta) que ya no existe, o que es de otra persona, vuelve al listado:
@@ -142,6 +147,28 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
           asignadas={await asignadasA(alcance, access.userId)}
         />
         <FichaDeAsignada tarjeta={asignada.tarjeta} tipos={asignada.tipos} />
+      </>
+    );
+  }
+  // Una tarjeta archivada ya no está en el tablero: se abre SOLO su ficha (para consultar; cambiarla es con Desarchivar).
+  const archivada = pedidaEstaArchivada && tarjetaInicial ? await tarjetaArchivada(alcance, tarjetaInicial) : null;
+  if (archivada) {
+    return (
+      <>
+        <InicioDeTableros
+          tableros={lista}
+          firma={firmaDeTableros}
+          puedeAdministrar={puedeAdministrar}
+          cuentas={cuentas}
+          asignadas={await asignadasA(alcance, access.userId)}
+          vistaInicial={puedeAdministrar ? "terminados" : "tableros"}
+        />
+        <FichaDeAsignada
+          tarjeta={archivada.tarjeta}
+          tipos={archivada.tipos}
+          puedeCerebro={puedeCerebro}
+          volverA={puedeAdministrar ? `${RUTA_TABLEROS}?vista=terminados` : RUTA_TABLEROS}
+        />
       </>
     );
   }

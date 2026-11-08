@@ -248,7 +248,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     title: "Ver un tablero",
     description:
       "Muestra las tarjetas de un tablero (título, detalle, tipo, de qué tarjeta cuelga, área, estado, responsable, fecha, link) con qué flechas las unen, y los tipos del tablero. Hay que llamarla antes de editar o conectar: devuelve los ids. " +
-      "No trae las ARCHIVADAS: las HECHO y FALLIDO salen solas del tablero a los 3 días de terminar (siguen HECHO o FALLIDO, no cuentan para el límite de 300 y se ven en la pestaña 'Trabajos terminados'). Para verlas, estado 'ARCHIVADA'. Para lo terminado en una semana, listar_terminadas.",
+      "No trae las ARCHIVADAS: las HECHO salen solas del tablero apenas terminan y las FALLIDO a los 3 días (siguen HECHO o FALLIDO, no cuentan para el límite de 300 y se ven en la pestaña 'Trabajos terminados'). Para verlas, estado 'ARCHIVADA'. Para lo terminado en una semana, listar_terminadas.",
     inputSchema: {
       type: "object",
       properties: {

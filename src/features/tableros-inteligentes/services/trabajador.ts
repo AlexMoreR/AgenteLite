@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
+import { archivarLasHechas } from "./archivadas";
 import { esEstado, type EstadoTarjetaTablero } from "./reglas";
 import {
   AL_TOMAR,
@@ -1273,7 +1274,7 @@ export async function accionDelTrabajador(
     throw new ErrorDelTrabajador(fallo instanceof Error ? fallo.message : "Datos inválidos.", 400);
   }
 
-  return prisma.$transaction(async (tx) => {
+  const respuesta = await prisma.$transaction(async (tx) => {
     const hecho = await tx.tarjetaTablero.updateMany({
       // Condicionado también al riesgo que se leyó: si el dueño lo cambió un instante antes, no se pisa.
       where: {
@@ -1300,6 +1301,10 @@ export async function accionDelTrabajador(
     await tocarTableros(tx, [actual.tableroId], ahora);
     return { ok: true, estado: a, link: linkDeLaTarjeta(actual.id) };
   });
+  // Subida o "ya-hecha" que deja HECHO: sale del tablero en ese momento (8-nov-2026, services/archivadas.ts). Fuera de
+  // la transacción y sin frenar la respuesta al Coordinador: si falla, el reloj la recoge al minuto siguiente.
+  if ((accion === "subida" || accion === "ya-hecha") && a === "HECHO") await archivarLasHechas(new Date(), { ids: [actual.id] });
+  return respuesta;
 }
 
 /**

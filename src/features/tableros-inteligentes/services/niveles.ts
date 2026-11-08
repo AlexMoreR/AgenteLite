@@ -272,6 +272,22 @@ export function atenuadaPorGrupos(contadores: Contadores, activos: ReadonlySet<G
 }
 
 /**
+ * ¿El filtro oculta este CENTRO del mapa? (8-nov-2026). Los centros nunca se atenúan, pero en la entrada (nivel raíz)
+ * cada tarjeta suelta es un centro: una HECHO suelta (sin hijas) se oculta si "Hecho" está apagado. Las carpetas, las
+ * madres, las FALLIDO y la tarjeta del nivel en que uno entró se ven siempre, como antes.
+ */
+export function centroOcultoPorGrupos(
+  grupo: { centro: string; hijas: readonly string[] },
+  nivel: string | null,
+  contadores: Contadores,
+  activos: ReadonlySet<GrupoDeContador>,
+): boolean {
+  if (nivel !== null || grupo.hijas.length > 0 || activos.has("hecho")) return false;
+  // Sin hijas, sus contadores son los suyos: hecho = 1 y nada más es una tarjeta HECHO de un tipo con estados.
+  return contadores.hecho > 0 && contadores.teToca + contadores.enCurso + contadores.siguen === 0;
+}
+
+/**
  * Filtro "Mis tarjetas": los ids de las tarjetas que son de esta persona o que tienen, más abajo, alguna
  * suya (así una carpeta con tareas mías no se apaga). Las demás se ven apagadas, no desaparecen.
  */

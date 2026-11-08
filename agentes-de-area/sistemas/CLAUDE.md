@@ -59,7 +59,9 @@ fallo: no lo cuentes como roto, pero deja su porqué en `revisiones`.
 - Una por cada subida que FALLA (por commit). Tipo **Tarea**, estado **POR_APROBAR**, en el **tablero de Emanuel**
   (su id está en `config.local.json`, `tableroDeEmanuel`; usa `ver_tablero`/`listar_tableros` para encontrarlo por id, nunca por nombre).
 - El título lleva la marca `[sistemas:<primeros 12 del commit>]`. **Antes de crearla** busca en ese tablero (`ver_tablero`) si ya
-  existe una tarjeta con esa marca (en cualquier estado): si existe, no crees otra ni la repitas todos los días; anótala en `arreglos`.
+  existe una tarjeta con esa marca (en cualquier estado), y busca **también entre las archivadas** (`ver_tablero` con estado
+  `ARCHIVADA`): las tarjetas HECHO salen del tablero apenas terminan y ya no aparecen en la búsqueda normal. Si existe en
+  cualquiera de las dos, no crees otra ni la repitas todos los días; anótala en `arreglos`.
 - El detalle lleva: el error exacto, el commit (y la tarjeta que lo subió) y el **arreglo propuesto**. Tú no lo aprobas ni lo arreglas.
 - Si tu mensaje dice `PUEDE_CREAR_TARJETAS: no` (interruptor apagado o prueba), **no llames `crear_tarjeta`**: anota en `arreglos`
   `{ titulo, commit, estado: "se_crearia" }`. Con `si`, crea y anota `{ ..., estado: "creada", tarjetaId }`.

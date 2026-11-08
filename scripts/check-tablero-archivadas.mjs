@@ -1,5 +1,6 @@
 // Pruebas de las tarjetas archivadas del Tablero IA (services/archivadas.ts) con un prisma FALSO, sin base ni red:
-// cuándo se archiva una tarjeta (HECHO o FALLIDO de más de 3 días, sin hijas abiertas), el "ya corrió hoy", las tandas,
+// cuándo se archiva una tarjeta (8-nov-2026: HECHO apenas termina; FALLIDO de más de 3 días, una vez al día; nunca una
+// madre con hijas abiertas ni una HECHO desarchivada después de terminar), el "ya corrió hoy", las tandas,
 // la semana de lunes a domingo, el link del commit, que el límite de 300 y las listas de todos los días no cuenten
 // las archivadas, y el filtro por día del link del resumen de las 6 p. m. (terminadasDelDia, 6-nov-2026).
 // Correr: npm run test:tablero-archivadas
@@ -199,36 +200,36 @@ await prueba("el límite cuenta solo las no archivadas (ni borradas)", async () 
   assert.equal(lista.filter(archivadas.cuentaParaElLimite).length, 2);
 });
 
-/* ------------------------------------------------------------------ archivar (el reloj) */
+/* ------------------------------------------------------------------ archivar las FALLIDO (el reloj, una vez al día) */
 
-await prueba("archivarLasTerminadas: archiva la HECHO de hace 4 días y deja la de hace 2, la IDEA y la EN_CURSO", async () => {
-  const vieja = tarjeta({ termino: 4 });
-  const nueva = tarjeta({ termino: 2 });
+await prueba("archivarLasTerminadas: archiva la FALLIDO de hace 4 días y deja la de hace 2, la IDEA, la EN_CURSO y las HECHO", async () => {
+  const vieja = tarjeta({ estado: "FALLIDO", termino: 4 });
+  const nueva = tarjeta({ estado: "FALLIDO", termino: 2 });
   const idea = tarjeta({ estado: "IDEA" });
   const enCurso = tarjeta({ estado: "EN_CURSO", termino: 9 });
-  const fallida = tarjeta({ estado: "FALLIDO", termino: 6 });
+  const hecha = tarjeta({ termino: 6 });
   const r = await archivadas.archivarLasTerminadas(AHORA);
-  assert.deepEqual(r, { archivadas: 2, quedan: false });
+  assert.deepEqual(r, { archivadas: 1, quedan: false });
   assert.equal(vieja.archivadaEn, AHORA);
   assert.equal(vieja.terminadaEn.getTime(), haceDias(4).getTime());
-  assert.equal(vieja.estado, "HECHO", "sigue HECHO: archivar no cambia el estado");
-  assert.equal(fallida.archivadaEn, AHORA);
-  assert.equal(nueva.archivadaEn, null);
+  assert.equal(vieja.estado, "FALLIDO", "sigue FALLIDO: archivar no cambia el estado");
+  assert.equal(nueva.archivadaEn, null, "una FALLIDO de hace 2 días se queda");
   assert.equal(idea.archivadaEn, null);
   assert.equal(enCurso.archivadaEn, null);
+  assert.equal(hecha.archivadaEn, null, "las HECHO no pasan por la vuelta diaria: se archivan apenas terminan");
   const anotadas = estado.historial.filter((h) => h.accion === "archivar");
-  assert.equal(anotadas.length, 2);
+  assert.equal(anotadas.length, 1);
   assert.ok(anotadas.every((h) => h.origen === "TRABAJADOR" && h.quien === archivadas.QUIEN_ARCHIVA));
   assert.deepEqual([...new Set(estado.tocados)], ["tab1"], "el tablero se refresca en la pantalla");
 });
 
-await prueba("archivarLasTerminadas: una madre con una hija EN_CURSO no se archiva; con todas sus hijas cerradas, sí", async () => {
-  const madre = tarjeta({ termino: 10 });
+await prueba("archivarLasTerminadas: una madre FALLIDO con una hija EN_CURSO no se archiva; con todas sus hijas cerradas, sí", async () => {
+  const madre = tarjeta({ estado: "FALLIDO", termino: 10 });
   const hija = tarjeta({ estado: "EN_CURSO", padreId: madre.id });
   await archivadas.archivarLasTerminadas(AHORA);
   assert.equal(madre.archivadaEn, null);
-  hija.estado = "HECHO";
-  estado.historial.push({ tarjetaId: hija.id, accion: "estado", despues: { estado: "HECHO" }, creadoEn: haceDias(5), deshechoEn: null });
+  hija.estado = "FALLIDO";
+  estado.historial.push({ tarjetaId: hija.id, accion: "estado", despues: { estado: "FALLIDO" }, creadoEn: haceDias(5), deshechoEn: null });
   estado.ajustes.clear(); // otro día
   await archivadas.archivarLasTerminadas(AHORA);
   assert.equal(madre.archivadaEn, AHORA);
@@ -236,7 +237,7 @@ await prueba("archivarLasTerminadas: una madre con una hija EN_CURSO no se archi
 });
 
 await prueba("archivarLasTerminadas: una hija borrada no cuenta como abierta", async () => {
-  const madre = tarjeta({ termino: 10 });
+  const madre = tarjeta({ estado: "FALLIDO", termino: 10 });
   tarjeta({ estado: "EN_CURSO", padreId: madre.id, borradoEn: haceDias(1) });
   await archivadas.archivarLasTerminadas(AHORA);
   assert.equal(madre.archivadaEn, AHORA);
@@ -244,11 +245,11 @@ await prueba("archivarLasTerminadas: una hija borrada no cuenta como abierta", a
 
 await prueba("archivarLasTerminadas: usa la fecha del historial, no la última edición", async () => {
   // Terminó hace 6 días y la editaron ayer: se archiva igual.
-  const editada = tarjeta({ termino: 6, editada: 1 });
+  const editada = tarjeta({ estado: "FALLIDO", termino: 6, editada: 1 });
   // Sin historial: se usa la última edición (hace 5 días).
-  const sinHistorial = tarjeta({ editada: 5 });
+  const sinHistorial = tarjeta({ estado: "FALLIDO", editada: 5 });
   // Sin historial y editada hace 1 día: no.
-  const reciente = tarjeta({ editada: 1 });
+  const reciente = tarjeta({ estado: "FALLIDO", editada: 1 });
   await archivadas.archivarLasTerminadas(AHORA);
   assert.equal(editada.archivadaEn, AHORA);
   assert.equal(sinHistorial.archivadaEn, AHORA);
@@ -256,7 +257,7 @@ await prueba("archivarLasTerminadas: usa la fecha del historial, no la última e
 });
 
 await prueba("archivarLasTerminadas: una vez al día; los días salen del ajuste", async () => {
-  const cinco = tarjeta({ termino: 5 });
+  const cinco = tarjeta({ estado: "FALLIDO", termino: 5 });
   estado.ajustes.set(archivadas.CLAVE_DIAS, "7");
   assert.deepEqual(await archivadas.archivarLasTerminadas(AHORA), { archivadas: 0, quedan: false });
   assert.equal(cinco.archivadaEn, null, "con 7 días, una de hace 5 se queda");
@@ -269,8 +270,8 @@ await prueba("archivarLasTerminadas: una vez al día; los días salen del ajuste
   assert.equal(cinco.archivadaEn, manana);
 });
 
-await prueba("limpieza inicial: va por tandas de 200 y sigue en la vuelta siguiente hasta terminar", async () => {
-  const viejas = Array.from({ length: 330 }, () => tarjeta({ termino: 20 }));
+await prueba("limpieza inicial de FALLIDO: va por tandas de 200 y sigue en la vuelta siguiente hasta terminar", async () => {
+  const viejas = Array.from({ length: 330 }, () => tarjeta({ estado: "FALLIDO", termino: 20 }));
   const r1 = await archivadas.archivarLasTerminadas(AHORA);
   assert.deepEqual(r1, { archivadas: archivadas.TANDA, quedan: true });
   assert.equal(estado.ajustes.has(archivadas.CLAVE_ULTIMO_DIA), false, "con una tanda llena no se marca el día");
@@ -278,6 +279,125 @@ await prueba("limpieza inicial: va por tandas de 200 y sigue en la vuelta siguie
   assert.deepEqual(r2, { archivadas: 130, quedan: false });
   assert.equal(viejas.filter((t) => t.archivadaEn).length, 330);
   assert.equal(estado.ajustes.get(archivadas.CLAVE_ULTIMO_DIA), "2026-10-31");
+});
+
+/* ------------------------------------------------------------------ archivar las HECHO apenas terminan (8-nov-2026) */
+
+const SEGUNDOS = 1 / 86_400; // un segundo, en días
+
+await prueba("archivarLasHechas: una HECHO de hace segundos queda archivada, sigue HECHO y conserva su resultado", async () => {
+  const resultado = { subida: { commit: "abc1234", linkCommit: "https://github.com/x/y/commit/abc1234" } };
+  const recien = tarjeta({ termino: 5 * SEGUNDOS });
+  recien.resultado = resultado;
+  const otra = tarjeta({ termino: 3 * SEGUNDOS });
+  const fallida = tarjeta({ estado: "FALLIDO", termino: 5 * SEGUNDOS });
+  const idea = tarjeta({ estado: "IDEA" });
+  const r = await archivadas.archivarLasHechas(AHORA);
+  assert.deepEqual(r, { archivadas: 2 });
+  assert.equal(recien.archivadaEn, AHORA, "sin esperar días ni la vuelta diaria");
+  assert.equal(recien.estado, "HECHO", "archivar no cambia el estado");
+  assert.deepEqual(recien.resultado, resultado, "conserva su resultado (el commit)");
+  assert.equal(recien.terminadaEn.getTime(), haceDias(5 * SEGUNDOS).getTime());
+  assert.equal(otra.archivadaEn, AHORA);
+  assert.equal(fallida.archivadaEn, null, "las FALLIDO siguen esperando sus 3 días");
+  assert.equal(idea.archivadaEn, null);
+  const anotadas = estado.historial.filter((h) => h.accion === "archivar");
+  assert.equal(anotadas.length, 2);
+  assert.ok(anotadas.every((h) => h.origen === "TRABAJADOR" && h.quien === archivadas.QUIEN_ARCHIVA));
+  assert.deepEqual([...new Set(estado.tocados)], ["tab1"], "el tablero se refresca en la pantalla");
+  assert.equal(estado.ajustes.has(archivadas.CLAVE_ULTIMO_DIA), false, "no toca la marca diaria de las FALLIDO");
+});
+
+await prueba("archivarLasHechas: con ids archiva solo esas (la llamada justo después del HECHO); corre cada vuelta, sin marca del día", async () => {
+  const esta = tarjeta({ termino: 2 * SEGUNDOS });
+  const otra = tarjeta({ termino: 2 * SEGUNDOS });
+  assert.deepEqual(await archivadas.archivarLasHechas(AHORA, { ids: [esta.id] }), { archivadas: 1 });
+  assert.equal(esta.archivadaEn, AHORA);
+  assert.equal(otra.archivadaEn, null);
+  assert.deepEqual(await archivadas.archivarLasHechas(AHORA, { ids: [] }), { archivadas: 0 });
+  // La red de seguridad del reloj la recoge en la vuelta siguiente (un minuto después).
+  const minuto = new Date(AHORA.getTime() + 60_000);
+  assert.deepEqual(await archivadas.archivarLasHechas(minuto), { archivadas: 1 });
+  assert.equal(otra.archivadaEn, minuto);
+});
+
+await prueba("archivarLasHechas: una madre HECHO con una hija abierta no se archiva; en la vuelta siguiente al cerrar la hija, sí", async () => {
+  const madre = tarjeta({ termino: 10 * SEGUNDOS });
+  const hija = tarjeta({ estado: "EN_CURSO", padreId: madre.id });
+  await archivadas.archivarLasHechas(AHORA);
+  assert.equal(madre.archivadaEn, null, "sus hijas abiertas se regarían sueltas en la entrada del mapa");
+  hija.estado = "HECHO";
+  estado.historial.push({ tarjetaId: hija.id, accion: "estado", despues: { estado: "HECHO" }, creadoEn: AHORA, deshechoEn: null });
+  const minuto = new Date(AHORA.getTime() + 60_000);
+  await archivadas.archivarLasHechas(minuto);
+  assert.equal(madre.archivadaEn, minuto);
+  assert.equal(hija.archivadaEn, minuto);
+});
+
+await prueba("archivarLasHechas: una HECHO desarchivada no se vuelve a archivar, salvo que termine de nuevo después", async () => {
+  const devuelta = tarjeta({ termino: 1 });
+  estado.historial.push({ tarjetaId: devuelta.id, accion: "desarchivar", despues: { archivadaEn: null }, creadoEn: haceDias(0.5), deshechoEn: null });
+  await archivadas.archivarLasHechas(AHORA);
+  assert.equal(devuelta.archivadaEn, null, "el dueño la quiso de vuelta en el tablero");
+  assert.equal(archivadas.desarchivadaDespuesDeTerminar([{ accion: "desarchivar", creadoEn: haceDias(0.5), deshechoEn: null }], haceDias(1)), true);
+  assert.equal(archivadas.desarchivadaDespuesDeTerminar([{ accion: "desarchivar", creadoEn: haceDias(2), deshechoEn: null }], haceDias(1)), false);
+  // Se reabre y termina otra vez: ahora sí sale.
+  estado.historial.push({ tarjetaId: devuelta.id, accion: "estado", despues: { estado: "EN_CURSO" }, creadoEn: haceDias(0.2), deshechoEn: null });
+  estado.historial.push({ tarjetaId: devuelta.id, accion: "estado", despues: { estado: "HECHO" }, creadoEn: haceDias(0.1), deshechoEn: null });
+  await archivadas.archivarLasHechas(AHORA);
+  assert.equal(devuelta.archivadaEn, AHORA);
+});
+
+await prueba("archivarLasHechas: nunca lanza (un fallo de la base no frena el HECHO ni el reloj)", async () => {
+  tarjeta({ termino: 2 * SEGUNDOS });
+  const original = falso.tarjetaTablero.findMany;
+  const errorOriginal = console.error;
+  falso.tarjetaTablero.findMany = async () => {
+    throw new Error("la base no responde");
+  };
+  console.error = () => {};
+  try {
+    assert.deepEqual(await archivadas.archivarLasHechas(AHORA), { archivadas: 0 });
+  } finally {
+    falso.tarjetaTablero.findMany = original;
+    console.error = errorOriginal;
+  }
+});
+
+/* ------------------------------------------------------------------ quién llama al archivado de HECHO */
+
+const fuenteDe = (ruta) => fs.readFileSync(path.join(RAIZ, ruta), "utf8");
+const cuerpoDe = (fuente, nombre) => {
+  const inicio = fuente.indexOf(`export async function ${nombre}(`);
+  assert.ok(inicio >= 0, `falta ${nombre}`);
+  const fin = fuente.indexOf("\nexport ", inicio + 10);
+  return fuente.slice(inicio, fin < 0 ? undefined : fin);
+};
+
+await prueba("cambiarEstadoTarjeta y marcarHechoAMano archivan la HECHO después de guardar, fuera de la transacción", async () => {
+  const fuente = fuenteDe("src/features/tableros-inteligentes/services/tableros.ts");
+  for (const nombre of ["cambiarEstadoTarjeta", "marcarHechoAMano"]) {
+    const cuerpo = cuerpoDe(fuente, nombre);
+    const llamada = cuerpo.indexOf("await archivarLasHechas(new Date(), { ids: [actual.id] })");
+    assert.ok(llamada > 0, `${nombre} llama a archivarLasHechas`);
+    const cierreTransaccion = cuerpo.lastIndexOf("\n  });", llamada);
+    assert.ok(cuerpo.indexOf("prisma.$transaction(") < cierreTransaccion && cierreTransaccion < llamada, `${nombre}: después de la transacción`);
+  }
+  assert.match(cuerpoDe(fuente, "cambiarEstadoTarjeta"), /if \(estado === "HECHO"\) await archivarLasHechas/);
+});
+
+await prueba("el Coordinador: subida o ya-hecha que deja HECHO archiva después de la transacción", async () => {
+  const fuente = fuenteDe("src/features/tableros-inteligentes/services/trabajador.ts");
+  const llamada = fuente.indexOf('if ((accion === "subida" || accion === "ya-hecha") && a === "HECHO") await archivarLasHechas(new Date(), { ids: [actual.id] });');
+  assert.ok(llamada > 0, "trabajador.ts llama a archivarLasHechas");
+  const transaccion = fuente.lastIndexOf("const respuesta = await prisma.$transaction(", llamada);
+  assert.ok(transaccion > 0 && fuente.slice(transaccion, llamada).includes("\n  });\n"), "fuera de la transacción");
+});
+
+await prueba("el reloj (api/cron/follows) archiva las HECHO cada vuelta y las FALLIDO una vez al día", async () => {
+  const fuente = fuenteDe("src/app/api/cron/follows/route.ts");
+  assert.match(fuente, /await archivarLasHechas\(\);/);
+  assert.match(fuente, /await archivarLasTerminadas\(\);/);
 });
 
 /* ------------------------------------------------------------------ el filtro en tableros.ts */

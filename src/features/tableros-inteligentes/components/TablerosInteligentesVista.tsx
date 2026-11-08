@@ -11,6 +11,7 @@ import type { ConexionVista, TableroDelInicio, TableroResumen, TarjetaVista, Tip
 import { disponerRadial, type Punto } from "../services/disposicion";
 import {
   atenuadaPorGrupos,
+  centroOcultoPorGrupos,
   contadoresDelNivel,
   contadoresEnCero,
   contadoresRecursivos,
@@ -162,8 +163,9 @@ function useEsAngosta() {
 type Filtros = ReadonlySet<GrupoDeContador>;
 
 /**
- * ¿El filtro la oculta? Las del centro nunca; las demás si no tienen nada en los grupos encendidos o, con
- * "Mis tarjetas" prendido (`mias` = las tarjetas mías y sus madres), si no hay nada mío en ellas.
+ * ¿El filtro la oculta? Las del centro casi nunca (solo una HECHO suelta de la entrada con "Hecho" apagado:
+ * `centrosOcultos`); las demás si no tienen nada en los grupos encendidos o, con "Mis tarjetas" prendido (`mias` = las
+ * tarjetas mías y sus madres), si no hay nada mío en ellas.
  */
 const filtrada = (
   id: string,
@@ -171,8 +173,23 @@ const filtrada = (
   contadores: ReadonlyMap<string, Contadores>,
   filtros: Filtros,
   mias: ReadonlySet<string> | null,
+  centrosOcultos: ReadonlySet<string>,
 ) =>
-  !centros.has(id) && (atenuadaPorGrupos(contadores.get(id) ?? contadoresEnCero(), filtros) || (mias !== null && !mias.has(id)));
+  centrosOcultos.has(id) ||
+  (!centros.has(id) && (atenuadaPorGrupos(contadores.get(id) ?? contadoresEnCero(), filtros) || (mias !== null && !mias.has(id))));
+
+/** Los centros que el filtro oculta: en la entrada, las HECHO sueltas con "Hecho" apagado (8-nov-2026). */
+const centrosOcultosDe = (
+  grupos: readonly { centro: string; hijas: readonly string[] }[],
+  nivel: string | null,
+  contadores: ReadonlyMap<string, Contadores>,
+  filtros: Filtros,
+) =>
+  new Set(
+    grupos
+      .filter((grupo) => centroOcultoPorGrupos(grupo, nivel, contadores.get(grupo.centro) ?? contadoresEnCero(), filtros))
+      .map((grupo) => grupo.centro),
+  );
 
 /** El nivel que de verdad se muestra (uno que ya no existe = la raíz) y sus tarjetas. */
 function nivelVisible(tarjetas: TarjetaVista[], nivel: string | null) {
@@ -205,11 +222,14 @@ function construirNodos(
   const contadores = contadoresDe(contenido);
   const hijas = contarHijas(contenido.tarjetas);
   const mias = propias ? tarjetasConMias(contenido.tarjetas, propias) : null;
+  const ocultos = centrosOcultosDe(grupos, nivel, contadores, filtros);
   // Lo filtrado no se pinta (ni su línea): el mapa se acomoda solo con lo que se ve.
-  const gruposVisibles = grupos.map((grupo) => ({
-    centro: grupo.centro,
-    hijas: grupo.hijas.filter((id) => !filtrada(id, centros, contadores, filtros, mias)),
-  }));
+  const gruposVisibles = grupos
+    .filter((grupo) => !ocultos.has(grupo.centro))
+    .map((grupo) => ({
+      centro: grupo.centro,
+      hijas: grupo.hijas.filter((id) => !filtrada(id, centros, contadores, filtros, mias, ocultos)),
+    }));
   const visibles = gruposVisibles.flatMap((grupo) => [grupo.centro, ...grupo.hijas]);
   // Si el nivel pedido ya no existe (se borró) se muestra la raíz: las posiciones de antes no sirven.
   const posiciones = disponerRadial(gruposVisibles, nivel === nivelPedido ? previas : new Map());
@@ -311,6 +331,10 @@ export function TablerosInteligentesVista({
   const ruta = useMemo(() => migasDelNivel(tarjetas, nivel), [tarjetas, nivel]);
   const contadores = useMemo(() => contadoresRecursivos(tarjetas, tipos), [tarjetas, tipos]);
   const centros = useMemo(() => centrosDelNivel(tarjetas, nivel), [tarjetas, nivel]);
+  const centrosOcultos = useMemo(() => {
+    const mostrado = gruposDelNivel(tarjetas, nivel);
+    return centrosOcultosDe(mostrado.grupos, mostrado.nivel, contadores, filtros);
+  }, [contadores, filtros, nivel, tarjetas]);
   const conteoDelNivel = useMemo(
     () => contadoresDelNivel(tarjetas, tipos, nivel, contadores),
     [contadores, nivel, tarjetas, tipos],
@@ -490,7 +514,7 @@ export function TablerosInteligentesVista({
   }, []);
 
   const aristas = useMemo<FlechaDeTablero[]>(() => {
-    const oculta = (id: string) => filtrada(id, centros, contadores, filtros, mias);
+    const oculta = (id: string) => filtrada(id, centros, contadores, filtros, mias, centrosOcultos);
     const esMadreEHija = (a: string, b: string) => madre.get(a) === b || madre.get(b) === a;
     // Las flechas entre tarjetas del nivel: punteadas, tenues y sin punto (lo principal es la madre).
     // Una flecha entre madre e hija no se dibuja: ya la representa la unión con la madre (con su punto).
@@ -529,7 +553,7 @@ export function TablerosInteligentesVista({
         };
       });
     return [...uniones, ...flechas];
-  }, [centros, conexiones, contadores, enNivel, filtros, madre, mias, visibles]);
+  }, [centros, centrosOcultos, conexiones, contadores, enNivel, filtros, madre, mias, visibles]);
 
   const usosDeTipo = useMemo(() => {
     const cuenta = new Map<string, number>();
