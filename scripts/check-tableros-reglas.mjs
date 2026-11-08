@@ -129,6 +129,18 @@ prueba("lo posterior ya deshecho, o un deshacer, no bloquea", () => {
   assert.equal(reglas.puedeDeshacer(cambio(), [deshecho, deshacer], "IDEA"), null);
 });
 
+prueba("archivar (8-nov-2026) no bloquea deshacer un cambio de estado anterior", () => {
+  // Claude la marcó HECHO por voz y al instante se archivó: deshacer el HECHO sigue funcionando (y la desarchiva).
+  const aHecho = cambio({ accion: "estado", antes: { estado: "EN_CURSO" }, despues: { estado: "HECHO" } });
+  const archivar = cambio({ id: "c2", accion: "archivar", origen: "TRABAJADOR", creadoEn: despues(1000), antes: { archivadaEn: null }, despues: { archivadaEn: despues(1000).toISOString() } });
+  assert.equal(reglas.puedeDeshacer(aHecho, [archivar], "HECHO"), null);
+  // Otro cambio de verdad después sí bloquea, como siempre.
+  const otro = cambio({ id: "c3", creadoEn: despues(2000) });
+  assert.ok(reglas.puedeDeshacer(aHecho, [archivar, otro], "HECHO"));
+  // El archivar mismo es del Coordinador: no se deshace desde acá.
+  assert.ok(reglas.puedeDeshacer(archivar, [], "HECHO"));
+});
+
 prueba("una flecha posterior no bloquea deshacer un editar (tocan cosas distintas)", () => {
   const flecha = cambio({ id: "c2", accion: "conectar", creadoEn: despues(1000), antes: null, despues: { conexionId: "x" } });
   assert.equal(reglas.puedeDeshacer(cambio(), [flecha], "IDEA"), null);
@@ -635,6 +647,36 @@ const arbolConteo = [
   { id: "bajoX", padreId: "x", tipoId: "tarea", estado: "FALLIDO" },
   { id: "suelta", padreId: null, tipoId: "tarea", estado: "HECHO" },
 ];
+
+prueba("Mapa (8-nov-2026): con Hecho apagado una HECHO suelta de la raíz se oculta; con Hecho prendido se ve", () => {
+  const sinHecho = new Set(["teToca", "enCurso", "siguen"]);
+  const todos = new Set(["teToca", "enCurso", "siguen", "hecho"]);
+  const tarjetas = [
+    ...arbolConteo,
+    { id: "suelta2", padreId: null, tipoId: "nota", estado: "HECHO" },
+    { id: "fallida", padreId: null, tipoId: "tarea", estado: "FALLIDO" },
+    { id: "carpeta", padreId: null, tipoId: "area", estado: "HECHO" },
+    { id: "madreHecha", padreId: null, tipoId: "tarea", estado: "HECHO" },
+    { id: "hijaAbierta", padreId: "madreHecha", tipoId: "tarea", estado: "EN_CURSO" },
+    { id: "borrada", padreId: null, tipoId: "tarea", estado: "HECHO", borradoEn: "2026-10-19T00:00:00Z" },
+  ];
+  const ocultas = reglasNiveles.sueltasHechasOcultas(tarjetas, tiposConteo, null, sinHecho);
+  assert.deepEqual([...ocultas].sort(), ["suelta", "suelta2"], "solo las HECHO sueltas (como T-577 y T-578)");
+  assert.equal(ocultas.has("fallida"), false, "una FALLIDO suelta no se oculta");
+  assert.equal(ocultas.has("carpeta"), false, "una carpeta (tipo sin estados) no se oculta");
+  assert.equal(ocultas.has("madreHecha"), false, "una madre con hijas sigue siendo su centro");
+  assert.equal(ocultas.has("mag"), false);
+  assert.equal(reglasNiveles.sueltasHechasOcultas(tarjetas, tiposConteo, null, todos).size, 0, "con Hecho prendido se ve");
+});
+
+prueba("Mapa (8-nov-2026): el centro de un nivel abierto no se oculta aunque sea HECHO y no tenga hijas", () => {
+  const sinHecho = new Set(["teToca", "enCurso", "siguen"]);
+  // Entrar a t6 (HECHO, sin hijas): es el centro del nivel y se queda.
+  assert.equal(reglasNiveles.sueltasHechasOcultas(arbolConteo, tiposConteo, "t6", sinHecho).size, 0);
+  assert.equal(reglasNiveles.sueltasHechasOcultas(arbolConteo, tiposConteo, "ven", sinHecho).size, 0);
+  // Un nivel que ya no existe es la raíz: ahí sí se oculta la suelta.
+  assert.deepEqual([...reglasNiveles.sueltasHechasOcultas(arbolConteo, tiposConteo, "no-existe", sinHecho)], ["suelta"]);
+});
 
 prueba("contadores: recursivos, sin borradas, sin carpetas; POR_APROBAR solo de tipos con aprobación", () => {
   const c = reglasNiveles.contadoresRecursivos(arbolConteo, tiposConteo);

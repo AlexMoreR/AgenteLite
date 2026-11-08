@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { codigoDeTarjeta, type EstadoTarjetaTablero } from "./reglas";
 import type { Alcance, ContextoTablero } from "./tableros";
@@ -11,12 +12,16 @@ import type { Alcance, ContextoTablero } from "./tableros";
   Coordinador sigue viendo HECHO la tarjeta de origen de una flecha "espera a esta" y el cierre de una madre partida
   no cambia (sql-trabajador.ts, trabajador.ts y madre-partida.ts NO filtran las archivadas, a propósito).
 
-  - T-691 (7-nov-2026): una tarjeta que pasa a HECHO se archiva en ese momento (archivar-al-terminar.ts); lo de abajo
-    sigue valiendo para las FALLIDO y como red de seguridad para cualquier HECHO que se haya escapado.
-  - Una vez al día, en el reloj (api/cron/follows), se archivan las HECHO y FALLIDO de TODOS los tableros que
-    terminaron hace más de 3 días (ajuste `tablero:archivar-terminadas:dias`). La primera vuelta después de subir es la
-    limpieza única: todavía no hay marca de "ya corrió hoy". Va por tandas de 200 por vuelta: si queda más, la marca
-    del día no se pone y la vuelta siguiente sigue.
+  - 8-nov-2026 (pedido del dueño, tarjeta f33rnfek): una HECHO sale del tablero APENAS termina. Justo después de
+    guardar el HECHO (cambiarEstadoTarjeta y marcarHechoAMano en tableros.ts, subida o ya-hecha en trabajador.ts), fuera
+    de su transacción, se llama a archivarAlTerminar. Además el reloj (api/cron/follows, cada minuto) corre
+    archivarLasHechas como red de seguridad: recoge cualquier HECHO sin archivar (las de antes de este cambio, las madres
+    que se cierran solas, una que falló al archivar). Un fallo al archivar nunca deshace ni frena el HECHO.
+  - Una HECHO que alguien desarchivó NO se vuelve a archivar sola: se queda en el tablero hasta que se reabra y vuelva
+    a terminar (el historial lo dice: un "desarchivar" más nuevo que el último cambio a HECHO).
+  - Una vez al día, en el reloj, se archivan las FALLIDO de TODOS los tableros que terminaron hace más de 3 días
+    (ajuste `tablero:archivar-terminadas:dias`, que desde el 8-nov-2026 solo vale para las FALLIDO). Va por tandas de
+    200 por vuelta: si queda más, la marca del día no se pone y la vuelta siguiente sigue.
   - La fecha de terminada es la del último cambio a HECHO o FALLIDO del historial (sin deshacer); sin historial, la
     última edición.
   - Una madre con hijas abiertas (no borradas y ni HECHO ni FALLIDO) no se archiva.
@@ -43,6 +48,8 @@ export const CLAVE_ULTIMO_DIA = "tablero:archivar-terminadas:ultimo-dia";
 export const TANDA = 200;
 /** Cuántas candidatas se miran por vuelta (las madres con hijas abiertas se saltan). */
 const CANDIDATAS_POR_VUELTA = 2000;
+/** Cuántas HECHO sin archivar mira la red de seguridad de cada minuto (normalmente son muy pocas). */
+const HECHAS_POR_MINUTO = 500;
 const LOTE = 200;
 /** Quién queda en el historial cuando archiva el reloj. */
 export const QUIEN_ARCHIVA = "sistema:archivar-terminadas";
@@ -96,6 +103,33 @@ export function sePuedeArchivar(
   if (!estaTerminada(tarjeta.estado) || tarjeta.borradoEn || tarjeta.archivadaEn) return false;
   if (hijasAbiertas > 0) return false;
   return ahora.getTime() - tarjeta.terminadaEn.getTime() > dias * MS_DIA;
+}
+
+/**
+ * ¿Una HECHO se archiva YA (8-nov-2026)? HECHO, no borrada ni archivada, sin hijas abiertas y que nadie la haya
+ * desarchivado después de su último HECHO. `terminoEn` es el último cambio a HECHO o FALLIDO del historial (null si no
+ * hay) y `desarchivadaEn` el último "desarchivar" (null si no hay). No espera días.
+ */
+export function seArchivaAlTerminar(
+  tarjeta: { estado: string; borradoEn: Date | null; archivadaEn: Date | null },
+  hijasAbiertas: number,
+  terminoEn: Date | null,
+  desarchivadaEn: Date | null,
+): boolean {
+  if (tarjeta.estado !== "HECHO" || tarjeta.borradoEn || tarjeta.archivadaEn) return false;
+  if (hijasAbiertas > 0) return false;
+  // La desarchivaron a mano después de terminar: se queda en el tablero hasta que termine otra vez.
+  if (desarchivadaEn && (!terminoEn || desarchivadaEn.getTime() >= terminoEn.getTime())) return false;
+  return true;
+}
+
+/** El último "desarchivar" (sin deshacer) del historial de una tarjeta; null si nunca la desarchivaron. */
+export function ultimaDesarchivada(historial: readonly { accion?: string; deshechoEn?: Date | null; creadoEn: Date }[]): Date | null {
+  let ultima: Date | null = null;
+  for (const fila of historial) {
+    if (fila.accion === "desarchivar" && !fila.deshechoEn && (!ultima || fila.creadoEn.getTime() > ultima.getTime())) ultima = fila.creadoEn;
+  }
+  return ultima;
 }
 
 /** Lo que cuenta para el límite de 300 (y sale en el mapa): ni borrada ni archivada. */
@@ -170,9 +204,126 @@ async function ajuste(clave: string) {
   return fila?.value ?? null;
 }
 
+type Candidata = { id: string; tableroId: string; estado: EstadoTarjetaTablero; actualizadoEn: Date };
+
+/** El historial (sin deshacer) y las hijas abiertas de un lote de candidatas. */
+async function datosDelLote(ids: string[]) {
+  const [historial, hijas] = await Promise.all([
+    prisma.historialTarjeta.findMany({
+      where: { tarjetaId: { in: ids }, deshechoEn: null },
+      select: { tarjetaId: true, accion: true, despues: true, deshechoEn: true, creadoEn: true },
+    }),
+    prisma.tarjetaTablero.groupBy({
+      by: ["padreId"],
+      where: { padreId: { in: ids }, borradoEn: null, estado: { notIn: ESTADOS_EN_LISTA } },
+      _count: { _all: true },
+    }),
+  ]);
+  const abiertasDe = new Map(hijas.map((fila) => [fila.padreId, fila._count._all]));
+  const historialDe = new Map<string, typeof historial>();
+  for (const fila of historial) historialDe.set(fila.tarjetaId, [...(historialDe.get(fila.tarjetaId) ?? []), fila]);
+  return { abiertasDe, historialDe };
+}
+
 /**
- * Archiva las HECHO y FALLIDO de todos los tableros que terminaron hace más de N días. Una vez al día; la primera
- * vez es la limpieza única. Nunca lanza por una tarjeta: la que falla se intenta otra vez el día siguiente.
+ * Archiva UNA tarjeta (sin cambiarle el estado) y lo anota en el historial. Condicionado: si alguien la reabrió o la
+ * borró un instante antes, no se archiva. Nunca lanza: si falla lo anota en el registro y devuelve false (la vuelta
+ * siguiente del reloj la intenta otra vez).
+ */
+async function archivarUna(tarjeta: Candidata, terminadaEn: Date, ahora: Date, extra: Record<string, unknown>): Promise<boolean> {
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const cambio = await tx.tarjetaTablero.updateMany({
+        where: { id: tarjeta.id, estado: tarjeta.estado, borradoEn: null, archivadaEn: null },
+        data: { archivadaEn: ahora, terminadaEn },
+      });
+      if (cambio.count !== 1) return false;
+      await tx.historialTarjeta.create({
+        data: {
+          tarjetaId: tarjeta.id,
+          quien: QUIEN_ARCHIVA,
+          origen: "TRABAJADOR",
+          accion: "archivar",
+          antes: { archivadaEn: null },
+          despues: { archivadaEn: ahora.toISOString(), terminadaEn: terminadaEn.toISOString(), ...extra } as Prisma.InputJsonObject,
+        },
+        select: { id: true },
+      });
+      return true;
+    });
+  } catch (error) {
+    console.error("[archivar-terminadas] no se pudo archivar", {
+      tarjetaId: tarjeta.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return false;
+  }
+}
+
+/** Los tableros que cambiaron se refrescan solos en la pantalla (su firma es actualizadoEn). */
+async function refrescarTableros(tocados: Set<string>, ahora: Date) {
+  if (tocados.size) {
+    await prisma.tableroInteligente.updateMany({ where: { id: { in: [...tocados] } }, data: { actualizadoEn: ahora } });
+  }
+}
+
+/**
+ * (8-nov-2026) Archiva YA las HECHO sin archivar: sin hijas abiertas y sin un "desarchivar" más nuevo que su último
+ * HECHO. Con `tarjetaIds` mira solo esas (el llamado justo después de guardar un HECHO); sin ellas, todas (la red de
+ * seguridad del reloj, cada minuto). Nunca lanza por una tarjeta.
+ */
+export async function archivarLasHechas(
+  ahora: Date = new Date(),
+  { tarjetaIds }: { tarjetaIds?: readonly string[] } = {},
+): Promise<{ archivadas: number }> {
+  if (tarjetaIds && !tarjetaIds.length) return { archivadas: 0 };
+  const candidatas = await prisma.tarjetaTablero.findMany({
+    where: { borradoEn: null, archivadaEn: null, estado: "HECHO", ...(tarjetaIds ? { id: { in: [...tarjetaIds] } } : {}) },
+    // Las más nuevas primero: si algún día se juntan muchas que se quedan (desarchivadas, madres con hijas abiertas),
+    // una recién terminada no espera detrás de ellas.
+    orderBy: [{ actualizadoEn: "desc" }],
+    take: HECHAS_POR_MINUTO,
+    select: { id: true, tableroId: true, estado: true, actualizadoEn: true, borradoEn: true, archivadaEn: true },
+  });
+  let archivadas = 0;
+  const tocados = new Set<string>();
+  for (let inicio = 0; inicio < candidatas.length; inicio += LOTE) {
+    const lote = candidatas.slice(inicio, inicio + LOTE);
+    const { abiertasDe, historialDe } = await datosDelLote(lote.map((tarjeta) => tarjeta.id));
+    for (const tarjeta of lote) {
+      const historial = historialDe.get(tarjeta.id) ?? [];
+      const terminos = historial.filter(terminoEnEsteCambio);
+      const terminoEn = terminos.length ? fechaDeTerminada(terminos, tarjeta.actualizadoEn) : null;
+      if (!seArchivaAlTerminar(tarjeta, abiertasDe.get(tarjeta.id) ?? 0, terminoEn, ultimaDesarchivada(historial))) continue;
+      if (await archivarUna(tarjeta, terminoEn ?? tarjeta.actualizadoEn, ahora, { alTerminar: true })) {
+        archivadas += 1;
+        tocados.add(tarjeta.tableroId);
+      }
+    }
+  }
+  await refrescarTableros(tocados, ahora);
+  return { archivadas };
+}
+
+/**
+ * Lo que llaman tableros.ts y trabajador.ts justo después de guardar un HECHO, ya fuera de la transacción: archiva esa
+ * tarjeta en ese momento. Nunca lanza: si falla, lo anota en el registro y la red de seguridad del reloj la recoge al
+ * minuto siguiente. El HECHO ya quedó guardado pase lo que pase aquí.
+ */
+export async function archivarAlTerminar(tarjetaId: string): Promise<void> {
+  try {
+    await archivarLasHechas(new Date(), { tarjetaIds: [tarjetaId] });
+  } catch (error) {
+    console.error("[archivar-terminadas] no se pudo archivar al terminar", {
+      tarjetaId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Archiva las FALLIDO de todos los tableros que terminaron hace más de N días (desde el 8-nov-2026 las HECHO van por
+ * archivarLasHechas). Una vez al día. Nunca lanza por una tarjeta: la que falla se intenta otra vez el día siguiente.
  */
 export async function archivarLasTerminadas(ahora: Date = new Date()): Promise<{ archivadas: number; quedan: boolean }> {
   const dia = diaDeBogota(ahora);
@@ -183,7 +334,7 @@ export async function archivarLasTerminadas(ahora: Date = new Date()): Promise<{
   // Las candidatas: HECHO o FALLIDO sin archivar, de la que menos se tocó a la que más. Una que se editó hace poco
   // pudo terminar antes: por eso no se filtra por actualizadoEn, se mira su historial.
   const candidatas = await prisma.tarjetaTablero.findMany({
-    where: { borradoEn: null, archivadaEn: null, estado: { in: ESTADOS_EN_LISTA }, creadoEn: { lt: corte } },
+    where: { borradoEn: null, archivadaEn: null, estado: "FALLIDO", creadoEn: { lt: corte } },
     orderBy: [{ actualizadoEn: "asc" }],
     take: CANDIDATAS_POR_VUELTA,
     select: { id: true, tableroId: true, estado: true, actualizadoEn: true, borradoEn: true, archivadaEn: true },
@@ -193,64 +344,19 @@ export async function archivarLasTerminadas(ahora: Date = new Date()): Promise<{
   const tocados = new Set<string>();
   for (let inicio = 0; inicio < candidatas.length && archivadas < TANDA; inicio += LOTE) {
     const lote = candidatas.slice(inicio, inicio + LOTE);
-    const ids = lote.map((tarjeta) => tarjeta.id);
-    const [historial, hijas] = await Promise.all([
-      prisma.historialTarjeta.findMany({
-        where: { tarjetaId: { in: ids }, deshechoEn: null },
-        select: { tarjetaId: true, despues: true, deshechoEn: true, creadoEn: true },
-      }),
-      prisma.tarjetaTablero.groupBy({
-        by: ["padreId"],
-        where: { padreId: { in: ids }, borradoEn: null, estado: { notIn: ESTADOS_EN_LISTA } },
-        _count: { _all: true },
-      }),
-    ]);
-    const abiertasDe = new Map(hijas.map((fila) => [fila.padreId, fila._count._all]));
-    const historialDe = new Map<string, typeof historial>();
-    for (const fila of historial) historialDe.set(fila.tarjetaId, [...(historialDe.get(fila.tarjetaId) ?? []), fila]);
-
+    const { abiertasDe, historialDe } = await datosDelLote(lote.map((tarjeta) => tarjeta.id));
     for (const tarjeta of lote) {
       if (archivadas >= TANDA) break;
       const terminadaEn = fechaDeTerminada(historialDe.get(tarjeta.id) ?? [], tarjeta.actualizadoEn);
       if (!sePuedeArchivar({ ...tarjeta, terminadaEn }, abiertasDe.get(tarjeta.id) ?? 0, ahora, dias)) continue;
-      try {
-        const hecho = await prisma.$transaction(async (tx) => {
-          // Condicionado: si alguien la reabrió o la borró un instante antes, no se archiva.
-          const cambio = await tx.tarjetaTablero.updateMany({
-            where: { id: tarjeta.id, estado: tarjeta.estado, borradoEn: null, archivadaEn: null },
-            data: { archivadaEn: ahora, terminadaEn },
-          });
-          if (cambio.count !== 1) return false;
-          await tx.historialTarjeta.create({
-            data: {
-              tarjetaId: tarjeta.id,
-              quien: QUIEN_ARCHIVA,
-              origen: "TRABAJADOR",
-              accion: "archivar",
-              antes: { archivadaEn: null },
-              despues: { archivadaEn: ahora.toISOString(), terminadaEn: terminadaEn.toISOString(), dias },
-            },
-            select: { id: true },
-          });
-          return true;
-        });
-        if (hecho) {
-          archivadas += 1;
-          tocados.add(tarjeta.tableroId);
-        }
-      } catch (error) {
-        console.error("[archivar-terminadas] no se pudo archivar", {
-          tarjetaId: tarjeta.id,
-          error: error instanceof Error ? error.message : String(error),
-        });
+      if (await archivarUna(tarjeta, terminadaEn, ahora, { dias })) {
+        archivadas += 1;
+        tocados.add(tarjeta.tableroId);
       }
     }
   }
 
-  // Los tableros que cambiaron se refrescan solos en la pantalla (su firma es actualizadoEn).
-  if (tocados.size) {
-    await prisma.tableroInteligente.updateMany({ where: { id: { in: [...tocados] } }, data: { actualizadoEn: ahora } });
-  }
+  await refrescarTableros(tocados, ahora);
   // Una tanda llena puede dejar más: la marca del día no se pone y la vuelta siguiente sigue.
   const quedan = archivadas >= TANDA;
   if (!quedan) {
@@ -266,7 +372,7 @@ export async function archivarLasTerminadas(ahora: Date = new Date()): Promise<{
 /** Lo que dice la automatización en que_es_esta_aplicacion. */
 export async function estadoDelArchivado(): Promise<string> {
   const [dias, ultimo] = await Promise.all([ajuste(CLAVE_DIAS), ajuste(CLAVE_ULTIMO_DIA)]);
-  return `activa (sin interruptor): una vez al día archiva las HECHO y FALLIDO de más de ${diasDelAjuste(dias)} días (${CLAVE_DIAS}); última vuelta completa: ${ultimo ?? "todavía ninguna"}`;
+  return `activa (sin interruptor): las HECHO se archivan apenas terminan (y el reloj, cada minuto, recoge las que falten); una vez al día archiva las FALLIDO de más de ${diasDelAjuste(dias)} días (${CLAVE_DIAS}); última vuelta completa de las FALLIDO: ${ultimo ?? "todavía ninguna"}`;
 }
 
 /* ───────────────────────────────────────────────────────── la pantalla y el MCP ── */

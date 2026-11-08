@@ -3,7 +3,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { Pool } from "pg";
 import { invalidarTrasEscritura } from "@/lib/cache-de-permisos";
 import { contarConsulta, registrarPoolParaMedir } from "@/lib/medicion-de-pedido";
-import { conArchivadoAlTerminar } from "@/features/tableros-inteligentes/services/archivar-al-terminar";
+import { conDesarchivadoAlReabrir } from "@/features/tableros-inteligentes/services/archivar-al-terminar";
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 const connectionString = process.env.DATABASE_URL;
@@ -105,8 +105,9 @@ function withTransientRetry(client: PrismaClient) {
   return client.$extends({
     query: {
       async $allOperations({ model, operation, args: argsPedidos, query }) {
-        // T-691: una tarjeta del Tablero IA que pasa a HECHO se archiva en ese momento (archivar-al-terminar.ts).
-        const args = conArchivadoAlTerminar(model, operation, argsPedidos);
+        // Una tarjeta del Tablero IA que vuelve a un estado abierto se desarchiva sola (archivar-al-terminar.ts). Las
+        // HECHO se archivan aparte, después de guardarlas (archivadas.ts: archivarAlTerminar).
+        const args = conDesarchivadoAlReabrir(model, operation, argsPedidos);
         let lastError: unknown = null;
         /*
           Las caches de permisos de la bandeja (cache-de-permisos.ts) se vacian despues de CADA

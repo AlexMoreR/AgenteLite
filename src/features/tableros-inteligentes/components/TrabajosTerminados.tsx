@@ -16,11 +16,12 @@ import { linkDeLaTarjetaEnPantalla } from "./DialogoDeTablero";
   La pestaña "Trabajos terminados" de Tablero IA (/cliente/tablero-ia?vista=terminados): las tarjetas ARCHIVADAS de
   todos los tableros (las HECHO salen del tablero al terminar y las FALLIDO 3 días después; services/archivadas.ts).
   Cada una con su código, título, tablero, la fecha en que terminó, el repo y el link al commit. Buscador por código,
-  título o repo, y el botón Desarchivar, que la devuelve a su tablero. Solo el dueño o el ADMIN (como "Hoy").
+  título o repo, el botón "Ver tarjeta" (su ficha) y el botón Desarchivar, que la devuelve a su tablero. Solo el dueño
+  o el ADMIN (como "Hoy").
 
   6-nov-2026: con `&dia=AAAA-MM-DD` en el link (el del resumen de las 6 p. m.) muestra lo que terminó ESE día, archivado
   o no, con la fecha arriba y el botón "Ver todos" para volver a la lista completa. Una tarjeta sin archivar no tiene
-  "Desarchivar" (ya está en su tablero): trae "Ver tarjeta".
+  "Desarchivar" (ya está en su tablero): solo "Ver tarjeta".
 */
 
 const ESPERA_BUSQUEDA_MS = 300;
@@ -68,25 +69,27 @@ function Fila({ tarjeta, ocupada, alDesarchivar }: { tarjeta: ArchivadaVista; oc
           ) : null}
         </p>
       </div>
-      {tarjeta.archivadaEn ? (
-        <Button
-          variant="outline"
-          className="h-11 shrink-0 md:h-9"
-          disabled={ocupada}
-          onClick={alDesarchivar}
-          aria-label={`Desarchivar ${tarjeta.codigo || tarjeta.titulo}`}
-        >
-          {ocupada ? <Loader2 className="animate-spin" aria-hidden /> : null}
-          Desarchivar
-        </Button>
-      ) : (
-        // Sin archivar: todavía está en su tablero, así que se abre ahí (desarchivar daría error).
-        <Button asChild variant="outline" className="h-11 shrink-0 md:h-9">
+      <div className="flex shrink-0 flex-wrap gap-2">
+        {/* Abre su ficha: la de una archivada se ve sola encima de su tablero, para consultar (8-nov-2026). */}
+        <Button asChild variant="outline" className="h-11 md:h-9">
           <Link href={linkDeLaTarjetaEnPantalla(tarjeta.id)} aria-label={`Ver tarjeta ${tarjeta.codigo || tarjeta.titulo}`}>
             Ver tarjeta
           </Link>
         </Button>
-      )}
+        {/* Sin archivar todavía está en su tablero: no hay nada que desarchivar (daría error). */}
+        {tarjeta.archivadaEn ? (
+          <Button
+            variant="outline"
+            className="h-11 md:h-9"
+            disabled={ocupada}
+            onClick={alDesarchivar}
+            aria-label={`Desarchivar ${tarjeta.codigo || tarjeta.titulo}`}
+          >
+            {ocupada ? <Loader2 className="animate-spin" aria-hidden /> : null}
+            Desarchivar
+          </Button>
+        ) : null}
+      </div>
     </li>
   );
 }

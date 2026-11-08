@@ -22,6 +22,7 @@ import {
   listarTableros,
   miembrosDelNegocio,
   personaQueAprueba,
+  tarjetaArchivada,
   tarjetaAsignada,
 } from "@/features/tableros-inteligentes/services/tableros";
 import { preferenciasDe } from "@/features/tableros-inteligentes/services/vistas-guardadas";
@@ -54,7 +55,9 @@ const uno = (valor: string | string[] | undefined) => (Array.isArray(valor) ? va
   ?tablero=<id> abre ese tablero; ?area=<tarjetaId> entra a esa tarjeta (ella al centro y sus hijas
   alrededor);
   ?tarjeta=<id> abre el tablero de esa tarjeta, en el nivel de su madre, con su ficha a la vista (es
-  el link que devuelve el MCP y el que usarán los avisos por WhatsApp de la fase 2).
+  el link que devuelve el MCP y el que usarán los avisos por WhatsApp de la fase 2). Si la tarjeta está ARCHIVADA
+  (8-nov-2026: las HECHO salen del tablero apenas terminan) el tablero no la trae: se abre igual, en el nivel de su
+  madre, con la ficha de esa tarjeta sola encima, para consultar (sin aprobar; para cambiarla, Desarchivar).
   ?vista=coordinador abre la página de inicio en la pestaña "Coordinador en vivo" (solo el dueño o el ADMIN;
   para los demás se ignora).
   ?vista=hoy abre la pestaña "Hoy" (lo que terminó, falló o espera al dueño): es el link de los WhatsApp.
@@ -150,11 +153,21 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
     // Si no se puede leer lo guardado, se abre en Tabla sin vistas guardadas: no deja la pantalla sin abrir.
     preferenciasDe(access.userId).catch(() => ({ ultima: "tabla" as const, guardadas: [] })),
   ]);
+  // Una tarjeta archivada no viene en el tablero: su ficha se lee aparte y se abre sola encima (8-nov-2026).
+  const archivada =
+    tarjetaInicial && !contenido.tarjetas.some((tarjeta) => tarjeta.id === tarjetaInicial)
+      ? await tarjetaArchivada(alcance, tarjetaInicial)
+      : null;
+  const madreDeLaArchivada = archivada?.tarjeta.padreId ?? null;
   // El link a una tarjeta abre el nivel de su madre; si no, el nivel pedido (la vista lo valida).
-  const nivelInicial =
-    tarjetaInicial && !pedidoNivel ? nivelDeLaTarjeta(contenido.tarjetas, tarjetaInicial) : pedidoNivel;
+  const nivelInicial = archivada
+    ? pedidoNivel ?? (madreDeLaArchivada && contenido.tarjetas.some((tarjeta) => tarjeta.id === madreDeLaArchivada) ? madreDeLaArchivada : null)
+    : tarjetaInicial && !pedidoNivel
+      ? nivelDeLaTarjeta(contenido.tarjetas, tarjetaInicial)
+      : pedidoNivel;
 
   return (
+    <>
     <TablerosInteligentesVista
       key={elegido.id}
       tableros={lista}
@@ -163,7 +176,7 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
       tableroId={elegido.id}
       tableroNombre={elegido.nombre}
       inicial={{ actualizadoEn: elegido.actualizadoEn.toISOString(), ...contenido }}
-      tarjetaInicial={tarjetaInicial}
+      tarjetaInicial={archivada ? null : tarjetaInicial}
       nivelInicial={nivelInicial}
       // Los botones de la tarea y el plan: dueño, ADMIN o aprobador (el alcance lo revisa el servidor).
       puedeAprobar={personaPuedeAprobar(access) || persona.esDueno || Boolean(persona.aprobador)}
@@ -178,5 +191,14 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
       vistaInicial={pedidoNivel ? "mapa" : preferencias.ultima}
       vistasGuardadas={preferencias.guardadas}
     />
+    {archivada ? (
+      <FichaDeAsignada
+        tarjeta={archivada.tarjeta}
+        tipos={archivada.tipos}
+        volverA={`${RUTA_TABLEROS}?tablero=${encodeURIComponent(elegido.id)}`}
+        puedeCerebro={puedeCerebro}
+      />
+    ) : null}
+    </>
   );
 }

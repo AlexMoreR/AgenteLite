@@ -39,7 +39,7 @@ import {
   type MiembroDelNegocio,
   type OrigenCambio,
 } from "./reglas";
-import { estaTerminada } from "./archivadas";
+import { archivarAlTerminar, estaTerminada } from "./archivadas";
 import {
   dependenciaHaceCiclo,
   esDuenoDelNegocio,
@@ -923,6 +923,21 @@ export async function asignadasA(alcance: Alcance, userId: string): Promise<Asig
 export async function tarjetaAsignada(workspaceId: string, userId: string, tarjetaId: string) {
   const fila = await prisma.tarjetaTablero.findFirst({
     where: { id: tarjetaId, responsableId: userId, tablero: { workspaceId }, ...NO_BORRADA },
+    select: { ...SELECT_TARJETA, tablero: { select: { id: true, nombre: true } } },
+  });
+  if (!fila) return null;
+  const { tablero, ...tarjeta } = fila;
+  return { tarjeta: aVista(tarjeta), tablero, tipos: await tiposDelTablero(prisma, tablero.id) };
+}
+
+/**
+ * (8-nov-2026) La ficha de una tarjeta ARCHIVADA de un tablero que la persona alcanza: la de los links de la campanita,
+ * de "Hoy" y de "Ver tarjeta" en Trabajos terminados. El tablero no la trae (las archivadas no salen en él), así que se
+ * lee aparte: solo ESA tarjeta y los tipos de su tablero. null si no está archivada o no es de un tablero suyo.
+ */
+export async function tarjetaArchivada(alcance: Alcance, tarjetaId: string) {
+  const fila = await prisma.tarjetaTablero.findFirst({
+    where: { id: tarjetaId, ...NO_BORRADA, archivadaEn: { not: null }, tablero: dondeTablero(alcance) },
     select: { ...SELECT_TARJETA, tablero: { select: { id: true, nombre: true } } },
   });
   if (!fila) return null;
@@ -1935,6 +1950,9 @@ export async function cambiarEstadoTarjeta(
   });
   // La tarjeta terminó (HECHO o FALLIDO): sus alertas abiertas se cierran solas.
   if (estado === "HECHO" || estado === "FALLIDO") await cerrarAlertasDeTarjeta(contexto.workspaceId, actual.id, "CIERRE");
+  // Una HECHO sale del tablero en este momento (8-nov-2026), ya guardada y fuera de la transacción: si falla, el
+  // reloj la recoge al minuto siguiente (archivadas.ts). Nunca lanza.
+  if (estado === "HECHO") await archivarAlTerminar(actual.id);
   // POR_APROBAR con repo: se aprueba sola si corresponde (regla del dueño 25-oct; con el interruptor apagado, solo BAJO).
   if (estado !== "POR_APROBAR" || !actual.repo) return { ...cambiado, aprobacionAutomatica: null };
   const aprobacion = await aprobarSolaLaTarea(actual.id);
@@ -2018,6 +2036,8 @@ export async function marcarHechoAMano(contexto: ContextoTablero, tarjetaId: unk
     };
   });
   await cerrarAlertasDeTarjeta(contexto.workspaceId, actual.id, "CIERRE");
+  // Sale del tablero en este momento (8-nov-2026), ya guardada y fuera de la transacción (archivadas.ts). Nunca lanza.
+  await archivarAlTerminar(actual.id);
   return marcada;
 }
 

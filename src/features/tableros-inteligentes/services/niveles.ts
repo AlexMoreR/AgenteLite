@@ -272,6 +272,32 @@ export function atenuadaPorGrupos(contadores: Contadores, activos: ReadonlySet<G
 }
 
 /**
+ * (8-nov-2026) Las tarjetas HECHO SUELTAS de la entrada del mapa que el filtro esconde con "Hecho" apagado. En la raíz
+ * cada tarjeta sin madre es un centro, y los centros nunca se filtran (atenuadaPorGrupos no los mira): por eso una HECHO
+ * sin madre ni hijas (T-577, T-578) seguía a la vista. Solo en la raíz, solo sin hijas y solo HECHO: una carpeta (tipo
+ * sin estados), una FALLIDO, una madre con hijas y el centro de un nivel al que uno entró siguen como hoy.
+ */
+export function sueltasHechasOcultas(
+  tarjetas: TarjetaConEstado[],
+  tipos: readonly TipoDeContador[],
+  nivelId: string | null,
+  activos: ReadonlySet<GrupoDeContador>,
+): Set<string> {
+  const ocultas = new Set<string>();
+  if (activos.has("hecho")) return ocultas;
+  const vivas = tarjetas.filter((tarjeta) => !tarjeta.borradoEn);
+  const { nivel, grupos } = gruposDelNivel(vivas, nivelId);
+  if (nivel) return ocultas;
+  const porId = new Map(vivas.map((tarjeta) => [tarjeta.id, tarjeta]));
+  const porTipo = new Map(tipos.map((tipo) => [tipo.id, tipo]));
+  for (const grupo of grupos) {
+    const tarjeta = porId.get(grupo.centro);
+    if (tarjeta && !grupo.hijas.length && grupoDeLaTarjeta(tarjeta, porTipo) === "hecho") ocultas.add(grupo.centro);
+  }
+  return ocultas;
+}
+
+/**
  * Filtro "Mis tarjetas": los ids de las tarjetas que son de esta persona o que tienen, más abajo, alguna
  * suya (así una carpeta con tareas mías no se apaga). Las demás se ven apagadas, no desaparecen.
  */

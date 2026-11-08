@@ -18,6 +18,7 @@ import {
   gruposDelNivel,
   madresVisibles,
   migasDelNivel,
+  sueltasHechasOcultas,
   tarjetasConMias,
   tarjetasDelNivel,
   type Contadores,
@@ -162,8 +163,9 @@ function useEsAngosta() {
 type Filtros = ReadonlySet<GrupoDeContador>;
 
 /**
- * ¿El filtro la oculta? Las del centro nunca; las demás si no tienen nada en los grupos encendidos o, con
- * "Mis tarjetas" prendido (`mias` = las tarjetas mías y sus madres), si no hay nada mío en ellas.
+ * ¿El filtro la oculta? Las del centro nunca (salvo una HECHO suelta de la entrada con "Hecho" apagado, que va en
+ * `sueltasOcultas`); las demás si no tienen nada en los grupos encendidos o, con "Mis tarjetas" prendido (`mias` = las
+ * tarjetas mías y sus madres), si no hay nada mío en ellas.
  */
 const filtrada = (
   id: string,
@@ -171,8 +173,10 @@ const filtrada = (
   contadores: ReadonlyMap<string, Contadores>,
   filtros: Filtros,
   mias: ReadonlySet<string> | null,
+  sueltasOcultas: ReadonlySet<string>,
 ) =>
-  !centros.has(id) && (atenuadaPorGrupos(contadores.get(id) ?? contadoresEnCero(), filtros) || (mias !== null && !mias.has(id)));
+  sueltasOcultas.has(id) ||
+  (!centros.has(id) && (atenuadaPorGrupos(contadores.get(id) ?? contadoresEnCero(), filtros) || (mias !== null && !mias.has(id))));
 
 /** El nivel que de verdad se muestra (uno que ya no existe = la raíz) y sus tarjetas. */
 function nivelVisible(tarjetas: TarjetaVista[], nivel: string | null) {
@@ -205,11 +209,14 @@ function construirNodos(
   const contadores = contadoresDe(contenido);
   const hijas = contarHijas(contenido.tarjetas);
   const mias = propias ? tarjetasConMias(contenido.tarjetas, propias) : null;
+  const sueltasOcultas = sueltasHechasOcultas(contenido.tarjetas, contenido.tipos, nivelPedido, filtros);
   // Lo filtrado no se pinta (ni su línea): el mapa se acomoda solo con lo que se ve.
-  const gruposVisibles = grupos.map((grupo) => ({
-    centro: grupo.centro,
-    hijas: grupo.hijas.filter((id) => !filtrada(id, centros, contadores, filtros, mias)),
-  }));
+  const gruposVisibles = grupos
+    .filter((grupo) => !sueltasOcultas.has(grupo.centro))
+    .map((grupo) => ({
+      centro: grupo.centro,
+      hijas: grupo.hijas.filter((id) => !filtrada(id, centros, contadores, filtros, mias, sueltasOcultas)),
+    }));
   const visibles = gruposVisibles.flatMap((grupo) => [grupo.centro, ...grupo.hijas]);
   // Si el nivel pedido ya no existe (se borró) se muestra la raíz: las posiciones de antes no sirven.
   const posiciones = disponerRadial(gruposVisibles, nivel === nivelPedido ? previas : new Map());
@@ -323,6 +330,7 @@ export function TablerosInteligentesVista({
     estadoRef.current = { contenido, filtros, propias };
   }, [contenido, filtros, propias]);
   const mias = useMemo(() => (propias ? tarjetasConMias(tarjetas, propias) : null), [propias, tarjetas]);
+  const sueltasOcultas = useMemo(() => sueltasHechasOcultas(tarjetas, tipos, nivel, filtros), [filtros, nivel, tarjetas, tipos]);
   const cuantasMias = useMemo(
     () => tarjetas.filter((tarjeta) => tarjeta.responsableId === cuentas.yo).length,
     [cuentas.yo, tarjetas],
@@ -490,7 +498,7 @@ export function TablerosInteligentesVista({
   }, []);
 
   const aristas = useMemo<FlechaDeTablero[]>(() => {
-    const oculta = (id: string) => filtrada(id, centros, contadores, filtros, mias);
+    const oculta = (id: string) => filtrada(id, centros, contadores, filtros, mias, sueltasOcultas);
     const esMadreEHija = (a: string, b: string) => madre.get(a) === b || madre.get(b) === a;
     // Las flechas entre tarjetas del nivel: punteadas, tenues y sin punto (lo principal es la madre).
     // Una flecha entre madre e hija no se dibuja: ya la representa la unión con la madre (con su punto).
@@ -529,7 +537,7 @@ export function TablerosInteligentesVista({
         };
       });
     return [...uniones, ...flechas];
-  }, [centros, conexiones, contadores, enNivel, filtros, madre, mias, visibles]);
+  }, [centros, conexiones, contadores, enNivel, filtros, madre, mias, sueltasOcultas, visibles]);
 
   const usosDeTipo = useMemo(() => {
     const cuenta = new Map<string, number>();

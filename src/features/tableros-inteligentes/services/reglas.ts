@@ -338,6 +338,8 @@ export function puedeDeshacer(
       otro.creadoEn.getTime() >= cambio.creadoEn.getTime() &&
       !otro.deshechoEn &&
       otro.accion !== "deshacer" &&
+      // Archivar (el reloj o justo después de un HECHO) solo pone archivadaEn: no pisa el cambio (8-nov-2026).
+      otro.accion !== "archivar" &&
       (toca === "todo" || loQueToca(otro) === "todo" || loQueToca(otro) === toca),
   );
   if (pisado) {
