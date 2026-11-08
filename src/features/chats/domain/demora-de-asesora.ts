@@ -3,10 +3,11 @@ import { FRANJA_DEL_RESPALDO, minutoDelDiaEnBogota } from "@/lib/en-linea-reglas
 /**
  * DEMORA DE LA ASESORA: las reglas, sin base de datos (para poder probarlas solas).
  *
- * Parte 1 de 3 de "si la asesora no contesta en 10 minutos, el chat pasa a una asesora activa".
+ * "Si la asesora no contesta en 10 minutos, el chat pasa a una asesora activa" (partes 1 y 2 de 3).
  * Un chat de ventas ASIGNADO que lleva `minutosAviso` (5) sin respuesta de una persona: la asesora
- * recibe un push. A los `minutosReasignar` (10) la regla ya dice "reasignar", pero en esta parte
- * nadie usa ese resultado para mover chats (eso es la parte 2).
+ * recibe un push. A los `minutosReasignar` (10) el chat pasa a una asesora ACTIVA (ver
+ * `elegirAsesoraActiva`): una sola vez por espera. Si no hay a quién, o ya se usó esa única
+ * reasignación, se queda con la que lo tiene y se avisa al dueño.
  *
  * EL RELOJ arranca en lo MÁS RECIENTE entre:
  *  - `desde` de la espera (el primer mensaje de la clienta sin respuesta de una persona),
@@ -29,9 +30,9 @@ export type ConfigDemora = {
   activo: boolean;
   /** Sin respuesta humana en este rato: push a la asesora. */
   minutosAviso: number;
-  /** Sin respuesta humana en este rato: la regla dice "reasignar" (se usa en la parte 2). */
+  /** Sin respuesta humana en este rato: el chat pasa a una asesora activa. */
   minutosReasignar: number;
-  /** "Activa" = mandó desde el CRM un mensaje humano en este rato (se usa en la parte 2). */
+  /** "Activa" = mandó desde el CRM un mensaje escrito por ella en este rato. */
   minutosActiva: number;
 };
 
@@ -124,4 +125,64 @@ export function decidirDemora(entrada: EntradaDelReloj & { config: ConfigDemora 
     return { tipo: "avisar", inicio };
   }
   return { tipo: "nada" };
+}
+
+/** El `origen` de la nota que deja la reasignación automática (para contarlas y para el tope). */
+export const ORIGEN_REASIGNACION_POR_DEMORA = "reasignacion-por-demora";
+
+/** Cuántas veces se puede mover solo un chat en una misma espera (para que no salte de asesora en asesora). */
+export const MAXIMO_REASIGNACIONES_POR_ESPERA = 1;
+
+/** ¿Ya se usó la reasignación automática de esta espera? Entonces se avisa al dueño y no se mueve. */
+export function alcanzoElTopeDeReasignaciones(reasignacionesEnEstaEspera: number): boolean {
+  return reasignacionesEnEstaEspera >= MAXIMO_REASIGNACIONES_POR_ESPERA;
+}
+
+/**
+ * A quién se le pasa el chat. Función pura.
+ *
+ * - `candidatas`: las que reciben reparto en la línea, ya filtradas (miembro activo, en su horario,
+ *   sin pausa manual) y EN EL ORDEN DE LA RUEDA.
+ * - Solo cuenta la que es ACTIVA: tiene fecha en `ultimoMensajePorAsesora` (mandó desde el CRM un
+ *   mensaje escrito por ella en los últimos `minutosActiva`).
+ * - Nunca la original ni la segunda asesora del chat.
+ * - Gana la de menos chats esperando; si empatan, la que escribió más reciente; si siguen
+ *   empatadas, la que va primero en la rueda.
+ * - null si no hay ninguna.
+ */
+export function elegirAsesoraActiva(input: {
+  candidatas: readonly string[];
+  ultimoMensajePorAsesora: ReadonlyMap<string, number>;
+  esperandoPorAsesora: ReadonlyMap<string, number>;
+  original: string;
+  segunda: string | null;
+}): string | null {
+  let elegida: { userId: string; esperando: number; ultimo: number } | null = null;
+  for (const userId of input.candidatas) {
+    if (userId === input.original || userId === input.segunda) continue;
+    const ultimo = input.ultimoMensajePorAsesora.get(userId);
+    if (ultimo === undefined) continue;
+    const esperando = input.esperandoPorAsesora.get(userId) ?? 0;
+    // Se recorre en el orden de la rueda: con empate total se queda la primera.
+    if (
+      !elegida ||
+      esperando < elegida.esperando ||
+      (esperando === elegida.esperando && ultimo > elegida.ultimo)
+    ) {
+      elegida = { userId, esperando, ultimo };
+    }
+  }
+  return elegida?.userId ?? null;
+}
+
+/** La rueda del reparto empezando por la que sigue a la última asignada (como decidirReparto). */
+export function ordenDeLaRueda(rueda: readonly string[], ultimaAsignada: string | null): string[] {
+  const indice = ultimaAsignada ? rueda.indexOf(ultimaAsignada) : -1;
+  if (indice < 0) return [...rueda];
+  return [...rueda.slice(indice + 1), ...rueda.slice(0, indice + 1)];
+}
+
+/** La nota del chat. */
+export function textoDeReasignacion(de: string, a: string, minutos: number): string {
+  return `Reasignado de ${de} a ${a} por no responder en ${minutos} min`;
 }

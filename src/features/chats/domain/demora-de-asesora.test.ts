@@ -1,10 +1,14 @@
-// Pruebas de la demora de la asesora (parte 1). Correr: npm run test:demora-asesora
+// Pruebas de la demora de la asesora (partes 1 y 2). Correr: npm run test:demora-asesora
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
   CONFIG_DEMORA_POR_DEFECTO,
+  alcanzoElTopeDeReasignaciones,
   decidirDemora,
+  elegirAsesoraActiva,
+  ordenDeLaRueda,
+  textoDeReasignacion,
   dentroDeLaFranja,
   inicioDeLaFranjaDeHoy,
   inicioDelReloj,
@@ -89,4 +93,100 @@ test("inicioDelReloj toma el mayor de los cuatro", () => {
   assert.equal(inicioDelReloj({ ...base, ultimaAsignacion: bogota("11:00:00") }), bogota("11:00:00"));
   assert.equal(inicioDelReloj({ ...base, arranque: bogota("12:00:00") }), bogota("12:00:00"));
   assert.equal(inicioDelReloj({ ...base, desde: bogota("05:00:00"), arranque: bogota("04:00:00") }), bogota("07:00:00"));
+});
+
+// ---------- Parte 2: a quién se le pasa el chat ----------
+
+const activas = (pares: Record<string, string>) =>
+  new Map(Object.entries(pares).map(([id, hora]) => [id, bogota(hora)]));
+const esperando = (pares: Record<string, number>) => new Map(Object.entries(pares));
+
+test("nunca elige a la original ni a la segunda", () => {
+  const base = {
+    candidatas: ["ana", "bea", "caro"],
+    ultimoMensajePorAsesora: activas({ ana: "12:05:00", bea: "12:06:00", caro: "12:01:00" }),
+    esperandoPorAsesora: esperando({ ana: 0, bea: 0, caro: 5 }),
+  };
+  assert.equal(elegirAsesoraActiva({ ...base, original: "ana", segunda: "bea" }), "caro");
+  assert.equal(elegirAsesoraActiva({ ...base, candidatas: ["ana", "bea"], original: "ana", segunda: "bea" }), null);
+});
+
+test("gana la de menos chats esperando; si empatan, la que escribió más reciente; luego la rueda", () => {
+  const base = { original: "zoe", segunda: null };
+  assert.equal(
+    elegirAsesoraActiva({
+      ...base,
+      candidatas: ["ana", "bea"],
+      ultimoMensajePorAsesora: activas({ ana: "12:09:00", bea: "12:01:00" }),
+      esperandoPorAsesora: esperando({ ana: 3, bea: 1 }),
+    }),
+    "bea",
+  );
+  assert.equal(
+    elegirAsesoraActiva({
+      ...base,
+      candidatas: ["ana", "bea"],
+      ultimoMensajePorAsesora: activas({ ana: "12:01:00", bea: "12:09:00" }),
+      esperandoPorAsesora: esperando({ ana: 2, bea: 2 }),
+    }),
+    "bea",
+  );
+  // Empate total: la primera en la rueda.
+  assert.equal(
+    elegirAsesoraActiva({
+      ...base,
+      candidatas: ["bea", "ana"],
+      ultimoMensajePorAsesora: activas({ ana: "12:05:00", bea: "12:05:00" }),
+      esperandoPorAsesora: esperando({}),
+    }),
+    "bea",
+  );
+});
+
+test("sin asesora activa = null", () => {
+  assert.equal(
+    elegirAsesoraActiva({
+      candidatas: ["ana", "bea"],
+      ultimoMensajePorAsesora: activas({ caro: "12:05:00" }),
+      esperandoPorAsesora: esperando({}),
+      original: "zoe",
+      segunda: null,
+    }),
+    null,
+  );
+  assert.equal(
+    elegirAsesoraActiva({
+      candidatas: [],
+      ultimoMensajePorAsesora: activas({ ana: "12:05:00" }),
+      esperandoPorAsesora: esperando({}),
+      original: "zoe",
+      segunda: null,
+    }),
+    null,
+  );
+});
+
+test("tope de una reasignación automática por espera", () => {
+  assert.equal(alcanzoElTopeDeReasignaciones(0), false);
+  assert.equal(alcanzoElTopeDeReasignaciones(1), true);
+  assert.equal(alcanzoElTopeDeReasignaciones(2), true);
+});
+
+test("tras reasignar, el reloj de la nueva arranca en cero", () => {
+  // La clienta espera desde las 12:00; a las 12:10 se le pasó a la nueva (nota "assigned" a ella).
+  const ultimaAsignacion = bogota("12:10:00");
+  assert.equal(decidir("12:10:00", { ultimaAsignacion }).tipo, "nada");
+  assert.equal(decidir("12:14:59", { ultimaAsignacion }).tipo, "nada");
+  assert.deepEqual(decidir("12:15:00", { ultimaAsignacion }), { tipo: "avisar", inicio: ultimaAsignacion });
+  assert.deepEqual(decidir("12:20:00", { ultimaAsignacion }), { tipo: "reasignar", inicio: ultimaAsignacion });
+});
+
+test("el orden de la rueda empieza después de la última asignada", () => {
+  assert.deepEqual(ordenDeLaRueda(["ana", "bea", "caro"], "bea"), ["caro", "ana", "bea"]);
+  assert.deepEqual(ordenDeLaRueda(["ana", "bea", "caro"], null), ["ana", "bea", "caro"]);
+  assert.deepEqual(ordenDeLaRueda(["ana", "bea", "caro"], "otra"), ["ana", "bea", "caro"]);
+});
+
+test("el texto de la nota", () => {
+  assert.equal(textoDeReasignacion("Ana", "Bea", 10), "Reasignado de Ana a Bea por no responder en 10 min");
 });

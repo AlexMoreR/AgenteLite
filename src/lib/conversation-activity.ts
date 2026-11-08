@@ -47,6 +47,11 @@ export async function recordConversationActivity(input: {
    * adivinar por el nombre (Alex, 02-10-2026).
    */
   assigneeUserId?: string | null;
+  /**
+   * DE QUIEN se quito el chat, como dato (la reasignacion por demora: ver
+   * features/chats/services/demora-de-asesora.ts). Para contar despues por asesora sin leer nombres.
+   */
+  reasignadoDeUserId?: string | null;
   /** Con que control se hizo, cuando importa distinguirlo (ver assignChatAction). */
   origen?: string | null;
   /** Android, iPhone, Windows... Sale de la cabecera del navegador. */
@@ -73,6 +78,7 @@ export async function recordConversationActivity(input: {
           kind: input.kind,
           actorUserId: input.actorUserId ?? null,
           ...(input.assigneeUserId ? { assigneeUserId: input.assigneeUserId } : {}),
+          ...(input.reasignadoDeUserId ? { reasignadoDeUserId: input.reasignadoDeUserId } : {}),
           ...(input.origen ? { origen: input.origen } : {}),
           ...(input.dispositivo ? { dispositivo: input.dispositivo } : {}),
         } as never,
