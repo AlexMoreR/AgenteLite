@@ -1,10 +1,13 @@
-// Pruebas de la demora de la asesora (parte 1). Correr: npm run test:demora-asesora
+// Pruebas de la demora de la asesora (partes 1 y 2). Correr: npm run test:demora-asesora
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
   CONFIG_DEMORA_POR_DEFECTO,
+  ORIGEN_REASIGNACION_POR_DEMORA,
+  alcanzoElTopeDeReasignaciones,
   decidirDemora,
+  elegirAsesoraActiva,
   dentroDeLaFranja,
   inicioDeLaFranjaDeHoy,
   inicioDelReloj,
@@ -89,4 +92,73 @@ test("inicioDelReloj toma el mayor de los cuatro", () => {
   assert.equal(inicioDelReloj({ ...base, ultimaAsignacion: bogota("11:00:00") }), bogota("11:00:00"));
   assert.equal(inicioDelReloj({ ...base, arranque: bogota("12:00:00") }), bogota("12:00:00"));
   assert.equal(inicioDelReloj({ ...base, desde: bogota("05:00:00"), arranque: bogota("04:00:00") }), bogota("07:00:00"));
+});
+
+// --- Parte 2: a quién se le pasa el chat ---
+
+function elegir(extra: Partial<Parameters<typeof elegirAsesoraActiva>[0]> = {}) {
+  return elegirAsesoraActiva({
+    candidatas: ["ana", "bea", "caro", "dani"],
+    ultimoMensajePorAsesora: new Map([
+      ["ana", bogota("12:05:00")],
+      ["bea", bogota("12:06:00")],
+      ["caro", bogota("12:07:00")],
+      ["dani", bogota("12:08:00")],
+    ]),
+    esperandoPorAsesora: new Map(),
+    original: "ana",
+    segunda: null,
+    ...extra,
+  });
+}
+
+test("nunca elige a la original ni a la segunda", () => {
+  // dani escribió más reciente, pero es la segunda del chat.
+  assert.equal(elegir({ segunda: "dani" }), "caro");
+  assert.equal(elegir({ original: "dani", segunda: "caro" }), "bea");
+  const soloEllas = elegir({ candidatas: ["ana", "bea"], segunda: "bea" });
+  assert.equal(soloEllas, null);
+});
+
+test("gana la de menos chats esperando; empate = la del mensaje más reciente; luego la rueda", () => {
+  const esperando = new Map([
+    ["bea", 1],
+    ["caro", 3],
+    ["dani", 2],
+  ]);
+  assert.equal(elegir({ esperandoPorAsesora: esperando }), "bea");
+  // bea y caro con 1: caro escribió más reciente.
+  assert.equal(elegir({ esperandoPorAsesora: new Map([["bea", 1], ["caro", 1], ["dani", 2]]) }), "caro");
+  // Mismo número y misma hora: la que va primero en la rueda.
+  const mismaHora = new Map([
+    ["bea", bogota("12:06:00")],
+    ["caro", bogota("12:06:00")],
+  ]);
+  assert.equal(elegir({ ultimoMensajePorAsesora: mismaHora }), "bea");
+  assert.equal(elegir({ ultimoMensajePorAsesora: mismaHora, candidatas: ["caro", "bea"] }), "caro");
+});
+
+test("sin asesora activa = null", () => {
+  assert.equal(elegir({ ultimoMensajePorAsesora: new Map() }), null);
+  assert.equal(elegir({ candidatas: [] }), null);
+  // Activa pero no recibe reparto en esa línea (no está en candidatas): no cuenta.
+  assert.equal(elegir({ candidatas: ["ana"], ultimoMensajePorAsesora: new Map([["zoe", bogota("12:09:00")]]) }), null);
+});
+
+test("tope de UNA reasignación automática por espera", () => {
+  const desde = bogota("12:00:00");
+  assert.equal(alcanzoElTopeDeReasignaciones([], desde), false);
+  assert.equal(alcanzoElTopeDeReasignaciones([bogota("12:10:00")], desde), true);
+  // Una reasignación de una espera anterior no cuenta para esta.
+  assert.equal(alcanzoElTopeDeReasignaciones([bogota("11:30:00")], desde), false);
+  assert.equal(ORIGEN_REASIGNACION_POR_DEMORA, "reasignacion-por-demora");
+});
+
+test("tras reasignar, el reloj de la nueva arranca en cero", () => {
+  const reasignado = bogota("12:10:00");
+  // La nota de la reasignación es la última asignación a la nueva.
+  assert.deepEqual(decidir("12:10:00", { ultimaAsignacion: reasignado }), { tipo: "nada" });
+  assert.equal(decidir("12:14:59", { ultimaAsignacion: reasignado }).tipo, "nada");
+  assert.deepEqual(decidir("12:15:00", { ultimaAsignacion: reasignado }), { tipo: "avisar", inicio: reasignado });
+  assert.deepEqual(decidir("12:20:00", { ultimaAsignacion: reasignado }), { tipo: "reasignar", inicio: reasignado });
 });
