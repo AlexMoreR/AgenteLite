@@ -361,11 +361,11 @@ async function bandera(clave: string) {
   return fila?.value ?? null;
 }
 
-/** La demora de la asesora (parte 1: aviso a los 5 min). Sin fila o JSON roto = apagada. */
+/** La demora de la asesora (aviso a los 5 min y reasignación a los 10). Sin fila o JSON roto = apagada. */
 async function estadoDeLaDemoraDeAsesora(workspaceId: string) {
   const config = leerConfigDemoraDeTexto(await bandera(`${PREFIJO_CONFIG_DEMORA}${workspaceId}`));
   return config.activo
-    ? `activa: push a la asesora si su chat de ventas lleva ${config.minutosAviso} min sin respuesta humana (de 7:00 a 23:00); no reasigna ni le escribe al cliente`
+    ? `activa: push a la asesora si su chat de ventas lleva ${config.minutosAviso} min sin respuesta humana y a los ${config.minutosReasignar} min lo reasigna a una asesora activa (una vez por espera; sin activa avisa a dueños y administradores), de 7:00 a 23:00; no le escribe al cliente`
     : `apagada (${PREFIJO_CONFIG_DEMORA}<negocio> sin "activo": true)`;
 }
 

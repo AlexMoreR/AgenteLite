@@ -1,9 +1,13 @@
-// Pruebas de la demora de la asesora (parte 1). Correr: npm run test:demora-asesora
+// Pruebas de la demora de la asesora (partes 1 y 2). Correr: npm run test:demora-asesora
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
   CONFIG_DEMORA_POR_DEFECTO,
+  ORIGEN_REASIGNACION_POR_DEMORA,
+  accionAlReasignar,
+  elegirAsesoraActiva,
+  textoDeReasignacion,
   decidirDemora,
   dentroDeLaFranja,
   inicioDeLaFranjaDeHoy,
@@ -89,4 +93,72 @@ test("inicioDelReloj toma el mayor de los cuatro", () => {
   assert.equal(inicioDelReloj({ ...base, ultimaAsignacion: bogota("11:00:00") }), bogota("11:00:00"));
   assert.equal(inicioDelReloj({ ...base, arranque: bogota("12:00:00") }), bogota("12:00:00"));
   assert.equal(inicioDelReloj({ ...base, desde: bogota("05:00:00"), arranque: bogota("04:00:00") }), bogota("07:00:00"));
+});
+
+// --- Parte 2: la reasignación ---
+
+const activas = (pares: Record<string, string>) =>
+  new Map(Object.entries(pares).map(([id, hora]) => [id, bogota(hora)]));
+const esperando = (pares: Record<string, number>) => new Map(Object.entries(pares));
+
+const base = {
+  candidatas: ["ana", "bea", "caro", "dani"],
+  ultimoMensajePorAsesora: activas({ ana: "12:01:00", bea: "12:02:00", caro: "12:03:00", dani: "12:04:00" }),
+  esperandoPorAsesora: esperando({}),
+  original: "ana",
+  segunda: "bea",
+};
+
+test("nunca elige a la original ni a la segunda", () => {
+  // La original y la segunda son las de menos espera, y aun así no salen.
+  const elegida = elegirAsesoraActiva({
+    ...base,
+    esperandoPorAsesora: esperando({ ana: 0, bea: 0, caro: 5, dani: 5 }),
+  });
+  assert.equal(elegida, "dani");
+  assert.equal(elegirAsesoraActiva({ ...base, candidatas: ["ana", "bea"] }), null);
+});
+
+test("gana la de menos chats esperando; si empatan, la del mensaje más reciente; luego la rueda", () => {
+  assert.equal(elegirAsesoraActiva({ ...base, esperandoPorAsesora: esperando({ caro: 1, dani: 3 }) }), "caro");
+  // Empate en espera: la que escribió más reciente (dani a las 12:04).
+  assert.equal(elegirAsesoraActiva({ ...base, esperandoPorAsesora: esperando({ caro: 2, dani: 2 }) }), "dani");
+  // Empate total: la primera de la rueda.
+  const iguales = activas({ caro: "12:03:00", dani: "12:03:00" });
+  assert.equal(elegirAsesoraActiva({ ...base, ultimoMensajePorAsesora: iguales }), "caro");
+  assert.equal(
+    elegirAsesoraActiva({ ...base, candidatas: ["ana", "dani", "caro"], ultimoMensajePorAsesora: iguales }),
+    "dani",
+  );
+});
+
+test("solo cuentan las activas; sin ninguna, null", () => {
+  // caro es candidata pero no escribió en los últimos minutos.
+  assert.equal(elegirAsesoraActiva({ ...base, ultimoMensajePorAsesora: activas({ ana: "12:00:00", dani: "11:59:00" }) }), "dani");
+  assert.equal(elegirAsesoraActiva({ ...base, ultimoMensajePorAsesora: activas({ ana: "12:00:00" }) }), null);
+  assert.equal(elegirAsesoraActiva({ ...base, candidatas: [] }), null);
+  assert.deepEqual(accionAlReasignar({ ...base, candidatas: [], reasignacionesEnEstaEspera: 0 }), {
+    tipo: "avisar-jefes",
+    motivo: "sin-activa",
+  });
+});
+
+test("tope de una reasignación por espera: a la segunda se avisa y no se mueve", () => {
+  assert.deepEqual(accionAlReasignar({ ...base, reasignacionesEnEstaEspera: 0 }), { tipo: "reasignar", a: "dani" });
+  assert.deepEqual(accionAlReasignar({ ...base, reasignacionesEnEstaEspera: 1 }), { tipo: "avisar-jefes", motivo: "tope" });
+  assert.deepEqual(accionAlReasignar({ ...base, reasignacionesEnEstaEspera: 2 }), { tipo: "avisar-jefes", motivo: "tope" });
+});
+
+test("tras reasignar, el reloj de la nueva arranca en cero", () => {
+  // Reasignado a las 12:10 (la nota es la última asignación a la nueva).
+  const ultimaAsignacion = bogota("12:10:00");
+  assert.equal(decidir("12:10:00", { ultimaAsignacion }).tipo, "nada");
+  assert.equal(decidir("12:14:59", { ultimaAsignacion }).tipo, "nada");
+  assert.deepEqual(decidir("12:15:00", { ultimaAsignacion }), { tipo: "avisar", inicio: ultimaAsignacion });
+  assert.deepEqual(decidir("12:20:00", { ultimaAsignacion }), { tipo: "reasignar", inicio: ultimaAsignacion });
+});
+
+test("la nota de la reasignación", () => {
+  assert.equal(ORIGEN_REASIGNACION_POR_DEMORA, "reasignacion-por-demora");
+  assert.equal(textoDeReasignacion("Ana", "Dani", 10), "Reasignado de Ana a Dani por no responder en 10 min");
 });

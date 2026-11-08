@@ -3,10 +3,11 @@ import { FRANJA_DEL_RESPALDO, minutoDelDiaEnBogota } from "@/lib/en-linea-reglas
 /**
  * DEMORA DE LA ASESORA: las reglas, sin base de datos (para poder probarlas solas).
  *
- * Parte 1 de 3 de "si la asesora no contesta en 10 minutos, el chat pasa a una asesora activa".
+ * "Si la asesora no contesta en 10 minutos, el chat pasa a una asesora activa" (partes 1 y 2 de 3).
  * Un chat de ventas ASIGNADO que lleva `minutosAviso` (5) sin respuesta de una persona: la asesora
- * recibe un push. A los `minutosReasignar` (10) la regla ya dice "reasignar", pero en esta parte
- * nadie usa ese resultado para mover chats (eso es la parte 2).
+ * recibe un push. A los `minutosReasignar` (10) la regla dice "reasignar": el chat pasa a una asesora
+ * ACTIVA (elegirAsesoraActiva, más abajo). Sin ninguna, o si ya se reasignó una vez en esta espera,
+ * el chat no se mueve y se avisa al dueño y a los administradores.
  *
  * EL RELOJ arranca en lo MÁS RECIENTE entre:
  *  - `desde` de la espera (el primer mensaje de la clienta sin respuesta de una persona),
@@ -29,9 +30,9 @@ export type ConfigDemora = {
   activo: boolean;
   /** Sin respuesta humana en este rato: push a la asesora. */
   minutosAviso: number;
-  /** Sin respuesta humana en este rato: la regla dice "reasignar" (se usa en la parte 2). */
+  /** Sin respuesta humana en este rato: el chat pasa a una asesora activa. */
   minutosReasignar: number;
-  /** "Activa" = mandó desde el CRM un mensaje humano en este rato (se usa en la parte 2). */
+  /** "Activa" = mandó desde el CRM un mensaje escrito por ella en este rato. */
   minutosActiva: number;
 };
 
@@ -124,4 +125,80 @@ export function decidirDemora(entrada: EntradaDelReloj & { config: ConfigDemora 
     return { tipo: "avisar", inicio };
   }
   return { tipo: "nada" };
+}
+
+/*
+  LA REASIGNACIÓN (parte 2).
+
+  ACTIVA = mandó desde el CRM un mensaje escrito por ella (source "manual" con su id) en los últimos
+  `minutosActiva`. Los del celular (source "instance") no guardan autor y no cuentan.
+  CANDIDATA = recibe reparto en esa línea, es miembro activo, está en su horario y no está en pausa
+  manual. Las dos listas las arma el servicio; acá solo se decide.
+*/
+
+/** El `origen` de la nota de una reasignación automática por demora. */
+export const ORIGEN_REASIGNACION_POR_DEMORA = "reasignacion-por-demora";
+
+/** Reasignaciones automáticas por espera: a la segunda demora se avisa al dueño y el chat no se mueve. */
+export const MAXIMO_REASIGNACIONES_POR_ESPERA = 1;
+
+export type EntradaElegirAsesora = {
+  /** Las candidatas de la línea, en el orden de la rueda. */
+  candidatas: string[];
+  /** Último mensaje humano desde el CRM de cada asesora ACTIVA (ms). Sin entrada = no está activa. */
+  ultimoMensajePorAsesora: ReadonlyMap<string, number>;
+  /** Cuántos chats esperando tiene cada asesora (como principal). */
+  esperandoPorAsesora: ReadonlyMap<string, number>;
+  /** La dueña actual del chat. */
+  original: string;
+  /** La segunda asesora del chat, si hay. */
+  segunda: string | null;
+};
+
+/**
+ * A quién se le pasa el chat. Nunca a la original ni a la segunda; solo activas. Gana la de menos
+ * chats esperando; si empatan, la del mensaje más reciente; si siguen empatadas, el orden de la
+ * rueda. null = no hay ninguna.
+ */
+export function elegirAsesoraActiva(entrada: EntradaElegirAsesora): string | null {
+  let elegida: { id: string; esperando: number; ultimo: number } | null = null;
+  for (const id of entrada.candidatas) {
+    if (id === entrada.original || id === entrada.segunda) continue;
+    const ultimo = entrada.ultimoMensajePorAsesora.get(id);
+    if (ultimo === undefined) continue;
+    const esperando = entrada.esperandoPorAsesora.get(id) ?? 0;
+    // A igualdad total se queda la que ya estaba: la primera en la rueda.
+    if (
+      !elegida ||
+      esperando < elegida.esperando ||
+      (esperando === elegida.esperando && ultimo > elegida.ultimo)
+    ) {
+      elegida = { id, esperando, ultimo };
+    }
+  }
+  return elegida?.id ?? null;
+}
+
+export type AccionAlReasignar =
+  | { tipo: "reasignar"; a: string }
+  /** El chat no se mueve: se avisa al dueño y a los administradores. */
+  | { tipo: "avisar-jefes"; motivo: "sin-activa" | "tope" };
+
+/**
+ * Qué hacer con un chat que llegó a `minutosReasignar`. `reasignacionesEnEstaEspera` = notas de
+ * reasignación por demora desde el `desde` de ESTA espera.
+ */
+export function accionAlReasignar(
+  entrada: EntradaElegirAsesora & { reasignacionesEnEstaEspera: number },
+): AccionAlReasignar {
+  if (entrada.reasignacionesEnEstaEspera >= MAXIMO_REASIGNACIONES_POR_ESPERA) {
+    return { tipo: "avisar-jefes", motivo: "tope" };
+  }
+  const a = elegirAsesoraActiva(entrada);
+  return a ? { tipo: "reasignar", a } : { tipo: "avisar-jefes", motivo: "sin-activa" };
+}
+
+/** El texto de la nota en el chat. */
+export function textoDeReasignacion(de: string, a: string, minutos: number): string {
+  return `Reasignado de ${de} a ${a} por no responder en ${minutos} min`;
 }
