@@ -14,7 +14,7 @@ import { linkDeLaTarjetaEnPantalla } from "./DialogoDeTablero";
 
 /*
   La pestaña "Trabajos terminados" de Tablero IA (/cliente/tablero-ia?vista=terminados): las tarjetas ARCHIVADAS de
-  todos los tableros (las HECHO y FALLIDO salen solas del tablero 3 días después de terminar; services/archivadas.ts).
+  todos los tableros (las HECHO salen del tablero al terminar y las FALLIDO 3 días después; services/archivadas.ts).
   Cada una con su código, título, tablero, la fecha en que terminó, el repo y el link al commit. Buscador por código,
   título o repo, y el botón Desarchivar, que la devuelve a su tablero. Solo el dueño o el ADMIN (como "Hoy").
 
@@ -179,7 +179,7 @@ export function TrabajosTerminados({ dia = null, alVerTodos }: Props) {
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">
-            Las tarjetas Hechas o Fallidas salen solas del tablero 3 días después de terminar y quedan aquí, con todo su
+            Las tarjetas Hechas salen del tablero apenas terminan (las Fallidas, 3 días después) y quedan aquí, con todo su
             historial. Ya no cuentan para el límite de 300.
           </p>
         )}
@@ -234,7 +234,7 @@ export function TrabajosTerminados({ dia = null, alVerTodos }: Props) {
                 ? `No hay trabajos terminados que coincidan con «${busqueda}»${dia ? " ese día" : ""}.`
                 : dia
                   ? "Ese día no terminó ninguna tarjeta."
-                  : "Todavía no hay trabajos archivados. Las tarjetas terminadas pasan aquí solas a los 3 días."}
+                  : "Todavía no hay trabajos archivados. Las tarjetas Hechas pasan aquí apenas terminan; las Fallidas, a los 3 días."}
           </p>
         )
       ) : null}

@@ -11,6 +11,8 @@ import type { Alcance, ContextoTablero } from "./tableros";
   Coordinador sigue viendo HECHO la tarjeta de origen de una flecha "espera a esta" y el cierre de una madre partida
   no cambia (sql-trabajador.ts, trabajador.ts y madre-partida.ts NO filtran las archivadas, a propósito).
 
+  - T-691 (7-nov-2026): una tarjeta que pasa a HECHO se archiva en ese momento (archivar-al-terminar.ts); lo de abajo
+    sigue valiendo para las FALLIDO y como red de seguridad para cualquier HECHO que se haya escapado.
   - Una vez al día, en el reloj (api/cron/follows), se archivan las HECHO y FALLIDO de TODOS los tableros que
     terminaron hace más de 3 días (ajuste `tablero:archivar-terminadas:dias`). La primera vuelta después de subir es la
     limpieza única: todavía no hay marca de "ya corrió hoy". Va por tandas de 200 por vuelta: si queda más, la marca

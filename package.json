@@ -83,6 +83,7 @@
     "test:tablero-avisos-al-equipo": "node scripts/check-tablero-avisos-al-equipo.mjs",
     "test:tablero-avisos-de-terminadas": "node scripts/check-tablero-avisos-de-terminadas.mjs",
     "test:tablero-archivadas": "node scripts/check-tablero-archivadas.mjs",
+    "test:tablero-archivar-al-terminar": "npx tsx --test src/features/tableros-inteligentes/services/archivar-al-terminar.test.ts",
     "test:tablero-archivadas-migracion": "node scripts/check-tablero-archivadas-migracion.mjs",
     "test:coordinador-en-vivo": "node scripts/check-coordinador-en-vivo.mjs",
     "test:reuniones-unir-pistas": "node scripts/check-reuniones-unir-pistas.mjs",
