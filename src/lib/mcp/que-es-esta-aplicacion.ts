@@ -17,6 +17,7 @@ import { tieneAccesoAlDrive } from "@/features/cerebro/services/conexion";
 import { estadoDeEtapaPorLectura, type EstadoDeEtapaPorLectura } from "@/features/crm/services/etapa-por-lectura";
 import { claveModoDelRecibo, claveTelefonoDePrueba, modoDelRecibo, prefijoReciboEnviado, resumenDeEnvios, telefonoParaWhatsApp } from "@/lib/recibo-de-caja";
 import { claveDeReglas, leerReglasDeTexto } from "@/lib/reparto-por-anuncio";
+import { PREFIJO_CONFIG_DEMORA, leerConfigDemoraDeTexto } from "@/features/chats/domain/demora-de-asesora";
 
 /**
  * "¿QUE ES ESTA APLICACION?" PARA UN ASESOR DE IA.
@@ -360,6 +361,14 @@ async function bandera(clave: string) {
   return fila?.value ?? null;
 }
 
+/** La demora de la asesora (parte 1: aviso a los 5 min). Sin fila o JSON roto = apagada. */
+async function estadoDeLaDemoraDeAsesora(workspaceId: string) {
+  const config = leerConfigDemoraDeTexto(await bandera(`${PREFIJO_CONFIG_DEMORA}${workspaceId}`));
+  return config.activo
+    ? `activa: push a la asesora si su chat de ventas lleva ${config.minutosAviso} min sin respuesta humana (de 7:00 a 23:00); no reasigna ni le escribe al cliente`
+    : `apagada (${PREFIJO_CONFIG_DEMORA}<negocio> sin "activo": true)`;
+}
+
 /**
  * El recibo de caja por WhatsApp (Gestión → línea Admin): el modo, si hay teléfono de prueba (sin
  * mostrarlo), cuántos salieron hoy (día de Bogotá) y el último, leído de `recibo-caja:enviado:<negocio>:*`.
@@ -650,6 +659,8 @@ async function automatizaciones(
     // Cron cada minuto: aviso "Listo para pagar" sin respuesta humana en 5 min (en horario) → líder de ventas.
     listo_para_pagar: v3.hayLineasConV3 ? sinInterruptor : "no aplica: ninguna linea usa el Agente V3",
     rescate_de_chats_huerfanos: sinInterruptor,
+    // Cron cada minuto: push a la asesora si su chat de ventas lleva 5 min sin respuesta humana (7:00 a 23:00).
+    demora_de_asesora: await estadoDeLaDemoraDeAsesora(workspaceId).catch(() => "no se pudo leer"),
     // Corre en cada mensaje de la clienta (webhook), no en el reloj. Se gobierna desde Equipo
     // (pausa de reparto y horario por vendedora), no con una bandera.
     reparto_por_turno: sinInterruptor,

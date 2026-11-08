@@ -246,8 +246,11 @@ export function chatsEnEsperaDeLasFilas(filas: FilaDeEspera[], oficial: boolean)
   return chats;
 }
 
-/** Corre las dos consultas del negocio. */
-async function cargarEsperaDelNegocio(workspaceId: string): Promise<ChatEnEspera[]> {
+/**
+ * Corre las dos consultas del negocio, SIN la memoria de 60 s. La usa directo el reloj de la demora
+ * de la asesora (services/demora-de-asesora.ts), para no decidir con datos de hace un minuto.
+ */
+export async function cargarEsperaDelNegocio(workspaceId: string): Promise<ChatEnEspera[]> {
   const ahora = new Date();
   const [viejo, oficial] = await Promise.all([
     prisma.$queryRaw<FilaDeEspera[]>(sqlEsperaDeChats({ workspaceId, ahora })),

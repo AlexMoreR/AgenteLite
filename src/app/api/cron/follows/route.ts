@@ -10,6 +10,7 @@ import { ejecutarSeguimientosV3 } from "@/features/agente-v3/servicios/seguimien
 import { avisarClientesEsperando } from "@/features/agente-v3/servicios/cliente-esperando";
 import { rescatarMensajesSinDecidir } from "@/features/agente-v3/servicios/rescate-de-mensajes";
 import { revisarListoParaPagar } from "@/features/listo-para-pagar/servicios/listo-para-pagar";
+import { revisarDemorasDeAsesoras } from "@/features/chats/services/demora-de-asesora";
 import { rescatarChatsHuerfanos } from "@/lib/rescate-de-chats-huerfanos";
 import { repartirChatsDeMadrugada } from "@/lib/reparto-de-madrugada";
 import { transcribirAudiosPendientes } from "@/lib/transcripcion-de-audios";
@@ -124,6 +125,19 @@ async function handleCron(request: Request) {
     await revisarListoParaPagar();
   } catch (error) {
     console.error("[cron/follows] listo para pagar error", error);
+  }
+
+  /*
+    DEMORA DE LA ASESORA (parte 1): un chat de ventas asignado que lleva 5 minutos sin respuesta
+    humana, de 7:00 a 23:00: push a su asesora. APAGADA por defecto (sin
+    `chats:demora-asesora:config:<negocio>` es UNA consulta a AppSetting y sale). No cambia
+    asignaciones ni le escribe al cliente. En cada vuelta: 5 minutos son 5 minutos. Best-effort.
+  */
+  let demoraDeAsesora: Awaited<ReturnType<typeof revisarDemorasDeAsesoras>> | null = null;
+  try {
+    demoraDeAsesora = await revisarDemorasDeAsesoras();
+  } catch (error) {
+    console.error("[cron/follows] demora de asesora error", error);
   }
 
   /*
@@ -431,6 +445,7 @@ async function handleCron(request: Request) {
     mensajesRescatados,
     rescatados,
     deMadrugada,
+    demoraDeAsesora,
   });
 }
 
