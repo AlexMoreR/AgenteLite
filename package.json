@@ -103,6 +103,7 @@
     "test:avisos-gravedad": "node scripts/check-avisos-gravedad.mjs",
     "test:listo-para-pagar": "npx tsx --test src/features/listo-para-pagar/dominio/senal.test.ts src/features/listo-para-pagar/dominio/lider-de-ventas.test.ts",
     "test:supervisor-accionable": "node scripts/check-supervisor-accionable.mjs",
+    "test:supervisor-apagado-migracion": "node scripts/check-supervisor-apagado-migracion.mjs",
     "test:mcp-supervisor": "node scripts/check-mcp-supervisor.mjs",
     "test:rescate-mensajes": "node scripts/check-rescate-mensajes.mjs",
     "test:turno": "node scripts/check-turno.mjs",
