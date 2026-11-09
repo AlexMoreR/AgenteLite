@@ -177,7 +177,10 @@ export async function vueltaDeCincoMinutos(ahora = new Date()): Promise<{ negoci
         console.error("[supervisor] libro", workspaceId, error instanceof Error ? error.message : error);
       }
       try {
-        hallazgos += await chequearAtencion(workspaceId, ahora);
+        // 9-nov-2026 (pedido del dueño): con el Supervisor accionable apagado NO se revisa la atención de los chats
+        // (ni alertas nuevas ni avisos). Prenderlo de nuevo (activo=true en supervisor:accionable:<ws>) lo devuelve todo.
+        const accionable = await leerConfigAccionable(workspaceId).catch(() => null);
+        if (accionable?.activo) hallazgos += await chequearAtencion(workspaceId, ahora);
       } catch (error) {
         console.error("[supervisor] atencion", workspaceId, error instanceof Error ? error.message : error);
       }
