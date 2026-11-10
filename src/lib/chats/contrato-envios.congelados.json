@@ -1,0 +1,174 @@
+{
+  "_regla": "SOLO SE AGREGA. Payloads y respuestas de hoy (10-11-2026) de las rutas fijas de envio del chat, armados como los manda la pantalla. No se borra ni se cambia una entrada: scripts/check-contrato-envios.mjs compara contra una lista escrita en la prueba. Los campos undefined no viajan en JSON: por eso no aparecen.",
+  "pedidos": {
+    "enviar-archivo/un-archivo": {
+      "ruta": "enviar-archivo",
+      "origen": "chat-conversation-panel.tsx:953",
+      "cuerpo": {
+        "source": "agent",
+        "conversationId": "conv-1",
+        "agentId": "agente-1",
+        "mediaUrl": "/uploads/chat-media/1731200000000-foto.jpg",
+        "mediaType": "IMAGE",
+        "fileName": "foto.jpg",
+        "mimeType": "image/jpeg",
+        "caption": "Mire este modelo",
+        "returnTo": "/cliente/chats?conversation=conv-1"
+      }
+    },
+    "enviar-archivo/reintentar-sin-texto-agente-vacio": {
+      "ruta": "enviar-archivo",
+      "origen": "chat-conversation-panel.tsx:1064",
+      "cuerpo": {
+        "source": "official",
+        "conversationId": "conv-2",
+        "agentId": "",
+        "mediaUrl": "/uploads/chat-media/1731200000001-video.mp4",
+        "mediaType": "VIDEO",
+        "fileName": "video.mp4",
+        "mimeType": "video/mp4",
+        "returnTo": ""
+      }
+    },
+    "enviar-archivo/biblioteca": {
+      "ruta": "enviar-archivo",
+      "origen": "chat-conversation-panel.tsx:3221",
+      "cuerpo": {
+        "source": "agent",
+        "conversationId": "conv-1",
+        "agentId": "agente-1",
+        "mediaUrl": "/uploads/biblioteca/catalogo.pdf",
+        "mediaType": "DOCUMENT",
+        "fileName": "catalogo.pdf",
+        "mimeType": "application/pdf",
+        "returnTo": "/cliente/chats?conversation=conv-1"
+      }
+    },
+    "enviar-archivo/carta-de-colores": {
+      "ruta": "enviar-archivo",
+      "origen": "chat-conversation-panel.tsx:3248",
+      "cuerpo": {
+        "source": "agent",
+        "conversationId": "conv-1",
+        "agentId": "agente-1",
+        "mediaUrl": "/uploads/carta/carta-de-colores.png",
+        "mediaType": "IMAGE",
+        "fileName": "carta-de-colores.png",
+        "mimeType": "image/png",
+        "caption": "Estos son los colores disponibles",
+        "returnTo": "/cliente/chats?conversation=conv-1"
+      }
+    },
+    "enviar-archivo/reenviar-foto": {
+      "ruta": "enviar-archivo",
+      "origen": "forward-message-dialog.tsx:169",
+      "cuerpo": {
+        "source": "agent",
+        "conversationId": "conv-3",
+        "mediaUrl": "https://app.aizenbot.com/uploads/chat-media/a.jpg",
+        "mediaType": "IMAGE",
+        "fileName": "a.jpg",
+        "mimeType": "application/octet-stream",
+        "returnTo": ""
+      }
+    },
+    "enviar-archivo/reenviar-documento": {
+      "ruta": "enviar-archivo",
+      "origen": "forward-message-dialog.tsx:169",
+      "cuerpo": {
+        "source": "official",
+        "conversationId": "conv-3",
+        "mediaUrl": "/uploads/chat-media/cotizacion.pdf",
+        "mediaType": "DOCUMENT",
+        "fileName": "cotizacion.pdf",
+        "mimeType": "application/pdf",
+        "caption": "Su cotizacion",
+        "returnTo": ""
+      }
+    },
+    "enviar-audio/nota-de-voz": {
+      "ruta": "enviar-audio",
+      "origen": "chat-conversation-panel.tsx:1341",
+      "cuerpo": {
+        "source": "agent",
+        "conversationId": "conv-1",
+        "agentId": "agente-1",
+        "audioUrl": "/uploads/chat-audio/1731200000002-nota.m4a",
+        "returnTo": "/cliente/chats?conversation=conv-1"
+      }
+    },
+    "enviar-audio/reenviar": {
+      "ruta": "enviar-audio",
+      "origen": "forward-message-dialog.tsx:161",
+      "cuerpo": {
+        "source": "official",
+        "conversationId": "conv-3",
+        "audioUrl": "https://app.aizenbot.com/uploads/chat-media/a.ogg",
+        "returnTo": ""
+      }
+    },
+    "enviar-ubicacion/local": {
+      "ruta": "enviar-ubicacion",
+      "origen": "chat-conversation-panel.tsx:855",
+      "cuerpo": {
+        "conversationId": "conv-1",
+        "agentId": "agente-1",
+        "returnTo": "/cliente/chats?conversation=conv-1"
+      }
+    },
+    "enviar-ubicacion/sin-agente-ni-regreso": {
+      "ruta": "enviar-ubicacion",
+      "origen": "chat-conversation-panel.tsx:855",
+      "cuerpo": {
+        "conversationId": "conv-2"
+      }
+    },
+    "enviar-flujo/mandar": {
+      "ruta": "enviar-flujo",
+      "origen": "send-flow-dialog.tsx:141",
+      "cuerpo": {
+        "source": "agent",
+        "conversationId": "conv-1",
+        "flowId": "flujo-1",
+        "agentId": "agente-1"
+      }
+    },
+    "enviar-flujo/sin-agente": {
+      "ruta": "enviar-flujo",
+      "origen": "send-flow-dialog.tsx:141",
+      "cuerpo": {
+        "source": "official",
+        "conversationId": "conv-2",
+        "flowId": "flujo-2"
+      }
+    },
+    "reaccionar/poner": {
+      "ruta": "reaccionar",
+      "origen": "chat-message-bubble.tsx:587",
+      "cuerpo": {
+        "messageId": "msg-1",
+        "emoji": "👍"
+      }
+    },
+    "reaccionar/quitar": {
+      "ruta": "reaccionar",
+      "origen": "chat-message-bubble.tsx:587",
+      "cuerpo": {
+        "messageId": "msg-1",
+        "emoji": ""
+      }
+    }
+  },
+  "respuestas": {
+    "enviar-archivo/ok": { "ruta": "enviar-archivo", "cuerpo": { "ok": true } },
+    "enviar-archivo/error": { "ruta": "enviar-archivo", "cuerpo": { "error": "Datos invalidos" } },
+    "enviar-audio/ok": { "ruta": "enviar-audio", "cuerpo": { "ok": true } },
+    "enviar-audio/error": { "ruta": "enviar-audio", "cuerpo": { "error": "No se pudo enviar el audio" } },
+    "enviar-ubicacion/ok": { "ruta": "enviar-ubicacion", "cuerpo": { "ok": true } },
+    "enviar-ubicacion/error": { "ruta": "enviar-ubicacion", "cuerpo": { "error": "Primero cargá la ubicación del local" } },
+    "enviar-flujo/ok": { "ruta": "enviar-flujo", "cuerpo": { "ok": true, "enviados": 3, "fallidos": 0, "omitidos": 1 } },
+    "enviar-flujo/error": { "ruta": "enviar-flujo", "cuerpo": { "ok": false, "error": "Flujo no encontrado" } },
+    "reaccionar/ok": { "ruta": "reaccionar", "cuerpo": { "ok": true } },
+    "reaccionar/error": { "ruta": "reaccionar", "cuerpo": { "ok": false, "error": "Mensaje no encontrado" } }
+  }
+}
