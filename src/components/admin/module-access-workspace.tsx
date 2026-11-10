@@ -8,6 +8,7 @@ import {
   BriefcaseBusiness,
   Cable,
   FileText,
+  GraduationCap,
   KanbanSquare,
   MessageSquare,
   MessageSquareMore,
@@ -91,6 +92,8 @@ const moduleIconMap = {
   tableros_inteligentes: Network,
   reuniones: Video,
   client_official_api: MessageSquare,
+  automatizaciones: Workflow,
+  coach: GraduationCap,
   client_team: Users,
 } satisfies Record<AdminModuleKey, React.ComponentType<{ className?: string }>>;
 

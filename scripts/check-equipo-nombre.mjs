@@ -33,9 +33,15 @@ function armar(miembro) {
       },
     },
     "@/lib/client-workspace-modules": { sanitizeClientModuleAccess: (x) => x },
+    // Lo pide equipo-actions desde la regla de demora (xfgis2j2); el nombre no lo usa.
+    "@/lib/demora-de-asesora-ajuste": {},
     "@/lib/en-linea": { guardarAsesoraDeRespaldo: async () => {} },
     "@/lib/horario-de-reparto": { guardarHorarioDeReparto: async () => {}, normalizarHorario: (x) => x },
-    "@/lib/permisos-del-equipo": { guardarSupervisoras: async () => {}, leerSupervisoras: async () => [] },
+    "@/lib/permisos-del-equipo": {
+      guardarLiderDeVentas: async () => {},
+      guardarSupervisoras: async () => {},
+      leerSupervisoras: async () => [],
+    },
     "@/lib/prisma": { prisma },
     "@/features/agente-v3/servicios/avisos": {
       guardarConfigDeAvisos: async (_w, c) => { guardados.avisos = c; },

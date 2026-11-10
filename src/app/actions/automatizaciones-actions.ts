@@ -21,21 +21,24 @@ import {
   type Automatizacion,
   type BorradorDeAutomatizacion,
 } from "@/features/automatizaciones/tipos";
-import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
+import { canAccessClientModule, requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { puedeSupervisar } from "@/lib/permisos-del-equipo";
 
 const RUTA = "/cliente/automatizaciones";
 
 /**
- * Solo el dueño, administradores y supervisoras. Mover o escribirle a leads en cantidad es una
- * decisión de jefe; las asesoras siguen haciendo lo suyo chat por chat desde Chats.
+ * El dueño, administradores y supervisoras, y la asesora a la que el dueño le marcó la casilla
+ * "Automatizaciones" en Equipo. Mover o escribirle a leads en cantidad es una decisión de jefe; el
+ * resto de las asesoras sigue haciendo lo suyo chat por chat desde Chats. Es la misma regla que la
+ * página (/cliente/automatizaciones/page.tsx).
  */
 async function accesoDeJefe() {
   const access = await requireClientWorkspaceAccess();
+  if (canAccessClientModule(access, "automatizaciones")) return access;
   return (await puedeSupervisar(access)) ? access : null;
 }
 
-const SIN_PERMISO = { error: "Solo el dueño o un administrador" } as const;
+const SIN_PERMISO = { error: "No tienes acceso a las automatizaciones" } as const;
 
 export type RespuestaDeVistaPrevia = { error: string } | { conteo: Conteo; leads: LeadDeLaVistaPrevia[] };
 

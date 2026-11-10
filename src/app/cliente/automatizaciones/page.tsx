@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { AutomatizacionesWorkspace } from "@/features/automatizaciones/components/AutomatizacionesWorkspace";
 import { contarLeads, estadoDeEnvios, leerAutomatizaciones } from "@/features/automatizaciones/servicio";
 import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
-import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
+import { canAccessClientModule, requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { puedeSupervisar } from "@/lib/permisos-del-equipo";
 import { prisma } from "@/lib/prisma";
 
@@ -15,16 +15,18 @@ export const dynamic = "force-dynamic";
 
 /*
   Modulo administrativo, aparte del CRM: mover leads en cantidad es una decision del negocio, no una
-  vista de trabajo. No depende de tener el modulo CRM habilitado; alcanza con ser dueño o administrador.
+  vista de trabajo. No depende de tener el modulo CRM habilitado; entra el dueño, un administrador,
+  una supervisora o la asesora a la que el dueño le marcó la casilla "Automatizaciones" en Equipo.
 */
 export default async function ClienteAutomatizacionesPage() {
   const access = await requireClientWorkspaceAccess();
-  const esJefe = await puedeSupervisar(access);
+  const puedeEntrar =
+    canAccessClientModule(access, "automatizaciones") || (await puedeSupervisar(access));
 
-  if (!esJefe) {
+  if (!puedeEntrar) {
     return (
       <div className="rounded-2xl border border-border bg-card p-6 text-sm text-muted-foreground">
-        Solo el dueño o un administrador del negocio puede usar las automatizaciones.
+        No tienes acceso a las automatizaciones. Pídele al dueño del negocio que te lo dé en Equipo.
       </div>
     );
   }

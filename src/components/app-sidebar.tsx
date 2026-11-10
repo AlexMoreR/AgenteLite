@@ -80,6 +80,8 @@ const moduleIconMap: Record<AdminModuleKey, React.ComponentType> = {
   tableros_inteligentes: Network,
   reuniones: Video,
   client_official_api: MessageSquare,
+  automatizaciones: Workflow,
+  coach: GraduationCap,
   client_team: Users,
 }
 
@@ -114,8 +116,17 @@ export function AppSidebar({
 }: AppSidebarProps) {
   const pathname = usePathname()
   const visibleModules = adminModuleDefinitions.filter((module) => adminModuleAccess[module.key])
+  // Automatizaciones y Coach tienen su propio ítem más abajo: se sacan de la lista general para que
+  // no salgan dos veces.
   const visibleModulesWithoutChats = visibleModules.filter(
-    (module) => module.key !== "chats" && module.key !== "crm" && module.key !== "config_business" && module.key !== "config_permissions" && module.key !== "config_whatsapp",
+    (module) =>
+      module.key !== "chats" &&
+      module.key !== "crm" &&
+      module.key !== "config_business" &&
+      module.key !== "config_permissions" &&
+      module.key !== "config_whatsapp" &&
+      module.key !== "automatizaciones" &&
+      module.key !== "coach",
   )
   const topModules = visibleModulesWithoutChats.filter((module) =>
     module.key === "products" || module.key === "categories" || module.key === "suppliers",
@@ -221,10 +232,11 @@ export function AppSidebar({
             ) : null}
             {/*
               Automatizaciones va SOLA, fuera del CRM: es administrativa (mover leads en cantidad) y no
-              una vista de trabajo. A una asesora no se le muestra; la pagina igual exige ser dueño o
-              administrador del negocio.
+              una vista de trabajo. La ven el dueño y los administradores, y la asesora a la que el
+              dueño le marcó la casilla "Automatizaciones" en Equipo; la pagina pide lo mismo.
+              Agente V3 sigue solo para jefes.
             */}
-            {esJefeDelNegocio ? (
+            {esJefeDelNegocio || adminModuleAccess.automatizaciones ? (
               <SidebarMenu>
                 <SidebarMenuItem>
                   <SidebarMenuButton
@@ -236,15 +248,17 @@ export function AppSidebar({
                   </SidebarMenuButton>
                 </SidebarMenuItem>
                 {/* El libro de reglas del V3: se dicta por Claude y aca se mira lo que quedo. */}
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    render={<Link href="/cliente/agente-v3" />}
-                    isActive={pathname.startsWith("/cliente/agente-v3")}
-                  >
-                    <BookOpen />
-                    <span>Agente V3</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
+                {esJefeDelNegocio ? (
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      render={<Link href="/cliente/agente-v3" />}
+                      isActive={pathname.startsWith("/cliente/agente-v3")}
+                    >
+                      <BookOpen />
+                      <span>Agente V3</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ) : null}
                 {/* Conectar Claude por MCP ahora es una pestaña de Negocio (/cliente/negocio/claude). */}
               </SidebarMenu>
             ) : null}
