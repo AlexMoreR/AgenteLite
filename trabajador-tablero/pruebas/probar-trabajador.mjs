@@ -23,6 +23,7 @@ import { crearPlanificador, crearRevisorDeNuevo, crearSemaforo, procesar, queTom
 import { PRIORIDAD, crearColaPesada } from "../lib/cola.mjs";
 import { archivosDelPlan, candidatasQueChocan, huellaDeTarjeta, moduloDe, motivoDeChoque } from "../lib/choques.mjs";
 import { completarConfig } from "../lib/config.mjs";
+import { estadoDelDespliegue, fallaDelContenedorNuevo } from "../lib/despliegue.mjs";
 import { MAX_LECCIONES, agenteDelRepo, anotarLeccion, leccionDe, leccionesParaElPrompt, necesitoDe, tresLineasDe } from "../lib/agentes.mjs";
 import { crearCrm } from "../lib/crm.mjs";
 import { CARPETA_DE_NOTAS, MANUAL, crearManualNocturno, horaEnBogota, leerEstadoDelManual } from "../lib/manual-nocturno.mjs";
@@ -33,6 +34,7 @@ import { CAUSAS_PARA_AVISAR_AL_CTO, LARGO_MAXIMO_DEL_AVISO, PREFIJOS_DE_CAUSA, c
 import {
   CONFIRMACION_REVISION_DE_NUEVO,
   buscarCorridaDelDespliegue,
+  comandoDeConclusion,
   esLimiteDeUso,
   laSesionSubeAMain,
   planParaLaNube,
@@ -708,6 +710,65 @@ await prueba("cupos (d): repos.<repo>.cuposNube vale 1 sin la clave, null no pon
   const ejemplo = completarConfig(JSON.parse(fs.readFileSync(path.join(AQUI, "..", "config.example.json"), "utf8")));
   assert.equal(ejemplo.repos.aizencrm.cuposNube, 3, "parte 4: el ejemplo trae el CRM con 3");
   assert.equal(ejemplo.repos.gestion.cuposNube, 2, "y Gestión con 2");
+});
+
+await prueba("10-nov (despliegue): config, lectura del contenedor y conclusión del CI, sin red", async () => {
+  const base = { urlCrm: "https://app.aizenbot.com", claveTrabajador: "aizen_trab_x" };
+  const subidaDe = (subida) => completarConfig({ ...base, repos: { gestion: { ruta: ".", subida } } }).repos.gestion.subida;
+  // versionMinutos queda como nombre viejo, pero las configs viejas (8) pasan a 40; despliegueMinutos manda.
+  assert.equal(subidaDe({}).despliegueMinutos, 40);
+  assert.equal(subidaDe({ versionMinutos: 8 }).despliegueMinutos, 40);
+  assert.equal(subidaDe({ versionMinutos: 60 }).despliegueMinutos, 60);
+  assert.equal(subidaDe({ versionMinutos: 8, despliegueMinutos: 25 }).despliegueMinutos, 25);
+  assert.deepEqual([subidaDe({}).despliegueCadaSegundos, subidaDe({}).versionAjenaMinutos], [20, 10]);
+  const ejemplo = completarConfig(JSON.parse(fs.readFileSync(path.join(AQUI, "..", "config.example.json"), "utf8")));
+  assert.equal(ejemplo.repos.aizencrm.subida.despliegueMinutos, 40);
+  assert.match(ejemplo.ssh.despliegue, /docker inspect/);
+  // La salida de ssh.despliegue.
+  const viejo = estadoDelDespliegue(`${"a1".repeat(32)} running healthy 0\n`);
+  assert.deepEqual(viejo, { id: "a1".repeat(32), estado: "running", salud: "healthy", reinicios: 0 });
+  assert.equal(estadoDelDespliegue("Error: No such container: crm"), null);
+  const nuevo = (resto) => estadoDelDespliegue(`${"b2".repeat(32)} ${resto}`);
+  // Solo el contenedor NUEVO dice algo; el viejo corriendo o una lectura fallida no son evidencia.
+  assert.equal(fallaDelContenedorNuevo(viejo, viejo), null);
+  assert.equal(fallaDelContenedorNuevo(viejo, null), null);
+  assert.equal(fallaDelContenedorNuevo(null, nuevo("exited sin-salud 0")), null);
+  assert.equal(fallaDelContenedorNuevo(viejo, nuevo("running healthy 0")), null);
+  assert.equal(fallaDelContenedorNuevo(viejo, nuevo("running starting 0")), null);
+  assert.match(fallaDelContenedorNuevo(viejo, nuevo("exited sin-salud 0")), /se cayó \(exited\)/);
+  assert.match(fallaDelContenedorNuevo(viejo, nuevo("restarting sin-salud 3")), /reiniciando/);
+  assert.match(fallaDelContenedorNuevo(viejo, nuevo("running healthy 2")), /se reinició 2 veces/);
+  assert.match(fallaDelContenedorNuevo(viejo, nuevo("running unhealthy 0")), /unhealthy/);
+  // Cómo terminó la corrida: de ciEsperar sale `gh run view … --json conclusion`.
+  assert.deepEqual(comandoDeConclusion({ ciEsperar: ["gh", "run", "watch", "{run}", "--repo", "a/b", "--exit-status"] }), [
+    "gh", "run", "view", "{run}", "--repo", "a/b", "--json", "conclusion", "--jq", ".conclusion",
+  ]);
+  assert.deepEqual(comandoDeConclusion({ ciConclusion: ["x", "{run}"], ciEsperar: ["gh", "run", "watch", "{run}"] }), ["x", "{run}"]);
+  assert.equal(comandoDeConclusion({ ciEsperar: ["node", "gh-falso.mjs", "esperar", "{run}"] }), null);
+});
+
+await prueba("10-nov (huella): la que subió a main suelta su huella; otra que toca lo mismo construye, otra subida sigue esperando", async () => {
+  const r = repartoFalso(configDeCupos());
+  r.agregar("sube-1", "aizencrm", "subir", "src/features/compartido/a.ts");
+  await r.planificador.llenar();
+  assert.equal(r.dondeEsta("sube-1"), "aizen1");
+  r.agregar("construye-1", "aizencrm", "construir", "src/features/compartido/a.ts");
+  r.agregar("sube-2", "aizencrm", "subir", "src/features/otro/b.ts");
+  await r.planificador.llenar();
+  assert.equal(r.dondeEsta("construye-1"), null, "mientras no empuja, choca por el módulo");
+  assert.equal(r.dondeEsta("sube-2"), null);
+  // El push salió bien: lo de sube-1 ya está en main y solo espera el despliegue.
+  r.sesionesFalsas.get("sube-1").opciones.alSubirAMain();
+  await r.planificador.llenar();
+  assert.ok(r.dondeEsta("construye-1"), "construye mientras la otra sigue subiendo");
+  assert.equal(r.dondeEsta("sube-2"), null, "suben de a una");
+  const esperas = Object.fromEntries(r.planificador.estado().esperas.map((e) => [e.tarjetaId, e.motivo]));
+  assert.match(esperas["sube-2"], /de a una/);
+  r.sesionesFalsas.get("sube-1").terminar();
+  await new Promise((listo) => setTimeout(listo, 20));
+  await r.planificador.llenar();
+  assert.equal(r.dondeEsta("sube-2"), "aizen1", "terminada la primera, sube la siguiente");
+  r.planificador.parar();
 });
 
 await prueba("cupos (a): con el CRM lleno en aizen1 y en la nube, una tarjeta de Gestión arranca", async () => {
@@ -2694,6 +2755,8 @@ const CLAVE = "aizen_trab_prueba";
 const tarjetas = new Map();
 const llamadas = [];
 let avisosSilenciados = false;
+/** null: /api/version dice el main del remoto (desplegado al instante). Una función: lo que contesta el servidor falso. */
+let versionDelServidor = null;
 /** true: la tarjeta de limpieza que crea el CRM falso queda APROBADO (como el real) y entra a la fila; false: no estorba a las demás pruebas. */
 let limpiezaEnLaFila = false;
 const latidoVencido = new Set();
@@ -2755,7 +2818,15 @@ const servidor = http.createServer(async (pedido, respuesta) => {
     respuesta.writeHead(codigo, { "Content-Type": "application/json" });
     respuesta.end(JSON.stringify(datos));
   };
-  if (pedido.method === "GET" && pedido.url === "/api/version") return contestar(200, { version: shaDe("main") });
+  if (pedido.method === "GET" && pedido.url === "/api/version") {
+    // 10-nov-2026: `versionDelServidor` hace de un servidor que tarda en tomar la versión (null = no contesta).
+    const version = versionDelServidor ? versionDelServidor() : shaDe("main");
+    if (version === null) {
+      respuesta.writeHead(503, { "Content-Type": "text/plain" });
+      return respuesta.end("reiniciando");
+    }
+    return contestar(200, { version });
+  }
   if (pedido.headers.authorization !== `Bearer ${CLAVE}`) return contestar(401, { ok: false, error: "Clave inválida" });
   let texto = "";
   for await (const pedazo of pedido) texto += pedazo;
@@ -2976,6 +3047,7 @@ const crearConfig = (tiempos = {}, delRepo = {}, extra = {}) =>
           urlVersion: `http://127.0.0.1:${PUERTO}/api/version`,
           campoVersion: "version",
           versionMinutos: 1,
+          despliegueCadaSegundos: 0.1,
         },
         // Las pruebas de siempre mandan varias del mismo proyecto a la nube: sin tope propio (los cupos tienen las suyas).
         cuposNube: null,
@@ -3775,6 +3847,102 @@ process.exit(real.status ?? 1);
     const arbol = execFileSync("git", ["--git-dir", REMOTO, "ls-tree", "--name-only", "main"], { encoding: "utf8" });
     assert.ok(!/^ya-en-main-3\.txt$/m.test(arbol), "se quitó lo de la tarea");
     assert.ok(/^otro-de-main-2\.txt$/m.test(arbol), "lo ajeno de main sigue");
+    sinRestos();
+  });
+
+  /* ── 10-nov-2026: confirmar con la versión real del servidor; deshacer solo con evidencia de falla ── */
+
+  // Un "minuto" del despliegue dura MINUTO_FALSO ms (TRABAJADOR_MINUTO_DESPLIEGUE_MS): los 17 min de T-714 caben en segundos.
+  const MINUTO_FALSO = 100;
+  const reverts = (desde) => execFileSync("git", ["--git-dir", REMOTO, "log", "--format=%s", `${desde}..main`], { encoding: "utf8" }).split(/\r?\n/).filter((linea) => /^revert/.test(linea));
+  const conDespliegue = async ({ version = null, despliegue = undefined } = {}, fn) => {
+    process.env.TRABAJADOR_MINUTO_DESPLIEGUE_MS = String(MINUTO_FALSO);
+    fs.rmSync(`${LOGS.ssh}.conteo-despliegue`, { force: true });
+    if (despliegue) process.env.SSH_FALSO_DESPLIEGUE = despliegue;
+    versionDelServidor = version;
+    try {
+      return await fn();
+    } finally {
+      delete process.env.TRABAJADOR_MINUTO_DESPLIEGUE_MS;
+      delete process.env.SSH_FALSO_DESPLIEGUE;
+      versionDelServidor = null;
+    }
+  };
+  /** La config de las pruebas con otra subida y, si se pide, ssh.despliegue (el ssh falso). */
+  const configDeDespliegue = (subida = {}, { despliegue = false } = {}) => {
+    const otra = crearConfig({}, { subida: { ...config.repos.aizencrm.subida, ...subida } });
+    if (despliegue) otra.ssh = { ...otra.ssh, despliegue: "despliegue-falso" };
+    return otra;
+  };
+
+  await prueba("10-nov (T-714): la versión nueva aparece después de 17 min con una config vieja (versionMinutos 8): espera, HECHO y ningún revert en main", async () => {
+    const { rama, commit, base } = ramaEnElRemoto("t714-tarda", "t714.txt", "tarda en desplegar\n");
+    const mainAntes = shaDe("main");
+    const id = nueva("El servidor tarda en tomar la versión (T-714)", "SUBIENDO", { plan: "El plan", resultado: { paso: true, rama, commit, base, subeSolo: true } });
+    // Config vieja: solo versionMinutos 8 (sin despliegueMinutos). Antes cortaba a los 8 min y deshacía.
+    const vieja = configDeDespliegue({ versionMinutos: 8, despliegueMinutos: undefined }, { despliegue: true });
+    assert.equal(vieja.repos.aizencrm.subida.despliegueMinutos, 40);
+    const desde = Date.now();
+    const resultado = await conDespliegue({ version: () => (Date.now() - desde < 17 * MINUTO_FALSO ? mainAntes : shaDe("main")), despliegue: "viejo" }, () => vuelta(vieja));
+    const t = tarjetas.get(id);
+    assert.equal(resultado.ok, true, resultado.motivo);
+    assert.equal(t.estado, "HECHO", t.resultado?.error?.motivo);
+    assert.ok(Date.now() - desde >= 17 * MINUTO_FALSO, "esperó más de los 8 minutos viejos");
+    assert.equal(t.resultado.subida.commit, shaDe("main"));
+    assert.deepEqual(reverts(mainAntes), [], "ningún revert en main");
+    sinRestos();
+  });
+
+  await prueba("10-nov: el contenedor NUEVO quedó exited: es evidencia de falla y se deshace (revert en main)", async () => {
+    const { rama, commit, base } = ramaEnElRemoto("contenedor-exited", "exited.txt", "se cae\n");
+    const mainAntes = shaDe("main");
+    const id = nueva("El contenedor nuevo se cae", "SUBIENDO", { plan: "El plan", resultado: { paso: true, rama, commit, base, subeSolo: true } });
+    const resultado = await conDespliegue({ version: () => mainAntes, despliegue: "exited" }, () => vuelta(configDeDespliegue({}, { despliegue: true })));
+    const t = tarjetas.get(id);
+    assert.equal(resultado.ok, false);
+    assert.equal(t.estado, "ERROR");
+    assert.match(t.resultado.error.motivo, /se deshizo/);
+    assert.match(t.resultado.error.motivo, /contenedor nuevo del CRM \(b2b2b2b2b2b2\) se cayó \(exited\)/);
+    assert.equal(reverts(mainAntes).length, 1, "un revert encima de main");
+    assert.ok(!/^exited\.txt$/m.test(execFileSync("git", ["--git-dir", REMOTO, "ls-tree", "--name-only", "main"], { encoding: "utf8" })));
+    sinRestos();
+  });
+
+  await prueba("10-nov: servidor ilegible (sin /api/version ni ssh): ERROR despliegue_sin_confirmar SIN revert; el reintento solo espera el despliegue y cierra HECHO", async () => {
+    const { rama, commit, base } = ramaEnElRemoto("servidor-ilegible", "ilegible.txt", "no se sabe\n");
+    const mainAntes = shaDe("main");
+    const id = nueva("No se puede leer el servidor", "SUBIENDO", { plan: "El plan", moderno: true, reparaciones: 0, resultado: { paso: true, rama, commit, base, subeSolo: true } });
+    const corta = configDeDespliegue({ despliegueMinutos: 3 }, { despliegue: true });
+    const resultado = await conDespliegue({ version: () => null, despliegue: "ilegible" }, () => vuelta(corta));
+    const t = tarjetas.get(id);
+    assert.equal(resultado.ok, false);
+    assert.equal(t.estado, "ERROR");
+    const error = llamadas.findLast((l) => l.id === id && l.accion === "error").cuerpo;
+    assert.equal(error.categoria, "despliegue_sin_confirmar", JSON.stringify(error));
+    assert.ok(!llamadas.some((l) => l.id === id && l.accion === "reparar"), "no se repara sola");
+    assert.equal(shaDe("main"), commit, "lo subido sigue en main");
+    assert.deepEqual(reverts(mainAntes), [], "sin revert");
+    // El dueño la reintenta: la rama ya está en main, no se empuja nada y solo se espera el despliegue (que ahora sí contesta).
+    Object.assign(t, { estado: "SUBIENDO", venceEn: null });
+    const otra = await conDespliegue({}, () => vuelta(corta));
+    assert.equal(otra.ok, true, otra.motivo);
+    assert.equal(tarjetas.get(id).estado, "HECHO", tarjetas.get(id).resultado?.error?.motivo);
+    assert.ok(dijoYaEnMain(rama), "tomó el camino de 'ya estaba en main'");
+    assert.equal(shaDe("main"), commit, "no empujó nada");
+    sinRestos();
+  });
+
+  await prueba("10-nov: el CI cancelado por un push más nuevo no es una falla: espera la versión y cierra HECHO sin revert", async () => {
+    const { rama, commit, base } = ramaEnElRemoto("ci-cancelado", "cancelado.txt", "lo cancela otro push\n");
+    const mainAntes = shaDe("main");
+    const id = nueva("CI cancelado por otro push", "SUBIENDO", { plan: "El plan", resultado: { paso: true, rama, commit, base, subeSolo: true } });
+    const cancelado = configDeDespliegue({ ciEsperar: [node, falso("gh-falso.mjs"), "esperar-cancelado", "{run}"] });
+    const resultado = await conDespliegue({}, () => vuelta(cancelado));
+    const t = tarjetas.get(id);
+    assert.equal(resultado.ok, true, resultado.motivo);
+    assert.equal(t.estado, "HECHO", t.resultado?.error?.motivo);
+    assert.equal(t.resultado.subida.commit, commit);
+    assert.deepEqual(reverts(mainAntes), []);
     sinRestos();
   });
 

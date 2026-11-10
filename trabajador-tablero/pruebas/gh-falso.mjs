@@ -20,6 +20,10 @@ else if (accion === "buscar-nada") console.log("null");
 else if (accion === "esperar-falla") {
   console.log(`corrida ${valor}: completed failure`);
   process.exit(1);
+} else if (accion === "esperar-cancelado") {
+  // 10-nov-2026: la corrida la canceló un push más nuevo (concurrency de docker-image.yml), como `gh run watch --exit-status`.
+  console.log(`corrida ${valor}: completed cancelled`);
+  process.exit(1);
 } else if (accion === "log") {
   const paso = process.argv[4] === "pruebas" ? "Pruebas" : "Build";
   const lineas = paso === "Build" ? ["> next build", "Type error: Property 'colorFalso' does not exist on type 'Tarjeta'", "ERROR: build fallo en src/falso.ts"] : ["not ok 7 - la prueba falsa", "AssertionError: esperaba 1 y llegó 2"];

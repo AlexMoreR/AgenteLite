@@ -62,6 +62,7 @@ import {
 import { esLimiteDeCodex, nombreDelMotor } from "./motores.mjs";
 import { esOrquestador, esperarResultado, lanzarSesionDeLaNube, nombreDelProyecto, sesionFijaDe } from "./nube.mjs";
 import { archivosDelPlan } from "./choques.mjs";
+import { LECTURAS_PARA_FALLA, fallaDelContenedorNuevo, leerElDespliegue, textoDelDespliegue } from "./despliegue.mjs";
 import { vigilarSesion } from "./atasco.mjs";
 import { cerrarProcesosEn, comoTexto, correr, detalleDeFalla, lineasQueFallaron, ultimasLineas } from "./procesos.mjs";
 import { esperarRecursos, faltanRecursos, medirUnaVez } from "./recursos.mjs";
@@ -161,6 +162,10 @@ function relojDeEtapa(minutos, nombre, { topeMinutos = null } = {}) {
     extender(ms) {
       esperadoMs += Math.max(0, ms);
       limite = Math.min(techo, limite + Math.max(0, ms));
+    },
+    /** 10-nov-2026: lo que queda es solo esperar el despliegue: el reloj llega hasta el tope del CRM (si tiene). */
+    hastaElTope() {
+      if (Number.isFinite(techo)) limite = Math.max(limite, techo);
     },
     esperado: () => esperadoMs,
   };
@@ -1902,7 +1907,7 @@ async function esperarCi(contexto, repo, commit, cwd, reloj) {
   let corrida = "";
   while (!corrida) {
     const resultado = await correr(conValores(ciBuscar, { commit, workflow: workflowDespliegue ?? "" }), { cwd, timeoutMs: 60_000, senal: contexto.senal });
-    if (resultado.cancelado) throw new ErrorDeEtapa("Se canceló la espera del CI: la tarjeta venció en el CRM.");
+    if (resultado.cancelado) throw new ErrorDeEtapa("Se canceló la espera del CI: la tarjeta venció en el CRM.", { categoria: "coordinador_cortado" });
     if (resultado.codigo !== 0 && /gh auth login|GH_TOKEN|authentication/i.test(resultado.errores)) {
       return "CI: no se pudo consultar (gh sin sesión en este PC; poner GH_TOKEN)";
     }
@@ -1926,15 +1931,53 @@ async function esperarCi(contexto, repo, commit, cwd, reloj) {
   } finally {
     contexto.fase?.("subiendo", { lugar: "aizen1", linkWorkflow: null });
   }
+  if (resultado.cancelado) throw new ErrorDeEtapa("Se canceló la espera del CI: la tarjeta venció en el CRM.", { categoria: "coordinador_cortado" });
+  // 10-nov-2026: pasarse del tiempo no es una falla (no se deshace): se sigue esperando la versión.
+  if (resultado.vencido) return `CI ${corrida}: se pasó de ${ciMinutos} min esperándolo (se revisa la versión)`;
   if (resultado.codigo !== 0) {
-    throw new ErrorDeEtapa(
-      `Subió a ${repo.ramaBase} (commit ${commit.slice(0, 10)}) pero el CI ${resultado.vencido ? "se pasó del tiempo" : "falló"}: ${ultimasLineas(
-        `${resultado.errores}\n${resultado.salida}`,
-        20,
-      )}`,
+    // Un push más nuevo cancela la corrida (concurrency de docker-image.yml) y la suya ya trae este commit: no es una falla.
+    const conclusion = await conclusionDeLaCorrida(repo, corrida, cwd, contexto.senal);
+    if (/cancel/i.test(conclusion) || (!conclusion && /\bcancel(?:l)?ed\b/i.test(`${resultado.salida}\n${resultado.errores}`))) {
+      return `CI ${corrida}: cancelado (lo reemplazó un push más nuevo; se revisa la versión)`;
+    }
+    throw fallaReal(
+      `Subió a ${repo.ramaBase} (commit ${commit.slice(0, 10)}) pero el CI falló${conclusion ? ` (${conclusion})` : ""}: ${ultimasLineas(`${resultado.errores}\n${resultado.salida}`, 20)}`,
     );
   }
   return `CI ${corrida}${workflowDespliegue ? ` (${workflowDespliegue})` : ""}: ok`;
+}
+
+/**
+ * El comando que dice cómo terminó una corrida: subida.ciConclusion, o el de ciEsperar con `gh run view … --json conclusion`
+ * en vez de `gh run watch … --exit-status`. Puro (se prueba solo). null si no se puede armar.
+ */
+export function comandoDeConclusion(subida) {
+  if (subida?.ciConclusion) return subida.ciConclusion;
+  const esperar = subida?.ciEsperar;
+  if (!Array.isArray(esperar)) return null;
+  const mirar = esperar.findIndex((parte, i) => parte === "watch" && esperar[i - 1] === "run");
+  if (mirar < 0) return null;
+  const resto = esperar.slice(mirar + 1).filter((parte) => parte !== "--exit-status");
+  return [...esperar.slice(0, mirar), "view", ...resto, "--json", "conclusion", "--jq", ".conclusion"];
+}
+
+/** "cancelled", "failure"… de la corrida, o "" si no se pudo saber. */
+async function conclusionDeLaCorrida(repo, corrida, cwd, senal) {
+  const comando = comandoDeConclusion(repo.subida);
+  if (!comando) return "";
+  const resultado = await correr(conValores(comando, { run: corrida }), { cwd, timeoutMs: 60_000, senal });
+  return resultado.codigo === 0 ? resultado.salida.trim().split(/\s+/)[0] ?? "" : "";
+}
+
+/**
+ * Un error del despliegue CON evidencia de falla real (el CI falló, el contenedor nuevo se cayó, la versión ajena quedó
+ * quieta, la página de arranque contesta 500): solo estos deshacen la subida (10-nov-2026). Lo demás —el tiempo que se
+ * acaba, el servidor que no se puede leer— deja la tarjeta en ERROR despliegue_sin_confirmar y lo subido sigue en main.
+ */
+function fallaReal(mensaje) {
+  const error = new ErrorDeEtapa(mensaje);
+  error.fallaReal = true;
+  return error;
 }
 
 /**
@@ -2035,35 +2078,114 @@ async function versionIncluye(repo, version, commit) {
   return ancestro.codigo === 0;
 }
 
-/** Espera que la URL de versión diga el commit nuevo, o uno posterior que lo incluya (= arrancó la versión nueva). */
-async function esperarVersion(contexto, repo, commit, reloj, { sinCi = false } = {}) {
-  const { urlVersion, campoVersion, versionMinutos, urlArranque, ciMinutos } = repo.subida;
+/** Lo que dice /api/version ahora, o null si no contesta (el servidor puede estar reiniciando). */
+async function leerVersion(repo) {
+  const { urlVersion, campoVersion } = repo.subida;
+  if (!urlVersion) return null;
+  try {
+    const respuesta = await fetch(urlVersion, { headers: { "Cache-Control": "no-cache" }, signal: AbortSignal.timeout(15_000) });
+    const datos = await respuesta.json();
+    return String(datos?.[campoVersion] ?? "");
+  } catch {
+    return null;
+  }
+}
+
+/** ¿`version` es un commit que el repo conoce y que es más VIEJO que el nuestro (su ancestro)? null si no se sabe. */
+async function esVersionVieja(repo, version, commit) {
+  if (!/^[0-9a-f]{7,40}$/i.test(version)) return null;
+  const existe = await git(repo.ruta, ["cat-file", "-e", `${version}^{commit}`], { permitirFallo: true });
+  if (existe.codigo !== 0) return null;
+  return (await git(repo.ruta, ["merge-base", "--is-ancestor", version, commit], { permitirFallo: true })).codigo === 0;
+}
+
+/**
+ * Cómo va el despliegue según la versión que contesta el servidor: "nuestra" (el commit o uno que lo incluye), "vieja"
+ * (la de antes de subir o una más vieja: el despliegue todavía no llega), "ajena" (otra que no es ni una ni otra) o
+ * "nada" (no contesta o es un commit que no se conoce: no dice nada).
+ */
+async function comoVaLaVersion(repo, version, commit, versionAntes) {
+  if (!version) return "nada";
+  if (await versionIncluye(repo, version, commit)) return "nuestra";
+  if (versionAntes && version === versionAntes) return "vieja";
+  const vieja = await esVersionVieja(repo, version, commit);
+  return vieja === null ? "nada" : vieja ? "vieja" : "ajena";
+}
+
+// 10-nov-2026: los minutos del despliegue se pueden acortar con TRABAJADOR_MINUTO_DESPLIEGUE_MS (solo las pruebas lo usan,
+// para reproducir los 17 min de T-714 en segundos).
+const minutoDelDespliegue = () => {
+  const ms = Number(process.env.TRABAJADOR_MINUTO_DESPLIEGUE_MS);
+  return Number.isFinite(ms) && ms > 0 ? ms : MINUTO;
+};
+
+/**
+ * Espera que /api/version diga el commit subido, o uno posterior que lo incluya (= arrancó la versión nueva), hasta
+ * subida.despliegueMinutos desde `desde` (cuando pasó el CI) y sin pasar el tope de la etapa (10-nov-2026: el servidor de
+ * EEUU tarda 10-22 min; con 8 se deshacían subidas buenas). Mientras tanto mira dos evidencias de falla, y SOLO con ellas
+ * lanza fallaReal (que deshace): el contenedor NUEVO caído, reiniciándose o unhealthy (ssh.despliegue, LECTURAS_PARA_FALLA
+ * lecturas seguidas), o una versión ajena quieta versionAjenaMinutos. Si el tiempo se acaba sin evidencia: ERROR
+ * despliegue_sin_confirmar, sin deshacer nada (reintentar solo vuelve a esperar, por ramaYaEnMain).
+ */
+async function esperarVersion(contexto, repo, commit, reloj, { desde = Date.now(), versionAntes = null, contenedorAntes = null, ci = "" } = {}) {
+  const { urlVersion, despliegueMinutos, despliegueCadaSegundos, versionAjenaMinutos, urlArranque } = repo.subida;
   if (!urlVersion) return { version: null, texto: "versión: no configurada" };
-  // Si no se encontró la corrida del CI, el despliegue puede venir atrasado: se le da también el tiempo del CI
-  // antes de decir "no arrancó" y deshacer (25-oct-2026).
-  const minutos = sinCi ? versionMinutos + (ciMinutos ?? 0) : versionMinutos;
-  const limite = Date.now() + Math.min(minutos * MINUTO, reloj.resta());
+  const minuto = minutoDelDespliegue();
+  // 2 min antes del tope de la etapa, para que alcance a deshacer o a avisar antes de que el CRM la venza.
+  const limite = Math.min(desde + despliegueMinutos * minuto, Date.now() + Math.max(0, reloj.resta() - 2 * MINUTO));
+  const cada = despliegueCadaSegundos * 1000;
+  const cortada = () => new ErrorDeEtapa("La tarjeta venció en el CRM mientras se esperaba el despliegue.", { categoria: "coordinador_cortado" });
   let ultima = "";
+  let contenedor = null;
+  let ajena = null;
+  let malo = { id: null, veces: 0 };
   for (;;) {
-    try {
-      const respuesta = await fetch(urlVersion, { headers: { "Cache-Control": "no-cache" }, signal: AbortSignal.timeout(15_000) });
-      const datos = await respuesta.json();
-      ultima = String(datos?.[campoVersion] ?? "");
-      if (await versionIncluye(repo, ultima, commit)) break;
-    } catch {
-      // El servidor puede estar reiniciando: se vuelve a preguntar.
+    if (contexto.senal?.aborted) throw cortada();
+    const version = await leerVersion(repo);
+    if (version !== null) ultima = version;
+    const como = await comoVaLaVersion(repo, version, commit, versionAntes);
+    if (como === "nuestra") break;
+    if (como === "ajena") {
+      if (ajena?.version !== version) ajena = { version, desde: Date.now() };
+      else if (Date.now() - ajena.desde >= versionAjenaMinutos * minuto) {
+        throw fallaReal(
+          `Subió a ${repo.ramaBase} (commit ${commit.slice(0, 10)}) y ${urlVersion} quedó ${versionAjenaMinutos} min en "${version.slice(0, 10)}", una versión que no es la de antes ni incluye la nueva: el despliegue de la nueva no llegó.`,
+        );
+      }
+    } else if (como !== "nada") ajena = null;
+    if (contenedorAntes) {
+      contenedor = await leerElDespliegue(contexto.config, { senal: contexto.senal, env: entornoSeguro() });
+      const falla = fallaDelContenedorNuevo(contenedorAntes, contenedor);
+      malo = falla ? { id: contenedor.id, veces: malo.id === contenedor.id ? malo.veces + 1 : 1, falla } : { id: null, veces: 0 };
+      if (malo.veces >= LECTURAS_PARA_FALLA) {
+        throw fallaReal(`Subió a ${repo.ramaBase} (commit ${commit.slice(0, 10)}) y ${malo.falla} (${LECTURAS_PARA_FALLA} lecturas seguidas): la versión nueva no arrancó.`);
+      }
     }
-    if (Date.now() > limite) {
+    const falta = limite - Date.now();
+    if (falta <= 0) {
+      const esperados = Math.round((Date.now() - desde) / minuto);
       throw new ErrorDeEtapa(
-        `Subió a ${repo.ramaBase} y el CI pasó, pero ${urlVersion} sigue diciendo "${ultima || "nada"}" en vez de ${commit.slice(0, 10)}: la versión nueva no arrancó.`,
+        `Subió a ${repo.ramaBase} (commit ${commit.slice(0, 10)}) pero en ${esperados} min ${urlVersion} no llegó a decirlo (dice "${ultima.slice(0, 10) || "nada"}") y no se vio ninguna falla. No se deshizo nada: lo subido sigue en ${repo.ramaBase}. Reintentar solo vuelve a esperar el despliegue.\nDetalle técnico: ${[ci, textoDelDespliegue(contenedorAntes, contenedor)].filter(Boolean).join("; ")}`,
+        { categoria: "despliegue_sin_confirmar" },
       );
     }
-    await dormir(10_000);
+    await dormir(Math.min(cada, falta));
   }
   if (urlArranque) {
-    const respuesta = await fetch(urlArranque, { signal: AbortSignal.timeout(15_000) }).catch(() => null);
-    if (!respuesta || respuesta.status >= 500) {
-      throw new ErrorDeEtapa(`La versión nueva arrancó pero ${urlArranque} contesta ${respuesta?.status ?? "nada"}.`);
+    // La versión nueva ya contesta: la página de arranque con 500 es una falla de verdad. Sin respuesta no se sabe nada.
+    let estado = null;
+    for (let intento = 1; intento <= 3; intento += 1) {
+      const respuesta = await fetch(urlArranque, { signal: AbortSignal.timeout(15_000) }).catch(() => null);
+      estado = respuesta?.status ?? null;
+      if (estado !== null && estado < 500) break;
+      if (intento < 3) await dormir(cada);
+    }
+    if (estado !== null && estado >= 500) throw fallaReal(`La versión nueva arrancó pero ${urlArranque} contesta ${estado} (3 veces seguidas).`);
+    if (estado === null) {
+      throw new ErrorDeEtapa(
+        `La versión nueva (${ultima.slice(0, 10)}) contesta en ${urlVersion} pero ${urlArranque} no contestó 3 veces seguidas. No se deshizo nada: lo subido sigue en ${repo.ramaBase}.`,
+        { categoria: "despliegue_sin_confirmar" },
+      );
     }
   }
   return { version: ultima, texto: `versión ${ultima.slice(0, 10)}: ok` };
@@ -2250,6 +2372,9 @@ export async function subir(contexto, tarjeta) {
     // y se cayó esperando el despliegue, o la sesión lo juntó), no se empuja nada: se espera el despliegue del commit de
     // main que lo contiene, como siempre. Así un reintento no deshace en vacío ni vuelve a compilar lo que ya está arriba.
     const yaEnMain = await ramaYaEnMain(carpeta, base, { baseDeLaTarjeta: tarjeta.resultado?.base });
+    // 10-nov-2026: lo que corre en el servidor ANTES de subir (la versión y el contenedor): así se sabe qué es lo nuevo.
+    const versionAntes = repo.subida.urlVersion ? await leerVersion(repo) : null;
+    const contenedorAntes = repo.subida.urlVersion ? await leerElDespliegue(config, { senal: contexto.senal, env: entornoSeguro() }) : null;
     if (yaEnMain) {
       ({ commit, antes } = yaEnMain);
       pruebas = [`✔ lo de la rama ya estaba en ${repo.ramaBase} (commit ${commit.slice(0, 10)}): no se vuelve a subir; se espera su despliegue`];
@@ -2351,15 +2476,27 @@ export async function subir(contexto, tarjeta) {
       }
     }
     if (!yaEnMain) registro.info(`subido a ${repo.ramaBase}: ${commit.slice(0, 10)} (${tarjeta.titulo})`);
+    // 10-nov-2026: lo de la tarjeta ya está en main: suelta su huella (zonas y módulos) para que otra que toca lo mismo
+    // construya mientras esta espera el despliegue. Sigue siendo "subir": otra subida del repo espera (de a una).
+    contexto.alSubirAMain?.();
+    // De acá en adelante solo se espera (el CI y el despliegue): el reloj llega hasta el tope del CRM.
+    reloj.hastaElTope();
     let version;
     try {
       const ci = await esperarCi(contexto, repo, commit, carpeta, reloj);
-      const comprobada = await esperarVersion(contexto, repo, commit, reloj, { sinCi: !/: ok$/.test(ci) });
+      const comprobada = await esperarVersion(contexto, repo, commit, reloj, { desde: Date.now(), versionAntes, contenedorAntes, ci });
       version = comprobada.version;
       registro.info(`${ci}; ${comprobada.texto}`);
     } catch (error) {
-      // Se subió y no arrancó: se deshace lo subido para que producción vuelva a la versión anterior.
-      throw await deshacerOAvisar(contexto, repo, carpeta, { antes, commit, motivo: error instanceof Error ? error.message : String(error) });
+      // Solo con evidencia de falla (fallaReal) se deshace lo subido para que producción vuelva a la versión anterior.
+      if (error?.fallaReal) throw await deshacerOAvisar(contexto, repo, carpeta, { antes, commit, motivo: error.message });
+      if (error instanceof ErrorDeEtapa && ["coordinador_cortado", "despliegue_sin_confirmar"].includes(error.categoria)) throw error;
+      // Cualquier otra cosa (el tiempo de la etapa, un git que falló) tampoco es evidencia: lo subido se queda.
+      registro.aviso(`no se pudo confirmar el despliegue de ${commit.slice(0, 10)} (no se deshace): ${error?.message ?? error}`);
+      throw new ErrorDeEtapa(
+        `Subió a ${repo.ramaBase} (commit ${commit.slice(0, 10)}) pero no se pudo confirmar el despliegue. No se deshizo nada: lo subido sigue en ${repo.ramaBase}. Reintentar solo vuelve a esperar el despliegue.\nDetalle técnico: ${error?.message ?? error}`,
+        { categoria: "despliegue_sin_confirmar" },
+      );
     }
     let vigilancia = null;
     if (foto) {

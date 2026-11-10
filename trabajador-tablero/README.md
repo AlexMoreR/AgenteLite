@@ -16,7 +16,7 @@ Solo toma tarjetas de un tipo **con aprobación** (como Tarea) que tengan **repo
 |---|---|---|
 | APROBADO | Escribe un **plan** en lenguaje sencillo (`claude -p --permission-mode plan`), sin cambiar nada. | PLAN_LISTO |
 | PLAN_APROBADO | En una rama `tablero/<id>-<nombre>` desde `origin/main`: Claude **construye** el plan (puede editar, no puede hacer push). Después el trabajador, él mismo: hace el commit, marca las **zonas protegidas** que toca, corre tsc / build / pruebas, compara el **lint** con el de main (solo cuentan errores nuevos), **ensaya la migración** si hay una nueva (PGlite y producción dentro de `BEGIN … ROLLBACK`) y **sube solo la rama**. | SUBIENDO (sube sola) o POR_REVISAR (espera el sí) |
-| SUBIENDO | Rebase de la rama sobre `origin/main`. Si `main` no cambió desde que se construyó, no vuelve a compilar; si cambió, verifica y ensaya otra vez. **Push a main**, espera el CI (`gh run watch`) y comprueba que `/api/version` diga el commit nuevo. | HECHO (con el commit y su link) |
+| SUBIENDO | Rebase de la rama sobre `origin/main`. Si `main` no cambió desde que se construyó, no vuelve a compilar; si cambió, verifica y ensaya otra vez. **Push a main**, espera el CI (`gh run watch`) y comprueba que `/api/version` diga el commit nuevo (hasta 40 min; se deshace solo con evidencia de falla, ver abajo). | HECHO (con el commit y su link) |
 
 ### Un solo sí (1 y 2 de noviembre de 2026)
 
@@ -99,9 +99,30 @@ minuto y antes que cualquier otra tarjeta.
   tarjeta.** Sin `ssh.logs` el trabajador no arranca con `zonasQueSubenSolas` (no hay forma de vigilar).
 - **Si algo falla antes de subir**, no sube nada: queda **ERROR** con el motivo en palabras sencillas
   ("No compiló: …", "Fallaron las pruebas…", "El ensayo de la migración falló…") y el detalle técnico debajo.
-- **Si el despliegue falla después de subir** (el CI falla, o `/api/version` no muestra el commit nuevo
-  o no contesta), el trabajador hace `git revert` de lo que subió y lo empuja a main (sin forzar).
-  Queda ERROR: "Se subió, no arrancó y se deshizo; producción vuelve a la versión anterior". Las
+- **Esperar el despliegue (10-nov-2026)**: después del push se pregunta `/api/version` cada `subida.despliegueCadaSegundos`
+  (20) hasta que diga el commit subido o uno posterior que lo incluya, por hasta `subida.despliegueMinutos` (**40**) desde que
+  pasó el CI, sin pasar el tope de 80 min que el CRM le da a subir. El servidor de EEUU tarda 10-22 min en tomar cada versión:
+  con los 8 min de antes se declaraba "no arrancó" y se deshacían subidas buenas (T-714 apareció a los 17 min), con recargas
+  dobles para las asesoras. `subida.versionMinutos` es el nombre viejo: se sigue leyendo, pero no baja de 40 (las configs
+  viejas traen 8). Apenas el push sale bien, la tarjeta suelta su huella (zonas y módulos): otra que toca lo mismo puede
+  construir mientras esta espera el despliegue; otra **subida** del mismo repo sigue esperando (suben de a una).
+- **Se deshace SOLO con evidencia de falla**, nunca porque se acabó el tiempo:
+  - el CI del despliegue falló (uno **cancelado** por un push más nuevo no cuenta: la corrida nueva ya trae el commit; uno
+    que se pasa de `ciMinutos` tampoco: se sigue mirando la versión);
+  - el contenedor **nuevo** (otro id que el de antes de subir) quedó `exited`/`dead`, `restarting`, con reinicios o
+    `unhealthy`, 2 lecturas seguidas. Se lee por ssh, solo lectura, con `ssh.despliegue` (imprime `<id> <estado> <salud>
+    <reinicios>`; ver `config.example.json` y `lib/despliegue.mjs`). Sin `ssh.despliegue` esta evidencia no existe;
+  - `/api/version` quedó `subida.versionAjenaMinutos` (10) en una versión distinta de la de antes que ni incluye la nueva ni
+    es más vieja;
+  - la versión nueva contesta pero `urlArranque` da 500 tres veces seguidas.
+
+  Ahí el trabajador hace `git revert` de lo que subió y lo empuja a main (sin forzar).
+  Queda ERROR: "Se subió, no arrancó y se deshizo; producción vuelve a la versión anterior".
+- **Si se acaba el tiempo sin ninguna evidencia** (la versión no llega, el servidor o el ssh no se pueden leer): **no se
+  deshace nada**, lo subido sigue en main y la tarjeta queda ERROR con la categoría `despliegue_sin_confirmar` (no se repara
+  sola). Reintentarla toma el camino de "ya estaba en main": no empuja ni compila, solo vuelve a esperar el despliegue.
+
+  Sobre el revert: las
   carpetas de migración nuevas se conservan (la migración es aditiva y pudo haber corrido; la base no se
   deshace). Si no logra deshacerlo, el motivo empieza con **"URGENTE: no se pudo deshacer, revisar a mano"**.
   El aviso al dueño por WhatsApp va en 3 líneas y máximo 500 caracteres (el CRM rechaza los más largos); el detalle queda en el tablero.

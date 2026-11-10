@@ -204,6 +204,9 @@ const CANDADO_DE_BUILD_POR_DEFECTO = { esperaSegundos: 60, maximoEsperas: 10 };
 
 const PARTIR_POR_DEFECTO = { archivosMinimos: 8, archivosAntes: 25, archivosConMigracion: 15 };
 
+/** Minutos que se espera el despliegue desde que pasó el CI (subida.despliegueMinutos; 10-nov-2026, antes 8). */
+export const DESPLIEGUE_MINUTOS = 40;
+
 /** Reparar solo (24-oct-2026). diagnosticoConClaude: si no se reconoce la causa, una sesión corta de Claude (solo lectura) lee el log. */
 const REPARAR_POR_DEFECTO = { diagnosticoConClaude: true, diagnosticoMinutos: 3 };
 
@@ -376,7 +379,20 @@ export function completarConfig(datos, base = process.cwd()) {
             typeof repo.subida?.workflowDespliegue === "string" && repo.subida.workflowDespliegue.trim() ? repo.subida.workflowDespliegue.trim() : null,
           urlVersion: typeof repo.subida?.urlVersion === "string" ? repo.subida.urlVersion : null,
           campoVersion: typeof repo.subida?.campoVersion === "string" ? repo.subida.campoVersion : "version",
-          versionMinutos: Number(repo.subida?.versionMinutos) || 10,
+          // 10-nov-2026: cuánto se espera que /api/version diga el commit subido, desde que pasó el CI. El servidor tarda
+          // 10-22 min; con 8 se deshacían subidas buenas. Agotar el tiempo NUNCA deshace (ERROR despliegue_sin_confirmar).
+          // versionMinutos queda como nombre viejo, pero no baja de 40: las configs viejas traen 8.
+          despliegueMinutos:
+            Number(repo.subida?.despliegueMinutos) > 0
+              ? Number(repo.subida.despliegueMinutos)
+              : Math.max(Number(repo.subida?.versionMinutos) || 0, DESPLIEGUE_MINUTOS),
+          // Cada cuánto se pregunta la versión (y se lee el contenedor por ssh.despliegue).
+          despliegueCadaSegundos: Number(repo.subida?.despliegueCadaSegundos) > 0 ? Number(repo.subida.despliegueCadaSegundos) : 20,
+          // Una versión ajena (ni la nuestra, ni una que la incluya, ni una más vieja) que no se mueve en este tiempo es
+          // evidencia de que nuestro despliegue no va a llegar: ahí sí se deshace.
+          versionAjenaMinutos: Number(repo.subida?.versionAjenaMinutos) > 0 ? Number(repo.subida.versionAjenaMinutos) : 10,
+          // El comando que dice cómo terminó una corrida ("cancelled", "failure"...); sin él se saca de ciEsperar.
+          ciConclusion: comando(repo.subida?.ciConclusion, `repos.${clave}.subida.ciConclusion`),
           urlArranque: typeof repo.subida?.urlArranque === "string" ? repo.subida.urlArranque : null,
         },
       };
@@ -396,6 +412,9 @@ export function completarConfig(datos, base = process.cwd()) {
           // y el que dice si sigue corriendo ("true <reinicios>"). Solo lectura.
           logs: typeof datos.ssh.logs === "string" && datos.ssh.logs.trim() ? datos.ssh.logs.trim() : null,
           estado: typeof datos.ssh.estado === "string" && datos.ssh.estado.trim() ? datos.ssh.estado.trim() : null,
+          // 10-nov-2026: el estado del contenedor mientras se espera el despliegue ("<id> <estado> <salud> <reinicios>",
+          // despliegue.mjs). Solo con él se deshace una subida porque el contenedor nuevo se cayó.
+          despliegue: typeof datos.ssh.despliegue === "string" && datos.ssh.despliegue.trim() ? datos.ssh.despliegue.trim() : null,
         }
       : null;
   for (const repo of Object.values(repos)) {

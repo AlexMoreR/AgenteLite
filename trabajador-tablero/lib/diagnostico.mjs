@@ -42,6 +42,9 @@ export const CATEGORIAS = [
   // 31-oct-2026: el rebase con main no tuvo conflicto de texto, pero lo nuevo de main y la tarea no encajan (la lógica
   // choca). No se repara sola: reconstruir otra vez no lo arregla, alguien tiene que decidir cómo juntarlos.
   "choque_de_logica",
+  // 10-nov-2026: subió a main pero no se pudo confirmar que el servidor tomó la versión (el tiempo se acabó sin ver ninguna
+  // falla). No se deshace ni se repara: reintentar solo vuelve a esperar el despliegue (etapas.mjs: esperarVersion).
+  "despliegue_sin_confirmar",
   "otra",
 ];
 
@@ -49,7 +52,7 @@ export const CATEGORIAS = [
  * Las categorías que NO se reparan solas (29-oct-2026, 62 % del uso semanal se fue en reintentos ciegos): van directo al
  * dueño con el link y la línea de qué necesita. Repetirlas no cambia nada hasta que alguien encuentre la causa.
  */
-export const SIN_REPARACION_AUTOMATICA = ["nube_sin_resultado", "nube_pregunta", "plan_con_preguntas", "revision_no_paso", "nube_sin_acceso_repo", "zona", "choque_de_logica"];
+export const SIN_REPARACION_AUTOMATICA = ["nube_sin_resultado", "nube_pregunta", "plan_con_preguntas", "revision_no_paso", "nube_sin_acceso_repo", "zona", "choque_de_logica", "despliegue_sin_confirmar"];
 
 /**
  * Las que no son de la tarea (ya tienen su tope de esperas): no cuentan para "la misma causa 2 veces". El choque con main
@@ -190,6 +193,7 @@ const CAUSA_BASE = {
   nube_sin_acceso_repo: "La nube no tiene acceso al repo",
   zona: "El cambio de chats o del bot de ventas no puede subir solo",
   choque_de_logica: "Lo nuevo de main y el cambio de la tarea no encajan (choque de lógica)",
+  despliegue_sin_confirmar: "Subió a main, pero no se pudo confirmar que el servidor tomó la versión nueva (no se deshizo nada)",
   otra: "No se reconoció la causa",
 };
 
@@ -411,6 +415,8 @@ function lineasDeLaCausa(texto, regla) {
  */
 export function causaExterna(diagnostico, { reversion = null, repo = "", tarjeta = null } = {}) {
   if (!diagnostico) return null;
+  // 10-nov-2026: el despliegue sin confirmar va a ERROR (lo reintenta el dueño), no espera otra tarjeta.
+  if (diagnostico.categoria === "despliegue_sin_confirmar") return null;
   if (reversion && reversion.ok !== true) return null;
   if (esTarjetaDeCausa(tarjeta)) return null;
   const texto = String(diagnostico.error ?? "");
@@ -667,6 +673,7 @@ const NECESITA = {
   nube_sin_acceso_repo: "Revisar que la app de GitHub de Claude tenga acceso al repo (o abrir la sesión fija del proyecto en claude.ai y ver que siga viva) y tocar Reintentar.",
   choque_de_logica: "Mirar qué cambió en main y qué pide la tarea (Detalles técnicos) y decidir cómo juntarlos; después tocar Reintentar.",
   zona: "Leer el motivo (No sube: …): si el envío a clientes no se pidió, aclarar el plan y aprobar de nuevo; si sí se pidió, subirlo a mano.",
+  despliegue_sin_confirmar: "Nada se deshizo: lo subido sigue en main. Tocar Reintentar solo vuelve a esperar que el servidor tome la versión (no sube ni compila otra vez).",
   otra: "Que alguien mire los Detalles técnicos y diga qué hacer.",
 };
 

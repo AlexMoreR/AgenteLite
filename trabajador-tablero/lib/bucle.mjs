@@ -131,7 +131,7 @@ export async function unaVuelta({ crm, config, registro }) {
   return { hizo: hacer, tarjetaId: tarjeta.id, ...resultado };
 }
 
-export async function procesar({ crm, config, registro: registroBase, motores = crearEstadoDeMotores(config), medidor = null, otrasSesiones = null, vivo = {}, lugar = "aizen1", puestoParaVerificar = null, colaPesada = null, etiqueta = "", alSoltarPuesto = null }, tarjeta, hacer) {
+export async function procesar({ crm, config, registro: registroBase, motores = crearEstadoDeMotores(config), medidor = null, otrasSesiones = null, vivo = {}, lugar = "aizen1", puestoParaVerificar = null, colaPesada = null, etiqueta = "", alSoltarPuesto = null, alSubirAMain = null }, tarjeta, hacer) {
   const control = new AbortController();
   // Pausa por uso de Claude (pausa-uso.mjs): el planificador pide detener esta sesión con `vivo.detenerPorPausa()`.
   let pausadaPorUso = false;
@@ -186,7 +186,7 @@ export async function procesar({ crm, config, registro: registroBase, motores = 
     linkSesion: null,
   });
   const fase = (etapa, extra = {}) => Object.assign(vivo, { etapa }, extra);
-  const contexto = { config, registro, senal: control.signal, motorDe: motores.motorDe, alLimite: pausar, medidor, otrasSesiones, fase, puestoParaVerificar, colaPesada, etiqueta, lugar: enNube ? "nube" : "aizen1", alSoltarPuesto, sesionNueva: vivo.sesionNueva === true, orquestador: enNube && vivo.orquestador === true };
+  const contexto = { config, registro, senal: control.signal, motorDe: motores.motorDe, alLimite: pausar, medidor, otrasSesiones, fase, puestoParaVerificar, colaPesada, etiqueta, lugar: enNube ? "nube" : "aizen1", alSoltarPuesto, alSubirAMain, sesionNueva: vivo.sesionNueva === true, orquestador: enNube && vivo.orquestador === true };
   try {
     const etapa = ETAPAS[hacer];
     if (!etapa) throw new ErrorDeEtapa(`El CRM pidió "${hacer}", que este Coordinador no sabe hacer (¿hay que actualizarlo?).`);
@@ -1152,6 +1152,13 @@ export function crearPlanificador({
           vivo.sinPuesto = motivo;
           contarCorriendo();
           if (yaSuelto) return;
+          if (despertar) despertar();
+          else cupoNuevo = true;
+        },
+        // 10-nov-2026: lo de la tarjeta ya está en main y solo espera el despliegue: suelta su huella (zonas, módulos y
+        // rutas) para que otra que toca lo mismo construya. Sigue siendo "subir", así que otra subida del repo espera.
+        alSubirAMain: () => {
+          sesion.huella = { ...sesion.huella, zonas: new Set(), modulos: new Set(), rutas: [] };
           if (despertar) despertar();
           else cupoNuevo = true;
         },

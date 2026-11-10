@@ -29,6 +29,23 @@ if (remoto.startsWith("logs-falso")) {
   if (process.env.SSH_FALSO_ERRORES === "1" && llamada > 0) {
     console.log("2026-10-26T10:05:00Z ERROR TypeError: no se pudo leer saludo\n2026-10-26T10:05:01Z ERROR Unhandled rejection en el bot\n2026-10-26T10:05:02Z ERROR fallo al guardar el libro");
   }
+} else if (remoto.startsWith("despliegue-falso")) {
+  // 10-nov-2026 (ssh.despliegue): "<id> <estado> <salud> <reinicios>". La 1ª lectura (antes de subir) es el contenedor viejo;
+  // las siguientes, según SSH_FALSO_DESPLIEGUE: "ok" (por defecto) uno nuevo sano, "viejo" el mismo de antes, "exited" uno
+  // nuevo caído, "ilegible" nunca se puede leer.
+  const archivoConteo = `${process.env.SSH_FALSO_LOG ?? "ssh-falso"}.conteo-despliegue`;
+  const llamada = fs.existsSync(archivoConteo) ? Number(fs.readFileSync(archivoConteo, "utf8")) : 0;
+  fs.writeFileSync(archivoConteo, String(llamada + 1));
+  const modo = process.env.SSH_FALSO_DESPLIEGUE ?? "ok";
+  if (modo === "ilegible") {
+    console.error("ssh: connect to host servidor-falso port 22: Connection timed out");
+    process.exit(255);
+  }
+  const viejo = "a1".repeat(32);
+  const nuevo = "b2".repeat(32);
+  if (llamada === 0 || modo === "viejo") console.log(`${viejo} running healthy 0`);
+  else if (modo === "exited") console.log(`${nuevo} exited sin-salud 0`);
+  else console.log(`${nuevo} running healthy 0`);
 } else if (remoto.startsWith("estado-falso")) {
   console.log("true 0");
 } else if (entrada.includes("FROM pg_database")) {

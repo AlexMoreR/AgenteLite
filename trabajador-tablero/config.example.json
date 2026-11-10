@@ -109,7 +109,8 @@
     "destino": "USUARIO@SERVIDOR",
     "psql": "docker exec -i CONTENEDOR_POSTGRES psql -U postgres",
     "logs": "docker logs --since 3m --tail 400 CONTENEDOR_CRM 2>&1",
-    "estado": "docker inspect -f '{{.State.Running}} {{.RestartCount}}' CONTENEDOR_CRM"
+    "estado": "docker inspect -f '{{.State.Running}} {{.RestartCount}}' CONTENEDOR_CRM",
+    "despliegue": "docker inspect -f '{{.Id}} {{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{else}}sin-salud{{end}} {{.RestartCount}}' $(docker ps -a -q --latest --filter name=CONTENEDOR_CRM)"
   },
   "repos": {
     "aizencrm": {
@@ -350,7 +351,9 @@
         "workflowDespliegue": "docker-image.yml",
         "urlVersion": "https://app.aizenbot.com/api/version",
         "campoVersion": "version",
-        "versionMinutos": 8,
+        "despliegueMinutos": 40,
+        "despliegueCadaSegundos": 20,
+        "versionAjenaMinutos": 10,
         "urlArranque": "https://app.aizenbot.com/login"
       }
     },
