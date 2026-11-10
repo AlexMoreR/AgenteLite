@@ -5,6 +5,24 @@ import { useRouter } from "next/navigation";
 
 import { useOpenChatKey } from "@/components/chats/chat-selection-store";
 import { EVENTO_CHATS_RECONECTADO } from "@/lib/chat-envio-reintento";
+import { hayVersionNuevaParaEnviar } from "@/components/app-version-guard";
+import { pedirRevisionDeVersion } from "@/lib/actualizacion-automatica";
+
+/**
+ * T-722 (10-nov-2026): con una version nueva en el servidor, un router.refresh() hace que Next.js
+ * recargue la pagina ENTERA (protege contra versiones mezcladas). Estos refrescos son automaticos:
+ * si hay version nueva no se hacen y sale el aviso "Hay una versión nueva del CRM". La asesora
+ * actualiza cuando termine. Mientras tanto la lista sigue al dia por el tiempo real (/live).
+ */
+function refrescarSinRecargar(refrescar: () => void) {
+  void hayVersionNuevaParaEnviar().then((nueva) => {
+    if (nueva) {
+      pedirRevisionDeVersion();
+      return;
+    }
+    refrescar();
+  });
+}
 
 type ChatsAutoRefreshProps = {
   intervalMs?: number;
@@ -205,9 +223,11 @@ export function ChatsAutoRefresh({
         return;
       }
 
-      startTransition(() => {
-        router.refresh();
-      });
+      refrescarSinRecargar(() =>
+        startTransition(() => {
+          router.refresh();
+        }),
+      );
     }, intervalMs);
 
     return () => window.clearInterval(timer);
@@ -222,9 +242,11 @@ export function ChatsAutoRefresh({
     }
 
     const timer = window.setInterval(() => {
-      startTransition(() => {
-        router.refresh();
-      });
+      refrescarSinRecargar(() =>
+        startTransition(() => {
+          router.refresh();
+        }),
+      );
     }, officialRefreshMs);
 
     return () => window.clearInterval(timer);
@@ -270,9 +292,11 @@ export function ChatsAutoRefresh({
           });
       }
       // La lista entera (y el chat oficial): lo que cambio en otros chats mientras estuvo caido.
-      startTransition(() => {
-        router.refresh();
-      });
+      refrescarSinRecargar(() =>
+        startTransition(() => {
+          router.refresh();
+        }),
+      );
     };
 
     const alVolverALaPestana = () => {
@@ -410,9 +434,11 @@ export function ChatsAutoRefresh({
       */
       if (ids.length > MAXIMO_FILAS_AL_VOLVER) {
         lastRefreshAt = Date.now();
-        startTransition(() => {
-          router.refresh();
-        });
+        refrescarSinRecargar(() =>
+          startTransition(() => {
+            router.refresh();
+          }),
+        );
         return;
       }
       for (const id of ids) {
@@ -459,9 +485,11 @@ export function ChatsAutoRefresh({
         return;
       }
       lastRefreshAt = now;
-      startTransition(() => {
-        router.refresh();
-      });
+      refrescarSinRecargar(() =>
+        startTransition(() => {
+          router.refresh();
+        }),
+      );
     };
 
     window.addEventListener("official-realtime-poke", handlePoke);

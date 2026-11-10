@@ -305,4 +305,16 @@ prueba("T-722: la pantalla de error no recarga sola; solo con su boton", () => {
   assert.match(error, /const reintentar = \(\) => \{[\s\S]*location\.reload/);
 });
 
+prueba("T-722: los refrescos automaticos de la bandeja pasan por refrescarSinRecargar", () => {
+  const auto = fs.readFileSync("src/components/agents/chats-auto-refresh.tsx", "utf8").replace(/\r\n/g, "\n");
+  const refrescos = auto.match(/router\.refresh\(\)/g) ?? [];
+  const envueltos = auto.match(/refrescarSinRecargar\(\(\) =>\s*startTransition\(\(\) => \{\s*router\.refresh\(\);/g) ?? [];
+  // Los comentarios del archivo nombran router.refresh() sin llamarlo: se cuentan solo las llamadas reales.
+  const llamadas = auto.split("\n").filter((linea) => /^\s*router\.refresh\(\);/.test(linea)).length;
+  assert.ok(refrescos.length >= llamadas);
+  assert.equal(llamadas, 5, "los cinco refrescos automaticos de siempre");
+  assert.equal(envueltos.length, llamadas, "ninguno se salta la revision de version");
+  assert.match(auto, /function refrescarSinRecargar[\s\S]*hayVersionNuevaParaEnviar\(\)[\s\S]*pedirRevisionDeVersion\(\)/);
+});
+
 console.log(`\n${pruebas} pruebas OK`);
