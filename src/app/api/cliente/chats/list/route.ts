@@ -7,7 +7,14 @@ import { scheduleContactAvatarRefresh, type ContactAvatarTarget } from "@/lib/co
 import { extractEvolutionMessageText, extractEvolutionPushName } from "@/lib/evolution-webhook";
 import { getVisibleChannelIds, resolverConexionElegida } from "@/lib/channel-visibility";
 import { canalesDelNegocio } from "@/lib/canales-del-negocio";
-import { estadoQueAplica, hayBusqueda, whereDeBusquedaDeChats } from "@/lib/busqueda-de-chats";
+import {
+  buscaEnMensajes,
+  estadoQueAplica,
+  hayBusqueda,
+  partesDeLaBusquedaDeLaLista,
+  whereDeBusquedaDeChats,
+  type PartesDeLaBusqueda,
+} from "@/lib/busqueda-de-chats";
 import {
   ORDEN_DE_BANDEJA,
   cortarPagina,
@@ -177,6 +184,11 @@ function resolveStoredAgentContactLabel(input: {
 async function getAgentConversationList(input: {
   workspaceId: string;
   searchQuery: string;
+  /**
+   * Con texto: "nombreYNumero" (la lista de siempre, sin mirar mensajes) o "mensajes" (la segunda
+   * llamada del buscador: los chats con el texto en un mensaje). Ver lib/busqueda-de-chats.
+   */
+  partesDeLaBusqueda?: PartesDeLaBusqueda;
   selectedConnectionKey: string;
   /** "all" | "mine" | "unassigned" | "user:<id>" (un jefe mirando la bandeja de una asesora). */
   assignedFilter: string;
@@ -195,6 +207,7 @@ async function getAgentConversationList(input: {
   limit: number;
 }) {
   const normalizedSearchQuery = input.searchQuery.trim();
+  const partesDeLaBusqueda = input.partesDeLaBusqueda ?? "nombreYNumero";
   const tapar = input.monitoredChannelIds.length > 0;
   /*
     Quien monitorea ve TODO lo de su canal, sin importar la pestaña.
@@ -253,8 +266,8 @@ async function getAgentConversationList(input: {
       assignedWhere,
       statusWhere,
       input.cursor ? whereDespuesDelCursor(input.cursor) : {},
-      // Nombre, numero (tambien con las cifras solas) y, con 4 letras o mas, mensajes de 90 dias.
-      whereDeBusquedaDeChats(normalizedSearchQuery),
+      // Nombre y numero (tambien con las cifras solas), o solo los mensajes de 90 dias (4 letras o mas).
+      whereDeBusquedaDeChats(normalizedSearchQuery, new Date(), partesDeLaBusqueda),
     ],
   };
 
@@ -536,13 +549,15 @@ async function getAgentConversationList(input: {
   });
 
   /*
-    La base ya filtro por `q` (nombre, numero y mensajes). Volver a filtrar aca por lo que se ve en
+    La base ya filtro por `q` (nombre y numero, o mensajes). Volver a filtrar aca por lo que se ve en
     la fila descartaba justo lo que la base encontro en un mensaje viejo o por las cifras de un
     numero escrito con espacios. Solo quien monitorea pasa por este filtro: su numero va tapado y
-    no tiene que poder encontrar un chat escribiendo el telefono.
+    no tiene que poder encontrar un chat escribiendo el telefono. Por el texto de un mensaje no hay
+    telefono que esconder (la seccion "Mensajes" ya le muestra esos mismos chats).
   */
-  const merged = dedupeAndSortConversationListRows(agentRows)
-    .filter((item) => !tapar || coincideConLoVisible(item, input.searchQuery));
+  const merged = dedupeAndSortConversationListRows(agentRows).filter(
+    (item) => !tapar || partesDeLaBusqueda === "mensajes" || coincideConLoVisible(item, input.searchQuery),
+  );
 
   // Ya no hace falta cortar: consumedConversationRows trae como mucho `limit` filas, y de ahi
   // solo se pueden haber caido pospuestos.
@@ -645,6 +660,12 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
 
   const requestUrl = new URL(request.url);
   const searchQuery = requestUrl.searchParams.get("q")?.trim() || "";
+  /*
+    Con texto, la lista busca SOLO por nombre y numero (`soloNombreYNumero=1`, o sin nada: el refresco
+    y el scroll). Los chats con el texto en un mensaje se piden aparte con `soloPorMensaje=1`, y los
+    pide solo el buscador mientras se escribe (Alex, 10-11-2026). Ver lib/busqueda-de-chats.
+  */
+  const partesDeLaBusqueda = partesDeLaBusquedaDeLaLista((clave) => requestUrl.searchParams.get(clave));
   const selectedConnectionKey = requestUrl.searchParams.get("connection")?.trim() || "";
   /*
     `ids` = traer solo estos chats (sin el prefijo `agent:`): los fijados de quien mira que no
@@ -726,6 +747,22 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
   t.marca("permisos");
 
   const filtros = leerFiltrosDeBandeja((clave) => requestUrl.searchParams.get(clave));
+
+  // La parte "por mensaje" con un texto corto (o sin texto) no busca nada: ni toca la base.
+  if (partesDeLaBusqueda === "mensajes" && !buscaEnMensajes(searchQuery)) {
+    return NextResponse.json({
+      ok: true,
+      assignedFilter,
+      isManager,
+      conversations: [],
+      hasMore: false,
+      nextOffset: offset,
+      nextCursor: null,
+      total: 0,
+      evolutionInstanceNames: [],
+    });
+  }
+
   const conexionElegida = await resolverConexionElegida({
     workspaceId: membership.workspace.id,
     connectionKey: selectedConnectionKey,
@@ -757,7 +794,12 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     no despues. Si la conexion elegida los admite se decide aca con la misma regla de
     getAgentConversationList (sin conexion, o la linea oficial), sobre la cache de canales.
   */
-  const pideOficial = requestUrl.searchParams.get("incluirOficial") === "1" && offset === 0 && soloIds.length === 0;
+  // La parte "por mensaje" es solo de WhatsApp: la oficial busca en su ultimo mensaje con la lista.
+  const pideOficial =
+    requestUrl.searchParams.get("incluirOficial") === "1" &&
+    offset === 0 &&
+    soloIds.length === 0 &&
+    partesDeLaBusqueda !== "mensajes";
   const pedirOficial = () =>
     getOfficialApiChatsData({
       workspaceId: membership.workspace.id,
@@ -787,6 +829,7 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
   const data = await getAgentConversationList({
     workspaceId: membership.workspace.id,
     searchQuery,
+    partesDeLaBusqueda,
     selectedConnectionKey: conexionElegida,
     assignedFilter,
     statusFilter,

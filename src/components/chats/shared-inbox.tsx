@@ -69,7 +69,8 @@ export type {
   StatusFilter,
 } from "./chat-inbox-types";
 import { normalizeChatSearchText, getMediaPreviewLabel } from "./chat-inbox-format";
-import { cifrasParaBuscarElTelefono, estadoQueAplica } from "@/lib/busqueda-de-chats";
+import { buscaEnMensajes, cifrasParaBuscarElTelefono, estadoQueAplica } from "@/lib/busqueda-de-chats";
+import { filasDelBuscador } from "./filas-del-buscador";
 import {
   normalizeLiveConversationSnapshot,
   normalizeLiveConversationListSnapshot,
@@ -166,6 +167,9 @@ const ESPERA_DEL_BUSCADOR_MS = 350;
 const LETRAS_PARA_IR_AL_SERVIDOR = 2;
 // La seccion "Mensajes" del buscador: con menos letras casi todo coincide (ver buscar-mensajes).
 const LETRAS_PARA_BUSCAR_MENSAJES = 3;
+// Siempre el mismo objeto vacio, por lo mismo que SIN_MENSAJES_ENCONTRADOS.
+type ChatsPorMensaje = { q: string; vista: string; items: SharedInboxConversationItem[] };
+const SIN_CHATS_POR_MENSAJE: ChatsPorMensaje = { q: "", vista: "", items: [] };
 
 function debugConversationList(...args: unknown[]) {
   if (!CHAT_LIST_DEBUG) {
@@ -780,10 +784,13 @@ export function SharedInbox({
   searchInputValueRef.current = searchInputValue;
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Ids de chats que coinciden con la búsqueda por CONTENIDO de mensaje (no por nombre/
-  // teléfono/último mensaje visible). Vienen del fetch aumentativo al API de lista; sirven
-  // para que esos chats aparezcan aunque el texto buscado no esté en los campos visibles.
-  const [searchMatchIds, setSearchMatchIds] = useState<ReadonlySet<string> | null>(null);
+  /*
+    Los chats que coinciden por el TEXTO de un mensaje (no por nombre ni numero), con el texto que
+    los trajo: la segunda llamada del buscador (/list?soloPorMensaje=1). Van al final de la lista y
+    solo mientras lo escrito sea ese mismo texto. No entran a conversationItems: al borrar el
+    buscador se van solos.
+  */
+  const [chatsPorMensaje, setChatsPorMensaje] = useState<ChatsPorMensaje>(SIN_CHATS_POR_MENSAJE);
   const searchAugmentAbortRef = useRef<AbortController | null>(null);
   // Arranca distinta a proposito: la primera corrida del efecto de `conversations` arma la lista.
   const listQueryKeyRef = useRef(`${searchQuery.trim()}::${selectedConnectionKey.trim()}::${assignedFilterDelServidor}`);
@@ -1351,10 +1358,15 @@ export function SharedInbox({
     };
   }, [fijadosEnVivo, assignedFilter, statusFilter, selectedConnectionKey, searchQuery, enEspera, ponerFiltrosNuevos, conversationListApiPath, searchAction, hrefDeFila]);
 
-  // Búsqueda aumentativa: trae del servidor los chats que coinciden por contenido de
-  // mensaje o que están más allá de lo ya cargado, y los AGREGA (nunca quita) a la lista.
-  // No navega ni reemplaza la lista: así borrar el buscador siempre restaura todos los
-  // chats al instante (la lista base nunca se encoge por la búsqueda).
+  /*
+    Búsqueda aumentativa, en DOS pasos (Alex, 10-11-2026):
+     1. `soloNombreYNumero=1`: los chats por nombre o numero que estan mas alla de lo ya cargado. Se
+        AGREGAN (nunca quitan) a la lista; no navega ni la reemplaza, asi borrar el buscador siempre
+        restaura todos los chats al instante.
+     2. Con 4 letras o mas, recien despues, `soloPorMensaje=1`: los chats con el texto en un mensaje,
+        que se ponen al final (chatsPorMensaje). Si falla, queda lo del paso 1 sin ningun error.
+    Una letra mas corta los dos pedidos (el AbortController) y lo que llegue tarde no se usa.
+  */
   const runSearchAugmentation = useCallback(
     async (rawQuery: string) => {
       const q = rawQuery.trim();
@@ -1362,54 +1374,58 @@ export function SharedInbox({
 
       if (!q) {
         searchAugmentAbortRef.current = null;
-        setSearchMatchIds(null);
+        setChatsPorMensaje(SIN_CHATS_POR_MENSAJE);
         return;
       }
 
       const controller = new AbortController();
       searchAugmentAbortRef.current = controller;
+      const sigueVigente = () => searchAugmentAbortRef.current === controller && !controller.signal.aborted;
 
-      try {
-        const params = new URLSearchParams();
-        params.set("q", q);
-        params.set("limit", "40");
-        if (selectedConnectionKey.trim()) params.set("connection", selectedConnectionKey.trim());
-        // Siempre se manda: la ruta lee la ausencia como "mine", asi que omitirlo
-        // estando en "Todas" hacia que el refresco de la lista la pasara sola a "Mias".
-        params.set("assigned", assignedFilter);
-        if (statusFilter !== "open") params.set("status", statusFilter);
-        ponerFiltrosNuevos(params);
+      const params = new URLSearchParams();
+      params.set("limit", "40");
+      if (selectedConnectionKey.trim()) params.set("connection", selectedConnectionKey.trim());
+      // Siempre se manda: la ruta lee la ausencia como "mine", asi que omitirlo
+      // estando en "Todas" hacia que el refresco de la lista la pasara sola a "Mias".
+      params.set("assigned", assignedFilter);
+      if (statusFilter !== "open") params.set("status", statusFilter);
+      ponerFiltrosNuevos(params);
+      // Los de otra pestaña, linea o filtro no se muestran mientras llegan los de esta.
+      const vista = params.toString();
+      setChatsPorMensaje((actual) => (actual.vista === vista ? actual : SIN_CHATS_POR_MENSAJE));
+      params.set("q", q);
 
-        const response = await fetch(`${conversationListApiPath}?${params.toString()}`, {
+      const pedir = async (parte: "soloNombreYNumero" | "soloPorMensaje") => {
+        const response = await fetch(`${conversationListApiPath}?${params.toString()}&${parte}=1`, {
           credentials: "same-origin",
           cache: "no-store",
           signal: controller.signal,
         });
-
-        if (!response.ok) {
-          return;
-        }
-
+        if (!response.ok) return null;
         const payload = (await response.json().catch(() => null)) as
           | { ok?: boolean; conversations?: SharedInboxConversationItem[] }
           | null;
+        if (!payload?.ok || !Array.isArray(payload.conversations)) return null;
+        return normalizeConversationItems(payload.conversations, (item) => hrefDeFila(item, q));
+      };
 
-        if (!payload?.ok || !Array.isArray(payload.conversations)) {
-          return;
+      try {
+        const porNombreYNumero = await pedir("soloNombreYNumero").catch(() => null);
+        if (porNombreYNumero && sigueVigente()) {
+          setConversationItems((current) => {
+            const currentIds = new Set(current.map((item) => item.id));
+            const additions = porNombreYNumero.filter((item) => item.id && !currentIds.has(item.id));
+            return additions.length === 0
+              ? current
+              : sortConversationItems([...current, ...additions], { ordenDelServidor: ordenDelServidorRef.current });
+          });
         }
 
-        const normalized = normalizeConversationItems(payload.conversations, (item) =>
-          hrefDeFila(item, q),
-        );
-
-        setConversationItems((current) => {
-          const currentIds = new Set(current.map((item) => item.id));
-          const additions = normalized.filter((item) => item.id && !currentIds.has(item.id));
-          return additions.length === 0
-            ? current
-            : sortConversationItems([...current, ...additions], { ordenDelServidor: ordenDelServidorRef.current });
-        });
-        setSearchMatchIds(new Set(normalized.map((item) => item.id)));
+        if (!buscaEnMensajes(q) || !sigueVigente()) return;
+        const porMensaje = await pedir("soloPorMensaje");
+        if (porMensaje && sigueVigente()) {
+          setChatsPorMensaje({ q, vista, items: porMensaje });
+        }
       } catch {
         // Abort o fallo de red: la búsqueda local sobre lo ya cargado sigue funcionando.
       } finally {
@@ -1480,13 +1496,22 @@ export function SharedInbox({
     searchDebounceRef.current = null;
     void buscar(texto);
   }, [versionDeVista]);
+  /*
+    La pagina abierta con `q` en la direccion (un chat abierto desde el buscador) trae del servidor
+    solo los de nombre y numero: los de texto de mensaje se piden aca, una vez al cargar.
+  */
+  useEffect(() => {
+    const { texto, buscar } = busquedaVigenteRef.current;
+    if (texto.trim().length < LETRAS_PARA_IR_AL_SERVIDOR) return;
+    void buscar(texto);
+  }, []);
 
   const handleSearchClear = useCallback(() => {
     setSearchInputValue("");
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     searchAugmentAbortRef.current?.abort();
     searchAugmentAbortRef.current = null;
-    setSearchMatchIds(null);
+    setChatsPorMensaje(SIN_CHATS_POR_MENSAJE);
     clearSearchUrlParam();
     searchInputRef.current?.focus();
   }, [clearSearchUrlParam]);
@@ -1514,7 +1539,7 @@ export function SharedInbox({
       30-10-2026). Al borrar la busqueda vuelve el filtro de siempre y los cerrados se van solos.
     */
     const estado = estadoQueAplica(statusFilter, searchInputValue);
-    const porEstado = conversationItems.filter((item) => {
+    const pasaElEstado = (item: SharedInboxConversationItem) => {
       const resueltaAca = estado === "open" ? resueltasAca.get(item.id) : undefined;
       if (resueltaAca !== undefined) {
         const ultimo = item.lastMessageAt ? new Date(item.lastMessageAt).getTime() : 0;
@@ -1527,7 +1552,8 @@ export function SharedInbox({
       }
       const cerrada = item.status === "CLOSED" || item.status === "ARCHIVED";
       return estado === "open" ? !cerrada : estado === "resolved" ? cerrada : true;
-    });
+    };
+    const porEstado = conversationItems.filter(pasaElEstado);
 
     const normalizedQuery = normalizeChatSearchText(searchInputValue.trim());
     if (!normalizedQuery) {
@@ -1545,8 +1571,11 @@ export function SharedInbox({
       Antes tambien entraban aca los que coincidian por el texto de un mensaje, y con una palabra
       comun -"Cali", que el agente dice en cada chat- la lista quedaba de decenas de chats y
       "Mensajes" terminaba al fondo, tapado por el teclado (Alex, 20-10-2026).
+
+      Desde el 10-11-2026 (Alex) los que coinciden por el texto de un mensaje vuelven, pero AL
+      FINAL, despues de los de nombre y numero, y un instante despues (la segunda llamada).
     */
-    return porEstado.filter((item) => {
+    const porNombreYNumero = porEstado.filter((item) => {
       return (
         normalizeChatSearchText(item.label).includes(normalizedQuery) ||
         normalizeChatSearchText(item.secondaryLabel).includes(normalizedQuery) ||
@@ -1556,7 +1585,17 @@ export function SharedInbox({
         )
       );
     });
-  }, [conversationItems, resueltasAca, searchInputValue, statusFilter]);
+    // Solo los de lo que esta escrito AHORA: los de un texto anterior no.
+    if (chatsPorMensaje.q !== searchInputValue.trim() || chatsPorMensaje.items.length === 0) {
+      return porNombreYNumero;
+    }
+    return filasDelBuscador({
+      porNombreYNumero,
+      porMensaje: chatsPorMensaje.items,
+      actuales: new Map(conversationItems.map((item) => [item.id, item])),
+      pasa: pasaElEstado,
+    });
+  }, [conversationItems, resueltasAca, searchInputValue, statusFilter, chatsPorMensaje]);
 
   /*
     "Cargar mas" ESTABLE (no cambia en cada pagina). Antes dependia del largo de la lista y de los

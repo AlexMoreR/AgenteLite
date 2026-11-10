@@ -78,8 +78,9 @@ function buildBaseWhere(input: {
       input.selectedConnectionKey.startsWith("channel:")
         ? { channelId: input.selectedConnectionKey.slice("channel:".length) }
         : {},
-      // La misma busqueda que la lista (ver lib/busqueda-de-chats).
-      whereDeBusquedaDeChats(normalizedSearchQuery),
+      // Lo mismo que muestra la bandeja buscando: los chats por nombre y numero MAS los que tienen
+      // el texto en un mensaje, que llegan en la segunda llamada (ver lib/busqueda-de-chats).
+      whereDeBusquedaDeChats(normalizedSearchQuery, new Date(), "todo"),
     ],
   };
 }

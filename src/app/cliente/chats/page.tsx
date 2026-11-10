@@ -556,8 +556,9 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
             : {},
           assignedWhere,
           statusWhere,
-          // La misma busqueda que /api/cliente/chats/list (ver lib/busqueda-de-chats).
-          whereDeBusquedaDeChats(searchQuery),
+          // La misma busqueda que /api/cliente/chats/list: nombre y numero. Los chats que coinciden
+          // por el texto de un mensaje los agrega la bandeja despues (ver lib/busqueda-de-chats).
+          whereDeBusquedaDeChats(searchQuery, new Date(), "nombreYNumero"),
         ],
       };
 
