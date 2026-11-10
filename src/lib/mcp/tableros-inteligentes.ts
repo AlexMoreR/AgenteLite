@@ -207,7 +207,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     name: "crear_tablero",
     title: "Crear un tablero de ideas",
     description:
-      "Crea un tablero nuevo, por ejemplo uno por tema ('Ventas', 'Producción', 'Marketing'). Nace con 3 tipos de tarjeta: Área (una carpeta sin estado; puede ir dentro de otra Área), Idea (cuelga de un Área) y Tarea (cuelga de una Idea y la aprueba el dueño). Antes mirar listar_tableros para no repetir uno que ya existe. Antes de crearlo, decir en voz alta el nombre que va a tener y de quién va a ser. Sin dueno, es de la persona de esta clave.",
+      "Crea un tablero nuevo, por ejemplo uno por tema ('Ventas', 'Producción', 'Marketing'). Nace con 3 tipos de tarjeta: Área (una carpeta sin estado; puede ir dentro de otra Área), Idea (cuelga de un Área) y Tarea (cuelga de una Idea o directamente de un Área, y la aprueba el dueño). Antes mirar listar_tableros para no repetir uno que ya existe. Antes de crearlo, decir en voz alta el nombre que va a tener y de quién va a ser. Sin dueno, es de la persona de esta clave.",
     inputSchema: {
       type: "object",
       properties: {
@@ -328,7 +328,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     name: "crear_tarjeta",
     title: "Agregar una tarjeta",
     description:
-      "Agrega una tarjeta (un área, una idea, una tarea...) al tablero. Sin tipo queda como Idea. Puede colgar de otra tarjeta (padre_id) si su tipo lo permite (Área > Idea > Tarea; un Área también dentro de otra Área). Queda IDEA, o POR_APROBAR si su tipo pide aprobación y ya está lista para que el dueño la mire. Un Área no lleva estado. Si es un cambio de código que debe hacer el Coordinador, poner repo (gestion o aizencrm; solo tipos con aprobación, como Tarea) y, si toca Meta Ads, el bot de ventas o el libro V3, zona_protegida. Aprobarla lo hace el dueño (en la pantalla, o con aprobar_tarjeta si lo dice explícitamente). RIESGO (22-oct-2026, decisión del dueño: 'las cosas básicas que ayudan al negocio y no tienen riesgo, hágalas sin pedirme permiso; lo súper importante sí me lo manda al tablero'): en tarjetas con repo, proponer riesgo BAJO o ALTO. Una tarjeta BAJO POR_APROBAR se aprueba SOLA (si el interruptor de la pantalla está prendido) y el trabajador arranca sin pedir permiso. El servidor revisa las reglas: Claude nunca puede marcar BAJO algo con zona protegida, dinero, permisos o credenciales, mensajes a clientes, el propio trabajador o migraciones que borren o cambien datos. Si hay duda, ALTO." +
+      "Agrega una tarjeta (un área, una idea, una tarea...) al tablero. Sin tipo queda como Idea. Puede colgar de otra tarjeta (padre_id) si su tipo lo permite (Área > Idea > Tarea, o una Tarea directo en un Área; un Área también dentro de otra Área; lo que vale en cada tablero lo dice listar_tipos). Queda IDEA, o POR_APROBAR si su tipo pide aprobación y ya está lista para que el dueño la mire. Un Área no lleva estado. Si es un cambio de código que debe hacer el Coordinador, poner repo (gestion o aizencrm; solo tipos con aprobación, como Tarea) y, si toca Meta Ads, el bot de ventas o el libro V3, zona_protegida. Aprobarla lo hace el dueño (en la pantalla, o con aprobar_tarjeta si lo dice explícitamente). RIESGO (22-oct-2026, decisión del dueño: 'las cosas básicas que ayudan al negocio y no tienen riesgo, hágalas sin pedirme permiso; lo súper importante sí me lo manda al tablero'): en tarjetas con repo, proponer riesgo BAJO o ALTO. Una tarjeta BAJO POR_APROBAR se aprueba SOLA (si el interruptor de la pantalla está prendido) y el trabajador arranca sin pedir permiso. El servidor revisa las reglas: Claude nunca puede marcar BAJO algo con zona protegida, dinero, permisos o credenciales, mensajes a clientes, el propio trabajador o migraciones que borren o cambien datos. Si hay duda, ALTO." +
       REGLA_DEL_TABLERO,
     inputSchema: {
       type: "object",
@@ -686,7 +686,7 @@ export async function ejecutarHerramientaMcpTableros(
         dueno: tablero.duenoNombre ?? SIN_DUENO,
         aviso:
           `Es de ${tablero.duenoNombre ?? SIN_DUENO}: esa persona lo ve en su pantalla (el dueño del negocio ve todos). ` +
-          "Nació con los tipos Área (carpeta sin estado; puede ir dentro de otra Área), Idea (cuelga de un Área) y Tarea (cuelga de una Idea; la aprueba el dueño). Ver listar_tipos.",
+          "Nació con los tipos Área (carpeta sin estado; puede ir dentro de otra Área), Idea (cuelga de un Área) y Tarea (cuelga de una Idea o directamente de un Área; la aprueba el dueño). Ver listar_tipos.",
         link: linkDelTablero(tablero.id),
       };
     }

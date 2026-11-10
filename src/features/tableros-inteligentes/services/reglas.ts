@@ -525,7 +525,9 @@ export function esIconoDeTipo(valor: unknown): valor is IconoDeTipo {
 
 /**
  * Los 3 tipos con que nace cada tablero (los mismos que dejó la migración en los que ya había). Área
- * es una carpeta (sin estados) y puede ir dentro de otra Área ("Magilus > Ventas").
+ * es una carpeta (sin estados) y puede ir dentro de otra Área ("Magilus > Ventas"). Una Tarea cuelga de
+ * una Idea o directamente de un Área (10-nov-2026). En los tableros que ya existen, las madres permitidas
+ * son datos (TipoTarjetaPadre): esta lista solo decide cómo nacen los nuevos.
  */
 export const TIPOS_POR_DEFECTO: readonly {
   nombre: string;
@@ -538,7 +540,7 @@ export const TIPOS_POR_DEFECTO: readonly {
 }[] = [
   { nombre: "Área", color: "#6366f1", icono: "capas", requiereAprobacion: false, usaEstados: false, orden: 0, padres: ["Área"] },
   { nombre: "Idea", color: "#eab308", icono: "bombillo", requiereAprobacion: false, usaEstados: true, orden: 1, padres: ["Área"] },
-  { nombre: "Tarea", color: "#0ea5e9", icono: "chulo", requiereAprobacion: true, usaEstados: true, orden: 2, padres: ["Idea"] },
+  { nombre: "Tarea", color: "#0ea5e9", icono: "chulo", requiereAprobacion: true, usaEstados: true, orden: 2, padres: ["Idea", "Área"] },
 ];
 
 /** Color "#rrggbb" en minúsculas, o undefined si no vino. Basura = error. */

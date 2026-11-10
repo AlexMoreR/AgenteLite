@@ -238,13 +238,13 @@ prueba("borrar un tipo: solo en pantalla y sin tarjetas que lo usen", () => {
   assert.equal(reglas.puedeBorrarTipo("PANTALLA", 0), null);
 });
 
-prueba("tipos por defecto: Área (carpeta, dentro de Área), Idea <- Área, Tarea <- Idea; solo Tarea pide aprobación", () => {
+prueba("tipos por defecto: Área (carpeta, dentro de Área), Idea <- Área, Tarea <- Idea o Área; solo Tarea pide aprobación", () => {
   assert.deepEqual(
     reglas.TIPOS_POR_DEFECTO.map((t) => [t.nombre, t.requiereAprobacion, t.usaEstados, [...t.padres]]),
     [
       ["Área", false, false, ["Área"]],
       ["Idea", false, true, ["Área"]],
-      ["Tarea", true, true, ["Idea"]],
+      ["Tarea", true, true, ["Idea", "Área"]],
     ],
   );
   for (const tipo of reglas.TIPOS_POR_DEFECTO) assert.ok(reglas.esIconoDeTipo(tipo.icono));
