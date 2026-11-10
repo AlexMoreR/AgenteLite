@@ -87,11 +87,17 @@ const LIMITES = (ahora: Date) => ({
   ahoraIso: ahora.toISOString(),
 });
 
+/*
+  MATERIALIZED en los tres pasos (10-nov-2026): sin eso, Postgres metia `respuestas` dentro de un Nested Loop y la
+  repetia una vez por chat (711 veces): 22 s y la base al 100 %. Con cada paso calculado una sola vez, 0,4 s.
+  No quitarlo sin medir con EXPLAIN ANALYZE sobre la base real.
+*/
+
 /** La consulta del canal viejo (Conversation / Message). Separada de la que la corre, para probarla. */
 export function sqlEsperaDeChats(input: { workspaceId: string; ahora: Date }): Prisma.Sql {
   const { desde, ahoraIso } = LIMITES(input.ahora);
   return Prisma.sql`
-    WITH candidatas AS (
+    WITH candidatas AS MATERIALIZED (
       SELECT c."id", c."channelId", c."assignedToUserId", c."segundoAsesorId", c."contactId"
         FROM "Conversation" c
         JOIN "Contact" ct ON ct."id" = c."contactId"
@@ -102,7 +108,7 @@ export function sqlEsperaDeChats(input: { workspaceId: string; ahora: Date }): P
          AND ct."excludedFromCrm" = false
          AND NOT COALESCE((ct."metadata"->>'snoozedUntil') > ${ahoraIso}, false)
     ),
-    clientes AS (
+    clientes AS MATERIALIZED (
       SELECT m."conversationId" AS "id", json_agg(m."createdAt" ORDER BY m."createdAt") AS "clientes"
         FROM "Message" m
         JOIN candidatas k ON k."id" = m."conversationId"
@@ -114,7 +120,7 @@ export function sqlEsperaDeChats(input: { workspaceId: string; ahora: Date }): P
          AND m."isStatusBroadcast" = false
        GROUP BY m."conversationId"
     ),
-    respuestas AS (
+    respuestas AS MATERIALIZED (
       SELECT m."conversationId" AS "id",
              json_agg(json_build_object(
                'd', m."direction"::text, 't', m."type"::text, 'o', m."rawPayload"->>'source',
@@ -151,7 +157,7 @@ export function sqlEsperaDeChats(input: { workspaceId: string; ahora: Date }): P
 export function sqlEsperaOficial(input: { workspaceId: string; ahora: Date }): Prisma.Sql {
   const { desde, ahoraIso } = LIMITES(input.ahora);
   return Prisma.sql`
-    WITH candidatas AS (
+    WITH candidatas AS MATERIALIZED (
       SELECT c."id", c."assignedToUserId", ct."id" AS "crmContactId"
         FROM "OfficialApiConversation" c
         JOIN "OfficialApiClientConfig" cfg ON cfg."id" = c."configId"
@@ -166,7 +172,7 @@ export function sqlEsperaOficial(input: { workspaceId: string; ahora: Date }): P
            AND NOT COALESCE((ct."metadata"->>'snoozedUntil') > ${ahoraIso}, false)
          ))
     ),
-    clientes AS (
+    clientes AS MATERIALIZED (
       SELECT m."conversationId" AS "id", json_agg(m."createdAt" ORDER BY m."createdAt") AS "clientes"
         FROM "OfficialApiMessage" m
         JOIN candidatas k ON k."id" = m."conversationId"
@@ -175,7 +181,7 @@ export function sqlEsperaOficial(input: { workspaceId: string; ahora: Date }): P
          AND m."type"::text <> 'SYSTEM'
        GROUP BY m."conversationId"
     ),
-    respuestas AS (
+    respuestas AS MATERIALIZED (
       SELECT m."conversationId" AS "id",
              json_agg(json_build_object(
                'd', m."direction"::text, 't', m."type"::text, 'o', m."rawPayload"->>'source',

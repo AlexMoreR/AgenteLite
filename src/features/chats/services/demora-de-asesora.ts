@@ -18,7 +18,7 @@ import {
   topeDeReasignacionAlcanzado,
   type ConfigDemora,
 } from "../domain/demora-de-asesora";
-import { cargarEsperaDelNegocio, type ChatEnEspera } from "./espera-de-chats";
+import { esperaDelNegocio, type ChatEnEspera } from "./espera-de-chats";
 
 export * from "../domain/demora-de-asesora";
 
@@ -313,7 +313,8 @@ export async function revisarDemorasDeAsesoras(ahora = new Date()): Promise<Resu
     }
 
     const [espera, lineasDeVentas] = await Promise.all([
-      cargarEsperaDelNegocio(workspaceId),
+      // De la memoria de 1 minuto (la misma de los contadores): no repetir la consulta pesada en cada vuelta.
+      esperaDelNegocio(workspaceId),
       prisma.whatsAppChannel.findMany({ where: { workspaceId, purpose: "SALES" }, select: { id: true, metadata: true } }),
     ]);
     const metadataDeLinea = new Map(lineasDeVentas.map((linea) => [linea.id, linea.metadata]));

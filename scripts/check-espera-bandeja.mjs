@@ -481,7 +481,9 @@ await prueba("linea oficial: misma regla, y la ficha del CRM por crmContactId", 
 
 await prueba("rendimiento: rawPayload se abre solo en las salientes y llamadas de los candidatos", async () => {
   const texto = espera.sqlEsperaDeChats({ workspaceId: WS, ahora: AHORA }).text;
-  const [antesDeRespuestas] = texto.split("respuestas AS (");
+  const [antesDeRespuestas] = texto.split("respuestas AS MATERIALIZED (");
+  assert.ok(texto.includes("respuestas AS MATERIALIZED ("), "los tres pasos van MATERIALIZED (sin eso la consulta tarda 22 s)");
+  assert.equal((texto.match(/AS MATERIALIZED \(/g) ?? []).length, 3);
   assert.ok(!antesDeRespuestas.includes("rawPayload"), "rawPayload aparece antes de tener los candidatos");
   assert.match(texto, /c\."lastMessageAt" > \$\d+/);
   assert.ok(!/make_interval|now\(\)/.test(texto), "la ventana sale de `ahora`, no del reloj de la base");
