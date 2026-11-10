@@ -164,7 +164,7 @@ prueba("la bandeja pide nombre/numero primero y despues por mensaje, con el mism
 // ---------------------------------------------------------------- la migracion
 
 prueba("la migracion solo asegura pg_trgm y los dos indices, en una transaccion", () => {
-  const sql = leer("prisma/migrations/20261111000100_busqueda_por_texto/migration.sql");
+  const sql = leer("prisma/migrations/20261116000100_busqueda_por_texto/migration.sql");
   assert.doesNotMatch(sql, /\b(DROP|DELETE|TRUNCATE)\b/i);
   assert.match(sql, /^BEGIN;$/m);
   assert.match(sql, /^COMMIT;$/m);

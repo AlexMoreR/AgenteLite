@@ -1,5 +1,5 @@
 /**
- * Prueba de la migración de índices de velocidad (prisma/migrations/20261111000000_indices_de_velocidad) y de
+ * Prueba de la migración de índices de velocidad (prisma/migrations/20261116000000_indices_de_velocidad) y de
  * las consultas que la usan, contra un Postgres embebido (PGlite), sin tocar ninguna base real ni mandar nada:
  *   node scripts/check-indices-de-velocidad.mjs
  *
@@ -19,7 +19,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { cargar, RAIZ } from "./supervisor-cargar.mjs";
 
 const CARPETA = path.join(RAIZ, "prisma", "migrations");
-const NUEVA = "20261111000000_indices_de_velocidad";
+const NUEVA = "20261116000000_indices_de_velocidad";
 // Sin los \r de Windows: las comparaciones de texto son por líneas.
 const leerArchivo = (relativo) => fs.readFileSync(path.join(RAIZ, relativo), "utf8").replace(/\r\n/g, "\n");
 const leerMigracion = (nombre) => fs.readFileSync(path.join(CARPETA, nombre, "migration.sql"), "utf8").replace(/\r\n/g, "\n");

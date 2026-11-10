@@ -15,7 +15,7 @@ import type { Prisma } from "@prisma/client";
   los ultimos 90 dias, en `content` y en `transcripcion` (lo que se dijo en un audio). Es un
   `ILIKE '%algo%'` sobre cada columna sola (sin lower() ni COALESCE): asi Postgres usa los indices
   GIN de pg_trgm "Message_content_trgm_idx" y "Message_transcripcion_trgm_idx" (migracion
-  20261111000100_busqueda_por_texto). No los declara schema.prisma: ver docs/cambios-pendientes.
+  20261116000100_busqueda_por_texto). No los declara schema.prisma: ver docs/cambios-pendientes.
 */
 
 export const LETRAS_PARA_BUSCAR_EN_MENSAJES = 4;
