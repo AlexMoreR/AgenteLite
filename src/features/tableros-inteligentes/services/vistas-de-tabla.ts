@@ -227,21 +227,26 @@ export function limpiarConfig(valor: unknown): ConfigDeTabla {
   return { busqueda, filtros, orden, agrupar };
 }
 
-/** Los estados "en curso": aprobados y los que tiene el Coordinador (planeando, plan listo, construyendo, por revisar, subiendo, error). */
-export const ESTADOS_EN_CURSO: readonly EstadoTarjetaTablero[] = ["APROBADO", "EN_CURSO", ...ESTADOS_DE_LA_FASE_2];
+/**
+ * Una vista guardada por una persona. Las de fábrica ("Ideas" y "Sistemas en curso") se quitaron el
+ * 10-11-2026 a pedido del dueño, en todos los tableros: quien quiera una la guarda con "+ Guardar vista".
+ */
+export type VistaDeTabla = { id: string; nombre: string; config: ConfigDeTabla };
 
-export type VistaDeTabla = { id: string; nombre: string; config: ConfigDeTabla; deFabrica?: boolean };
-
-/** Las que vienen de fábrica para todos (no se borran). El área se compara sin mayúsculas ni tildes. */
-export const VISTAS_DE_FABRICA: readonly VistaDeTabla[] = [
-  { id: "fabrica:ideas", nombre: "Ideas", deFabrica: true, config: { ...CONFIG_VACIA, filtros: { estado: ["IDEA"] } } },
-  {
-    id: "fabrica:sistemas-en-curso",
-    nombre: "Sistemas en curso",
-    deFabrica: true,
-    config: { ...CONFIG_VACIA, filtros: { area: [normalizar("Sistemas")], estado: [...ESTADOS_EN_CURSO] } },
-  },
-];
+/**
+ * Las filas que ve "Todas" (ninguna vista guardada elegida): sin las carpetas, que son los tipos sin
+ * estados (Área, Cambio, Asesora...) y no tareas (dueño, 10-11-2026). Si la persona filtra por Tipo y
+ * pide una carpeta, esa sí sale. Una vista guardada muestra todo lo que su configuración deje ver.
+ */
+export function filasDeLaVista<F extends FilaDeTabla>(
+  filas: readonly F[],
+  enTodas: boolean,
+  filtros: ConfigDeTabla["filtros"],
+): F[] {
+  if (!enTodas) return [...filas];
+  const tiposPedidos = filtros.tipo ?? [];
+  return filas.filter((fila) => fila.usaEstados || tiposPedidos.includes(fila.tarjeta.tipoId));
+}
 
 /* ------------------------------------------------------------------ buscar, filtrar, ordenar, agrupar */
 

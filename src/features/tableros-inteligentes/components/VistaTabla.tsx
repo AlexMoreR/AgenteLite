@@ -16,11 +16,11 @@ import {
   COLUMNAS_CON_OPCIONES,
   CONFIG_VACIA,
   NOMBRE_DE_LA_COLUMNA,
-  VISTAS_DE_FABRICA,
   aplicarConfig,
   contarTerminadasOcultas,
   diaDeBogota,
   estadosPermitidos,
+  filasDeLaVista,
   filasDeTabla,
   motivoSinCambios,
   normalizar,
@@ -56,8 +56,8 @@ const CELDA_EDITABLE = "h-9 w-full min-w-0 rounded-md border border-transparent 
  * La vista Tabla (la principal, como una base de datos de Notion): una fila por tarjeta. Estado,
  * Responsable, Área y Fecha se cambian en la misma celda; el resto se ve. Se ordena tocando el título de
  * la columna, se filtra y se agrupa por cualquier columna, y el buscador mira el título, el detalle y el
- * código. Las vistas de fábrica ("Ideas", "Sistemas en curso") y las que guarda cada persona aplican
- * todo eso de un toque. Clic en una fila abre la tarjeta como página.
+ * código. Las vistas que guarda cada persona aplican todo eso de un toque; "Todas" no muestra las
+ * carpetas (tipos sin estados). Clic en una fila abre la tarjeta como página.
  */
 export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas, alCambiarGuardadas, alAbrir, alCambiar }: Props) {
   const [config, setConfig] = useState<ConfigDeTabla>(CONFIG_VACIA);
@@ -70,11 +70,13 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
   const { pedir, cambiando, dialogo } = useCambioDeEstado(alCambiar);
 
   const filas = useMemo(() => filasDeTabla(tarjetas, tipos), [tarjetas, tipos]);
+  // Lo que entra en la vista elegida: en "Todas", sin las carpetas. Los menús de filtro siguen ofreciendo todo.
+  const filasDeLaTabla = useMemo(() => filasDeLaVista(filas, activa === null, config.filtros), [filas, activa, config.filtros]);
   const tipoPorId = useMemo(() => new Map(tipos.map((tipo) => [tipo.id, tipo])), [tipos]);
-  const grupos = useMemo(() => aplicarConfig(filas, config), [filas, config]);
+  const grupos = useMemo(() => aplicarConfig(filasDeLaTabla, config), [filasDeLaTabla, config]);
   const visibles = grupos.reduce((suma, grupo) => suma + grupo.filas.length, 0);
   // Las tarjetas en Hecho o Fallido que la tabla esconde (tras buscar y filtrar) mientras el filtro de Estado no las incluya.
-  const ocultas = useMemo(() => contarTerminadasOcultas(filas, config), [filas, config]);
+  const ocultas = useMemo(() => contarTerminadasOcultas(filasDeLaTabla, config), [filasDeLaTabla, config]);
   const textoOcultas = ocultas === 1 ? "1 terminada oculta" : `${ocultas} terminadas ocultas`;
   // Las áreas que ya existen, para el menú de la celda (sin repetir por mayúsculas o tildes).
   const areas = useMemo(() => {
@@ -86,7 +88,7 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
     return [...vistas.values()].sort((a, b) => a.localeCompare(b, "es"));
   }, [tarjetas]);
   const filtrosActivos = Object.values(config.filtros).reduce((suma, valores) => suma + (valores?.length ? 1 : 0), 0);
-  const todas = [...VISTAS_DE_FABRICA, ...guardadas];
+  const todas = guardadas;
   const sinNada = activa === null && !config.busqueda && !filtrosActivos && !config.agrupar && !config.orden;
 
   const cambiarConfig = (cambio: Partial<ConfigDeTabla>) => {
@@ -304,7 +306,7 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
 
   return (
     <div className="flex h-full flex-col">
-      {/* Las vistas: de fábrica, las de la persona y "Guardar vista". Se deslizan de lado en el celular. */}
+      {/* Las vistas: "Todas", las de la persona y "Guardar vista". Se deslizan de lado en el celular. */}
       <div className="flex shrink-0 items-center gap-1.5 overflow-x-auto border-b border-border bg-card px-3 py-2 [scrollbar-width:none]">
         <button
           type="button"
@@ -329,17 +331,15 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
               <Bookmark className="size-3.5 shrink-0" aria-hidden />
               {vista.nombre}
             </button>
-            {vista.deFabrica ? null : (
-              <button
-                type="button"
-                className="-ml-1 flex size-8 items-center justify-center rounded-full opacity-70 hover:opacity-100"
-                onClick={() => void borrarVista(vista)}
-                aria-label={`Borrar la vista ${vista.nombre}`}
-                title="Borrar esta vista"
-              >
-                <X className="size-3.5" />
-              </button>
-            )}
+            <button
+              type="button"
+              className="-ml-1 flex size-8 items-center justify-center rounded-full opacity-70 hover:opacity-100"
+              onClick={() => void borrarVista(vista)}
+              aria-label={`Borrar la vista ${vista.nombre}`}
+              title="Borrar esta vista"
+            >
+              <X className="size-3.5" />
+            </button>
           </span>
         ))}
         {nombreNueva === null ? (
@@ -405,7 +405,7 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
           </select>
         </label>
         <span className="text-xs tabular-nums text-muted-foreground">
-          {visibles} de {filas.length - ocultas}
+          {visibles} de {filasDeLaTabla.length - ocultas}
           {ocultas > 0 ? ` · ${textoOcultas}` : ""}
         </span>
       </div>

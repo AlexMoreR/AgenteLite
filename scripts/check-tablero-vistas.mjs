@@ -161,15 +161,21 @@ await prueba("agrupar por Área: un grupo por área (sin mayúsculas ni tildes) 
   assert.deepEqual(porResponsable.map((g) => g.texto), ["Alex", "Emanuel", "Nadie"]);
 });
 
-await prueba("vistas de fábrica: Ideas (estado IDEA) y Sistemas en curso", () => {
-  const [ideas, sistemasEnCurso] = vistas.VISTAS_DE_FABRICA;
-  assert.equal(ideas.nombre, "Ideas");
-  assert.equal(sistemasEnCurso.nombre, "Sistemas en curso");
-  const filasIdeas = vistas.aplicarConfig(filas, ideas.config)[0].filas;
-  assert.deepEqual(ids(filasIdeas), [idea1.id, idea2.id, tareaIdea.id]);
-  assert.ok(filasIdeas.every((f) => f.tarjeta.estado === "IDEA" && f.usaEstados), "las carpetas no son ideas");
-  const filasSistemas = vistas.aplicarConfig(filas, sistemasEnCurso.config)[0].filas;
-  assert.deepEqual(ids(filasSistemas), [planeando.id, enCursoRepo.id]);
+await prueba("ya no hay vistas de fábrica (Ideas y Sistemas en curso se quitaron el 10-11-2026)", () => {
+  assert.equal(vistas.VISTAS_DE_FABRICA, undefined);
+  const tabla = fs.readFileSync("src/features/tableros-inteligentes/components/VistaTabla.tsx", "utf8");
+  assert.ok(!/Sistemas en curso|fabrica:/.test(tabla), "la barra no las arma");
+});
+
+await prueba('"Todas" esconde las carpetas (tipos sin estados); una vista guardada o el filtro de Tipo las deja ver', () => {
+  const carpetas = filas.filter((f) => !f.usaEstados);
+  assert.ok(carpetas.length > 0, "los datos de prueba tienen carpetas");
+  const enTodas = vistas.filasDeLaVista(filas, true, {});
+  assert.ok(enTodas.every((f) => f.usaEstados), "ninguna carpeta en Todas");
+  assert.equal(enTodas.length, filas.length - carpetas.length, "lo demás queda igual");
+  assert.equal(vistas.filasDeLaVista(filas, false, {}).length, filas.length, "una vista guardada ve todo");
+  const conTipo = vistas.filasDeLaVista(filas, true, { tipo: ["area"] });
+  assert.ok(conTipo.some((f) => f.tarjeta.tipoId === "area"), "pedir el tipo Área por filtro lo muestra");
 });
 
 await prueba("la Tabla esconde Hecho y Fallido salvo que se filtre por Estado; las carpetas se quedan", () => {
