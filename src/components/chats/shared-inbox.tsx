@@ -93,6 +93,15 @@ import {
 } from "./chat-inbox-conversation-utils";
 import { filtroSinResponderPuesto, seOcultaPorSinResponder } from "@/features/chats/domain/sin-responder";
 import { filtrosParaContar } from "./pastillas-de-la-bandeja";
+import {
+  LISTA_FRESCA_MS,
+  LISTA_VIGENTE_MS,
+  envejecerListasRecientes,
+  guardarListaReciente,
+  leerListaReciente,
+  olvidarListasRecientes,
+  type ListaGuardada as ListaGuardadaDeLaBandeja,
+} from "./listas-recientes-de-la-bandeja";
 import { esperaPorClave, type EsperaDeChats } from "@/features/chats/domain/espera-de-chats";
 import { leerEspera } from "@/features/chats/domain/filtros-de-bandeja";
 import { ConversationPanel, type EnvioTerminado } from "./chat-conversation-panel";
@@ -189,38 +198,11 @@ function claveDeVista(q: string, conexion: string, asignada: string, estado: str
 /** Un chat contestado aca se descarta de la espera de /counts por este tiempo (ver esperaSinContestadas). */
 const CONTESTADA_VIGENTE_MS = 3 * 60_000;
 
-/*
-  LAS ULTIMAS LISTAS, en memoria (maximo 5, una por vista).
+// LAS ULTIMAS LISTAS, en memoria: ver listas-recientes-de-la-bandeja.ts.
+type ListaGuardada = ListaGuardadaDeLaBandeja<SharedInboxConversationItem>;
 
-  Volver a un filtro que se miro hace menos de 30 s no pide nada: se muestra la guardada. Entre 30
-  y 60 s se muestra la guardada y se pide UNA vez para refrescarla (el mismo pedido de siempre, no
-  uno de mas). Mas de 60 s: se descarta. Cualquier aviso de la lista (mensaje entrante o propio,
-  resolver, posponer) las borra todas: solo el servidor sabe si un chat sigue en un filtro.
-*/
-type ListaGuardada = {
-  items: SharedInboxConversationItem[];
-  hasMore: boolean;
-  offset: number;
-  cursor: string | null;
-  at: number;
-};
-const LISTA_FRESCA_MS = 30_000;
-const LISTA_VIGENTE_MS = 60_000;
-const listasRecientes = new Map<string, ListaGuardada>();
-
-function guardarListaReciente(clave: string, lista: ListaGuardada) {
-  listasRecientes.delete(clave);
-  listasRecientes.set(clave, lista);
-  while (listasRecientes.size > 5) {
-    const masVieja = listasRecientes.keys().next().value;
-    if (masVieja === undefined) break;
-    listasRecientes.delete(masVieja);
-  }
-}
-
-function olvidarListasRecientes() {
-  listasRecientes.clear();
-}
+/** Si /list falla al cambiar de vista, se reintenta UNA vez tras esta pausa (ya no router.refresh()). */
+const REINTENTO_DE_LISTA_MS = 400;
 
 function buildPendingConversationPreview(
   pendingConversation: PendingChatSelection,
@@ -556,13 +538,14 @@ export function SharedInbox({
     Para /counts, las mismas condiciones SIN `sin_responder:si` ni `no_leido:si`: asi Todas, Mias y
     Sin asignar no bajan a cero cuando Sin responder o No leido estan puestos. Sus numeros
     (`sinResponder` y `noLeido`) los calcula el servidor aparte.
+
+    El efecto de /counts depende de la FIRMA de texto de esos filtros, no de los filtros: tocar No
+    leido o Sin responder cambia `c=` pero no lo que se cuenta, y antes volvia a pedir /counts igual.
   */
-  const ponerFiltrosParaContar = useCallback(
-    (params: URLSearchParams) => {
-      for (const [clave, valor] of paramsDeFiltros(filtrosParaContar(filtrosDeLaUrl))) params.set(clave, valor);
-    },
-    [filtrosDeLaUrl],
-  );
+  const paresParaContar = useMemo(() => paramsDeFiltros(filtrosParaContar(filtrosDeLaUrl)), [filtrosDeLaUrl]);
+  const firmaParaContar = paresParaContar.map(([clave, valor]) => `${clave}=${valor}`).join("&");
+  const paresParaContarRef = useRef(paresParaContar);
+  paresParaContarRef.current = paresParaContar;
 
   /*
     LA VISTA (pestaña + estado + filtros) SALE DE LA URL DEL NAVEGADOR.
@@ -912,7 +895,7 @@ export function SharedInbox({
         // El contador tiene que contar lo mismo que se ve en la lista: si estas en "Resueltas",
         // el numero de al lado de la pestaña es el de las resueltas.
         if (statusFilter !== "open") params.set("status", statusFilter);
-        ponerFiltrosParaContar(params);
+        for (const [clave, valor] of paresParaContarRef.current) params.set(clave, valor);
         const qs = params.toString();
 
         const response = await fetch(`${countsApiPath}${qs ? `?${qs}` : ""}`, {
@@ -957,7 +940,8 @@ export function SharedInbox({
       if (timeoutId) clearTimeout(timeoutId);
       document.removeEventListener("visibilitychange", alCambiarVisibilidad);
     };
-  }, [conversationListApiPath, searchQuery, selectedConnectionKey, statusFilter, ponerFiltrosParaContar, pedidoDeConteos]);
+    // paresParaContarRef cambia SIEMPRE junto con firmaParaContar.
+  }, [conversationListApiPath, searchQuery, selectedConnectionKey, statusFilter, firmaParaContar, pedidoDeConteos]);
 
   useEffect(() => {
     conversationItemsRef.current = conversationItems;
@@ -969,15 +953,17 @@ export function SharedInbox({
   const hasMoreConversationItemsRef = useRef(hasMoreConversationItems);
   hasMoreConversationItemsRef.current = hasMoreConversationItems;
 
-  // Cualquier aviso de la lista deja viejas las listas guardadas de OTRAS vistas: solo el servidor
-  // sabe si ese chat entra o sale de cada filtro (ver listasRecientes).
+  // Un mensaje que entra o sale deja VIEJAS las listas guardadas de otras vistas: se muestran al
+  // volver y se piden de nuevo (solo el servidor sabe si ese chat sigue en cada filtro). Resolver o
+  // posponer las borra: ahi un chat sale de la lista. Ver listas-recientes-de-la-bandeja.ts.
   useEffect(() => {
+    const envejecer = () => envejecerListasRecientes();
     const olvidar = () => olvidarListasRecientes();
-    window.addEventListener("chat-list-update", olvidar);
+    window.addEventListener("chat-list-update", envejecer);
     window.addEventListener(CHAT_STATUS_CHANGED_EVENT, olvidar);
     window.addEventListener(CHAT_SNOOZED_EVENT, olvidar);
     return () => {
-      window.removeEventListener("chat-list-update", olvidar);
+      window.removeEventListener("chat-list-update", envejecer);
       window.removeEventListener(CHAT_STATUS_CHANGED_EVENT, olvidar);
       window.removeEventListener(CHAT_SNOOZED_EVENT, olvidar);
     };
@@ -1096,7 +1082,7 @@ export function SharedInbox({
         setVistaEnCurso(false);
       };
 
-      const guardada = listasRecientes.get(vistaKey);
+      const guardada = leerListaReciente<SharedInboxConversationItem>(vistaKey);
       const edad = guardada ? Date.now() - guardada.at : Number.POSITIVE_INFINITY;
       if (guardada && edad < LISTA_VIGENTE_MS) {
         poner(guardada);
@@ -1111,7 +1097,7 @@ export function SharedInbox({
         setVistaEnCurso(true);
       }
 
-      (async () => {
+      const intentar = async (intento: number): Promise<void> => {
         try {
           const params = armarParams();
           params.set("limit", String(Math.min(40, Math.max(1, initialConversationBatchSize))));
@@ -1163,11 +1149,22 @@ export function SharedInbox({
           if (cancelled) {
             return;
           }
-          // Sin la lista nueva no se deja la vieja bajo la pastilla nueva: se arma como antes.
+          /*
+            Ya NO router.refresh(): rehacia la pagina entera en el servidor (1,6-2 s). Un reintento a
+            los 400 ms; si falla de nuevo, queda la lista de antes sin atenuar y el proximo
+            pedidoDeLista vuelve a intentar este cambio de vista (vistaCargadaRef sigue en la de antes).
+          */
+          if (intento === 0) {
+            await new Promise((listo) => setTimeout(listo, REINTENTO_DE_LISTA_MS));
+            if (!cancelled) {
+              await intentar(1);
+            }
+            return;
+          }
           setVistaEnCurso(false);
-          router.refresh();
         }
-      })();
+      };
+      void intentar(0);
 
       return () => {
         cancelled = true;

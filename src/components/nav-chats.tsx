@@ -58,10 +58,13 @@ export function NavChats({
           de la app- desde cualquier otra pantalla, y con los canales desplegados eran diez
           peticiones de golpe. El aviso por defecto ya precarga el armazon, y como esta pantalla
           tiene su `loading`, al tocar se ve igual de inmediata.
+
+          Y ya ESTANDO en Chats, ninguna precarga (`prefetch={false}`): cada pushState de la bandeja
+          (pastilla, abrir un chat) volvia a precargar estos enlaces. Ver AppSidebar.
         */}
         <div>
           <SidebarMenuButton
-            render={<Link href="/cliente/chats" />}
+            render={<Link href="/cliente/chats" prefetch={isChatsRoute ? false : undefined} />}
             isActive={isChatsRoute && !currentConnectionKey}
           >
             <MessageSquareText />
@@ -77,7 +80,7 @@ export function NavChats({
             {mappedChatSidebarItems.map((item) => (
               <SidebarMenuSubItem key={item.url}>
                 <SidebarMenuSubButton
-                  render={<Link href={item.url} />}
+                  render={<Link href={item.url} prefetch={isChatsRoute ? false : undefined} />}
                   isActive={Boolean(item.isActive)}
                 >
                   {item.kind === "official" ? (

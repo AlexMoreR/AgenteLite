@@ -664,7 +664,28 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
 
   // Jefe (dueño/admin) ve todas las lineas. La supervisora ve "Todas" pero solo de SUS lineas.
   const esJefe = membership.role === "OWNER" || membership.role === "ADMIN";
-  const isManager = esJefe || (await esSupervisora(membership.workspace.id, session.user.id));
+  /*
+    Los canales que esta persona solo MIRA (ver modo-monitoreo.ts).
+
+    Va tambien en esta ruta y no solo en la pantalla: esta es la que refresca la bandeja sola cada
+    pocos segundos, asi que si el modo se aplicara nada mas del lado del servidor de la pagina, a
+    los segundos la lista volveria con los telefonos destapados.
+
+    Las tres lecturas de permisos no dependen una de otra: van a la vez (antes, una tras otra).
+  */
+  const [esLaSupervisora, monitoredChannelIds, visibleChannelIds] = await Promise.all([
+    esJefe ? false : esSupervisora(membership.workspace.id, session.user.id),
+    canalesQueMonitorea({
+      workspaceId: membership.workspace.id,
+      userId: session.user.id,
+    }),
+    getVisibleChannelIds({
+      workspaceId: membership.workspace.id,
+      userId: session.user.id,
+      esJefe,
+    }),
+  ]);
+  const isManager = esJefe || esLaSupervisora;
   /*
     Por defecto, TODAS (Alex, 15-sep-2026).
 
@@ -684,17 +705,6 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     requestedFilterRaw === "mine" || requestedFilterRaw === "unassigned" || pideUnaAsesora
       ? requestedFilterRaw
       : "all";
-  /*
-    Los canales que esta persona solo MIRA (ver modo-monitoreo.ts).
-
-    Va tambien en esta ruta y no solo en la pantalla: esta es la que refresca la bandeja sola cada
-    pocos segundos, asi que si el modo se aplicara nada mas del lado del servidor de la pagina, a
-    los segundos la lista volveria con los telefonos destapados.
-  */
-  const monitoredChannelIds = await canalesQueMonitorea({
-    workspaceId: membership.workspace.id,
-    userId: session.user.id,
-  });
 
   /*
     Los no-managers (empleados) solo pueden ver sus chats asignados: nunca "Todos" ni "Sin asignar".
@@ -713,12 +723,6 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
   const requestedStatusRaw = requestUrl.searchParams.get("status")?.trim() || "";
   const statusFilter: "all" | "open" | "resolved" =
     requestedStatusRaw === "all" || requestedStatusRaw === "resolved" ? requestedStatusRaw : "open";
-
-  const visibleChannelIds = await getVisibleChannelIds({
-    workspaceId: membership.workspace.id,
-    userId: session.user.id,
-    esJefe,
-  });
   t.marca("permisos");
 
   const filtros = leerFiltrosDeBandeja((clave) => requestUrl.searchParams.get(clave));
@@ -748,6 +752,38 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     });
   }
 
+  /*
+    `incluirOficial=1` (ver mas abajo): los chats de la API oficial se piden A LA VEZ que la lista,
+    no despues. Si la conexion elegida los admite se decide aca con la misma regla de
+    getAgentConversationList (sin conexion, o la linea oficial), sobre la cache de canales.
+  */
+  const pideOficial = requestUrl.searchParams.get("incluirOficial") === "1" && offset === 0 && soloIds.length === 0;
+  const pedirOficial = () =>
+    getOfficialApiChatsData({
+      workspaceId: membership.workspace.id,
+      q: searchQuery || undefined,
+      // Solo la lista: sin abrir (ni marcar leido) ningun chat.
+      includeSelectedConversation: false,
+      statusFilter,
+      assignedFilter: assignedFilter as Parameters<typeof getOfficialApiChatsData>[0]["assignedFilter"],
+      filtros,
+      currentUserId: session.user.id,
+    });
+  let oficialEnCurso: ReturnType<typeof pedirOficial> | null = null;
+  if (pideOficial) {
+    const idDelCanal = conexionElegida.startsWith("channel:") ? conexionElegida.slice("channel:".length) : null;
+    const canalElegido = idDelCanal
+      ? (await canalesDelNegocio(membership.workspace.id)).find(
+          (canal) => canal.id === idDelCanal && (!visibleChannelIds || visibleChannelIds.includes(canal.id)),
+        ) ?? null
+      : null;
+    if (!idDelCanal || canalElegido?.provider === "OFFICIAL_API") {
+      oficialEnCurso = pedirOficial();
+      // Si la lista falla antes, el error de esta no queda suelto (la respuesta ya sale con el de la lista).
+      void oficialEnCurso.catch(() => {});
+    }
+  }
+
   const data = await getAgentConversationList({
     workspaceId: membership.workspace.id,
     searchQuery,
@@ -774,17 +810,9 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     siempre. Mismos filtros y mismas reglas que page.tsx.
   */
   const { admiteOficial, nombreLineaOficial, ...datosDeLista } = data;
-  if (requestUrl.searchParams.get("incluirOficial") === "1" && offset === 0 && soloIds.length === 0 && admiteOficial) {
-    const oficial = await getOfficialApiChatsData({
-      workspaceId: membership.workspace.id,
-      q: searchQuery || undefined,
-      // Solo la lista: sin abrir (ni marcar leido) ningun chat.
-      includeSelectedConversation: false,
-      statusFilter,
-      assignedFilter: assignedFilter as Parameters<typeof getOfficialApiChatsData>[0]["assignedFilter"],
-      filtros,
-      currentUserId: session.user.id,
-    });
+  if (pideOficial && admiteOficial) {
+    // Casi siempre ya viene en curso; si la regla de arriba no lo lanzo, se pide como antes.
+    const oficial = await (oficialEnCurso ?? pedirOficial());
     t.marca("oficial");
     const tapar = monitoredChannelIds.length > 0;
     const filasOficiales = oficial.conversations.map((conversation) =>

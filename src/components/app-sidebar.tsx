@@ -113,6 +113,12 @@ export function AppSidebar({
   ...props
 }: AppSidebarProps) {
   const pathname = usePathname()
+  /*
+    En Chats el menu NO precarga. Cada pushState de la bandeja (cambiar de pastilla, abrir un chat)
+    hace que Next vuelva a precargar todos los enlaces visibles con mas de 30 s: eran 1-3 pedidos
+    al servidor por toque (layout de /cliente incluido). Fuera de Chats todo sigue igual.
+  */
+  const enChats = pathname.startsWith("/cliente/chats")
   const visibleModules = adminModuleDefinitions.filter((module) => adminModuleAccess[module.key])
   const visibleModulesWithoutChats = visibleModules.filter(
     (module) => module.key !== "chats" && module.key !== "crm" && module.key !== "config_business" && module.key !== "config_permissions" && module.key !== "config_whatsapp",
@@ -150,7 +156,7 @@ export function AppSidebar({
 
                 return (
                   <SidebarMenuItem key={module.key}>
-                    <SidebarMenuButton render={<Link href={module.path} />} isActive={isActive}>
+                    <SidebarMenuButton render={<Link href={module.path} prefetch={enChats ? false : undefined} />} isActive={isActive}>
                       <Icon />
                       <span>{module.label}</span>
                     </SidebarMenuButton>
@@ -166,7 +172,7 @@ export function AppSidebar({
               <SidebarMenu>
                 <SidebarMenuItem>
                   <SidebarMenuButton
-                    render={<Link href="/cliente/mi-tablero" />}
+                    render={<Link href="/cliente/mi-tablero" prefetch={enChats ? false : undefined} />}
                     isActive={pathname.startsWith("/cliente/mi-tablero")}
                   >
                     <Home />
@@ -178,7 +184,7 @@ export function AppSidebar({
             {adminModuleAccess.chats ? (
               <NavChats
                 currentConnectionKey={currentConnectionKey}
-                isChatsRoute={pathname.startsWith("/cliente/chats")}
+                isChatsRoute={enChats}
                 chatSidebarItems={chatSidebarItems}
               />
             ) : null}
@@ -199,18 +205,19 @@ export function AppSidebar({
                 }
                 isCrmRoute={pathname.startsWith("/cliente/crm")}
                 esJefe={esJefeDelNegocio}
+                sinPrecarga={enChats}
               />
             ) : null}
             {/* Dirección: las pantallas del dueño, separadas del CRM. Solo dueño y administradores. */}
             {adminModuleAccess.crm && esJefeDelNegocio ? (
-              <NavDireccion currentPath={pathname} />
+              <NavDireccion currentPath={pathname} sinPrecarga={enChats} />
             ) : null}
             {/* El coach de ventas: el jefe ve al equipo; cada asesora, solo lo suyo. */}
             {adminModuleAccess.crm ? (
               <SidebarMenu>
                 <SidebarMenuItem>
                   <SidebarMenuButton
-                    render={<Link href="/cliente/equipo/coach" />}
+                    render={<Link href="/cliente/equipo/coach" prefetch={enChats ? false : undefined} />}
                     isActive={pathname.startsWith("/cliente/equipo/coach")}
                   >
                     <GraduationCap />
@@ -228,7 +235,7 @@ export function AppSidebar({
               <SidebarMenu>
                 <SidebarMenuItem>
                   <SidebarMenuButton
-                    render={<Link href="/cliente/automatizaciones" />}
+                    render={<Link href="/cliente/automatizaciones" prefetch={enChats ? false : undefined} />}
                     isActive={pathname.startsWith("/cliente/automatizaciones")}
                   >
                     <Workflow />
@@ -238,7 +245,7 @@ export function AppSidebar({
                 {/* El libro de reglas del V3: se dicta por Claude y aca se mira lo que quedo. */}
                 <SidebarMenuItem>
                   <SidebarMenuButton
-                    render={<Link href="/cliente/agente-v3" />}
+                    render={<Link href="/cliente/agente-v3" prefetch={enChats ? false : undefined} />}
                     isActive={pathname.startsWith("/cliente/agente-v3")}
                   >
                     <BookOpen />
@@ -252,7 +259,7 @@ export function AppSidebar({
               <SidebarMenu>
                 <SidebarMenuItem key={contactsModule.key}>
                   <SidebarMenuButton
-                    render={<Link href={contactsModule.path} />}
+                    render={<Link href={contactsModule.path} prefetch={enChats ? false : undefined} />}
                     isActive={pathname === contactsModule.path || pathname.startsWith(`${contactsModule.path}/`)}
                   >
                     {ContactsIcon ? <ContactsIcon /> : null}
@@ -268,7 +275,7 @@ export function AppSidebar({
 
                 return (
                   <SidebarMenuItem key={module.key}>
-                    <SidebarMenuButton render={<Link href={module.path} />} isActive={isActive}>
+                    <SidebarMenuButton render={<Link href={module.path} prefetch={enChats ? false : undefined} />} isActive={isActive}>
                       <Icon />
                       <span>{module.label}</span>
                     </SidebarMenuButton>

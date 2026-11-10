@@ -52,7 +52,14 @@ const direccionViews: Array<{
 ];
 
 /** El sidebar solo lo dibuja para el dueño y los administradores (`puedeVerDireccion`). */
-export function NavDireccion({ currentPath }: { currentPath: string }) {
+export function NavDireccion({
+  currentPath,
+  sinPrecarga = false,
+}: {
+  currentPath: string;
+  /** En Chats: los enlaces no se precargan (ver AppSidebar). */
+  sinPrecarga?: boolean;
+}) {
   const [manualOpen, setManualOpen] = useState(false);
   const isDireccionRoute = currentPath.startsWith("/cliente/direccion") || currentPath.startsWith("/cliente/alertas");
   const open = manualOpen || isDireccionRoute;
@@ -75,7 +82,7 @@ export function NavDireccion({ currentPath }: { currentPath: string }) {
             {direccionViews.map((item) => (
               <SidebarMenuSubItem key={item.view}>
                 <SidebarMenuSubButton
-                  render={<Link href={item.href ?? `/cliente/direccion/${item.view}`} />}
+                  render={<Link href={item.href ?? `/cliente/direccion/${item.view}`} prefetch={sinPrecarga ? false : undefined} />}
                   isActive={currentPath.startsWith(item.href ?? `/cliente/direccion/${item.view}`)}
                 >
                   <item.icon />

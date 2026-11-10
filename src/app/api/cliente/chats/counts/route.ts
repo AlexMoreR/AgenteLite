@@ -253,25 +253,39 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     decide `esJefe` (solo dueño y administrador ven todas las lineas).
   */
   const esJefe = membership.role === "OWNER" || membership.role === "ADMIN";
-  const isManager = esJefe || (await esSupervisora(membership.workspace.id, session.user.id));
 
-  /**
-   * Los contactos con el lead pospuesto, para descontarlos.
-   *
-   * Va con SQL directo porque la fecha vive dentro de metadata: como es un texto ISO, compararlo
-   * con el ahora funciona tal cual. Son pocos, asi que la lista de ids es corta.
-   */
-  const snoozedRows = await prisma.$queryRaw<Array<{ id: string }>>`
-    SELECT "id" FROM "Contact"
-    WHERE "workspaceId" = ${membership.workspace.id}
-      AND ("metadata"->>'snoozedUntil') > ${new Date().toISOString()}
-  `;
-
-  const visibleChannelIds = await getVisibleChannelIds({
-    workspaceId: membership.workspace.id,
-    userId: session.user.id,
-    esJefe,
-  });
+  /*
+    Estas cuatro lecturas no dependen una de otra: van a la vez (antes, una tras otra).
+    `canalesQueMonitorea` corre aunque sea supervisora (sale de la cache de canales); para quien
+    supervisa se ignora igual que antes.
+  */
+  const [esLaSupervisora, snoozedRows, visibleChannelIds, lineasQueMonitorea] = await Promise.all([
+    esJefe ? false : esSupervisora(membership.workspace.id, session.user.id),
+    /**
+     * Los contactos con el lead pospuesto, para descontarlos.
+     *
+     * Va con SQL directo porque la fecha vive dentro de metadata: como es un texto ISO, compararlo
+     * con el ahora funciona tal cual. Son pocos, asi que la lista de ids es corta.
+     */
+    prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT "id" FROM "Contact"
+      WHERE "workspaceId" = ${membership.workspace.id}
+        AND ("metadata"->>'snoozedUntil') > ${new Date().toISOString()}
+    `,
+    getVisibleChannelIds({
+      workspaceId: membership.workspace.id,
+      userId: session.user.id,
+      esJefe,
+    }),
+    esJefe ? ([] as string[]) : canalesQueMonitorea({ workspaceId: membership.workspace.id, userId: session.user.id }),
+  ]);
+  const isManager = esJefe || esLaSupervisora;
+  /*
+    La monitora ve "Todas" y "Sin asignar" de SUS lineas (Alex, 30-09-2026): los numeros de las
+    pestañas tienen que contar eso mismo, no sus chats propios -que no tiene-.
+  */
+  const monitoreados = isManager ? [] : lineasQueMonitorea;
+  t.marca("permisos");
 
   /**
    * El contador tiene que contar lo mismo que muestra la lista, incluida la conexion elegida: si
@@ -290,76 +304,20 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     channelId: conexionElegida.startsWith("channel:") ? conexionElegida.slice("channel:".length) : null,
   };
 
-  const baseWhere = buildBaseWhere({
-    workspaceId: membership.workspace.id,
-    searchQuery,
-    selectedConnectionKey: conexionElegida,
-    statusFilter,
-    snoozedContactIds: snoozedRows.map((fila) => fila.id),
-    visibleChannelIds,
-    filtros,
-    ids: await idsParaLosFiltros(filtros, quienPideIds),
-  });
-  t.marca("filtros");
-
-  const [officialMine, officialUnassigned, officialAll] = await Promise.all([
-    countOfficialConversations({
-      workspaceId: membership.workspace.id,
-      searchQuery,
-      selectedConnectionKey: conexionElegida,
-      userId: session.user.id,
-      assignedTo: "mine",
-      statusFilter,
-      filtros,
-    }),
-    countOfficialConversations({
-      workspaceId: membership.workspace.id,
-      searchQuery,
-      selectedConnectionKey: conexionElegida,
-      userId: session.user.id,
-      assignedTo: "unassigned",
-      statusFilter,
-      filtros,
-    }),
-    countOfficialConversations({
-      workspaceId: membership.workspace.id,
-      searchQuery,
-      selectedConnectionKey: conexionElegida,
-      userId: session.user.id,
-      assignedTo: "all",
-      statusFilter,
-      filtros,
-    }),
-  ]);
-  t.marca("oficial");
-
-  /*
-    La monitora ve "Todas" y "Sin asignar" de SUS lineas (Alex, 30-09-2026): los numeros de las
-    pestañas tienen que contar eso mismo, no sus chats propios -que no tiene-.
-  */
-  const monitoreados = isManager
-    ? []
-    : await canalesQueMonitorea({ workspaceId: membership.workspace.id, userId: session.user.id });
-
   /*
     Lo que ve cada persona: la monitora, sus lineas; la asesora, solo sus chats (principal o
     segunda); dueño, administrador y supervisora, las lineas que tienen visibles.
   */
-  const espera = await calcularEspera({
-    workspaceId: membership.workspace.id,
-    conexionElegida,
-    quien:
-      monitoreados.length > 0
-        ? {
-            userId: session.user.id,
-            canales: visibleChannelIds
-              ? monitoreados.filter((id) => visibleChannelIds.includes(id))
-              : monitoreados,
-            soloMios: false,
-          }
-        : { userId: session.user.id, canales: visibleChannelIds, soloMios: !isManager },
-  });
-  t.marca("espera");
+  const quienEspera =
+    monitoreados.length > 0
+      ? {
+          userId: session.user.id,
+          canales: visibleChannelIds
+            ? monitoreados.filter((id) => visibleChannelIds.includes(id))
+            : monitoreados,
+          soloMios: false,
+        }
+      : { userId: session.user.id, canales: visibleChannelIds, soloMios: !isManager };
 
   /*
     Los numeros de las pastillas "Sin responder" y "No leido": cuentan con las MISMAS reglas que la
@@ -408,11 +366,57 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
       return null;
     }
   };
-  const [conSinResponder, conNoLeido] = await Promise.all([
+
+  /*
+    Los ids de los filtros, los tres numeros de la linea oficial, la espera y las dos pastillas no
+    dependen uno de otro: van a la vez (antes eran cinco esperas seguidas). Los ids que se piden
+    dos veces (por ejemplo Sin responder puesto y su pastilla) los comparte la memoria corta.
+  */
+  const [idsDeLosFiltros, officialMine, officialUnassigned, officialAll, espera, conSinResponder, conNoLeido] = await Promise.all([
+    idsParaLosFiltros(filtros, quienPideIds),
+    countOfficialConversations({
+      workspaceId: membership.workspace.id,
+      searchQuery,
+      selectedConnectionKey: conexionElegida,
+      userId: session.user.id,
+      assignedTo: "mine",
+      statusFilter,
+      filtros,
+    }),
+    countOfficialConversations({
+      workspaceId: membership.workspace.id,
+      searchQuery,
+      selectedConnectionKey: conexionElegida,
+      userId: session.user.id,
+      assignedTo: "unassigned",
+      statusFilter,
+      filtros,
+    }),
+    countOfficialConversations({
+      workspaceId: membership.workspace.id,
+      searchQuery,
+      selectedConnectionKey: conexionElegida,
+      userId: session.user.id,
+      assignedTo: "all",
+      statusFilter,
+      filtros,
+    }),
+    calcularEspera({ workspaceId: membership.workspace.id, conexionElegida, quien: quienEspera }),
     conLaCondicion({ campo: "sin_responder", operador: "si" }, "los sin responder"),
     conLaCondicion({ campo: "no_leido", operador: "si" }, "los no leidos"),
   ]);
-  t.marca("sin_responder_y_no_leido");
+  t.marca("filtros_oficial_espera");
+
+  const baseWhere = buildBaseWhere({
+    workspaceId: membership.workspace.id,
+    searchQuery,
+    selectedConnectionKey: conexionElegida,
+    statusFilter,
+    snoozedContactIds: snoozedRows.map((fila) => fila.id),
+    visibleChannelIds,
+    filtros,
+    ids: idsDeLosFiltros,
+  });
 
   /** El numero de una de esas pastillas dentro de lo que ve esta persona (`alcance`). */
   const contarPastilla = async (

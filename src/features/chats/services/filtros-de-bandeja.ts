@@ -12,6 +12,7 @@ import {
   type CondicionDeBandeja,
   type FiltrosDeBandeja,
 } from "../domain/filtros-de-bandeja";
+import { leerConMemoria, type GuardadoEnMemoria } from "../domain/memoria-corta";
 
 /**
  * Las consultas de los filtros de la bandeja.
@@ -145,7 +146,7 @@ export async function idsParaLosFiltros(filtros: FiltrosDeBandeja, input: QuienP
  * (cada 60 s) tiene que notarlo en el siguiente ciclo.
  */
 const VIDA_DE_LA_CACHE_NO_LEIDOS_MS = 20_000;
-const cacheNoLeidos = new Map<string, { vence: number; ids: string[] }>();
+const cacheNoLeidos = new Map<string, GuardadoEnMemoria<string[]>>();
 
 /**
  * Las conversaciones de WhatsApp normal con mensajes del cliente que nadie abrio (el globo verde
@@ -160,24 +161,19 @@ export async function idsNoLeidos(input: QuienPideIds): Promise<string[]> {
     input.visibleChannelIds ? [...input.visibleChannelIds].sort() : null,
     input.channelId ?? "",
   ]);
-  const guardado = cacheNoLeidos.get(clave);
-  if (guardado && guardado.vence > Date.now()) {
-    return guardado.ids;
-  }
-
-  const canales = input.channelId ? [input.channelId] : input.visibleChannelIds;
-  const filas = await prisma.$queryRaw<Array<{ conversationId: string }>>(
-    sqlIdsNoLeidos({ workspaceId: input.workspaceId, canales, dias: DIAS_DE_NO_LEIDO }),
-  );
-
-  const ids = filas.map((fila) => fila.conversationId);
-  cacheNoLeidos.set(clave, { vence: Date.now() + VIDA_DE_LA_CACHE_NO_LEIDOS_MS, ids });
-  return ids;
+  // La pagina, /list y /counts piden a la vez: el que llega con la consulta en curso la espera.
+  return leerConMemoria(cacheNoLeidos, clave, VIDA_DE_LA_CACHE_NO_LEIDOS_MS, async () => {
+    const canales = input.channelId ? [input.channelId] : input.visibleChannelIds;
+    const filas = await prisma.$queryRaw<Array<{ conversationId: string }>>(
+      sqlIdsNoLeidos({ workspaceId: input.workspaceId, canales, dias: DIAS_DE_NO_LEIDO }),
+    );
+    return filas.map((fila) => fila.conversationId);
+  });
 }
 
 /** La respuesta se reusa un minuto: la bandeja se recarga sola y esta consulta no es barata. */
 const VIDA_DE_LA_CACHE_MS = 60_000;
-const cacheSinResponder = new Map<string, { vence: number; ids: string[] }>();
+const cacheSinResponder = new Map<string, GuardadoEnMemoria<string[]>>();
 
 /**
  * Las conversaciones donde el ULTIMO que hablo fue el cliente.
@@ -217,20 +213,14 @@ export async function idsSinResponder(input: {
     input.visibleChannelIds ? [...input.visibleChannelIds].sort() : null,
     input.channelId ?? "",
   ]);
-  const guardado = cacheSinResponder.get(clave);
-  if (guardado && guardado.vence > Date.now()) {
-    return guardado.ids;
-  }
+  return leerConMemoria(cacheSinResponder, clave, VIDA_DE_LA_CACHE_MS, async () => {
+    const canales = input.channelId
+      ? [input.channelId]
+      : input.visibleChannelIds;
 
-  const canales = input.channelId
-    ? [input.channelId]
-    : input.visibleChannelIds;
-
-  const filas = await prisma.$queryRaw<Array<{ conversationId: string }>>(
-    sqlIdsSinResponder({ workspaceId: input.workspaceId, canales, dias: DIAS_DE_SIN_RESPONDER }),
-  );
-
-  const ids = filas.map((fila) => fila.conversationId);
-  cacheSinResponder.set(clave, { vence: Date.now() + VIDA_DE_LA_CACHE_MS, ids });
-  return ids;
+    const filas = await prisma.$queryRaw<Array<{ conversationId: string }>>(
+      sqlIdsSinResponder({ workspaceId: input.workspaceId, canales, dias: DIAS_DE_SIN_RESPONDER }),
+    );
+    return filas.map((fila) => fila.conversationId);
+  });
 }

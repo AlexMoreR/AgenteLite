@@ -42,11 +42,14 @@ export function NavCrm({
   currentView,
   isCrmRoute,
   esJefe = false,
+  sinPrecarga = false,
 }: {
   currentView: CrmView;
   isCrmRoute: boolean;
   /** Dueño o administrador del negocio: los únicos que ven los apartados de jefe. */
   esJefe?: boolean;
+  /** En Chats: los enlaces no se precargan (ver AppSidebar). */
+  sinPrecarga?: boolean;
 }) {
   const [manualOpen, setManualOpen] = useState(false);
   const open = manualOpen || isCrmRoute;
@@ -72,7 +75,7 @@ export function NavCrm({
               <SidebarMenuSubItem key={item.view}>
                 {/* Sin `prefetch`: eran seis vistas del CRM pedidas enteras desde cualquier pantalla. */}
                 <SidebarMenuSubButton
-                  render={<Link href={`/cliente/crm/${item.view}`} />}
+                  render={<Link href={`/cliente/crm/${item.view}`} prefetch={sinPrecarga ? false : undefined} />}
                   isActive={currentView === item.view}
                 >
                   <item.icon />
