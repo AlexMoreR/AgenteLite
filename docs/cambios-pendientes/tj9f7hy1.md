@@ -1,0 +1,5 @@
+## Automatizaciones
+- `seguimientos_automaticos`: freno general de los seguimientos automáticos de Follow (decisión del 9-11-2026). Con la fila `seguimientos-automaticos:apagado` = `si` en AppSetting, al llegar su hora se cancelan sin reprogramar (motivo `seguimiento_apagado`) todos los Follow de clase automático: embudo «Etapa …», los de una regla, «Sin responder…», «Inteligente: …» y «Tras asesora: …». No frena los que agenda una asesora, las campañas, las automatizaciones ni la reactivación, y no alcanza al reloj del V3: los seguimientos de 15 min y 1 h del libro siguen saliendo. Sin la fila o con `no`, no cambia nada.
+
+## Advertencias de operación
+- `seguimientos_automaticos_volver_atras`: no hay pantalla para este freno. Para volver atrás se ponen en `no` las filas `seguimientos-automaticos:apagado` y `seguimientos-que-escuchan:apagado` en la base. Lo ya cancelado no se reenvía. Mientras está prendido, esos seguimientos se siguen agendando y aparecen como frenados al llegar su hora.

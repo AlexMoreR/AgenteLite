@@ -36,6 +36,10 @@ import { PREFIJO_FOLLOW_TRAS_ASESORA } from "@/features/seguimiento-inteligente/
 import { tipoDeSeguimiento, type TipoDeSeguimiento } from "@/features/seguimientos/dominio/apagado";
 import { anotarSeguimientosApagados, revisarApagadoDelChat } from "@/features/seguimientos/services/apagado";
 import { revisarDiaSiguienteAlEnviar } from "@/features/seguimiento-inteligente/servicios/dia-siguiente-al-enviar";
+import {
+  CLAVE_SEGUIMIENTOS_AUTOMATICOS_APAGADOS,
+  seCancelaPorSeguimientosAutomaticosApagados,
+} from "@/features/seguimientos/dominio/seguimientos-automaticos-apagados";
 import { revisarAntesDeEnviar } from "@/features/seguimientos/dominio/seguimiento-que-escucha";
 import {
   marcaDelSeguimiento,
@@ -1995,8 +1999,21 @@ async function executeFollowRecord(follow: ClaimedFollowRow) {
       abajo, no sale con el interruptor apagado, el chat pausado, la etapa cerrada, un chat que el
       V3 nunca atendió o si después se agendó un "Tras asesora". Ver seguimiento-inteligente/dominio/dia-siguiente.ts.
     */
-    const frenoDiaSiguiente = await revisarDiaSiguienteAlEnviar(follow);
-    if (frenoDiaSiguiente) antiBloqueo = { motivo: frenoDiaSiguiente, reprogramarPara: null, conversationId: null };
+    /*
+      Freno general (9-11-2026): con `seguimientos-automaticos:apagado` = si, ningún automático de Follow
+      sale (lo posterior a 1 h lo hace el equipo a mano). Cancela sin reprogramar. El reloj del V3 (15 min
+      y 1 h) no usa Follow y sigue saliendo. Ver seguimientos/dominio/seguimientos-automaticos-apagados.ts.
+    */
+    if (clase === "automatico") {
+      const freno = await prisma.appSetting.findUnique({ where: { key: CLAVE_SEGUIMIENTOS_AUTOMATICOS_APAGADOS } });
+      if (seCancelaPorSeguimientosAutomaticosApagados(clase, freno?.value)) {
+        antiBloqueo = { motivo: "seguimiento_apagado", reprogramarPara: null, conversationId: null };
+      }
+    }
+    if (!antiBloqueo) {
+      const frenoDiaSiguiente = await revisarDiaSiguienteAlEnviar(follow);
+      if (frenoDiaSiguiente) antiBloqueo = { motivo: frenoDiaSiguiente, reprogramarPara: null, conversationId: null };
+    }
     if (!antiBloqueo && clase === "automatico") {
       const motivo = await revisarConvivencia({
         workspaceId: follow.workspaceId,

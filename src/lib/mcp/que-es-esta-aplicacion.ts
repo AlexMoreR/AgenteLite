@@ -652,6 +652,7 @@ async function automatizaciones(
     transcripcionApagada,
     etapaAuto,
     seguimientosQueEscuchanApagado,
+    seguimientosAutomaticosApagado,
   ] = await Promise.all([
     prisma.followRule.count({ where: { workspaceId, isActive: true } }),
     prisma.campaign.count({ where: { workspaceId, status: "RUNNING" } }),
@@ -665,6 +666,7 @@ async function automatizaciones(
     bandera("transcripcion-de-audios:apagada"),
     bandera(`crm:etapa-automatica:${workspaceId}`),
     bandera("seguimientos-que-escuchan:apagado"),
+    bandera("seguimientos-automaticos:apagado"),
   ]);
 
   const lectura = await estadoDeEtapaPorLectura(workspaceId).catch(() => null);
@@ -720,6 +722,10 @@ async function automatizaciones(
       : seguimientosQueEscuchanApagado?.trim().toLowerCase() === "si"
         ? "apagada (seguimientos-que-escuchan:apagado = si): los seguimientos salen con su texto fijo"
         : "activa: la IA escribe el texto de los seguimientos automáticos leyendo el chat y los audios",
+    seguimientos_automaticos:
+      seguimientosAutomaticosApagado?.trim().toLowerCase() === "si"
+        ? "apagada (seguimientos-automaticos:apagado = si): solo salen los seguimientos de 15 min y 1 h del reloj V3"
+        : "activa",
     purga_de_webhooks: sinInterruptor,
     informe_diario: ultimoInforme
       ? `activa: ultimo informe del ${ultimoInforme.reportDate.toISOString().slice(0, 10)}`
