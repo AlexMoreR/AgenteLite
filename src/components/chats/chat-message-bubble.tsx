@@ -43,7 +43,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { reaccionarAlMensajeAction, recuperarArchivoPerdidoAction } from "@/app/actions/chats-actions";
+import { recuperarArchivoPerdidoAction } from "@/app/actions/chats-actions";
+import { reaccionarPorRuta } from "@/lib/chats/enviar-por-ruta";
 import type { SharedInboxMessageItem } from "./chat-inbox-types";
 import type { EstadoDeFoto } from "./fotos-en-envio";
 import {
@@ -584,7 +585,8 @@ function FilaDeReacciones({
   const reaccionar = (emoji: string) => {
     const quitar = message.reactionEmoji === emoji;
     setEnviando(emoji);
-    void reaccionarAlMensajeAction({ messageId: message.id, emoji: quitar ? "" : emoji })
+    // Por la ruta fija /reaccionar (la misma accion por dentro): un despliegue no la rompe.
+    void reaccionarPorRuta({ messageId: message.id, emoji: quitar ? "" : emoji })
       .then((resultado) => {
         if (!resultado?.ok) {
           toast.error(resultado?.error ?? "No se pudo reaccionar");

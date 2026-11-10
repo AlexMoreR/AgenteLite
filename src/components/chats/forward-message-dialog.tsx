@@ -4,8 +4,7 @@ import * as React from "react";
 import { Loader2, Search, Send } from "lucide-react";
 import { toast } from "sonner";
 
-import { sendChatAudioReplyAction, sendChatMediaReplyAction } from "@/app/actions/agent-actions";
-import { sendUnifiedChatReplyAction } from "@/app/actions/chats-actions";
+import { enviarArchivoPorRuta, enviarAudioPorRuta, enviarTextoSimplePorRuta } from "@/lib/chats/enviar-por-ruta";
 import { ContactAvatar } from "@/components/chats/contact-avatar";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -24,6 +23,9 @@ import { comoSeReenvia, esArchivoDeNuestroServidor, type TipoConArchivo } from "
  *
  * Funciona en los dos canales porque las acciones de envio ya reciben la direccion del archivo
  * y resuelven solas si el chat destino es del canal viejo o de la API oficial.
+ *
+ * Va por las rutas fijas del chat (enviar-por-ruta.ts), que llaman a esas mismas acciones: asi no
+ * falla en una pestaña abierta antes de un despliegue.
  */
 
 type ChatDestino = {
@@ -158,7 +160,7 @@ export function ForwardMessageDialog({
           (`convert: true`) y Meta descarga el archivo tal cual-. El control de repetidos de esa
           accion va por chat + audio, asi que el mismo audio puede ir a varios chats.
         */
-        resultado = await sendChatAudioReplyAction({
+        resultado = await enviarAudioPorRuta({
           source: fuente === "official" ? "official" : "agent",
           conversationId,
           audioUrl: message.mediaUrl,
@@ -166,7 +168,7 @@ export function ForwardMessageDialog({
         });
       } else if (esReenviableComoArchivo(message.type) && message.mediaUrl) {
         const meta = getDocumentMetaFromMessage(message);
-        resultado = await sendChatMediaReplyAction({
+        resultado = await enviarArchivoPorRuta({
           source: fuente === "official" ? "official" : "agent",
           conversationId,
           mediaUrl: message.mediaUrl,
@@ -187,7 +189,7 @@ export function ForwardMessageDialog({
         datos.set("source", fuente === "official" ? "official" : "agent");
         datos.set("conversationId", conversationId);
         datos.set("message", texto);
-        resultado = await sendUnifiedChatReplyAction(datos);
+        resultado = await enviarTextoSimplePorRuta(datos);
       }
 
       if (resultado && "error" in resultado && resultado.error) {

@@ -35,7 +35,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { hayVersionNueva } from "@/components/app-version-guard";
 import { subirArchivoPorPedazos } from "@/lib/subir-archivo-por-pedazos";
 import { generarPortadaDePdf } from "@/lib/portada-de-pdf";
 import { generarMiniaturaDeImagen } from "@/lib/miniatura-de-imagen";
@@ -162,16 +161,9 @@ export function MediaLibraryDialog({
         onClose();
       }
     } catch {
-      // Antes no habia catch: si se cortaba la red o habia version nueva, la ruedita se apagaba
-      // sin aviso y la asesora podia creer que el archivo salio.
-      if (await hayVersionNueva()) {
-        toast.error("Actualizamos la app. Recarga y vuelve a mandarlo.", {
-          duration: 15000,
-          action: { label: "Recargar", onClick: () => window.location.reload() },
-        });
-      } else {
-        toast.error(`No se envió "${item.title}". Revisa la conexión y vuelve a intentarlo.`, { duration: 10000 });
-      }
+      // Antes no habia catch: si se cortaba la red, la ruedita se apagaba sin aviso y la asesora
+      // podia creer que el archivo salio. El envio va por una ruta fija: un despliegue no lo rompe.
+      toast.error(`No se envió "${item.title}". Revisa la conexión y vuelve a intentarlo.`, { duration: 10000 });
     } finally {
       setEnviando(null);
     }

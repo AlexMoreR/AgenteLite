@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { hayVersionNueva } from "@/components/app-version-guard";
+import { enviarArchivoPorRuta, enviarAudioPorRuta } from "@/lib/chats/enviar-por-ruta";
 import {
   ESPERA_GUARDAR_BORRADOR_MS,
   guardarEnvioPendiente,
@@ -3322,10 +3323,13 @@ export function SharedInbox({
     // y no se podia mandar una foto ni el catalogo en PDF.
     const source = selectedConversationId.startsWith("official:") ? "official" : "agent";
 
+    // El envio final va por las rutas fijas (/enviar-audio, /enviar-archivo) y no por la Server
+    // Action del prop: esa cambia de id en cada build y fallaba en las pestañas abiertas antes de un
+    // despliegue. Misma entrada y misma respuesta; cubre archivos, Reintentar, biblioteca, carta y audio.
     return {
       ...composer,
-      audio: composer.audio ? { ...composer.audio, conversationId: targetId, source } : undefined,
-      media: composer.media ? { ...composer.media, conversationId: targetId, source } : undefined,
+      audio: composer.audio ? { ...composer.audio, conversationId: targetId, source, sendAction: enviarAudioPorRuta } : undefined,
+      media: composer.media ? { ...composer.media, conversationId: targetId, source, sendAction: enviarArchivoPorRuta } : undefined,
     };
   }, [composer, renderedConversation, selectedConversationId]);
 

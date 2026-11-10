@@ -4,7 +4,8 @@ import * as React from "react";
 import { Search, Workflow } from "lucide-react";
 import { toast } from "sonner";
 
-import { listFlowsForChatAction, sendFlowToChatAction, type FlowChoice } from "@/app/actions/flow-send-actions";
+import { listFlowsForChatAction, type FlowChoice } from "@/app/actions/flow-send-actions";
+import { enviarFlujoPorRuta } from "@/lib/chats/enviar-por-ruta";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 
@@ -138,7 +139,8 @@ export function enviarFlujoAlChat(input: {
 }) {
   const aviso = toast.loading(`Enviando "${input.titulo}"…`);
 
-  void sendFlowToChatAction({ source: input.source, conversationId: input.conversationId, flowId: input.flowId, agentId: input.agentId })
+  // Por la ruta fija /enviar-flujo (la misma sendFlowToChatAction por dentro): un despliegue no la rompe.
+  void enviarFlujoPorRuta({ source: input.source, conversationId: input.conversationId, flowId: input.flowId, agentId: input.agentId })
     .then((resultado) => {
       if (!resultado.ok) {
         toast.error(resultado.error, { id: aviso });

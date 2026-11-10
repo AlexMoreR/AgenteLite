@@ -100,6 +100,7 @@
     "test:reuniones-moderar": "node scripts/check-reuniones-moderar.mjs",
     "test:reuniones-migracion": "node scripts/check-reuniones-migracion.mjs",
     "test:migraciones-pglite": "node scripts/ensayo-migraciones-pglite.mjs",
+    "test:enviar-por-ruta": "node scripts/check-enviar-por-ruta.mjs",
     "test:contrato-envios": "node scripts/check-contrato-envios.mjs",
     "test:rutas-de-envio": "node scripts/check-rutas-de-envio.mjs",
     "test:trabajador-tablero": "node trabajador-tablero/pruebas/probar-reparto.mjs && node trabajador-tablero/pruebas/probar-medir.mjs && node trabajador-tablero/pruebas/probar-pausa-uso.mjs && node trabajador-tablero/pruebas/probar-trabajador.mjs && node trabajador-tablero/pruebas/probar-modelos.mjs && node trabajador-tablero/pruebas/probar-autoactualizar.mjs && node trabajador-tablero/pruebas/probar-notas-boveda.mjs && node trabajador-tablero/pruebas/probar-no-colgarse.mjs",

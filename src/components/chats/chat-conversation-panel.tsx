@@ -69,7 +69,6 @@ function pedirDetalleDeContacto(contactId: string): Promise<DetalleDeContacto> {
   return pedido;
 }
 import { ChatScrollAnchor } from "@/components/agents/chat-scroll-anchor";
-import { hayVersionNueva } from "@/components/app-version-guard";
 import {
   ESPERA_GUARDAR_BORRADOR_MS,
   EVENTO_GUARDAR_BORRADOR,
@@ -89,7 +88,7 @@ import {
   marcarFlujoDeSugerenciaAction,
   refreshContactAvatarNowAction,
 } from "@/app/actions/chats-actions";
-import { sendChatLocationReplyAction } from "@/app/actions/agent-actions";
+import { enviarUbicacionPorRuta } from "@/lib/chats/enviar-por-ruta";
 import { leerOrigenDelContactoAction } from "@/app/actions/origen-del-contacto-actions";
 import type { OrigenDelCliente } from "@/lib/origen-del-cliente";
 import { clearPendingConversationSelection } from "@/components/chats/chat-selection-store";
@@ -852,7 +851,8 @@ export const ConversationPanel = memo(function ConversationPanel({
 
     setIsSendingLocation(true);
     try {
-      const result = await sendChatLocationReplyAction({
+      // Por la ruta fija: sigue andando en una pestaña abierta antes de un despliegue.
+      const result = await enviarUbicacionPorRuta({
         conversationId,
         agentId: mediaConfig?.agentId ?? audioConfig?.agentId ?? undefined,
         returnTo: mediaConfig?.returnTo ?? audioConfig?.returnTo ?? undefined,
@@ -980,21 +980,8 @@ export const ConversationPanel = memo(function ConversationPanel({
           setOptimisticMediaMessages((prev) => prev.filter((message) => message.id !== failedId));
         }
 
-        /**
-         * La causa mas comun de que reviente aca no tiene nada que ver con el archivo: la app
-         * lleva horas abierta, desplegamos, y el envio le pega a una version del servidor que
-         * ya no existe. Decirle "no se pudo enviar el PDF" manda a la asesora a pelear con el
-         * archivo equivocado, asi que primero se pregunta si la pagina quedo vieja.
-         */
-        if (await hayVersionNueva()) {
-          const motivo = "Actualizamos la app. Recarga y volve a mandarlo.";
-          toast.error(motivo, {
-            duration: 15000,
-            action: { label: "Recargar", onClick: () => window.location.reload() },
-          });
-          return motivo;
-        }
-
+        // Ya no se pregunta si la pagina quedo vieja: el envio va por una ruta fija (sendAction es
+        // enviarArchivoPorRuta, ver effectiveComposer) y no se rompe con un despliegue.
         const motivo = `No se pudo enviar "${file.name}".`;
         toast.error(motivo);
         return motivo;
@@ -1082,16 +1069,6 @@ export const ConversationPanel = memo(function ConversationPanel({
       fallar(motivo);
       return false;
     } catch {
-      // Igual que en los demas archivos: lo mas comun es que la pagina haya quedado vieja.
-      if (await hayVersionNueva()) {
-        const motivo = "Actualizamos la app. Recarga y volve a mandarlo.";
-        toast.error(motivo, {
-          duration: 15000,
-          action: { label: "Recargar", onClick: () => window.location.reload() },
-        });
-        fallar(motivo);
-        return false;
-      }
       // Si la foto ya estaba subida, lo que se corto es el envio: pudo haber salido.
       const motivo = subida
         ? "El servidor no respondió: la foto pudo haber salido. Revisa el chat antes de reintentar."
