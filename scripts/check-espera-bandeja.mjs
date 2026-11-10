@@ -1059,10 +1059,11 @@ await prueba("pantalla: un solo reloj en la lista, nada por fila, y el efecto de
   const filaDeEtiquetas = lista.slice(lista.indexOf("function ConversationTagsRow("), lista.indexOf("const ConversationListItem = memo("));
   assert.match(filaDeEtiquetas, /espera\.texto/);
   assert.match(filaDeEtiquetas, /h-\[22px\]/);
-  // El efecto de conteos conserva sus dependencias de siempre.
+  // El efecto de conteos conserva sus dependencias de siempre. Los filtros van con
+  // `ponerFiltrosParaContar` (los mismos sin No leido, ver pastillas-de-la-bandeja.ts).
   assert.match(
     bandeja,
-    /\}, \[conversationListApiPath, searchQuery, selectedConnectionKey, statusFilter, ponerFiltrosNuevos, pedidoDeConteos\]\);/,
+    /\}, \[conversationListApiPath, searchQuery, selectedConnectionKey, statusFilter, ponerFiltrosParaContar, pedidoDeConteos\]\);/,
   );
   assert.match(bandeja, /setEsperaDelConteo\(payload\.espera \?\? null\)/);
   assert.match(bandeja, /esperaPorClave\(esperaVigente\)/);
