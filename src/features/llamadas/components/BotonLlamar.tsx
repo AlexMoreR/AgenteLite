@@ -1,13 +1,8 @@
 "use client";
 
-import { useState } from "react";
 import { Phone, PhoneOff } from "lucide-react";
 
-import { looksLikeLidNumber } from "@/lib/whatsapp-lid";
-import { toast } from "sonner";
-
-import { PanelDeLlamada } from "./PanelDeLlamada";
-import { useLlamada } from "./useLlamada";
+import { useLlamadaEnCurso } from "./LlamadaEnCurso";
 
 /**
  * Llamar al cliente desde la cabecera del chat.
@@ -16,6 +11,9 @@ import { useLlamada } from "./useLlamada";
  * conversación, deciden que es más rápido hablar, y llaman sin cambiar de pantalla. La llamada
  * queda flotando y el chat sigue debajo, así que pueden mirar lo que el cliente escribió mientras
  * hablan y anotar al terminar.
+ *
+ * Este componente es SOLO el botón: la llamada, su panel y su audio viven en LlamadaEnCurso.tsx,
+ * una sola vez para todo el CRM, para que no se corten al cambiar de chat o de pantalla.
  *
  * El registro en el CRM no depende de este botón: lo hace el aviso de WaCalls al terminar la
  * llamada, se marque desde donde se marque.
@@ -36,25 +34,7 @@ export function BotonLlamar({
   /** Canal del chat: la llamada sale por SU numero, el mismo con el que el cliente viene hablando. */
   channelId?: string | null;
 }) {
-  // Se desestructura en vez de guardar el objeto entero: la referencia del audio va aparte de
-  // los valores que sí se leen al dibujar, y así no parece que estuvieramos mirando una
-  // referencia durante el render.
-  const { estado, silenciado, segundos, motivoFin, recienContesto, llamar, colgar, alternarSilencio, audioRef } = useLlamada({
-    channelId,
-    onError: (mensaje) => toast.error(mensaje),
-  });
-
-  // Cada llamada arranca en pantalla completa; minimizar es una decision de la asesora DENTRO de
-  // esa llamada, no una preferencia que deba sobrevivir a la siguiente. Se decide al marcar y no
-  // reaccionando al estado despues, que era una vuelta de mas.
-  const [expandido, setExpandido] = useState(true);
-
-  /*
-    Los leads de anuncios llegan con un identificador oculto en vez de telefono, y a ese
-    identificador SI se le puede llamar: probado el 25-09-2026 llamando al numero de Alex por su
-    identificador -timbro, contesto, y el audio se establecio-. Son el 15% de la base.
-  */
-  const esOculto = looksLikeLidNumber(telefono);
+  const llamada = useLlamadaEnCurso();
 
   /*
     Sin NADA con que marcar el boton se muestra APAGADO, no se esconde.
@@ -81,43 +61,19 @@ export function BotonLlamar({
     );
   }
 
-  const ocupada = estado !== "libre";
+  // Una sola llamada a la vez en todo el CRM: con una en curso, todos los botones salen apagados.
+  const ocupada = llamada?.ocupada ?? false;
 
   return (
-    <>
-      <button
-        type="button"
-        onClick={() => {
-          setExpandido(true);
-          void llamar(telefono, esOculto);
-        }}
-        disabled={ocupada}
-        title={ocupada ? "Ya hay una llamada en curso" : `Llamar a ${nombre}`}
-        aria-label={`Llamar a ${nombre}`}
-        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sky-600 transition hover:bg-muted disabled:opacity-40"
-      >
-        <Phone className="h-5 w-5" />
-      </button>
-
-      <PanelDeLlamada
-        estado={estado}
-        nombre={nombre}
-        telefono={telefono}
-        avatarUrl={avatarUrl}
-        silenciado={silenciado}
-        segundos={segundos}
-        motivoFin={motivoFin}
-        recienContesto={recienContesto}
-        expandido={expandido}
-        onMinimizar={() => setExpandido(false)}
-        onExpandir={() => setExpandido(true)}
-        onColgar={() => void colgar()}
-        onAlternarSilencio={() => void alternarSilencio()}
-      />
-
-      {/* El audio del cliente. Sin controles y fuera de la vista: la barra flotante ya tiene los
-          botones, y un reproductor suelto ahi invita a pausar la llamada, que no es una idea. */}
-      <audio ref={audioRef} autoPlay playsInline className="hidden" />
-    </>
+    <button
+      type="button"
+      onClick={() => llamada?.marcar({ telefono, nombre, avatarUrl, channelId })}
+      disabled={ocupada || !llamada}
+      title={ocupada ? "Ya hay una llamada en curso" : `Llamar a ${nombre}`}
+      aria-label={ocupada ? "Ya hay una llamada en curso" : `Llamar a ${nombre}`}
+      className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sky-600 transition hover:bg-muted disabled:opacity-40"
+    >
+      <Phone className="h-5 w-5" />
+    </button>
   );
 }

@@ -6,6 +6,7 @@ import { Toaster } from "sonner";
 import { ToastContainer } from "react-toastify";
 import { BreadcrumbLabelProvider } from "@/components/breadcrumb-label-context";
 import { PwaRegister } from "@/components/pwa-register";
+import { LlamadaEnCursoProvider } from "@/features/llamadas/components/LlamadaEnCurso";
 
 type ProvidersProps = {
   children: React.ReactNode;
@@ -15,7 +16,10 @@ type ProvidersProps = {
 export function Providers({ children, session }: ProvidersProps) {
   return (
     <SessionProvider session={session}>
-      <BreadcrumbLabelProvider>{children}</BreadcrumbLabelProvider>
+      {/* La llamada de WhatsApp vive acá, una sola vez: no se corta al cambiar de chat o de pantalla. */}
+      <LlamadaEnCursoProvider>
+        <BreadcrumbLabelProvider>{children}</BreadcrumbLabelProvider>
+      </LlamadaEnCursoProvider>
       <PwaRegister />
       <Toaster
         position="top-right"

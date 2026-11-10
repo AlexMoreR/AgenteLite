@@ -79,8 +79,6 @@ const RESTRICCIONES_MIC: MediaStreamConstraints = {
 };
 
 type Opciones = {
-  /** Canal del chat: la llamada sale por SU numero. */
-  channelId?: string | null;
   onError?: (mensaje: string) => void;
   onTerminada?: () => void;
 };
@@ -170,7 +168,38 @@ function enviarDiagnostico(
   }
 }
 
-export function useLlamada({ channelId, onError, onTerminada }: Opciones = {}) {
+/**
+ * Cuelga en WaCalls cuando la pagina se va (se cierra la pestaña, se recarga) o el marcador se
+ * desmonta. Antes solo se soltaba el microfono de este lado y al cliente le seguia timbrando, o
+ * quedaba en una llamada muda. `sendBeacon` es lo unico que el navegador garantiza que sale
+ * mientras la pagina se cierra; si no esta, `fetch` con `keepalive` hace lo mismo.
+ * Mismo cuerpo que colgar(), a la misma ruta.
+ */
+function colgarAlSalir(callId: string, channelId: string | undefined) {
+  const cuerpo = JSON.stringify({ accion: "colgar", callId, channelId });
+  try {
+    if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
+      const enviado = navigator.sendBeacon(
+        "/api/wacalls/llamada",
+        new Blob([cuerpo], { type: "application/json" }),
+      );
+      if (enviado) {
+        return;
+      }
+    }
+    void fetch("/api/wacalls/llamada", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      keepalive: true,
+      body: cuerpo,
+    }).catch(() => {});
+  } catch {
+    // Colgar al salir es el ultimo intento: si falla no hay a quien avisarle.
+  }
+}
+
+export function useLlamada({ onError, onTerminada }: Opciones = {}) {
   const [estado, setEstado] = useState<EstadoLlamada>("libre");
   const [silenciado, setSilenciado] = useState(false);
   const [segundos, setSegundos] = useState(0);
@@ -260,16 +289,34 @@ export function useLlamada({ channelId, onError, onTerminada }: Opciones = {}) {
     setRecienContesto(false);
   }, [reportarDiagnostico]);
 
+  /**
+   * Si hay una llamada viva, la corta tambien en WaCalls (no solo de este lado). Se usa al cerrar
+   * la pestaña y al desmontar; colgar() normal sigue siendo el camino con el boton rojo.
+   */
+  const colgarSiHayLlamada = useCallback(() => {
+    const callId = callIdRef.current;
+    if (callId) {
+      colgarAlSalir(callId, canalRef.current);
+    }
+  }, []);
+
   useEffect(() => {
     const temporizadores = temporizadoresRef.current;
-    // Al cerrar la pestaña React no desmonta nada: sin esto la llamada se quedaba sin diagnostico.
-    window.addEventListener("pagehide", reportarDiagnostico);
+    // Al cerrar la pestaña React no desmonta nada: sin esto la llamada se quedaba sin diagnostico
+    // y al cliente le seguia timbrando.
+    const alSalir = () => {
+      reportarDiagnostico();
+      colgarSiHayLlamada();
+    };
+    window.addEventListener("pagehide", alSalir);
     return () => {
-      window.removeEventListener("pagehide", reportarDiagnostico);
+      window.removeEventListener("pagehide", alSalir);
+      // Antes de limpiar(), que borra el callId.
+      colgarSiHayLlamada();
       limpiar();
       temporizadores.forEach((id) => window.clearTimeout(id));
     };
-  }, [limpiar, reportarDiagnostico]);
+  }, [colgarSiHayLlamada, limpiar, reportarDiagnostico]);
 
   // Cronómetro de la conversación.
   useEffect(() => {
@@ -388,8 +435,12 @@ export function useLlamada({ channelId, onError, onTerminada }: Opciones = {}) {
   }, [cambiarEstado, limpiar, onTerminada]);
 
   const llamar = useCallback(
-    /** `esOculto` = el destino es un identificador de WhatsApp, no un teléfono. */
-    async (telefono: string, esOculto = false) => {
+    /**
+     * `channelId` = la linea del chat desde donde se marca: la llamada sale por SU numero y todos
+     * los pasos siguientes, colgar incluido, van a esa misma linea.
+     * `esOculto` = el destino es un identificador de WhatsApp, no un teléfono.
+     */
+    async (telefono: string, channelId?: string | null, esOculto = false) => {
       if (estado !== "libre") {
         return;
       }
@@ -617,7 +668,7 @@ export function useLlamada({ channelId, onError, onTerminada }: Opciones = {}) {
         cambiarEstado("libre");
       }
     },
-    [estado, channelId, colgar, limpiar, onError, cambiarEstado, revisarEstado],
+    [estado, colgar, limpiar, onError, cambiarEstado, revisarEstado],
   );
 
   const alternarSilencio = useCallback(async () => {
