@@ -110,7 +110,7 @@ import {
     con texto_confirmacion del dueño ("sí, márcala hecha"), la clave de la cuenta dueña y una nota. Desde el
     3-nov-2026 también con la clave de Emanuel (el aprobador SISTEMAS); queda "por Sistemas" en el historial.
   - Quitar una zona protegida (solo ponerla).
-  - Dejar intacta una aprobación al editar: si edita una tarjeta APROBADA, vuelve a POR_APROBAR; si
+  - Dejar intacta una aprobación al editar: si edita una tarjeta APROBADA, vuelve a POR_APROBAR (mover no: 10-nov-2026); si
     le cambia el tipo, queda POR_APROBAR o IDEA.
   - Quitarle la aprobación a un tipo, ni borrar tipos (solo el dueño en la pantalla).
   - Borrar lo que tiene el Coordinador en la mano (PLANEANDO, EN_CURSO, SUBIENDO), una tarjeta
@@ -207,7 +207,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     name: "crear_tablero",
     title: "Crear un tablero de ideas",
     description:
-      "Crea un tablero nuevo, por ejemplo uno por tema ('Ventas', 'Producción', 'Marketing'). Nace con 3 tipos de tarjeta: Área (una carpeta sin estado; puede ir dentro de otra Área), Idea (cuelga de un Área) y Tarea (cuelga de una Idea y la aprueba el dueño). Antes mirar listar_tableros para no repetir uno que ya existe. Antes de crearlo, decir en voz alta el nombre que va a tener y de quién va a ser. Sin dueno, es de la persona de esta clave.",
+      "Crea un tablero nuevo, por ejemplo uno por tema ('Ventas', 'Producción', 'Marketing'). Nace con 3 tipos de tarjeta: Área (una carpeta sin estado; puede ir dentro de otra Área), Idea (cuelga de un Área) y Tarea (cuelga de una Idea o directamente de un Área, y la aprueba el dueño). Antes mirar listar_tableros para no repetir uno que ya existe. Antes de crearlo, decir en voz alta el nombre que va a tener y de quién va a ser. Sin dueno, es de la persona de esta clave.",
     inputSchema: {
       type: "object",
       properties: {
@@ -328,7 +328,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     name: "crear_tarjeta",
     title: "Agregar una tarjeta",
     description:
-      "Agrega una tarjeta (un área, una idea, una tarea...) al tablero. Sin tipo queda como Idea. Puede colgar de otra tarjeta (padre_id) si su tipo lo permite (Área > Idea > Tarea; un Área también dentro de otra Área). Queda IDEA, o POR_APROBAR si su tipo pide aprobación y ya está lista para que el dueño la mire. Un Área no lleva estado. Si es un cambio de código que debe hacer el Coordinador, poner repo (gestion o aizencrm; solo tipos con aprobación, como Tarea) y, si toca Meta Ads, el bot de ventas o el libro V3, zona_protegida. Aprobarla lo hace el dueño (en la pantalla, o con aprobar_tarjeta si lo dice explícitamente). RIESGO (22-oct-2026, decisión del dueño: 'las cosas básicas que ayudan al negocio y no tienen riesgo, hágalas sin pedirme permiso; lo súper importante sí me lo manda al tablero'): en tarjetas con repo, proponer riesgo BAJO o ALTO. Una tarjeta BAJO POR_APROBAR se aprueba SOLA (si el interruptor de la pantalla está prendido) y el trabajador arranca sin pedir permiso. El servidor revisa las reglas: Claude nunca puede marcar BAJO algo con zona protegida, dinero, permisos o credenciales, mensajes a clientes, el propio trabajador o migraciones que borren o cambien datos. Si hay duda, ALTO." +
+      "Agrega una tarjeta (un área, una idea, una tarea...) al tablero. Sin tipo queda como Idea. Puede colgar de otra tarjeta (padre_id) si su tipo lo permite (Área > Idea > Tarea, o una Tarea directo en un Área; un Área también dentro de otra Área; lo que vale en cada tablero lo dice listar_tipos). Queda IDEA, o POR_APROBAR si su tipo pide aprobación y ya está lista para que el dueño la mire. Un Área no lleva estado. Si es un cambio de código que debe hacer el Coordinador, poner repo (gestion o aizencrm; solo tipos con aprobación, como Tarea) y, si toca Meta Ads, el bot de ventas o el libro V3, zona_protegida. Aprobarla lo hace el dueño (en la pantalla, o con aprobar_tarjeta si lo dice explícitamente). RIESGO (22-oct-2026, decisión del dueño: 'las cosas básicas que ayudan al negocio y no tienen riesgo, hágalas sin pedirme permiso; lo súper importante sí me lo manda al tablero'): en tarjetas con repo, proponer riesgo BAJO o ALTO. Una tarjeta BAJO POR_APROBAR se aprueba SOLA (si el interruptor de la pantalla está prendido) y el trabajador arranca sin pedir permiso. El servidor revisa las reglas: Claude nunca puede marcar BAJO algo con zona protegida, dinero, permisos o credenciales, mensajes a clientes, el propio trabajador o migraciones que borren o cambien datos. Si hay duda, ALTO." +
       REGLA_DEL_TABLERO,
     inputSchema: {
       type: "object",
@@ -364,7 +364,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     name: "editar_tarjeta",
     title: "Editar una tarjeta",
     description:
-      "Cambia el título, el detalle, el tipo, de qué tarjeta cuelga, el área, la fecha, el orden, el link, el repo, la zona protegida, el riesgo (BAJO / ALTO, con su motivo_riesgo) o el responsable (a quién se le asigna; asignar NO reinicia la aprobación) de una tarjeta. Se manda solo lo que cambia. Si queda POR_APROBAR con riesgo BAJO y el interruptor está prendido, se aprueba sola. Si estaba aprobada (APROBADO, o con el trabajador: PLAN_LISTO, PLAN_APROBADO, POR_REVISAR, ERROR), vuelve a POR_APROBAR. Mientras el Coordinador la tiene (PLANEANDO, EN_CURSO, SUBIENDO) no se edita. Si se le cambia el tipo, queda POR_APROBAR (tipo con aprobación) o IDEA (sin aprobación): pierde la aprobación que tuviera. La zona protegida se puede agregar, no quitar (eso solo el dueño en la pantalla)." +
+      "Cambia el título, el detalle, el tipo, de qué tarjeta cuelga, el área, la fecha, el orden, el link, el repo, la zona protegida, el riesgo (BAJO / ALTO, con su motivo_riesgo) o el responsable (a quién se le asigna) de una tarjeta. Se manda solo lo que cambia. MOVER (10-nov-2026): si solo cambia de qué cuelga (padre_id), el área, el orden, la fecha o el responsable, la tarjeta CONSERVA su estado (Aprobado, Plan aprobado, Por revisar...) y su plan, no se recalcula el riesgo, se puede aunque el Coordinador la tenga (PLANEANDO, EN_CURSO, SUBIENDO) sin interrumpir su trabajo y el historial lo marca como movimiento. Si cambia lo que hay que hacer (título, detalle, tipo, repo, riesgo, zona protegida o link) y estaba aprobada (APROBADO, o con el trabajador: PLAN_LISTO, PLAN_APROBADO, POR_REVISAR, ERROR), vuelve a POR_APROBAR; si queda POR_APROBAR con riesgo BAJO y el interruptor está prendido, se aprueba sola. Mientras el Coordinador la tiene, esos campos no se editan (solo se mueve). Si se le cambia el tipo, queda POR_APROBAR (tipo con aprobación) o IDEA (sin aprobación): pierde la aprobación que tuviera. La zona protegida se puede agregar, no quitar (eso solo el dueño en la pantalla)." +
       REGLA_DEL_TABLERO,
     inputSchema: {
       type: "object",
@@ -686,7 +686,7 @@ export async function ejecutarHerramientaMcpTableros(
         dueno: tablero.duenoNombre ?? SIN_DUENO,
         aviso:
           `Es de ${tablero.duenoNombre ?? SIN_DUENO}: esa persona lo ve en su pantalla (el dueño del negocio ve todos). ` +
-          "Nació con los tipos Área (carpeta sin estado; puede ir dentro de otra Área), Idea (cuelga de un Área) y Tarea (cuelga de una Idea; la aprueba el dueño). Ver listar_tipos.",
+          "Nació con los tipos Área (carpeta sin estado; puede ir dentro de otra Área), Idea (cuelga de un Área) y Tarea (cuelga de una Idea o directamente de un Área; la aprueba el dueño). Ver listar_tipos.",
         link: linkDelTablero(tablero.id),
       };
     }
@@ -938,7 +938,9 @@ export async function ejecutarHerramientaMcpTableros(
           : resultado.aprobacionAutomatica
             ? `No se aprobó sola (${resultado.aprobacionAutomatica.porQue}): queda POR_APROBAR para el dueño.`
             : null;
-      const avisoBase = resultado.cambioDeTipo
+      const avisoBase = resultado.movimiento
+        ? `Se movió: conserva su estado (${resultado.tipo.usaEstados ? resultado.tarjeta.estado : "sin estado"}) y su plan. Para volver atrás: deshacer_cambio_tarjeta.`
+        : resultado.cambioDeTipo
         ? `Ahora es de tipo ${resultado.tipo.nombre} y quedó ${resultado.tipo.usaEstados ? resultado.tarjeta.estado : "sin estado"}${
             resultado.perdioAprobacion ? ": perdió la aprobación, hay que avisarle al dueño" : ""
           }.`

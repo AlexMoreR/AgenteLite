@@ -47,6 +47,7 @@ import { diaDeBogota } from "./archivadas";
 import { leerPausaPorUso } from "./pausa-por-uso-de-claude";
 import { ErrorDelTrabajador, type ContextoTrabajador } from "./trabajador";
 import { linkDeLaTarjeta } from "./tableros";
+import { dondeTableroVivo } from "./tableros-archivados";
 
 /*
   EL PANEL "COORDINADOR EN VIVO" (24-oct-2026): lo que el dueño ve para saber cómo trabaja el Coordinador.
@@ -311,6 +312,8 @@ export function motivoDeLaPantalla(zonas: readonly string[], via: string | null 
 }
 
 async function filaDelCoordinador(workspaceId: string, ahora: Date, esperas: Map<string, string>) {
+  // La fila, lo que espera al dueño y los errores: sin los tableros archivados (no reparten trabajo).
+  const vivo = await dondeTableroVivo({ workspaceId });
   const dependencias = {
     where: { esDependencia: true, origen: { borradoEn: null, estado: { not: "HECHO" as const }, tipo: { usaEstados: true } } },
     select: { origen: { select: { id: true, titulo: true, estado: true } } },
@@ -318,7 +321,7 @@ async function filaDelCoordinador(workspaceId: string, ahora: Date, esperas: Map
   const [paraTomar, esperandoAlDueno, enError] = await Promise.all([
     prisma.tarjetaTablero.findMany({
       where: {
-        tablero: { workspaceId },
+        tablero: vivo,
         borradoEn: null,
         repo: { not: null },
         tipo: { requiereAprobacion: true, usaEstados: true },
@@ -346,7 +349,7 @@ async function filaDelCoordinador(workspaceId: string, ahora: Date, esperas: Map
     }),
     prisma.tarjetaTablero.findMany({
       where: {
-        tablero: { workspaceId },
+        tablero: vivo,
         borradoEn: null,
         repo: { not: null },
         tipo: { requiereAprobacion: true, usaEstados: true },
@@ -358,7 +361,7 @@ async function filaDelCoordinador(workspaceId: string, ahora: Date, esperas: Map
     }),
     prisma.tarjetaTablero.findMany({
       where: {
-        tablero: { workspaceId },
+        tablero: vivo,
         borradoEn: null,
         repo: { not: null },
         tipo: { requiereAprobacion: true, usaEstados: true },
@@ -439,15 +442,17 @@ export function lineasDeRevisionQueNoPaso(resultado: unknown): string | null {
 async function hoyDelCoordinador(workspaceId: string, ahora: Date): Promise<HoyVista> {
   const { desde, hasta } = rangoDeHoyEnBogota(ahora);
   const antes = new Date(desde.getTime() - HORAS_ATRAS_PARA_EL_INICIO * 3_600_000);
+  // Lo de hoy, sin los tableros archivados (tableros-archivados.ts).
+  const vivo = await dondeTableroVivo({ workspaceId });
   const [historial, reparaciones] = await Promise.all([
     prisma.historialTarjeta.findMany({
-      where: { tarjeta: { tablero: { workspaceId } }, origen: "TRABAJADOR", accion: "estado", creadoEn: { gte: antes, lt: hasta } },
+      where: { tarjeta: { tablero: vivo }, origen: "TRABAJADOR", accion: "estado", creadoEn: { gte: antes, lt: hasta } },
       orderBy: { creadoEn: "asc" },
       take: 2000,
       select: { tarjetaId: true, creadoEn: true, despues: true, tarjeta: { select: { titulo: true } } },
     }),
     prisma.intentoTarjeta.findMany({
-      where: { tarjeta: { tablero: { workspaceId } }, accion: "reparar", creadoEn: { gte: desde, lt: hasta } },
+      where: { tarjeta: { tablero: vivo }, accion: "reparar", creadoEn: { gte: desde, lt: hasta } },
       select: { tarjetaId: true, creadoEn: true },
       take: 500,
     }),

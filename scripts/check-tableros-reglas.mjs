@@ -238,13 +238,13 @@ prueba("borrar un tipo: solo en pantalla y sin tarjetas que lo usen", () => {
   assert.equal(reglas.puedeBorrarTipo("PANTALLA", 0), null);
 });
 
-prueba("tipos por defecto: Área (carpeta, dentro de Área), Idea <- Área, Tarea <- Idea; solo Tarea pide aprobación", () => {
+prueba("tipos por defecto: Área (carpeta, dentro de Área), Idea <- Área, Tarea <- Idea o Área; solo Tarea pide aprobación", () => {
   assert.deepEqual(
     reglas.TIPOS_POR_DEFECTO.map((t) => [t.nombre, t.requiereAprobacion, t.usaEstados, [...t.padres]]),
     [
       ["Área", false, false, ["Área"]],
       ["Idea", false, true, ["Área"]],
-      ["Tarea", true, true, ["Idea"]],
+      ["Tarea", true, true, ["Idea", "Área"]],
     ],
   );
   for (const tipo of reglas.TIPOS_POR_DEFECTO) assert.ok(reglas.esIconoDeTipo(tipo.icono));
@@ -2553,6 +2553,8 @@ prueba("el código T-123 llega a la tarjeta, al cuadrito, a la ficha y al MCP", 
       findMany: async ({ where }) => historial.filter((fila) => fila.tarjetaId === where.tarjetaId && (!where.accion || fila.accion === where.accion)),
     },
     tableroInteligente: { update: async () => undefined, updateMany: async () => ({ count: 1 }) },
+    // Tableros archivados (10-nov-2026): en esta prueba no hay ninguno.
+    appSetting: { findUnique: async () => null },
     $transaction: async (fn) => fn(falso),
   };
   const servicio = cargar("src/features/tableros-inteligentes/services/trabajador.ts", {

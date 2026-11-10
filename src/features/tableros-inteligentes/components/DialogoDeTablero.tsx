@@ -1,13 +1,13 @@
 "use client";
 
 import { useRef, useState, type FormEvent } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
-import { crearTableroAction, renombrarTableroAction } from "@/app/actions/tableros-inteligentes-actions";
+import { archivarTableroAction, crearTableroAction, renombrarTableroAction } from "@/app/actions/tableros-inteligentes-actions";
 import { MAX_NOMBRE_TABLERO, problemaDelNombreDeTablero, type MiembroDelNegocio } from "../services/reglas";
 
 /*
@@ -17,6 +17,10 @@ import { MAX_NOMBRE_TABLERO, problemaDelNombreDeTablero, type MiembroDelNegocio 
 
   Tableros por cuenta: cualquiera crea y renombra los suyos. El dueño del negocio (o el ADMIN) además
   elige "De quién es" entre los miembros activos (así arma "Desarrollo Emanuel" y se lo da a Emanuel).
+
+  "Eliminar tablero" (10-nov-2026): al final del diálogo de "Cambiar nombre", solo para el dueño del negocio. Pide
+  escribir el nombre exacto y ARCHIVA el tablero (no borra nada; se recupera en "Tableros archivados"). El servidor
+  vuelve a revisar todo y, si hay tarjetas aprobadas o con el Coordinador, dice cuáles.
 */
 
 /** La página de inicio (el listado). Igual que RUTA_TABLEROS del servicio, que no se importa acá porque trae Prisma. */
@@ -35,7 +39,13 @@ export type EdicionDeTablero =
  * Tableros por cuenta: quién mira (`yo`), si ve todos los tableros (el dueño del negocio o el ADMIN) y
  * a quién le puede dar uno (los miembros activos; vacío si no ve todos).
  */
-export type CuentasDeTableros = { yo: string; verTodos: boolean; miembros: MiembroDelNegocio[] };
+export type CuentasDeTableros = {
+  yo: string;
+  verTodos: boolean;
+  miembros: MiembroDelNegocio[];
+  /** El dueño del negocio (isOwner): solo él elimina (archiva) y recupera tableros. */
+  esDuenoDelNegocio: boolean;
+};
 
 export type DuenoDeTablero = { duenoUserId: string | null; duenoNombre: string | null };
 
@@ -58,6 +68,8 @@ type Props = {
   /** `dueno` viene solo si cambió de quién es. */
   alRenombrar: (id: string, nombre: string, dueno?: DuenoDeTablero) => void;
   alCrear: (id: string) => void;
+  /** El tablero se eliminó (quedó archivado). */
+  alArchivar: (id: string) => void;
 };
 
 export function DialogoDeTablero(props: Props) {
@@ -76,13 +88,18 @@ export function DialogoDeTablero(props: Props) {
   );
 }
 
-function Formulario({ edicion, tableros, cuentas, alCerrar, alRenombrar, alCrear }: Props & { edicion: EdicionDeTablero }) {
+function Formulario({ edicion, tableros, cuentas, alCerrar, alRenombrar, alCrear, alArchivar }: Props & { edicion: EdicionDeTablero }) {
   const [nombre, setNombre] = useState(edicion.modo === "renombrar" ? edicion.nombre : "");
   // De quién es: al crear, de quien lo crea; al renombrar, el que tiene ("" = sin dueño).
   const duenoInicial = edicion.modo === "renombrar" ? (edicion.duenoUserId ?? "") : cuentas.yo;
   const [dueno, setDueno] = useState(duenoInicial);
   const [error, setError] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
+  // "Eliminar tablero" (solo el dueño del negocio): primero se pide escribir el nombre exacto.
+  const puedeEliminar = edicion.modo === "renombrar" && cuentas.esDuenoDelNegocio;
+  const [eliminando, setEliminando] = useState(false);
+  const [confirmacion, setConfirmacion] = useState("");
+  const [errorAlEliminar, setErrorAlEliminar] = useState<string | null>(null);
   const campo = useRef<HTMLInputElement>(null);
 
   // Elegir el dueño: solo quien ve todos (el dueño del negocio o el ADMIN), entre los miembros activos.
@@ -102,6 +119,24 @@ function Formulario({ edicion, tableros, cuentas, alCerrar, alRenombrar, alCrear
 
   const cerrar = () => {
     if (!guardando) alCerrar();
+  };
+
+  const eliminar = async () => {
+    if (edicion.modo !== "renombrar" || guardando) return;
+    setGuardando(true);
+    setErrorAlEliminar(null);
+    try {
+      const resultado = await archivarTableroAction(edicion.id, confirmacion);
+      if (!resultado.ok) {
+        setErrorAlEliminar(resultado.error);
+        return;
+      }
+      alArchivar(edicion.id);
+    } catch {
+      setErrorAlEliminar("No se pudo eliminar. Revisa la conexión e intenta de nuevo.");
+    } finally {
+      setGuardando(false);
+    }
   };
 
   const guardar = async (evento: FormEvent) => {
@@ -222,6 +257,81 @@ function Formulario({ edicion, tableros, cuentas, alCerrar, alRenombrar, alCrear
           </Button>
         </DialogFooter>
       </form>
+      {puedeEliminar && edicion.modo === "renombrar" ? (
+        <div className="grid gap-3 border-t border-border pt-4">
+          {eliminando ? (
+            <>
+              <p className="text-sm text-muted-foreground">
+                El tablero se archiva: deja de verse, el Coordinador no toma sus tarjetas y no cuenta en avisos ni resúmenes. No se
+                borra nada y lo puedes recuperar en Tableros archivados. Para confirmar, escribe su nombre:{" "}
+                <span className="font-medium text-foreground">{edicion.nombre}</span>
+              </p>
+              <div className="grid gap-1.5">
+                <Input
+                  value={confirmacion}
+                  onChange={(evento) => {
+                    setConfirmacion(evento.target.value);
+                    setErrorAlEliminar(null);
+                  }}
+                  onKeyDown={(evento) => {
+                    if (evento.key === "Enter") {
+                      evento.preventDefault();
+                      if (confirmacion.trim() === edicion.nombre) void eliminar();
+                    }
+                  }}
+                  placeholder={edicion.nombre}
+                  aria-label="Escribe el nombre del tablero para confirmar"
+                  aria-invalid={errorAlEliminar ? true : undefined}
+                  autoComplete="off"
+                  className="h-11 text-base md:h-9 md:text-sm"
+                  disabled={guardando}
+                />
+                {errorAlEliminar ? (
+                  <p className="text-xs text-destructive" role="alert">
+                    {errorAlEliminar}
+                  </p>
+                ) : null}
+              </div>
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-11 md:h-9"
+                  onClick={() => {
+                    setEliminando(false);
+                    setConfirmacion("");
+                    setErrorAlEliminar(null);
+                  }}
+                  disabled={guardando}
+                >
+                  No eliminar
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  className="h-11 md:h-9"
+                  onClick={() => void eliminar()}
+                  disabled={guardando || confirmacion.trim() !== edicion.nombre}
+                >
+                  {guardando ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Trash2 className="size-4" aria-hidden />}
+                  Eliminar tablero
+                </Button>
+              </div>
+            </>
+          ) : (
+            <Button
+              type="button"
+              variant="destructive"
+              className="h-11 justify-self-start md:h-9"
+              onClick={() => setEliminando(true)}
+              disabled={guardando}
+            >
+              <Trash2 className="size-4" aria-hidden />
+              Eliminar tablero
+            </Button>
+          )}
+        </div>
+      ) : null}
     </DialogContent>
   );
 }

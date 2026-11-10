@@ -28,6 +28,7 @@ import {
   puedeEditarTarjeta,
   sePuedeMarcarHechoAMano,
   soloCambiaResponsable,
+  soloMueve,
   tieneAprobacion,
   ESTADOS_CON_APROBACION,
   codigoDeTarjeta,
@@ -40,6 +41,7 @@ import {
   type OrigenCambio,
 } from "./reglas";
 import { archivarAlTerminar, estaTerminada } from "./archivadas";
+import { YA_ESTA_ARCHIVADO, dondeTableroVivo, estaArchivado, idsDeTablerosArchivados } from "./tableros-archivados";
 import {
   dependenciaHaceCiclo,
   esDuenoDelNegocio,
@@ -405,6 +407,8 @@ async function tableroDelNegocio(alcance: Alcance, tableroId: unknown) {
   if (!tablero) {
     throw new Error("No existe ese tablero en este negocio. Ver listar_tableros para los ids.");
   }
+  // Un tablero archivado (el dueño lo "eliminó") no se abre ni se le agrega nada: services/tableros-archivados.ts.
+  if (await estaArchivado(alcance.workspaceId, tablero.id)) throw new Error(YA_ESTA_ARCHIVADO);
   return aReferencia(tablero);
 }
 
@@ -557,7 +561,8 @@ async function revisarHijas(tarjetaId: string, tipoNuevoId: string, tipos: TipoV
 /** Los tableros que la persona alcanza, con su dueño y sus contadores. */
 export async function listarTableros(alcance: Alcance) {
   const filas = await prisma.tableroInteligente.findMany({
-    where: dondeTablero(alcance),
+    // Sin los archivados (el dueño los "eliminó"): no salen en la pantalla ni en listar_tableros.
+    where: await dondeTableroVivo(alcance),
     orderBy: { creadoEn: "asc" },
     select: {
       id: true,
@@ -646,7 +651,8 @@ export function firmaDeLaLista(tableros: { actualizadoEn: Date }[]) {
 /** Lo único que lee el refresco de 5 s de la lista cuando no cambió nada: un agregado indexado por negocio. */
 export async function firmaDeLosTableros(alcance: Alcance) {
   const fila = await prisma.tableroInteligente.aggregate({
-    where: dondeTablero(alcance),
+    // Archivar o recuperar cambia cuántos son (y toca la hora del tablero): la lista se refresca sola.
+    where: await dondeTableroVivo(alcance),
     _max: { actualizadoEn: true },
     _count: { _all: true },
   });
@@ -697,6 +703,8 @@ export async function listarTipos(alcance: Alcance, tableroId: unknown) {
 
 /** Lo único que lee el refresco de 5 s: una fila por clave primaria. */
 export async function firmaDelTablero(alcance: Alcance, tableroId: string) {
+  // Un tablero archivado responde como uno que ya no existe (la pantalla abierta vuelve al inicio).
+  if (await estaArchivado(alcance.workspaceId, tableroId)) return null;
   const fila = await prisma.tableroInteligente.findFirst({
     where: { id: tableroId, ...dondeTablero(alcance) },
     select: { actualizadoEn: true },
@@ -888,7 +896,7 @@ export async function asignadasA(alcance: Alcance, userId: string): Promise<Asig
   const filas = await prisma.tarjetaTablero.findMany({
     where: {
       responsableId: userId,
-      tablero: { workspaceId: alcance.workspaceId },
+      tablero: await dondeTableroVivo({ workspaceId: alcance.workspaceId }),
       ...NO_BORRADA,
       estado: { not: "HECHO" },
     },
@@ -922,7 +930,7 @@ export async function asignadasA(alcance: Alcance, userId: string): Promise<Asig
  */
 export async function tarjetaAsignada(workspaceId: string, userId: string, tarjetaId: string) {
   const fila = await prisma.tarjetaTablero.findFirst({
-    where: { id: tarjetaId, responsableId: userId, tablero: { workspaceId }, ...NO_BORRADA },
+    where: { id: tarjetaId, responsableId: userId, tablero: await dondeTableroVivo({ workspaceId }), ...NO_BORRADA },
     select: { ...SELECT_TARJETA, tablero: { select: { id: true, nombre: true } } },
   });
   if (!fila) return null;
@@ -937,7 +945,7 @@ export async function tarjetaAsignada(workspaceId: string, userId: string, tarje
  */
 export async function tarjetaArchivada(alcance: Alcance, tarjetaId: string) {
   const fila = await prisma.tarjetaTablero.findFirst({
-    where: { id: tarjetaId, ...NO_BORRADA, archivadaEn: { not: null }, tablero: dondeTablero(alcance) },
+    where: { id: tarjetaId, ...NO_BORRADA, archivadaEn: { not: null }, tablero: await dondeTableroVivo(alcance) },
     select: { ...SELECT_TARJETA, tablero: { select: { id: true, nombre: true } } },
   });
   if (!fila) return null;
@@ -984,9 +992,9 @@ export type PendienteVista = TarjetaVista & {
 export async function pendientesDelDueno(alcance: Alcance): Promise<PendienteVista[]> {
   const filas = await prisma.tarjetaTablero.findMany({
     where: {
-      // Las FALLIDO archivadas ya no esperan nada del dueño.
+      // Las FALLIDO archivadas ya no esperan nada del dueño (ni lo de un tablero archivado).
       ...VISIBLE,
-      tablero: dondeTablero(alcance),
+      tablero: await dondeTableroVivo(alcance),
       OR: [
         { estado: { in: ["POR_APROBAR", "PLAN_LISTO", "POR_REVISAR", "ERROR"] }, tipo: { requiereAprobacion: true, usaEstados: true } },
         { estado: "FALLIDO", tipo: { usaEstados: true } },
@@ -1038,10 +1046,22 @@ async function crearTiposPorDefecto(tx: Tx, tableroId: string) {
 }
 
 /** El nombre limpio, o un error si está vacío, es muy largo o ya es de otro tablero del negocio. */
-function nombreDeTablero(valor: unknown, existentes: { id: string; nombre: string }[], salvo?: string) {
+function nombreDeTablero(
+  valor: unknown,
+  existentes: { id: string; nombre: string }[],
+  salvo?: string,
+  archivados: readonly string[] = [],
+) {
   const problema = problemaDelNombreDeTablero(valor, existentes, salvo);
   if (problema) {
-    throw new Error(problema);
+    // Un tablero archivado no se ve, pero su nombre sigue ocupado: se dice dónde está.
+    const limpio = typeof valor === "string" ? valor.trim().toLowerCase() : "";
+    const igual = existentes.find((tablero) => tablero.id !== salvo && tablero.nombre.toLowerCase() === limpio);
+    throw new Error(
+      igual && archivados.includes(igual.id)
+        ? `${problema} Ese tablero está archivado: el dueño lo puede recuperar desde Tableros archivados.`
+        : problema,
+    );
   }
   return String(valor).trim();
 }
@@ -1093,7 +1113,7 @@ export async function crearTablero(contexto: ContextoTablero, nombre: unknown, d
     where: { workspaceId: contexto.workspaceId },
     select: { id: true, nombre: true },
   });
-  const limpio = nombreDeTablero(nombre, existentes);
+  const limpio = nombreDeTablero(nombre, existentes, undefined, await idsDeTablerosArchivados(contexto.workspaceId));
   if (existentes.length >= LIMITE_TABLEROS) {
     throw new Error(`Este negocio ya tiene ${LIMITE_TABLEROS} tableros, que es el máximo.`);
   }
@@ -1126,7 +1146,11 @@ export async function renombrarTablero(contexto: ContextoTablero, tableroId: unk
   if (!actual) {
     throw new Error("Ese tablero no existe en este negocio (ver listar_tableros).");
   }
-  const limpio = nombre === undefined ? actual.nombre : nombreDeTablero(nombre, existentes, actual.id);
+  if (await estaArchivado(contexto.workspaceId, actual.id)) throw new Error(YA_ESTA_ARCHIVADO);
+  const limpio =
+    nombre === undefined
+      ? actual.nombre
+      : nombreDeTablero(nombre, existentes, actual.id, await idsDeTablerosArchivados(contexto.workspaceId));
   const duenoNuevo = await duenoDeEntrada(contexto, dueno);
   const antes = aReferencia(actual);
   const cambia: Prisma.TableroInteligenteUncheckedUpdateInput = {};
@@ -1580,6 +1604,9 @@ function revisarRepoParaTipo(tipo: { nombre: string; requiereAprobacion: boolean
 /** Cuando dos escrituras chocan (el dueño aprobó mientras Claude editaba), se avisa en vez de pisar. */
 const CAMBIO_EN_EL_MEDIO = "La tarjeta cambió mientras tanto (quizás el dueño la aprobó). Vuelve a leerla e intenta de nuevo.";
 
+/** Lo que se pide en editarTarjeta que solo mueve la tarjeta (soloMueve en reglas.ts, con el nombre de la entrada). */
+const CAMPOS_PEDIDOS_DE_MOVIMIENTO = new Set(["padreId", "area", "orden", "fecha", "responsable"]);
+
 type CamposEditables = {
   titulo?: string;
   detalle?: string;
@@ -1619,11 +1646,10 @@ export async function editarTarjeta(
   },
 ) {
   const actual = await tarjetaDelNegocio(contexto, tarjetaId);
-  // Asignar a alguien no toca el texto ni el trabajo: se puede aunque el Coordinador tenga la tarjeta.
-  const soloAsigna =
-    cambios.responsable !== undefined &&
-    Object.entries(cambios).every(([campo, valor]) => campo === "responsable" || valor === undefined);
-  const enManos = soloAsigna ? null : puedeEditarTarjeta(actual.estado, Boolean(actual.repo));
+  // Si se pide algo más que mover (de qué cuelga, área, orden, fecha, responsable) y el Coordinador la tiene, se
+  // niega antes de leer nada más, como siempre. Mover se puede aunque la tenga (puedeEditarTarjeta con soloMovimiento).
+  const pideSoloMover = Object.entries(cambios).every(([campo, valor]) => valor === undefined || CAMPOS_PEDIDOS_DE_MOVIMIENTO.has(campo));
+  const enManos = puedeEditarTarjeta(actual.estado, Boolean(actual.repo), pideSoloMover);
   if (enManos) throw new Error(enManos);
 
   const nuevo: CamposEditables = {};
@@ -1693,10 +1719,16 @@ export async function editarTarjeta(
   const repoFinal = nuevo.repo !== undefined ? nuevo.repo : actual.repo;
   if (repoFinal && (nuevo.repo !== undefined || nuevo.tipoId)) revisarRepoParaTipo(tipoFinal);
 
-  // Riesgo: BAJO solo si las reglas no ven nada de riesgo alto con la tarjeta como quedaría. Si queda BAJO
-  // y el texto o las zonas cambiaron a algo de riesgo alto, pasa a ALTO sola (y no se aprueba sola).
+  // Mover (10-nov-2026): si lo que de verdad cambia es solo de qué cuelga, el área, el orden, la fecha o el responsable,
+  // la tarjeta conserva su estado y su plan, no se recalcula el riesgo y se puede aunque el Coordinador la tenga.
+  // (Lo de abajo, el riesgo, solo agrega campos si se pidió riesgo: entonces ya no es mover.)
   const riesgoPedido = riesgoDeEntrada(cambios.riesgo);
   const motivoPedido = motivoDeRiesgoDeEntrada(cambios.motivoRiesgo);
+  // Con pideSoloMover, `nuevo` solo puede traer campos de mover (o nada: "No hay nada distinto", más abajo).
+  const mueve = riesgoPedido === undefined && motivoPedido === undefined && soloMueve(Object.keys(nuevo));
+
+  // Riesgo: BAJO solo si las reglas no ven nada de riesgo alto con la tarjeta como quedaría. Si queda BAJO
+  // y el texto o las zonas cambiaron a algo de riesgo alto, pasa a ALTO sola (y no se aprueba sola).
   const quienRiesgo = quienPoneElRiesgo(contexto.origen);
   const datosDeRiesgo = {
     titulo: nuevo.titulo ?? actual.titulo,
@@ -1725,8 +1757,8 @@ export async function editarTarjeta(
   } else if (motivoPedido !== undefined && actual.riesgo && motivoPedido !== actual.riesgoMotivo) {
     nuevo.riesgoMotivo = motivoPedido;
   }
-  // Asignar a alguien nunca toca el riesgo (ni el estado): el recálculo automático es solo si cambia otra cosa.
-  if (!soloAsigna && nuevo.riesgo === undefined && actual.riesgo === "BAJO") {
+  // Mover (o asignar) nunca toca el riesgo (ni el estado): el recálculo automático es solo si cambia otra cosa.
+  if (!mueve && nuevo.riesgo === undefined && actual.riesgo === "BAJO") {
     const motivos = motivosDeRiesgoAlto(datosDeRiesgo);
     if (motivos.length) {
       nuevo.riesgo = "ALTO";
@@ -1739,8 +1771,8 @@ export async function editarTarjeta(
     throw new Error("No hay nada distinto para cambiar.");
   }
 
-  // Cambiar solo el responsable no reinicia la aprobación: la tarjeta sigue en el estado en que estaba.
-  const estado = soloCambiaResponsable(Object.keys(nuevo))
+  // Mover (o cambiar solo el responsable) no reinicia la aprobación: la tarjeta sigue en el estado en que estaba.
+  const estado = mueve
     ? actual.estado
     : nuevo.tipoId
       ? estadoTrasCambiarTipo(tipoFinal.requiereAprobacion, tipoFinal.usaEstados)
@@ -1760,12 +1792,19 @@ export async function editarTarjeta(
     antes.estado = actual.estado;
     despues.estado = estado;
   }
+  // La marca de que fue un movimiento: conservó su estado y su plan (ver_historial_tarjeta y la ficha la leen). Asignar
+  // solo al responsable ya tiene su propia línea ("Asignó a Emanuel") y queda como siempre.
+  if (mueve && !soloCambiaResponsable(Object.keys(nuevo))) despues.movimiento = true;
 
   const editada = await prisma.$transaction(async (tx) => {
-    const hecho = await tx.tarjetaTablero.updateMany({
-      where: { id: actual.id, estado: actual.estado, ...NO_BORRADA },
-      data: { ...nuevo, estado, ...alReabrir(estado) },
-    });
+    // Mover no escribe el estado ni pide que siga igual: si el Coordinador la cambia de etapa al mismo tiempo, las
+    // dos escrituras no se pisan (él escribe estado, plan y resultado; mover, solo sus campos).
+    const hecho = mueve
+      ? await tx.tarjetaTablero.updateMany({ where: { id: actual.id, ...NO_BORRADA }, data: { ...nuevo } })
+      : await tx.tarjetaTablero.updateMany({
+          where: { id: actual.id, estado: actual.estado, ...NO_BORRADA },
+          data: { ...nuevo, estado, ...alReabrir(estado) },
+        });
     if (hecho.count !== 1) throw new Error(CAMBIO_EN_EL_MEDIO);
     const cambio = await anotar(tx, contexto, actual.id, "editar", antes, despues);
     await tocarTablero(tx, actual.tableroId);
@@ -1776,6 +1815,7 @@ export async function editarTarjeta(
       volvioAPorAprobar: estado === "POR_APROBAR" && actual.estado !== "POR_APROBAR",
       perdioAprobacion: tieneAprobacion(actual.estado) && !tieneAprobacion(estado),
       cambioDeTipo: Boolean(nuevo.tipoId),
+      movimiento: mueve,
       tipo: tipoFinal,
     };
   });
@@ -1783,8 +1823,8 @@ export async function editarTarjeta(
   // edita acá, y cambiar solo el responsable o el riesgo no responde nada.
   if (nuevo.detalle !== undefined) await cerrarAlertasDeTarjeta(contexto.workspaceId, actual.id, "RESPUESTA");
   // Si quedó POR_APROBAR con repo, se aprueba sola otra vez (si corresponde por las reglas de aprobación automática).
-  // Asignar a alguien no aprueba nada: ahí el estado se queda como estaba.
-  const aprobacion = soloCambiaResponsable(Object.keys(nuevo))
+  // Mover no aprueba nada: ahí el estado se queda como estaba.
+  const aprobacion = mueve
     ? { tarjeta: editada.tarjeta, resultado: null }
     : await aprobarSiCorresponde(editada.tarjeta);
   return { ...editada, tarjeta: aprobacion.tarjeta, aprobacionAutomatica: aprobacion.resultado, avisoDeRiesgo };

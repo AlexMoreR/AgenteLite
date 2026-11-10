@@ -10,6 +10,7 @@
   2. Lo que no está aprobado no se ejecuta: EN_CURSO solo sale de APROBADO, y HECHO/FALLIDO solo de
      APROBADO o EN_CURSO. Si no, pasar de IDEA a EN_CURSO sería aprobar por la puerta de atrás.
   3. Si Claude edita una tarjeta APROBADA, vuelve a POR_APROBAR: el dueño aprobó ese texto, no otro.
+     Moverla (soloMueve: de qué cuelga, área, orden, fecha, responsable) no: conserva su estado y su plan.
   4. Deshacer nunca deja ni quita un APROBADO, nunca toca un cambio hecho en la pantalla y se niega
      si después hubo otro cambio sobre lo mismo (como deshacer_cambio del resto del MCP).
 
@@ -242,16 +243,20 @@ export function tieneAprobacion(estado: EstadoTarjetaTablero) {
 /**
  * El estado con que queda una tarjeta después de editarle algo. Si Claude edita algo aprobado (o que
  * dejó el trabajador: plan listo, por revisar, error), vuelve a POR_APROBAR: el dueño aprobó ese
- * texto, no otro.
+ * texto, no otro. Mover la tarjeta (soloMueve) no pasa por acá: conserva su estado y su plan.
  */
 export function estadoTrasEditar(origen: OrigenCambio, estado: EstadoTarjetaTablero): EstadoTarjetaTablero {
   return origen !== "PANTALLA" && tieneAprobacion(estado) && !estaTrabajando(estado) ? "POR_APROBAR" : estado;
 }
 
-/** ¿Se puede editar? No mientras el Coordinador la tiene (PLANEANDO, EN_CURSO con repo, SUBIENDO). */
-export function puedeEditarTarjeta(estado: EstadoTarjetaTablero, conRepo: boolean): Veredicto {
+/**
+ * ¿Se puede editar? No mientras el Coordinador la tiene (PLANEANDO, EN_CURSO con repo, SUBIENDO), salvo
+ * que el cambio solo la MUEVA (`soloMovimiento`, ver soloMueve): eso no toca su trabajo y se deja.
+ */
+export function puedeEditarTarjeta(estado: EstadoTarjetaTablero, conRepo: boolean, soloMovimiento = false): Veredicto {
+  if (soloMovimiento) return null;
   if (estaTrabajando(estado) && (conRepo || estado !== "EN_CURSO")) {
-    return `El Coordinador tiene esta tarjeta en este momento (${estado}): no se edita hasta que termine o falle.`;
+    return `El Coordinador tiene esta tarjeta en este momento (${estado}): no se edita hasta que termine o falle. Solo se puede mover (de qué cuelga, área, orden, fecha o responsable).`;
   }
   return null;
 }
@@ -397,6 +402,86 @@ export function problemaDelNombreDeTablero(
   return igual ? `Ya existe un tablero "${igual.nombre}". Elige otro nombre.` : null;
 }
 
+/*
+  TABLEROS ARCHIVADOS (10-nov-2026): el botón "Eliminar tablero" del dueño no borra nada, lo ARCHIVA. Sin
+  migración: la lista vive en AppSetting `tablero-ia:archivados:<workspaceId>` como JSON
+  [{ tableroId, archivadoEn, archivadoPor }]. Las tarjetas no se tocan. Un tablero archivado no sale en la
+  pantalla ni en listar_tableros, el Coordinador no toma sus tarjetas y no cuenta en avisos ni resúmenes
+  (services/tableros-archivados.ts). Lo recupera solo el dueño, desde "Tableros archivados".
+*/
+
+export const PREFIJO_TABLEROS_ARCHIVADOS = "tablero-ia:archivados:";
+export const claveDeTablerosArchivados = (workspaceId: string) => `${PREFIJO_TABLEROS_ARCHIVADOS}${workspaceId}`;
+
+export type TableroArchivado = { tableroId: string; archivadoEn: string; archivadoPor: string };
+
+/** La lista guardada, leída y limpia (sin repetidos). Un valor dañado no rompe nada: queda vacía. */
+export function leerTablerosArchivados(valor: string | null | undefined): TableroArchivado[] {
+  if (!valor) return [];
+  try {
+    const dato: unknown = JSON.parse(valor);
+    if (!Array.isArray(dato)) return [];
+    const vistos = new Set<string>();
+    const lista: TableroArchivado[] = [];
+    for (const item of dato) {
+      if (typeof item !== "object" || item === null) continue;
+      const { tableroId, archivadoEn, archivadoPor } = item as Record<string, unknown>;
+      if (typeof tableroId !== "string" || !tableroId || vistos.has(tableroId)) continue;
+      vistos.add(tableroId);
+      lista.push({
+        tableroId,
+        archivadoEn: typeof archivadoEn === "string" ? archivadoEn : "",
+        archivadoPor: typeof archivadoPor === "string" ? archivadoPor : "",
+      });
+    }
+    return lista;
+  } catch {
+    return [];
+  }
+}
+
+/** Mientras el tablero tenga tarjetas vivas en estos estados (aprobadas o con el Coordinador), no se archiva. */
+export const ESTADOS_QUE_FRENAN_ARCHIVAR = [
+  "APROBADO",
+  "PLANEANDO",
+  "PLAN_LISTO",
+  "PLAN_APROBADO",
+  "EN_CURSO",
+  "POR_REVISAR",
+  "SUBIENDO",
+] as const satisfies readonly EstadoTarjetaTablero[];
+
+export const SOLO_EL_DUENO_ARCHIVA = "Eliminar (archivar) y recuperar un tablero lo hace solo el dueño del negocio.";
+
+/** Cuántas tarjetas en marcha se nombran en el mensaje (las demás van como "y N más"). */
+const MAX_EN_EL_MENSAJE = 10;
+
+/**
+ * ¿Se puede archivar el tablero? Solo el dueño del negocio, escribiendo el nombre exacto del tablero, y sin
+ * tarjetas vivas en ESTADOS_QUE_FRENAN_ARCHIVAR (`enMarcha`: esas, con su código y título). Devuelve el porqué o null.
+ */
+export function problemaParaArchivarTablero(pedido: {
+  esDueno: boolean;
+  nombre: string;
+  confirmacion: unknown;
+  enMarcha: { codigo: string; titulo: string; estado: EstadoTarjetaTablero }[];
+}): Veredicto {
+  if (!pedido.esDueno) return SOLO_EL_DUENO_ARCHIVA;
+  const escrito = typeof pedido.confirmacion === "string" ? pedido.confirmacion.trim() : "";
+  if (escrito !== pedido.nombre.trim()) {
+    return `Para eliminarlo, escribe el nombre exacto del tablero: ${pedido.nombre}.`;
+  }
+  if (pedido.enMarcha.length) {
+    const nombradas = pedido.enMarcha
+      .slice(0, MAX_EN_EL_MENSAJE)
+      .map((tarjeta) => `${tarjeta.codigo ? `${tarjeta.codigo} ` : ""}«${tarjeta.titulo}» (${NOMBRE_DEL_ESTADO[tarjeta.estado]})`)
+      .join(", ");
+    const mas = pedido.enMarcha.length > MAX_EN_EL_MENSAJE ? ` y ${pedido.enMarcha.length - MAX_EN_EL_MENSAJE} más` : "";
+    return `No se puede eliminar: tiene ${pedido.enMarcha.length} tarjeta(s) aprobadas o en manos del Coordinador: ${nombradas}${mas}. Primero termínalas, devuélvelas a Por aprobar o bórralas.`;
+  }
+  return null;
+}
+
 /** Una persona que puede ser dueña de un tablero: un miembro activo del negocio. */
 export type MiembroDelNegocio = { userId: string; nombre: string; email: string };
 
@@ -443,6 +528,19 @@ export function puedeAsignarResponsable(soloDe: string | null, duenoDelTablero: 
 /** ¿El cambio toca únicamente al responsable? Asignar no reinicia la aprobación ni el estado. */
 export function soloCambiaResponsable(campos: readonly string[]): boolean {
   return campos.length > 0 && campos.every((campo) => campo === "responsableId");
+}
+
+/**
+ * MOVER una tarjeta (10-nov-2026, regla del dueño): cambiar de qué cuelga, el área, el orden, la fecha o el
+ * responsable no cambia lo que hay que hacer. La tarjeta conserva su estado (Aprobado, Plan aprobado, Por
+ * revisar...) y su plan, no se recalcula el riesgo y se puede aunque el Coordinador la tenga en las manos.
+ * Lo demás (título, detalle, tipo, repo, riesgo, zona protegida, link) sigue la regla de editar de siempre.
+ */
+export const CAMPOS_DE_MOVIMIENTO = ["padreId", "area", "orden", "fecha", "responsableId"] as const;
+
+/** ¿El cambio (los campos que de verdad cambian) solo mueve la tarjeta? Sin cambios no es "mover". */
+export function soloMueve(campos: readonly string[]): boolean {
+  return campos.length > 0 && campos.every((campo) => (CAMPOS_DE_MOVIMIENTO as readonly string[]).includes(campo));
 }
 
 /** La inicial en mayúscula del nombre ("Emanuel" -> "E") para el circulito de la tarjeta; "?" si no hay nombre. */
@@ -525,7 +623,9 @@ export function esIconoDeTipo(valor: unknown): valor is IconoDeTipo {
 
 /**
  * Los 3 tipos con que nace cada tablero (los mismos que dejó la migración en los que ya había). Área
- * es una carpeta (sin estados) y puede ir dentro de otra Área ("Magilus > Ventas").
+ * es una carpeta (sin estados) y puede ir dentro de otra Área ("Magilus > Ventas"). Una Tarea cuelga de
+ * una Idea o directamente de un Área (10-nov-2026). En los tableros que ya existen, las madres permitidas
+ * son datos (TipoTarjetaPadre): esta lista solo decide cómo nacen los nuevos.
  */
 export const TIPOS_POR_DEFECTO: readonly {
   nombre: string;
@@ -538,7 +638,7 @@ export const TIPOS_POR_DEFECTO: readonly {
 }[] = [
   { nombre: "Área", color: "#6366f1", icono: "capas", requiereAprobacion: false, usaEstados: false, orden: 0, padres: ["Área"] },
   { nombre: "Idea", color: "#eab308", icono: "bombillo", requiereAprobacion: false, usaEstados: true, orden: 1, padres: ["Área"] },
-  { nombre: "Tarea", color: "#0ea5e9", icono: "chulo", requiereAprobacion: true, usaEstados: true, orden: 2, padres: ["Idea"] },
+  { nombre: "Tarea", color: "#0ea5e9", icono: "chulo", requiereAprobacion: true, usaEstados: true, orden: 2, padres: ["Idea", "Área"] },
 ];
 
 /** Color "#rrggbb" en minúsculas, o undefined si no vino. Basura = error. */

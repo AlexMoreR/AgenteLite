@@ -10,6 +10,7 @@ import { coachOpusActivo, diasSaltados } from "@/features/coach/revision-opus/se
 import { prisma } from "@/lib/prisma";
 import { aprobacionAutomaticaPrendida, aprobarPlanesSoloPrendido, aprobarTareasSoloPrendido } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
 import { recogidaDelResultado } from "@/features/tableros-inteligentes/services/reglas-trabajador";
+import { dondeTableroVivo } from "@/features/tableros-inteligentes/services/tableros-archivados";
 import { avisosPrendidos, leerEstadoDeAvisos, sistemasPrendido, telefonoDeSistemasGuardado, telefonoGuardado } from "@/features/tableros-inteligentes/services/avisos-al-dueno";
 import { resumenDeAvisosAlEquipo } from "@/features/tableros-inteligentes/services/avisos-al-equipo";
 import { MOTIVO_TERMINADA, terminadasPrendidas } from "@/features/tableros-inteligentes/services/avisos-de-terminadas";
@@ -458,7 +459,7 @@ async function estadoDeLaAprobacionAutomatica(workspaceId: string) {
   const [prendida, bajoPorAprobar] = await Promise.all([
     aprobacionAutomaticaPrendida(workspaceId),
     prisma.tarjetaTablero.count({
-      where: { estado: "POR_APROBAR", riesgo: "BAJO", repo: { not: null }, borradoEn: null, tablero: { workspaceId } },
+      where: { estado: "POR_APROBAR", riesgo: "BAJO", repo: { not: null }, borradoEn: null, tablero: await dondeTableroVivo({ workspaceId }) },
     }),
   ]);
   return prendida
@@ -470,7 +471,7 @@ async function estadoDeLaAprobacionAutomatica(workspaceId: string) {
 async function estadoDeAprobarTareasSolo(workspaceId: string) {
   const [prendido, esperando] = await Promise.all([
     aprobarTareasSoloPrendido(workspaceId),
-    prisma.tarjetaTablero.count({ where: { estado: "POR_APROBAR", repo: { not: null }, borradoEn: null, tablero: { workspaceId } } }),
+    prisma.tarjetaTablero.count({ where: { estado: "POR_APROBAR", repo: { not: null }, borradoEn: null, tablero: await dondeTableroVivo({ workspaceId }) } }),
   ]);
   return prendido
     ? `PRENDIDA: toda tarea con repo arranca sola; solo espera el sí del dueño la que toca dinero de Gestión o gasto en Meta Ads (${esperando} en POR_APROBAR ahora)`
@@ -481,7 +482,7 @@ async function estadoDeAprobarTareasSolo(workspaceId: string) {
 async function estadoDeAprobarPlanesSolo(workspaceId: string) {
   const [prendido, esperando] = await Promise.all([
     aprobarPlanesSoloPrendido(workspaceId),
-    prisma.tarjetaTablero.count({ where: { estado: "PLAN_LISTO", repo: { not: null }, borradoEn: null, tablero: { workspaceId } } }),
+    prisma.tarjetaTablero.count({ where: { estado: "PLAN_LISTO", repo: { not: null }, borradoEn: null, tablero: await dondeTableroVivo({ workspaceId }) } }),
   ]);
   return prendido
     ? `PRENDIDA: aprobada la tarea, el plan pasa solo a construir; solo espera el sí del dueño el plan que toca dinero de Gestión o gasto en Meta Ads (${esperando} en PLAN_LISTO ahora)`
@@ -576,7 +577,7 @@ async function estadoDelAgenteDeSistemas(workspaceId: string) {
 /** Tablero IA: la recogida diaria de errores viejos (26-oct-2026): cuántas tarjetas hay en ERROR y cuántas dejaron una línea para el dueño. */
 async function estadoDeRecogerErrores(workspaceId: string) {
   const enError = await prisma.tarjetaTablero.findMany({
-    where: { estado: "ERROR", repo: { not: null }, borradoEn: null, tablero: { workspaceId } },
+    where: { estado: "ERROR", repo: { not: null }, borradoEn: null, tablero: await dondeTableroVivo({ workspaceId }) },
     select: { resultado: true },
   });
   const conLinea = enError.filter((tarjeta) => recogidaDelResultado(tarjeta.resultado).linea).length;

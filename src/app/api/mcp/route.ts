@@ -70,10 +70,10 @@ async function atender(pedido: Pedido, contexto: { workspaceId: string; userId: 
           "listar_tipos, crear_tipo, editar_tipo, crear_tarjeta, editar_tarjeta, conectar_tarjetas, cambiar_estado_tarjeta, " +
           "borrar_tarjeta, ver_historial_tarjeta, deshacer_cambio_tarjeta, ver_plan_y_resultado, aprobar_tarjeta, ver_coordinador): ahi se anotan las ideas que salen de la " +
           "conversacion con el dueno, como tarjetas unidas con flechas. Cada tarjeta tiene un TIPO (por defecto Area, Idea " +
-          "y Tarea) y puede colgar de otra (padre_id) si el tipo lo permite: Area > Idea > Tarea (un Area tambien dentro de " +
-          "otra Area). El Area es una carpeta: no tiene estado. Solo los tipos que piden " +
+          "y Tarea) y puede colgar de otra (padre_id) si el tipo lo permite: Area > Idea > Tarea, o una Tarea directo en un Area (un Area tambien dentro de " +
+          "otra Area; lo que vale en cada tablero lo dice listar_tipos). El Area es una carpeta: no tiene estado. Solo los tipos que piden " +
           "aprobacion (Tarea) pasan por POR_APROBAR. Claude nunca aprueba por su cuenta con aprobar_tarjeta, pero desde el 25-oct-2026 el servidor aprueba solo toda Tarea con repo (regla del dueno); " +
-          "solo se queda POR_APROBAR, esperando al dueno en la pantalla, la que toca dinero de Gestion o gasto en Meta Ads. Interruptor: Aprobar tareas solo. Si se edita una tarjeta aprobada, vuelve a POR_APROBAR. borrar_tarjeta quita la tarjeta con sus " +
+          "solo se queda POR_APROBAR, esperando al dueno en la pantalla, la que toca dinero de Gestion o gasto en Meta Ads. Interruptor: Aprobar tareas solo. Si se edita lo que hay que hacer de una tarjeta aprobada (titulo, detalle, tipo, repo, riesgo, zona protegida), vuelve a POR_APROBAR; moverla (de que cuelga, area, orden, fecha, responsable) conserva su estado y su plan. borrar_tarjeta quita la tarjeta con sus " +
           "flechas y se deshace con deshacer_cambio_tarjeta. Una tarjeta PLAN_LISTO o ERROR se borra solo si el dueno lo " +
           "pidio: antes leerle el titulo y esperar que diga 'si, borrala'; texto_confirmacion es lo que dijo, tal cual. " +
           "Nunca borrar por cuenta propia. No se borra lo que tiene el Coordinador (PLANEANDO, EN_CURSO, SUBIENDO) ni lo de zona protegida. " +

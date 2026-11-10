@@ -7,6 +7,7 @@ import { codigoDeTarjeta } from "./reglas";
 import { esHechoAMano, partidaDelResultado } from "./reglas-trabajador";
 import { tituloCorto } from "./resumen-corto";
 import { linkDeLaTarjeta } from "./tableros";
+import { dondeTableroVivo } from "./tableros-archivados";
 
 /*
   AVISO "TERMINADA" DEL TABLERO IA. Cuando el Coordinador deja una tarea en HECHO, queda una alerta de prioridad BAJA en
@@ -117,7 +118,8 @@ async function revisarNegocio(workspaceId: string, ahora: Date): Promise<{ alert
   // Las que quedaron HECHO en las últimas 24 horas y las que el Coordinador terminó.
   const desde = new Date(ahora.getTime() - HORAS_DE_VENTANA * MS_HORA);
   const candidatas = await prisma.tarjetaTablero.findMany({
-    where: { ...dondeBase, historial: { some: { accion: "estado", creadoEn: { gte: desde } } } },
+    // Lo de un tablero archivado no avisa (tableros-archivados.ts).
+    where: { ...dondeBase, tablero: await dondeTableroVivo({ workspaceId }), historial: { some: { accion: "estado", creadoEn: { gte: desde } } } },
     select: {
       id: true,
       numero: true,

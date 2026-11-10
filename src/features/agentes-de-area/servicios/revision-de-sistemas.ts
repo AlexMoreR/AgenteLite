@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { dondeTableroVivo } from "@/features/tableros-inteligentes/services/tableros-archivados";
 
 import {
   ESTADOS_QUE_SE_ATASCAN,
@@ -77,7 +78,8 @@ export type TarjetaAtascada = { tarjetaId: string; titulo: string; tablero: stri
 
 export async function tarjetasAtascadas(workspaceId: string, ahora: Date): Promise<TarjetaAtascada[]> {
   const filas = await prisma.tarjetaTablero.findMany({
-    where: { estado: { in: [...ESTADOS_QUE_SE_ATASCAN] }, borradoEn: null, repo: { not: null }, tablero: { workspaceId } },
+    // Un tablero archivado no avisa de lo suyo (tableros-archivados.ts). Lo que ya se subió (HECHO) sí se revisa.
+    where: { estado: { in: [...ESTADOS_QUE_SE_ATASCAN] }, borradoEn: null, repo: { not: null }, tablero: await dondeTableroVivo({ workspaceId }) },
     select: { id: true, titulo: true, estado: true, trabajoIniciadoEn: true, actualizadoEn: true, tablero: { select: { nombre: true } } },
   });
   const atascadas: TarjetaAtascada[] = [];
@@ -115,7 +117,7 @@ export function motivoDelError(resultadoGuardado: unknown, ultimaCausa: string |
 
 export async function tarjetasEnError(workspaceId: string): Promise<TarjetaEnError[]> {
   const filas = await prisma.tarjetaTablero.findMany({
-    where: { estado: "ERROR", borradoEn: null, repo: { not: null }, tablero: { workspaceId } },
+    where: { estado: "ERROR", borradoEn: null, repo: { not: null }, tablero: await dondeTableroVivo({ workspaceId }) },
     select: {
       id: true,
       titulo: true,

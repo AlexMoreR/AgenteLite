@@ -1,0 +1,8 @@
+## Módulos
+- `tablero-ia`: (10-nov-2026) una Tarea puede colgar de una Idea o directamente de un Área: así nacen los tableros nuevos (`TIPOS_POR_DEFECTO`); en los que ya existen lo deciden sus madres permitidas (`TipoTarjetaPadre`). MOVER una tarjeta (cambiar de qué cuelga, el área, el orden, la fecha o el responsable) conserva su estado y su plan, no recalcula el riesgo, se puede aunque el Coordinador la tenga y queda en el historial con `movimiento: true`; cambiar título, detalle, tipo, repo, riesgo, zona protegida o link sigue devolviendo una aprobada a POR_APROBAR (MCP). El dueño del negocio tiene el botón rojo **Eliminar tablero** al final de "Cambiar nombre": pide escribir el nombre exacto y lo ARCHIVA (no borra nada; no deja si hay tarjetas aprobadas o con el Coordinador y dice cuáles). Lo recupera desde **Tableros archivados** (selector de tableros y página de inicio, solo el dueño). Código en `services/tableros-archivados.ts`; pruebas `npm run test:tablero-mover-y-archivar`.
+
+## Advertencias de operación
+- `tablero-ia`: los tableros archivados viven en AppSetting `tablero-ia:archivados:<negocio>` (JSON `[{ tableroId, archivadoEn, archivadoPor }]`). Un archivado no sale en la pantalla ni en `listar_tableros`, el Coordinador no toma sus tarjetas (SQL de /tomar y /candidatas) y no cuenta en avisos ni resúmenes; su nombre sigue ocupado (crear otro igual lo dice). Una tarjeta suya todavía se puede leer o editar por su id o código desde el MCP, y lo que ya subió a producción (HECHO) sigue en la revisión de sistemas.
+
+## Qué no existe hoy
+- `tablero-ia`: no hay borrado definitivo de un tablero ni herramienta del MCP para archivarlo o recuperarlo: solo el dueño, en la pantalla.

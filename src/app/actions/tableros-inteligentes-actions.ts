@@ -60,6 +60,13 @@ import {
   type ArchivadaVista,
 } from "@/features/tableros-inteligentes/services/archivadas";
 import type { MomentoDeAprobacion } from "@/features/tableros-inteligentes/services/reglas-trabajador";
+import {
+  archivarTablero,
+  listarTablerosArchivados,
+  recuperarTablero,
+  type QuienArchiva,
+  type TableroArchivadoVista,
+} from "@/features/tableros-inteligentes/services/tableros-archivados";
 
 /*
   Tablero IA (tableros inteligentes): lo que hace la PANTALLA.
@@ -205,6 +212,46 @@ export async function renombrarTableroAction(tableroId: string, nombre: string, 
     return { ok: true };
   } catch (fallo) {
     return { ok: false, error: mensaje(fallo, "No se pudo cambiar el nombre") };
+  }
+}
+
+/*
+  ── "Eliminar tablero" (10-nov-2026): lo ARCHIVA, no borra nada. Solo el dueño del negocio (isOwner); el servicio
+  lo vuelve a revisar (problemaParaArchivarTablero), junto con el nombre escrito y las tarjetas en marcha.
+*/
+
+const quienArchiva = (access: Awaited<ReturnType<typeof requireClientWorkspaceAccess>>): QuienArchiva => ({
+  workspaceId: access.workspaceId,
+  userId: access.userId,
+  esDueno: access.isOwner,
+});
+
+export async function archivarTableroAction(tableroId: string, confirmacion: string): Promise<Resultado> {
+  const access = await requireClientWorkspaceAccess("tableros_inteligentes");
+  try {
+    await archivarTablero(quienArchiva(access), tableroId, confirmacion);
+    return { ok: true };
+  } catch (fallo) {
+    return { ok: false, error: mensaje(fallo, "No se pudo eliminar el tablero") };
+  }
+}
+
+export async function recuperarTableroAction(tableroId: string): Promise<Resultado> {
+  const access = await requireClientWorkspaceAccess("tableros_inteligentes");
+  try {
+    await recuperarTablero(quienArchiva(access), tableroId);
+    return { ok: true };
+  } catch (fallo) {
+    return { ok: false, error: mensaje(fallo, "No se pudo recuperar el tablero") };
+  }
+}
+
+export async function tablerosArchivadosAction(): Promise<{ ok: true; tableros: TableroArchivadoVista[] } | { ok: false; error: string }> {
+  const access = await requireClientWorkspaceAccess("tableros_inteligentes");
+  try {
+    return { ok: true, tableros: await listarTablerosArchivados(quienArchiva(access)) };
+  } catch (fallo) {
+    return { ok: false, error: mensaje(fallo, "No se pudieron leer los tableros archivados") };
   }
 }
 

@@ -558,6 +558,7 @@ export function TablerosInteligentesVista({
         cuentas={cuentas}
         alAbrir={refrescarTableros}
         alRenombrar={alRenombrarTablero}
+        alQuitar={(id) => setTableros((lista) => lista.filter((tablero) => tablero.id !== id))}
       />
       {/* El nombre del tablero sale una sola vez: en el selector de arriba (que trae "Todos los
           tableros" para volver al listado). Solo en el Mapa y DENTRO de un nivel sale una fila baja

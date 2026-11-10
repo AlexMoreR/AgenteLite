@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { codigoDeTarjeta, type EstadoTarjetaTablero } from "./reglas";
 import type { Alcance, ContextoTablero } from "./tableros";
+import { dondeTableroVivo } from "./tableros-archivados";
 
 /*
   TARJETAS ARCHIVADAS del Tablero IA (30-oct-2026, pedido del dueño: el tablero Empresa Magilus llegó a 300 tarjetas
@@ -196,6 +197,15 @@ const ESTADOS_EN_LISTA = [...ESTADOS_TERMINADOS] as EstadoTarjetaTablero[];
 
 const dondeTablero = (alcance: Alcance) =>
   alcance.soloDe ? { workspaceId: alcance.workspaceId, duenoUserId: alcance.soloDe } : { workspaceId: alcance.workspaceId };
+
+/**
+ * Lo que se LISTA (Trabajos terminados, la semana, el día): solo de tableros sin archivar (tableros-archivados.ts) y,
+ * si se pide, de uno. El id va en un AND para no pisar el filtro de los archivados.
+ */
+async function tablerosQueSeListan(alcance: Alcance, tableroId?: string | null): Promise<Prisma.TableroInteligenteWhereInput> {
+  const vivos = await dondeTableroVivo(alcance);
+  return tableroId ? { AND: [vivos, { id: tableroId }] } : vivos;
+}
 
 /* ─────────────────────────────────────────────────────────────── archivar (el reloj) ── */
 
@@ -448,7 +458,7 @@ export async function listarArchivadas(
     where: {
       borradoEn: null,
       archivadaEn: { not: null },
-      tablero: { ...dondeTablero(alcance), ...(tableroId ? { id: tableroId } : {}) },
+      tablero: await tablerosQueSeListan(alcance, tableroId),
       ...(busqueda && "numero" in busqueda ? { numero: busqueda.numero } : {}),
       ...(busqueda && "texto" in busqueda
         ? {
@@ -508,7 +518,7 @@ export async function desarchivarTarjeta(contexto: ContextoTablero, tarjetaId: u
 export async function terminadasDeLaSemana(alcance: Alcance, fecha: unknown, tableroId?: string | null) {
   const semana = semanaDe(typeof fecha === "string" ? fecha : "");
   if (!semana) throw new Error("La semana va como una fecha AAAA-MM-DD, por ejemplo 2026-10-30.");
-  const delTablero = { ...dondeTablero(alcance), ...(tableroId ? { id: tableroId } : {}) };
+  const delTablero = await tablerosQueSeListan(alcance, tableroId);
   const enLaSemana = { gte: semana.desde, lt: semana.hasta };
   const [cambios, archivadas] = await Promise.all([
     prisma.historialTarjeta.findMany({
@@ -560,7 +570,7 @@ export async function terminadasDelDia(alcance: Alcance, fecha: unknown, { busca
   const deLaTarjeta = {
     borradoEn: null,
     estado: { in: ESTADOS_EN_LISTA },
-    tablero: dondeTablero(alcance),
+    tablero: await tablerosQueSeListan(alcance),
     ...(busqueda && "numero" in busqueda ? { numero: busqueda.numero } : {}),
     ...(busqueda && "texto" in busqueda
       ? {
