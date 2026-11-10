@@ -406,7 +406,7 @@ await prueba("vencidas: las que pasaron su vencimiento quedan ERROR con motivo (
   assert.equal(idea.estado, "EN_CURSO");
 });
 
-await prueba("vencidas: construir en la nube tiene tope de 180 min (en aizen1, 90): a los 100 min sin latido la de la nube vuelve a la fila y la de aizen1 pasó su tope", async () => {
+await prueba("vencidas: construir en la nube tiene tope de 180 min (en aizen1, 90): a los 100 min sin latido la de la nube vuelve a la fila y la de aizen1 pasó su tope (se cayó: se reintenta sola, 10-nov-2026)", async () => {
   await db.exec(`
     INSERT INTO "TarjetaTablero" ("id", "tableroId", "titulo", "estado", "creadoPor", "actualizadoEn", "tipoId", "repo", "intentos", "trabajoIniciadoEn", "trabajoVenceEn", "resultado") VALUES
       ('tp-nube', 'tab2', 'En la nube', 'EN_CURSO', 'u-dueno', now(), 'tarea2', 'aizencrm', 1, '2026-10-25 10:00:00', '2026-10-25 11:40:00', '{"construccion":{"lugar":"nube"}}'),
@@ -416,13 +416,22 @@ await prueba("vencidas: construir en la nube tiene tope de 180 min (en aizen1, 9
   assert.deepEqual(
     vencidas.map((f) => [f.id, f.antes, f.estado]).sort(),
     [
-      ["tp-aizen", "EN_CURSO", "ERROR"],
+      ["tp-aizen", "EN_CURSO", "PLAN_APROBADO"],
       ["tp-nube", "EN_CURSO", "PLAN_APROBADO"],
     ],
-    "con el tope de 90 la de aizen1 ya lo pasó; la de la nube tiene hasta los 180",
+    "con el tope de 90 la de aizen1 ya lo pasó (vuelve sola, 1.er reintento automático); la de la nube tiene hasta los 180 (falta de latido)",
   );
+  assert.deepEqual(vencidas.map((f) => [f.id, f.tipo]).sort(), [["tp-aizen", "reintentada"], ["tp-nube", "suelta"]]);
   const [aizen] = await filas(`SELECT "resultado" FROM "TarjetaTablero" WHERE "id" = 'tp-aizen'`);
-  assert.equal(aizen.resultado.error.motivo, "venció el candado en EN_CURSO sin respuesta del Coordinador");
+  assert.equal(aizen.resultado.error, undefined, "ya no va directo a ERROR");
+  assert.equal(aizen.resultado.reintentosAutomaticos.veces, 1);
+  // La vencida por falta de latido que ya esperó $5 veces sigue pasando a ERROR con la frase de siempre.
+  await db.exec(`
+    INSERT INTO "TarjetaTablero" ("id", "tableroId", "titulo", "estado", "creadoPor", "actualizadoEn", "tipoId", "repo", "intentos", "trabajoIniciadoEn", "trabajoVenceEn") VALUES
+      ('tp-esperas', 'tab2', 'Esperó mucho', 'EN_CURSO', 'u-dueno', now(), 'tarea2', 'aizencrm', 1, '2026-10-25 11:50:00', '2026-10-25 11:55:00')`);
+  const [espero] = await filas(sql.SQL_PASAR_VENCIDAS_A_ERROR, ["ws2", "2026-10-25T12:00:00.000Z", "  ", "2026-10-25T12:00:00.000Z", 0]);
+  assert.deepEqual([espero.id, espero.estado, espero.tipo, espero.motivo], ["tp-esperas", "ERROR", "vencida", "venció el candado en EN_CURSO sin respuesta del Coordinador"]);
+  await db.exec(`DELETE FROM "TarjetaTablero" WHERE "id" LIKE 'tp-%'`);
 });
 
 await prueba("arranque: lo que el Coordinador anterior dejó con candado vuelve a la fila, sin ERROR y sin gastar el intento", async () => {
@@ -573,7 +582,7 @@ await prueba("tomar en otro negocio no ve las de este", async () => {
   assert.deepEqual(await tomar("ws2"), []);
 });
 
-await prueba("huérfanas (26-oct-2026): PLANEANDO o EN_CURSO sin candado y sin cambios hace más de 30 min pasan a ERROR; SUBIENDO pendiente, con candado, recientes, sin repo, Idea y madres que esperan partes no", async () => {
+await prueba("huérfanas (26-oct-2026): PLANEANDO o EN_CURSO sin candado y sin cambios hace más de 30 min se recogen (desde el 10-nov-2026 vuelven solas a la fila como caídas); SUBIENDO pendiente, con candado, recientes, sin repo, Idea y madres que esperan partes no", async () => {
   await db.exec(`
     INSERT INTO "Workspace" ("id", "name", "slug", "updatedAt", "ownerId") VALUES ('ws4', 'Cuarto', 'cuarto', now(), NULL);
     INSERT INTO "TableroInteligente" ("id", "workspaceId", "nombre") VALUES ('tab4', 'ws4', 'Huérfanas');
@@ -599,7 +608,7 @@ await prueba("huérfanas (26-oct-2026): PLANEANDO o EN_CURSO sin candado y sin c
   assert.deepEqual(madres.map((f) => f.id).sort(), ["hu-madre", "hu-madre-sola"]);
 
   const AHORA_H = "2026-10-26T20:00:00.000Z";
-  const huerfanas = await filas(sql.SQL_PASAR_HUERFANAS_A_ERROR, ["ws4", AHORA_H, "Quedó huérfana: nadie la estaba trabajando", AHORA_H, 30]);
+  const huerfanas = await filas(sql.SQL_PASAR_HUERFANAS_A_ERROR, ["ws4", AHORA_H, AHORA_H, 30]);
   assert.deepEqual(
     huerfanas.map((f) => [f.id, f.antes]).sort(),
     [
@@ -612,12 +621,13 @@ await prueba("huérfanas (26-oct-2026): PLANEANDO o EN_CURSO sin candado y sin c
   const estados = Object.fromEntries(
     (await filas(`SELECT "id", "estado", "resultado" FROM "TarjetaTablero" WHERE "id" LIKE 'hu-%'`)).map((f) => [f.id, f]),
   );
-  assert.equal(estados["hu-obra"].estado, "ERROR");
+  // 1.er reintento automático: vuelven a la fila (el plan aprobado sigue aprobado), sin ERROR.
+  assert.equal(estados["hu-obra"].estado, "PLAN_APROBADO");
+  assert.equal(estados["hu-plan"].estado, "APROBADO");
   assert.equal(estados["hu-obra"].resultado.previo, 1, "conserva el resultado anterior");
-  assert.equal(estados["hu-obra"].resultado.error.motivo, "huérfana: EN_CURSO sin candado\nQuedó huérfana: nadie la estaba trabajando");
-  assert.equal(estados["hu-plan"].resultado.error.motivo.split("\n")[0], "huérfana: PLANEANDO sin candado");
-  assert.equal(huerfanas.find((f) => f.id === "hu-obra").motivo, estados["hu-obra"].resultado.error.motivo);
-  assert.equal(estados["hu-obra"].resultado.error.en, "EN_CURSO");
+  assert.equal(estados["hu-obra"].resultado.error, undefined);
+  assert.deepEqual(estados["hu-obra"].resultado.reintentosAutomaticos.motivos.map((m) => m.motivo), ["huérfana: EN_CURSO sin candado, sin cambios hace 480 min"]);
+  assert.deepEqual(huerfanas.map((f) => f.tipo), ["reintentada", "reintentada", "reintentada"]);
   for (const id of ["hu-reciente", "hu-candado", "hu-sin-repo", "hu-idea"]) assert.equal(estados[id].estado, "EN_CURSO", `${id} no se toca`);
   assert.equal(estados["hu-sube"].estado, "SUBIENDO", "SUBIENDO pendiente es válida");
   assert.equal(estados["hu-madre"].estado, "PLANEANDO", "la madre espera a su parte 2");
@@ -625,13 +635,13 @@ await prueba("huérfanas (26-oct-2026): PLANEANDO o EN_CURSO sin candado y sin c
     `SELECT "tarjetaId", "etapa", "accion", "cuentaComoIntento", "causa" FROM "IntentoTarjeta" WHERE "tarjetaId" LIKE 'hu-%' ORDER BY "tarjetaId"`,
   );
   assert.deepEqual(intentos.map((i) => [i.tarjetaId, i.etapa, i.accion, i.cuentaComoIntento, i.causa]), [
-    ["hu-madre-sola", "construir", "escalar", false, "Quedó huérfana: EN_CURSO sin candado (nadie la trabajaba)."],
-    ["hu-obra", "construir", "escalar", false, "Quedó huérfana: EN_CURSO sin candado (nadie la trabajaba)."],
-    ["hu-plan", "planear", "escalar", false, "Quedó huérfana: PLANEANDO sin candado (nadie la trabajaba)."],
+    ["hu-madre-sola", "construir", "reintentar", true, "Se cayó (huérfana: EN_CURSO sin candado, sin cambios hace 480 min): vuelve sola a la fila, reintento 1 de 2."],
+    ["hu-obra", "construir", "reintentar", true, "Se cayó (huérfana: EN_CURSO sin candado, sin cambios hace 480 min): vuelve sola a la fila, reintento 1 de 2."],
+    ["hu-plan", "planear", "reintentar", true, "Se cayó (huérfana: PLANEANDO sin candado, sin cambios hace 480 min): vuelve sola a la fila, reintento 1 de 2."],
   ]);
-  // Otra vuelta no las vuelve a tocar (ya están en ERROR), ni se ven desde otro negocio.
-  assert.deepEqual(await filas(sql.SQL_PASAR_HUERFANAS_A_ERROR, ["ws4", AHORA_H, "x", AHORA_H, 30]), []);
-  const deOtro = await filas(sql.SQL_PASAR_HUERFANAS_A_ERROR, ["ws1", AHORA_H, "x", AHORA_H, 30]);
+  // Otra vuelta no las vuelve a tocar (ya están en la fila), ni se ven desde otro negocio.
+  assert.deepEqual(await filas(sql.SQL_PASAR_HUERFANAS_A_ERROR, ["ws4", AHORA_H, AHORA_H, 30]), []);
+  const deOtro = await filas(sql.SQL_PASAR_HUERFANAS_A_ERROR, ["ws1", AHORA_H, AHORA_H, 30]);
   assert.ok(!deOtro.some((f) => f.id.startsWith("hu-")));
 });
 

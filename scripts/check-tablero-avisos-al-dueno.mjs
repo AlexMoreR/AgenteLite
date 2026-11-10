@@ -859,4 +859,93 @@ await prueba("revisarNegocio: corre la limpieza única y el barrido en cada vuel
   assert.ok(estado.ajustes.has("alertas:limpieza-coordinador-v1:ws1"));
 });
 
+/* ------------------------------------------------------------------ caída (10-nov-2026) */
+
+const caida = (extra = {}) =>
+  esperando({
+    id: "k1",
+    titulo: "Tarjeta que se cayó",
+    estado: "ERROR",
+    resultado: { error: { motivo: "se cayó la construcción 3 veces (último: EN_CURSO, 95 min sin señal)", en: "EN_CURSO", cuando: DIA.toISOString(), por: "caida" } },
+    ...extra,
+  });
+
+await prueba("caída: una tarjeta en ERROR por caerse deja el aviso auto:caida:<id>, URGENTE, con el link de la tarjeta; otro ERROR no", async () => {
+  const base = { latidoEn: DIA.toISOString(), enCurso: [], enFila: 1 };
+  const situacion = { ...base, esperando: [{ ...caida(), error: null, caida: { motivo: "se cayó la construcción 3 veces (último: EN_CURSO, 95 min sin señal)" } }] };
+  const calculados = avisos.calcularAvisos(situacion, DIA);
+  const deCaida = calculados.filter((a) => a.tipo === "caida");
+  assert.deepEqual(deCaida.map((a) => [a.clave, a.prioridad, a.link, a.tarjetaId]), [
+    ["auto:caida:k1", "URGENTE", "https://app.aizenbot.com/cliente/tablero-ia?tarjeta=k1", "k1"],
+  ]);
+  assert.match(deCaida[0].titulo, /Tarjeta que se cayó.* se cayó y quedó en error$/);
+  assert.match(deCaida[0].lineas[1], /^Motivo: se cayó la construcción 3 veces \(último: EN_CURSO, 95 min sin señal\)$/);
+  assert.ok(calculados.some((a) => a.clave === "auto:trabado:k1:ERROR"), "el aviso trabado (a Emanuel) sigue igual");
+  assert.ok(!avisos.esAvisoTecnico("caida"), "no es técnico: va al dueño");
+  const otroError = avisos.calcularAvisos({ ...base, esperando: [{ ...caida(), caida: null }] }, DIA);
+  assert.equal(otroError.filter((a) => a.tipo === "caida").length, 0);
+});
+
+await prueba("caída: sale UNA vez al WhatsApp del dueño por la línea Admin, con el link de la tarjeta; no se repite a las 3 h; vuelve a avisar si se cae otra vez", async () => {
+  guardarNumero();
+  estado.enFila = 1;
+  estado.esperando = [caida()];
+  assert.deepEqual(await avisos.revisarAvisosAlDueno(DIA), { enviados: 1 });
+  assert.equal(estado.enviados.length, 1);
+  assert.equal(estado.enviados[0].instanceName, "admin-inst", "por la línea Admin");
+  assert.equal(estado.enviados[0].phoneNumber, "573001112233", "al número del dueño");
+  const [titulo, ver] = lineas(estado.enviados[0].text);
+  assert.match(titulo, /^🚨 Urgente: .*Tarjeta que se cayó.* se cayó y quedó en error$/);
+  assert.equal(ver, "Ver: https://app.aizenbot.com/cliente/tablero-ia?tarjeta=k1");
+  assert.equal(estado.alertas.find((a) => a.clave === "auto:caida:k1").salioPorWhatsApp, true);
+  // El Coordinador sigue vivo en cada vuelta (si no, sale además el aviso "caído").
+  const vuelta = (horas) => {
+    const cuando = new Date(DIA.getTime() + horas * HORA);
+    estado.latido = cuando.toISOString();
+    return avisos.revisarAvisosAlDueno(cuando);
+  };
+  // 4 horas después sigue en ERROR: no se repite.
+  assert.deepEqual(await vuelta(4), { enviados: 0 });
+  assert.equal(estado.enviados.length, 1);
+  // El dueño la reintentó (sale de ERROR) y se vuelve a caer: avisa otra vez.
+  estado.esperando = [];
+  await vuelta(5);
+  estado.esperando = [caida()];
+  assert.deepEqual(await vuelta(6), { enviados: 1 });
+  assert.equal(estado.enviados.length, 2);
+});
+
+await prueba("caída: respeta el silencio de la noche (sale a las 7 a. m.), el interruptor apagado y, sin 'solo urgentes', lleva sus líneas y el link", async () => {
+  guardarNumero();
+  estado.enFila = 1;
+  estado.esperando = [caida()];
+  estado.latido = NOCHE.toISOString(); // el Coordinador está vivo: lo único que hay es la caída
+  assert.deepEqual(await avisos.revisarAvisosAlDueno(NOCHE), { enviados: 0 });
+  assert.equal(estado.enviados.length, 0, "de noche no sale");
+  const siete = new Date("2026-10-27T12:00:00Z"); // 7:00 a. m. de Bogotá
+  estado.latido = siete.toISOString();
+  assert.deepEqual(await avisos.revisarAvisosAlDueno(siete), { enviados: 1 });
+
+  reiniciar();
+  guardarNumero();
+  estado.enFila = 1;
+  estado.esperando = [caida()];
+  await avisos.guardarConfigDeAvisos("ws1", { activo: false });
+  assert.deepEqual(await avisos.revisarAvisosAlDueno(DIA), { enviados: 0 });
+  assert.equal(estado.enviados.length, 0, "interruptor apagado: nada");
+
+  reiniciar();
+  guardarNumero();
+  estado.enFila = 1;
+  estado.esperando = [caida()];
+  estado.ajustes.set("alertas:solo-urgentes:ws1", "false");
+  assert.equal((await avisos.revisarAvisosAlDueno(DIA)).enviados >= 1, true);
+  const deCaida = estado.enviados.find((e) => e.text.includes("se cayó y quedó en error"));
+  assert.ok(deCaida, "salió el de la caída");
+  assert.deepEqual(lineas(deCaida.text).slice(1), [
+    "Motivo: se cayó la construcción 3 veces (último: EN_CURSO, 95 min sin señal)",
+    "Ver: https://app.aizenbot.com/cliente/tablero-ia?tarjeta=k1",
+  ]);
+});
+
 console.log(`\n${pruebas} pruebas, todas bien`);

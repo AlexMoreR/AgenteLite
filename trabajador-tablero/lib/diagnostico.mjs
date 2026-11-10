@@ -42,6 +42,9 @@ export const CATEGORIAS = [
   // 31-oct-2026: el rebase con main no tuvo conflicto de texto, pero lo nuevo de main y la tarea no encajan (la lógica
   // choca). No se repara sola: reconstruir otra vez no lo arregla, alguien tiene que decidir cómo juntarlos.
   "choque_de_logica",
+  // 10-nov-2026: la deja el CRM cuando una tarjeta se cayó (sin señal real, el tope de la etapa o huérfana) y la devuelve sola a
+  // la fila (accion "reintentar") o, a la 3.ª, la pasa a ERROR (escalar). El Coordinador no la manda.
+  "construccion_caida",
   "otra",
 ];
 
@@ -55,13 +58,13 @@ export const SIN_REPARACION_AUTOMATICA = ["nube_sin_resultado", "nube_pregunta",
  * Las que no son de la tarea (ya tienen su tope de esperas): no cuentan para "la misma causa 2 veces". El choque con main
  * (31-oct-2026) tampoco: es main que cambió mientras tanto, no la tarea; tiene su propio tope (TOPE_DE_CHOQUES_SEGUIDOS).
  */
-const AJENAS_A_LA_TAREA = ["limite_claude", "pc_sobrecargado", "carpeta_trabada", "coordinador_cortado", "choca_con_main"];
+const AJENAS_A_LA_TAREA = ["limite_claude", "pc_sobrecargado", "carpeta_trabada", "coordinador_cortado", "choca_con_main", "construccion_caida"];
 
 /** Con cuántas fallas previas de la MISMA categoría (en los intentos de la tarjeta) ya no se repara: se escala. */
 export const TOPE_DE_FALLAS_IGUALES = 2;
 
 /** Las acciones del historial. */
-export const ACCIONES = ["reparar", "partir", "esperar", "escalar"];
+export const ACCIONES = ["reparar", "partir", "esperar", "escalar", "reintentar"];
 
 /** Iguales a reglas-trabajador.ts del CRM. */
 export const TOPE_DE_REPARACIONES = 3;

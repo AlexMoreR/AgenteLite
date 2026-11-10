@@ -13,7 +13,7 @@ import { prisma } from "@/lib/prisma";
 import { ultimoLatido } from "./coordinador-en-vivo";
 import { tareaAprobadaPorElDueno } from "./aprobacion-automatica";
 import { porQueElPlanNuevoEsperaTuSi, porQueLaTareaEsperaTuSi } from "./reglas-riesgo";
-import { REPOS_DEL_TRABAJADOR, textoDeAprobarEnPantalla, zonasQueEsperanLaPantalla, zonasQueNoArrancanSolas } from "./reglas-trabajador";
+import { REPOS_DEL_TRABAJADOR, caidaDelResultado, textoDeAprobarEnPantalla, zonasQueEsperanLaPantalla, zonasQueNoArrancanSolas } from "./reglas-trabajador";
 import { SQL_FUERA_POR_LA_VIA } from "./sql-trabajador";
 import { tituloCorto } from "./resumen-corto";
 import { linkDeHoy, linkDeLaTarjeta, linkDelCoordinador, pendientesDelDueno, todoElNegocio } from "./tableros";
@@ -60,6 +60,13 @@ import { linkDeHoy, linkDeLaTarjeta, linkDelCoordinador, pendientesDelDueno, tod
   (necesita) y aprobar_en_pantalla siguen yendo a Alexander. RESPALDO: sin teléfono de Sistemas válido (o con su interruptor
   apagado) todo sale como antes, al dueño, y queda anotado en el historial.
 
+  CAÍDA (10-nov-2026, parte 1 de «que las tarjetas trabadas se resuelvan solas»): una tarjeta que se cayó 3 veces (sin señal
+  del Coordinador, el tope de la etapa o huérfana; ver sql-trabajador.ts) queda en ERROR con resultado.error.por = 'caida'.
+  Eso deja el aviso `auto:caida:<id>`, URGENTE, que va AL DUEÑO (no a Emanuel: lo pidió la tarea), con el título y el link de
+  la tarjeta, por la línea Admin, con el interruptor, el silencio de la noche y "solo urgentes". Sale UNA vez por caída: no se
+  repite cada 3 horas (si la tarjeta sale de ERROR y se vuelve a caer, avisa otra vez). El aviso "trabado" a Emanuel por esa
+  misma tarjeta en ERROR no cambia. Nada va a clientes.
+
   CUPOS SIN USAR (31-oct-2026): el Coordinador manda el tipo "cupos" cuando lleva 10 min con tarjetas en fila y puestos
   libres. Es técnico y va SOLO a Emanuel (aunque esté prendido "solo urgentes"), con prioridad ALTA y la clave fija
   `coord:cupos` (el texto cambia cada minuto: "hace 12 min"). Sin el WhatsApp de Sistemas válido NO va al dueño: queda solo
@@ -81,7 +88,7 @@ export const claveInterruptorDeSistemas = (workspaceId: string) => `tablero:avis
 /** El ajuste que usaba el aviso del Coordinador antes de que existiera la caja de Mi empresa. */
 const claveTelefonoViejo = (workspaceId: string) => `trabajador:aviso-telefono:${workspaceId}`;
 
-export const TIPOS_DE_AVISO = ["caido", "sin_trabajo", "trabado", "necesita", "limite", "aprobar_en_pantalla", "cupos"] as const;
+export const TIPOS_DE_AVISO = ["caido", "sin_trabajo", "trabado", "necesita", "limite", "aprobar_en_pantalla", "cupos", "caida"] as const;
 export type TipoDeAviso = (typeof TIPOS_DE_AVISO)[number];
 
 /** Los avisos técnicos: los atiende Emanuel. Los que piden dinero, Meta Ads o una clave no están acá. */
@@ -346,6 +353,8 @@ export type TarjetaEsperando = {
    * que solo tocaba dinero de Gestión ya no espera y no se avisa. Sin el campo, se avisa como antes.
    */
   tareaAprobadaPorElDueno?: boolean;
+  /** Quedó en ERROR por caerse 3 veces (resultado.error.por = 'caida', 10-nov-2026): el motivo. Sin el campo, no avisa la caída. */
+  caida?: { motivo: string } | null;
 };
 export type SituacionDeSistemas = {
   /** Cuándo el CRM recibió el último latido del Coordinador (null = nunca ha dado señales). */
@@ -363,7 +372,16 @@ export type SituacionDeSistemas = {
 /** Una APROBADO / PLAN_APROBADO o SUBIENDO pendiente (sin candado) con zona que pide la pantalla y aprobada por voz u otra vía (SQL_FUERA_POR_LA_VIA). */
 export type TarjetaFueraPorLaVia = { id: string; titulo: string; estado: string; zonaProtegida: string[]; via: string };
 
-export type AvisoCalculado = { clave: string; tipo: TipoDeAviso; lineas: string[]; link: string; prioridad: Prioridad; titulo: string };
+export type AvisoCalculado = {
+  clave: string;
+  tipo: TipoDeAviso;
+  lineas: string[];
+  link: string;
+  prioridad: Prioridad;
+  titulo: string;
+  /** La tarjeta de la que habla (solo el de caída lo usa: su WhatsApp lleva a la tarjeta). */
+  tarjetaId?: string;
+};
 
 /**
  * Una duda de negocio para el dueño (30-oct-2026): el plan tiene preguntas abiertas o el agente pidió una decisión
@@ -373,7 +391,7 @@ const ES_UNA_DUDA_DE_NEGOCIO = /preguntas abiertas|el agente necesita (una |algo
 
 /** La prioridad de cada tipo de aviso (regla del dueño, 29-oct-2026). `motivo` solo importa en "necesita". */
 export function prioridadDelAviso(tipo: TipoDeAviso, motivo?: string | null): Prioridad {
-  if (tipo === "caido" || tipo === "limite") return "URGENTE";
+  if (tipo === "caido" || tipo === "limite" || tipo === "caida") return "URGENTE";
   if (tipo === "necesita") return esDeDineroMetaOClave(motivo ?? "") || ES_UNA_DUDA_DE_NEGOCIO.test(motivo ?? "") ? "URGENTE" : "ALTA";
   return "ALTA";
 }
@@ -477,6 +495,20 @@ export function calcularAvisos(situacionCompleta: SituacionDeSistemas, ahora: Da
       link: linkDeLaTarjeta(tarjeta.id),
       prioridad: prioridadDelAviso("trabado"),
       titulo: `${entreComillas(tarjeta.titulo)} quedó en error`,
+    });
+  }
+
+  // 7. Caída (10-nov-2026): quedó en ERROR después de caerse 3 veces. Urgente y al dueño, con el link de la tarjeta.
+  for (const tarjeta of situacion.esperando) {
+    if (tarjeta.estado !== "ERROR" || !tarjeta.caida) continue;
+    avisos.push({
+      clave: `auto:caida:${tarjeta.id}`,
+      tipo: "caida",
+      lineas: [`🚨 ${entreComillas(tarjeta.titulo)} se cayó y quedó en error.`, `Motivo: ${unaLinea(tarjeta.caida.motivo, 120)}`],
+      link: linkDeLaTarjeta(tarjeta.id),
+      prioridad: prioridadDelAviso("caida"),
+      titulo: `${entreComillas(tarjeta.titulo)} se cayó y quedó en error`,
+      tarjetaId: tarjeta.id,
     });
   }
 
@@ -620,6 +652,7 @@ export async function leerSituacion(workspaceId: string): Promise<SituacionDeSis
       error: textoDelError(p.resultado),
       esperaPor: textoDeEsperaPor(p.resultado),
       tareaAprobadaPorElDueno: tareasDelDueno.get(p.id) ?? false,
+      caida: p.estado === "ERROR" ? caidaDelResultado(p.resultado) : null,
     })),
     fueraPorLaVia,
   };
@@ -679,7 +712,8 @@ export async function revisarNegocio(workspaceId: string, ahora: Date): Promise<
     }
   }
 
-  let porAvisar = calculados.filter((aviso) => !yaSeAvisoDe(estado, aviso.clave, ahora));
+  // La caída sale UNA vez (no cada 3 horas): mientras su clave siga anotada, no se repite.
+  let porAvisar = calculados.filter((aviso) => !yaSeAvisoDe(estado, aviso.clave, ahora) && !(aviso.tipo === "caida" && estado.avisados[aviso.clave]));
   // Los técnicos son de Emanuel; sin su teléfono válido (o apagado), todo sigue yendo al dueño como antes.
   const sistemas = porAvisar.some((aviso) => esAvisoTecnico(aviso.tipo)) ? await destinoDeSistemas(workspaceId) : null;
   // ALERTAS: todo queda en la página (sin tocar lo ya abierto); con "solo urgentes", por WhatsApp salen solo las urgentes.
@@ -703,9 +737,25 @@ export async function revisarNegocio(workspaceId: string, ahora: Date): Promise<
   }
   // Silencio de 9 p. m. a 7 a. m.: solo "Coordinador caído"; lo demás sale a las 7 a. m. si sigue igual.
   if (enSilencioDeAvisos(ahora)) porAvisar = porAvisar.filter((aviso) => aviso.tipo === "caido");
+
+  // Cada caída en su propio WhatsApp, para que el link lleve a ESA tarjeta (no a la lista de alertas).
+  let enviados = 0;
+  for (const aviso of porAvisar.filter((aviso) => aviso.tipo === "caida")) {
+    const base = soloUrgentes ? armarMensajeUrgente([aviso]) : armarMensaje([aviso]);
+    const textoCaida = aviso.tarjetaId ? conVerDeLaTarjeta(base, aviso.tarjetaId) : base;
+    const envio = await enviarAlDueno(workspaceId, textoCaida);
+    if (envio.salio) {
+      estado.avisados[aviso.clave] = ahora.toISOString();
+      await marcarSalioPorWhatsApp(workspaceId, aviso.clave);
+      enviados += 1;
+    }
+    anotarEnHistorial(estado, { cuando: ahora.toISOString(), tipo: aviso.tipo, texto: textoCaida, salio: envio.salio, motivo: envio.salio ? null : `no salió: ${envio.motivo}` });
+    cambio = true;
+  }
+  porAvisar = porAvisar.filter((aviso) => aviso.tipo !== "caida");
   if (!porAvisar.length) {
     if (cambio) await guardarEstadoDeAvisos(workspaceId, estado);
-    return { enviados: 0 };
+    return { enviados };
   }
 
   const texto = soloUrgentes ? armarMensajeUrgente(porAvisar) : armarMensaje(porAvisar);
@@ -724,7 +774,7 @@ export async function revisarNegocio(workspaceId: string, ahora: Date): Promise<
     motivo: envio.salio ? null : `no salió: ${envio.motivo}`,
   });
   await guardarEstadoDeAvisos(workspaceId, estado);
-  return { enviados: envio.salio ? 1 : 0 };
+  return { enviados: enviados + (envio.salio ? 1 : 0) };
 }
 
 /** La vuelta del reloj (cada minuto): revisa cada negocio con tableros. Nunca lanza por un negocio. */

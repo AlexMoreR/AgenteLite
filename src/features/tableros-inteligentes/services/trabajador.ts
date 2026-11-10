@@ -9,7 +9,6 @@ import {
   ETAPA_DEL_ESTADO,
   MINUTOS_DE_GRACIA_DEL_LATIDO,
   MINUTOS_PARA_HUERFANA,
-  MOTIVO_HUERFANA,
   MOTIVO_VENCIDA,
   NOMBRE_DE_LA_ZONA,
   REPOS_DEL_TRABAJADOR,
@@ -69,6 +68,7 @@ import {
   unirZonas,
   vencimientoDelCandado,
   latidoDeEntrada,
+  senalDeEntrada,
   notaDeYaHecha,
   tituloDeLimpieza,
   zonasDeEntrada,
@@ -111,6 +111,7 @@ import {
   SQL_MADRES_PARTIDAS,
   SQL_PASAR_HUERFANAS_A_ERROR,
   SQL_PASAR_VENCIDAS_A_ERROR,
+  SQL_TARJETAS_CAIDAS,
   SQL_TOMAR_UNA,
   SQL_TRABAJANDO,
 } from "./sql-trabajador";
@@ -136,6 +137,10 @@ import { cerrarLaMadreDeLaParte, cerrarLaMadreSiToca as cerrarMadrePartida } fro
     otra que corre): PLANEANDO -> APROBADO, EN_CURSO -> PLAN_APROBADO, SUBIENDO -> SUBIENDO pendiente.
   - /:id/latido corre el vencimiento (de a 5 min, hasta el tope de la etapa: 20 / 90 / 45 min; construyendo en la
     nube, 180 min; en el orquestador, 24 h). Construyendo trae { lugar, sesion }: se guarda en resultado.construccion (25-oct-2026).
+    En cualquier etapa puede traer `senalEn` (10-nov-2026): la señal real, en resultado.construccion.ultimaSenalEn.
+  - CAÍDAS (10-nov-2026): /tomar devuelve a la fila (hasta TOPE_DE_REINTENTOS_AUTOMATICOS veces; después ERROR con aviso
+    urgente al dueño) las que llevan MINUTOS_SIN_SENAL_PARA_CAIDA sin señal real, las que se pasaron del tope de su etapa y
+    las huérfanas (SQL_TARJETAS_CAIDAS, SQL_PASAR_VENCIDAS_A_ERROR, SQL_PASAR_HUERFANAS_A_ERROR).
   - /:id/subida acepta también resumenTres { hizo, ahora, revisar } (las 3 líneas del agente; se recortan y se descartan si vienen vacías).
   - /:id/plan, /resultado, /subida y /error la mueven de estado (reglas-trabajador.ts). /resultado
     pasa a SUBIENDO (sube sola) o a POR_REVISAR (espera el sí final) según destinoDelResultado.
@@ -147,13 +152,14 @@ import { cerrarLaMadreDeLaParte, cerrarLaMadreSiToca as cerrarMadrePartida } fro
   - /:id/partir (desde PLANEANDO o EN_CURSO) crea de 2 a 4 tarjetas hijas, una tras otra (flechas de dependencia),
     y deja a la madre en su etapa sin candado ("partida, esperando a sus partes"). Se cierra sola cuando todas
     sus partes terminaron: HECHO si todas quedaron HECHO, FALLIDO si alguna quedó FALLIDO (madre-partida.ts).
-  - /tomar (26-oct-2026) además cierra las madres colgadas y pasa a ERROR las HUÉRFANAS: PLANEANDO o EN_CURSO sin
-    candado, sin cambios hace más de 30 min, que no esperan a sus partes (SUBIENDO pendiente no es huérfana).
+  - /tomar (26-oct-2026) además cierra las madres colgadas y recoge las HUÉRFANAS: PLANEANDO o EN_CURSO sin
+    candado, sin cambios hace más de 30 min, que no esperan a sus partes (SUBIENDO pendiente no es huérfana). Desde el
+    10-nov-2026 se tratan como caídas.
   - /:id/soltar con `categoria` (esperar) y /:id/error con `categoria` (escalar) también dejan su fila.
   - /arranque (ruta aparte): lo que el negocio tenía en PLANEANDO, EN_CURSO o SUBIENDO con candado vuelve a la fila
     (la SUBIENDO, a SUBIENDO pendiente).
   - Las vencidas sin latido vuelven a la fila (SQL_PASAR_VENCIDAS_A_ERROR) en vez de ERROR (una SUBIENDO, a SUBIENDO
-    pendiente), salvo las que se pasaron del tope de su etapa o las que ya esperaron TOPE_DE_ESPERAS_SEGUIDAS veces.
+    pendiente), salvo las que ya esperaron TOPE_DE_ESPERAS_SEGUIDAS veces. Las que se pasaron del tope de su etapa son caídas.
   - /tomar no toma una tarjeta con una dependencia sin terminar (sql-trabajador.ts).
 
   Cada cambio deja su fila en HistorialTarjeta con origen TRABAJADOR (quien = "trabajador:<clave>")
@@ -423,6 +429,16 @@ function paraElTrabajador(fila: FilaParaTrabajar, intentos: DatosDeIntentos) {
 
 export type TarjetaParaTrabajar = ReturnType<typeof paraElTrabajador>;
 
+/** Una tarjeta que movieron las revisiones de /tomar (vencidas, caídas, huérfanas): sql-trabajador.ts. */
+type FilaQueSeMovio = {
+  id: string;
+  tableroId: string;
+  antes: string;
+  estado: string;
+  motivo: string | null;
+  tipo: "suelta" | "vencida" | "reintentada" | "caida";
+};
+
 /**
  * POST /tomar. Devuelve `{ tarjeta: null, motivo }` si no hay nada (o ya tiene `maxParalelo` en las
  * manos: "ocupado"), o la tarjeta con `hacer` = planear | construir | subir. Todo en UNA transacción
@@ -435,9 +451,10 @@ export async function tomarTarjeta(contexto: ContextoTrabajador, pedido: PedidoD
   return prisma.$transaction(async (tx) => {
     await tx.$queryRawUnsafe(SQL_CANDADO_DEL_NEGOCIO, contexto.workspaceId);
 
-    // Las vencidas sin latido vuelven a la fila (sueltas; una SUBIENDO, a SUBIENDO pendiente) o, si se pasaron del tope
-    // o esperaron mucho, pasan a ERROR (con su fila en IntentoTarjeta).
-    const vencidasODejadas = await tx.$queryRawUnsafe<{ id: string; tableroId: string; antes: string; estado: string; motivo: string | null }[]>(
+    // Las vencidas sin latido vuelven a la fila (sueltas; una SUBIENDO, a SUBIENDO pendiente) o, si esperaron mucho, pasan a
+    // ERROR. Las que se pasaron del tope de su etapa se cayeron (10-nov-2026): vuelven solas a la fila hasta
+    // TOPE_DE_REINTENTOS_AUTOMATICOS veces y después pasan a ERROR. Cada una con su fila en IntentoTarjeta.
+    const vencidasODejadas = await tx.$queryRawUnsafe<FilaQueSeMovio[]>(
       SQL_PASAR_VENCIDAS_A_ERROR,
       contexto.workspaceId,
       iso,
@@ -445,8 +462,11 @@ export async function tomarTarjeta(contexto: ContextoTrabajador, pedido: PedidoD
       iso,
       TOPE_DE_ESPERAS_SEGUIDAS,
     );
-    const vencidas = vencidasODejadas.filter((fila) => fila.estado === "ERROR");
-    const sueltas = vencidasODejadas.filter((fila) => fila.estado !== "ERROR");
+    // Las CAÍDAS (10-nov-2026): con el candado vigente (el latido lo sigue corriendo) pero sin una señal real del Coordinador
+    // hace más de MINUTOS_SIN_SENAL_PARA_CAIDA. El Coordinador llama a /tomar a cada rato: se revisa al menos cada 10 min.
+    const caidasPorSenal = await tx.$queryRawUnsafe<FilaQueSeMovio[]>(SQL_TARJETAS_CAIDAS, contexto.workspaceId, iso, iso);
+    const vencidas = vencidasODejadas.filter((fila) => fila.tipo === "vencida");
+    const sueltas = vencidasODejadas.filter((fila) => fila.tipo === "suelta");
     for (const vencida of vencidas) {
       await anotarTrabajador(tx, contexto, vencida.id, { estado: vencida.antes }, { estado: "ERROR", motivo: vencida.motivo || MOTIVO_VENCIDA });
     }
@@ -471,30 +491,38 @@ export async function tomarTarjeta(contexto: ContextoTrabajador, pedido: PedidoD
       tablerosDeLasMadres.push(cerrada.tableroId);
     }
 
-    // Red de seguridad: las HUÉRFANAS (PLANEANDO o EN_CURSO sin candado, sin cambios hace más de
-    // MINUTOS_PARA_HUERFANA, que no esperan a sus partes) pasan a ERROR: nadie las trabaja y nunca vencerían.
-    // SUBIENDO pendiente no entra: esa sí espera, a propósito, sin candado.
-    const huerfanas = await tx.$queryRawUnsafe<{ id: string; tableroId: string; antes: string; motivo: string | null }[]>(
-      SQL_PASAR_HUERFANAS_A_ERROR,
-      contexto.workspaceId,
-      iso,
-      MOTIVO_HUERFANA,
-      iso,
-      MINUTOS_PARA_HUERFANA,
-    );
-    for (const huerfana of huerfanas) {
-      await anotarTrabajador(tx, contexto, huerfana.id, { estado: huerfana.antes }, { estado: "ERROR", motivo: huerfana.motivo || MOTIVO_HUERFANA });
+    // Red de seguridad: las HUÉRFANAS (PLANEANDO o EN_CURSO sin candado, sin cambios hace más de MINUTOS_PARA_HUERFANA, que
+    // no esperan a sus partes): nadie las trabaja y nunca vencerían. Desde el 10-nov-2026 se tratan como caídas (vuelven solas
+    // a la fila hasta 2 veces). SUBIENDO pendiente no entra: esa sí espera, a propósito, sin candado.
+    const huerfanas = await tx.$queryRawUnsafe<FilaQueSeMovio[]>(SQL_PASAR_HUERFANAS_A_ERROR, contexto.workspaceId, iso, iso, MINUTOS_PARA_HUERFANA);
+
+    // Lo que se cayó (por falta de señal, por el tope de la etapa o huérfana): vuelve sola a la fila o pasa a ERROR.
+    const caidas = [...vencidasODejadas.filter((fila) => fila.tipo === "reintentada" || fila.tipo === "caida"), ...caidasPorSenal, ...huerfanas];
+    for (const caida of caidas) {
+      await anotarTrabajador(
+        tx,
+        contexto,
+        caida.id,
+        { estado: caida.antes },
+        caida.tipo === "caida"
+          ? { estado: "ERROR", motivo: caida.motivo || "se cayó la construcción" }
+          : { estado: caida.estado, nota: "se cayó (el Coordinador no dio señales): vuelve sola a la fila; el plan aprobado sigue aprobado" },
+      );
     }
 
     await tocarTableros(
       tx,
-      [...vencidasODejadas.map((fila) => fila.tableroId), ...tablerosDeLasMadres, ...huerfanas.map((fila) => fila.tableroId)],
+      [...[...vencidasODejadas, ...caidasPorSenal, ...huerfanas].map((fila) => fila.tableroId), ...tablerosDeLasMadres],
       ahora,
     );
     const avisos = {
       vencidas: vencidas.map((fila) => fila.id),
       sueltas: sueltas.map((fila) => fila.id),
+      // Huérfanas y caídas (10-nov-2026): las que vinieron de cada revisión; `reintentadas` volvieron solas a la fila y
+      // `caidas` pasaron a ERROR (tras TOPE_DE_REINTENTOS_AUTOMATICOS reintentos).
       huerfanas: huerfanas.map((fila) => fila.id),
+      reintentadas: caidas.filter((fila) => fila.tipo === "reintentada").map((fila) => fila.id),
+      caidas: caidas.filter((fila) => fila.tipo === "caida").map((fila) => fila.id),
       madresCerradas,
     };
 
@@ -925,17 +953,35 @@ export async function accionDelTrabajador(
     const previo = resultadoComoObjeto(actual.resultado);
     const construccionAntes = resultadoComoObjeto(previo.construccion);
     const cambiaConstruccion = etapa === "construir" && lugar !== null && (construccionAntes.lugar !== lugar || (construccionAntes.linkSesion ?? null) !== linkSesion);
+    // La SEÑAL REAL (10-nov-2026, en cualquier etapa): `senalEn` dice que el Coordinador de verdad avanzó. Sin ella el latido
+    // corre el candado pero no cuenta como señal (SQL_TARJETAS_CAIDAS). Una futura vale "ahora"; una anterior a que se tomó la
+    // tarjeta, o más vieja que la guardada, no cambia nada.
+    const senal = senalDeEntrada(cuerpo.senalEn, actual.trabajoIniciadoEn, ahora);
+    const senalGuardada = typeof construccionAntes.ultimaSenalEn === "string" ? Date.parse(construccionAntes.ultimaSenalEn) : NaN;
+    const cambiaSenal = senal !== null && !(Number.isFinite(senalGuardada) && senalGuardada >= senal.getTime());
+    // Lo que ya había en resultado.construccion se conserva: solo se suma lo nuevo.
+    const construccion = {
+      ...construccionAntes,
+      ...(cambiaConstruccion ? { lugar, linkSesion } : {}),
+      ...(cambiaSenal && senal ? { ultimaSenalEn: senal.toISOString() } : {}),
+    };
     const hecho = await prisma.tarjetaTablero.updateMany({
       where: { id: actual.id, estado: actual.estado, trabajoVenceEn: { gt: ahora } },
       data: {
         trabajoVenceEn: venceEn,
-        ...(cambiaConstruccion ? { resultado: { ...previo, construccion: { lugar, linkSesion } } as Prisma.InputJsonValue } : {}),
+        ...(cambiaConstruccion || cambiaSenal ? { resultado: { ...previo, construccion } as Prisma.InputJsonValue } : {}),
       },
     });
     if (hecho.count !== 1) throw new ErrorDelTrabajador("La tarjeta cambió mientras tanto.", 409);
-    // Lo único visible que cambia un latido: dónde se construye y el link de la sesión (una o dos veces por tarjeta).
+    // Lo único visible que cambia un latido: dónde se construye y el link de la sesión (una o dos veces por tarjeta). La señal no se ve.
     if (cambiaConstruccion) await prisma.tableroInteligente.updateMany({ where: { id: actual.tableroId }, data: { actualizadoEn: ahora } });
-    return { ok: true, venceEn: venceEn.toISOString(), topeAlcanzado: venceEn.getTime() < ahora.getTime() + MINUTOS_DE_GRACIA_DEL_LATIDO * 60_000 };
+    return {
+      ok: true,
+      venceEn: venceEn.toISOString(),
+      topeAlcanzado: venceEn.getTime() < ahora.getTime() + MINUTOS_DE_GRACIA_DEL_LATIDO * 60_000,
+      // La última señal real de esta vuelta (null = ninguna desde que se tomó la tarjeta).
+      ultimaSenalEn: senalDeEntrada(construccion.ultimaSenalEn, actual.trabajoIniciadoEn, ahora)?.toISOString() ?? null,
+    };
   }
 
   if (accion === "soltar") {
