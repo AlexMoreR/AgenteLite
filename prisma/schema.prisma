@@ -44,6 +44,8 @@ model User {
   reunionesCreadas      Reunion[]             @relation("ReunionCreadaPor")
   salasQueLidera        SalaDeReuniones[]     @relation("SalaDeReunionesLider")
   salasCreadas          SalaDeReuniones[]     @relation("SalaDeReunionesCreadaPor")
+  /// Respuestas rápidas que son de esta asesora (ver QuickReply.duenaId).
+  respuestasRapidas     QuickReply[]          @relation("QuickReplyDuena")
 }
 
 model EmailAuthToken {
@@ -127,9 +129,14 @@ model QuickReply {
   content     String
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+  /// Asesora dueña de la respuesta: solo ella la ve y la usa en el chat. Vacío = "Sin repartir"
+  /// (solo la ven el dueño y los administradores). Ver src/lib/respuestas-rapidas.ts.
+  duenaId     String?
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  duena       User?     @relation("QuickReplyDuena", fields: [duenaId], references: [id], onDelete: SetNull)
 
   @@index([workspaceId, createdAt])
+  @@index([workspaceId, duenaId, createdAt])
 }
 
 model WorkspaceMember {
