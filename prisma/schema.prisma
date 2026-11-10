@@ -604,6 +604,11 @@ model Message {
   @@index([conversationId, createdAt])
   @@index([workspaceId, conversationId, direction, createdAt])
   @@index([contactId, createdAt])
+  // Indices que Prisma no sabe escribir aca (por expresion o parciales); estan en la migracion
+  // 20261111000000_indices_de_velocidad:
+  //   "Message_channel_idCrudo_idx"      (channelId, reverse(split_part(reverse(externalId), '_', 1)))
+  //   "Message_audio_pendiente_idx"      (createdAt) WHERE type = AUDIO y sin transcribir
+  //   "Message_mediaUrl_transcrita_idx"  (mediaUrl) WHERE transcripcion IS NOT NULL
 }
 
 model OfficialApiClientConfig {
@@ -1216,6 +1221,8 @@ model Follow {
   @@index([followRuleId])
   @@index([channelId])
   @@index([lockedAt])
+  // Parcial, en la migracion 20261111000000_indices_de_velocidad (Prisma no lo sabe escribir aca):
+  //   "Follow_pendiente_executeAt_idx"  (executeAt) WHERE status = PENDING
 }
 
 // Suscripcion de Web Push (VAPID) de un dispositivo/navegador. Permite enviar
@@ -1916,6 +1923,7 @@ model EmbudoEvento {
 
   @@index([workspaceId, tipo, createdAt])
   @@index([conversationId, createdAt])
+  @@index([conversationId, tipo, createdAt])
 }
 
 /// EMBUDO: la foto actual de cada lead (una fila por conversacion). Se recalcula con cada evento.

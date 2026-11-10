@@ -5,7 +5,14 @@ import { leerMapaDeLineas } from "@/lib/origen-de-venta-crm";
 
 import { fechaValida } from "../../agentes-de-area/dominio/reglas";
 import { rangoDelDia } from "../../agentes-de-area/servicios/numeros";
-import { agruparLeads, leadsNuevosDeLasFilas, type FilaDeLeadNuevo, type LeadsNuevosAgrupados } from "../dominio/reglas";
+import {
+  agruparLeads,
+  leadsDeLaAsesora,
+  leadsNuevosDeLasFilas,
+  type FilaDeLeadNuevo,
+  type LeadNuevo,
+  type LeadsNuevosAgrupados,
+} from "../dominio/reglas";
 
 /**
  * LOS LEADS NUEVOS DE UN DÍA (solo lectura): clientes cuyo primer mensaje de la vida cae en ese día de Colombia,
@@ -38,6 +45,28 @@ export async function leadsNuevosDelDia(
   fecha: string,
   opciones: { asesoraId?: string | null } = {},
 ): Promise<LeadsNuevosDelDia> {
+  const { leads, advertencias } = await leerLeadsNuevos(workspaceId, fecha);
+  return { ...agruparLeads(leadsDeLaAsesora(leads, opciones.asesoraId), fecha), advertencias };
+}
+
+/**
+ * Los de la empresa y los de una asesora, con UNA sola lectura. El informe del jefe en Mi día pedía las dos
+ * cuentas y corría dos veces la misma consulta: el filtro por asesora es en memoria, no en la base. Da lo
+ * mismo que llamar `leadsNuevosDelDia` dos veces (con y sin asesora).
+ */
+export async function leadsNuevosDelDiaConLosDeLaAsesora(
+  workspaceId: string,
+  fecha: string,
+  asesoraId: string,
+): Promise<{ empresa: LeadsNuevosDelDia; deLaAsesora: LeadsNuevosDelDia }> {
+  const { leads, advertencias } = await leerLeadsNuevos(workspaceId, fecha);
+  return {
+    empresa: { ...agruparLeads(leadsDeLaAsesora(leads, null), fecha), advertencias: [...advertencias] },
+    deLaAsesora: { ...agruparLeads(leadsDeLaAsesora(leads, asesoraId), fecha), advertencias: [...advertencias] },
+  };
+}
+
+async function leerLeadsNuevos(workspaceId: string, fecha: string): Promise<{ leads: LeadNuevo[]; advertencias: string[] }> {
   if (!fechaValida(fecha)) throw new Error("La fecha tiene que ir como AAAA-MM-DD.");
   const { desde, hasta } = rangoDelDia(fecha);
 
@@ -64,7 +93,7 @@ export async function leadsNuevosDelDia(
   if (candidatos.length >= MAX_CLIENTES) {
     advertencias.push(`Se leyeron solo los primeros ${MAX_CLIENTES} clientes del día: la cuenta puede estar incompleta.`);
   }
-  if (!candidatos.length) return { ...agruparLeads([], fecha), advertencias };
+  if (!candidatos.length) return { leads: [], advertencias };
 
   // 2) Todos los chats de esos clientes (así se ve en qué línea escribieron primero y quién los atiende).
   const ids = candidatos.map((c) => c.contactId);
@@ -106,7 +135,5 @@ export async function leadsNuevosDelDia(
   }));
 
   const mapa = await leerMapaDeLineas(workspaceId);
-  let leads = leadsNuevosDeLasFilas(filas, fecha, mapa);
-  if (opciones.asesoraId) leads = leads.filter((l) => l.asesoraId === opciones.asesoraId);
-  return { ...agruparLeads(leads, fecha), advertencias };
+  return { leads: leadsNuevosDeLasFilas(filas, fecha, mapa), advertencias };
 }

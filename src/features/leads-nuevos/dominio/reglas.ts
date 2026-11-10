@@ -156,6 +156,14 @@ export function leadsNuevosDeLasFilas(filas: FilaDeLeadNuevo[], fecha: string, m
   return leads;
 }
 
+/**
+ * Solo los leads de esa asesora (su dueña, ver `leadsNuevosDeLasFilas`). Sin asesora, todos: es la cuenta
+ * de la empresa. Es la misma regla para la vista de la asesora y para la del jefe, que así salen de UNA lectura.
+ */
+export function leadsDeLaAsesora(leads: LeadNuevo[], asesoraId?: string | null): LeadNuevo[] {
+  return asesoraId ? leads.filter((l) => l.asesoraId === asesoraId) : leads;
+}
+
 const desgloseVacio = (): DesgloseDeOrigen => ({ meta: 0, marketplace: { total: 0, por_texto: 0, por_linea: 0 }, directo: 0 });
 
 function sumarOrigen(desglose: DesgloseDeOrigen, origen: OrigenDelLead) {

@@ -8,6 +8,7 @@ import { quienesNoSeEnteran } from "@/lib/quien-se-entera-del-mensaje";
 import { getEvolutionSettings } from "@/lib/system-settings";
 import { readGatewayConnection } from "@/lib/evolution";
 import { buildLinkedLidMetadata, readLinkedLid } from "@/lib/whatsapp-lid";
+import { buscarMensajePorIdCrudo } from "@/lib/mensaje-por-id-crudo";
 import {
   avanzaElEstado,
   descargarMediaWaha,
@@ -404,19 +405,13 @@ async function aplicarAck(ack: {
     El canal sigue acotando la busqueda: el mismo id podria existir en otra linea, y marcarle el
     acuse al mensaje de otra conversacion seria peor que no marcar nada.
   */
-  const crudo = idCrudoDeMensaje(ack.idMensaje);
-  const mensaje = await prisma.message.findFirst({
-    where: {
-      channel: { evolutionInstanceName: ack.sesion },
-      OR: [
-        { externalId: ack.idMensaje },
-        // El minimo de largo evita que un id raro y corto matchee cualquier cosa por casualidad.
-        ...(crudo.length >= 8 ? [{ externalId: { endsWith: `_${crudo}` } }] : []),
-      ],
-    },
-    orderBy: { createdAt: "desc" },
-    select: { id: true, status: true, workspaceId: true, conversationId: true },
+  // Primero la linea y despues el mensaje por indice: el JOIN con la linea y el `endsWith` de antes
+  // recorrian Message en cada acuse (ver `buscarMensajePorIdCrudo`). Mismo mensaje que antes.
+  const canal = await prisma.whatsAppChannel.findUnique({
+    where: { evolutionInstanceName: ack.sesion },
+    select: { id: true },
   });
+  const mensaje = canal ? await buscarMensajePorIdCrudo(canal.id, ack.idMensaje) : null;
 
   if (!mensaje) {
     // Normal para lo que se envia desde el celular, fuera del CRM: ese mensaje no es nuestro.
@@ -487,14 +482,11 @@ async function aplicarEdicionOBorrado(
   if (crudo.length < 8) {
     return null;
   }
-  const mensaje = await prisma.message.findFirst({
-    where: {
-      channel: { evolutionInstanceName: cambio.sesion },
-      OR: [{ externalId: cambio.idMensaje }, { externalId: { endsWith: `_${crudo}` } }],
-    },
-    orderBy: { createdAt: "desc" },
-    select: { id: true, workspaceId: true, conversationId: true, content: true, deletedAt: true },
+  const canal = await prisma.whatsAppChannel.findUnique({
+    where: { evolutionInstanceName: cambio.sesion },
+    select: { id: true },
   });
+  const mensaje = canal ? await buscarMensajePorIdCrudo(canal.id, cambio.idMensaje) : null;
   if (!mensaje) {
     console.log(`[waha ${cambio.tipo}] sin mensaje para ${cambio.idMensaje} en ${cambio.sesion}`);
     return null;
@@ -544,11 +536,8 @@ async function conversacionDeUnMensaje(
   if (crudo.length < 8) {
     return null;
   }
-  const parecido = await prisma.message.findFirst({
-    where: { channelId, externalId: { endsWith: `_${crudo}` } },
-    orderBy: { createdAt: "desc" },
-    select: { conversationId: true },
-  });
+  // El exacto ya no esta, asi que esto es el mas nuevo que termina en `_<crudo>`, como antes.
+  const parecido = await buscarMensajePorIdCrudo(channelId, idMensaje);
   return parecido?.conversationId ?? null;
 }
 

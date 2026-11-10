@@ -3,7 +3,10 @@ import { getCallResultLabel, getCrmLostReasonLabel } from "@/features/crm/domain
 import { hoyEnBogota } from "@/features/agentes-de-area/dominio/reglas";
 import { rangoDelDia } from "@/features/agentes-de-area/servicios/numeros";
 import type { DesgloseDeOrigen, LeadsNuevosAgrupados } from "@/features/leads-nuevos/dominio/reglas";
-import { leadsNuevosDelDia } from "@/features/leads-nuevos/servicios/leads-nuevos-del-dia";
+import {
+  leadsNuevosDelDia,
+  leadsNuevosDelDiaConLosDeLaAsesora,
+} from "@/features/leads-nuevos/servicios/leads-nuevos-del-dia";
 
 // El día del informe es el día en Bogotá (UTC-5), no el del servidor: sale de hoyEnBogota.
 
@@ -70,9 +73,21 @@ export async function getResumenDiaData(input: {
   };
 
   try {
-    const [leads, empresa, calls, sales] = await Promise.all([
-      leadsNuevosDelDia(input.workspaceId, hoy, { asesoraId: input.userId }),
-      input.esJefe ? leadsNuevosDelDia(input.workspaceId, hoy).catch(() => null) : Promise.resolve(null),
+    const [{ leads, empresa }, calls, sales] = await Promise.all([
+      /*
+        El jefe ve sus leads Y los de la empresa: antes eran dos lecturas con la misma consulta (el filtro
+        por asesora es en memoria). Ahora es una y se filtra con la misma regla. Si falla, falla todo el
+        informe, como antes fallaba la de la asesora con esa misma consulta.
+      */
+      input.esJefe
+        ? leadsNuevosDelDiaConLosDeLaAsesora(input.workspaceId, hoy, input.userId).then((r) => ({
+            leads: r.deLaAsesora,
+            empresa: r.empresa as LeadsNuevosAgrupados | null,
+          }))
+        : leadsNuevosDelDia(input.workspaceId, hoy, { asesoraId: input.userId }).then((leads) => ({
+            leads,
+            empresa: null as LeadsNuevosAgrupados | null,
+          })),
       prisma.callAttempt.findMany({
         where: { workspaceId: input.workspaceId, calledByUserId: input.userId, calledAt: { gte: start, lt: end } },
         orderBy: { calledAt: "asc" },

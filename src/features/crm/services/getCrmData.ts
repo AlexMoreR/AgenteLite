@@ -109,11 +109,28 @@ async function buildContactTranscripts(
     return new Map<string, string>();
   }
 
-  const messages = await prisma.message.findMany({
-    where: { conversationId: { in: conversationIds }, type: { not: "SYSTEM" }, content: { not: null } },
-    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    select: { conversationId: true, content: true, direction: true },
-  });
+  /*
+    Solo los ultimos N de CADA chat, en la base. Antes se traian TODOS los mensajes de estos chats
+    y se tiraban en JS todos menos 6: con historiales largos eran miles de filas armadas en Node
+    para nada. El LATERAL entra por el indice (conversationId, createdAt) y se detiene en N.
+    Mismo filtro y mismo orden que antes, asi que la tarjeta sale igual.
+  */
+  const messages = await prisma.$queryRaw<
+    Array<{ conversationId: string; content: string | null; direction: "INBOUND" | "OUTBOUND" }>
+  >(Prisma.sql`
+    SELECT x."conversationId", x."content", x."direction"
+    FROM unnest(${[...new Set(conversationIds)]}::text[]) AS c(id)
+    CROSS JOIN LATERAL (
+      SELECT m."conversationId", m."content", m."direction"::text AS "direction", m."createdAt", m."id"
+      FROM "Message" m
+      WHERE m."conversationId" = c.id
+        AND m."type"::text <> 'SYSTEM'
+        AND m."content" IS NOT NULL
+      ORDER BY m."createdAt" DESC, m."id" DESC
+      LIMIT ${TRANSCRIPT_MESSAGE_COUNT}
+    ) x
+    ORDER BY x."createdAt" DESC, x."id" DESC
+  `);
 
   // Los mensajes vienen del mas reciente al mas viejo: tomamos los primeros N por conversacion.
   const byConversation = new Map<string, Array<{ content: string | null; direction: "INBOUND" | "OUTBOUND" }>>();

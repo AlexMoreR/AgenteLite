@@ -43,12 +43,26 @@ export default async function ClienteCrmMiDiaPage() {
   // puede quedar en un "no autorizado" sin salida: se lo devuelve a /cliente, que ya sabe a
   // donde mandarlo segun sus permisos.
   const access = await requireClientWorkspaceAccess("crm", { redirectTo: "/cliente" });
-  // Su dia: la lista trae SUS leads y los que no tienen dueno, no los de otra persona.
-  const visibleChannelIds = await getVisibleChannelIds({
-    workspaceId: access.workspaceId,
-    userId: access.userId,
-    esJefe: access.isOwner || access.role === "ADMIN",
-  });
+  /*
+    Lo que no depende de nada se pide junto, en una sola espera. Antes iban uno detras de otro
+    (canales, usuario, todo lo demas, configuracion, otra vez el usuario, aprobaciones) y la pantalla
+    sumaba cada espera. El usuario se lee UNA vez y sirve para el informe y para la recuperacion.
+  */
+  const [visibleChannelIds, yo, configSeguimiento] = await Promise.all([
+    // Su dia: la lista trae SUS leads y los que no tienen dueno, no los de otra persona.
+    getVisibleChannelIds({
+      workspaceId: access.workspaceId,
+      userId: access.userId,
+      esJefe: access.isOwner || access.role === "ADMIN",
+    }),
+    prisma.user.findUnique({ where: { id: access.userId }, select: { name: true, email: true } }),
+    leerConfigSeguimiento(access.workspaceId).catch(() => null),
+  ]);
+  /*
+    Recuperación 72 h (solo en modo ACTIVO): sus últimos intentos (Llamar → Audio → Espera 24 h) y,
+    si ella es quien aprueba, los descartes de intención fuerte que esperan su decisión.
+  */
+  const recuperacionActiva = configSeguimiento?.recuperacion72h.modo === "activo";
 
   /*
     Un solo "Mi dia" (Alex, 15-sep-2026).
@@ -58,10 +72,20 @@ export default async function ClienteCrmMiDiaPage() {
     estaba en el que no miraba. Quien no tenga el modulo de Llamadas ve la pantalla como hasta ahora.
   */
   const veLlamadas = canAccessClientModule(access, "llamadas");
-  const quien = veLlamadas
-    ? await prisma.user.findUnique({ where: { id: access.userId }, select: { name: true, email: true } })
-    : null;
-  const [data, vendedora, resumen, coach, tareasDeSeguimiento, pedidosDelSupervisor] = await Promise.all([
+  const aprobadoraPromesa =
+    recuperacionActiva && configSeguimiento
+      ? aprobadorDeRecuperacion(access.workspaceId, configSeguimiento).catch(() => null)
+      : Promise.resolve(null);
+  const [
+    data,
+    vendedora,
+    resumen,
+    coach,
+    tareasDeSeguimiento,
+    pedidosDelSupervisor,
+    recuperaciones,
+    aprobaciones,
+  ] = await Promise.all([
     getMiDiaData({
       workspaceId: access.workspaceId,
       userId: access.userId,
@@ -76,7 +100,7 @@ export default async function ClienteCrmMiDiaPage() {
       ? getResumenDiaData({
           workspaceId: access.workspaceId,
           userId: access.userId,
-          advisorName: quien?.name?.trim() || quien?.email || "Asesora",
+          advisorName: yo?.name?.trim() || yo?.email || "Asesora",
           esJefe: access.isOwner || access.role === "ADMIN",
         })
       : Promise.resolve(null),
@@ -86,22 +110,14 @@ export default async function ClienteCrmMiDiaPage() {
     leerTareasDeAsesora(access.workspaceId, access.userId).catch(() => []),
     // Supervisor accionable: lo que le pidió el Supervisor, con plazo (null con el interruptor apagado).
     leerPedidosDelSupervisor(access.workspaceId, access.userId).catch(() => null),
+    recuperacionActiva
+      ? leerRecuperacionesDeAsesora(access.workspaceId, access.userId).catch(() => ({ tareas: [], enEspera: [] }))
+      : Promise.resolve(null),
+    // Las aprobaciones se piden apenas se sabe que ella es quien aprueba, sin esperar lo demas.
+    aprobadoraPromesa.then((aprobadora) =>
+      aprobadora && aprobadora === access.userId ? leerAprobacionesPendientes(access.workspaceId).catch(() => []) : [],
+    ),
   ]);
-  /*
-    Recuperación 72 h (solo en modo ACTIVO): sus últimos intentos (Llamar → Audio → Espera 24 h) y,
-    si ella es quien aprueba, los descartes de intención fuerte que esperan su decisión.
-  */
-  const configSeguimiento = await leerConfigSeguimiento(access.workspaceId).catch(() => null);
-  const recuperacionActiva = configSeguimiento?.recuperacion72h.modo === "activo";
-  const [recuperaciones, aprobadora, yo] =
-    recuperacionActiva && configSeguimiento
-      ? await Promise.all([
-          leerRecuperacionesDeAsesora(access.workspaceId, access.userId).catch(() => ({ tareas: [], enEspera: [] })),
-          aprobadorDeRecuperacion(access.workspaceId, configSeguimiento).catch(() => null),
-          prisma.user.findUnique({ where: { id: access.userId }, select: { name: true } }),
-        ])
-      : [null, null, null];
-  const aprobaciones = aprobadora && aprobadora === access.userId ? await leerAprobacionesPendientes(access.workspaceId).catch(() => []) : [];
   const bloqueDeRecuperacion =
     recuperaciones && (recuperaciones.tareas.length || recuperaciones.enEspera.length) ? (
       <RecuperacionDeMiDia

@@ -183,10 +183,11 @@ async function handleCron(request: Request) {
   });
 
   // Enfriamiento de leads (Playbook: 3 intentos + 5 días + cero respuesta → Tibio). Va colgado
-  // de este cron para no montar otro. Throttle: solo cada ~5 min (el cron corre cada 60s), porque
-  // el cruce de la condición no cambia minuto a minuto. Best-effort: si falla, no rompe los envíos.
+  // de este cron para no montar otro. Throttle: cada 15 min (minuto 1, 16, 31, 46; el cron corre cada
+  // 60s), porque el cruce de la condición es por días y no cambia minuto a minuto. Era cada 5: lee
+  // los salientes de cada candidato y no ganaba nada. Best-effort: si falla, no rompe los envíos.
   let cooldown: { demoted: number } | null = null;
-  if (new Date().getMinutes() % 5 === 0) {
+  if (new Date().getMinutes() % 15 === 1) {
     try {
       cooldown = await demoteUnresponsiveStaleLeads();
     } catch (error) {
@@ -195,10 +196,10 @@ async function handleCron(request: Request) {
   }
 
   // Temperatura del lead: Tibio sin respuesta del cliente en 2 dias -> Frio. Caliente NO se toca
-  // (decision de Alex: si una asesora lo marco asi, el reloj no le pisa la decision). Mismo
-  // throttle de 5 min y mismo best-effort que el enfriamiento por llamadas de arriba.
+  // (decision de Alex: si una asesora lo marco asi, el reloj no le pisa la decision). Cada 15 min
+  // como el de arriba, pero en otros minutos (8, 23, 38, 53) para no sumar las dos consultas.
   let temperatura: { enfriados: number } | null = null;
-  if (new Date().getMinutes() % 5 === 0) {
+  if (new Date().getMinutes() % 15 === 8) {
     try {
       temperatura = await enfriarLeadsSinRespuesta();
     } catch (error) {
@@ -225,8 +226,9 @@ async function handleCron(request: Request) {
     Descarte tras los seguimientos: el seguimiento de 7 dias (redes) salio, pasaron 24 h y nadie contesto.
     Sin senal de compra se descarta; con senal va a LLAMAR. Tambien reabre a quien vuelve a escribir.
     Se apaga con `crm:descarte-tras-seguimientos:<negocio>` = "off"; mueve maximo 50 por vuelta.
+    Cada 30 min (minuto 12 y 42): la regla es por dias y su consulta cruza Follow con EmbudoEvento.
   */
-  if (new Date().getMinutes() % 10 === 0) {
+  if (new Date().getMinutes() % 30 === 12) {
     try {
       await ejecutarDescarteTrasSeguimientos();
     } catch (error) {
@@ -332,10 +334,11 @@ async function handleCron(request: Request) {
   }
 
   // Retencion del archivo de webhooks. Va colgado de este cron, como los de arriba, para no
-  // montar otro. Throttle de una vez por hora (en el minuto 7): el vencimiento es por dias, no
-  // hay nada que ganar mirandolo cada 60 segundos, y cada corrida borra de a 5000.
+  // montar otro. Solo de madrugada, a las 3 a. m. de Colombia (3:07, 3:17 ... 3:57): el vencimiento
+  // es por dias y la busqueda recorre la tabla, asi que no tiene por que pisarse con el trabajo del
+  // dia. Son 6 corridas de a 5000 (antes 24 por dia), y si una vuelta se salta un minuto quedan las otras.
   let webhookLogs: { deleted: number } | null = null;
-  if (new Date().getMinutes() === 7) {
+  if (new Date().getMinutes() % 10 === 7 && new Date(Date.now() - 5 * 3_600_000).getUTCHours() === 3) {
     try {
       webhookLogs = await purgeOldWebhookEventLogs();
     } catch (error) {
@@ -434,11 +437,11 @@ async function handleCron(request: Request) {
   }
 
   /*
-    BARRIDO DE ETAPAS (ver src/features/crm/services/barrido-de-etapas.ts): cada 10 minutos (minuto 6, 16,
-    26...), por negocio: Ganado desde las ventas pagadas de Gestión y la IA barata para los chats sin etapa
+    BARRIDO DE ETAPAS (ver src/features/crm/services/barrido-de-etapas.ts): cada 30 minutos (minuto 6 y
+    36), por negocio: Ganado desde las ventas pagadas de Gestión y la IA barata para los chats sin etapa
     (máx. 20 por vuelta y 300 al día). Solo escribe la etapa en el CRM; apagado con crm:etapa-automatica:<negocio>.
   */
-  if (minuto % 10 === 6) {
+  if (minuto % 30 === 6) {
     after(async () => {
       try {
         await barrerEtapasDeTodos();

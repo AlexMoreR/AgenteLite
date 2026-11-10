@@ -126,9 +126,13 @@ async function leerTareas(input: {
        ${input.sinDuena ? Prisma.sql`AND c."assignedToUserId" IS NULL` : Prisma.empty}
        ${input.sinRecuperacion ? Prisma.sql`AND COALESCE(l."accionDatos"->>'motivo', '') <> 'recuperacion_72h'` : filtroSinReactivar(corte)}
        -- La de la Recuperación no se da por hecha con un mensaje: su evidencia es la llamada y el audio.
+       -- El workspace no cambia el resultado (el mensaje es del negocio de su chat), pero con él la base
+       -- entra por el índice (workspaceId, conversationId, direction, createdAt) y solo abre el rawPayload
+       -- de los salientes posteriores a la acción, no el de todos.
        AND (l."accionDatos"->>'motivo' = 'recuperacion_72h' OR NOT EXISTS (
          SELECT 1 FROM "Message" m
-          WHERE m."conversationId" = l."conversationId" AND m."direction" = 'OUTBOUND'
+          WHERE m."workspaceId" = ${input.workspaceId}
+            AND m."conversationId" = l."conversationId" AND m."direction" = 'OUTBOUND'
             AND m."rawPayload"->>'source' IN ('manual', 'instance')
             AND m."createdAt" > COALESCE(l."accionEn", l."updatedAt")))
      ORDER BY l."tareaPrioridad" ASC, l."tareaVence" ASC NULLS LAST

@@ -435,11 +435,11 @@ await prueba("con crm:etapa-automatica:<negocio> en off no cambia nada", async (
   assert.equal(db.historial.length, 0);
 });
 
-await prueba("el barrido no usa funciones de envío y el reloj lo llama cada 10 minutos en segundo plano", async () => {
+await prueba("el barrido no usa funciones de envío y el reloj lo llama cada 30 minutos en segundo plano", async () => {
   const fuente = fs.readFileSync(path.join(RAIZ, "src/features/crm/services/barrido-de-etapas.ts"), "utf8");
   assert.doesNotMatch(fuente, /sendText|enviar|evolution/i);
   const reloj = fs.readFileSync(path.join(RAIZ, "src/app/api/cron/follows/route.ts"), "utf8");
-  assert.match(reloj, /if \(minuto % 10 === 6\) \{\s*after\(async \(\) => \{\s*try \{\s*await barrerEtapasDeTodos\(\);/);
+  assert.match(reloj, /if \(minuto % 30 === 6\) \{\s*after\(async \(\) => \{\s*try \{\s*await barrerEtapasDeTodos\(\);/);
 });
 
 console.log(`\n${pruebas} pruebas del barrido de etapas: OK`);
