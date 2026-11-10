@@ -161,6 +161,13 @@ function FilaDeCondicion({
         </span>
       );
       break;
+    case "no_leido":
+      valor = (
+        <span className="flex min-h-8 items-center text-[12px] text-muted-foreground">
+          El cliente escribió y nadie abrió el chat
+        </span>
+      );
+      break;
     case "dias_sin_responder":
       valor = <Dias valor={condicion.dias} alCambiar={(n) => onCambio({ ...condicion, dias: n })} sufijo="días sin que el cliente escriba" />;
       break;

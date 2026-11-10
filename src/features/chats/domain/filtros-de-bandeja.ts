@@ -64,6 +64,11 @@ export type CondicionDeBandeja =
     }
   /** El ultimo que hablo fue el cliente (no / si). */
   | { campo: "sin_responder"; operador: "si" | "no" }
+  /**
+   * Tiene mensajes del cliente que nadie abrio: el mismo globo verde de la fila (entrantes con
+   * `readAt` vacio). Solo "si": es la pastilla "No leido".
+   */
+  | { campo: "no_leido"; operador: "si" }
   /** El cliente no escribe hace al menos N dias (igual que en Automatizaciones). */
   | { campo: "dias_sin_responder"; operador: "al_menos"; dias: number };
 
@@ -76,6 +81,7 @@ export const CAMPOS_DE_BANDEJA: ReadonlyArray<{ campo: CampoDeBandeja; etiqueta:
   { campo: "canal", etiqueta: "Línea" },
   { campo: "fecha", etiqueta: "Fecha" },
   { campo: "sin_responder", etiqueta: "Sin responder" },
+  { campo: "no_leido", etiqueta: "No leído" },
   { campo: "dias_sin_responder", etiqueta: "Días sin responder" },
 ];
 
@@ -107,6 +113,7 @@ export const OPERADORES_DE_BANDEJA: Record<CampoDeBandeja, ReadonlyArray<{ valor
     { valor: "si", etiqueta: "sí" },
     { valor: "no", etiqueta: "no" },
   ],
+  no_leido: [{ valor: "si", etiqueta: "sí" }],
   dias_sin_responder: [{ valor: "al_menos", etiqueta: "al menos" }],
 };
 
@@ -123,6 +130,8 @@ export function condicionVaciaDeBandeja(campo: CampoDeBandeja): CondicionDeBande
     case "fecha":
       return { campo, operador: "ultimos", sobre: "ultimo", dias: 7 };
     case "sin_responder":
+      return { campo, operador: "si" };
+    case "no_leido":
       return { campo, operador: "si" };
     case "dias_sin_responder":
       return { campo, operador: "al_menos", dias: 3 };
@@ -157,6 +166,7 @@ export function condicionCompleta(c: CondicionDeBandeja): boolean {
       if (c.operador === "ultimos") return Boolean(c.dias && c.dias > 0);
       return true;
     case "sin_responder":
+    case "no_leido":
       return true;
     case "dias_sin_responder":
       return c.dias > 0;
@@ -419,6 +429,8 @@ export function leerCondicion(texto: string): CondicionDeBandeja | null {
     }
     case "sin_responder":
       return operador === "si" || operador === "no" ? { campo, operador } : null;
+    case "no_leido":
+      return operador === "si" ? { campo, operador } : null;
     case "dias_sin_responder": {
       const dias = entero(valor);
       return operador === "al_menos" && dias ? { campo, operador, dias } : null;
@@ -444,6 +456,8 @@ export function textoDeCondicionEnUrl(c: CondicionDeBandeja): string {
     }
     case "sin_responder":
       return `sin_responder:${c.operador}`;
+    case "no_leido":
+      return "no_leido:si";
     case "dias_sin_responder":
       return `dias_sin_responder:al_menos:${c.dias}`;
   }
@@ -541,6 +555,8 @@ export function textoDeCondicion(c: CondicionDeBandeja, nombres: NombresDeBandej
       return textoDeLaFecha(c, ahora);
     case "sin_responder":
       return c.operador === "si" ? "sin responder" : "respondidas";
+    case "no_leido":
+      return "no leídos";
     case "dias_sin_responder":
       return `callado ${c.dias}+ días`;
   }
@@ -548,6 +564,13 @@ export function textoDeCondicion(c: CondicionDeBandeja, nombres: NombresDeBandej
 
 /** Hasta donde se mira hacia atras al buscar lo que quedo sin responder. */
 export const DIAS_DE_SIN_RESPONDER = 60;
+
+/**
+ * Hasta donde se mira hacia atras al buscar lo NO LEIDO. Es lo que mantiene barata la consulta (el
+ * indice de mensajes por negocio y fecha) y no cambia nada de lo que se trabaja hoy: un mensaje sin
+ * abrir de hace mas de dos meses no es trabajo pendiente.
+ */
+export const DIAS_DE_NO_LEIDO = 60;
 
 /**
  * Una vista como texto comparable: sin la conexion, la busqueda ni el chat abierto, y con los

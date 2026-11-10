@@ -89,6 +89,7 @@ import {
   sincronizarConEspera,
 } from "./chat-inbox-conversation-utils";
 import { filtroSinResponderPuesto, seOcultaPorSinResponder } from "@/features/chats/domain/sin-responder";
+import { filtrosParaContar } from "./pastillas-de-la-bandeja";
 import { esperaPorClave, type EsperaDeChats } from "@/features/chats/domain/espera-de-chats";
 import { leerEspera } from "@/features/chats/domain/filtros-de-bandeja";
 import { ConversationPanel, type EnvioTerminado } from "./chat-conversation-panel";
@@ -548,6 +549,17 @@ export function SharedInbox({
     },
     [filtrosDeLaUrl],
   );
+  /*
+    Para /counts, las mismas condiciones SIN `sin_responder:si` ni `no_leido:si`: asi Todas, Mias y
+    Sin asignar no bajan a cero cuando Sin responder o No leido estan puestos. Sus numeros
+    (`sinResponder` y `noLeido`) los calcula el servidor aparte.
+  */
+  const ponerFiltrosParaContar = useCallback(
+    (params: URLSearchParams) => {
+      for (const [clave, valor] of paramsDeFiltros(filtrosParaContar(filtrosDeLaUrl))) params.set(clave, valor);
+    },
+    [filtrosDeLaUrl],
+  );
 
   /*
     LA VISTA (pestaña + estado + filtros) SALE DE LA URL DEL NAVEGADOR.
@@ -618,7 +630,7 @@ export function SharedInbox({
     return () => window.clearTimeout(temporizador);
   }, [vistaEnCurso]);
 
-  const [assignedCounts, setAssignedCounts] = useState<{ mine: number; unassigned: number; all: number; sinResponder?: number } | null>(null);
+  const [assignedCounts, setAssignedCounts] = useState<{ mine: number; unassigned: number; all: number; sinResponder?: number; noLeido?: number } | null>(null);
   // El `espera` del ultimo /counts: la marca de cada fila, el numero de "Esperando" y su lista.
   const [esperaDelConteo, setEsperaDelConteo] = useState<EsperaDeChats | null>(null);
   /*
@@ -897,7 +909,7 @@ export function SharedInbox({
         // El contador tiene que contar lo mismo que se ve en la lista: si estas en "Resueltas",
         // el numero de al lado de la pestaña es el de las resueltas.
         if (statusFilter !== "open") params.set("status", statusFilter);
-        ponerFiltrosNuevos(params);
+        ponerFiltrosParaContar(params);
         const qs = params.toString();
 
         const response = await fetch(`${countsApiPath}${qs ? `?${qs}` : ""}`, {
@@ -911,7 +923,7 @@ export function SharedInbox({
         const payload = (await response.json().catch(() => null)) as
           | {
               ok?: boolean;
-              counts?: { mine: number; unassigned: number; all: number; sinResponder?: number };
+              counts?: { mine: number; unassigned: number; all: number; sinResponder?: number; noLeido?: number };
               espera?: EsperaDeChats | null;
             }
           | null;
@@ -942,7 +954,7 @@ export function SharedInbox({
       if (timeoutId) clearTimeout(timeoutId);
       document.removeEventListener("visibilitychange", alCambiarVisibilidad);
     };
-  }, [conversationListApiPath, searchQuery, selectedConnectionKey, statusFilter, ponerFiltrosNuevos, pedidoDeConteos]);
+  }, [conversationListApiPath, searchQuery, selectedConnectionKey, statusFilter, ponerFiltrosParaContar, pedidoDeConteos]);
 
   useEffect(() => {
     conversationItemsRef.current = conversationItems;

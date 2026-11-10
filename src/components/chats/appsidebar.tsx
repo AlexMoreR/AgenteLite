@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, ChevronRight, MessageSquareText, Pencil, Plus, Search, Trash2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Eye, EyeOff, MessageSquareText, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import { ConversationList } from "@/components/chats/conversation-list";
 import { ChatsRecientes, MensajesEncontradosLista, type ChatParaAbrir } from "./buscador-de-chats-secciones";
 import { useChatsRecientes } from "./busqueda-de-chats-store";
@@ -28,6 +28,22 @@ import {
   type FiltrosDeBandeja,
 } from "@/features/chats/domain/filtros-de-bandeja";
 import { filtroSinResponderPuesto } from "@/features/chats/domain/sin-responder";
+import {
+  ETIQUETAS_DE_PASTILLAS,
+  SIN_PREFERENCIA,
+  claveDeLista,
+  esPastillaFija,
+  idDeLista,
+  limpiarPreferencia,
+  movimientosPosibles,
+  moverPastilla,
+  mostrarPastilla,
+  ocultarPastilla,
+  pastillasDeLaFila,
+  type ClaveDePastilla,
+  type PastillaFija,
+  type PreferenciaDePastillas,
+} from "@/features/chats/domain/orden-de-las-pastillas";
 import { hrefDeEsperando } from "./chat-inbox-conversation-utils";
 import { CRM_STAGE_META } from "@/features/crm/domain/crm-config";
 import { iniciarMedicion, terminarMedicionAlPintar } from "@/lib/metricas-chats";
@@ -40,7 +56,7 @@ type AppSidebarProps = {
   searchQuery?: string;
   assignedFilter?: AssignedFilter;
   statusFilter?: StatusFilter;
-  assignedCounts?: { mine: number; unassigned: number; all: number; sinResponder?: number } | null;
+  assignedCounts?: { mine: number; unassigned: number; all: number; sinResponder?: number; noLeido?: number } | null;
   /** La vista "Esperando" (`espera=1`) esta puesta. */
   enEspera?: boolean;
   /** `espera.mine` y `espera.all` del ultimo /counts. null = sin dato: la pastilla va sin numero. */
@@ -138,14 +154,10 @@ function BuscadorDeChats({
 
 const FILAS_EN_SILUETA = 6;
 
-const ASSIGNED_FILTER_TABS: Array<{ value: AssignedFilter; label: string; managerOnly?: boolean }> = [
-  { value: "mine", label: "Mías" },
-  { value: "unassigned", label: "Sin asignar", managerOnly: true },
-  { value: "all", label: "Todas", managerOnly: true },
-];
-
-/** Las que se ven sin abrir el modal, en este orden. */
-const PASTILLAS_A_LA_VISTA = ["all", "mine"] as const;
+/*
+  Las pastillas fijas, quien ve cual y su orden por defecto viven en
+  features/chats/domain/orden-de-las-pastillas.ts (la asesora no ve Todas ni Sin asignar).
+*/
 
 /**
  * La chapita de un filtro puesto: el nombre abre los filtros, solo la X lo quita.
@@ -190,8 +202,11 @@ function ChapaDeFiltro({
   );
 }
 
-/** Cuanto hay que mantener presionada una lista para que aparezca su menu. */
+/** Cuanto hay que mantener presionada una pastilla para que aparezca su menu. */
 const TOQUE_LARGO_MS = 450;
+
+/** Si el orden de la fila no llega en este tiempo, se dibuja la de por defecto. */
+const TOPE_PARA_DIBUJAR_LA_FILA_MS = 1500;
 
 /*
   Memorizada: la bandeja (shared-inbox) se re-dibuja con cada cosa del chat abierto -un mensaje que
@@ -311,21 +326,62 @@ export const AppSidebar = React.memo(function AppSidebar({
     Son de cada persona (las guarda /api/cliente/chats/filtros-guardados).
   */
   const [listas, setListas] = React.useState<ListaDeChats[]>([]);
-  const [menuDeLista, setMenuDeLista] = React.useState<ListaDeChats | null>(null);
+  /*
+    LA FILA DE PASTILLAS (Alex, 10-11-2026): las fijas (Todas, Mias, No leido, Sin responder, Sin
+    asignar) y las listas en UNA sola fila que cada persona ordena y en la que oculta las fijas que no
+    usa. El orden y las ocultas son de cada persona (AppSetting `chats:pastillas:<userId>`) y llegan
+    en el mismo pedido que las listas. Las reglas: features/chats/domain/orden-de-las-pastillas.ts.
+
+    La fila espera a ese pedido (con un tope corto) para no dibujarse en el orden por defecto y
+    despues saltar al de la persona. El + queda siempre, asi el alto de la fila no cambia.
+  */
+  const [preferencia, setPreferencia] = React.useState<PreferenciaDePastillas>(SIN_PREFERENCIA);
+  const [filaLista, setFilaLista] = React.useState(false);
+  const [menuDePastilla, setMenuDePastilla] = React.useState<ClaveDePastilla | null>(null);
+  const [verOcultas, setVerOcultas] = React.useState(false);
   const toqueLargo = React.useRef<{ temporizador: number | null; disparo: boolean }>({ temporizador: null, disparo: false });
   React.useEffect(() => {
     let vigente = true;
+    const tope = window.setTimeout(() => setFilaLista(true), TOPE_PARA_DIBUJAR_LA_FILA_MS);
     void fetch("/api/cliente/chats/filtros-guardados", { credentials: "same-origin" })
       .then((respuesta) => respuesta.json())
-      .then((datos: { ok?: boolean; filtros?: ListaDeChats[] }) => {
-        if (vigente && datos.ok && Array.isArray(datos.filtros)) setListas(datos.filtros);
+      .then((datos: { ok?: boolean; filtros?: ListaDeChats[]; pastillas?: unknown }) => {
+        if (!vigente || !datos.ok || !Array.isArray(datos.filtros)) return;
+        setListas(datos.filtros);
+        // Lo que llega se limpia igual que en el servidor: datos raros caen al orden por defecto.
+        setPreferencia(limpiarPreferencia(datos.pastillas ?? null, datos.filtros.map((lista) => lista.id)));
       })
       .catch(() => {
-        // Sin listas la bandeja igual funciona.
+        // Sin listas la bandeja igual funciona, con el orden por defecto.
+      })
+      .finally(() => {
+        window.clearTimeout(tope);
+        if (vigente) setFilaLista(true);
       });
     return () => {
       vigente = false;
+      window.clearTimeout(tope);
     };
+  }, []);
+
+  const contextoDeLaFila = React.useMemo(
+    () => ({ isManager, idsDeListas: listas.map((lista) => lista.id) }),
+    [isManager, listas],
+  );
+  const { visibles: pastillasVisibles, ocultas: pastillasOcultas } = React.useMemo(
+    () => pastillasDeLaFila(preferencia, contextoDeLaFila),
+    [preferencia, contextoDeLaFila],
+  );
+
+  /** Se aplica en el acto y se guarda de fondo; si no se guarda, la proxima carga trae lo de antes. */
+  const guardarPreferencia = React.useCallback((nueva: PreferenciaDePastillas) => {
+    setPreferencia(nueva);
+    void fetch("/api/cliente/chats/pastillas", {
+      method: "PUT",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(nueva),
+    }).catch(() => null);
   }, []);
 
   // Los nombres (etiquetas, equipo, lineas) para las chapitas de las condiciones puestas.
@@ -470,7 +526,8 @@ export const AppSidebar = React.memo(function AppSidebar({
   );
 
   const borrarLista = async (lista: ListaDeChats) => {
-    setMenuDeLista(null);
+    setMenuDePastilla(null);
+    // Sale tambien del orden de la fila: ordenCompleto solo deja las listas que existen.
     setListas((actuales) => actuales.filter((otra) => otra.id !== lista.id));
     if (listaActiva?.id === lista.id) aplicarFiltros("all", "open", SIN_FILTROS);
     await fetch(`/api/cliente/chats/filtros-guardados?id=${encodeURIComponent(lista.id)}`, {
@@ -479,20 +536,23 @@ export const AppSidebar = React.memo(function AppSidebar({
     }).catch(() => null);
   };
 
-  const moverLista = async (lista: ListaDeChats, hacia: -1 | 1) => {
-    const indice = listas.findIndex((otra) => otra.id === lista.id);
-    const destino = indice + hacia;
-    if (indice < 0 || destino < 0 || destino >= listas.length) return;
-    const nuevas = [...listas];
-    [nuevas[indice], nuevas[destino]] = [nuevas[destino], nuevas[indice]];
-    setListas(nuevas);
-    setMenuDeLista(null);
-    await fetch("/api/cliente/chats/filtros-guardados", {
-      method: "PATCH",
-      credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ orden: nuevas.map((otra) => otra.id) }),
-    }).catch(() => null);
+  /** Mover una pastilla (fija o lista) un lugar, saltando las ocultas. */
+  const moverEnLaFila = (clave: ClaveDePastilla, hacia: -1 | 1) => {
+    setMenuDePastilla(null);
+    const nueva = moverPastilla(preferencia, contextoDeLaFila, clave, hacia);
+    if (nueva) guardarPreferencia(nueva);
+  };
+
+  const ocultarDeLaFila = (clave: PastillaFija) => {
+    setMenuDePastilla(null);
+    guardarPreferencia(ocultarPastilla(preferencia, contextoDeLaFila, clave));
+  };
+
+  /** Volver a mostrar una oculta (o todas). Se cierra el cuadro cuando ya no queda ninguna. */
+  const mostrarEnLaFila = (clave?: PastillaFija) => {
+    const nueva = mostrarPastilla(preferencia, contextoDeLaFila, clave);
+    guardarPreferencia(nueva);
+    if (pastillasDeLaFila(nueva, contextoDeLaFila).ocultas.length === 0) setVerOcultas(false);
   };
 
   const soltarToqueLargo = () => {
@@ -500,8 +560,8 @@ export const AppSidebar = React.memo(function AppSidebar({
     toqueLargo.current.temporizador = null;
   };
 
-  /** Tocar abre la lista; mantener presionado (o clic derecho) abre su menu. */
-  const toquesDeLista = (lista: ListaDeChats) => ({
+  /** Tocar hace lo de la pastilla; mantener presionado (o clic derecho) abre su menu. */
+  const toquesDePastilla = (clave: ClaveDePastilla, alTocar: () => void) => ({
     onPointerDown: (evento: React.PointerEvent) => {
       if (evento.button !== 0) return;
       toqueLargo.current.disparo = false;
@@ -510,7 +570,7 @@ export const AppSidebar = React.memo(function AppSidebar({
         toqueLargo.current.disparo = true;
         toqueLargo.current.temporizador = null;
         navigator.vibrate?.(15);
-        setMenuDeLista(lista);
+        setMenuDePastilla(clave);
       }, TOQUE_LARGO_MS);
     },
     onPointerUp: soltarToqueLargo,
@@ -519,19 +579,37 @@ export const AppSidebar = React.memo(function AppSidebar({
     onPointerCancel: soltarToqueLargo,
     onContextMenu: (evento: React.MouseEvent) => {
       evento.preventDefault();
-      setMenuDeLista(lista);
+      setMenuDePastilla(clave);
     },
     onClick: () => {
       if (toqueLargo.current.disparo) {
         toqueLargo.current.disparo = false;
         return;
       }
-      aplicarGuardado(lista.query);
+      alTocar();
     },
   });
 
   // La pastilla "Sin responder" va encendida si esta puesta la condicion `sin_responder:si`.
   const sinResponderPuesto = filtroSinResponderPuesto(filtros.condiciones);
+  // Y "No leido", si esta puesta `no_leido:si`.
+  const noLeidoPuesto = filtros.condiciones.some((condicion) => condicion.campo === "no_leido");
+
+  /**
+   * Prender o apagar una condicion de pastilla (`sin_responder:si` o `no_leido:si`) sobre lo que ya
+   * hay: "Mias + Sin responder" muestra solo los mios. Con una lista abierta se suma a sus
+   * condiciones y la lista deja de contar como abierta (cambia la firma de la vista).
+   */
+  const alternarCondicion = (campo: "sin_responder" | "no_leido", puesta: boolean) =>
+    aplicarFiltros(assignedFilter, statusFilter, {
+      condiciones: puesta
+        ? filtros.condiciones.filter((condicion) => !(condicion.campo === campo && condicion.operador === "si"))
+        : [
+            // Una "sin_responder:no" se reemplaza: las dos juntas no darian nada.
+            ...filtros.condiciones.filter((condicion) => condicion.campo !== campo),
+            { campo, operador: "si" },
+          ],
+    });
 
   /*
     "ESPERANDO" (parte 4 de "Esperando respuesta"): un interruptor ENCIMA de Todas/Mias.
@@ -554,6 +632,113 @@ export const AppSidebar = React.memo(function AppSidebar({
     },
     [assignedFilter, irA, searchAction, selectedConnectionKey, searchQuery],
   );
+
+  const clasesDePastilla = (activa: boolean, grupoDeEsperando = false) =>
+    `inline-flex shrink-0 select-none items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1 text-[13px] font-medium transition [-webkit-touch-callout:none] ${
+      grupoDeEsperando
+        ? "border-primary text-primary hover:bg-primary/10"
+        : activa
+          ? "border-transparent bg-primary text-primary-foreground"
+          : "border-border text-muted-foreground hover:bg-muted"
+    }`;
+
+  const numeroDePastilla = (numero: number | null | undefined) =>
+    typeof numero === "number" ? <span className="text-[11px] font-semibold leading-none">{numero}</span> : null;
+
+  /** Una pastilla fija. Con una lista abierta ninguna va pintada ni lleva numero (la pintada es la lista). */
+  const pastillaFija = (clave: PastillaFija) => {
+    const etiqueta = ETIQUETAS_DE_PASTILLAS[clave];
+    const titulo = `${etiqueta} (mantén presionado para mover u ocultar)`;
+
+    if (clave === "sin_responder" || clave === "no_leido") {
+      /*
+        "Sin responder" (lo ultimo lo escribio el cliente) y "No leido" (el cliente escribio y nadie
+        abrio el chat): no son filtros nuevos, ponen o quitan su condicion sobre lo que ya hay.
+        Llevan su numero de /counts (`sinResponder` y `noLeido`). Hasta el 10-11-2026 la de
+        `sin_responder:si` se llamaba "No leido" por error: contaba casi lo mismo que Todas.
+      */
+      const puesta = clave === "sin_responder" ? sinResponderPuesto : noLeidoPuesto;
+      const numero = clave === "sin_responder" ? assignedCounts?.sinResponder : assignedCounts?.noLeido;
+      return (
+        <button
+          key={clave}
+          type="button"
+          aria-pressed={puesta}
+          title={titulo}
+          {...toquesDePastilla(clave, () => alternarCondicion(clave, puesta))}
+          className={clasesDePastilla(puesta)}
+        >
+          {etiqueta}
+          {!listaActiva ? numeroDePastilla(numero) : null}
+        </button>
+      );
+    }
+
+    // Todas, Mias y Sin asignar: la asignacion. Con una lista abierta, tocarla la cierra.
+    const valor = clave === "todas" ? "all" : clave === "mias" ? "mine" : "unassigned";
+    const activa = !listaActiva && filtroMostrado === valor;
+    // En "Esperando" la pintada llena es Esperando; el grupo va con borde de la marca.
+    const grupoDeEsperando = enEspera && activa;
+    const alTocar =
+      valor === "unassigned"
+        ? // "Esperando" es solo de Todas o Mias: Sin asignar sale de ahi.
+          () => (listaActiva ? aplicarFiltros(valor, "open", SIN_FILTROS) : aplicarFiltros(valor, statusFilter))
+        : () =>
+            enEspera
+              ? irAEsperando(valor, filtroMostrado !== valor)
+              : listaActiva
+                ? aplicarFiltros(valor, "open", SIN_FILTROS)
+                : aplicarFiltros(valor, statusFilter);
+    return (
+      <button
+        key={clave}
+        type="button"
+        aria-pressed={activa}
+        title={titulo}
+        {...toquesDePastilla(clave, alTocar)}
+        className={clasesDePastilla(activa, grupoDeEsperando)}
+      >
+        {etiqueta}
+        {assignedCounts && !listaActiva ? numeroDePastilla(assignedCounts[valor]) : null}
+      </button>
+    );
+  };
+
+  /*
+    Una lista de esta persona. La abierta va en azul y con su numero (el de los demas costaria una
+    consulta por lista en cada recarga).
+  */
+  const pastillaDeLista = (lista: ListaDeChats) => {
+    const activa = listaActiva?.id === lista.id;
+    const asignadaDeLaLista = new URLSearchParams(lista.query).get("assigned") || "all";
+    const cuenta =
+      activa && assignedCounts && (asignadaDeLaLista === "all" || asignadaDeLaLista === "mine" || asignadaDeLaLista === "unassigned")
+        ? assignedCounts[asignadaDeLaLista]
+        : null;
+    return (
+      <button
+        key={claveDeLista(lista.id)}
+        type="button"
+        {...toquesDePastilla(claveDeLista(lista.id), () => aplicarGuardado(lista.query))}
+        title={`${lista.nombre} (mantén presionado para editar)`}
+        className={`inline-flex shrink-0 select-none items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1 text-[13px] font-medium transition [-webkit-touch-callout:none] ${
+          activa
+            ? "border-transparent bg-primary text-primary-foreground"
+            : "border-border text-foreground/80 hover:bg-muted"
+        }`}
+      >
+        {lista.nombre}
+        {numeroDePastilla(cuenta)}
+      </button>
+    );
+  };
+
+  // Lo que muestra el menu de la pastilla mantenida presionada.
+  const listaDelMenu = menuDePastilla ? listas.find((lista) => lista.id === idDeLista(menuDePastilla)) ?? null : null;
+  const fijaDelMenu = menuDePastilla && esPastillaFija(menuDePastilla) ? menuDePastilla : null;
+  const movimientosDelMenu = menuDePastilla
+    ? movimientosPosibles(pastillasVisibles, menuDePastilla)
+    : { izquierda: false, derecha: false };
 
   return (
     <aside
@@ -604,117 +789,24 @@ export const AppSidebar = React.memo(function AppSidebar({
             */}
             <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {/*
-                "Todas" y "Mias" a la vista, sin abrir el modal. La que esta activa va en azul de
-                la marca; la otra en contorno, para que se lea cual estas mirando.
+                LA FILA (Alex, 10-11-2026): las fijas y las listas de esta persona, en SU orden y sin
+                las que oculto (ver contextoDeLaFila). Mantener presionada o clic derecho: mover, y
+                en las fijas ocultar; en las listas, ademas, editar y borrar.
 
-                Todas primero, por pedido de Alex. Y sin emoticones: la palabra ya dice que es
-                cada una, y los dibujos le robaban ancho al nombre y al conteo, que es lo unico
-                que se mira de estas pastillas.
-
-                "Sin asignar" sigue solo en el modal: es una vista de reparto, no del dia a dia.
+                La activa va en azul de la marca; las otras en contorno, para que se lea cual estas
+                mirando. Sin emoticones: la palabra ya dice que es cada una, y los dibujos le robaban
+                ancho al nombre y al conteo, que es lo unico que se mira de estas pastillas.
               */}
-              {(isManager ? PASTILLAS_A_LA_VISTA : (["mine"] as const)).map((valor) => {
-                // Con una lista abierta, la pintada es la lista; volver a Todas/Mias la cierra.
-                const activa = !listaActiva && filtroMostrado === valor;
-                // En "Esperando" la pintada llena es Esperando; el grupo va con borde de la marca.
-                const grupoDeEsperando = enEspera && activa;
-                const tab = ASSIGNED_FILTER_TABS.find((item) => item.value === valor);
-                return (
-                  <button
-                    key={valor}
-                    type="button"
-                    aria-pressed={activa}
-                    onClick={() =>
-                      enEspera
-                        ? irAEsperando(valor, filtroMostrado !== valor)
-                        : listaActiva
-                          ? aplicarFiltros(valor, "open", SIN_FILTROS)
-                          : aplicarFiltros(valor, statusFilter)
+              {/* La pastilla "Esperando" se quitó a pedido de Alex (07-11-2026); la vista espera=1 sigue. */}
+              {filaLista
+                ? pastillasVisibles.map((clave) => {
+                    if (!esPastillaFija(clave)) {
+                      const lista = listas.find((otra) => otra.id === idDeLista(clave));
+                      return lista ? pastillaDeLista(lista) : null;
                     }
-                    className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1 text-[13px] font-medium transition ${
-                      grupoDeEsperando
-                        ? "border-primary text-primary hover:bg-primary/10"
-                        : activa
-                          ? "border-transparent bg-primary text-primary-foreground"
-                          : "border-border text-muted-foreground hover:bg-muted"
-                    }`}
-                  >
-                    {tab?.label ?? "Todas"}
-                    {assignedCounts && !listaActiva ? (
-                      <span className="text-[11px] font-semibold leading-none">
-                        {assignedCounts[valor]}
-                      </span>
-                    ) : null}
-                  </button>
-                );
-              })}
-
-              {/* La pastilla "Esperando" se quitó a pedido de Alex (07-11-2026): quedó solo "No leído". */}
-              {/*
-                "Sin responder" a un toque (parte 4 de la marca), fuera del map de Todas/Mias para que
-                tambien la vea la asesora, que solo tiene "Mias". Lleva el numero de /counts (`sinResponder`), pedido por Alex.
-
-                No es un filtro nuevo: pone o quita la condicion `sin_responder:si` sobre lo que ya
-                hay, asi "Mias + Sin responder" muestra solo los mios. Con una lista abierta se suma a
-                sus condiciones y la lista deja de contar como abierta (cambia la firma de la vista).
-              */}
-              <button
-                type="button"
-                aria-pressed={sinResponderPuesto}
-                onClick={() =>
-                  aplicarFiltros(assignedFilter, statusFilter, {
-                    condiciones: sinResponderPuesto
-                      ? filtros.condiciones.filter(
-                          (condicion) => !(condicion.campo === "sin_responder" && condicion.operador === "si"),
-                        )
-                      : [
-                          // Una "sin_responder:no" se reemplaza: las dos juntas no darian nada.
-                          ...filtros.condiciones.filter((condicion) => condicion.campo !== "sin_responder"),
-                          { campo: "sin_responder", operador: "si" },
-                        ],
+                    return pastillaFija(clave);
                   })
-                }
-                className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1 text-[13px] font-medium transition ${
-                  sinResponderPuesto
-                    ? "border-transparent bg-primary text-primary-foreground"
-                    : "border-border text-muted-foreground hover:bg-muted"
-                }`}
-              >
-                No leído
-                {assignedCounts && !listaActiva && typeof assignedCounts.sinResponder === "number" ? (
-                  <span className="text-[11px] font-semibold leading-none">{assignedCounts.sinResponder}</span>
-                ) : null}
-              </button>
-
-              {/*
-                Las listas de esta persona. La abierta va en azul y con su numero (el de los demas
-                costaria una consulta por lista en cada recarga). Mantener presionada o clic derecho:
-                editar, mover o borrar.
-              */}
-              {listas.map((lista) => {
-                const activa = listaActiva?.id === lista.id;
-                const asignadaDeLaLista = new URLSearchParams(lista.query).get("assigned") || "all";
-                const cuenta =
-                  activa && assignedCounts && (asignadaDeLaLista === "all" || asignadaDeLaLista === "mine" || asignadaDeLaLista === "unassigned")
-                    ? assignedCounts[asignadaDeLaLista]
-                    : null;
-                return (
-                  <button
-                    key={lista.id}
-                    type="button"
-                    {...toquesDeLista(lista)}
-                    title={`${lista.nombre} (mantén presionado para editar)`}
-                    className={`inline-flex shrink-0 select-none items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1 text-[13px] font-medium transition [-webkit-touch-callout:none] ${
-                      activa
-                        ? "border-transparent bg-primary text-primary-foreground"
-                        : "border-border text-foreground/80 hover:bg-muted"
-                    }`}
-                  >
-                    {lista.nombre}
-                    {cuenta != null ? <span className="text-[11px] font-semibold leading-none">{cuenta}</span> : null}
-                  </button>
-                );
-              })}
+                : null}
 
               <button
                 type="button"
@@ -725,6 +817,20 @@ export const AppSidebar = React.memo(function AppSidebar({
               >
                 <Plus className="size-4" />
               </button>
+
+              {/* Solo si hay alguna oculta: abre el cuadro para volver a mostrarlas. */}
+              {filaLista && pastillasOcultas.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setVerOcultas(true)}
+                  aria-label="Mostrar pastillas ocultas"
+                  title="Mostrar pastillas ocultas"
+                  className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full border border-dashed border-border px-2.5 text-[12px] font-medium text-muted-foreground transition hover:bg-muted"
+                >
+                  <Eye className="size-3.5" />
+                  {pastillasOcultas.length}
+                </button>
+              ) : null}
 
               {/* Lo filtrado a mano (sin lista) se ve como chapitas; con una lista abierta, la lista ya lo dice. */}
               {!listaActiva ? (
@@ -763,9 +869,11 @@ export const AppSidebar = React.memo(function AppSidebar({
                   condicion.campo === "etiquetas" && condicion.valores.length === 1 && !negada
                     ? catalogosDeFiltro.etiquetas.find((item) => item.id === condicion.valores[0])
                     : null;
-                // "Sin responder: si" ya se ve en su pastilla. Se devuelve null en vez de filtrar
-                // antes, para no correr los indices con los que se quitan las demas.
-                if (condicion.campo === "sin_responder" && condicion.operador === "si") return null;
+                // "Sin responder: si" y "No leido" ya se ven en su pastilla, si esta a la vista (oculta,
+                // va la chapita: un filtro puesto tiene que notarse). Se devuelve null en vez de
+                // filtrar antes, para no correr los indices con los que se quitan las demas.
+                if (condicion.campo === "sin_responder" && condicion.operador === "si" && pastillasVisibles.includes("sin_responder")) return null;
+                if (condicion.campo === "no_leido" && pastillasVisibles.includes("no_leido")) return null;
                 const texto = textoDeCondicion(condicion, nombresDeFiltro, new Date());
                 return (
                   <ChapaDeFiltro
@@ -902,30 +1010,42 @@ export const AppSidebar = React.memo(function AppSidebar({
         alGuardarLista={guardarLista}
       />
 
-      {/* Lo que aparece al mantener presionada una lista, como en WhatsApp. */}
-      <Dialog open={menuDeLista !== null} onOpenChange={(abierto) => !abierto && setMenuDeLista(null)}>
+      {/*
+        Lo que aparece al mantener presionada una pastilla, como en WhatsApp. Todas se mueven (sin la
+        opcion que no aplica en los extremos); las fijas ademas se ocultan (no se borran); las
+        listas ademas se editan y se borran.
+      */}
+      <Dialog open={menuDePastilla !== null} onOpenChange={(abierto) => !abierto && setMenuDePastilla(null)}>
         <DialogContent showCloseButton={false} className="gap-0 p-1.5 sm:max-w-xs">
           <DialogHeader className="px-3 pb-2 pt-2.5">
-            <DialogTitle className="truncate text-[15px] font-semibold">{menuDeLista?.nombre}</DialogTitle>
-            <DialogDescription className="sr-only">Opciones de la lista</DialogDescription>
+            <DialogTitle className="truncate text-[15px] font-semibold">
+              {listaDelMenu?.nombre ?? (fijaDelMenu ? ETIQUETAS_DE_PASTILLAS[fijaDelMenu] : "")}
+            </DialogTitle>
+            <DialogDescription className="sr-only">{listaDelMenu ? "Opciones de la lista" : "Opciones de la pastilla"}</DialogDescription>
           </DialogHeader>
-          {menuDeLista ? (
+          {menuDePastilla && (listaDelMenu || fijaDelMenu) ? (
             <div className="flex flex-col">
               {[
-                {
-                  icono: <Pencil className="size-4" />,
-                  texto: "Editar",
-                  alTocar: () => {
-                    const lista = menuDeLista;
-                    setMenuDeLista(null);
-                    abrirFiltro({ tipo: "editar", lista });
-                  },
-                },
-                ...(listas.findIndex((otra) => otra.id === menuDeLista.id) > 0
-                  ? [{ icono: <ChevronLeft className="size-4" />, texto: "Mover a la izquierda", alTocar: () => void moverLista(menuDeLista, -1) }]
+                ...(listaDelMenu
+                  ? [
+                      {
+                        icono: <Pencil className="size-4" />,
+                        texto: "Editar",
+                        alTocar: () => {
+                          setMenuDePastilla(null);
+                          abrirFiltro({ tipo: "editar", lista: listaDelMenu });
+                        },
+                      },
+                    ]
                   : []),
-                ...(listas.findIndex((otra) => otra.id === menuDeLista.id) < listas.length - 1
-                  ? [{ icono: <ChevronRight className="size-4" />, texto: "Mover a la derecha", alTocar: () => void moverLista(menuDeLista, 1) }]
+                ...(movimientosDelMenu.izquierda
+                  ? [{ icono: <ChevronLeft className="size-4" />, texto: "Mover a la izquierda", alTocar: () => moverEnLaFila(menuDePastilla, -1) }]
+                  : []),
+                ...(movimientosDelMenu.derecha
+                  ? [{ icono: <ChevronRight className="size-4" />, texto: "Mover a la derecha", alTocar: () => moverEnLaFila(menuDePastilla, 1) }]
+                  : []),
+                ...(fijaDelMenu
+                  ? [{ icono: <EyeOff className="size-4" />, texto: "Ocultar", alTocar: () => ocultarDeLaFila(fijaDelMenu) }]
                   : []),
               ].map((opcion) => (
                 <button
@@ -938,17 +1058,61 @@ export const AppSidebar = React.memo(function AppSidebar({
                   {opcion.texto}
                 </button>
               ))}
-              <div className="-mx-1.5 my-1 h-px bg-border" />
-              <button
-                type="button"
-                onClick={() => void borrarLista(menuDeLista)}
-                className="flex w-full items-center gap-2.5 rounded-md px-3 py-2.5 text-left text-[14px] font-medium text-rose-600 transition hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-500/10"
-              >
-                <Trash2 className="size-4" />
-                Eliminar
-              </button>
+              {listaDelMenu ? (
+                <>
+                  <div className="-mx-1.5 my-1 h-px bg-border" />
+                  <button
+                    type="button"
+                    onClick={() => void borrarLista(listaDelMenu)}
+                    className="flex w-full items-center gap-2.5 rounded-md px-3 py-2.5 text-left text-[14px] font-medium text-rose-600 transition hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-500/10"
+                  >
+                    <Trash2 className="size-4" />
+                    Eliminar
+                  </button>
+                </>
+              ) : null}
             </div>
           ) : null}
+        </DialogContent>
+      </Dialog>
+
+      {/* "Mostrar pastillas ocultas": el mismo cuadro, con una opcion por cada fija oculta. */}
+      <Dialog open={verOcultas && pastillasOcultas.length > 0} onOpenChange={(abierto) => !abierto && setVerOcultas(false)}>
+        <DialogContent showCloseButton={false} className="gap-0 p-1.5 sm:max-w-xs">
+          <DialogHeader className="px-3 pb-2 pt-2.5">
+            <DialogTitle className="text-[15px] font-semibold">Pastillas ocultas</DialogTitle>
+            <DialogDescription className="text-[13px]">Toca una para volver a mostrarla en la fila.</DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col">
+            {pastillasOcultas.map((clave) => (
+              <button
+                key={clave}
+                type="button"
+                onClick={() => mostrarEnLaFila(clave)}
+                className="flex w-full items-center gap-2.5 rounded-md px-3 py-2.5 text-left text-[14px] font-medium text-foreground transition hover:bg-muted"
+              >
+                <span className="text-foreground/80">
+                  <Eye className="size-4" />
+                </span>
+                {ETIQUETAS_DE_PASTILLAS[clave]}
+              </button>
+            ))}
+            {pastillasOcultas.length > 1 ? (
+              <>
+                <div className="-mx-1.5 my-1 h-px bg-border" />
+                <button
+                  type="button"
+                  onClick={() => mostrarEnLaFila()}
+                  className="flex w-full items-center gap-2.5 rounded-md px-3 py-2.5 text-left text-[14px] font-medium text-foreground transition hover:bg-muted"
+                >
+                  <span className="text-foreground/80">
+                    <Eye className="size-4" />
+                  </span>
+                  Mostrar todas
+                </button>
+              </>
+            ) : null}
+          </div>
         </DialogContent>
       </Dialog>
     </aside>

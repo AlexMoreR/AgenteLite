@@ -3,6 +3,12 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { esListaSinFiltro } from "@/features/chats/domain/filtros-de-bandeja";
+import {
+  claveDeListasGuardadas,
+  leerListasGuardadas,
+  leerPreferenciaDePastillas,
+  type ListaGuardada,
+} from "@/features/chats/services/pastillas-de-la-persona";
 
 /**
  * Los filtros que cada quien se guarda en la bandeja.
@@ -18,7 +24,7 @@ import { esListaSinFiltro } from "@/features/chats/domain/filtros-de-bandeja";
  */
 export const dynamic = "force-dynamic";
 
-type FiltroGuardado = { id: string; nombre: string; query: string };
+type FiltroGuardado = ListaGuardada;
 
 /** Una lista sin ningun filtro es "Todas" con otro nombre: no se guarda (paso con "Maria", 13-10-2026). */
 const SIN_FILTRO = "Marca al menos una asesora, etapa, etiqueta o estado: así la lista sería igual a Todas";
@@ -27,32 +33,10 @@ const SIN_FILTRO = "Marca al menos una asesora, etapa, etiqueta o estado: así l
 const MAXIMO = 12;
 const LARGO_DEL_NOMBRE = 40;
 
-function claveDe(userId: string) {
-  return `chats:filtros:${userId}`;
-}
+const claveDe = claveDeListasGuardadas;
 
-async function leerGuardados(userId: string): Promise<FiltroGuardado[]> {
-  const fila = await prisma.appSetting.findUnique({ where: { key: claveDe(userId) } });
-  if (!fila?.value) {
-    return [];
-  }
-  try {
-    const datos = JSON.parse(fila.value);
-    if (!Array.isArray(datos)) {
-      return [];
-    }
-    return datos.filter(
-      (item): item is FiltroGuardado =>
-        Boolean(item) &&
-        typeof item.id === "string" &&
-        typeof item.nombre === "string" &&
-        typeof item.query === "string",
-    );
-  } catch {
-    // Un valor ilegible no puede dejar la bandeja sin abrir: se empieza de cero.
-    return [];
-  }
-}
+// Un valor ilegible no puede dejar la bandeja sin abrir: se empieza de cero (ver leerListasGuardadas).
+const leerGuardados = leerListasGuardadas;
 
 async function guardar(userId: string, filtros: FiltroGuardado[]) {
   const value = JSON.stringify(filtros);
@@ -68,7 +52,17 @@ export async function GET() {
   if (!session?.user?.id) {
     return NextResponse.json({ ok: false, filtros: [] }, { status: 401 });
   }
-  return NextResponse.json({ ok: true, filtros: await leerGuardados(session.user.id) });
+  const filtros = await leerGuardados(session.user.id);
+  /*
+    Con las listas viaja el orden de la fila de pastillas de esta persona (ver
+    /api/cliente/chats/pastillas): asi la barra lo tiene en el mismo pedido y no salta al llegar.
+    Si no se puede leer, la fila va con el orden por defecto.
+  */
+  const pastillas = await leerPreferenciaDePastillas(
+    session.user.id,
+    filtros.map((filtro) => filtro.id),
+  ).catch(() => null);
+  return NextResponse.json({ ok: true, filtros, pastillas });
 }
 
 export async function POST(request: Request) {
