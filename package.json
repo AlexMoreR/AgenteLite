@@ -83,7 +83,6 @@
     "test:tablero-vistas": "node scripts/check-tablero-vistas.mjs",
     "test:tablero-resumen-diario": "node scripts/check-tablero-resumen-diario.mjs",
     "test:tablero-avisos-al-dueno": "node scripts/check-tablero-avisos-al-dueno.mjs",
-    "test:tablero-reintento-automatico": "node scripts/check-tablero-reintento-automatico.mjs",
     "test:tablero-avisos-al-equipo": "node scripts/check-tablero-avisos-al-equipo.mjs",
     "test:tablero-avisos-de-terminadas": "node scripts/check-tablero-avisos-de-terminadas.mjs",
     "test:tablero-archivadas": "node scripts/check-tablero-archivadas.mjs",

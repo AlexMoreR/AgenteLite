@@ -381,104 +381,6 @@ export function vencimientoDelCandado(etapa: EtapaDelTrabajador, iniciadoEn: Dat
   return new Date(Math.min(ahora.getTime() + MINUTOS_DE_GRACIA_DEL_LATIDO * MINUTO, tope));
 }
 
-/* ───────────────────────────────────────────────────────────────────── tarjetas caídas ── */
-
-/*
-  CAÍDA (10-nov-2026, parte 1 de «que las tarjetas trabadas se resuelvan solas»): el latido corre el candado aunque la
-  sesión que trabaja ya esté muerta (en el orquestador el tope es de 24 h). Por eso, además del latido, el Coordinador manda
-  una SEÑAL REAL (`senalEn` en el latido) cuando de verdad avanza; se guarda en resultado.construccion.ultimaSenalEn. Una
-  tarjeta en PLANEANDO, EN_CURSO o SUBIENDO que lleva más de MINUTOS_SIN_SENAL_PARA_CAIDA sin señal nueva se CAYÓ: vuelve
-  sola a la fila (PLANEANDO -> APROBADO, EN_CURSO -> PLAN_APROBADO, SUBIENDO -> SUBIENDO pendiente; el plan aprobado sigue
-  aprobado) hasta TOPE_DE_REINTENTOS_AUTOMATICOS veces. La siguiente pasa a ERROR con aviso urgente al dueño.
-  La misma regla siguen la vencida por el tope de su etapa y la huérfana (sql-trabajador.ts). La consulta de SQL
-  (SQL_TARJETAS_CAIDAS) hace lo mismo que decidirCaida.
-*/
-
-/** Minutos sin una señal real del Coordinador para dar una tarjeta por caída, por etapa. */
-export const MINUTOS_SIN_SENAL_PARA_CAIDA: Record<EtapaDelTrabajador, number> = { planear: 90, construir: 90, subir: 45 };
-
-/** Cuántas veces vuelve sola a la fila una tarjeta caída; la siguiente caída la pasa a ERROR. */
-export const TOPE_DE_REINTENTOS_AUTOMATICOS = 2;
-
-export type DecisionDeCaida = "seguir" | "reintentar" | "error";
-
-/** Una fecha que puede venir como Date o texto ISO; null si no sirve. */
-function fechaONull(valor: Date | string | null | undefined): Date | null {
-  if (valor === null || valor === undefined || valor === "") return null;
-  const fecha = valor instanceof Date ? valor : new Date(valor);
-  return Number.isFinite(fecha.getTime()) ? fecha : null;
-}
-
-/**
- * ¿Una tarjeta que tiene el Coordinador sigue, vuelve sola a la fila o pasa a ERROR? (función pura; la misma regla que
- * SQL_TARJETAS_CAIDAS).
- *  - Solo mira PLANEANDO, EN_CURSO y SUBIENDO tomadas (con trabajoIniciadoEn).
- *  - La señal solo cuenta si es igual o posterior a trabajoIniciadoEn (una de la vuelta anterior no cuenta). Sin señal, se
- *    cuenta desde trabajoIniciadoEn.
- *  - Sin ninguna señal, una construcción en la nube o en el orquestador y una SUBIENDO siguen: hasta que el Coordinador
- *    mande `senalEn` (parte 2) manda el tope de siempre de la etapa.
- *  - Con más de MINUTOS_SIN_SENAL_PARA_CAIDA sin señal: 'reintentar' si lleva menos de TOPE_DE_REINTENTOS_AUTOMATICOS
- *    reintentos automáticos; si no, 'error'.
- */
-export function decidirCaida(entrada: {
-  estado: string;
-  ultimaSenalEn?: Date | string | null;
-  trabajoIniciadoEn?: Date | string | null;
-  reintentosAutomaticos?: number | null;
-  ahora: Date;
-  lugar?: string | null;
-}): DecisionDeCaida {
-  const etapa = ETAPA_DEL_ESTADO[entrada.estado as EstadoTarjetaTablero];
-  const iniciadoEn = fechaONull(entrada.trabajoIniciadoEn);
-  if (!etapa || !iniciadoEn) return "seguir";
-  const senal = fechaONull(entrada.ultimaSenalEn);
-  const senalValida = senal && senal.getTime() >= iniciadoEn.getTime() ? senal : null;
-  if (!senalValida && (etapa === "subir" || (etapa === "construir" && (entrada.lugar === "nube" || entrada.lugar === "orquestador")))) {
-    return "seguir";
-  }
-  const desde = senalValida ?? iniciadoEn;
-  if (entrada.ahora.getTime() - desde.getTime() <= MINUTOS_SIN_SENAL_PARA_CAIDA[etapa] * MINUTO) return "seguir";
-  return reintentosDeEntrada(entrada.reintentosAutomaticos) < TOPE_DE_REINTENTOS_AUTOMATICOS ? "reintentar" : "error";
-}
-
-/** Los reintentos automáticos guardados (resultado.reintentosAutomaticos.veces), limpios: un entero de 0 en adelante. */
-function reintentosDeEntrada(valor: unknown): number {
-  const numero = Math.floor(Number(valor));
-  return Number.isFinite(numero) && numero > 0 ? numero : 0;
-}
-
-/** Los reintentos automáticos que lleva la tarjeta, leídos de su resultado. */
-export function reintentosAutomaticosDelResultado(resultado: unknown): number {
-  const datos = resultado && typeof resultado === "object" && !Array.isArray(resultado) ? (resultado as Record<string, unknown>) : {};
-  const reintentos = datos.reintentosAutomaticos;
-  return reintentos && typeof reintentos === "object" && !Array.isArray(reintentos) ? reintentosDeEntrada((reintentos as Record<string, unknown>).veces) : 0;
-}
-
-/**
- * La señal real que manda el Coordinador en el latido (`senalEn`, ISO). Null si no vino, no es una fecha o es anterior al
- * momento en que se tomó la tarjeta (es de una vuelta anterior). Una fecha futura se cambia por `ahora`.
- */
-export function senalDeEntrada(valor: unknown, iniciadoEn: Date, ahora: Date): Date | null {
-  if (typeof valor !== "string" || !valor.trim() || valor.length > 40) return null;
-  const fecha = new Date(valor.trim());
-  if (!Number.isFinite(fecha.getTime())) return null;
-  const senal = fecha.getTime() > ahora.getTime() ? ahora : fecha;
-  return senal.getTime() < iniciadoEn.getTime() ? null : senal;
-}
-
-/**
- * ¿Esta tarjeta en ERROR quedó así por caerse (SQL: resultado.error.por = 'caida')? Devuelve el motivo para el aviso urgente
- * al dueño, o null.
- */
-export function caidaDelResultado(resultado: unknown): { motivo: string } | null {
-  const datos = resultado && typeof resultado === "object" && !Array.isArray(resultado) ? (resultado as Record<string, unknown>) : {};
-  const error = datos.error;
-  if (!error || typeof error !== "object" || Array.isArray(error)) return null;
-  const { por, motivo } = error as Record<string, unknown>;
-  if (por !== "caida") return null;
-  return { motivo: typeof motivo === "string" && motivo.trim() ? motivo.trim() : "se cayó la construcción" };
-}
-
 // Tres líneas (qué falló, qué se probó, qué necesita del dueño), igual que el resumen de una escalada.
 export const MOTIVO_VENCIDA = [
   "Se pasó del tiempo: el Coordinador dejó de dar señales (sin latido) o la etapa superó su tope.",
@@ -1573,15 +1475,11 @@ export const CATEGORIAS_DE_INTENTO = [
   // 31-oct-2026: lo nuevo de main y la tarea no encajan aunque el rebase no tuvo conflicto de texto. Siempre escala, no se
   // repara sola (diagnostico.mjs: SIN_REPARACION_AUTOMATICA).
   "choque_de_logica",
-  // 10-nov-2026: la tarjeta se cayó (sin señal real del Coordinador, el tope de la etapa o huérfana). La deja el CRM, no el
-  // Coordinador: vuelve sola a la fila (reintentar) hasta TOPE_DE_REINTENTOS_AUTOMATICOS veces y después escala.
-  "construccion_caida",
   "otra",
 ] as const;
 export type CategoriaDeIntento = (typeof CATEGORIAS_DE_INTENTO)[number];
 
-// "reintentar" (10-nov-2026): la deja el CRM cuando una tarjeta caída vuelve sola a la fila (sql-trabajador.ts).
-export const ACCIONES_DE_INTENTO = ["reparar", "partir", "esperar", "escalar", "reintentar"] as const;
+export const ACCIONES_DE_INTENTO = ["reparar", "partir", "esperar", "escalar"] as const;
 export type AccionDeIntento = (typeof ACCIONES_DE_INTENTO)[number];
 
 /** Cómo se dice en la pantalla lo que se hizo en cada intento. */
@@ -1590,7 +1488,6 @@ export const NOMBRE_DE_LA_ACCION_DE_INTENTO: Record<AccionDeIntento, string> = {
   partir: "La partió",
   esperar: "Esperó",
   escalar: "Te la pasó",
-  reintentar: "La reintentó sola",
 };
 
 export const MAXIMO_CAUSA_DEL_INTENTO = 200;
