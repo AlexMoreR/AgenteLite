@@ -2417,15 +2417,18 @@ prueba("inicialDeLaPersona: la inicial en mayúscula; '?' si no hay nombre", () 
 
   prueba("vencidas y huérfanas (30-oct-2026): el motivo y la causa del intento llevan siempre la frase fija con el estado", () => {
     const sql = cargar("src/features/tableros-inteligentes/services/sql-trabajador.ts");
-    for (const [consulta, frase] of [
-      [sql.SQL_PASAR_VENCIDAS_A_ERROR, `'venció el candado en ' || x."antes" || ' sin respuesta del Coordinador'`],
-      [sql.SQL_PASAR_HUERFANAS_A_ERROR, `'huérfana: ' || v."antes" || ' sin candado'`],
-    ]) {
-      // El motivo arranca con la frase (nunca vacío aunque $3 llegue vacío) y la fila de IntentoTarjeta también la usa.
-      assert.ok(consulta.includes(`'motivo', ((${frase}) || COALESCE(E'\\n' || NULLIF(btrim($3::text), ''), ''))`), "motivo con la frase fija");
-      assert.ok(consulta.split(frase).length >= 3, "la frase está en el motivo y en la causa del intento");
-      assert.match(consulta, /AS "motivo"/, "devuelve el motivo guardado para el historial");
+    const frase = `'venció el candado en ' || x."antes" || ' sin respuesta del Coordinador'`;
+    const consulta = sql.SQL_PASAR_VENCIDAS_A_ERROR;
+    // El motivo arranca con la frase (nunca vacío aunque $3 llegue vacío) y la fila de IntentoTarjeta también la usa.
+    assert.ok(consulta.includes(`'motivo', ((${frase}) || COALESCE(E'\\n' || NULLIF(btrim($3::text), ''), ''))`), "motivo con la frase fija");
+    assert.ok(consulta.split(frase).length >= 3, "la frase está en el motivo y en la causa del intento");
+    // 10-nov-2026: la huérfana y la vencida por el tope se tratan como caídas: su motivo de ERROR es la frase de la caída,
+    // con el estado, y la huérfana deja su frase en el motivo del reintento.
+    for (const caida of [sql.SQL_PASAR_VENCIDAS_A_ERROR, sql.SQL_PASAR_HUERFANAS_A_ERROR, sql.SQL_TARJETAS_CAIDAS]) {
+      assert.ok(caida.includes(`'se cayó la construcción ' || (x."veces" + 1)::text || ' veces (último: ' || x."antes"`), "motivo de la caída con el estado");
+      assert.match(caida, /AS "motivo"/, "devuelve el motivo guardado para el historial");
     }
+    assert.ok(sql.SQL_PASAR_HUERFANAS_A_ERROR.includes(`'huérfana: ' || v."antes" || ' sin candado'`));
   });
 
   prueba("un solo sí de verdad (1-nov-2026): una SUBIENDO vencida por falta de señal y /arranque la dejan SUBIENDO pendiente, sin ERROR", () => {

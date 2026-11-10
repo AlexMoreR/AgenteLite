@@ -11,6 +11,9 @@ export const dynamic = "force-dynamic";
   - latido    { lugar?, sesion? }                 corre el vencimiento del candado (hasta el tope). Construyendo,
               lugar = "aizen1" | "nube" (en la nube el tope es de 180 min, no 90) y sesion = el link
               https://claude.ai/code/session_… (cualquier otro link se descarta); queda en resultado.construccion.
+              senalEn? (ISO, cualquier etapa, 10-nov-2026): una señal REAL de que avanza; queda en
+              resultado.construccion.ultimaSenalEn. Sin ella el latido corre el candado pero no cuenta como señal: sin
+              señal hace 90 / 90 / 45 min la tarjeta se da por caída (vuelve sola a la fila hasta 2 veces).
   - plan      { plan }                            PLANEANDO -> PLAN_LISTO.
   - resultado { resumen, pruebas, paso, rama, linkRama, commit, migracion, subeSolo, base, zonaProtegida?,
                 construidoEn?, linkSesion?, segundosNube?, linkWorkflow?, verificadoEn? }   (construidoEn = "aizen1" | "nube")

@@ -304,11 +304,20 @@ await prueba("un solo sí de verdad (1-nov-2026): SQL real en PGlite: una SUBIEN
     -- Tomada a las 10:00 con candado hasta las 10:05 y sin latido después: venció por falta de señal (antes del tope de subir).
     INSERT INTO "TarjetaTablero" ("id", "tableroId", "estado", "trabajoIniciadoEn", "trabajoVenceEn", "resultado", "intentos") VALUES
       ('sube-sin-senal', 'tab', 'SUBIENDO', '2026-11-01 10:00:00', '2026-11-01 10:05:00', '{"rama":"tablero/x","subeSolo":true}', 1),
-      -- Venció por el tope de su etapa: sigue pasando a ERROR.
-      ('sube-por-tope', 'tab', 'SUBIENDO', '2026-11-01 07:00:00', '2026-11-01 10:05:00', NULL, 1);
+      -- Venció por el tope de su etapa: se cayó (10-nov-2026): vuelve sola a SUBIENDO pendiente (1.er reintento automático)...
+      ('sube-por-tope', 'tab', 'SUBIENDO', '2026-11-01 07:00:00', '2026-11-01 10:05:00', NULL, 1),
+      -- ...y con 2 reintentos automáticos ya hechos pasa a ERROR por caída.
+      ('sube-tercera', 'tab', 'SUBIENDO', '2026-11-01 07:00:00', '2026-11-01 10:05:00', '{"reintentosAutomaticos":{"veces":2,"motivos":[]}}', 1);
   `);
   const vencidas = (await db.query(sql.SQL_PASAR_VENCIDAS_A_ERROR, ["ws", "2026-11-01T10:06:00.000Z", "sin respuesta", "2026-11-01T10:06:00.000Z", 5])).rows;
-  assert.deepEqual(vencidas.map((f) => [f.id, f.antes, f.estado]).sort(), [["sube-por-tope", "SUBIENDO", "ERROR"], ["sube-sin-senal", "SUBIENDO", "SUBIENDO"]]);
+  assert.deepEqual(vencidas.map((f) => [f.id, f.antes, f.estado, f.tipo]).sort(), [
+    ["sube-por-tope", "SUBIENDO", "SUBIENDO", "reintentada"],
+    ["sube-sin-senal", "SUBIENDO", "SUBIENDO", "suelta"],
+    ["sube-tercera", "SUBIENDO", "ERROR", "caida"],
+  ]);
+  const [porTope] = (await db.query(`SELECT "trabajoVenceEn", "resultado" FROM "TarjetaTablero" WHERE "id" = 'sube-por-tope'`)).rows;
+  assert.equal(porTope.trabajoVenceEn, null, "SUBIENDO pendiente");
+  assert.equal(porTope.resultado.reintentosAutomaticos.veces, 1);
   const [suelta] = (await db.query(`SELECT "estado", "trabajoVenceEn", "intentos", "resultado" FROM "TarjetaTablero" WHERE "id" = 'sube-sin-senal'`)).rows;
   assert.equal(suelta.estado, "SUBIENDO");
   assert.equal(suelta.trabajoVenceEn, null, "candado vacío: queda SUBIENDO pendiente");

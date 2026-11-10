@@ -10,16 +10,19 @@
   depender de la zona de la sesión.
 
   Parámetros (salvo SQL_CANDIDATAS): $1 = workspaceId, $2 = ahora (ISO).
-  (SQL_PASAR_VENCIDAS_A_ERROR y SQL_ARRANQUE también escriben filas de IntentoTarjeta: 20261024120000_tablero_intentos.)
+  (SQL_PASAR_VENCIDAS_A_ERROR, SQL_TARJETAS_CAIDAS, SQL_PASAR_HUERFANAS_A_ERROR y SQL_ARRANQUE también escriben filas de
+  IntentoTarjeta: 20261024120000_tablero_intentos.)
 */
 
 import {
   MINUTOS_PARA_CONSTRUIR_EN_LA_NUBE,
   MINUTOS_PARA_CONSTRUIR_EN_ORQUESTADOR,
   MINUTOS_POR_ETAPA,
+  MINUTOS_SIN_SENAL_PARA_CAIDA,
   PALABRA_DE_PRIORIDAD,
   PALABRAS_DE_LA_FILA,
   REPO_DE_GESTION,
+  TOPE_DE_REINTENTOS_AUTOMATICOS,
   VIAS_QUE_ARRANCAN_ZONAS_SOLAS,
   ZONAS_DE_VENTAS_Y_CHATS,
   ZONAS_QUE_ARRANCAN_POR_VOZ,
@@ -55,6 +58,83 @@ const fraseDeHuerfana = (v: string) => `('huérfana: ' || ${v}."antes" || ' sin 
 /** Un id para una fila de IntentoTarjeta insertada desde SQL (sin depender de extensiones). */
 const idDelIntento = (v: string) => `'int' || md5(random()::text || clock_timestamp()::text || ${v}."id")`;
 
+/* ── Tarjetas caídas (10-nov-2026): reintentarCaidas y sus piezas, las mismas reglas que decidirCaida ── */
+
+/**
+ * La última señal real de la tarjeta `c` (resultado.construccion.ultimaSenalEn), como hora UTC; NULL si no hay o no tiene
+ * la forma exacta de un ISO de toISOString (así un texto raro no tumba la consulta).
+ */
+const ultimaSenal = (c: string) => `(CASE WHEN (${c}."resultado"->'construccion'->>'ultimaSenalEn') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,6})?Z$'
+    THEN ((${c}."resultado"->'construccion'->>'ultimaSenalEn')::timestamptz AT TIME ZONE 'UTC') END)`;
+
+/** Los reintentos automáticos que lleva la tarjeta `c` (resultado.reintentosAutomaticos.veces), 0 si no hay. */
+const reintentosDe = (c: string) => `(CASE WHEN jsonb_typeof(${c}."resultado"->'reintentosAutomaticos'->'veces') = 'number'
+    THEN GREATEST(0, floor((${c}."resultado"->'reintentosAutomaticos'->>'veces')::numeric))::int ELSE 0 END)`;
+
+/** Los minutos enteros entre `desde` y ahora. */
+const minutosDesde = (desde: string) => `floor(extract(epoch from (${AHORA} - ${desde})) / 60)::int`;
+
+/** Los motivos guardados de la tarjeta `t` más el nuevo de `x` ("causa"), con el estado, los minutos y cuándo. */
+const motivosCon = (x: string, cuando: string) => `(CASE WHEN jsonb_typeof(t."resultado"->'reintentosAutomaticos'->'motivos') = 'array'
+    THEN t."resultado"->'reintentosAutomaticos'->'motivos' ELSE '[]'::jsonb END
+    || jsonb_build_array(jsonb_build_object('motivo', ${x}."causa", 'en', ${x}."antes", 'minutos', ${x}."minutos", 'cuando', ${cuando})))`;
+
+/** El motivo del ERROR de una tarjeta que se cayó por tercera vez (el texto que pidió el dueño). */
+const fraseDeCaida = (x: string) =>
+  `('se cayó la construcción ' || (${x}."veces" + 1)::text || ' veces (último: ' || ${x}."antes" || ', ' || ${x}."minutos"::text || ' min sin señal)')`;
+
+/**
+ * Las piezas (CTE) que reintentan o pasan a ERROR las filas de `x` que cumplen `donde` (una tarjeta caída). `x` trae "id",
+ * "tableroId", "antes", "veces" (reintentos automáticos que lleva), "minutos" (sin señal) y "causa" (el motivo de esta caída).
+ *  - Con menos de TOPE_DE_REINTENTOS_AUTOMATICOS: vuelve a la fila (estadoDeLaFila; el plan aprobado sigue aprobado), sin
+ *    candado, con veces + 1 y el motivo agregado a resultado.reintentosAutomaticos.motivos.
+ *  - Con el tope: ERROR con resultado.error = { motivo: fraseDeCaida, en, cuando, por: 'caida' } (el aviso urgente al dueño
+ *    lo busca por `por`) y el contador vuelve a 0 (los motivos se guardan): un Reintentar del dueño tiene otros 2.
+ *  - Siempre una fila de IntentoTarjeta: construccion_caida, reintentar o escalar, cuenta como intento.
+ * Devuelve las CTE `reintentadas` y `caidas` (id, tableroId, antes, estado, motivo, tipo) y `intentos_de_caida`.
+ */
+const reintentarCaidas = (x: string, donde: string, cuando: string) => `
+reintentadas AS (
+  UPDATE "TarjetaTablero" t
+  SET "estado" = ${estadoDeLaFila(x)},
+      "trabajoVenceEn" = NULL,
+      "resultado" = COALESCE(t."resultado", '{}'::jsonb)
+        || jsonb_build_object('reintentosAutomaticos', jsonb_build_object('veces', ${x}."veces" + 1, 'motivos', ${motivosCon(x, cuando)})),
+      "actualizadoEn" = ${AHORA}
+  FROM ${x}
+  WHERE t."id" = ${x}."id" AND ${donde} AND ${x}."veces" < ${TOPE_DE_REINTENTOS_AUTOMATICOS}
+  RETURNING t."id", t."tableroId", ${x}."antes", t."estado"::text AS "estado", NULL::text AS "motivo", 'reintentada'::text AS "tipo"
+),
+caidas AS (
+  UPDATE "TarjetaTablero" t
+  SET "estado" = 'ERROR'::"EstadoTarjeta",
+      "trabajoVenceEn" = NULL,
+      "resultado" = COALESCE(t."resultado", '{}'::jsonb)
+        || jsonb_build_object(
+          'error', jsonb_build_object('motivo', ${fraseDeCaida(x)}, 'en', ${x}."antes", 'cuando', ${cuando}, 'por', 'caida'),
+          'reintentosAutomaticos', jsonb_build_object('veces', 0, 'motivos', ${motivosCon(x, cuando)})
+        ),
+      "actualizadoEn" = ${AHORA}
+  FROM ${x}
+  WHERE t."id" = ${x}."id" AND ${donde} AND ${x}."veces" >= ${TOPE_DE_REINTENTOS_AUTOMATICOS}
+  RETURNING t."id", t."tableroId", ${x}."antes", t."estado"::text AS "estado", t."resultado"->'error'->>'motivo' AS "motivo", 'caida'::text AS "tipo"
+),
+intentos_de_caida AS (
+  INSERT INTO "IntentoTarjeta" ("id", "tarjetaId", "numero", "etapa", "categoria", "causa", "error", "accion", "cuentaComoIntento", "creadoEn")
+  SELECT ${idDelIntento(x)}, ${x}."id", ${numeroSiguiente(x)}, ${etapaDelAntes(x)}, 'construccion_caida',
+         CASE WHEN ${x}."veces" < ${TOPE_DE_REINTENTOS_AUTOMATICOS}
+           THEN 'Se cayó (' || ${x}."causa" || '): vuelve sola a la fila, reintento ' || (${x}."veces" + 1)::text || ' de ${TOPE_DE_REINTENTOS_AUTOMATICOS}.'
+           ELSE 'Se cayó otra vez (' || ${x}."causa" || '): ' || ${fraseDeCaida(x)} || '.'
+         END,
+         NULL,
+         CASE WHEN ${x}."veces" < ${TOPE_DE_REINTENTOS_AUTOMATICOS} THEN 'reintentar' ELSE 'escalar' END,
+         true,
+         ${AHORA}
+  FROM ${x}
+  WHERE ${donde}
+  RETURNING "id"
+)`;
+
 /**
  * Las que el Coordinador tenía (PLANEANDO, EN_CURSO, SUBIENDO) y se le vencieron (protocolo de reparación):
  *  - PLANEANDO, EN_CURSO o SUBIENDO que vencieron por FALTA DE LATIDO (el candado vencía antes del tope de su
@@ -62,12 +142,14 @@ const idDelIntento = (v: string) => `'int' || md5(random()::text || clock_timest
  *    con el candado vacío), sin ERROR y sin gastar el intento, con una fila de IntentoTarjeta (coordinador_cortado,
  *    esperar, no cuenta). Una SUBIENDO se puede repetir sin miedo (1-nov-2026): si la rama ya está en main, subir no
  *    la vuelve a empujar.
- *  - El resto (vencieron por el tope de la etapa o ya llevan $5 esperas seguidas) pasan a ERROR con el motivo
- *    ($3) en resultado.error ($4 = ahora como texto
- *    ISO: $2 no sirve como texto porque Postgres ya lo tipó timestamptz) y una fila de IntentoTarjeta
- *    (escalar, cuenta; categoria tiempo_agotado si fue por el tope, coordinador_cortado si no).
+ *  - Las que vencieron por el TOPE DE LA ETAPA (10-nov-2026) se cayeron: siguen la regla de las caídas (reintentarCaidas):
+ *    vuelven solas a la fila hasta TOPE_DE_REINTENTOS_AUTOMATICOS veces y después pasan a ERROR con el aviso urgente.
+ *  - Las que vencieron por falta de latido y ya llevan $5 esperas seguidas pasan a ERROR como siempre, con el motivo
+ *    ($3) en resultado.error ($4 = ahora como texto ISO: $2 no sirve como texto porque Postgres ya lo tipó timestamptz) y
+ *    una fila de IntentoTarjeta (coordinador_cortado, escalar, cuenta).
  * "Esperas seguidas" = filas de IntentoTarjeta con cuentaComoIntento = false después de la última con true.
- * Devuelve id, tableroId, el estado que tenían ("antes") y el que quedaron ("estado").
+ * Devuelve id, tableroId, el estado que tenían ("antes"), el que quedaron ("estado"), el motivo del ERROR ("motivo") y
+ * "tipo": suelta (volvió por falta de latido), reintentada (se cayó y vuelve sola), caida (se cayó y pasó a ERROR) o vencida.
  */
 export const SQL_PASAR_VENCIDAS_A_ERROR = `
 WITH v AS (
@@ -86,7 +168,9 @@ WITH v AS (
            SELECT count(*) FROM "IntentoTarjeta" e
            WHERE e."tarjetaId" = c."id" AND NOT e."cuentaComoIntento"
              AND e."numero" > COALESCE((SELECT max(u."numero") FROM "IntentoTarjeta" u WHERE u."tarjetaId" = c."id" AND u."cuentaComoIntento"), 0)
-         )::int AS "esperas"
+         )::int AS "esperas",
+         ${ultimaSenal("c")} AS "senal",
+         ${reintentosDe("c")} AS "veces"
   FROM "TarjetaTablero" c
   JOIN "TableroInteligente" b ON b."id" = c."tableroId"
   WHERE b."workspaceId" = $1
@@ -99,7 +183,10 @@ WITH v AS (
 x AS (
   SELECT v.*,
          (v."ini" IS NULL OR v."vence" >= v."ini" + make_interval(mins => v."tope")) AS "portope",
-         (v."ini" IS NOT NULL AND v."vence" < v."ini" + make_interval(mins => v."tope") AND v."esperas" < $5::int) AS "vuelve"
+         (v."ini" IS NOT NULL AND v."vence" < v."ini" + make_interval(mins => v."tope") AND v."esperas" < $5::int) AS "vuelve",
+         -- Los minutos sin señal: desde la última señal real de esta vuelta o, si no hay, desde que se tomó.
+         ${minutosDesde(`COALESCE(CASE WHEN v."senal" >= v."ini" THEN v."senal" END, v."ini", v."vence")`)} AS "minutos",
+         (v."antes" || ': se pasó del tiempo máximo de la etapa') AS "causa"
   FROM v
 ),
 sueltas AS (
@@ -110,7 +197,7 @@ sueltas AS (
       "actualizadoEn" = ${AHORA}
   FROM x
   WHERE t."id" = x."id" AND x."vuelve"
-  RETURNING t."id", t."tableroId", x."antes", t."estado"::text AS "estado", NULL::text AS "motivo"
+  RETURNING t."id", t."tableroId", x."antes", t."estado"::text AS "estado", NULL::text AS "motivo", 'suelta'::text AS "tipo"
 ),
 fallidas AS (
   UPDATE "TarjetaTablero" t
@@ -120,16 +207,14 @@ fallidas AS (
         || jsonb_build_object('error', jsonb_build_object('motivo', ${motivoConEstado(fraseDeVencida("x"))}, 'en', x."antes", 'cuando', $4::text)),
       "actualizadoEn" = ${AHORA}
   FROM x
-  WHERE t."id" = x."id" AND NOT x."vuelve"
-  RETURNING t."id", t."tableroId", x."antes", t."estado"::text AS "estado", t."resultado"->'error'->>'motivo' AS "motivo"
+  WHERE t."id" = x."id" AND NOT x."vuelve" AND NOT x."portope"
+  RETURNING t."id", t."tableroId", x."antes", t."estado"::text AS "estado", t."resultado"->'error'->>'motivo' AS "motivo", 'vencida'::text AS "tipo"
 ),
 intentos AS (
   INSERT INTO "IntentoTarjeta" ("id", "tarjetaId", "numero", "etapa", "categoria", "causa", "error", "accion", "cuentaComoIntento", "creadoEn")
-  SELECT ${idDelIntento("x")}, x."id", ${numeroSiguiente("x")}, ${etapaDelAntes("x")},
-         CASE WHEN x."portope" AND NOT x."vuelve" THEN 'tiempo_agotado' ELSE 'coordinador_cortado' END,
+  SELECT ${idDelIntento("x")}, x."id", ${numeroSiguiente("x")}, ${etapaDelAntes("x")}, 'coordinador_cortado',
          CASE
            WHEN x."vuelve" THEN 'El Coordinador dejó de dar señales (se cortó o se apagó); la tarjeta vuelve a la fila.'
-           WHEN x."portope" THEN 'La etapa se pasó de su tiempo máximo: ' || ${fraseDeVencida("x")} || '.'
            ELSE 'El Coordinador dejó de dar señales y ya había esperado varias veces seguidas: ' || ${fraseDeVencida("x")} || '.'
          END,
          NULL,
@@ -137,11 +222,57 @@ intentos AS (
          NOT x."vuelve",
          ${AHORA}
   FROM x
+  WHERE NOT x."portope"
   RETURNING "id"
-)
-SELECT "id", "tableroId", "antes", "estado", "motivo" FROM sueltas
+),${reintentarCaidas("x", `x."portope"`, "$4::text")}
+SELECT "id", "tableroId", "antes", "estado", "motivo", "tipo" FROM sueltas
 UNION ALL
-SELECT "id", "tableroId", "antes", "estado", "motivo" FROM fallidas`;
+SELECT "id", "tableroId", "antes", "estado", "motivo", "tipo" FROM fallidas
+UNION ALL
+SELECT "id", "tableroId", "antes", "estado", "motivo", "tipo" FROM reintentadas
+UNION ALL
+SELECT "id", "tableroId", "antes", "estado", "motivo", "tipo" FROM caidas`;
+
+/**
+ * Las TARJETAS CAÍDAS (10-nov-2026): PLANEANDO, EN_CURSO o SUBIENDO con el candado vigente (el latido lo sigue corriendo)
+ * pero sin una señal real nueva (resultado.construccion.ultimaSenalEn, de esta vuelta) hace más de
+ * MINUTOS_SIN_SENAL_PARA_CAIDA (90 / 90 / 45 min). Sin señal se cuenta desde trabajoIniciadoEn; una construcción en la nube o
+ * en el orquestador y una SUBIENDO que todavía no mandaron ninguna señal siguen (manda el tope de la etapa). Es la misma
+ * regla que decidirCaida (reglas-trabajador.ts). Cada una sigue reintentarCaidas.
+ * Parámetros: $1 = workspaceId, $2 = ahora (ISO), $3 = ahora como texto ISO. Devuelve lo mismo que SQL_PASAR_VENCIDAS_A_ERROR.
+ */
+export const SQL_TARJETAS_CAIDAS = `
+WITH v AS (
+  SELECT c."id", c."tableroId", c."estado"::text AS "antes", c."trabajoIniciadoEn" AS "ini",
+         c."resultado"->'construccion'->>'lugar' AS "lugar",
+         ${ultimaSenal("c")} AS "senal",
+         ${reintentosDe("c")} AS "veces"
+  FROM "TarjetaTablero" c
+  JOIN "TableroInteligente" b ON b."id" = c."tableroId"
+  WHERE b."workspaceId" = $1
+    AND c."borradoEn" IS NULL
+    AND c."estado" IN ('PLANEANDO', 'EN_CURSO', 'SUBIENDO')
+    AND c."trabajoVenceEn" > ${AHORA}
+    AND c."trabajoIniciadoEn" IS NOT NULL
+  FOR UPDATE OF c
+),
+s AS (
+  SELECT v.*, CASE WHEN v."senal" >= v."ini" THEN v."senal" END AS "valida" FROM v
+),
+x AS (
+  SELECT s."id", s."tableroId", s."antes", s."veces",
+         ${minutosDesde(`COALESCE(s."valida", s."ini")`)} AS "minutos",
+         (s."antes" || ': ' || ${minutosDesde(`COALESCE(s."valida", s."ini")`)}::text || ' min sin señal del Coordinador') AS "causa"
+  FROM s
+  WHERE NOT (s."valida" IS NULL AND (s."antes" = 'SUBIENDO' OR (s."antes" = 'EN_CURSO' AND COALESCE(s."lugar", '') IN ('nube', 'orquestador'))))
+    AND COALESCE(s."valida", s."ini") < ${AHORA} - make_interval(mins => CASE s."antes"
+      WHEN 'PLANEANDO' THEN ${MINUTOS_SIN_SENAL_PARA_CAIDA.planear}
+      WHEN 'EN_CURSO' THEN ${MINUTOS_SIN_SENAL_PARA_CAIDA.construir}
+      ELSE ${MINUTOS_SIN_SENAL_PARA_CAIDA.subir} END)
+),${reintentarCaidas("x", "true", "$3::text")}
+SELECT "id", "tableroId", "antes", "estado", "motivo", "tipo" FROM reintentadas
+UNION ALL
+SELECT "id", "tableroId", "antes", "estado", "motivo", "tipo" FROM caidas`;
 
 /**
  * /arranque: el Coordinador acaba de arrancar, así que lo que el negocio tenía en PLANEANDO, EN_CURSO o SUBIENDO
@@ -397,16 +528,18 @@ ORDER BY c."actualizadoEn" ASC
 LIMIT 50`;
 
 /**
- * Red de seguridad de /tomar (26-oct-2026): las HUÉRFANAS pasan a ERROR. Huérfana = tarjeta con repo, de un tipo
- * con aprobación y estados, en PLANEANDO o EN_CURSO SIN candado (trabajoVenceEn NULL), sin cambios hace más de
- * $5 minutos y que no es una madre partida con alguna parte viva (esa espera a sus partes). Nadie la trabaja y,
- * sin candado, SQL_PASAR_VENCIDAS_A_ERROR nunca la vería. SUBIENDO sin candado NO entra: es la SUBIENDO pendiente.
- * $3 = motivo, $4 = ahora como texto ISO, $5 = minutos. Deja su fila en IntentoTarjeta (escalar, no cuenta: nadie
- * la intentó). Devuelve id, tableroId y el estado que tenían ("antes").
+ * Red de seguridad de /tomar (26-oct-2026): las HUÉRFANAS. Huérfana = tarjeta con repo, de un tipo con aprobación y
+ * estados, en PLANEANDO o EN_CURSO SIN candado (trabajoVenceEn NULL), sin cambios hace más de $4 minutos y que no es una
+ * madre partida con alguna parte viva (esa espera a sus partes). Nadie la trabaja y, sin candado,
+ * SQL_PASAR_VENCIDAS_A_ERROR nunca la vería. SUBIENDO sin candado NO entra: es la SUBIENDO pendiente.
+ * Desde el 10-nov-2026 ya no pasa directo a ERROR: se cayó, y sigue la regla de las caídas (reintentarCaidas): vuelve sola
+ * a la fila hasta TOPE_DE_REINTENTOS_AUTOMATICOS veces y después pasa a ERROR con el aviso urgente.
+ * $3 = ahora como texto ISO, $4 = minutos (MINUTOS_PARA_HUERFANA). (Hasta el 10-nov-2026 $3 era el motivo del ERROR.)
+ * Devuelve lo mismo que SQL_PASAR_VENCIDAS_A_ERROR (tipo reintentada o caida).
  */
 export const SQL_PASAR_HUERFANAS_A_ERROR = `
 WITH v AS (
-  SELECT c."id", c."tableroId", c."estado"::text AS "antes"
+  SELECT c."id", c."tableroId", c."estado"::text AS "antes", c."actualizadoEn" AS "desde", ${reintentosDe("c")} AS "veces"
   FROM "TarjetaTablero" c
   JOIN "TableroInteligente" b ON b."id" = c."tableroId"
   JOIN "TipoTarjeta" k ON k."id" = c."tipoId"
@@ -416,7 +549,7 @@ WITH v AS (
     AND k."requiereAprobacion" AND k."usaEstados"
     AND c."estado" IN ('PLANEANDO', 'EN_CURSO')
     AND c."trabajoVenceEn" IS NULL
-    AND c."actualizadoEn" <= ${AHORA} - make_interval(mins => $5::int)
+    AND c."actualizadoEn" <= ${AHORA} - make_interval(mins => $4::int)
     AND NOT EXISTS (
       SELECT 1 FROM "TarjetaTablero" h
       WHERE h."borradoEn" IS NULL
@@ -425,21 +558,11 @@ WITH v AS (
     )
   FOR UPDATE OF c
 ),
-fallidas AS (
-  UPDATE "TarjetaTablero" t
-  SET "estado" = 'ERROR'::"EstadoTarjeta",
-      "resultado" = COALESCE(t."resultado", '{}'::jsonb)
-        || jsonb_build_object('error', jsonb_build_object('motivo', ${motivoConEstado(fraseDeHuerfana("v"))}, 'en', v."antes", 'cuando', $4::text)),
-      "actualizadoEn" = ${AHORA}
+x AS (
+  SELECT v."id", v."tableroId", v."antes", v."veces", ${minutosDesde(`v."desde"`)} AS "minutos",
+         (${fraseDeHuerfana("v")} || ', sin cambios hace ' || ${minutosDesde(`v."desde"`)}::text || ' min') AS "causa"
   FROM v
-  WHERE t."id" = v."id"
-  RETURNING t."id", t."tableroId", v."antes", t."resultado"->'error'->>'motivo' AS "motivo"
-),
-intentos AS (
-  INSERT INTO "IntentoTarjeta" ("id", "tarjetaId", "numero", "etapa", "categoria", "causa", "error", "accion", "cuentaComoIntento", "creadoEn")
-  SELECT ${idDelIntento("v")}, v."id", ${numeroSiguiente("v")}, ${etapaDelAntes("v")}, 'coordinador_cortado',
-         'Quedó ' || ${fraseDeHuerfana("v")} || ' (nadie la trabajaba).', NULL, 'escalar', false, ${AHORA}
-  FROM v
-  RETURNING "id"
-)
-SELECT "id", "tableroId", "antes", "motivo" FROM fallidas`;
+),${reintentarCaidas("x", "true", "$3::text")}
+SELECT "id", "tableroId", "antes", "estado", "motivo", "tipo" FROM reintentadas
+UNION ALL
+SELECT "id", "tableroId", "antes", "estado", "motivo", "tipo" FROM caidas`;

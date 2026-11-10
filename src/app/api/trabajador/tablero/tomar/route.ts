@@ -13,6 +13,8 @@ export const dynamic = "force-dynamic";
   las manos menos de `maxParalelo` (1 si no viene), reclama UNA tarjeta (la que más espera, salvo las
   de `excluir`) en APROBADO, PLAN_APROBADO o SUBIENDO pendiente, de forma atómica. Contesta
   `{ ok, tarjeta: null, motivo: "nada" | "ocupado" }` o `{ ok, tarjeta, hacer: "planear" | "construir" | "subir" }`.
+  Antes revisa las vencidas, las huérfanas y las caídas (10-nov-2026: sin señal real del Coordinador; vuelven solas a la fila
+  hasta 2 veces y después pasan a ERROR): la respuesta trae `reintentadas` y `caidas` con sus ids.
   Ver services/trabajador.ts. Si el cerebro (Google Drive) tiene algo que toca la tarjeta, va en `tarjeta.cerebro`.
 */
 export async function POST(request: Request) {
