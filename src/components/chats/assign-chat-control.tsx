@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Check, ChevronDown, UserCheck, UserPlus, Users, X } from "lucide-react";
-import { CLASES_BOTON_DE_LA_BARRA, CLASES_ETIQUETA_DE_LA_BARRA } from "@/components/chats/boton-de-la-barra";
+import { CLASES_BOTON_DE_LA_BARRA, CLASES_ETIQUETA_DE_LA_BARRA, mostrarNombreAlMantener } from "@/components/chats/boton-de-la-barra";
 import {
   asignarSegundoAsesorAction,
   assignChatAction,
@@ -515,6 +515,7 @@ export function AssignChatControl({
           type="button"
           onClick={handleToggle}
           className={CLASES_BOTON_DE_LA_BARRA}
+          onContextMenu={mostrarNombreAlMantener(assignee ? `Asignado a ${buttonLabel}` : "Asignar chat")}
           title={assignee ? `Asignado a ${buttonLabel}` : "Asignar chat"}
           aria-label={assignee ? `Asignado a ${buttonLabel}` : "Asignar chat"}
           aria-haspopup="menu"

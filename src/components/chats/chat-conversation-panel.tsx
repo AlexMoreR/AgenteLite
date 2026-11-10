@@ -160,7 +160,7 @@ import { AvisoDeCierre } from "./aviso-de-cierre";
 import { AvisoDeLlamada } from "./aviso-de-llamada";
 import { BotonDeMapaDeCaminos } from "./boton-mapa-de-caminos";
 import { dondeVaLaSugerencia } from "./destino-de-la-sugerencia";
-import { ALTO_DE_LA_BARRA, CLASES_BOTON_DE_LA_BARRA, CLASES_ETIQUETA_DE_LA_BARRA } from "./boton-de-la-barra";
+import { ALTO_DE_LA_BARRA, CLASES_BOTON_DE_LA_BARRA, CLASES_ETIQUETA_DE_LA_BARRA, mostrarNombreAlMantener } from "./boton-de-la-barra";
 import { textoTraeElTotal } from "@/lib/etapa-automatica-crm-texto";
 
 // El panel de envio se baja recien cuando se abre la ficha del contacto: no pesa en la carga del chat.
@@ -2198,9 +2198,9 @@ export const ConversationPanel = memo(function ConversationPanel({
               {!mediaConfig && barraAnticipada ? (
                 // Nota, seguimiento y etiquetas, en silueta hasta que el chat este cargado.
                 <div className="ml-auto flex items-center gap-1.5" aria-hidden="true">
-                  <Skeleton className={`${ALTO_DE_LA_BARRA} w-11 rounded-lg`} />
+                  <Skeleton className={`${ALTO_DE_LA_BARRA} w-8 rounded-lg`} />
                   <Skeleton className={`${ALTO_DE_LA_BARRA} w-12 rounded-lg`} />
-                  <Skeleton className={`${ALTO_DE_LA_BARRA} w-13 rounded-lg`} />
+                  <Skeleton className={`${ALTO_DE_LA_BARRA} w-8 rounded-lg`} />
                 </div>
               ) : null}
               {mediaConfig ? (
@@ -2211,6 +2211,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                     aria-label="Nota interna"
                     title="Nota interna"
                     className={CLASES_BOTON_DE_LA_BARRA}
+                    onContextMenu={mostrarNombreAlMantener("Nota interna")}
                   >
                     <StickyNote className="size-4 text-[#eab308]" />
                     <span className={CLASES_ETIQUETA_DE_LA_BARRA}>Nota</span>
@@ -2221,6 +2222,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                     aria-label="Agendar seguimiento"
                     title="Agendar seguimiento"
                     className={CLASES_BOTON_DE_LA_BARRA}
+                    onContextMenu={mostrarNombreAlMantener("Agendar seguimiento")}
                   >
                     <CalendarPlus className="size-4 text-[#0ea5e9]" />
                     <span className={CLASES_ETIQUETA_DE_LA_BARRA}>Agendar</span>

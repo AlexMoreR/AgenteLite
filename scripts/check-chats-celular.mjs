@@ -17,41 +17,48 @@ const etiquetas = leer("src/components/chats/chat-tags-control.tsx");
 const panel = leer("src/components/chats/chat-conversation-panel.tsx");
 const acciones = leer("src/components/chats/chat-header-actions.tsx");
 
-// 1) Las clases comunes: icono arriba y texto abajo, sin encogerse, todos del mismo alto.
+// 1) Las clases comunes: solo el icono en un cuadrito (como antes del 7-nov), todos del mismo alto.
 const alto = comun.match(/export const ALTO_DE_LA_BARRA = "([^"]+)"/);
 assert.ok(alto, "falta la constante ALTO_DE_LA_BARRA");
-assert.equal(alto[1], "h-11", "los botones de la barra miden unos 44 px (h-11)");
+assert.equal(alto[1], "h-8", "los botones de la barra miden unos 32 px (h-8), solo el icono");
 const boton = comun.match(/export const CLASES_BOTON_DE_LA_BARRA = `([^`]+)`/);
 assert.ok(boton, "falta la constante CLASES_BOTON_DE_LA_BARRA");
 assert.ok(boton[1].includes("${ALTO_DE_LA_BARRA}"), "el boton toma su alto de ALTO_DE_LA_BARRA");
-for (const clase of ["flex-col", "shrink-0", "items-center"]) {
+for (const clase of ["shrink-0", "items-center", "justify-center"]) {
   assert.ok(boton[1].split(" ").includes(clase), `el boton de la barra debe tener ${clase}`);
 }
+assert.ok(!boton[1].split(" ").includes("flex-col"), "el boton ya no apila icono y texto");
 const etiqueta = comun.match(/export const CLASES_ETIQUETA_DE_LA_BARRA = "([^"]+)"/);
 assert.ok(etiqueta, "falta la constante CLASES_ETIQUETA_DE_LA_BARRA");
-for (const clase of ["text-[10px]", "whitespace-nowrap"]) {
-  assert.ok(etiqueta[1].split(" ").includes(clase), `la etiqueta debe tener ${clase} (unos 10 px, sin cortarse)`);
-}
+assert.equal(etiqueta[1], "sr-only", "el nombre no se ve en la barra (solo lectores de pantalla)");
+assert.ok(comun.includes("export function mostrarNombreAlMantener"), "existe el aviso del nombre al mantener presionado");
+assert.ok(comun.includes("(pointer: coarse)"), "el aviso solo corre con pantalla tactil (el mouse usa el title)");
 
-// 2) Cada boton de la barra usa el estilo comun y muestra su texto visible.
+// 2) Cada boton de la barra usa el estilo comun, conserva su texto solo para lectores y avisa su nombre al mantener presionado.
 const conEstilo = (fuente, nombre) =>
   assert.ok(
-    fuente.includes("className={CLASES_BOTON_DE_LA_BARRA}") && fuente.includes("className={CLASES_ETIQUETA_DE_LA_BARRA}"),
-    `${nombre}: el boton de la barra debe usar CLASES_BOTON_DE_LA_BARRA y CLASES_ETIQUETA_DE_LA_BARRA`,
+    fuente.includes("className={CLASES_BOTON_DE_LA_BARRA}") && fuente.includes("onContextMenu={mostrarNombreAlMantener("),
+    `${nombre}: el boton de la barra debe usar CLASES_BOTON_DE_LA_BARRA y mostrarNombreAlMantener`,
   );
 conEstilo(posponer, "Resolver o posponer");
 conEstilo(resolver, "Resolver (sin ficha)");
 conEstilo(asignar, "Asignar");
 conEstilo(etiquetas, "Etiquetas");
 conEstilo(panel, "Nota y Agendar");
-assert.equal(panel.match(/className=\{CLASES_BOTON_DE_LA_BARRA\}/g)?.length, 2, "Nota y Agendar usan el estilo de la barra");
+const cuantas = (fuente, texto) => fuente.split(texto).length - 1;
+assert.equal(cuantas(panel, "className={CLASES_BOTON_DE_LA_BARRA}"), 2, "Nota y Agendar usan el estilo de la barra");
+assert.equal(cuantas(panel, "onContextMenu={mostrarNombreAlMantener("), 2, "Nota y Agendar avisan su nombre al mantener presionado");
 
-assert.ok(/"Reabrir" : "Resolver"/.test(posponer), "el boton con menu dice Resolver (o Reabrir)");
-assert.ok(/\{resolved \? "Reabrir" : "Resolver"\}/.test(resolver), "el boton sin ficha dice Resolver (o Reabrir)");
-assert.ok(/\{assignee \? "Asignado" : "Asignar"\}/.test(asignar), "el boton de asignar dice Asignar (o Asignado)");
-assert.ok(/>Etiquetas<\/span>/.test(etiquetas), "el boton de etiquetas dice Etiquetas");
-assert.ok(/>Nota<\/span>/.test(panel), "el boton de nota dice Nota");
-assert.ok(/>Agendar<\/span>/.test(panel), "el boton de seguimiento dice Agendar");
+assert.ok(posponer.includes('"Reabrir" : "Resolver"'), "el menu con boton conserva Resolver (o Reabrir) como texto para lectores");
+assert.ok(resolver.includes('{resolved ? "Reabrir" : "Resolver"}'), "el boton sin ficha conserva Resolver (o Reabrir)");
+assert.ok(asignar.includes('{assignee ? "Asignado" : "Asignar"}'), "el boton de asignar conserva Asignar (o Asignado)");
+assert.ok(etiquetas.includes(">Etiquetas</span>"), "el boton de etiquetas conserva su texto");
+assert.ok(panel.includes(">Nota</span>"), "el boton de nota conserva su texto");
+assert.ok(panel.includes(">Agendar</span>"), "el boton de seguimiento conserva su texto");
+for (const [fuente, nombre] of [[posponer, "posponer"], [resolver, "resolver"], [asignar, "asignar"], [etiquetas, "etiquetas"]]) {
+  assert.ok(fuente.includes("title="), `${nombre}: conserva el title (nombre al pasar el mouse)`);
+}
+assert.ok(panel.includes('title="Nota interna"') && panel.includes('title="Agendar seguimiento"'), "Nota y Agendar conservan el title");
 
 // 3) Los nombres accesibles no cambian.
 assert.ok(posponer.includes('aria-label="Resolver o posponer"'), "sigue el aria-label 'Resolver o posponer'");

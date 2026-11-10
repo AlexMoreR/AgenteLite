@@ -9,7 +9,7 @@ import { TAG_BADGE_CLASS, TAG_PRESET_COLORS, getTagBadgeColors } from "@/lib/tag
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { CLASES_BOTON_DE_LA_BARRA, CLASES_ETIQUETA_DE_LA_BARRA } from "@/components/chats/boton-de-la-barra";
+import { CLASES_BOTON_DE_LA_BARRA, CLASES_ETIQUETA_DE_LA_BARRA, mostrarNombreAlMantener } from "@/components/chats/boton-de-la-barra";
 import {
   createEtiquetaAction,
   deleteEtiquetaAction,
@@ -319,6 +319,7 @@ export function ChatTagsControl({
         {soloBoton ? (
           <DialogTrigger
             className={CLASES_BOTON_DE_LA_BARRA}
+            onContextMenu={mostrarNombreAlMantener("Etiquetas")}
             aria-label="Etiquetas"
             title="Etiquetas"
           >

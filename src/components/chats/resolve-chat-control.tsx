@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { updateConversationStatusAction } from "@/app/actions/chats-actions";
 import { CHAT_STATUS_CHANGED_EVENT, type ChatStatusChangedDetail } from "@/components/chats/chat-inbox-types";
 import { irALaBandejaLimpia } from "@/components/chats/ir-a-la-bandeja-limpia";
-import { CLASES_BOTON_DE_LA_BARRA, CLASES_ETIQUETA_DE_LA_BARRA } from "@/components/chats/boton-de-la-barra";
+import { CLASES_BOTON_DE_LA_BARRA, CLASES_ETIQUETA_DE_LA_BARRA, mostrarNombreAlMantener } from "@/components/chats/boton-de-la-barra";
 
 type ResolveChatControlProps = {
   conversationId: string;
@@ -114,6 +114,7 @@ export function ResolveChatControl({
         aria-label={resolved ? "Reabrir conversación" : "Resolver conversación"}
         title={resolved ? "Reabrir conversación" : "Resolver conversación"}
         className={CLASES_BOTON_DE_LA_BARRA}
+        onContextMenu={mostrarNombreAlMantener(resolved ? "Reabrir conversación" : "Resolver conversación")}
       >
         {resolved ? (
           <RotateCcw className="size-4 text-amber-600" />

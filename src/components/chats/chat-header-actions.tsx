@@ -110,11 +110,11 @@ export function BarraDeAccionesEnSilueta() {
       <Skeleton className="h-5 w-14 rounded-full" />
       <Skeleton className="h-[1.15rem] w-8 rounded-full" />
       <span className="mx-0.5 h-5 w-px bg-border" />
-      <Skeleton className={`${ALTO_DE_LA_BARRA} w-12 rounded-lg`} />
+      <Skeleton className={`${ALTO_DE_LA_BARRA} w-8 rounded-lg`} />
       <div className={CLASES_SALIDAS_FIJAS}>
         <FlechitaHayMas />
         <span className="mx-0.5 h-5 w-px bg-border" />
-        <Skeleton className={`${ALTO_DE_LA_BARRA} w-12 rounded-lg`} />
+        <Skeleton className={`${ALTO_DE_LA_BARRA} w-8 rounded-lg`} />
       </div>
     </div>
   );

@@ -11,7 +11,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { SNOOZE_PRESETS } from "@/lib/lead-snooze";
 import { CHAT_SNOOZED_EVENT, type ChatSnoozedDetail } from "@/components/chats/chat-inbox-types";
 import { ResolveChatControl } from "@/components/chats/resolve-chat-control";
-import { CLASES_BOTON_DE_LA_BARRA, CLASES_ETIQUETA_DE_LA_BARRA } from "@/components/chats/boton-de-la-barra";
+import { CLASES_BOTON_DE_LA_BARRA, CLASES_ETIQUETA_DE_LA_BARRA, mostrarNombreAlMantener } from "@/components/chats/boton-de-la-barra";
 
 /**
  * Posponer el lead SIN salir del chat.
@@ -83,6 +83,7 @@ export function SnoozeChatControl({
               aria-label="Resolver o posponer"
               title="Resolver o posponer"
               className={CLASES_BOTON_DE_LA_BARRA}
+              onContextMenu={mostrarNombreAlMantener("Resolver o posponer")}
             >
               {/* La flechita al lado del icono avisa que abre un menu (resolver o posponer). */}
               <span className="flex items-center gap-0.5">
