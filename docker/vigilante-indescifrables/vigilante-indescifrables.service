@@ -1,0 +1,23 @@
+# Vigilante de mensajes indescifrables de WAHA (ver README.md de esta carpeta).
+# Va en el servidor donde corre el contenedor de WAHA. NO se instala solo.
+[Unit]
+Description=Vigilante de mensajes indescifrables de WAHA (avisa al CRM)
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+# CRM_URL, INDESCIFRABLES_SECRET y, si hace falta, CONTENEDOR y SESION_POR_DEFECTO.
+EnvironmentFile=/etc/vigilante-indescifrables.env
+Environment=CURSOR=/var/lib/vigilante-indescifrables/cursor
+StateDirectory=vigilante-indescifrables
+ExecStart=/usr/bin/node /opt/vigilante-indescifrables/vigilante.mjs
+Restart=always
+RestartSec=10
+# Necesita leer los logs de docker: corre como root o con un usuario del grupo docker.
+User=root
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

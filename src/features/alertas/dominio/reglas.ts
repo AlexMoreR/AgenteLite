@@ -28,6 +28,8 @@ export const linkDeLaAlerta = (id: string) => `${ENLACE_DE_ALERTAS}?alerta=${enc
 export const ORIGEN_SUPERVISOR = "Supervisor";
 export const ORIGEN_COORDINADOR = "Coordinador";
 export const ORIGEN_LINEA = "Línea de WhatsApp";
+/** Mensajes que WAHA no pudo descifrar y no llegaron (ver src/features/mensajes-indescifrables). */
+export const ORIGEN_MENSAJES_PERDIDOS = "Mensajes perdidos";
 export const ORIGEN_POR_AREA: Record<string, string> = {
   ventas: "Agente de Ventas",
   marketing: "Agente de Marketing",
@@ -294,6 +296,7 @@ export function areaDelOrigen(origen: string): AreaDeAlerta {
   if (origen === ORIGEN_COORDINADOR) return "Coordinador";
   if (origen === ORIGEN_POR_AREA.ventas) return "Ventas";
   if (origen === ORIGEN_POR_AREA.marketing) return "Marketing";
+  if (origen === ORIGEN_MENSAJES_PERDIDOS) return "CRM Ventas";
   return leerAreaDeAlerta(origen) ?? AREA_POR_DEFECTO;
 }
 

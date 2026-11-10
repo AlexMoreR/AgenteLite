@@ -2643,6 +2643,37 @@ model AlertaInterna {
   @@index([workspaceId, destinatarioId, estado])
 }
 
+/// Un mensaje que WAHA no pudo descifrar y que se revisa a los 2 minutos (ver src/features/mensajes-indescifrables).
+/// Sin llaves foráneas a propósito: la migración es solo aditiva y no toca tablas existentes.
+model MensajeIndescifrable {
+  id             String    @id @default(cuid())
+  workspaceId    String
+  channelId      String
+  /// El id del mensaje sin el `<fromMe>_<chat>_` de adelante.
+  idCrudo        String
+  /// Solo dígitos. Vacío en las marcas que deja el webhook cuando el evento le gana al vigilante.
+  lid            String    @default("")
+  ocurridoEn     DateTime
+  revisarEn      DateTime
+  /// PENDIENTE, REVISANDO, LLEGO, PERDIDO, SOMBRA, IGNORADO, DESCARTADO o ERROR.
+  estado         String    @default("PENDIENTE")
+  intentos       Int       @default(0)
+  reclamadoEn    DateTime?
+  resueltoEn     DateTime?
+  telefono       String?
+  conversationId String?
+  /// "Nombre (línea)" para el WhatsApp agrupado.
+  resumen        String?
+  /// Cuándo salió en el WhatsApp agrupado a Alexander.
+  avisadoEn      DateTime?
+  creadoEn       DateTime  @default(now())
+
+  @@unique([channelId, idCrudo])
+  @@index([estado, revisarEn])
+  @@index([estado, avisadoEn])
+  @@index([workspaceId, creadoEn])
+}
+
 /// Embudo 3: una foto completa del embudo de un producto (bienvenida, guiones, pasos quitados y
 /// seguimientos) cada vez que cambia. V1 = "embudo inicial". Solo se agregan filas, nunca se editan.
 model EmbudoVersion {
