@@ -54,11 +54,17 @@ export function ReglaDeDemoraDeAsesora({
     }
     setError("");
     empezar(async () => {
-      const resultado = await guardarReglaDeDemoraAction({
-        activo: prendida,
-        minutosAviso: aviso,
-        minutosReasignar: reasignar,
-      });
+      let resultado: Awaited<ReturnType<typeof guardarReglaDeDemoraAction>>;
+      try {
+        resultado = await guardarReglaDeDemoraAction({
+          activo: prendida,
+          minutosAviso: aviso,
+          minutosReasignar: reasignar,
+        });
+      } catch {
+        setError("No se pudo guardar. Intenta de nuevo.");
+        return;
+      }
       if ("error" in resultado) {
         setError(resultado.error);
         return;
