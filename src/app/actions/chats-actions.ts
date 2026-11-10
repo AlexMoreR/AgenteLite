@@ -45,6 +45,15 @@ import { claimConversationIfUnassigned } from "@/lib/conversation-claim";
 import { etapaAlAsignar, etapaCaliente } from "@/lib/etapa-automatica-crm";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import {
+  borrarRespuestaRapida,
+  crearRespuestasRapidas,
+  editarRespuestaRapida,
+  listarRespuestasRapidas,
+  type AsesoraDeRespuestas,
+  type QuienPide,
+  type RespuestaRapida,
+} from "@/lib/respuestas-rapidas";
+import {
   getOfficialApiConfigByWorkspaceId,
   getOfficialApiConversationAutomationPaused,
   hasOfficialApiBaseCredentials,
@@ -1942,35 +1951,38 @@ export async function deleteEtiquetaAction(tagId: string): Promise<{ error?: str
   return { success: true };
 }
 
-// ---- Respuestas rápidas (plantillas de mensaje compartidas por todo el workspace) ----
+// ---- Respuestas rápidas (cada una es de una asesora; reglas en src/lib/respuestas-rapidas.ts) ----
 
-export type QuickReplyItem = { id: string; title: string; content: string };
+export type QuickReplyItem = RespuestaRapida;
+export type QuickReplyAsesora = AsesoraDeRespuestas;
 
 const quickReplySchema = z.object({
   title: z.string().trim().min(1, "El título es obligatorio").max(80),
   content: z.string().trim().min(1, "El mensaje es obligatorio").max(2000),
 });
 
-export async function getQuickRepliesAction(): Promise<{ items?: QuickReplyItem[]; error?: string }> {
-  const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
-    return { error: "No autorizado" };
-  }
-  await requireClientWorkspaceAccess("chats");
+/** Usuario y negocio salen SIEMPRE de la sesión, nunca del formulario. */
+function quienPideRespuestas(access: Awaited<ReturnType<typeof requireClientWorkspaceAccess>>): QuienPide {
+  return {
+    userId: access.userId,
+    workspaceId: access.workspaceId,
+    isOwner: access.isOwner,
+    role: access.role,
+    membershipRole: access.membershipRole,
+  };
+}
 
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
-  if (!membership) return { error: "Workspace no encontrado" };
+export async function getQuickRepliesAction(
+  filtro?: string,
+): Promise<{ items?: QuickReplyItem[]; esJefe?: boolean; asesoras?: QuickReplyAsesora[]; error?: string }> {
+  const access = await requireClientWorkspaceAccess("chats");
 
   // Nunca lanzar: si la consulta falla (bache de la base), devolvemos un error manejable en vez de
   // reventar el server action. Antes, si esto lanzaba, el diálogo del cliente se quedaba girando
   // para siempre (sin catch ni reintento).
   try {
-    const rows = await prisma.quickReply.findMany({
-      where: { workspaceId: membership.workspace.id },
-      orderBy: { createdAt: "asc" },
-      select: { id: true, title: true, content: true },
-    });
-    return { items: rows };
+    const lista = await listarRespuestasRapidas(prisma, quienPideRespuestas(access), typeof filtro === "string" ? filtro : null);
+    return { items: lista.items, esJefe: lista.esJefe, asesoras: lista.asesoras };
   } catch (error) {
     console.error("[getQuickRepliesAction] error", error);
     return { error: "No se pudieron cargar las respuestas rápidas." };
@@ -1981,11 +1993,7 @@ export async function createQuickReplyAction(
   _prevState: { error?: string; success?: boolean },
   formData: FormData,
 ): Promise<{ error?: string; success?: boolean }> {
-  const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
-    return { error: "No autorizado" };
-  }
-  await requireClientWorkspaceAccess("chats");
+  const access = await requireClientWorkspaceAccess("chats");
 
   const parsed = quickReplySchema.safeParse({
     title: formData.get("title"),
@@ -1993,29 +2001,22 @@ export async function createQuickReplyAction(
   });
   if (!parsed.success) return { error: parsed.error.issues[0]?.message || "Datos invalidos" };
 
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
-  if (!membership) return { error: "Workspace no encontrado" };
-
-  await prisma.quickReply.create({
-    data: {
-      workspaceId: membership.workspace.id,
-      title: parsed.data.title,
-      content: parsed.data.content,
-    },
-  });
-
-  return { success: true };
+  try {
+    const result = await crearRespuestasRapidas(prisma, quienPideRespuestas(access), parsed.data, formData.getAll("duenaIds"));
+    if (result.error) return { error: result.error };
+    return { success: true };
+  } catch (error) {
+    console.error("[createQuickReplyAction] error", error);
+    return { error: "No se pudo guardar la respuesta rápida. Intenta de nuevo." };
+  }
 }
 
 export async function updateQuickReplyAction(
   id: string,
   formData: FormData,
 ): Promise<{ error?: string; success?: boolean }> {
-  const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
-    return { error: "No autorizado" };
-  }
-  await requireClientWorkspaceAccess("chats");
+  const access = await requireClientWorkspaceAccess("chats");
+  if (typeof id !== "string" || !id) return { error: "Respuesta rápida no encontrada" };
 
   const parsed = quickReplySchema.safeParse({
     title: formData.get("title"),
@@ -2023,42 +2024,31 @@ export async function updateQuickReplyAction(
   });
   if (!parsed.success) return { error: parsed.error.issues[0]?.message || "Datos invalidos" };
 
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
-  if (!membership) return { error: "Workspace no encontrado" };
-
-  const existing = await prisma.quickReply.findFirst({
-    where: { id, workspaceId: membership.workspace.id },
-    select: { id: true },
-  });
-  if (!existing) return { error: "Respuesta rápida no encontrada" };
-
-  await prisma.quickReply.update({
-    where: { id },
-    data: { title: parsed.data.title, content: parsed.data.content },
-  });
-
-  return { success: true };
+  const duenaId = formData.get("duenaId");
+  try {
+    return await editarRespuestaRapida(
+      prisma,
+      quienPideRespuestas(access),
+      id,
+      parsed.data,
+      typeof duenaId === "string" ? duenaId : null,
+    );
+  } catch (error) {
+    console.error("[updateQuickReplyAction] error", error);
+    return { error: "No se pudo guardar la respuesta rápida. Intenta de nuevo." };
+  }
 }
 
 export async function deleteQuickReplyAction(id: string): Promise<{ error?: string; success?: boolean }> {
-  const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
-    return { error: "No autorizado" };
+  const access = await requireClientWorkspaceAccess("chats");
+  if (typeof id !== "string" || !id) return { error: "Respuesta rápida no encontrada" };
+
+  try {
+    return await borrarRespuestaRapida(prisma, quienPideRespuestas(access), id);
+  } catch (error) {
+    console.error("[deleteQuickReplyAction] error", error);
+    return { error: "No se pudo eliminar la respuesta rápida. Intenta de nuevo." };
   }
-  await requireClientWorkspaceAccess("chats");
-
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
-  if (!membership) return { error: "Workspace no encontrado" };
-
-  const existing = await prisma.quickReply.findFirst({
-    where: { id, workspaceId: membership.workspace.id },
-    select: { id: true },
-  });
-  if (!existing) return { error: "Respuesta rápida no encontrada" };
-
-  await prisma.quickReply.delete({ where: { id } });
-
-  return { success: true };
 }
 
 export async function getContactTagIdsAction(contactId: string): Promise<{ tagIds?: string[]; error?: string }> {
