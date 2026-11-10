@@ -36,6 +36,7 @@
     "test:v3-mapa": "node scripts/check-v3-mapa.mjs",
     "test:espera-bandeja": "node scripts/check-espera-bandeja.mjs",
     "test:demora-asesora": "npx tsx --test src/features/chats/domain/demora-de-asesora.test.ts",
+    "test:demora-asesora-ajuste": "npx tsx --test src/lib/demora-de-asesora-ajuste.test.ts",
     "test:velocidad-bandeja": "node scripts/check-velocidad-bandeja.mjs",
     "test:chats-celular": "node scripts/check-chats-celular.mjs",
     "test:sin-responder": "npx tsx --test src/features/chats/domain/sin-responder.test.ts && node scripts/check-sin-responder.mjs",

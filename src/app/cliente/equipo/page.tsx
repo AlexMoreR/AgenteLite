@@ -4,12 +4,20 @@ import { Megaphone } from "lucide-react";
 import { guardarLiderDeVentasAction } from "@/app/actions/equipo-actions";
 import { ClientTeamWorkspace, type EstadoDeLinea } from "@/components/client-team-workspace";
 import { NegocioEquipoTabs } from "@/components/negocio-equipo-tabs";
+import { ReglaDeDemoraDeAsesora } from "@/components/regla-de-demora-de-asesora";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { leerColaboradores, leerMonitores, leerPausadosDeReparto } from "@/lib/channel-collaborators";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
+import {
+  claveConfigDemora,
+  claveHistorialDemora,
+  estadoDelBotonDeTexto,
+  leerHistorialDemoraDeTexto,
+  type EstadoDelBoton,
+} from "@/lib/demora-de-asesora-ajuste";
 import { sanitizeClientModuleAccess } from "@/lib/client-workspace-modules";
 import { horarioSiempre, leerHorariosDeReparto } from "@/lib/horario-de-reparto";
 import { leerLiderDeVentasElegido, leerSupervisoras } from "@/lib/permisos-del-equipo";
@@ -37,6 +45,11 @@ function formatDate(value: Date | null) {
   }).format(value);
 }
 
+/** "Prendida, 5 y 10 min" para el historial de la regla de demora. */
+function resumenDeDemora(estado: EstadoDelBoton) {
+  return `${estado.activo ? "Prendida" : "Apagada"}, ${estado.minutosAviso} y ${estado.minutosReasignar} min`;
+}
+
 export default async function ClienteEquipoPage({ searchParams }: PageProps) {
   const access = await requireClientWorkspaceAccess("client_team", { ownerOnly: true });
   const params = await searchParams;
@@ -45,7 +58,7 @@ export default async function ClienteEquipoPage({ searchParams }: PageProps) {
 
   // Muestra empleados (AGENT/EMPLEADO) Y administradores (ADMIN) del negocio. El dueno
   // (OWNER) no se lista aqui: es el titular de la cuenta, no un miembro gestionable.
-  const [employees, canales, supervisoras, horarios, configDeAvisos, liderElegido] = await Promise.all([
+  const [employees, canales, supervisoras, horarios, configDeAvisos, liderElegido, filaDemora, filaHistorialDemora] = await Promise.all([
     prisma.workspaceMember.findMany({
       where: {
         workspaceId: access.workspaceId,
@@ -80,7 +93,23 @@ export default async function ClienteEquipoPage({ searchParams }: PageProps) {
     leerHorariosDeReparto(access.workspaceId),
     leerConfigDeAvisos(access.workspaceId).catch(() => null),
     leerLiderDeVentasElegido(access.workspaceId),
+    // La regla de demora de asesora: la misma fila que lee la regla, y su historial.
+    prisma.appSetting.findUnique({ where: { key: claveConfigDemora(access.workspaceId) }, select: { value: true } }),
+    prisma.appSetting.findUnique({ where: { key: claveHistorialDemora(access.workspaceId) }, select: { value: true } }),
   ]);
+
+  const demora = estadoDelBotonDeTexto(filaDemora?.value);
+  const cambiosDeDemora = leerHistorialDemoraDeTexto(filaHistorialDemora?.value)
+    .slice(0, 5)
+    .map((cambio) => ({
+      cuando: new Date(cambio.en).toLocaleString("es-CO", {
+        timeZone: "America/Bogota",
+        dateStyle: "short",
+        timeStyle: "short",
+      }),
+      quien: cambio.quienNombre,
+      resumen: `${resumenDeDemora(cambio.antes)} → ${resumenDeDemora(cambio.despues)}`,
+    }));
 
   // Para elegir al lider de ventas solo sirven las personas activas del equipo.
   const activos = employees.filter((employee) => employee.isActive);
@@ -154,6 +183,14 @@ export default async function ClienteEquipoPage({ searchParams }: PageProps) {
           </form>
         </CardContent>
       </Card>
+
+      {/* Regla de demora de asesora: aviso a los 5 min y el chat pasa a otra activa a los 10 (dueño, 10-nov-2026). */}
+      <ReglaDeDemoraDeAsesora
+        activo={demora.activo}
+        minutosAviso={demora.minutosAviso}
+        minutosReasignar={demora.minutosReasignar}
+        cambios={cambiosDeDemora}
+      />
 
       <ClientTeamWorkspace
         employees={employees.map((employee) => {

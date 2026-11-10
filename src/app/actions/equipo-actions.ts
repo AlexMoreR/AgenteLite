@@ -6,6 +6,15 @@ import { revalidatePath } from "next/cache";
 import { leerColaboradores, leerMonitores, leerPausadosDeReparto } from "@/lib/channel-collaborators";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { sanitizeClientModuleAccess } from "@/lib/client-workspace-modules";
+import {
+  agregarAlHistorial,
+  claveConfigDemora,
+  claveHistorialDemora,
+  estadoDelBotonDeTexto,
+  leerHistorialDemoraDeTexto,
+  textoDeConfigNueva,
+  validarPedidoDeDemora,
+} from "@/lib/demora-de-asesora-ajuste";
 import { guardarAsesoraDeRespaldo } from "@/lib/en-linea";
 import { guardarHorarioDeReparto, normalizarHorario } from "@/lib/horario-de-reparto";
 import { guardarLiderDeVentas, guardarSupervisoras, leerSupervisoras } from "@/lib/permisos-del-equipo";
@@ -237,5 +246,61 @@ export async function guardarPersonaDelEquipoAction(input: {
   for (const cambio of cambios) {
     revalidatePath(`/cliente/conexion/whatsapp-business/${cambio.id}`);
   }
+  return { ok: true };
+}
+
+/**
+ * El botón de la regla de demora de asesora (dueño, 10-nov-2026): prenderla o apagarla y sus minutos,
+ * sin tocar la base a mano. Escribe la MISMA fila que lee la regla y deja el cambio en el historial
+ * (quién, cuándo, antes y después). Solo el dueño o un administrador, igual que el resto de Equipo.
+ * La regla en sí no cambia.
+ */
+export async function guardarReglaDeDemoraAction(input: {
+  activo: boolean;
+  minutosAviso: number | string;
+  minutosReasignar: number | string;
+}): Promise<{ ok: true } | { error: string }> {
+  const access = await requireClientWorkspaceAccess("client_team", { ownerOnly: true });
+
+  // Primero se valida; con minutos inválidos no se escribe nada.
+  const validado = validarPedidoDeDemora({
+    activo: input?.activo,
+    minutosAviso: input?.minutosAviso,
+    minutosReasignar: input?.minutosReasignar,
+  });
+  if ("error" in validado) {
+    return { error: validado.error };
+  }
+
+  const claveConfig = claveConfigDemora(access.workspaceId);
+  const claveHistorial = claveHistorialDemora(access.workspaceId);
+  const [filaConfig, filaHistorial, quien] = await Promise.all([
+    prisma.appSetting.findUnique({ where: { key: claveConfig }, select: { value: true } }),
+    prisma.appSetting.findUnique({ where: { key: claveHistorial }, select: { value: true } }),
+    prisma.user.findUnique({ where: { id: access.userId }, select: { name: true, email: true } }),
+  ]);
+
+  const historial = agregarAlHistorial(leerHistorialDemoraDeTexto(filaHistorial?.value), {
+    en: new Date().toISOString(),
+    quienId: access.userId,
+    quienNombre: quien?.name?.trim() || quien?.email || "Sin nombre",
+    antes: estadoDelBotonDeTexto(filaConfig?.value),
+    despues: validado.estado,
+  });
+  const configNueva = textoDeConfigNueva(filaConfig?.value, validado.estado);
+
+  // Primero el historial y después la configuración, como el historial de las instrucciones de seguimiento.
+  await prisma.appSetting.upsert({
+    where: { key: claveHistorial },
+    create: { key: claveHistorial, value: JSON.stringify(historial) },
+    update: { value: JSON.stringify(historial) },
+  });
+  await prisma.appSetting.upsert({
+    where: { key: claveConfig },
+    create: { key: claveConfig, value: configNueva },
+    update: { value: configNueva },
+  });
+
+  revalidatePath("/cliente/equipo");
   return { ok: true };
 }
