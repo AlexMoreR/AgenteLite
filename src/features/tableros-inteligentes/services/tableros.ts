@@ -28,6 +28,7 @@ import {
   puedeEditarTarjeta,
   sePuedeMarcarHechoAMano,
   soloCambiaResponsable,
+  soloMueve,
   tieneAprobacion,
   ESTADOS_CON_APROBACION,
   codigoDeTarjeta,
@@ -1580,6 +1581,9 @@ function revisarRepoParaTipo(tipo: { nombre: string; requiereAprobacion: boolean
 /** Cuando dos escrituras chocan (el dueño aprobó mientras Claude editaba), se avisa en vez de pisar. */
 const CAMBIO_EN_EL_MEDIO = "La tarjeta cambió mientras tanto (quizás el dueño la aprobó). Vuelve a leerla e intenta de nuevo.";
 
+/** Lo que se pide en editarTarjeta que solo mueve la tarjeta (soloMueve en reglas.ts, con el nombre de la entrada). */
+const CAMPOS_PEDIDOS_DE_MOVIMIENTO = new Set(["padreId", "area", "orden", "fecha", "responsable"]);
+
 type CamposEditables = {
   titulo?: string;
   detalle?: string;
@@ -1619,11 +1623,10 @@ export async function editarTarjeta(
   },
 ) {
   const actual = await tarjetaDelNegocio(contexto, tarjetaId);
-  // Asignar a alguien no toca el texto ni el trabajo: se puede aunque el Coordinador tenga la tarjeta.
-  const soloAsigna =
-    cambios.responsable !== undefined &&
-    Object.entries(cambios).every(([campo, valor]) => campo === "responsable" || valor === undefined);
-  const enManos = soloAsigna ? null : puedeEditarTarjeta(actual.estado, Boolean(actual.repo));
+  // Si se pide algo más que mover (de qué cuelga, área, orden, fecha, responsable) y el Coordinador la tiene, se
+  // niega antes de leer nada más, como siempre. Mover se puede aunque la tenga (puedeEditarTarjeta con soloMovimiento).
+  const pideSoloMover = Object.entries(cambios).every(([campo, valor]) => valor === undefined || CAMPOS_PEDIDOS_DE_MOVIMIENTO.has(campo));
+  const enManos = puedeEditarTarjeta(actual.estado, Boolean(actual.repo), pideSoloMover);
   if (enManos) throw new Error(enManos);
 
   const nuevo: CamposEditables = {};
@@ -1693,10 +1696,16 @@ export async function editarTarjeta(
   const repoFinal = nuevo.repo !== undefined ? nuevo.repo : actual.repo;
   if (repoFinal && (nuevo.repo !== undefined || nuevo.tipoId)) revisarRepoParaTipo(tipoFinal);
 
-  // Riesgo: BAJO solo si las reglas no ven nada de riesgo alto con la tarjeta como quedaría. Si queda BAJO
-  // y el texto o las zonas cambiaron a algo de riesgo alto, pasa a ALTO sola (y no se aprueba sola).
+  // Mover (10-nov-2026): si lo que de verdad cambia es solo de qué cuelga, el área, el orden, la fecha o el responsable,
+  // la tarjeta conserva su estado y su plan, no se recalcula el riesgo y se puede aunque el Coordinador la tenga.
+  // (Lo de abajo, el riesgo, solo agrega campos si se pidió riesgo: entonces ya no es mover.)
   const riesgoPedido = riesgoDeEntrada(cambios.riesgo);
   const motivoPedido = motivoDeRiesgoDeEntrada(cambios.motivoRiesgo);
+  // Con pideSoloMover, `nuevo` solo puede traer campos de mover (o nada: "No hay nada distinto", más abajo).
+  const mueve = riesgoPedido === undefined && motivoPedido === undefined && soloMueve(Object.keys(nuevo));
+
+  // Riesgo: BAJO solo si las reglas no ven nada de riesgo alto con la tarjeta como quedaría. Si queda BAJO
+  // y el texto o las zonas cambiaron a algo de riesgo alto, pasa a ALTO sola (y no se aprueba sola).
   const quienRiesgo = quienPoneElRiesgo(contexto.origen);
   const datosDeRiesgo = {
     titulo: nuevo.titulo ?? actual.titulo,
@@ -1725,8 +1734,8 @@ export async function editarTarjeta(
   } else if (motivoPedido !== undefined && actual.riesgo && motivoPedido !== actual.riesgoMotivo) {
     nuevo.riesgoMotivo = motivoPedido;
   }
-  // Asignar a alguien nunca toca el riesgo (ni el estado): el recálculo automático es solo si cambia otra cosa.
-  if (!soloAsigna && nuevo.riesgo === undefined && actual.riesgo === "BAJO") {
+  // Mover (o asignar) nunca toca el riesgo (ni el estado): el recálculo automático es solo si cambia otra cosa.
+  if (!mueve && nuevo.riesgo === undefined && actual.riesgo === "BAJO") {
     const motivos = motivosDeRiesgoAlto(datosDeRiesgo);
     if (motivos.length) {
       nuevo.riesgo = "ALTO";
@@ -1739,8 +1748,8 @@ export async function editarTarjeta(
     throw new Error("No hay nada distinto para cambiar.");
   }
 
-  // Cambiar solo el responsable no reinicia la aprobación: la tarjeta sigue en el estado en que estaba.
-  const estado = soloCambiaResponsable(Object.keys(nuevo))
+  // Mover (o cambiar solo el responsable) no reinicia la aprobación: la tarjeta sigue en el estado en que estaba.
+  const estado = mueve
     ? actual.estado
     : nuevo.tipoId
       ? estadoTrasCambiarTipo(tipoFinal.requiereAprobacion, tipoFinal.usaEstados)
@@ -1760,12 +1769,19 @@ export async function editarTarjeta(
     antes.estado = actual.estado;
     despues.estado = estado;
   }
+  // La marca de que fue un movimiento: conservó su estado y su plan (ver_historial_tarjeta y la ficha la leen). Asignar
+  // solo al responsable ya tiene su propia línea ("Asignó a Emanuel") y queda como siempre.
+  if (mueve && !soloCambiaResponsable(Object.keys(nuevo))) despues.movimiento = true;
 
   const editada = await prisma.$transaction(async (tx) => {
-    const hecho = await tx.tarjetaTablero.updateMany({
-      where: { id: actual.id, estado: actual.estado, ...NO_BORRADA },
-      data: { ...nuevo, estado, ...alReabrir(estado) },
-    });
+    // Mover no escribe el estado ni pide que siga igual: si el Coordinador la cambia de etapa al mismo tiempo, las
+    // dos escrituras no se pisan (él escribe estado, plan y resultado; mover, solo sus campos).
+    const hecho = mueve
+      ? await tx.tarjetaTablero.updateMany({ where: { id: actual.id, ...NO_BORRADA }, data: { ...nuevo } })
+      : await tx.tarjetaTablero.updateMany({
+          where: { id: actual.id, estado: actual.estado, ...NO_BORRADA },
+          data: { ...nuevo, estado, ...alReabrir(estado) },
+        });
     if (hecho.count !== 1) throw new Error(CAMBIO_EN_EL_MEDIO);
     const cambio = await anotar(tx, contexto, actual.id, "editar", antes, despues);
     await tocarTablero(tx, actual.tableroId);
@@ -1776,6 +1792,7 @@ export async function editarTarjeta(
       volvioAPorAprobar: estado === "POR_APROBAR" && actual.estado !== "POR_APROBAR",
       perdioAprobacion: tieneAprobacion(actual.estado) && !tieneAprobacion(estado),
       cambioDeTipo: Boolean(nuevo.tipoId),
+      movimiento: mueve,
       tipo: tipoFinal,
     };
   });
@@ -1783,8 +1800,8 @@ export async function editarTarjeta(
   // edita acá, y cambiar solo el responsable o el riesgo no responde nada.
   if (nuevo.detalle !== undefined) await cerrarAlertasDeTarjeta(contexto.workspaceId, actual.id, "RESPUESTA");
   // Si quedó POR_APROBAR con repo, se aprueba sola otra vez (si corresponde por las reglas de aprobación automática).
-  // Asignar a alguien no aprueba nada: ahí el estado se queda como estaba.
-  const aprobacion = soloCambiaResponsable(Object.keys(nuevo))
+  // Mover no aprueba nada: ahí el estado se queda como estaba.
+  const aprobacion = mueve
     ? { tarjeta: editada.tarjeta, resultado: null }
     : await aprobarSiCorresponde(editada.tarjeta);
   return { ...editada, tarjeta: aprobacion.tarjeta, aprobacionAutomatica: aprobacion.resultado, avisoDeRiesgo };

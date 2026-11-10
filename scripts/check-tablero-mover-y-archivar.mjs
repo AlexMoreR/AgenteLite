@@ -1,6 +1,8 @@
 // Pruebas del Tablero IA (10-nov-2026) con un prisma FALSO en memoria:
 //  1. Una Tarea cuelga de una Idea o directamente de un Área (crear_tarjeta / editar_tarjeta por el MCP), y agregarle
 //     una madre permitida a un tipo (editarTipo) no cambia el estado ni la aprobación de ninguna tarjeta.
+//  2. Mover una tarjeta (de qué cuelga, área, orden, fecha, responsable) no le quita la aprobación ni el plan, se puede
+//     aunque el Coordinador la tenga (sin escribir su estado) y queda marcado como movimiento en el historial.
 // Carga el services/tableros.ts REAL y los manejadores MCP reales (src/lib/mcp/tableros-inteligentes.ts).
 // No necesita base ni red.
 // Correr: npm run test:tablero-mover-y-archivar
@@ -456,6 +458,230 @@ await prueba("los textos del MCP ya no dicen que la Tarea cuelga solo de una Ide
     reglas.TIPOS_POR_DEFECTO.find((t) => t.nombre === "Tarea").padres,
     ["Idea", "Área"],
   );
+});
+
+/* ------------------------------------------------------------------ 2. mover no quita la aprobación */
+
+seccion("mover una tarjeta no le quita la aprobación ni el plan");
+
+const ultimo = () => estado.historial[estado.historial.length - 1];
+
+/** Una Tarea con repo y plan en `estadoInicial`, colgando de una Idea, con un Área y otra Idea a mano para moverla. */
+function tareaConPlan(estadoInicial, extra = {}) {
+  tarjeta("area1", { tipo: "area", titulo: "Ventas" });
+  tarjeta("idea1", { tipo: "idea", padreId: "area1", titulo: "Idea uno" });
+  tarjeta("idea2", { tipo: "idea", padreId: "area1", titulo: "Idea dos" });
+  return tarjeta("t1", {
+    padreId: "idea1",
+    estado: estadoInicial,
+    repo: "aizencrm",
+    plan: "1. Cambiar el guion.\n2. Probar.",
+    riesgo: "ALTO",
+    riesgoMotivo: "toca chats",
+    riesgoPor: "CLAUDE",
+    ...extra,
+  });
+}
+
+const MOVIMIENTOS = [
+  ["de qué cuelga", { padre_id: "idea2" }, (t) => t.padreId === "idea2"],
+  ["el área", { area: "Postventa" }, (t) => t.area === "Postventa"],
+  ["el orden", { orden: 7 }, (t) => t.orden === 7],
+  ["la fecha", { fecha: "2026-11-20" }, (t) => Boolean(t.fecha?.toISOString().startsWith("2026-11-20"))],
+  ["el responsable", { responsable: "Bruno" }, (t) => t.responsableId === "u-bruno"],
+  ["varias cosas a la vez", { padre_id: "idea2", area: "Postventa", orden: 3, responsable: "Ana" }, (t) => t.padreId === "idea2" && t.area === "Postventa"],
+];
+
+for (const estadoInicial of ["APROBADO", "PLAN_LISTO", "PLAN_APROBADO", "POR_REVISAR", "ERROR", "POR_APROBAR", "HECHO"]) {
+  await prueba(`MCP: mover una ${estadoInicial} (padre, área, orden, fecha, responsable) conserva el estado y el plan`, async () => {
+    for (const [nombre, args, quedo] of MOVIMIENTOS) {
+      sembrar();
+      tareaConPlan(estadoInicial);
+      const r = await llamar("editar_tarjeta", { tarjeta_id: "t1", ...args });
+      assert.equal(r.ok, true, nombre);
+      assert.equal(de("t1").estado, estadoInicial, `${nombre}: el estado no cambia`);
+      assert.equal(de("t1").plan, "1. Cambiar el guion.\n2. Probar.", `${nombre}: el plan no cambia`);
+      assert.equal(de("t1").riesgo, "ALTO", `${nombre}: el riesgo no cambia`);
+      assert.ok(quedo(de("t1")), `${nombre}: se movió`);
+      assert.equal(r.estado, estadoInicial);
+      assert.match(r.aviso, /Se movió: conserva su estado/);
+      assert.ok(!("estado" in ultimo().despues), `${nombre}: el historial no anota cambio de estado`);
+    }
+  });
+}
+
+await prueba("historial: un movimiento queda marcado (movimiento: true) con el antes y el después de lo que se movió", async () => {
+  tareaConPlan("APROBADO");
+  await llamar("editar_tarjeta", { tarjeta_id: "t1", padre_id: "idea2", area: "Postventa" });
+  const fila = ultimo();
+  assert.equal(fila.accion, "editar");
+  assert.equal(fila.origen, "MCP");
+  assert.deepEqual(fila.antes, { area: null, padreId: "idea1" });
+  assert.deepEqual(fila.despues, { area: "Postventa", padreId: "idea2", movimiento: true });
+  // ver_historial_tarjeta lo devuelve tal cual (antes y despues de siempre, con la marca).
+  const historial = await llamar("ver_historial_tarjeta", { tarjeta_id: "t1" });
+  assert.equal(historial.cambios[0].accion, "editar");
+  assert.equal(historial.cambios[0].despues.movimiento, true);
+  assert.equal(historial.estado, "APROBADO");
+});
+
+await prueba("historial: asignar solo al responsable queda como siempre (sin la marca: ya tiene su línea 'Asignó a')", async () => {
+  tareaConPlan("APROBADO");
+  await llamar("editar_tarjeta", { tarjeta_id: "t1", responsable: "Bruno" });
+  assert.deepEqual(ultimo().despues, { responsableId: "u-bruno", responsableNombre: "Bruno Ruiz" });
+  assert.equal(de("t1").estado, "APROBADO");
+});
+
+await prueba("lo que hay que hacer sí la devuelve a POR_APROBAR: título, detalle, repo, riesgo y zona protegida", async () => {
+  const casos = [
+    ["título", { titulo: "Otro guion" }],
+    ["detalle", { detalle: "Ahora con más pasos" }],
+    ["repo", { repo: "gestion" }],
+    ["riesgo", { riesgo: "ALTO", motivo_riesgo: "otro motivo" }],
+    ["zona protegida", { zona_protegida: ["CHATS"] }],
+    ["mover y cambiar el título juntos", { area: "Postventa", titulo: "Otro guion" }],
+  ];
+  for (const [nombre, args] of casos) {
+    sembrar();
+    tareaConPlan("APROBADO");
+    const r = await llamar("editar_tarjeta", { tarjeta_id: "t1", ...args });
+    assert.equal(de("t1").estado, "POR_APROBAR", nombre);
+    assert.match(r.aviso, /volvió a POR_APROBAR/, nombre);
+    assert.ok(!("movimiento" in ultimo().despues), `${nombre}: no es un movimiento`);
+  }
+});
+
+await prueba("cambiar el tipo sigue la regla de siempre (estadoTrasCambiarTipo); poner repo a una EN_CURSO, estadoAlPonerRepo", async () => {
+  tarjeta("area1", { tipo: "area" });
+  tarjeta("i1", { tipo: "idea", padreId: "area1", estado: "EN_CURSO" });
+  await llamar("editar_tarjeta", { tarjeta_id: "i1", tipo: "Tarea", padre_id: "" });
+  assert.equal(de("i1").estado, "POR_APROBAR", "de Idea a Tarea: tipo con aprobación");
+  tarjeta("t2", { estado: "EN_CURSO" });
+  await llamar("editar_tarjeta", { tarjeta_id: "t2", repo: "aizencrm" });
+  assert.equal(de("t2").estado, "POR_APROBAR", "una EN_CURSO a mano que recibe repo");
+  tarjeta("t3", { estado: "EN_CURSO" });
+  await llamar("editar_tarjeta", { tarjeta_id: "t3", area: "Postventa" });
+  assert.equal(de("t3").estado, "EN_CURSO", "moverla no la toca");
+});
+
+await prueba("mover no recalcula el riesgo: una BAJO con zona sigue BAJO; cambiarle el texto sí la pasa a ALTO", async () => {
+  tareaConPlan("APROBADO", { riesgo: "BAJO", riesgoMotivo: null, riesgoPor: "DUENO", zonaProtegida: ["CHATS"] });
+  const r = await llamar("editar_tarjeta", { tarjeta_id: "t1", padre_id: "idea2", orden: 2 });
+  assert.equal(de("t1").riesgo, "BAJO");
+  assert.equal(de("t1").riesgoPor, "DUENO");
+  assert.equal(r.riesgo, "BAJO");
+  assert.equal(de("t1").estado, "APROBADO");
+  await llamar("editar_tarjeta", { tarjeta_id: "t1", detalle: "otro detalle" });
+  assert.equal(de("t1").riesgo, "ALTO", "el recálculo de siempre, cuando cambia lo que hay que hacer");
+});
+
+for (const estadoInicial of ["PLANEANDO", "EN_CURSO", "SUBIENDO"]) {
+  await prueba(`con el Coordinador trabajando (${estadoInicial}): se puede mover sin tocar su estado, plan ni candado`, async () => {
+    const vence = new Date("2026-11-10T13:00:00Z");
+    const inicio = new Date("2026-11-10T11:55:00Z");
+    tareaConPlan(estadoInicial, { trabajoVenceEn: vence, trabajoIniciadoEn: inicio, intentos: 1 });
+    for (const [nombre, args] of MOVIMIENTOS) {
+      escrituras.length = 0;
+      await llamar("editar_tarjeta", { tarjeta_id: "t1", ...args });
+      assert.equal(escrituras.length, 1, nombre);
+      const [escritura] = escrituras;
+      assert.ok(!("estado" in escritura.where), `${nombre}: no pide que el estado siga igual (no choca con el Coordinador)`);
+      for (const campo of ["estado", "plan", "resultado", "trabajoVenceEn", "trabajoIniciadoEn", "intentos", "archivadaEn", "terminadaEn"]) {
+        assert.ok(!(campo in escritura.data), `${nombre}: no escribe ${campo}`);
+      }
+      assert.equal(de("t1").estado, estadoInicial);
+      assert.equal(de("t1").trabajoVenceEn, vence);
+      assert.equal(de("t1").intentos, 1);
+      assert.equal(de("t1").plan, "1. Cambiar el guion.\n2. Probar.");
+    }
+  });
+
+  await prueba(`con el Coordinador trabajando (${estadoInicial}): lo demás sigue bloqueado, también mezclado con mover`, async () => {
+    tareaConPlan(estadoInicial, { trabajoVenceEn: new Date("2026-11-10T13:00:00Z") });
+    const pedidos = [
+      { titulo: "Otro" },
+      { detalle: "x" },
+      { tipo: "Idea" },
+      { repo: "gestion" },
+      { riesgo: "ALTO" },
+      { zona_protegida: ["CHATS"] },
+      { link: "https://x.co" },
+      { area: "Postventa", titulo: "Otro" },
+    ];
+    for (const args of pedidos) {
+      await rechaza(llamar("editar_tarjeta", { tarjeta_id: "t1", ...args }), /El Coordinador tiene esta tarjeta en este momento/);
+    }
+    assert.equal(de("t1").area, null, "lo mezclado no se aplicó a medias");
+    assert.equal(escrituras.length, 0);
+  });
+}
+
+await prueba("mover mientras el Coordinador la cambia de etapa: no choca (no pide el estado viejo) ni lo pisa", async () => {
+  tareaConPlan("PLANEANDO", { trabajoVenceEn: new Date("2026-11-10T13:00:00Z") });
+  // El Coordinador termina el plan justo después de que se leyó la tarjeta para moverla.
+  const leerOriginal = falso.tarjetaTablero.findFirst;
+  falso.tarjetaTablero.findFirst = async (args) => {
+    const fila = await leerOriginal(args);
+    if (fila?.id === "t1") Object.assign(de("t1"), { estado: "PLAN_LISTO", plan: "plan nuevo", trabajoVenceEn: null });
+    return fila;
+  };
+  try {
+    await llamar("editar_tarjeta", { tarjeta_id: "t1", area: "Postventa" });
+  } finally {
+    falso.tarjetaTablero.findFirst = leerOriginal;
+  }
+  assert.equal(de("t1").area, "Postventa");
+  assert.equal(de("t1").estado, "PLAN_LISTO", "queda lo que escribió el Coordinador");
+  assert.equal(de("t1").plan, "plan nuevo");
+});
+
+await prueba("la pantalla sigue igual: editar el título de una APROBADO no la devuelve a POR_APROBAR", async () => {
+  tareaConPlan("APROBADO");
+  await tableros.editarTarjeta({ ...dueno, origen: "PANTALLA" }, "t1", { titulo: "Título nuevo" });
+  assert.equal(de("t1").estado, "APROBADO");
+  await tableros.editarTarjeta({ ...dueno, origen: "PANTALLA" }, "t1", { area: "Postventa" });
+  assert.equal(de("t1").estado, "APROBADO");
+  assert.equal(ultimo().despues.movimiento, true);
+});
+
+await prueba("deshacer un movimiento la devuelve a donde estaba, con el mismo estado", async () => {
+  tareaConPlan("APROBADO");
+  const r = await llamar("editar_tarjeta", { tarjeta_id: "t1", padre_id: "idea2", area: "Postventa" });
+  assert.equal(de("t1").padreId, "idea2");
+  await llamar("deshacer_cambio_tarjeta", { cambio_id: r.cambio_id });
+  assert.equal(de("t1").padreId, "idea1");
+  assert.equal(de("t1").area, null);
+  assert.equal(de("t1").estado, "APROBADO");
+});
+
+await prueba("una archivada (HECHO) que se mueve no se desarchiva", async () => {
+  const archivada = new Date("2026-11-09T12:00:00Z");
+  tareaConPlan("HECHO", { archivadaEn: archivada, terminadaEn: archivada });
+  await llamar("editar_tarjeta", { tarjeta_id: "t1", area: "Postventa" });
+  assert.equal(de("t1").archivadaEn, archivada);
+  assert.equal(de("t1").estado, "HECHO");
+});
+
+await prueba("reglas: soloMueve y puedeEditarTarjeta con soloMovimiento", async () => {
+  assert.deepEqual([...reglas.CAMPOS_DE_MOVIMIENTO], ["padreId", "area", "orden", "fecha", "responsableId"]);
+  assert.equal(reglas.soloMueve(["padreId", "area", "orden", "fecha", "responsableId"]), true);
+  assert.equal(reglas.soloMueve(["responsableId"]), true);
+  for (const otro of ["titulo", "detalle", "tipoId", "repo", "riesgo", "riesgoMotivo", "zonaProtegida", "link", "linkTexto"]) {
+    assert.equal(reglas.soloMueve(["area", otro]), false, otro);
+  }
+  assert.equal(reglas.soloMueve([]), false, "sin cambios no es mover");
+  for (const enManos of ["PLANEANDO", "EN_CURSO", "SUBIENDO"]) {
+    assert.ok(reglas.puedeEditarTarjeta(enManos, true), enManos);
+    assert.equal(reglas.puedeEditarTarjeta(enManos, true, true), null, `${enManos}: mover sí`);
+  }
+  assert.match(reglas.puedeEditarTarjeta("PLANEANDO", true), /Solo se puede mover/);
+});
+
+await prueba("los textos del MCP explican la regla de mover en editar_tarjeta", async () => {
+  const editar = mcp.HERRAMIENTAS_MCP_TABLEROS.find((h) => h.name === "editar_tarjeta");
+  assert.match(editar.description, /MOVER/);
+  assert.match(editar.description, /CONSERVA su estado/);
+  assert.match(editar.description, /sin interrumpir su trabajo/);
 });
 
 console.log(`\n${pruebas} pruebas, todas bien`);

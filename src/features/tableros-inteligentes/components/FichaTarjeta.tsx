@@ -92,7 +92,10 @@ function resumenDelCambio(cambio: CambioDeTarjetaVista, nombreDelTipo: ReadonlyM
   }
   if (cambio.accion === "editar") {
     // El nombre del responsable viaja aparte (responsableNombre): no es un campo que se "cambió".
-    const campos = Object.keys(despues).filter((campo) => campo !== "estado" && campo !== "responsableNombre" && campo !== "responsableId");
+    // `movimiento` (10-nov-2026) no es un campo: marca que solo la movieron y conservó su estado y su plan.
+    const campos = Object.keys(despues).filter(
+      (campo) => campo !== "estado" && campo !== "responsableNombre" && campo !== "responsableId" && campo !== "movimiento",
+    );
     const asignacion =
       "responsableId" in despues
         ? typeof despues.responsableNombre === "string"
@@ -107,7 +110,8 @@ function resumenDelCambio(cambio: CambioDeTarjetaVista, nombreDelTipo: ReadonlyM
         : "";
     const estado = esEstado(despues.estado) ? ` y quedó ${NOMBRE_DEL_ESTADO[despues.estado]}` : "";
     const cambios = campos.length ? `Cambió ${campos.map((campo) => CAMPO[campo] ?? campo).join(", ")}${tipo}${estado}` : null;
-    return [asignacion, cambios].filter(Boolean).join(" · ") || null;
+    const movida = despues.movimiento === true ? "Solo la movió: conserva su estado y su plan" : null;
+    return [asignacion, cambios, movida].filter(Boolean).join(" · ") || null;
   }
   if (cambio.accion === "cerebro") {
     return typeof despues.documento === "string" ? `Conclusión guardada en el cerebro: ${despues.documento}` : null;

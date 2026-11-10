@@ -110,7 +110,7 @@ import {
     con texto_confirmacion del dueño ("sí, márcala hecha"), la clave de la cuenta dueña y una nota. Desde el
     3-nov-2026 también con la clave de Emanuel (el aprobador SISTEMAS); queda "por Sistemas" en el historial.
   - Quitar una zona protegida (solo ponerla).
-  - Dejar intacta una aprobación al editar: si edita una tarjeta APROBADA, vuelve a POR_APROBAR; si
+  - Dejar intacta una aprobación al editar: si edita una tarjeta APROBADA, vuelve a POR_APROBAR (mover no: 10-nov-2026); si
     le cambia el tipo, queda POR_APROBAR o IDEA.
   - Quitarle la aprobación a un tipo, ni borrar tipos (solo el dueño en la pantalla).
   - Borrar lo que tiene el Coordinador en la mano (PLANEANDO, EN_CURSO, SUBIENDO), una tarjeta
@@ -364,7 +364,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     name: "editar_tarjeta",
     title: "Editar una tarjeta",
     description:
-      "Cambia el título, el detalle, el tipo, de qué tarjeta cuelga, el área, la fecha, el orden, el link, el repo, la zona protegida, el riesgo (BAJO / ALTO, con su motivo_riesgo) o el responsable (a quién se le asigna; asignar NO reinicia la aprobación) de una tarjeta. Se manda solo lo que cambia. Si queda POR_APROBAR con riesgo BAJO y el interruptor está prendido, se aprueba sola. Si estaba aprobada (APROBADO, o con el trabajador: PLAN_LISTO, PLAN_APROBADO, POR_REVISAR, ERROR), vuelve a POR_APROBAR. Mientras el Coordinador la tiene (PLANEANDO, EN_CURSO, SUBIENDO) no se edita. Si se le cambia el tipo, queda POR_APROBAR (tipo con aprobación) o IDEA (sin aprobación): pierde la aprobación que tuviera. La zona protegida se puede agregar, no quitar (eso solo el dueño en la pantalla)." +
+      "Cambia el título, el detalle, el tipo, de qué tarjeta cuelga, el área, la fecha, el orden, el link, el repo, la zona protegida, el riesgo (BAJO / ALTO, con su motivo_riesgo) o el responsable (a quién se le asigna) de una tarjeta. Se manda solo lo que cambia. MOVER (10-nov-2026): si solo cambia de qué cuelga (padre_id), el área, el orden, la fecha o el responsable, la tarjeta CONSERVA su estado (Aprobado, Plan aprobado, Por revisar...) y su plan, no se recalcula el riesgo, se puede aunque el Coordinador la tenga (PLANEANDO, EN_CURSO, SUBIENDO) sin interrumpir su trabajo y el historial lo marca como movimiento. Si cambia lo que hay que hacer (título, detalle, tipo, repo, riesgo, zona protegida o link) y estaba aprobada (APROBADO, o con el trabajador: PLAN_LISTO, PLAN_APROBADO, POR_REVISAR, ERROR), vuelve a POR_APROBAR; si queda POR_APROBAR con riesgo BAJO y el interruptor está prendido, se aprueba sola. Mientras el Coordinador la tiene, esos campos no se editan (solo se mueve). Si se le cambia el tipo, queda POR_APROBAR (tipo con aprobación) o IDEA (sin aprobación): pierde la aprobación que tuviera. La zona protegida se puede agregar, no quitar (eso solo el dueño en la pantalla)." +
       REGLA_DEL_TABLERO,
     inputSchema: {
       type: "object",
@@ -938,7 +938,9 @@ export async function ejecutarHerramientaMcpTableros(
           : resultado.aprobacionAutomatica
             ? `No se aprobó sola (${resultado.aprobacionAutomatica.porQue}): queda POR_APROBAR para el dueño.`
             : null;
-      const avisoBase = resultado.cambioDeTipo
+      const avisoBase = resultado.movimiento
+        ? `Se movió: conserva su estado (${resultado.tipo.usaEstados ? resultado.tarjeta.estado : "sin estado"}) y su plan. Para volver atrás: deshacer_cambio_tarjeta.`
+        : resultado.cambioDeTipo
         ? `Ahora es de tipo ${resultado.tipo.nombre} y quedó ${resultado.tipo.usaEstados ? resultado.tarjeta.estado : "sin estado"}${
             resultado.perdioAprobacion ? ": perdió la aprobación, hay que avisarle al dueño" : ""
           }.`
