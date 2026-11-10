@@ -11,7 +11,7 @@ import { Providers } from "@/components/providers";
 import { getAdminModuleAccess } from "@/lib/admin-module-access";
 import {
   canAccessClientModule,
-  getClientWorkspaceAccessForUser,
+  getClientWorkspaceAccessForRequest,
   getVisibleClientModuleAccess,
 } from "@/lib/client-workspace-access";
 import { clientAssignableModuleKeys } from "@/lib/client-workspace-modules";
@@ -152,16 +152,22 @@ export default async function RootLayout({
   // el primer render ya respete ese estado (sin parpadeo de hidratación).
   const cookieStore = await cookies();
   const sidebarDefaultOpen = cookieStore.get("sidebar_state")?.value !== "false";
-  const primaryWorkspace = session?.user?.id ? await getPrimaryWorkspaceForUser(session.user.id) : null;
   const isClientAreaRole = session?.user?.role === "CLIENTE" || session?.user?.role === "EMPLEADO";
+  /*
+    Todo lo que solo necesita la sesion va junto: este layout corre antes del primer byte de CADA
+    pantalla (y en cada refresh y precarga de <Link>), asi que cada consulta en fila se paga ahi.
+    El acceso sale de la lectura del pedido: la pagina que lo pida despues recibe esta misma.
+  */
+  const [primaryWorkspace, primaryColor, primaryStrongColor, brandName, baseAdminModuleAccess, clientAccess] =
+    await Promise.all([
+      session?.user?.id ? getPrimaryWorkspaceForUser(session.user.id) : Promise.resolve(null),
+      getSystemPrimaryColor(),
+      getSystemPrimaryStrongColor(),
+      getSystemBrandName(),
+      getAdminModuleAccess(session?.user?.id, session?.user?.role),
+      session?.user?.id ? getClientWorkspaceAccessForRequest(session.user.id) : Promise.resolve(null),
+    ]);
   const clientWorkspace = isClientAreaRole ? primaryWorkspace : null;
-  const [primaryColor, primaryStrongColor, brandName, baseAdminModuleAccess, clientAccess] = await Promise.all([
-    getSystemPrimaryColor(),
-    getSystemPrimaryStrongColor(),
-    getSystemBrandName(),
-    getAdminModuleAccess(session?.user?.id, session?.user?.role),
-    session?.user?.id ? getClientWorkspaceAccessForUser(session.user.id) : Promise.resolve(null),
-  ]);
   const adminModuleAccess = { ...baseAdminModuleAccess };
 
   if (clientAccess && isClientAreaRole) {
@@ -229,11 +235,14 @@ export default async function RootLayout({
       (channel.provider === "OFFICIAL_API" ? "WhatsApp API oficial" : "WhatsApp"),
     kind: (channel.provider === "OFFICIAL_API" ? "official" : "evolution") as "official" | "evolution",
   }));
-  const workspaceAccess = clientWorkspace?.workspace.id
-    ? await enforceWorkspacePlanAccess(clientWorkspace.workspace.id)
-    : null;
-  const planExpiresAt = workspaceAccess?.workspace?.planExpiresAt ?? clientWorkspace?.workspace.planExpiresAt ?? null;
+  // La fecha del plan ya vino con la membresia: no se vuelve a leer.
+  const planExpiresAt = clientWorkspace?.workspace.planExpiresAt ?? null;
   const planState = getWorkspacePlanState(planExpiresAt);
+  // Con el plan vencido se pausan los agentes, igual que antes. Es el unico caso en que hace algo,
+  // asi que solo ahi se llama.
+  if (clientWorkspace?.workspace.id && planState.blockClientArea) {
+    await enforceWorkspacePlanAccess(clientWorkspace.workspace.id);
+  }
   const expiresAtLabel = planExpiresAt
     ? new Intl.DateTimeFormat("es-CO", {
         day: "numeric",

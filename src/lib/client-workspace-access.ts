@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { redirect } from "next/navigation";
 import type { Role, WorkspaceMemberRole } from "@prisma/client";
 import { auth } from "@/auth";
@@ -102,6 +103,15 @@ export async function getClientWorkspaceAccessForUser(userId: string): Promise<C
  * membresia (la primera activa por fecha de alta), asi que `workspaceId` y `membershipRole` son
  * los mismos que daba `membership.workspace.id` y `membership.role`.
  */
+/**
+ * Lo mismo que `getClientWorkspaceAccessForUser`, leido UNA vez por pedido (`cache` de React).
+ *
+ * El layout raiz y la pagina corren en el mismo pedido: asi la pagina recibe el acceso que ya leyo
+ * el layout, sin otra ida a la base. Dura solo ese pedido (no es la cache de 45 s de abajo). Fuera
+ * de un render (rutas, acciones) llama directo a la funcion.
+ */
+export const getClientWorkspaceAccessForRequest = cache(getClientWorkspaceAccessForUser);
+
 export function getClientWorkspaceAccessForUserCached(userId: string): Promise<ClientWorkspaceAccess | null> {
   return cacheDeAcceso.obtener(userId, () => getClientWorkspaceAccessForUser(userId));
 }
@@ -117,7 +127,7 @@ export async function requireClientWorkspaceAccess(
     redirect(fallback);
   }
 
-  const access = await getClientWorkspaceAccessForUser(session.user.id);
+  const access = await getClientWorkspaceAccessForRequest(session.user.id);
   if (!access) {
     redirect(fallback);
   }

@@ -1,4 +1,5 @@
 import { cache } from "react";
+import { CacheConTtl } from "@/lib/cache-en-memoria";
 import { DEFAULT_SYSTEM_CURRENCY, isSupportedCurrency, type SupportedCurrencyCode } from "@/lib/currency";
 import { prisma } from "@/lib/prisma";
 import { siteConfig } from "@/lib/site";
@@ -73,44 +74,76 @@ function getOfficialApiProviderConfigIdFromEnv() {
   return process.env.OFFICIAL_API_PROVIDER_CONFIG_ID?.trim() ?? "";
 }
 
+/*
+  El CREATE TABLE IF NOT EXISTS corre UNA vez por proceso (igual que admin-module-access.ts).
+  Antes salia antes de cada lectura: el color y la marca del layout raiz lo pedian en cada pantalla.
+*/
+let ensureAppSettingTablePromise: Promise<void> | null = null;
+
 async function ensureAppSettingTable(): Promise<void> {
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "AppSetting" (
-      "key" TEXT NOT NULL PRIMARY KEY,
-      "value" TEXT NOT NULL,
-      "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-  `);
+  if (!ensureAppSettingTablePromise) {
+    ensureAppSettingTablePromise = prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "AppSetting" (
+        "key" TEXT NOT NULL PRIMARY KEY,
+        "value" TEXT NOT NULL,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+    `).then(() => undefined).catch((error) => {
+      ensureAppSettingTablePromise = null;
+      throw error;
+    });
+  }
+
+  await ensureAppSettingTablePromise;
+}
+
+/*
+  Los ajustes del sistema (color, marca, moneda, Evolution, API oficial) se guardan 60 s en la
+  memoria del proceso: el layout raiz los lee en cada pantalla, en cada refresh y en cada precarga
+  de <Link>, y cambian casi nunca. `setSettingValue` borra su clave apenas escribe (hay un solo
+  contenedor, ver cache-en-memoria.ts). Un cambio hecho desde afuera (un script directo a la base)
+  tarda hasta 60 s en verse. Un error de lectura no se guarda.
+*/
+const AJUSTES_TTL_MS = 60_000;
+const cacheDeAjustes = new CacheConTtl<string | null>({ ttlMs: AJUSTES_TTL_MS, maxEntradas: 64 });
+
+async function readSettingValueFromDb(key: string): Promise<string | null> {
+  await ensureAppSettingTable();
+
+  const rows = await prisma.$queryRaw<Array<{ value: string }>>`
+    SELECT "value"
+    FROM "AppSetting"
+    WHERE "key" = ${key}
+    LIMIT 1
+  `;
+
+  return rows[0]?.value ?? null;
 }
 
 async function getSettingValue(key: string): Promise<string | null> {
   try {
-    await ensureAppSettingTable();
-
-    const rows = await prisma.$queryRaw<Array<{ value: string }>>`
-      SELECT "value"
-      FROM "AppSetting"
-      WHERE "key" = ${key}
-      LIMIT 1
-    `;
-
-    return rows[0]?.value ?? null;
+    return await cacheDeAjustes.obtener(key, () => readSettingValueFromDb(key));
   } catch {
     return null;
   }
 }
 
 async function setSettingValue(key: string, value: string): Promise<void> {
-  await ensureAppSettingTable();
-  await prisma.$executeRaw`
-    INSERT INTO "AppSetting" ("key", "value", "createdAt", "updatedAt")
-    VALUES (${key}, ${value}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-    ON CONFLICT ("key")
-    DO UPDATE SET
-      "value" = EXCLUDED."value",
-      "updatedAt" = CURRENT_TIMESTAMP
-  `;
+  try {
+    await ensureAppSettingTable();
+    await prisma.$executeRaw`
+      INSERT INTO "AppSetting" ("key", "value", "createdAt", "updatedAt")
+      VALUES (${key}, ${value}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      ON CONFLICT ("key")
+      DO UPDATE SET
+        "value" = EXCLUDED."value",
+        "updatedAt" = CURRENT_TIMESTAMP
+    `;
+  } finally {
+    // Aunque falle: la escritura pudo haber llegado a la base.
+    cacheDeAjustes.invalidar(key);
+  }
 }
 
 export const getSystemCurrency = cache(async (): Promise<SupportedCurrencyCode> => {

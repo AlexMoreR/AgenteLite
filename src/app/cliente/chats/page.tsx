@@ -234,26 +234,6 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     redirect("/cliente");
   }
 
-  const workspace = await prisma.workspace.findUnique({
-    where: { id: membership.workspace.id },
-    select: { businessConfig: true },
-  });
-
-  const autoTagNewLeads =
-    workspace &&
-    workspace.businessConfig !== null &&
-    typeof workspace.businessConfig === "object" &&
-    !Array.isArray(workspace.businessConfig) &&
-    (workspace.businessConfig as { autoTagNewLeads?: unknown }).autoTagNewLeads !== false;
-  const newLeadTagName =
-    workspace &&
-    workspace.businessConfig !== null &&
-    typeof workspace.businessConfig === "object" &&
-    !Array.isArray(workspace.businessConfig) &&
-    typeof (workspace.businessConfig as { newLeadTagName?: unknown }).newLeadTagName === "string"
-      ? ((workspace.businessConfig as { newLeadTagName?: string }).newLeadTagName ?? "").trim()
-      : "";
-
   const params = await searchParams;
   const chatKeyDeLaUrl = typeof params.chatKey === "string" ? params.chatKey : "";
   /*
@@ -263,12 +243,48 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   */
   const conversacionDeLaUrl =
     !chatKeyDeLaUrl && typeof params.conversacion === "string" ? params.conversacion.trim() : "";
-  const chatKeyPorEnlaceDirecto = conversacionDeLaUrl
-    ? ((await chatKeyPorConversacion({
+
+  /*
+    Lo que solo depende de quien mira y del negocio sale JUNTO, no en fila: cada consulta en fila
+    se pagaba antes de pintar la pagina (y en cada refresh). Son las mismas consultas de siempre.
+
+    - Supervisora: solo se pregunta si no es dueño ni administrador, como antes.
+    - La firma va al compositor para que se VEA y se pueda borrar antes de enviar. Antes se pegaba
+      en el servidor: la asesora no la veia y no habia forma de sacarla cuando no correspondia.
+    - Modo monitoreo: mira todos los chats del canal y no puede escribir (ver modo-monitoreo.ts).
+      Cambia tres cosas de esta pantalla: que conversaciones entran, si se dibuja el cuadro de
+      escribir, y si los telefonos salen tapados.
+    - Canales que esta persona puede ver (ver channel-visibility): la linea administrativa no la
+      tiene que ver ninguna asesora, ni la conexion en la lista ni sus chats mezclados en "Todas".
+      Usa isOwner/ADMIN del acceso, no isManager, asi que no espera a la supervisora.
+    - Los chats que quien mira fijo arriba de su bandeja (hasta 3, como WhatsApp).
+  */
+  const [esSupervisoraDelNegocio, usuarioConFirma, canalesMonitoreados, canalesVisibles, chatsFijados, chatKeyPorEnlaceDirecto] =
+    await Promise.all([
+      membership.role === "OWNER" || membership.role === "ADMIN"
+        ? Promise.resolve(false)
+        : esSupervisora(membership.workspace.id, access.userId),
+      prisma.user.findUnique({
+        where: { id: access.userId },
+        select: { chatSignature: true },
+      }),
+      canalesQueMonitorea({
         workspaceId: membership.workspace.id,
-        conversationId: conversacionDeLaUrl,
-      })) ?? "")
-    : "";
+        userId: access.userId,
+      }),
+      getVisibleChannelIds({
+        workspaceId: membership.workspace.id,
+        userId: access.userId,
+        esJefe: access.isOwner || access.role === "ADMIN",
+      }),
+      leerChatsFijados(access.userId),
+      conversacionDeLaUrl
+        ? chatKeyPorConversacion({
+            workspaceId: membership.workspace.id,
+            conversationId: conversacionDeLaUrl,
+          }).then((clave) => clave ?? "")
+        : Promise.resolve(""),
+    ]);
   const chatKeySolicitada = chatKeyDeLaUrl || chatKeyPorEnlaceDirecto;
   const selectedConnectionParam = typeof params.connection === "string" ? params.connection : "";
   const searchQuery = typeof params.q === "string" ? params.q.trim() : "";
@@ -282,19 +298,9 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const esperaEnLaLista = pideEspera && !searchQuery;
 
   // La supervisora ve "Todas" y asigna como el jefe, pero sigue viendo solo sus lineas (canalesVisibles).
-  const isManager =
-    membership.role === "OWNER" ||
-    membership.role === "ADMIN" ||
-    (await esSupervisora(membership.workspace.id, access.userId));
+  const isManager = membership.role === "OWNER" || membership.role === "ADMIN" || esSupervisoraDelNegocio;
 
-  // La firma va al compositor para que se VEA y se pueda borrar antes de enviar. Antes se pegaba
-  // en el servidor: la asesora no la veia y no habia forma de sacarla cuando no correspondia.
-  const chatSignature = (
-    await prisma.user.findUnique({
-      where: { id: access.userId },
-      select: { chatSignature: true },
-    })
-  )?.chatSignature?.trim() ?? "";
+  const chatSignature = usuarioConFirma?.chatSignature?.trim() ?? "";
   /**
    * Por defecto, LO MIO.
    *
@@ -302,16 +308,6 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
    * para encontrar las suyas, todos los dias. Ver el trabajo propio primero es lo que uno espera
    * al abrir una bandeja; "Todas" sigue a un toque de distancia.
    */
-  /*
-    Modo monitoreo: mira todos los chats del canal y no puede escribir (ver modo-monitoreo.ts).
-
-    Se resuelve aca arriba porque cambia tres cosas de esta pantalla: que conversaciones entran,
-    si se dibuja el cuadro de escribir, y si los telefonos salen tapados.
-  */
-  const canalesMonitoreados = await canalesQueMonitorea({
-    workspaceId: membership.workspace.id,
-    userId: access.userId,
-  });
   const modoMonitoreo = canalesMonitoreados.length > 0;
 
   /*
@@ -379,35 +375,34 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
 
   const chatSolicitado = parseChatKey(chatKeySolicitada);
 
-  /**
-   * Canales que esta persona puede ver (ver channel-visibility).
-   *
-   * La linea administrativa no la tiene que ver ninguna asesora: ni la conexion en la lista, ni
-   * sus chats mezclados en "Todas".
-   */
-  const canalesVisibles = await getVisibleChannelIds({
-    workspaceId: membership.workspace.id,
-    userId: access.userId,
-    esJefe: access.isOwner || access.role === "ADMIN",
-  });
-
   /*
     Abrir por enlace (?chatKey=) aplica las MISMAS reglas que la lista: linea visible, asesora
     dueña del chat y modo monitoreo (ver lib/chats-acceso-por-enlace). Sin permiso se hace de
     cuenta que el enlace no traia chat: bandeja normal, sin error y sin datos de ese chat. Todo lo
     de abajo (carga, marcar leidos, panel) parte de estas dos variables y no de lo que trae la URL.
+
+    La conexion elegida se valida contra ESTE negocio antes de filtrar por ella: una que quedo
+    guardada de otro workspace vaciaba la bandeja entera sin decir por que. Las dos dependen solo
+    de los canales visibles, asi que salen juntas.
   */
-  const puedeAbrirSolicitado =
-    chatSolicitado !== null &&
-    (await puedeAbrirChatPorClave({
+  const [puedeAbrirSolicitado, conexionElegida] = await Promise.all([
+    chatSolicitado !== null
+      ? puedeAbrirChatPorClave({
+          workspaceId: membership.workspace.id,
+          userId: access.userId,
+          fuente: chatSolicitado.source,
+          conversationId: chatSolicitado.conversationId,
+          esJefe: isManager,
+          canalesVisibles,
+          canalesMonitoreados,
+        })
+      : Promise.resolve(false),
+    resolverConexionElegida({
       workspaceId: membership.workspace.id,
-      userId: access.userId,
-      fuente: chatSolicitado.source,
-      conversationId: chatSolicitado.conversationId,
-      esJefe: isManager,
-      canalesVisibles,
-      canalesMonitoreados,
-    }));
+      connectionKey: selectedConnectionParam,
+      visibleChannelIds: canalesVisibles,
+    }),
+  ]);
   const selectedChatRef = puedeAbrirSolicitado ? chatSolicitado : null;
   const selectedChatKeyParam = puedeAbrirSolicitado ? chatKeySolicitada : "";
   const conversationListTake = searchQuery || selectedChatRef ? 40 : 20;
@@ -432,17 +427,6 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       : estadoAplicado === "all"
         ? {}
         : { status: { in: ["OPEN", "PENDING"] } };
-
-
-  /**
-   * La conexion elegida se valida contra ESTE negocio antes de filtrar por ella: una que quedo
-   * guardada de otro workspace vaciaba la bandeja entera sin decir por que.
-   */
-  const conexionElegida = await resolverConexionElegida({
-    workspaceId: membership.workspace.id,
-    connectionKey: selectedConnectionParam,
-    visibleChannelIds: canalesVisibles,
-  });
 
   /*
     Quien mira la espera: lo MISMO que responderEsperando en /api/cliente/chats/list (y /counts),
@@ -749,25 +733,48 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         }),
       )
     : Promise.resolve([] as FilaUltimoMensaje[]);
-  if (autoTagNewLeads && contactIds.length > 0) {
+  if (contactIds.length > 0) {
     after(async () => {
       try {
-        const outboundRows = await prisma.$queryRaw<Array<{ contactId: string; outboundCount: number }>>`
-          SELECT
-            m."contactId" AS "contactId",
-            COUNT(*)::int AS "outboundCount"
-          FROM "Message" m
-          WHERE m."workspaceId" = ${membership.workspace.id}
-            AND m."contactId" IN (${Prisma.join(contactIds)})
-            AND m."direction" = 'OUTBOUND'
-          GROUP BY m."contactId"
-        `;
-        const conHistorial = new Set<string>();
-        for (const row of outboundRows) {
-          if (row.outboundCount > 0) {
-            conHistorial.add(row.contactId);
-          }
+        /*
+          La configuracion del negocio se lee aca adentro, despues de responder: solo la usa este
+          etiquetado. Antes era una consulta mas antes de pintar la pagina.
+        */
+        const workspace = await prisma.workspace.findUnique({
+          where: { id: membership.workspace.id },
+          select: { businessConfig: true },
+        });
+        const businessConfig =
+          workspace &&
+          workspace.businessConfig !== null &&
+          typeof workspace.businessConfig === "object" &&
+          !Array.isArray(workspace.businessConfig)
+            ? (workspace.businessConfig as { autoTagNewLeads?: unknown; newLeadTagName?: unknown })
+            : null;
+        // Sin configuracion, o con el etiquetado apagado, no se hace nada (como antes).
+        if (businessConfig === null || businessConfig.autoTagNewLeads === false) {
+          return;
         }
+        const newLeadTagName =
+          typeof businessConfig.newLeadTagName === "string" ? businessConfig.newLeadTagName.trim() : "";
+
+        /*
+          Solo importa SI el contacto tiene algun saliente, no cuantos: EXISTS se detiene en el
+          primero. Antes un COUNT(*) ... GROUP BY contaba todos los salientes de los 20 contactos
+          en cada carga de la pagina.
+        */
+        const outboundRows = await prisma.$queryRaw<Array<{ contactId: string }>>`
+          SELECT x."contactId" AS "contactId"
+          FROM unnest(ARRAY[${Prisma.join(contactIds)}]::text[]) AS x("contactId")
+          WHERE EXISTS (
+            SELECT 1
+            FROM "Message" m
+            WHERE m."workspaceId" = ${membership.workspace.id}
+              AND m."contactId" = x."contactId"
+              AND m."direction" = 'OUTBOUND'
+          )
+        `;
+        const conHistorial = new Set<string>(outboundRows.map((row) => row.contactId));
 
         /*
           Todos juntos, no uno por uno.
@@ -1230,8 +1237,30 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       }>;
   } | null = null;
 
+  /*
+    Etapa actual del CRM para el contacto del chat abierto. Se pide JUNTO con el detalle de abajo,
+    no despues: el contacto ya se sabe por la fila (en los dos casos selectedConversation.contactId
+    sale de selectedUnified.contactId).
+  */
+  const selectedContactId = selectedUnified ? selectedUnified.contactId ?? null : null;
+  const selectedContactRowPromise = selectedContactId
+    ? (async () => {
+        try {
+          const rows = await prisma.$queryRaw<Array<{ crmStage: string; metadata: unknown }>>`
+            SELECT c."crmStage"::text AS "crmStage", c."metadata" AS "metadata"
+            FROM "Contact" c
+            WHERE c."id" = ${selectedContactId}
+              AND c."workspaceId" = ${membership.workspace.id}
+            LIMIT 1
+          `;
+          return rows[0] ?? null;
+        } catch {
+          return null;
+        }
+      })()
+    : Promise.resolve(null);
+
   if (selectedUnified?.source === "agent") {
-    const selectedContactId = selectedUnified.contactId ?? null;
     const selectedTags = getConversationContextTags(selectedUnified.activeProductContext ?? null);
     const previewText = selectedUnified.lastMessage?.trim() || getConversationPreviewLabel(selectedUnified.lastMessageType);
     const previewDirection = selectedUnified.lastMessageDirection || "INBOUND";
@@ -1354,24 +1383,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     };
   }
 
-  // Etapa actual del CRM para el contacto de la conversación seleccionada.
-  const selectedContactId = selectedConversation?.contactId ?? null;
-  const selectedContactRow = selectedContactId
-    ? await (async () => {
-        try {
-          const rows = await prisma.$queryRaw<Array<{ crmStage: string; metadata: unknown }>>`
-            SELECT c."crmStage"::text AS "crmStage", c."metadata" AS "metadata"
-            FROM "Contact" c
-            WHERE c."id" = ${selectedContactId}
-              AND c."workspaceId" = ${membership.workspace.id}
-            LIMIT 1
-          `;
-          return rows[0] ?? null;
-        } catch {
-          return null;
-        }
-      })()
-    : null;
+  const selectedContactRow = await selectedContactRowPromise;
   const selectedContactCrmStage = selectedContactRow?.crmStage ?? "NUEVO";
   // Si a este cliente le falta que alguien diga si se cerro la venta (ver crm-stage-sync).
   const selectedCierrePendiente = tieneCierrePendiente(selectedContactRow?.metadata);
@@ -1462,7 +1474,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         // Quien monitorea tiene las pestañas y los filtros de un jefe, pero solo eso: no es jefe.
         veTodoElEquipo={modoMonitoreo}
         // Los que quien mira fijo arriba de su bandeja (hasta 3, como WhatsApp).
-        chatsFijados={await leerChatsFijados(access.userId)}
+        chatsFijados={chatsFijados}
         // Bloquear contactos: solo dueño y admin (ver lib/bloqueo-de-contactos).
         puedeBloquear={access.isOwner || access.role === "ADMIN"}
         chatSignature={chatSignature}
