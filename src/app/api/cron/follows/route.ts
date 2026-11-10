@@ -128,10 +128,11 @@ async function handleCron(request: Request) {
   }
 
   /*
-    DEMORA DE LA ASESORA (parte 1): un chat de ventas asignado que lleva 5 minutos sin respuesta
-    humana, de 7:00 a 23:00: push a su asesora. APAGADA por defecto (sin
-    `chats:demora-asesora:config:<negocio>` es UNA consulta a AppSetting y sale). No cambia
-    asignaciones ni le escribe al cliente. En cada vuelta: 5 minutos son 5 minutos. Best-effort.
+    DEMORA DE LA ASESORA (partes 1 y 2): un chat de ventas asignado que lleva 5 minutos sin
+    respuesta humana, de 7:00 a 23:00: push a su asesora; a los 10 minutos pasa a una asesora
+    activa (una vez por espera; sin activa, push al dueño). APAGADA por defecto (sin
+    `chats:demora-asesora:config:<negocio>` es UNA consulta a AppSetting y sale). Nunca le escribe
+    al cliente. En cada vuelta: 5 minutos son 5 minutos. Best-effort.
   */
   let demoraDeAsesora: Awaited<ReturnType<typeof revisarDemorasDeAsesoras>> | null = null;
   try {

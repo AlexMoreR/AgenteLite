@@ -49,6 +49,11 @@ export async function recordConversationActivity(input: {
   assigneeUserId?: string | null;
   /** Con que control se hizo, cuando importa distinguirlo (ver assignChatAction). */
   origen?: string | null;
+  /**
+   * En una reasignacion ("assigned" que le quita el chat a alguien): a QUIEN se le quito, como dato,
+   * para contar despues por asesora sin leer nombres (ver services/demora-de-asesora.ts).
+   */
+  reasignadoDeUserId?: string | null;
   /** Android, iPhone, Windows... Sale de la cabecera del navegador. */
   dispositivo?: string | null;
 }) {
@@ -74,6 +79,7 @@ export async function recordConversationActivity(input: {
           actorUserId: input.actorUserId ?? null,
           ...(input.assigneeUserId ? { assigneeUserId: input.assigneeUserId } : {}),
           ...(input.origen ? { origen: input.origen } : {}),
+          ...(input.reasignadoDeUserId ? { reasignadoDeUserId: input.reasignadoDeUserId } : {}),
           ...(input.dispositivo ? { dispositivo: input.dispositivo } : {}),
         } as never,
       },

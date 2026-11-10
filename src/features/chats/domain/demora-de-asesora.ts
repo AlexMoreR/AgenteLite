@@ -3,10 +3,11 @@ import { FRANJA_DEL_RESPALDO, minutoDelDiaEnBogota } from "@/lib/en-linea-reglas
 /**
  * DEMORA DE LA ASESORA: las reglas, sin base de datos (para poder probarlas solas).
  *
- * Parte 1 de 3 de "si la asesora no contesta en 10 minutos, el chat pasa a una asesora activa".
+ * Partes 1 y 2 de 3 de "si la asesora no contesta en 10 minutos, el chat pasa a una asesora activa".
  * Un chat de ventas ASIGNADO que lleva `minutosAviso` (5) sin respuesta de una persona: la asesora
- * recibe un push. A los `minutosReasignar` (10) la regla ya dice "reasignar", pero en esta parte
- * nadie usa ese resultado para mover chats (eso es la parte 2).
+ * recibe un push. A los `minutosReasignar` (10) la regla dice "reasignar": el chat pasa a una
+ * asesora ACTIVA (elegirAsesoraActiva). Una sola vez por espera (topeDeReasignacionAlcanzado); sin
+ * activa, o con el tope ya usado, el chat se queda donde está y se avisa al dueño.
  *
  * EL RELOJ arranca en lo MÁS RECIENTE entre:
  *  - `desde` de la espera (el primer mensaje de la clienta sin respuesta de una persona),
@@ -29,9 +30,9 @@ export type ConfigDemora = {
   activo: boolean;
   /** Sin respuesta humana en este rato: push a la asesora. */
   minutosAviso: number;
-  /** Sin respuesta humana en este rato: la regla dice "reasignar" (se usa en la parte 2). */
+  /** Sin respuesta humana en este rato: el chat pasa a una asesora activa. */
   minutosReasignar: number;
-  /** "Activa" = mandó desde el CRM un mensaje humano en este rato (se usa en la parte 2). */
+  /** "Activa" = mandó desde el CRM un mensaje escrito por ella en este rato. */
   minutosActiva: number;
 };
 
@@ -124,4 +125,53 @@ export function decidirDemora(entrada: EntradaDelReloj & { config: ConfigDemora 
     return { tipo: "avisar", inicio };
   }
   return { tipo: "nada" };
+}
+
+/** `origen` de la nota "Reasignado de X a Y…" que deja esta regla (también sirve para el tope). */
+export const ORIGEN_REASIGNACION_POR_DEMORA = "reasignacion-por-demora";
+
+/** Reasignaciones automáticas por espera: una, para que el chat no salte de asesora en asesora. */
+export const MAXIMO_REASIGNACIONES_POR_ESPERA = 1;
+
+/**
+ * ¿Ya se usó la reasignación de ESTA espera? `reasignaciones` son las fechas (ms) de las notas con
+ * origen ORIGEN_REASIGNACION_POR_DEMORA del chat; cuentan solo las de esta espera (desde `desde`).
+ */
+export function topeDeReasignacionAlcanzado(reasignaciones: readonly number[], desde: number): boolean {
+  return reasignaciones.filter((en) => en >= desde).length >= MAXIMO_REASIGNACIONES_POR_ESPERA;
+}
+
+export type EntradaDeEleccion = {
+  /** Las que pueden recibir en esta línea ahora (reparto, miembro activo, horario, sin pausa), en el orden de la rueda. */
+  candidatas: readonly string[];
+  /** Último mensaje escrito desde el CRM por cada asesora dentro de `minutosActiva` (ms). Sin entrada = no está activa. */
+  ultimoMensajePorAsesora: ReadonlyMap<string, number>;
+  /** Cuántos chats esperando tiene cada asesora (como principal). */
+  esperandoPorAsesora: ReadonlyMap<string, number>;
+  /** La dueña actual del chat. */
+  original: string;
+  /** La segunda asesora del chat, si hay. */
+  segunda: string | null;
+};
+
+/**
+ * A quién pasarle el chat: una candidata ACTIVA que no sea la original ni la segunda. Gana la de
+ * menos chats esperando; si empatan, la que escribió más reciente; si siguen empatadas, el orden
+ * de la rueda. null = no hay ninguna.
+ */
+export function elegirAsesoraActiva(entrada: EntradaDeEleccion): string | null {
+  const opciones = entrada.candidatas
+    .map((userId, orden) => ({ userId, orden, ultimo: entrada.ultimoMensajePorAsesora.get(userId) }))
+    .filter(
+      (opcion): opcion is { userId: string; orden: number; ultimo: number } =>
+        opcion.ultimo !== undefined && opcion.userId !== entrada.original && opcion.userId !== entrada.segunda,
+    );
+  if (!opciones.length) return null;
+  opciones.sort(
+    (a, b) =>
+      (entrada.esperandoPorAsesora.get(a.userId) ?? 0) - (entrada.esperandoPorAsesora.get(b.userId) ?? 0) ||
+      b.ultimo - a.ultimo ||
+      a.orden - b.orden,
+  );
+  return opciones[0].userId;
 }

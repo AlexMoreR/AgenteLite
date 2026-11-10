@@ -1049,12 +1049,12 @@ await prueba("pastilla: la direccion pone espera=1 con la asignacion y la linea;
   assert.deepEqual([...fuera.searchParams.entries()], [["assigned", "mine"]]);
 });
 
-await prueba("pastilla: appsidebar la muestra a todos, interruptor encima de Todas/Mias", async () => {
+await prueba("pastilla: appsidebar ya no muestra la pastilla Esperando (se quito a pedido de Alex, ff348ec)", async () => {
   const barra = fs.readFileSync(path.join(raiz, "components/chats/appsidebar.tsx"), "utf8");
-  const pastilla = barra.slice(barra.indexOf("{/* \"Esperando\": para todos"), barra.indexOf("\"Sin responder\" a un toque"));
-  assert.ok(pastilla.length > 0, "la pastilla esta fuera del map de Todas/Mias (la ve la asesora)");
-  assert.match(pastilla, /onClick=\{\(\) => irAEsperando\(asignacionEsperando, !enEspera\)\}/);
-  assert.match(pastilla, /numeroEsperando !== null \?/);
+  // Se quito el boton "Esperando" de la barra; la vista espera=1 y su logica siguen.
+  assert.ok(!barra.includes("{/* \"Esperando\": para todos"), "la pastilla Esperando volvio a la barra");
+  assert.doesNotMatch(barra, /irAEsperando\(asignacionEsperando, !enEspera\)/);
+  assert.match(barra, /La pastilla "Esperando" se quitó a pedido de Alex/);
   // Estando en Esperando: otro grupo cambia sin salir; el mismo grupo (la asesora, Mias) sale.
   assert.match(barra, /enEspera\s*\? irAEsperando\(valor, filtroMostrado !== valor\)/);
   // En Esperando no hay lista guardada abierta.
