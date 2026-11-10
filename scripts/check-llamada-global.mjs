@@ -1,8 +1,10 @@
 // Pruebas de la llamada en curso global (no se corta al cambiar de chat, 10-11-2026).
-// Correr: npm run test:llamada-global (con tsx, para importar posicion-del-cuadro.ts)
+// Correr: npm run test:llamada-global
 import fs from "node:fs";
 import path from "node:path";
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+import ts from "typescript";
 
 const leer = (ruta) => fs.readFileSync(path.resolve(ruta), "utf8");
 
@@ -10,6 +12,26 @@ const providers = leer("src/components/providers.tsx");
 const boton = leer("src/features/llamadas/components/BotonLlamar.tsx");
 const hook = leer("src/features/llamadas/components/useLlamada.ts");
 const global = leer("src/features/llamadas/components/LlamadaEnCurso.tsx");
+
+// El .ts se carga como en check-audio-de-llamada.mjs: se transpila con typescript (ya instalado)
+// en vez de bajar tsx con npx en cada corrida.
+const require = createRequire(import.meta.url);
+function cargarTs(relativo) {
+  const sourcePath = path.resolve(relativo);
+  const transpiled = ts.transpileModule(fs.readFileSync(sourcePath, "utf8"), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+    fileName: sourcePath,
+  });
+  const mod = { exports: {} };
+  new Function("exports", "require", "module", "__filename", "__dirname", transpiled.outputText)(
+    mod.exports,
+    require,
+    mod,
+    sourcePath,
+    path.dirname(sourcePath),
+  );
+  return mod.exports;
+}
 
 let pruebas = 0;
 function prueba(nombre, fn) {
@@ -60,7 +82,7 @@ const {
   escribirPreferencia,
   CLAVE_DEL_CUADRO,
   MARGEN_DEL_CUADRO: M,
-} = await import("../src/features/llamadas/components/posicion-del-cuadro.ts");
+} = cargarTs("src/features/llamadas/components/posicion-del-cuadro.ts");
 
 const panel = leer("src/features/llamadas/components/PanelDeLlamada.tsx");
 
