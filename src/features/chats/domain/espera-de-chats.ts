@@ -4,9 +4,10 @@
  * Esta parte no importa Prisma a proposito: los tipos y la ventana los va a usar tambien la
  * bandeja, que corre en el navegador. Las consultas viven en ../services/espera-de-chats.ts.
  *
- * Ojo: no es lo mismo que el filtro "Sin responder" ni que el turno de la conversacion
- * (lib/turno-de-la-conversacion.ts). Aca el bot NO cuenta como respuesta: un chat que solo
- * atendio el bot sigue esperando a una persona.
+ * Ojo: no es lo mismo que el filtro "Sin responder". Desde el 10-11-2026 tambien tiene que ser
+ * turno de Magilus (lib/turno-de-la-conversacion.ts): si el agente contesto sin pedir asesora, el
+ * chat no espera; si pidio o prometio una asesora, no entendio o el cliente dio una señal fuerte,
+ * si. El reloj cuenta desde la ultima tanda del cliente.
  */
 
 /** Solo se mira lo de las ultimas 72 horas: lo mas viejo no es trabajo de hoy. */

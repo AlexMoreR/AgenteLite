@@ -35,8 +35,9 @@ const db = new PGlite();
 await db.exec(`
   CREATE TABLE "Contact" (
     "id" text PRIMARY KEY, "workspaceId" text NOT NULL, "excludedFromCrm" boolean NOT NULL DEFAULT false,
-    "bloqueadoEn" timestamp(3), "metadata" jsonb
+    "bloqueadoEn" timestamp(3), "metadata" jsonb, "crmStage" text
   );
+  CREATE TABLE "EmbudoLead" ("conversationId" text PRIMARY KEY, "temperatura" text);
   CREATE TABLE "Tag" ("id" text PRIMARY KEY, "workspaceId" text NOT NULL, "name" text NOT NULL, "slug" text NOT NULL);
   CREATE TABLE "ContactTag" ("contactId" text NOT NULL, "tagId" text NOT NULL, "workspaceId" text NOT NULL);
   CREATE TABLE "Conversation" (
@@ -48,7 +49,8 @@ await db.exec(`
     "id" text PRIMARY KEY, "workspaceId" text NOT NULL, "conversationId" text NOT NULL,
     "direction" text NOT NULL, "type" text NOT NULL, "status" text NOT NULL, "content" text,
     "deletedAt" timestamp(3), "failedAt" timestamp(3), "rawPayload" jsonb,
-    "isStatusBroadcast" boolean NOT NULL DEFAULT false, "createdAt" timestamp(3) NOT NULL
+    "isStatusBroadcast" boolean NOT NULL DEFAULT false, "createdAt" timestamp(3) NOT NULL,
+    "transcripcion" text
   );
   CREATE TABLE "OfficialApiClientConfig" ("id" text PRIMARY KEY, "workspaceId" text NOT NULL UNIQUE);
   CREATE TABLE "OfficialApiContact" ("id" text PRIMARY KEY, "configId" text NOT NULL, "crmContactId" text);
@@ -70,12 +72,13 @@ const iso = (d) => d.toISOString();
 let n = 0;
 
 async function contacto(id, extra = {}) {
-  await db.query(`INSERT INTO "Contact" VALUES ($1,$2,$3,$4,$5)`, [
+  await db.query(`INSERT INTO "Contact" VALUES ($1,$2,$3,$4,$5,$6)`, [
     id,
     extra.workspaceId ?? WS,
     extra.excludedFromCrm ?? false,
     extra.bloqueadoEn ?? null,
     extra.metadata ? JSON.stringify(extra.metadata) : null,
+    extra.crmStage ?? null,
   ]);
 }
 async function etiqueta(contactId, name, slug) {
@@ -142,6 +145,55 @@ await chat("de_maria", [[IN, 1]], { asesora: "maria" });
 await chat("de_ana_y_maria", [[IN, 1.5]], { asesora: "ana", segunda: "maria" });
 await chat("otro_canal", [[IN, 1]], { channelId: "canal_2", asesora: "ana" });
 await chat("pendiente", [[IN, 1]], { estado: "PENDING" });
+
+/* --- El turno (10-11-2026): espera solo si es turno de Magilus --- */
+// El bot prometio una asesora en su texto, o dejo la nota de que pide una: dentro.
+await chat("bot_promete_asesora", [
+  [IN, 2, { contenido: "Hola, me interesa el COMBO" }],
+  [OUT, 1.99, { source: null, contenido: "En un momento una de nuestras asesoras te contacta 🙌" }],
+]);
+await chat("bot_pide_asesor", [
+  [IN, 2, { contenido: "y eso cuanto pesa?" }],
+  [OUT, 1.99, { source: null, contenido: "Déjame confirmarlo" }],
+  [OUT, 1.98, { tipo: "SYSTEM", source: "activity", contenido: "El agente pide un asesor: El cliente preguntó algo que el agente no tiene" }],
+]);
+// El cliente dio una señal fuerte y el bot siguio: dentro, desde ESA tanda (no desde el saludo).
+await chat("senal_fuerte", [
+  [IN, 4, { contenido: "Hola" }],
+  [OUT, 3.9, { source: null, contenido: "¡Hola! ¿Qué servicios vas a ofrecer?" }],
+  [IN, 2, { contenido: "Ya pagué, te mando el comprobante" }],
+  [OUT, 1.9, { source: null, contenido: "¡Gracias!" }],
+]);
+// Caliente al que nunca le escribio una persona: dentro aunque el bot conteste.
+await chat("caliente_sin_persona", [[IN, 2, { contenido: "precio?" }], [OUT, 1.9, { source: null, contenido: "Está en $989.000" }]]);
+await db.query(`INSERT INTO "EmbudoLead" VALUES ('caliente_sin_persona', 'CALIENTE')`);
+await chat("etapa_caliente", [[IN, 2, { contenido: "precio?" }], [OUT, 1.9, { source: null, contenido: "Está en $989.000" }]], {
+  contacto: { crmStage: "NEGOCIACION" },
+});
+
+// FUERA: el caso de Ingrid (10-11-2026). "Si" a las fotos, el agente manda fotos y pregunta el color.
+await chat(
+  "caso_ingrid",
+  [
+    [IN, 3, { contenido: "Hola, me interesa el COMBO de estética (camilla, escalera, silla y auxiliar)" }],
+    [OUT, 2.99, { source: null, contenido: "Bienvenid@ a Magilus 👑" }],
+    [OUT, 2.98, { source: null, contenido: "¿Te mando las fotos del combo con el precio? 📸" }],
+    [IN, 2, { contenido: "Si" }],
+    [OUT, 1.99, { tipo: "SYSTEM", source: "activity", contenido: "Ingrid Sanchez auto-asignado a esta conversación" }],
+    [OUT, 1.98, { source: null, contenido: "Ya te comparto las fotos 📸 El combo completo está en $989.000 💵" }],
+    [OUT, 1.97, { source: null, tipo: "IMAGE", contenido: "" }],
+    [OUT, 1.96, { source: null, contenido: "Lo fabricamos en el color que quieras ✨ ¿En qué color deseas tu combo?" }],
+  ],
+  { asesora: "maria" },
+);
+// FUERA: caliente que ya hablo con una persona y al que el bot contesto normal.
+await chat("caliente_con_persona", [
+  [IN, 5, { contenido: "hola" }],
+  [OUT, 4.5, { source: "manual", contenido: "Hola, soy Ingrid" }],
+  [IN, 2, { contenido: "y el envío?" }],
+  [OUT, 1.9, { source: null, contenido: "Enviamos a toda Colombia" }],
+]);
+await db.query(`INSERT INTO "EmbudoLead" VALUES ('caliente_con_persona', 'CALIENTE')`);
 
 /* --- Fuera --- */
 await chat("con_manual", [[IN, 3], [OUT, 2, { source: "manual" }]]);
@@ -266,7 +318,7 @@ function valor(tabla, col) {
   return [25, "x1"];
 }
 
-const esConsultaDeEspera = (texto) => texto.includes("WITH candidatas AS");
+const esConsultaDeEspera = (texto) => texto.includes("WITH candidatas AS") || texto.includes("turno_de_la_espera");
 
 class PoolFalso extends pg.Pool {
   async query(q) {
@@ -414,19 +466,48 @@ async function correr(sql) {
 }
 const filasViejo = await correr(espera.sqlEsperaDeChats({ workspaceId: WS, ahora: AHORA }));
 const filasOficial = await correr(espera.sqlEsperaOficial({ workspaceId: WS, ahora: AHORA }));
+const candidatosViejo = espera.chatsEnEsperaDeLasFilas(filasViejo, false);
+const filasTurno = await correr(
+  espera.sqlTurnoDeLaEspera({ workspaceId: WS, ids: candidatosViejo.map((c) => c.key.slice("agent:".length)), ahora: AHORA }),
+);
 const enEspera = [
-  ...espera.chatsEnEsperaDeLasFilas(filasViejo, false),
+  ...espera.chatsConTurnoDeMagilus(candidatosViejo, filasTurno),
   ...espera.chatsEnEsperaDeLasFilas(filasOficial, true),
 ];
 const porClave = new Map(enEspera.map((c) => [c.key, c]));
 const desdeDe = (key) => new Date(porClave.get(key).desde).toISOString();
 
-await prueba("dentro: sin respuesta, solo bot, solo seguimiento, humano con envio fallido, nota interna despues", async () => {
-  for (const id of ["sin_respuesta", "solo_bot", "solo_seguimiento", "humano_fallido", "nota_despues"]) {
+await prueba("dentro: sin respuesta, solo seguimiento, humano con envio fallido, nota interna despues", async () => {
+  for (const id of ["sin_respuesta", "solo_seguimiento", "humano_fallido", "nota_despues"]) {
     assert.ok(porClave.has(`agent:${id}`), `falta ${id}`);
   }
-  assert.equal(desdeDe("agent:solo_bot"), iso(haceHoras(3)));
+  assert.equal(desdeDe("agent:solo_seguimiento"), iso(haceHoras(5)));
   assert.equal(desdeDe("agent:humano_fallido"), iso(haceHoras(4)));
+});
+
+await prueba("turno: el bot contesto sin pedir asesora -> no espera (el caso de Ingrid, 10-11-2026)", async () => {
+  for (const id of ["solo_bot", "caso_ingrid", "caliente_con_persona"]) {
+    assert.ok(candidatosViejo.some((c) => c.key === `agent:${id}`), `${id} tiene que ser candidato (sin respuesta de una persona)`);
+    assert.ok(!porClave.has(`agent:${id}`), `no deberia estar ${id}`);
+  }
+});
+
+await prueba("turno: el bot pidio o prometio asesora, señal fuerte o caliente sin persona -> espera", async () => {
+  for (const id of ["bot_promete_asesora", "bot_pide_asesor", "senal_fuerte", "caliente_sin_persona", "etapa_caliente"]) {
+    assert.ok(porClave.has(`agent:${id}`), `falta ${id}`);
+  }
+  assert.equal(desdeDe("agent:bot_promete_asesora"), iso(haceHoras(2)));
+  // Desde la tanda de "ya pagué", no desde el saludo que el bot ya contesto.
+  assert.equal(desdeDe("agent:senal_fuerte"), iso(haceHoras(2)));
+});
+
+await prueba("turno: sin fila o sin el cliente en los ultimos eventos, el chat queda como antes", async () => {
+  const chat = { key: "agent:z", desde: 5, channelId: "c", oficial: false, assignedToUserId: null, segundoAsesorId: null };
+  assert.deepEqual(espera.chatsConTurnoDeMagilus([chat], []), [chat]);
+  const soloBot = [{ d: "OUTBOUND", t: "TEXT", o: null, x: "hola", en: "2026-11-06 10:00:00" }];
+  assert.deepEqual(espera.chatsConTurnoDeMagilus([chat], [{ id: "z", etapa: null, temperatura: null, eventos: soloBot }]), [chat]);
+  const oficial = { ...chat, key: "official:z", oficial: true };
+  assert.deepEqual(espera.chatsConTurnoDeMagilus([oficial], [{ id: "z", etapa: null, temperatura: null, eventos: soloBot }]), [oficial]);
 });
 
 await prueba("dentro: llamada perdida, pospuesto vencido, PENDING y una etiqueta cualquiera", async () => {
@@ -435,8 +516,8 @@ await prueba("dentro: llamada perdida, pospuesto vencido, PENDING y una etiqueta
   }
 });
 
-await prueba("reloj: desde el PRIMER mensaje sin respuesta de una persona; el bot no lo corta", async () => {
-  assert.equal(desdeDe("agent:reloj"), iso(haceHoras(8)));
+await prueba("reloj: desde la ultima tanda del cliente que nadie contesto (lo que el bot ya contesto no cuenta)", async () => {
+  assert.equal(desdeDe("agent:reloj"), iso(haceHoras(7)));
   assert.equal(desdeDe("agent:llamada_perdida"), iso(haceHoras(6)));
 });
 
@@ -570,6 +651,7 @@ await prueba("ruta: dueño recibe espera de todo el negocio; una sola carga por 
   espera.vaciarCacheDeEspera();
   permisos.vaciarCachesDePermisos();
   const fria = await pedir("http://x/api/cliente/chats/counts");
+  // Con el reloj de hoy los chats de prueba quedan fuera de las 72 h: sin candidatos no se pide el turno.
   assert.equal(fria.consultasDeEspera, 2, "una del canal viejo y una de la oficial");
   const e = fria.cuerpo.espera;
   assert.ok(e && Array.isArray(e.chats), JSON.stringify(fria.cuerpo));
@@ -595,9 +677,12 @@ await db.query(`DELETE FROM "Conversation" WHERE "id" = 'pospuesto'`);
 
 await prueba("ruta: dueño con datos de hoy ve todos y marca los suyos", async () => {
   espera.vaciarCacheDeEspera();
-  const { cuerpo } = await pedir("http://x/api/cliente/chats/counts");
+  const { cuerpo, consultasDeEspera } = await pedir("http://x/api/cliente/chats/counts");
+  assert.equal(consultasDeEspera, 3, "una del canal viejo, una de la oficial y la del turno de sus candidatos");
   const claves = cuerpo.espera.chats.map((c) => c.key);
   assert.ok(claves.includes("agent:sin_respuesta"));
+  assert.ok(claves.includes("agent:bot_promete_asesora"), "el turno tambien se aplica en la ruta");
+  assert.ok(!claves.includes("agent:caso_ingrid"), "el agente contesto: no espera");
   assert.ok(claves.includes("agent:otro_canal"));
   assert.ok(claves.includes("official:of_solo_bot"));
   assert.ok(!claves.includes("agent:con_manual"));

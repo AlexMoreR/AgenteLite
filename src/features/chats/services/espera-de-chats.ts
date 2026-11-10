@@ -5,7 +5,14 @@ import { CacheConTtl } from "@/lib/cache-en-memoria";
 import { canalesDelNegocio } from "@/lib/canales-del-negocio";
 import { esDeQuien } from "@/lib/chats-asignacion-compartida";
 import { normalizarEtiqueta } from "@/lib/llamada-pide-resultado";
-import { ORIGENES_HUMANOS, claseDelEvento } from "@/lib/turno-de-la-conversacion";
+import {
+  ORIGENES_HUMANOS,
+  claseDelEvento,
+  turnoDeLaConversacion,
+  type EventoDelChat,
+  type TurnoDeLaConversacion,
+} from "@/lib/turno-de-la-conversacion";
+import { esCaliente } from "@/features/supervisor/dominio/detectores-atencion";
 
 import {
   VENTANA_DE_ESPERA_MS,
@@ -27,6 +34,14 @@ export * from "../domain/espera-de-chats";
  * NO lo son el bot, los seguimientos automaticos, las notas internas (type SYSTEM) ni un envio
  * fallido. Quedan fuera los estados de WhatsApp, los contactos bloqueados u ocultos del CRM, los
  * pospuestos y los del equipo o proveedores (etiqueta EQUIPO o PROVEEDOR).
+ *
+ * Y SOLO SI ES TURNO DE MAGILUS (Alex, 10-11-2026), con la misma regla del Supervisor
+ * (lib/turno-de-la-conversacion.ts): si el agente ya contesto sin pedir asesora, el turno es del
+ * cliente y el chat no espera. Espera si nadie contesto, si el agente pidio o prometio una asesora,
+ * si no entendio, si el cliente dio una señal fuerte (separar, "ya pague", eligio color...) o si
+ * es un caliente al que nunca le escribio una persona. Caso: el agente mando fotos y pregunto el
+ * color, y a los 10 min el chat se le quito a Ingrid "por no responder". La linea oficial no tiene
+ * agente: sigue la regla de arriba sola.
  *
  * EL RELOJ arranca en el PRIMER mensaje del cliente que quedo sin respuesta de una persona, pero
  * SOLO se mira dentro de las 72 horas: si la demora empezo antes (el cliente escribio hace cuatro
@@ -252,8 +267,118 @@ export function chatsEnEsperaDeLasFilas(filas: FilaDeEspera[], oficial: boolean)
   return chats;
 }
 
+/* ------------------------------------------------------------------------------------------------
+   EL TURNO de los candidatos (solo el canal viejo, que es donde contesta el agente)
+------------------------------------------------------------------------------------------------ */
+
+/** Cuantos mensajes y notas se leen por chat: los mismos que el Supervisor. */
+export const EVENTOS_DEL_TURNO = 40;
+
+/** Lo que hace falta para el turno de un candidato. */
+export type FilaDeTurno = {
+  id: string;
+  etapa: string | null;
+  temperatura: string | null;
+  /** Los ultimos mensajes y notas de la ventana (sin envios fallidos ni borrados). */
+  eventos: Array<{ d: string; t: string; o: string | null; x: string | null; en: string }> | null;
+};
+
 /**
- * Corre las dos consultas del negocio, SIN la memoria de 60 s. La usa directo el reloj de la demora
+ * Los ultimos mensajes y notas de los candidatos, con la etapa y la temperatura. Va DESPUES de la
+ * consulta de la espera y solo con sus candidatos (los chats sin respuesta de una persona), asi que
+ * no toca lo que se midio en sqlEsperaDeChats. Es la misma lectura del Supervisor (LIMIT 40 por chat,
+ * indice conversationId + createdAt).
+ */
+export function sqlTurnoDeLaEspera(input: { workspaceId: string; ids: string[]; ahora: Date }): Prisma.Sql {
+  const { desde } = LIMITES(input.ahora);
+  return Prisma.sql`
+    SELECT c."id", ct."crmStage"::text AS "etapa", l."temperatura", turno_de_la_espera."eventos"
+      FROM "Conversation" c
+      JOIN "Contact" ct ON ct."id" = c."contactId"
+      LEFT JOIN "EmbudoLead" l ON l."conversationId" = c."id"
+      LEFT JOIN LATERAL (
+        SELECT json_agg(json_build_object('d', e."d", 't', e."t", 'o', e."o", 'x', e."x", 'en', e."createdAt")
+                        ORDER BY e."createdAt") AS "eventos"
+          FROM (
+            SELECT m."direction"::text AS "d", m."type"::text AS "t", m."rawPayload"->>'source' AS "o",
+                   left(coalesce(nullif(m."transcripcion", ''), m."content", ''), 400) AS "x", m."createdAt"
+              FROM "Message" m
+             WHERE m."conversationId" = c."id"
+               AND m."createdAt" > ${desde}
+               AND m."isStatusBroadcast" = false
+               AND m."deletedAt" IS NULL
+               AND NOT (m."direction"::text = 'OUTBOUND' AND m."type"::text <> 'SYSTEM'
+                        AND (m."status"::text = 'FAILED' OR m."failedAt" IS NOT NULL))
+             ORDER BY m."createdAt" DESC
+             LIMIT ${EVENTOS_DEL_TURNO}
+          ) e
+      ) turno_de_la_espera ON true
+     WHERE c."workspaceId" = ${input.workspaceId}
+       AND c."id" IN (${Prisma.join(input.ids)})
+  `;
+}
+
+function eventosDeLaFila(fila: FilaDeTurno): EventoDelChat[] {
+  return (fila.eventos ?? []).map((e) => ({
+    direccion: e.d === "INBOUND" ? "IN" : "OUT",
+    tipo: e.t,
+    origen: e.o,
+    texto: e.x,
+    en: new Date(fechaUtc(e.en)),
+  }));
+}
+
+/**
+ * Desde cuando es turno de Magilus: el primer mensaje de la ultima tanda del cliente (lo que escribio
+ * desde nuestra ultima respuesta, del bot o de una persona). Una tanda vieja que el agente ya contesto
+ * no cuenta. Una llamada perdida sin mensajes despues de nuestra respuesta: la hora de la llamada.
+ */
+export function inicioDelTurno(eventos: EventoDelChat[], turno: TurnoDeLaConversacion): number | null {
+  const orden = [...eventos].sort((a, b) => a.en.getTime() - b.en.getTime());
+  const clases = orden.map(claseDelEvento);
+  let i = clases.lastIndexOf("cliente");
+  let inicio: number | null = null;
+  for (; i >= 0; i -= 1) {
+    const clase = clases[i];
+    if (clase === "bot" || clase === "humano" || clase === "llamada_atendida") break;
+    if (clase === "cliente") inicio = orden[i].en.getTime();
+  }
+  if (inicio === null && turno.motivo === "llamada_perdida") return turno.ultimoClienteEn?.getTime() ?? null;
+  return inicio;
+}
+
+/**
+ * Deja solo los candidatos del canal viejo en los que es turno de Magilus, con el reloj desde que lo es.
+ * Sin fila, o si en los ultimos 40 eventos no aparece el cliente, el chat queda como antes: es mejor
+ * que sobre uno a que se pierda uno que de verdad espera.
+ */
+export function chatsConTurnoDeMagilus(chats: ChatEnEspera[], filas: FilaDeTurno[]): ChatEnEspera[] {
+  const porId = new Map(filas.map((fila) => [fila.id, fila]));
+  const resultado: ChatEnEspera[] = [];
+  for (const chat of chats) {
+    const fila = chat.oficial ? undefined : porId.get(chat.key.slice("agent:".length));
+    if (!fila) {
+      resultado.push(chat);
+      continue;
+    }
+    const eventos = eventosDeLaFila(fila);
+    const turno = turnoDeLaConversacion(eventos, {
+      caliente: esCaliente({ etapa: fila.etapa, temperatura: fila.temperatura }),
+      asignada: Boolean(chat.assignedToUserId),
+    });
+    if (turno.motivo === "cliente_no_ha_escrito") {
+      resultado.push(chat);
+      continue;
+    }
+    if (turno.de !== "MAGILUS") continue;
+    const inicio = inicioDelTurno(eventos, turno);
+    resultado.push(inicio === null ? chat : { ...chat, desde: Math.max(chat.desde, inicio) });
+  }
+  return resultado;
+}
+
+/**
+ * Corre las consultas del negocio, SIN la memoria de 60 s. La usa directo el reloj de la demora
  * de la asesora (services/demora-de-asesora.ts), para no decidir con datos de hace un minuto.
  */
 export async function cargarEsperaDelNegocio(workspaceId: string): Promise<ChatEnEspera[]> {
@@ -262,7 +387,10 @@ export async function cargarEsperaDelNegocio(workspaceId: string): Promise<ChatE
     prisma.$queryRaw<FilaDeEspera[]>(sqlEsperaDeChats({ workspaceId, ahora })),
     prisma.$queryRaw<FilaDeEspera[]>(sqlEsperaOficial({ workspaceId, ahora })),
   ]);
-  return [...chatsEnEsperaDeLasFilas(viejo, false), ...chatsEnEsperaDeLasFilas(oficial, true)].sort(
+  const candidatos = chatsEnEsperaDeLasFilas(viejo, false);
+  const ids = candidatos.map((chat) => chat.key.slice("agent:".length));
+  const turnos = ids.length ? await prisma.$queryRaw<FilaDeTurno[]>(sqlTurnoDeLaEspera({ workspaceId, ids, ahora })) : [];
+  return [...chatsConTurnoDeMagilus(candidatos, turnos), ...chatsEnEsperaDeLasFilas(oficial, true)].sort(
     (a, b) => a.desde - b.desde,
   );
 }
