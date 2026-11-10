@@ -29,6 +29,7 @@ import { revisarAvisosDeTerminadas } from "@/features/tableros-inteligentes/serv
 import { revisarAvisosAlEquipo } from "@/features/tableros-inteligentes/services/avisos-al-equipo";
 import { archivarLasHechas, archivarLasTerminadas } from "@/features/tableros-inteligentes/services/archivadas";
 import { barrerEtapasDeTodos } from "@/features/crm/services/barrido-de-etapas";
+import { revisarMensajesIndescifrables } from "@/features/mensajes-indescifrables/servicios/revision";
 
 function resolveCronSecret() {
   return process.env.FOLLOW_CRON_SECRET?.trim() || process.env.EVOLUTION_WEBHOOK_SECRET?.trim() || "";
@@ -166,6 +167,20 @@ async function handleCron(request: Request) {
   } catch (error) {
     console.error("[cron/follows] reparto de madrugada error", error);
   }
+
+  /*
+    MENSAJES INDESCIFRABLES (ver src/features/mensajes-indescifrables): a los 2 minutos se mira si el
+    mensaje que WAHA no pudo leer llegó; si no, el chat queda con la nota "Mensaje perdido, escríbele".
+    APAGADO por defecto (sin `mensajes-indescifrables:modo:<negocio>` la cola ni se llena). En segundo
+    plano y best-effort.
+  */
+  after(async () => {
+    try {
+      await revisarMensajesIndescifrables();
+    } catch (error) {
+      console.error("[cron/follows] mensajes indescifrables error", error);
+    }
+  });
 
   // Enfriamiento de leads (Playbook: 3 intentos + 5 días + cero respuesta → Tibio). Va colgado
   // de este cron para no montar otro. Throttle: solo cada ~5 min (el cron corre cada 60s), porque

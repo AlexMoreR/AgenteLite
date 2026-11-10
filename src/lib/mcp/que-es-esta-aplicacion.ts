@@ -370,6 +370,30 @@ async function estadoDeLaDemoraDeAsesora(workspaceId: string) {
 }
 
 /**
+ * La red de mensajes indescifrables de WAHA: el modo, cuántos LID de prueba hay, el último latido del
+ * vigilante y lo que pasó en las últimas 24 h (cuántos llegaron, se perdieron o quedaron en sombra).
+ */
+async function estadoDeMensajesIndescifrables(workspaceId: string) {
+  const [modoCrudo, lidsDePrueba, latido, ultimas24h] = await Promise.all([
+    bandera(`mensajes-indescifrables:modo:${workspaceId}`),
+    bandera(`mensajes-indescifrables:lids-prueba:${workspaceId}`),
+    bandera("mensajes-indescifrables:latido"),
+    prisma.mensajeIndescifrable.groupBy({
+      by: ["estado"],
+      where: { workspaceId, creadoEn: { gte: new Date(Date.now() - 86_400_000) } },
+      _count: { _all: true },
+    }),
+  ]);
+  const modo = (modoCrudo ?? "").trim().toUpperCase();
+  const prueba = (lidsDePrueba ?? "").split(/[\s,;]+/).filter(Boolean).length;
+  const conteo = ultimas24h.map((fila) => `${fila.estado} ${fila._count._all}`).join(", ") || "ninguno";
+  const estado = ["SOMBRA", "PRUEBA", "ACTIVO"].includes(modo)
+    ? `${modo === "SOMBRA" ? "en sombra: revisa a los 2 min pero no toca chats ni avisa" : modo === "PRUEBA" ? `en prueba: actúa solo con ${prueba} LID de prueba` : "ACTIVA: chat con nota, reparto, alerta y WhatsApp agrupado a Alexander"}`
+    : "apagada (mensajes-indescifrables:modo:<negocio> sin SOMBRA, PRUEBA ni ACTIVO)";
+  return `${estado}; último latido del vigilante: ${latido ?? "nunca"}; últimas 24 h: ${conteo}`;
+}
+
+/**
  * El recibo de caja por WhatsApp (Gestión → línea Admin): el modo, si hay teléfono de prueba (sin
  * mostrarlo), cuántos salieron hoy (día de Bogotá) y el último, leído de `recibo-caja:enviado:<negocio>:*`.
  */
@@ -719,6 +743,8 @@ async function automatizaciones(
     agente_de_sistemas: await estadoDelAgenteDeSistemas(workspaceId).catch(() => "no se pudo leer"),
     recoger_errores_tablero: await estadoDeRecogerErrores(workspaceId).catch(() => "no se pudo leer"),
     recibo_de_caja: await estadoDelReciboDeCaja(workspaceId).catch(() => "no se pudo leer"),
+    // Cron cada minuto: lo que WAHA no pudo descifrar y no llegó en 2 min queda en la bandeja con nota.
+    mensajes_indescifrables: await estadoDeMensajesIndescifrables(workspaceId).catch(() => "no se pudo leer"),
     // Vive en el Coordinador (aizen1), no en la base: el CRM solo recibe las 3 líneas del resumen con la subida.
     mejora_continua_tablero: "activa: corre dentro del Coordinador (aizen1); las lecciones viven en su carpeta de trabajo y el CRM no las puede leer, solo guarda las 3 líneas del resumen de cada subida",
   };

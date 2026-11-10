@@ -22,6 +22,8 @@ services:
       SMTP_FROM: "${SMTP_FROM}"
       FOLLOW_CRON_SECRET: "${FOLLOW_CRON_SECRET}"
       EVOLUTION_WEBHOOK_SECRET: "${EVOLUTION_WEBHOOK_SECRET}"
+      # Vigilante de mensajes indescifrables de WAHA (docker/vigilante-indescifrables). Vacío = el endpoint rechaza todo.
+      INDESCIFRABLES_SECRET: "${INDESCIFRABLES_SECRET:-}"
       PRISMA_AUTO_RESOLVE_FAILED_OFFICIAL_API_MIGRATION: "true"
       # Reuniones: el servidor de video. Si LiveKit se muda a otro VPS, solo cambian estas tres.
       LIVEKIT_URL: "wss://video.magilus.com"

@@ -97,6 +97,7 @@
     "test:trabajador-tablero": "node trabajador-tablero/pruebas/probar-reparto.mjs && node trabajador-tablero/pruebas/probar-medir.mjs && node trabajador-tablero/pruebas/probar-pausa-uso.mjs && node trabajador-tablero/pruebas/probar-trabajador.mjs && node trabajador-tablero/pruebas/probar-modelos.mjs && node trabajador-tablero/pruebas/probar-autoactualizar.mjs && node trabajador-tablero/pruebas/probar-notas-boveda.mjs && node trabajador-tablero/pruebas/probar-no-colgarse.mjs",
     "test:seguimiento-inteligente": "node scripts/check-seguimiento-inteligente.mjs",
     "test:alertas": "node scripts/check-alertas.mjs",
+    "test:mensajes-indescifrables": "node scripts/check-mensajes-indescifrables.mjs",
     "test:alerta-destinatario-migracion": "node scripts/check-alerta-destinatario-migracion.mjs",
     "test:alerta-ultima-vez-migracion": "node scripts/check-alerta-ultima-vez-migracion.mjs",
     "test:seguimientos-apagados-migracion": "node scripts/check-seguimientos-apagados-migracion.mjs",

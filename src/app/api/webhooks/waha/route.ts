@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse, after } from "next/server";
 
 import { POST as recibirEvolution } from "@/app/api/webhooks/evolution/route";
+import { marcarLlegoPorWebhook } from "@/features/mensajes-indescifrables/servicios/registro";
 import { prisma } from "@/lib/prisma";
 import { notifyRealtimeUpdate } from "@/lib/realtime-notify";
 import { quienesNoSeEnteran } from "@/lib/quien-se-entera-del-mensaje";
@@ -87,6 +88,7 @@ export async function POST(request: NextRequest) {
   */
   const cambio = leerEdicionOBorradoWaha(cuerpo);
   if (cambio) {
+    anotarQueLlego(cuerpo);
     const aviso = await aplicarEdicionOBorrado(cambio);
     if (aviso) {
       await notifyRealtimeUpdate({ ...aviso, type: "waha-update" });
@@ -172,6 +174,12 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // Una reaccion no deja Message con su id: se anota aca que llego (ver anotarQueLlego).
+  const nombreDelEvento = (cuerpo as { event?: unknown }).event;
+  if (nombreDelEvento === "message.reaction") {
+    anotarQueLlego(cuerpo);
+  }
+
   let traduccion = traducirEventoWaha(cuerpo);
 
   /*
@@ -211,6 +219,9 @@ export async function POST(request: NextRequest) {
   }
 
   if (!traduccion.evolution) {
+    if (nombreDelEvento === "message.any") {
+      anotarQueLlego(cuerpo);
+    }
     console.log("[waha webhook] evento ignorado:", traduccion.motivo);
     return NextResponse.json({ ok: true, ignorado: traduccion.motivo });
   }
@@ -344,6 +355,25 @@ export async function POST(request: NextRequest) {
   }
 
   return respuesta;
+}
+
+/**
+ * El mensaje con este id SI llego, aunque no deje Message: una reaccion, una edicion o un borrado, o
+ * un mensaje sin texto ni archivo que se descarta. Sin esto, si WAHA no lo pudo descifrar la primera
+ * vez, a los 2 minutos la red de mensajes indescifrables lo daria por perdido sin serlo.
+ *
+ * Va despues de responder y no lanza: no demora ni rompe el webhook. Con el modo APAGADO es una
+ * lectura de la linea y nada mas.
+ */
+function anotarQueLlego(cuerpo: unknown) {
+  const evento = cuerpo as { session?: unknown; payload?: { id?: unknown; fromMe?: unknown } | null };
+  const id = typeof evento.payload?.id === "string" ? idCrudoDeMensaje(evento.payload.id) : "";
+  // Lo nuestro nunca es un indescifrable del cliente.
+  if (typeof evento.session !== "string" || !id || evento.payload?.fromMe === true) {
+    return;
+  }
+  const sesion = evento.session;
+  after(() => marcarLlegoPorWebhook({ sesion, idCrudo: id }));
 }
 
 /** WAHA no verifica la URL como Meta, pero tener el GET ayuda a probar que el endpoint existe. */
