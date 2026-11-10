@@ -28,6 +28,28 @@ type Props = {
 const FILTRO_TODAS = "todas";
 const FILTRO_SIN_REPARTIR = "sin_repartir";
 
+/*
+  Lo ultimo que se trajo por filtro, guardado 60 s en el navegador.
+
+  La lista se pedia cada vez que se abria la ventana y cada vez que se cambiaba el filtro: una server
+  action que va en fila detras de las del chat abierto, con su espera, para algo que cambia muy poco.
+  Con menos de 60 s se muestra lo guardado y no se pregunta; mas viejo, se muestra al instante y se
+  vuelve a pedir por detras (si ese pedido falla, sale el aviso de error como siempre).
+
+  Crear, editar o borrar una respuesta borra lo guardado: despues de tocarlas nunca se ve la lista
+  vieja. Lo que cambie otra persona en otra pestaña puede tardar hasta 60 s en verse.
+*/
+const VIDA_DE_LA_LISTA_MS = 60_000;
+type ListaGuardada = { items: QuickReplyItem[]; esJefe: boolean; asesoras: QuickReplyAsesora[]; en: number };
+const listaPorFiltro = new Map<string, ListaGuardada>();
+// Sube con cada cambio: un pedido que salio antes de crear/editar/borrar no guarda su respuesta.
+let versionDeLaLista = 0;
+
+function olvidarListasGuardadas() {
+  listaPorFiltro.clear();
+  versionDeLaLista += 1;
+}
+
 // Cada asesora ve y maneja solo sus respuestas. El dueño y los administradores (esJefe) ven todas, con el
 // nombre de la dueña, un filtro, casillas para crear una copia por asesora, cambio de dueña y "Duplicar".
 // El servidor impone las reglas (src/lib/respuestas-rapidas.ts): esta ventana solo las refleja.
@@ -55,17 +77,29 @@ export function QuickRepliesDialog({ open, onClose, onSelect }: Props) {
   // siempre sin reintentar. Ahora, ante error, se muestra un aviso con botón de reintento.
   const refresh = useCallback(async (filtroPedido: string) => {
     setLoadError(null);
+    const version = versionDeLaLista;
     try {
       const result = await getQuickRepliesAction(filtroPedido);
       if (result.error) {
+        listaPorFiltro.delete(filtroPedido);
         setLoadError(result.error);
         setItems([]);
       } else {
-        setItems(result.items ?? []);
-        setEsJefe(Boolean(result.esJefe));
-        setAsesoras(result.asesoras ?? []);
+        const guardada: ListaGuardada = {
+          items: result.items ?? [],
+          esJefe: Boolean(result.esJefe),
+          asesoras: result.asesoras ?? [],
+          en: Date.now(),
+        };
+        if (version === versionDeLaLista) {
+          listaPorFiltro.set(filtroPedido, guardada);
+        }
+        setItems(guardada.items);
+        setEsJefe(guardada.esJefe);
+        setAsesoras(guardada.asesoras);
       }
     } catch {
+      listaPorFiltro.delete(filtroPedido);
       setLoadError("No se pudieron cargar las respuestas rápidas.");
       setItems([]);
     } finally {
@@ -75,8 +109,18 @@ export function QuickRepliesDialog({ open, onClose, onSelect }: Props) {
 
   useEffect(() => {
     if (!open) return;
-    setLoaded(false);
     setLoadError(null);
+    const guardada = listaPorFiltro.get(filtro);
+    if (guardada) {
+      // Al instante con lo guardado. Si ya paso un minuto, ademas se pide de nuevo por detras.
+      setItems(guardada.items);
+      setEsJefe(guardada.esJefe);
+      setAsesoras(guardada.asesoras);
+      setLoaded(true);
+      if (Date.now() - guardada.en < VIDA_DE_LA_LISTA_MS) return;
+    } else {
+      setLoaded(false);
+    }
     void refresh(filtro);
   }, [open, filtro, refresh]);
 
@@ -136,9 +180,12 @@ export function QuickRepliesDialog({ open, onClose, onSelect }: Props) {
             return;
           }
         } catch {
+          // Pudo haberse guardado igual: lo guardado ya no sirve.
+          olvidarListasGuardadas();
           setFormError("No se pudo guardar la respuesta rápida. Intenta de nuevo.");
           return;
         }
+        olvidarListasGuardadas();
         await refresh(filtro);
         volverALaLista();
       });
@@ -155,9 +202,11 @@ export function QuickRepliesDialog({ open, onClose, onSelect }: Props) {
           return;
         }
       } catch {
+        olvidarListasGuardadas();
         toast.error("No se pudo eliminar la respuesta rápida. Intenta de nuevo.");
         return;
       }
+      olvidarListasGuardadas();
       setItems((prev) => prev.filter((item) => item.id !== id));
     });
   }, []);

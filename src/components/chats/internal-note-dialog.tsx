@@ -6,7 +6,8 @@ import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { addConversationNoteAction } from "@/app/actions/chats-actions";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { refrescarTrasAccionDelChat } from "@/components/chats/refrescar-tras-accion-del-chat";
+import { Dialog,DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 
 /**
@@ -40,15 +41,27 @@ export function InternalNoteDialog({
       return;
     }
     setGuardando(true);
+    // WhatsApp normal: la nota llega con el chat abierto (/live), sin rehacer la pantalla entera.
+    // La API oficial sigue con el refresco de siempre.
+    const desdeElChat = source === "agent";
     try {
-      const resultado = await addConversationNoteAction({ conversationId, source, text: texto });
+      const resultado = await addConversationNoteAction({
+        conversationId,
+        source,
+        text: texto,
+        ...(desdeElChat ? { desdeElChat: true } : {}),
+      });
       if (!resultado.ok) {
         toast.error(resultado.error ?? "No se pudo guardar la nota.");
         return;
       }
       toast.success("Nota guardada");
       onClose();
-      router.refresh();
+      if (desdeElChat) {
+        void refrescarTrasAccionDelChat({ conversationId, refrescarTodo: () => router.refresh() });
+      } else {
+        router.refresh();
+      }
     } catch {
       toast.error("No se pudo guardar la nota.");
     } finally {

@@ -12,6 +12,7 @@ import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
+import { contactoTieneOtrosChats } from "@/lib/contacto-tiene-otros-chats";
 import { AVISO_MODO_MONITOREO, estaEnModoMonitoreo } from "@/lib/modo-monitoreo";
 import {
   cancelarAutomaticosPendientesDelContacto,
@@ -59,6 +60,16 @@ export async function updateCrmStageAction(input: {
   lostReason?: string;
   wonAt?: string;
   wonQuoteRef?: string;
+  /*
+    El cambio sale de la cabecera del chat abierto (WhatsApp normal), con el id de ese chat. Sin
+    revalidatePath: la respuesta traia la pantalla de Chats entera de nuevo, y las otras rutas
+    (/cliente/crm, /cliente/contactos) son dinamicas, asi que no ganaban nada. El control trae
+    despues solo la fila y el chat abierto (ver refrescar-tras-accion-del-chat.ts). El CRM, el
+    kanban, las llamadas y la lista no lo mandan y siguen igual.
+  */
+  desdeElChat?: boolean;
+  /** Con desdeElChat: el chat abierto, para saber si el contacto tiene otras filas que cambian. */
+  conversationIdDelChat?: string;
 }) {
   const session = await auth();
 
@@ -219,11 +230,24 @@ export async function updateCrmStageAction(input: {
     }
   }
 
-  revalidatePath("/cliente/crm");
-  revalidatePath("/cliente/contactos");
-  revalidatePath("/cliente/chats");
+  if (!input.desdeElChat) {
+    revalidatePath("/cliente/crm");
+    revalidatePath("/cliente/contactos");
+    revalidatePath("/cliente/chats");
+    return { success: true, contactId: contact.id, status: parsed.data.status };
+  }
 
-  return { success: true, contactId: contact.id, status: parsed.data.status };
+  /*
+    La etapa es del contacto: si tiene otro chat (otra linea o el canal oficial), esa fila tambien
+    cambia, y el control vuelve a pedir la pantalla entera como antes. La nota "cambió la etapa"
+    queda en el chat mas reciente: si no es el abierto, tambien.
+  */
+  const conversationIdDelChat = input.conversationIdDelChat?.trim() || null;
+  const tocaOtrosChats =
+    !conversationIdDelChat ||
+    (recentConversation !== null && recentConversation.id !== conversationIdDelChat) ||
+    (await contactoTieneOtrosChats(membership.workspace.id, contact.id, conversationIdDelChat));
+  return { success: true, contactId: contact.id, status: parsed.data.status, tocaOtrosChats };
 }
 
 export async function updateCrmCollapsedAction(input: { contactId: string; collapsed: boolean }) {

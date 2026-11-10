@@ -53,7 +53,9 @@ export function ChatHeaderActions({
       <div className="hidden items-center gap-1 @min-[520px]/chathdr:flex">
         {/* Llamar va primero: es la accion que se toma leyendo la conversacion, no al cerrarla. */}
         <BotonLlamar telefono={telefono} nombre={nombreContacto} avatarUrl={avatarUrl} channelId={channelId} />
-        {contactId ? <CrmStageControl contactId={contactId} stage={stage} /> : null}
+        {contactId ? (
+          <CrmStageControl contactId={contactId} stage={stage} conversationId={conversationId} source={source} />
+        ) : null}
         <InterruptorDeIA conversationId={conversationId} automationPaused={automationPaused} source={source} />
         {source === "agent" ? <InterruptorDeSeguimientos key={conversationId} conversationId={conversationId} /> : null}
         <ResolveChatControl conversationId={conversationId} status={status} source={source} />
@@ -158,7 +160,15 @@ export function BarraDeAccionesDelChat({
   */
   return (
     <div className="contents">
-      {contactId ? <CrmStageControl contactId={contactId} stage={stage} variant="chip" /> : null}
+      {contactId ? (
+        <CrmStageControl
+          contactId={contactId}
+          stage={stage}
+          variant="chip"
+          conversationId={conversationId}
+          source={source}
+        />
+      ) : null}
       {/* Con la etiqueta "IA" a la vista: en el celular el interruptor solo no se entendia. */}
       <InterruptorDeIA conversationId={conversationId} automationPaused={automationPaused} source={source} conEtiqueta />
       {source === "agent" ? <InterruptorDeSeguimientos key={conversationId} conversationId={conversationId} conEtiqueta /> : null}

@@ -6,6 +6,53 @@ import { Switch } from "@/components/ui/switch";
 import { fijarSeguimientosAutomaticosAction, leerSeguimientosAutomaticosAction } from "@/app/actions/chats-actions";
 import { cn } from "@/lib/utils";
 
+/*
+  El estado de cada chat, guardado 60 s en el navegador.
+
+  Se pedia en CADA cambio de chat, y dos veces (la cabecera ancha y la barra del celular montan cada
+  una su interruptor): una server action que va en fila con la ficha y la ultima llamada, y que demoraba
+  el primer clic en el chat. Volver a un chat que se vio hace menos de un minuto ya no pregunta; los dos
+  interruptores del mismo chat comparten el mismo pedido.
+
+  Lo que se cambia AQUI se guarda al instante y lo ven los dos interruptores: nunca queda el dato viejo
+  despues de tocarlo. Lo que cambie otra persona en otra pestaña puede tardar hasta 60 s en verse.
+*/
+const VIDA_DEL_ESTADO_MS = 60_000;
+const estadoPorChat = new Map<string, { apagados: boolean; en: number }>();
+const pedidosEnVuelo = new Map<string, Promise<boolean | null>>();
+const oyentes = new Set<() => void>();
+
+function estadoFresco(conversationId: string): boolean | null {
+  const guardado = estadoPorChat.get(conversationId);
+  return guardado && Date.now() - guardado.en < VIDA_DEL_ESTADO_MS ? guardado.apagados : null;
+}
+
+function guardarEstado(conversationId: string, apagados: boolean) {
+  estadoPorChat.set(conversationId, { apagados, en: Date.now() });
+  for (const oyente of oyentes) oyente();
+}
+
+function pedirEstado(conversationId: string): Promise<boolean | null> {
+  const enVuelo = pedidosEnVuelo.get(conversationId);
+  if (enVuelo) return enVuelo;
+  const desde = Date.now();
+  const pedido = leerSeguimientosAutomaticosAction(conversationId)
+    .then((respuesta) => {
+      if (!respuesta.ok) return null;
+      // Si mientras viajaba se cambio el interruptor, manda lo que se cambio (es mas nuevo).
+      const guardado = estadoPorChat.get(conversationId);
+      if (guardado && guardado.en >= desde) return guardado.apagados;
+      guardarEstado(conversationId, respuesta.apagados);
+      return respuesta.apagados;
+    })
+    .catch(() => null)
+    .finally(() => {
+      pedidosEnVuelo.delete(conversationId);
+    });
+  pedidosEnVuelo.set(conversationId, pedido);
+  return pedido;
+}
+
 /**
  * Interruptor "Seguimientos automáticos" de un chat (encendido = el robot puede mandarle seguimientos).
  *
@@ -23,19 +70,28 @@ export function InterruptorDeSeguimientos({
   conEtiqueta?: boolean;
   className?: string;
 }) {
-  const [apagados, setApagados] = useState<boolean | null>(null);
+  const [apagados, setApagados] = useState<boolean | null>(() => estadoFresco(conversationId));
   const [guardando, setGuardando] = useState(false);
   const enCursoRef = useRef(false);
 
   useEffect(() => {
     let vigente = true;
-    leerSeguimientosAutomaticosAction(conversationId)
-      .then((respuesta) => {
-        if (vigente && respuesta.ok) setApagados(respuesta.apagados);
-      })
-      .catch(() => undefined);
+    // Fresco: ya se dibujo con el (estado inicial; el control se monta de nuevo con cada chat).
+    if (estadoFresco(conversationId) === null) {
+      void pedirEstado(conversationId).then((valor) => {
+        if (vigente && valor !== null) setApagados(valor);
+      });
+    }
+    // El otro interruptor del mismo chat (cabecera ancha / barra del celular) lo cambio.
+    const alCambiar = () => {
+      if (enCursoRef.current) return;
+      const valor = estadoFresco(conversationId);
+      if (valor !== null) setApagados(valor);
+    };
+    oyentes.add(alCambiar);
     return () => {
       vigente = false;
+      oyentes.delete(alCambiar);
     };
   }, [conversationId]);
 
@@ -57,9 +113,12 @@ export function InterruptorDeSeguimientos({
     setGuardando(false);
     if (respuesta?.ok) {
       setApagados(respuesta.apagados);
+      guardarEstado(conversationId, respuesta.apagados);
       toast.success(respuesta.apagados ? "Seguimientos automáticos apagados en este chat" : "Seguimientos automáticos encendidos en este chat");
     } else {
       setApagados(antes);
+      // No se sabe que quedo en el servidor: la proxima vez se vuelve a preguntar.
+      estadoPorChat.delete(conversationId);
       toast.error(respuesta?.error ?? "No se pudo cambiar. Intenta de nuevo.");
     }
   };

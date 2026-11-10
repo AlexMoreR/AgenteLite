@@ -40,11 +40,14 @@ export type LoadedAgentConversationDetail = {
     /** De aca sale si falta responder "¿se cerro la venta?" (ver crm-stage-sync). */
     metadata: unknown;
   };
+  /*
+    Sin `metadata`: eran ~26 KB por apertura (la clave del gateway, el token y los flujos) que se
+    leian de la base para tirarlos. La presencia, la unica que lo usaba, lo lee ella misma despues
+    de responder (ver /api/cliente/chats/live).
+  */
   channel: {
     id: string;
     evolutionInstanceName: string | null;
-    /** De aca sale a que gateway pertenece el canal. Lo usa la presencia. */
-    metadata: unknown;
   } | null;
   messages: AgentConversationMessageRecord[];
   hasMoreMessages: boolean;
@@ -142,7 +145,73 @@ export async function loadAgentConversationDetail(input: {
     }
   }
 
-  const [conversation, cursorMessage] = await Promise.all([
+  /*
+    La conversacion y los mensajes salen EN PARALELO: los dos se buscan solo por workspaceId y
+    conversationId, asi que no hace falta esperar a uno para pedir el otro. Antes eran tres idas y
+    vueltas en fila al abrir un chat (conversacion, mensajes, llamadas); ahora dos. Si la
+    conversacion no existe, los mensajes se descartan. Al subir, el mensaje de referencia se sigue
+    comprobando antes de usarlo como cursor, igual que antes.
+  */
+  const cursorPromise = beforeMessageId
+    ? prisma.message.findFirst({
+        where: {
+          id: beforeMessageId,
+          conversationId: input.conversationId,
+          workspaceId: input.workspaceId,
+        },
+        select: {
+          id: true,
+        },
+      })
+    : Promise.resolve(null);
+  const messagesPromise = cursorPromise.then((cursorMessage) =>
+    prisma.message.findMany({
+      where: {
+        workspaceId: input.workspaceId,
+        conversationId: input.conversationId,
+        // Los broadcasts/estados se excluyen vía columna indexada (antes era un
+        // filtro en JS sobre rawPayload). rawPayload se mantiene en el select
+        // porque el UI lo usa para resolver media y previews de anuncios.
+        isStatusBroadcast: false,
+        /*
+          Sin las notas internas del Agente V3 (ver notas-internas-del-agente): siguen en la base,
+          pero el chat no las muestra. Se filtran aca, en la consulta, para que cada tanda traiga sus
+          mensajes completos en vez de llegar con huecos.
+
+          Va como OR de tres y no como un NOT de "SYSTEM y empieza con": en SQL, un NOT sobre una
+          comparacion con content NULL da NULL y la fila se pierde. Los audios y las fotos no tienen
+          texto, y con la forma corta desaparecian del chat.
+        */
+        OR: [
+          { type: { not: "SYSTEM" } },
+          { content: null },
+          { NOT: { content: { startsWith: PREFIJO_NOTA_INTERNA_DEL_AGENTE } } },
+        ],
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: batchSize + 1,
+      ...(cursorMessage ? { cursor: { id: cursorMessage.id }, skip: 1 } : {}),
+      select: {
+        id: true,
+        externalId: true,
+        content: true,
+        direction: true,
+        createdAt: true,
+        editedAt: true,
+        deletedAt: true,
+        rawPayload: true,
+        type: true,
+        mediaUrl: true,
+        reactionEmoji: true,
+        transcripcion: true,
+        // El estado del envio: es lo que dibuja el check simple, el doble y el doble azul.
+        // Sin traerlo, la burbuja no podia mostrar acuse alguno por mas que la base lo supiera.
+        status: true,
+      },
+    }).then((filas) => ({ cursorMessage, filas })),
+  );
+
+  const [conversation, { cursorMessage, filas: messages }] = await Promise.all([
     prisma.conversation.findFirst({
       where: {
         id: input.conversationId,
@@ -177,74 +246,17 @@ export async function loadAgentConversationDetail(input: {
             // El id hace falta para saber por que numero sale una llamada hecha desde este chat.
             id: true,
             evolutionInstanceName: true,
-            // metadata: de ahi sale a que gateway pertenece el canal (lo usa la presencia).
-            metadata: true,
+            // Sin metadata: ver el tipo LoadedAgentConversationDetail.
           },
         },
       },
     }),
-    beforeMessageId
-      ? prisma.message.findFirst({
-          where: {
-            id: beforeMessageId,
-            conversationId: input.conversationId,
-            workspaceId: input.workspaceId,
-          },
-          select: {
-            id: true,
-          },
-        })
-      : Promise.resolve(null),
+    messagesPromise,
   ]);
 
   if (!conversation) {
     return null;
   }
-
-  const messages = await prisma.message.findMany({
-    where: {
-      workspaceId: input.workspaceId,
-      conversationId: input.conversationId,
-      // Los broadcasts/estados se excluyen vía columna indexada (antes era un
-      // filtro en JS sobre rawPayload). rawPayload se mantiene en el select
-      // porque el UI lo usa para resolver media y previews de anuncios.
-      isStatusBroadcast: false,
-      /*
-        Sin las notas internas del Agente V3 (ver notas-internas-del-agente): siguen en la base,
-        pero el chat no las muestra. Se filtran aca, en la consulta, para que cada tanda traiga sus
-        mensajes completos en vez de llegar con huecos.
-
-        Va como OR de tres y no como un NOT de "SYSTEM y empieza con": en SQL, un NOT sobre una
-        comparacion con content NULL da NULL y la fila se pierde. Los audios y las fotos no tienen
-        texto, y con la forma corta desaparecian del chat.
-      */
-      OR: [
-        { type: { not: "SYSTEM" } },
-        { content: null },
-        { NOT: { content: { startsWith: PREFIJO_NOTA_INTERNA_DEL_AGENTE } } },
-      ],
-    },
-    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    take: batchSize + 1,
-    ...(cursorMessage ? { cursor: { id: cursorMessage.id }, skip: 1 } : {}),
-    select: {
-      id: true,
-      externalId: true,
-      content: true,
-      direction: true,
-      createdAt: true,
-      editedAt: true,
-      deletedAt: true,
-      rawPayload: true,
-      type: true,
-      mediaUrl: true,
-      reactionEmoji: true,
-      transcripcion: true,
-      // El estado del envio: es lo que dibuja el check simple, el doble y el doble azul.
-      // Sin traerlo, la burbuja no podia mostrar acuse alguno por mas que la base lo supiera.
-      status: true,
-    },
-  });
 
   const visibleMessages = messages.slice(0, batchSize);
   const orderedMessages = [...visibleMessages].sort((left, right) => {

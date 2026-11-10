@@ -99,20 +99,6 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
   */
   const membership = { role: access.membershipRole, workspace: { id: access.workspaceId } };
 
-  /*
-    Modo monitoreo: los telefonos salen tapados tambien por aca.
-
-    Esta ruta es la que carga el chat abierto cuando se hace clic en la lista, sin recargar la
-    pagina. Tapando solo en el render del servidor, bastaba con abrir un chat para que el numero
-    real volviera entero. Ver `modo-monitoreo.ts`.
-  */
-  const canalesMonitoreados = await canalesQueMonitorea({
-    workspaceId: membership.workspace.id,
-    userId: session.user.id,
-  });
-  const taparTelefonos = canalesMonitoreados.length > 0;
-  t.marca("auth");
-
   const requestUrl = new URL(request.url);
   const chatKey = requestUrl.searchParams.get("chatKey")?.trim() || "";
   const beforeMessageId = requestUrl.searchParams.get("beforeMessageId")?.trim() || "";
@@ -134,18 +120,54 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
   }
 
   /*
+    Los mensajes salen YA, en paralelo con la verificacion de acceso de abajo: antes se esperaba a
+    terminar los permisos (4 o 5 consultas en fila) para recien empezar a leer el chat. Si el acceso
+    se niega, lo leido se tira sin responder nada de el: la respuesta es la misma que antes.
+  */
+  const detallePromesa =
+    parsed.source === "agent"
+      ? loadAgentConversationDetail({
+          workspaceId: membership.workspace.id,
+          conversationId: parsed.conversationId,
+          beforeMessageId: beforeMessageId || null,
+          desdeMessageId: desdeMessageId || null,
+          batchSize: batchSizeParam
+            ? Number.parseInt(batchSizeParam, 10)
+            : (beforeMessageId ? HISTORY_MESSAGE_BATCH_SIZE : INITIAL_MESSAGE_BATCH_SIZE),
+        })
+      : null;
+  // Si se responde antes de esperarla (acceso negado), un error de la base no queda suelto.
+  void detallePromesa?.catch(() => null);
+
+  /*
+    Modo monitoreo: los telefonos salen tapados tambien por aca.
+
+    Esta ruta es la que carga el chat abierto cuando se hace clic en la lista, sin recargar la
+    pagina. Tapando solo en el render del servidor, bastaba con abrir un chat para que el numero
+    real volviera entero. Ver `modo-monitoreo.ts`.
+
     Quien pide el chat tiene que poder abrirlo (mismas reglas que la lista de la bandeja).
 
     Sin esto, llamando directo a esta ruta con la clave de un chat ajeno se leian sus mensajes
     aunque la pantalla ya no lo abriera. Se responde igual que con un chat que no existe.
+
+    Las tres lecturas no dependen una de otra: van juntas.
   */
-  const esJefe =
-    esJefeDelNegocio(access) || (await esSupervisora(membership.workspace.id, session.user.id));
-  const canalesVisibles = await getVisibleChannelIds({
-    workspaceId: membership.workspace.id,
-    userId: session.user.id,
-    esJefe: access.isOwner || access.role === "ADMIN",
-  });
+  const [canalesMonitoreados, esJefe, canalesVisibles] = await Promise.all([
+    canalesQueMonitorea({
+      workspaceId: membership.workspace.id,
+      userId: session.user.id,
+    }),
+    esJefeDelNegocio(access) ? Promise.resolve(true) : esSupervisora(membership.workspace.id, session.user.id),
+    getVisibleChannelIds({
+      workspaceId: membership.workspace.id,
+      userId: session.user.id,
+      esJefe: access.isOwner || access.role === "ADMIN",
+    }),
+  ]);
+  const taparTelefonos = canalesMonitoreados.length > 0;
+  t.marca("auth");
+
   const permitido = await puedeAbrirChatPorClave({
     workspaceId: membership.workspace.id,
     userId: session.user.id,
@@ -231,15 +253,7 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     });
   }
 
-  const conversation = await loadAgentConversationDetail({
-    workspaceId: membership.workspace.id,
-    conversationId: parsed.conversationId,
-    beforeMessageId: beforeMessageId || null,
-    desdeMessageId: desdeMessageId || null,
-    batchSize: batchSizeParam
-      ? Number.parseInt(batchSizeParam, 10)
-      : (beforeMessageId ? HISTORY_MESSAGE_BATCH_SIZE : INITIAL_MESSAGE_BATCH_SIZE),
-  });
+  const conversation = await detallePromesa;
 
   t.marca("mensajes");
 
@@ -293,21 +307,31 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
 
     Va en segundo plano y solo al ABRIR el chat: paginar hacia arriba no tiene por que resuscribir.
   */
-  if (instanceName && !beforeMessageId && !esPrecarga) {
-    const conexionPresencia = readGatewayConnection(conversation.channel?.metadata ?? null);
-    const telefonoPresencia = conversation.contact?.phoneNumber?.trim();
-    if (conexionPresencia?.kind === WAHA_GATEWAY_KIND && telefonoPresencia) {
-      after(() =>
-        suscribirPresenciaWaha({
-          connection: {
-            baseUrl: conexionPresencia.baseUrl,
-            apiToken: conexionPresencia.apiToken,
-          },
-          sesion: instanceName,
-          telefono: telefonoPresencia,
-        }),
-      );
-    }
+  /*
+    El `metadata` de la linea (a que gateway pertenece) ya no viene con el chat: eran ~26 KB por
+    apertura que se leian solo para esto. Se lee aca, despues de responder, fuera de lo que espera
+    la asesora.
+  */
+  const canalPresencia = conversation.channel?.id ?? null;
+  const telefonoPresencia = conversation.contact?.phoneNumber?.trim();
+  if (instanceName && canalPresencia && telefonoPresencia && !beforeMessageId && !esPrecarga) {
+    after(async () => {
+      const linea = await prisma.whatsAppChannel
+        .findUnique({ where: { id: canalPresencia }, select: { metadata: true } })
+        .catch(() => null);
+      const conexionPresencia = readGatewayConnection(linea?.metadata ?? null);
+      if (conexionPresencia?.kind !== WAHA_GATEWAY_KIND) {
+        return;
+      }
+      await suscribirPresenciaWaha({
+        connection: {
+          baseUrl: conexionPresencia.baseUrl,
+          apiToken: conexionPresencia.apiToken,
+        },
+        sesion: instanceName,
+        telefono: telefonoPresencia,
+      });
+    });
   }
   /*
     La ultima llamada viaja CON los mensajes, solo al ABRIR el chat.
@@ -412,8 +436,9 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
   }
 
   // Al abrir la conversación, refresca la foto de perfil de ESTE contacto (sin esperar el
-  // turno del refresco en segundo plano), para que la foto aparezca pronto en el CRM.
-  if (instanceName && conversation.contact.phoneNumber && !esPrecarga) {
+  // turno del refresco en segundo plano), para que la foto aparezca pronto en el CRM. Al subir a
+  // ver mensajes viejos (beforeMessageId) no: el chat ya estaba abierto y la foto ya se pidio.
+  if (instanceName && conversation.contact.phoneNumber && !esPrecarga && !beforeMessageId) {
     scheduleSingleContactAvatarRefresh({
       contactId: conversation.contact.id,
       phoneNumber: conversation.contact.phoneNumber,

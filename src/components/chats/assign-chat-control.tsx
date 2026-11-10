@@ -19,6 +19,7 @@ import {
   useAsignadoMostrado,
   useSegundoAsesorMostrado,
 } from "@/components/chats/asignacion-optimista";
+import { refrescarTrasAccionDelChat } from "@/components/chats/refrescar-tras-accion-del-chat";
 
 type AssignChatControlProps = {
   conversationId: string;
@@ -228,13 +229,16 @@ export function AssignChatControl({
       }
       setSegundoError(null);
       startSegundoTransition(async () => {
-        const result = await asignarSegundoAsesorAction({ conversationId, userId: targetUserId }).catch(
+        // El segundo asesor es solo de WhatsApp normal: siempre sale del chat abierto.
+        const result = await asignarSegundoAsesorAction({ conversationId, userId: targetUserId, desdeElChat: true }).catch(
           () => ({ error: "No se pudo guardar. Revisa la conexión y vuelve a intentarlo." }) as Awaited<
             ReturnType<typeof asignarSegundoAsesorAction>
           >,
         );
         if (result?.error) {
           setSegundoError(result.error);
+          // Como antes: la pantalla se vuelve a pedir igual (el chat pudo cambiar de asesor mientras tanto).
+          router.refresh();
           return;
         }
         const elegido = targetUserId ? (members.find((miembro) => miembro.id === targetUserId) ?? null) : null;
@@ -245,8 +249,12 @@ export function AssignChatControl({
             : null,
         );
         setSegundoOpen(false);
+        /*
+          Antes: router.refresh() (la pantalla entera) ademas del revalidatePath de la accion. Ahora
+          solo el chat abierto y su fila; si eso falla, el router.refresh() de siempre.
+        */
+        void refrescarTrasAccionDelChat({ conversationId, refrescarTodo: () => router.refresh() });
       });
-      router.refresh();
     },
     [conversationId, members, router, segundoAsesor?.id],
   );
@@ -270,10 +278,27 @@ export function AssignChatControl({
         return;
       }
       setError(null);
+      // WhatsApp normal: sin revalidatePath ni router.refresh (ver refrescar-tras-accion-del-chat).
+      // La API oficial sigue igual que antes: su fila no tiene /summary.
+      const desdeElChat = source === "agent";
       startTransition(async () => {
-        const result = await assignChatAction({ conversationId, assignToUserId: targetUserId, source, origen: "ficha-del-chat" });
+        let result: Awaited<ReturnType<typeof assignChatAction>>;
+        try {
+          result = await assignChatAction({
+            conversationId,
+            assignToUserId: targetUserId,
+            source,
+            origen: "ficha-del-chat",
+            ...(desdeElChat ? { desdeElChat: true } : {}),
+          });
+        } catch (falla) {
+          // Antes el refresco salia igual aunque la accion fallara.
+          if (desdeElChat) router.refresh();
+          throw falla;
+        }
         if (result?.error) {
           setError(result.error);
+          if (desdeElChat) router.refresh();
           return;
         }
 
@@ -297,14 +322,27 @@ export function AssignChatControl({
               : null,
         );
         setOpen(false);
+        if (desdeElChat) {
+          /*
+            Solo el chat abierto y su fila, sin esperarlo. Si la asignacion movio la etapa y el
+            contacto tiene otro chat, esa otra fila tambien cambio: ahi, la pantalla entera.
+          */
+          if (result.tocaOtrosChats) {
+            router.refresh();
+          } else {
+            void refrescarTrasAccionDelChat({ conversationId, refrescarTodo: () => router.refresh() });
+          }
+        }
       });
 
       /*
-        El refresco va por FUERA de la transicion y sin esperarlo: sirve para que el resto de la
-        pantalla (la fila de la bandeja) se entere, pero nadie tiene que quedarse mirando mientras
-        se rehacen mil conversaciones.
+        API oficial: el refresco va por FUERA de la transicion y sin esperarlo, como siempre. Sirve
+        para que el resto de la pantalla (la fila de la bandeja) se entere, pero nadie tiene que
+        quedarse mirando mientras se rehacen mil conversaciones.
       */
-      router.refresh();
+      if (!desdeElChat) {
+        router.refresh();
+      }
     },
     [assignee?.id, conversationId, members, router, segundoAsesor?.id, source],
   );

@@ -43,7 +43,11 @@ import { sanitizeClientModuleAccess } from "@/lib/client-workspace-modules";
 import { normalizeInternalPath } from "@/lib/app-url";
 import { claimConversationIfUnassigned } from "@/lib/conversation-claim";
 import { etapaAlAsignar, etapaCaliente } from "@/lib/etapa-automatica-crm";
-import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
+import {
+  canAccessClientModule,
+  getClientWorkspaceAccessForUserCached,
+  requireClientWorkspaceAccess,
+} from "@/lib/client-workspace-access";
 import {
   borrarRespuestaRapida,
   crearRespuestasRapidas,
@@ -68,6 +72,7 @@ import { alCambiarEstadoDelChat } from "@/lib/al-resolver-chat";
 import { getVisibleChannelIds } from "@/lib/channel-visibility";
 import { prisma } from "@/lib/prisma";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
+import { contactoTieneOtrosChats } from "@/lib/contacto-tiene-otros-chats";
 import { Prisma } from "@prisma/client";
 import { headers } from "next/headers";
 import { leerDispositivo } from "@/lib/actividad-del-equipo";
@@ -140,16 +145,26 @@ export async function getContactDetailsAction(
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     return { error: "No autorizado" };
   }
-  await requireClientWorkspaceAccess("chats");
-
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
-  if (!membership) {
-    return { error: "Workspace no encontrado" };
+  /*
+    La ficha se pide en cada apertura de chat. Con el permiso guardado 45 s (el mismo que usa /live)
+    y sin `getPrimaryWorkspaceForUser`, que releia la misma membresia y contaba todas las
+    conversaciones del negocio. Un permiso quitado tarda hasta 45 s en aplicarse aqui, igual que en /live.
+  */
+  const access = await getClientWorkspaceAccessForUserCached(session.user.id);
+  if (!access || !canAccessClientModule(access, "chats")) {
+    return { error: "No autorizado" };
   }
+  const workspaceId = access.workspaceId;
 
-  const [contact, availableTags] = await Promise.all([
+  /*
+    La ficha del contacto tambien sale tapada en modo monitoreo.
+
+    Es la puerta mas obvia despues de la lista: se abre el panel del cliente y ahi esta el numero
+    entero, listo para copiar. Ver `modo-monitoreo.ts`.
+  */
+  const [contact, availableTags, taparTelefonos] = await Promise.all([
     prisma.contact.findFirst({
-      where: { id: contactId, workspaceId: membership.workspace.id },
+      where: { id: contactId, workspaceId },
       select: {
         id: true,
         name: true,
@@ -171,26 +186,16 @@ export async function getContactDetailsAction(
       },
     }),
     prisma.tag.findMany({
-      where: { workspaceId: membership.workspace.id },
+      where: { workspaceId },
       select: { id: true, name: true, color: true },
       orderBy: { createdAt: "asc" },
     }),
+    estaEnModoMonitoreo({ workspaceId, userId: session.user.id }),
   ]);
 
   if (!contact) {
     return { error: "Contacto no encontrado" };
   }
-
-  /*
-    La ficha del contacto tambien sale tapada en modo monitoreo.
-
-    Es la puerta mas obvia despues de la lista: se abre el panel del cliente y ahi esta el numero
-    entero, listo para copiar. Ver `modo-monitoreo.ts`.
-  */
-  const taparTelefonos = await estaEnModoMonitoreo({
-    workspaceId: membership.workspace.id,
-    userId: session.user.id,
-  });
 
   return {
     details: {
@@ -1579,31 +1584,49 @@ type ChatDeSeguimientos =
   | { error: string }
   | { error?: undefined; userId: string; workspaceId: string; chat: { id: string; channelId: string | null; contactId: string; seguimientosApagados: boolean } };
 
-async function chatDeSeguimientos(conversationId: string): Promise<ChatDeSeguimientos> {
+async function chatDeSeguimientos(
+  conversationId: string,
+  opciones: { soloLeer?: boolean } = {},
+): Promise<ChatDeSeguimientos> {
   const session = await auth();
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     return { error: "No autorizado" };
   }
-  await requireClientWorkspaceAccess("chats");
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
-  if (!membership) {
-    return { error: "Negocio no encontrado" };
+  let workspaceId: string;
+  if (opciones.soloLeer) {
+    /*
+      La lectura del interruptor sale en cada cambio de chat: permiso guardado 45 s (como /live) y
+      sin `getPrimaryWorkspaceForUser`, que es la misma membresia y ademas contaba todas las
+      conversaciones. Al cambiar el interruptor (escritura) se sigue mirando el permiso sin cache.
+    */
+    const access = await getClientWorkspaceAccessForUserCached(session.user.id);
+    if (!access || !canAccessClientModule(access, "chats")) {
+      return { error: "No autorizado" };
+    }
+    workspaceId = access.workspaceId;
+  } else {
+    await requireClientWorkspaceAccess("chats");
+    const membership = await getPrimaryWorkspaceForUser(session.user.id);
+    if (!membership) {
+      return { error: "Negocio no encontrado" };
+    }
+    workspaceId = membership.workspace.id;
   }
   const chat = await prisma.conversation.findFirst({
-    where: { id: conversationId.trim(), workspaceId: membership.workspace.id },
+    where: { id: conversationId.trim(), workspaceId },
     select: { id: true, channelId: true, contactId: true, seguimientosApagados: true },
   });
   if (!chat) {
     return { error: "Chat no encontrado" };
   }
   const userId: string = session.user.id;
-  return { userId, workspaceId: membership.workspace.id, chat };
+  return { userId, workspaceId, chat };
 }
 
 /** Estado del interruptor "Seguimientos automáticos" de un chat (apagados = true). */
 export async function leerSeguimientosAutomaticosAction(conversationId: string): Promise<RespuestaSeguimientosAutomaticos> {
   try {
-    const contexto = await chatDeSeguimientos(conversationId);
+    const contexto = await chatDeSeguimientos(conversationId, { soloLeer: true });
     if (contexto.error !== undefined) return { ok: false, error: contexto.error };
     return { ok: true, apagados: contexto.chat.seguimientosApagados };
   } catch (error) {
@@ -2200,10 +2223,19 @@ export async function assignChatAction(input: {
   // Los chats de la API oficial viven en otra tabla. Sin esto, el selector de asignacion
   // no tenia a quien escribirle y todo el canal quedaba en "Sin asignar" para siempre.
   source?: "agent" | "official";
+  /*
+    La asignacion sale de la ficha del chat abierto (WhatsApp normal). Sin revalidatePath: la
+    respuesta traia la pantalla de Chats entera renderizada de nuevo (0,5-2 s) y el control trae
+    despues solo la fila y el chat abierto (ver refrescar-tras-accion-del-chat.ts). El CRM, el
+    kanban y el menu de la lista no lo mandan y siguen igual.
+  */
+  desdeElChat?: boolean;
 }): Promise<{
   ok?: boolean;
   error?: string;
   assignedTo?: { id: string; name: string | null } | null;
+  /** Solo con desdeElChat: el cambio tambien toca otras filas (la etapa de otro chat del contacto). */
+  tocaOtrosChats?: boolean;
 }> {
   const session = await auth();
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
@@ -2322,8 +2354,9 @@ export async function assignChatAction(input: {
   }
 
   // Asignada a una asesora: si seguía en "---" pasa a Frío (nunca lanza).
+  let etapaMovida: Awaited<ReturnType<typeof etapaAlAsignar>> = null;
   if (targetUserId) {
-    await etapaAlAsignar({
+    etapaMovida = await etapaAlAsignar({
       workspaceId: membership.workspace.id,
       source: "agent",
       conversationId: conversation.id,
@@ -2331,8 +2364,15 @@ export async function assignChatAction(input: {
     });
   }
 
-  revalidatePath("/cliente/chats");
-  return { ok: true, assignedTo };
+  if (!input?.desdeElChat) {
+    revalidatePath("/cliente/chats");
+    return { ok: true, assignedTo };
+  }
+  // La etapa es del contacto: si se movio y el contacto tiene otro chat, esa fila tambien cambia.
+  const tocaOtrosChats = etapaMovida
+    ? await contactoTieneOtrosChats(membership.workspace.id, conversation.contactId, conversation.id)
+    : false;
+  return { ok: true, assignedTo, tocaOtrosChats };
 }
 
 /**
@@ -2346,6 +2386,8 @@ export async function assignChatAction(input: {
 export async function asignarSegundoAsesorAction(input: {
   conversationId: string;
   userId: string | null;
+  /** Desde la ficha del chat abierto: sin revalidatePath (ver assignChatAction). */
+  desdeElChat?: boolean;
 }): Promise<{
   ok?: boolean;
   error?: string;
@@ -2438,7 +2480,9 @@ export async function asignarSegundoAsesorAction(input: {
     text: textoDeSegundoAsesor(kind, actorName, afectado?.name?.trim() || "un colaborador"),
   });
 
-  revalidatePath("/cliente/chats");
+  if (!input.desdeElChat) {
+    revalidatePath("/cliente/chats");
+  }
   return { ok: true, segundoAsesor: targetUserId ? afectado : null };
 }
 
@@ -3011,6 +3055,8 @@ export async function addConversationNoteAction(input: {
   conversationId: string;
   source?: "agent" | "official";
   text: string;
+  /** Desde el chat abierto (WhatsApp normal): sin revalidatePath (ver assignChatAction). */
+  desdeElChat?: boolean;
 }): Promise<{ ok: boolean; error?: string }> {
   const session = await auth();
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
@@ -3090,7 +3136,9 @@ export async function addConversationNoteAction(input: {
     return { ok: false, error: "No se pudo guardar la nota." };
   }
 
-  revalidatePath("/cliente/chats");
+  if (!input.desdeElChat) {
+    revalidatePath("/cliente/chats");
+  }
   return { ok: true };
 }
 

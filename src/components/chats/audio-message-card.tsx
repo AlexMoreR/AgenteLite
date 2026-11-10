@@ -422,7 +422,15 @@ export function AudioMessageCard({
       <audio
         ref={audioRef}
         src={mediaUrl}
-        preload="metadata"
+        /*
+          Si WhatsApp ya dijo cuanto dura, el archivo no se baja hasta darle play.
+
+          Con "metadata" el navegador pedia cada audio al abrir el chat, y /uploads no acepta pedidos
+          por partes (Range): bajaba el archivo ENTERO, de 20 a 200 KB por audio, aunque nadie lo
+          escuchara. La duracion que se muestra ya sale del mensaje (duracionMostrada). Sin ese dato,
+          se sigue bajando la cabecera como antes para poder mostrarla.
+        */
+        preload={meta.seconds ? "none" : "metadata"}
         className="hidden"
         onPlay={() => setSonando(true)}
         onPause={() => setSonando(false)}

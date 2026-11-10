@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { ArrowLeft, Check, ChevronDown } from "lucide-react";
 import { updateCrmStageAction } from "@/app/actions/crm-actions";
+import { refrescarTrasAccionDelChat } from "@/components/chats/refrescar-tras-accion-del-chat";
 import {
   CRM_LOST_REASONS,
   CRM_STAGE_META,
@@ -66,6 +67,13 @@ type CrmStageControlProps = {
    * una etiqueta mas, no como un boton, pero se toca y abre el mismo selector.
    */
   variant?: "pill" | "chip";
+  /**
+   * El chat abierto donde esta el control (la cabecera del chat). Con un chat de WhatsApp normal,
+   * cambiar la etapa ya no vuelve a pedir la pantalla entera: trae solo ese chat y su fila (ver
+   * refrescar-tras-accion-del-chat.ts). Sin esto (la fila de la lista) queda como siempre.
+   */
+  conversationId?: string;
+  source?: "agent" | "official";
 };
 
 
@@ -79,7 +87,8 @@ const STAGE_BUTTON_CLASS: Record<CrmStage, string> = {
   PERDIDO: "bg-red-600 hover:bg-red-700",
 };
 
-export function CrmStageControl({ contactId, stage, variant = "pill" }: CrmStageControlProps) {
+export function CrmStageControl({ contactId, stage, variant = "pill", conversationId, source = "agent" }: CrmStageControlProps) {
+  const chatAbierto = source === "agent" && conversationId?.trim() ? conversationId.trim() : null;
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [currentStage, setCurrentStage] = useState<CrmStage>(stage);
@@ -116,7 +125,13 @@ export function CrmStageControl({ contactId, stage, variant = "pill" }: CrmStage
       setPidiendoCotizacion(false);
       setCotizacion("");
       startTransition(async () => {
-        const result = await updateCrmStageAction({ contactId, status: nextStage, lostReason, wonQuoteRef });
+        const result = await updateCrmStageAction({
+          contactId,
+          status: nextStage,
+          lostReason,
+          wonQuoteRef,
+          ...(chatAbierto ? { desdeElChat: true, conversationIdDelChat: chatAbierto } : {}),
+        });
         if (result?.error) {
           setCurrentStage(previousStage);
           setError(result.error);
@@ -125,10 +140,18 @@ export function CrmStageControl({ contactId, stage, variant = "pill" }: CrmStage
           toast.error(result.error, { duration: 10000 });
           return;
         }
+        /*
+          Desde el chat abierto: solo ese chat y su fila (la etapa ya se ve, es optimista). Si el
+          contacto tiene otro chat, esa fila tambien cambio de etapa: ahi la pantalla entera.
+        */
+        if (chatAbierto && !result.tocaOtrosChats) {
+          void refrescarTrasAccionDelChat({ conversationId: chatAbierto, refrescarTodo: () => router.refresh() });
+          return;
+        }
         router.refresh();
       });
     },
-    [contactId, currentStage, router],
+    [chatAbierto, contactId, currentStage, router],
   );
 
   const handleSelect = useCallback(
