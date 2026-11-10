@@ -1,11 +1,12 @@
 "use client";
 
-import { createContext, useCallback, useContext, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { looksLikeLidNumber } from "@/lib/whatsapp-lid";
 
 import { PanelDeLlamada } from "./PanelDeLlamada";
+import { CLAVE_DEL_CUADRO, leerPreferencia, type PreferenciaDelCuadro } from "./posicion-del-cuadro";
 import { useLlamada, type EstadoLlamada } from "./useLlamada";
 
 /**
@@ -53,6 +54,22 @@ export function LlamadaEnCursoProvider({ children }: { children: React.ReactNode
   // esa llamada, no una preferencia que deba sobrevivir a la siguiente. Se decide al marcar y no
   // reaccionando al estado despues, que era una vuelta de mas.
   const [expandido, setExpandido] = useState(true);
+  // Dónde y en qué forma (tarjeta o burbuja) quedó el cuadro minimizado la última vez, en este
+  // equipo. Eso sí sobrevive entre llamadas y recargas: es dónde la asesora quiere tenerlo.
+  const [cuadro, setCuadro] = useState<PreferenciaDelCuadro | null>(null);
+
+  // Se lee en el navegador después de montar: en el servidor no hay localStorage ni ventana, y
+  // leerlo al dibujar haría que el HTML del servidor no coincida con el del cliente.
+  useEffect(() => {
+    let guardado: string | null = null;
+    try {
+      guardado = window.localStorage.getItem(CLAVE_DEL_CUADRO);
+    } catch {
+      // Sin localStorage (modo privado estricto): se usa la esquina de arriba a la derecha.
+    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setCuadro(leerPreferencia(guardado, { anchoVentana: window.innerWidth, altoVentana: window.innerHeight }));
+  }, []);
 
   const ocupada = estado !== "libre";
 
@@ -90,6 +107,9 @@ export function LlamadaEnCursoProvider({ children }: { children: React.ReactNode
           motivoFin={motivoFin}
           recienContesto={recienContesto}
           expandido={expandido}
+          cuadro={cuadro}
+          onCambiarCuadro={setCuadro}
+          // Al minimizar sale en la forma y el lugar guardados (tarjeta o burbuja).
           onMinimizar={() => setExpandido(false)}
           onExpandir={() => setExpandido(true)}
           onColgar={() => void colgar()}
