@@ -599,10 +599,14 @@ export const AppSidebar = React.memo(function AppSidebar({
           */}
           <div className="flex items-center gap-2">
             {/*
-              Una sola fila que se desliza de lado, como las listas de WhatsApp (Alex, 04-10-2026),
-              sin barra de scroll a la vista.
+              En el celular, una sola fila que se desliza de lado, como las listas de WhatsApp
+              (Alex, 04-10-2026), sin barra de scroll a la vista.
+
+              En la computadora (md o mas) la fila pasa a otra linea cuando no cabe y no se desliza:
+              con la barra escondida nadie se daba cuenta de que habia mas, y las ultimas listas y
+              el + quedaban tapados a la derecha (Yair, laptop de 1280 px).
             */}
-            <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:flex-wrap md:overflow-visible">
               {/*
                 "Todas" y "Mias" a la vista, sin abrir el modal. La que esta activa va en azul de
                 la marca; la otra en contorno, para que se lea cual estas mirando.
@@ -710,21 +714,12 @@ export const AppSidebar = React.memo(function AppSidebar({
                         : "border-border text-foreground/80 hover:bg-muted"
                     }`}
                   >
-                    {lista.nombre}
-                    {cuenta != null ? <span className="text-[11px] font-semibold leading-none">{cuenta}</span> : null}
+                    {/* Un nombre largo se corta con "…"; completo en el title. El numero no se corta. */}
+                    <span className="max-w-[10rem] truncate">{lista.nombre}</span>
+                    {cuenta != null ? <span className="shrink-0 text-[11px] font-semibold leading-none">{cuenta}</span> : null}
                   </button>
                 );
               })}
-
-              <button
-                type="button"
-                onClick={() => abrirFiltro({ tipo: "nueva" })}
-                aria-label="Nueva lista"
-                title="Nueva lista"
-                className="inline-flex size-7 shrink-0 items-center justify-center rounded-full border border-border text-foreground/80 transition hover:bg-muted"
-              >
-                <Plus className="size-4" />
-              </button>
 
               {/* Lo filtrado a mano (sin lista) se ve como chapitas; con una lista abierta, la lista ya lo dice. */}
               {!listaActiva ? (
@@ -795,6 +790,20 @@ export const AppSidebar = React.memo(function AppSidebar({
               </>
               ) : null}
             </div>
+
+            {/*
+              El + va FUERA de la parte que se desliza: siempre a la vista, fijo al final de la
+              fila, en el celular y en la computadora. Antes quedaba escondido detras de las listas.
+            */}
+            <button
+              type="button"
+              onClick={() => abrirFiltro({ tipo: "nueva" })}
+              aria-label="Nueva lista"
+              title="Nueva lista"
+              className="inline-flex size-7 shrink-0 items-center justify-center self-start rounded-full border border-border text-foreground/80 transition hover:bg-muted"
+            >
+              <Plus className="size-4" />
+            </button>
           </div>
 
         </div>
