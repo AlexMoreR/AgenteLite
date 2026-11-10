@@ -434,8 +434,10 @@ await prueba("la migración es aditiva: solo CREATE TABLE / CREATE INDEX, sin to
     assert.match(sentencia, /^(BEGIN|COMMIT|CREATE TABLE IF NOT EXISTS "MensajeIndescifrable"|CREATE (UNIQUE )?INDEX IF NOT EXISTS "MensajeIndescifrable_\w+" ON "MensajeIndescifrable")/, sentencia);
   }
   assert.doesNotMatch(sqlNueva, /\b(ALTER|DROP|DELETE|TRUNCATE|UPDATE|REFERENCES)\b/i);
-  const ultima = fs.readdirSync(CARPETA).filter((n) => /^\d{14}_/.test(n)).sort().pop();
-  assert.equal(ultima, NUEVA, "va después de todas las migraciones");
+  // Va después de la última migración que había cuando se escribió (carta_de_colores). No se exige que sea la
+  // última de todas: eso fallaba en cuanto otra tarea agregaba una migración más nueva.
+  const anteriores = fs.readdirSync(CARPETA).filter((n) => /^\d{14}_/.test(n) && n <= "20261113120000_carta_de_colores");
+  assert.ok(anteriores.length > 0 && NUEVA > "20261113120000_carta_de_colores", "va después de todas las migraciones que había");
 });
 
 await prueba("schema.prisma tiene el modelo con las mismas columnas que la migración", () => {

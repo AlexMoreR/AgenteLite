@@ -1,5 +1,5 @@
 /**
- * Prueba de la migración de la dueña de cada respuesta rápida (prisma/migrations/20261114120000_respuesta_rapida_duena)
+ * Prueba de la migración de la dueña de cada respuesta rápida (prisma/migrations/20261115120000_respuesta_rapida_duena)
  * contra un Postgres embebido (PGlite), sin tocar ninguna base real:
  *   npm run test:respuesta-rapida-duena-migracion
  *
@@ -18,7 +18,7 @@ import { destructivoDelSql } from "../trabajador-tablero/lib/riesgo.mjs";
 
 const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CARPETA = path.join(RAIZ, "prisma", "migrations");
-const NUEVA = "20261114120000_respuesta_rapida_duena";
+const NUEVA = "20261115120000_respuesta_rapida_duena";
 
 const migraciones = fs
   .readdirSync(CARPETA, { withFileTypes: true })
@@ -26,7 +26,7 @@ const migraciones = fs
   .map((entrada) => entrada.name)
   .sort();
 assert.ok(migraciones.includes(NUEVA), `falta la migración ${NUEVA}`);
-assert.ok(NUEVA > "20261113120000_carta_de_colores", "la carpeta va después de la última migración que había (carta_de_colores)");
+assert.ok(NUEVA > "20261114120000_mensaje_indescifrable", "la carpeta va después de la última migración que había (mensaje_indescifrable)");
 
 const leer = (nombre) => fs.readFileSync(path.join(CARPETA, nombre, "migration.sql"), "utf8");
 const db = new PGlite();
