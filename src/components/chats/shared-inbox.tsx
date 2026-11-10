@@ -89,7 +89,6 @@ import {
   sincronizarConEspera,
 } from "./chat-inbox-conversation-utils";
 import { filtroSinResponderPuesto, seOcultaPorSinResponder } from "@/features/chats/domain/sin-responder";
-import { filtrosParaContar } from "./pastillas-de-la-bandeja";
 import { esperaPorClave, type EsperaDeChats } from "@/features/chats/domain/espera-de-chats";
 import { leerEspera } from "@/features/chats/domain/filtros-de-bandeja";
 import { ConversationPanel, type EnvioTerminado } from "./chat-conversation-panel";
@@ -549,17 +548,6 @@ export function SharedInbox({
     },
     [filtrosDeLaUrl],
   );
-  /*
-    Para /counts, las mismas condiciones SIN `sin_responder:si` (No leido): asi Todas, Mias y Sin
-    asignar no bajan a cero cuando No leido esta puesto. El numero de No leido (`sinResponder`) lo
-    calcula el servidor aparte, igual que antes.
-  */
-  const ponerFiltrosParaContar = useCallback(
-    (params: URLSearchParams) => {
-      for (const [clave, valor] of paramsDeFiltros(filtrosParaContar(filtrosDeLaUrl))) params.set(clave, valor);
-    },
-    [filtrosDeLaUrl],
-  );
 
   /*
     LA VISTA (pestaña + estado + filtros) SALE DE LA URL DEL NAVEGADOR.
@@ -909,7 +897,7 @@ export function SharedInbox({
         // El contador tiene que contar lo mismo que se ve en la lista: si estas en "Resueltas",
         // el numero de al lado de la pestaña es el de las resueltas.
         if (statusFilter !== "open") params.set("status", statusFilter);
-        ponerFiltrosParaContar(params);
+        ponerFiltrosNuevos(params);
         const qs = params.toString();
 
         const response = await fetch(`${countsApiPath}${qs ? `?${qs}` : ""}`, {
@@ -954,7 +942,7 @@ export function SharedInbox({
       if (timeoutId) clearTimeout(timeoutId);
       document.removeEventListener("visibilitychange", alCambiarVisibilidad);
     };
-  }, [conversationListApiPath, searchQuery, selectedConnectionKey, statusFilter, ponerFiltrosParaContar, pedidoDeConteos]);
+  }, [conversationListApiPath, searchQuery, selectedConnectionKey, statusFilter, ponerFiltrosNuevos, pedidoDeConteos]);
 
   useEffect(() => {
     conversationItemsRef.current = conversationItems;

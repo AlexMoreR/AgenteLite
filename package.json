@@ -40,7 +40,6 @@
     "test:velocidad-bandeja": "node scripts/check-velocidad-bandeja.mjs",
     "test:chats-celular": "node scripts/check-chats-celular.mjs",
     "test:sin-responder": "npx tsx --test src/features/chats/domain/sin-responder.test.ts && node scripts/check-sin-responder.mjs",
-    "test:pastillas-bandeja": "npx tsx --test src/components/chats/pastillas-de-la-bandeja.test.ts",
     "test:coach": "node scripts/check-coach.mjs",
     "test:coach-acciones": "node scripts/check-coach-acciones.mjs",
     "test:coach-resueltos": "node scripts/check-coach-resueltos.mjs",
