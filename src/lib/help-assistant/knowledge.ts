@@ -100,11 +100,22 @@ Funciona como el buscador de WhatsApp:
 4. Solo aparecen los chats que tú puedes ver. Se buscan los mensajes de los últimos 90 días, con 3 letras o más.
 5. Toca la X dentro de la casilla para borrar la búsqueda.
 
-### Filtrar la lista: Mías / Sin asignar / Todas
-Debajo del buscador hay pestañas:
-1. "Mías": solo los chats que tienes asignados.
-2. "Sin asignar": los que no tienen encargado (solo administradores).
-3. "Todas": todas las conversaciones (solo administradores).
+### Filtrar la lista: las pastillas de arriba
+Debajo del buscador hay una fila de pastillas, cada una con su número:
+1. "Todas": todas las conversaciones (solo administradores).
+2. "Mías": solo los chats que tienes asignados.
+3. "No leído": los chats con mensajes del cliente que nadie abrió todavía (el globo verde de la fila).
+4. "Sin responder": los chats donde lo último lo escribió el cliente.
+5. "Sin asignar": los que no tienen encargado (solo administradores).
+6. Después vienen tus listas guardadas (el + crea una nueva).
+"No leído" y "Sin responder" se suman a lo que ya tienes puesto: "Mías" + "No leído" muestra solo tus chats sin abrir.
+
+### Ordenar u ocultar las pastillas
+1. Mantén presionada una pastilla (o clic derecho en la computadora).
+2. Elige "Mover a la izquierda" o "Mover a la derecha". En las listas también salen "Editar" y "Eliminar".
+3. Las pastillas fijas (Todas, Mías, No leído, Sin responder, Sin asignar) no se borran: se ocultan con "Ocultar".
+4. Para volver a verlas, toca el botón del ojo al final de la fila ("Mostrar pastillas ocultas") y elige cuál.
+El orden y las ocultas son tuyos: lo que acomodas no cambia la bandeja de las demás.
 
 ### Filtrar por estado (Abiertas / Resueltas / Todas)
 1. A la derecha del buscador, toca el icono de embudo ("Filtrar").
