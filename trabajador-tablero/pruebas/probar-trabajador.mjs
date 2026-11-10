@@ -747,30 +747,6 @@ await prueba("10-nov (despliegue): config, lectura del contenedor y conclusión 
   assert.equal(comandoDeConclusion({ ciEsperar: ["node", "gh-falso.mjs", "esperar", "{run}"] }), null);
 });
 
-await prueba("10-nov (huella): la que subió a main suelta su huella; otra que toca lo mismo construye, otra subida sigue esperando", async () => {
-  const r = repartoFalso(configDeCupos());
-  r.agregar("sube-1", "aizencrm", "subir", "src/features/compartido/a.ts");
-  await r.planificador.llenar();
-  assert.equal(r.dondeEsta("sube-1"), "aizen1");
-  r.agregar("construye-1", "aizencrm", "construir", "src/features/compartido/a.ts");
-  r.agregar("sube-2", "aizencrm", "subir", "src/features/otro/b.ts");
-  await r.planificador.llenar();
-  assert.equal(r.dondeEsta("construye-1"), null, "mientras no empuja, choca por el módulo");
-  assert.equal(r.dondeEsta("sube-2"), null);
-  // El push salió bien: lo de sube-1 ya está en main y solo espera el despliegue.
-  r.sesionesFalsas.get("sube-1").opciones.alSubirAMain();
-  await r.planificador.llenar();
-  assert.ok(r.dondeEsta("construye-1"), "construye mientras la otra sigue subiendo");
-  assert.equal(r.dondeEsta("sube-2"), null, "suben de a una");
-  const esperas = Object.fromEntries(r.planificador.estado().esperas.map((e) => [e.tarjetaId, e.motivo]));
-  assert.match(esperas["sube-2"], /de a una/);
-  r.sesionesFalsas.get("sube-1").terminar();
-  await new Promise((listo) => setTimeout(listo, 20));
-  await r.planificador.llenar();
-  assert.equal(r.dondeEsta("sube-2"), "aizen1", "terminada la primera, sube la siguiente");
-  r.planificador.parar();
-});
-
 await prueba("cupos (a): con el CRM lleno en aizen1 y en la nube, una tarjeta de Gestión arranca", async () => {
   const r = repartoFalso(configDeCupos());
   r.agregar("crm-plan-1", "aizencrm", "planear");

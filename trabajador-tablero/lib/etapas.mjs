@@ -2476,9 +2476,6 @@ export async function subir(contexto, tarjeta) {
       }
     }
     if (!yaEnMain) registro.info(`subido a ${repo.ramaBase}: ${commit.slice(0, 10)} (${tarjeta.titulo})`);
-    // 10-nov-2026: lo de la tarjeta ya está en main: suelta su huella (zonas y módulos) para que otra que toca lo mismo
-    // construya mientras esta espera el despliegue. Sigue siendo "subir": otra subida del repo espera (de a una).
-    contexto.alSubirAMain?.();
     // De acá en adelante solo se espera (el CI y el despliegue): el reloj llega hasta el tope del CRM.
     reloj.hastaElTope();
     let version;
