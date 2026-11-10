@@ -47,13 +47,8 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Trigger Portainer redeploy
-        env:
-          WEBHOOK: ${{ secrets.PORTAINER_AGENTELITE }}
-        run: |
-          if [ -n "$WEBHOOK" ]; then
-            echo "Avisando a Portainer para redesplegar AgenteLite..."
-            curl -fsSL -X POST "$WEBHOOK"
-          else
-            echo "PORTAINER_AGENTELITE no configurado; se omite el redeploy automatico."
-          fi
+      # Despliegue (desde el 2-nov-2026, servidor de Estados Unidos): aqui no se avisa a nadie. El servidor
+      # corre /opt/crm/actualizar.sh cada minuto, baja ghcr.io/alexmorer/agentelite:latest y, si cambio,
+      # prende la app nueva al lado de la vieja y apaga la vieja cuando esta sana. El CRM de Estados Unidos
+      # NO es un stack de Portainer (corre con docker compose), asi que no hay webhook. Antes este paso
+      # avisaba al Portainer del servidor de Francia (secreto PORTAINER_AGENTELITE), donde el CRM ya no corre.
