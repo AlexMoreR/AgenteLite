@@ -31,6 +31,16 @@ import { dondeTableroVivo } from "./tableros-archivados";
   así que son hasta 7 líneas. La caja "Resumen de hoy" de la pantalla queda igual, sin link. Un día sin movimiento sigue
   sin mandar nada (ni el link).
 
+  10-nov-2026 (DESPLIEGUES): el resumen suma hasta 3 líneas, cada una solo si hay datos (hasta 10 con el link):
+    🚀 Despliegues: 5 del Coordinador (3 en horario de ventas), 1 a mano o de otros
+    ↩️ Devueltas: 1 (<causa corta>)
+    🆘 No se pudieron devolver: 1, revisar a mano
+  Las del Coordinador son sus subidas del día (HistorialTarjeta con `subida`); el horario de ventas es
+  HORARIO_DE_VENTAS (supuesto: de 8 a. m. a 6 p. m. de Bogotá). Las devueltas y las que no se pudieron devolver son los
+  errores con `reversion` (ok true / false). "A mano o de otros" son las versiones que el reloj vio correr ese día
+  (anotarVersionQueCorre, en api/cron/follows) y que no son una subida ni una reversión del Coordinador. Si la lista de
+  versiones no se puede leer, esa parte no sale y el resto del resumen sale igual. Sin WhatsApp nuevos.
+
   26-oct-2026 (decisión del dueño: "WhatsApp solo cuando sea súper importante, lo demás lo miro en el tablero"):
   YA NO SE MANDA POR WHATSAPP. Los únicos avisos al dueño son los de avisos-al-dueno.ts (Sistemas detenido o
   que lo necesita). Todo sale del historial de las tarjetas (HistorialTarjeta) y de la lista "Te toca a ti",
@@ -78,11 +88,16 @@ export type FilaDelHistorial = {
 export type ResumenDelDia = {
   dia: string;
   aprobadas: { tarjetaId: string; titulo: string; momento: string; motivo: string | null; cuando: string }[];
-  subidas: { tarjetaId: string; titulo: string; commit: string | null; linkCommit: string | null; cuando: string; tresLineas?: TresLineasDeHoy }[];
-  fallas: { tarjetaId: string; titulo: string; motivo: string; cuando: string }[];
+  /** `version` (10-nov-2026): la versión que el Coordinador vio en producción con esa subida, si la mandó. */
+  subidas: { tarjetaId: string; titulo: string; commit: string | null; linkCommit: string | null; cuando: string; version?: string; tresLineas?: TresLineasDeHoy }[];
+  /** `reversion` (10-nov-2026): la falla fue después de subir y el Coordinador la devolvió (ok) o no pudo (ok false). */
+  fallas: { tarjetaId: string; titulo: string; motivo: string; cuando: string; reversion?: ReversionDelDia }[];
   /** Las que el Coordinador cerró porque ya estaban en main (27-oct-2026): salen aparte, con su commit, y no cuentan como construidas ese día. */
   yaHechas: { tarjetaId: string; titulo: string; commit: string | null; cuando: string }[];
 };
+
+/** La reversión que el Coordinador mandó con el error (trabajador.ts la guarda en `despues.reversion`). */
+export type ReversionDelDia = { commit: string | null; revert: string | null; ok: boolean };
 
 /** Las 3 líneas con que el agente cierra una tarea subida (26-oct-2026); cada una puede faltar. */
 export type TresLineasDeHoy = { hizo?: string; ahora?: string; revisar?: string };
@@ -115,6 +130,12 @@ function motivoDeLaFalla(despues: Record<string, unknown>, fila: FilaDelHistoria
   );
 }
 
+function reversionDeLaFila(valor: unknown): ReversionDelDia | null {
+  if (!valor || typeof valor !== "object" || Array.isArray(valor)) return null;
+  const datos = valor as Record<string, unknown>;
+  return { commit: texto(datos.commit), revert: texto(datos.revert), ok: datos.ok === true };
+}
+
 /** Arma el resumen de un día con las filas del historial: solo cuenta lo que pasó ese día de Bogotá. */
 export function armarResumen(dia: string, filas: readonly FilaDelHistorial[]): ResumenDelDia {
   const { desde, hasta } = rangoDelDia(dia);
@@ -145,13 +166,15 @@ export function armarResumen(dia: string, filas: readonly FilaDelHistorial[]): R
           commit: texto(subida.commit),
           linkCommit: texto(subida.linkCommit),
           cuando,
+          ...(texto(subida.version) ? { version: texto(subida.version) as string } : {}),
           ...(tresLineasDeLaSubida(subida) ? { tresLineas: tresLineasDeLaSubida(subida) } : {}),
         });
       } else if (despues.estado === "HECHO") {
         // Terminada sin subir a producción (tareas que no llevan repo): también es "lista".
         resumen.subidas.push({ tarjetaId: fila.tarjetaId, titulo: fila.titulo, commit: null, linkCommit: null, cuando });
       } else if (despues.estado === "ERROR") {
-        resumen.fallas.push({ tarjetaId: fila.tarjetaId, titulo: fila.titulo, motivo: motivoDeLaFalla(despues, fila), cuando });
+        const reversion = reversionDeLaFila(despues.reversion);
+        resumen.fallas.push({ tarjetaId: fila.tarjetaId, titulo: fila.titulo, motivo: motivoDeLaFalla(despues, fila), cuando, ...(reversion ? { reversion } : {}) });
       }
     }
   }
@@ -174,10 +197,15 @@ export type CifrasDelDia = {
   /** (31-oct-2026) Las HECHO por día antes del 31-oct (promedio del 24 al 30) y las de hoy (= listas). */
   basePorDia?: number;
   hoy?: number;
+  /** (10-nov-2026) Los despliegues del día; falta si no hubo ninguno ni ninguna reversión. */
+  despliegues?: DesplieguesDelDia;
 };
 
-/** Lo de los cupos para el resumen (31-oct-2026): los máximos del día y la base de antes. Cada uno puede faltar. */
-export type ExtrasDelResumen = { cuposDelDia?: CuposDelDia | null; basePorDia?: number | null };
+/**
+ * Lo de los cupos para el resumen (31-oct-2026): los máximos del día y la base de antes; y los despliegues (10-nov-2026).
+ * Cada uno puede faltar.
+ */
+export type ExtrasDelResumen = { cuposDelDia?: CuposDelDia | null; basePorDia?: number | null; despliegues?: DesplieguesDelDia | null };
 
 /** Las categorías de IntentoTarjeta que cuentan como "choque con main" en el resumen. */
 export const CATEGORIAS_DE_CHOQUE_CON_MAIN = ["choca_con_main", "choque_de_logica"] as const;
@@ -198,7 +226,179 @@ export function cifrasDelDia(resumen: ResumenDelDia, esperando: number, chocaron
     chocaronConMain,
     ...(cupos ? { corriendoMax: cupos.corriendoMax, enFilaMax: cupos.enFilaMax, ...(cupos.cupos !== null ? { cupos: cupos.cupos } : {}) } : {}),
     ...(typeof base === "number" && Number.isFinite(base) ? { basePorDia: base, hoy: listas.size } : {}),
+    ...(extras.despliegues ? { despliegues: extras.despliegues } : {}),
   };
+}
+
+/* ───────────────────────────────────────────────────────────────────── despliegues (10-nov-2026) ── */
+
+/**
+ * El horario de ventas para contar las subidas que cayeron con las asesoras trabajando: desde `desde` hasta `hasta` (sin
+ * incluirla), en horas de Bogotá. SUPUESTO (10-nov-2026): de 8 a. m. a 6 p. m.; se cambia acá.
+ */
+export const HORARIO_DE_VENTAS = { desde: 8, hasta: 18 } as const;
+
+export function enHorarioDeVentas(momento: Date): boolean {
+  const hora = horaDeBogota(momento);
+  return hora >= HORARIO_DE_VENTAS.desde && hora < HORARIO_DE_VENTAS.hasta;
+}
+
+/** Una versión que el reloj vio correr en producción y desde cuándo (anotarVersionQueCorre). */
+export type VersionQueCorrio = { version: string; desde: string };
+
+export type DesplieguesDelDia = {
+  /** Las subidas del Coordinador ese día (una por commit). */
+  delCoordinador: number;
+  /** Cuántas de esas cayeron en HORARIO_DE_VENTAS. */
+  enHorarioDeVentas: number;
+  /** Las versiones nuevas de ese día que no son del Coordinador (a mano o de otros); null si no se pudieron leer. */
+  deOtros: number | null;
+  /** La causa corta de cada subida que el Coordinador devolvió (una por commit). */
+  devueltas: string[];
+  /** Las que fallaron después de subir y no se pudieron devolver (revisar a mano). */
+  noSePudieronDevolver: number;
+};
+
+/** Mismo commit aunque uno venga corto (10 letras) y el otro completo. */
+const mismoCommit = (a: string | null | undefined, b: string | null | undefined) => {
+  const x = a?.trim().toLowerCase();
+  const y = b?.trim().toLowerCase();
+  return Boolean(x && y && Math.min(x.length, y.length) >= 7 && (x.startsWith(y) || y.startsWith(x)));
+};
+
+/**
+ * La causa de una devuelta en una línea corta: la del "Detalle técnico" o "Por qué falló el despliegue" si el motivo la
+ * trae (deshacerSubida del Coordinador); si no, la primera línea sin el "Revertida:".
+ */
+export function causaDeLaDevuelta(motivo: string): string {
+  const lineas = motivo.split(/\r?\n/).map((linea) => linea.trim()).filter(Boolean);
+  const detalle = lineas.find((linea) => /^(Detalle técnico|Por qué falló el despliegue):/i.test(linea));
+  const causa = (detalle ? detalle.replace(/^[^:]+:\s*/, "") : (lineas[0] ?? "").replace(/^Revertida:\s*/i, "")).trim() || "sin motivo";
+  return causa.length > 80 ? `${causa.slice(0, 79).trimEnd()}…` : causa;
+}
+
+/**
+ * Los despliegues de un día (pura): las subidas del Coordinador (cuántas en horario de ventas), las devueltas con su causa,
+ * las que no se pudieron devolver y, con las versiones que vio el reloj, las que subieron a mano o de otros. null si no hubo
+ * nada (entonces no sale el bloque).
+ */
+export function desplieguesDelDia(resumen: ResumenDelDia, versiones: readonly VersionQueCorrio[] | null): DesplieguesDelDia | null {
+  const subidas = resumen.subidas
+    .filter((s) => s.commit)
+    .filter((s, indice, todas) => todas.findIndex((otra) => mismoCommit(otra.commit, s.commit)) === indice);
+  const conReversion = resumen.fallas.filter((f) => f.reversion);
+  const unaPorCommit = <T extends { reversion?: ReversionDelDia }>(lista: T[]) =>
+    lista.filter((f, indice, todas) => !f.reversion?.commit || todas.findIndex((otra) => mismoCommit(otra.reversion?.commit, f.reversion?.commit)) === indice);
+  const devueltas = unaPorCommit(conReversion.filter((f) => f.reversion?.ok));
+  const noSePudieron = unaPorCommit(conReversion.filter((f) => !f.reversion?.ok));
+  // Lo que el Coordinador puso en producción ese día: sus subidas (commit y versión) y los commits de sus reversiones.
+  const delCoordinador = [
+    ...resumen.subidas.flatMap((s) => [s.commit, s.version]),
+    ...conReversion.flatMap((f) => [f.reversion?.commit, f.reversion?.revert]),
+  ].filter((v): v is string => Boolean(v));
+  const { desde, hasta } = rangoDelDia(resumen.dia);
+  const deOtros = versiones
+    ? new Set(
+        versiones
+          .filter((v) => Date.parse(v.desde) >= desde.getTime() && Date.parse(v.desde) < hasta.getTime())
+          .filter((v) => !delCoordinador.some((commit) => mismoCommit(commit, v.version)))
+          .map((v) => v.version),
+      ).size
+    : null;
+  if (!subidas.length && !devueltas.length && !noSePudieron.length && !deOtros) return null;
+  return {
+    delCoordinador: subidas.length,
+    enHorarioDeVentas: subidas.filter((s) => enHorarioDeVentas(new Date(s.cuando))).length,
+    deOtros,
+    devueltas: devueltas.map((f) => causaDeLaDevuelta(f.motivo)),
+    noSePudieronDevolver: noSePudieron.length,
+  };
+}
+
+/** Las líneas de los despliegues (10-nov-2026): cada una sale solo si hay sus datos. */
+function lineasDeDespliegues(despliegues: DesplieguesDelDia | undefined): string[] {
+  if (!despliegues) return [];
+  const lineas: string[] = [];
+  const otros = despliegues.deOtros ? `${despliegues.deOtros} a mano o de otros` : "";
+  if (despliegues.delCoordinador || otros) {
+    const coordinador = despliegues.delCoordinador ? `${despliegues.delCoordinador} del Coordinador (${despliegues.enHorarioDeVentas} en horario de ventas)` : "";
+    lineas.push(`🚀 Despliegues: ${[coordinador, otros].filter(Boolean).join(", ")}`);
+  }
+  if (despliegues.devueltas.length) {
+    const causas = despliegues.devueltas.slice(0, 2).join("; ") + (despliegues.devueltas.length > 2 ? "; …" : "");
+    lineas.push(`↩️ Devueltas: ${despliegues.devueltas.length} (${causas})`);
+  }
+  if (despliegues.noSePudieronDevolver) lineas.push(`🆘 No se pudieron devolver: ${despliegues.noSePudieronDevolver}, revisar a mano`);
+  return lineas;
+}
+
+/**
+ * Las versiones que corrieron en producción (10-nov-2026), una fila para todo el servidor (el despliegue es uno solo):
+ * [{ version, desde }], las de los últimos días.
+ */
+export const CLAVE_VERSIONES_QUE_CORRIERON = "sistemas:versiones-que-corrieron";
+const DIAS_DE_VERSIONES = 3;
+const MAX_VERSIONES = 100;
+let versionYaAnotada: string | null = null;
+
+/** La lista guardada, limpia (pura). Lo que no se entiende se descarta. */
+export function versionesGuardadas(valor: string | null | undefined): VersionQueCorrio[] {
+  try {
+    const lista: unknown = JSON.parse(valor ?? "[]");
+    if (!Array.isArray(lista)) return [];
+    return lista
+      .map((v) => comoObjeto(v))
+      .filter((v) => texto(v.version) && !Number.isNaN(Date.parse(String(v.desde))))
+      .map((v) => ({ version: texto(v.version) as string, desde: String(v.desde) }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Anota la versión que corre ahora si es nueva (lo llama el reloj, api/cron/follows, cada minuto). Una sola lectura por
+ * arranque del servidor: después de anotarla, no toca la base hasta que cambie. Sin versión (desarrollo) no hace nada.
+ * Nunca lanza: si la base falla, se intenta el próximo minuto.
+ */
+export async function anotarVersionQueCorre(ahora: Date = new Date(), version = process.env.NEXT_PUBLIC_DEPLOYMENT_ID?.trim() || ""): Promise<boolean> {
+  if (!version || versionYaAnotada === version) return false;
+  try {
+    const guardada = await prisma.appSetting.findUnique({ where: { key: CLAVE_VERSIONES_QUE_CORRIERON }, select: { value: true } });
+    const versiones = versionesGuardadas(guardada?.value);
+    let anotada = false;
+    if (!versiones.some((v) => v.version === version)) {
+      const limite = ahora.getTime() - DIAS_DE_VERSIONES * 24 * MS_HORA;
+      const value = JSON.stringify([...versiones.filter((v) => Date.parse(v.desde) >= limite), { version, desde: ahora.toISOString() }].slice(-MAX_VERSIONES));
+      await prisma.appSetting.upsert({ where: { key: CLAVE_VERSIONES_QUE_CORRIERON }, create: { key: CLAVE_VERSIONES_QUE_CORRIERON, value }, update: { value } });
+      anotada = true;
+    }
+    versionYaAnotada = version;
+    return anotada;
+  } catch (error) {
+    console.warn("[resumen-diario] no se pudo anotar la versión que corre", error instanceof Error ? error.message : String(error));
+    return false;
+  }
+}
+
+/** Las versiones que vio el reloj, o null si no se pudieron leer (entonces no sale "a mano o de otros"). Nunca lanza. */
+export async function leerVersionesQueCorrieron(): Promise<VersionQueCorrio[] | null> {
+  try {
+    const guardada = await prisma.appSetting.findUnique({ where: { key: CLAVE_VERSIONES_QUE_CORRIERON }, select: { value: true } });
+    return versionesGuardadas(guardada?.value);
+  } catch (error) {
+    console.warn("[resumen-diario] no se pudieron leer las versiones que corrieron", error instanceof Error ? error.message : String(error));
+    return null;
+  }
+}
+
+/** Los despliegues del día para el resumen. Nunca lanza: si algo falla, sin el bloque (el resumen sale como antes). */
+async function desplieguesParaElResumen(resumen: ResumenDelDia): Promise<DesplieguesDelDia | null> {
+  try {
+    return desplieguesDelDia(resumen, await leerVersionesQueCorrieron());
+  } catch (error) {
+    console.warn("[resumen-diario] no se pudieron contar los despliegues", error instanceof Error ? error.message : String(error));
+    return null;
+  }
 }
 
 export const haySinMovimiento = (cifras: CifrasDelDia) =>
@@ -219,11 +419,12 @@ export function textoDelResumen(cifras: CifrasDelDia): string {
     `⚠️ Falló: ${cifras.conProblema ? cuantas(cifras.conProblema, "tarea", "tareas") : "nada"} (${cifras.chocaronConMain} por choque con main)`,
     `👆 Pendiente: ${cifras.esperando ? cuantas(cifras.esperando, "tarea", "tareas") : "nada"}`,
     ...lineasDeCupos(cifras),
+    ...lineasDeDespliegues(cifras.despliegues),
   ].join("\n");
 }
 
-/** Las líneas del resumen por WhatsApp: hasta 6 del texto de la pantalla y la del link (6-nov-2026). */
-export const MAXIMO_LINEAS_DEL_RESUMEN = 7;
+/** Las líneas del resumen por WhatsApp: hasta 9 del texto de la pantalla (6 + 3 de despliegues, 10-nov-2026) y la del link. */
+export const MAXIMO_LINEAS_DEL_RESUMEN = 10;
 
 /**
  * El WhatsApp del resumen (6-nov-2026): el mismo texto de la caja "Resumen de hoy" y, al final, el link a la lista de lo
@@ -412,7 +613,7 @@ export async function resumenDeHoyParaLaPantalla(workspaceId: string, ahora = ne
     aprobacionAutomaticaPrendida(workspaceId),
     extrasDelResumen(workspaceId, dia),
   ]);
-  const cifras = cifrasDelDia(resumen, esperando, chocaron, extras);
+  const cifras = cifrasDelDia(resumen, esperando, chocaron, { ...extras, despliegues: await desplieguesParaElResumen(resumen) });
   return {
     dia,
     cifras,
@@ -449,15 +650,14 @@ export async function enviarResumenDiarioAlDueno(ahora: Date = new Date()): Prom
         prisma.appSetting.findUnique({ where: { key: claveInterruptorDelResumen(workspaceId) }, select: { value: true } }),
       ]);
       if (ultimo?.value === dia || interruptor?.value === "false" || !(await avisosPrendidos(workspaceId))) continue;
-      const cifras = cifrasDelDia(
-        await resumenDelDia(workspaceId, dia),
-        await cuantasEsperan(workspaceId),
-        await cuantasChocaronConMain(workspaceId, dia),
-        await extrasDelResumen(workspaceId, dia),
-      );
+      const resumen = await resumenDelDia(workspaceId, dia);
+      const cifras = cifrasDelDia(resumen, await cuantasEsperan(workspaceId), await cuantasChocaronConMain(workspaceId, dia), {
+        ...(await extrasDelResumen(workspaceId, dia)),
+        despliegues: await desplieguesParaElResumen(resumen),
+      });
       const texto = textoDelWhatsAppDelResumen(textoDelResumen(cifras), dia);
       if (texto) {
-        // Hasta 7 líneas: las 4 de siempre, las 2 de los cupos (31-oct-2026) y la del link (6-nov-2026).
+        // Hasta 10 líneas: las 4 de siempre, las 2 de los cupos (31-oct-2026), las 3 de los despliegues (10-nov-2026) y la del link (6-nov-2026).
         const envio = await enviarAlDueno(workspaceId, texto, MAXIMO_LINEAS_DEL_RESUMEN);
         if (!envio.salio) continue; // se vuelve a intentar en el próximo minuto, hasta las 9 p. m.
         enviados += 1;

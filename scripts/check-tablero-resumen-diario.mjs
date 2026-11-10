@@ -1,6 +1,7 @@
 // Pruebas del resumen diario del Tablero IA (resumen-diario.ts): el día de Bogotá, cómo se arma con el historial
 // de HOY (no el de ayer), el texto corto de 4 líneas (6 con los cupos, 31-oct-2026) (la línea Falló con los choques con main, 31-oct-2026), el link del día al final del WhatsApp (6-nov-2026), la vista "Hoy" y la caja "Resumen de hoy" con un prisma
-// FALSO. Desde el 26-oct-2026 el resumen YA NO se manda por WhatsApp (el silencio, las 3 líneas y los avisos al
+// FALSO. Desde el 10-nov-2026 también el bloque de despliegues (subidas, horario de ventas, devueltas, a mano) y la
+// versión que anota el reloj. Desde el 26-oct-2026 el resumen YA NO se manda por WhatsApp (el silencio, las 3 líneas y los avisos al
 // dueño se prueban en check-tablero-avisos-al-dueno.mjs). No necesita base ni red.
 // Correr: npm run test:tablero-resumen-diario
 import assert from "node:assert/strict";
@@ -8,7 +9,7 @@ import { cargar } from "./supervisor-cargar.mjs";
 
 /* ------------------------------------------------------------------ falsos */
 
-const estado = { esperando: [], tarjetas: [], historial: [], intentos: [], ajustes: new Map(), negocios: ["ws1"], salidas: [], mensajes: [], whatsappSale: true, activo: true, destino: "573001112233" };
+const estado = { esperando: [], tarjetas: [], historial: [], intentos: [], ajustes: new Map(), ajustesQueFallan: new Set(), negocios: ["ws1"], salidas: [], mensajes: [], whatsappSale: true, activo: true, destino: "573001112233" };
 
 const falso = {
   historialTarjeta: {
@@ -31,9 +32,14 @@ const falso = {
       return unicas.map((i) => ({ tarjetaId: i.tarjetaId }));
     },
   },
+  // `estado.ajustesQueFallan` (10-nov-2026): las claves cuya lectura o escritura falla, para probar que el resumen no se cae.
   appSetting: {
-    findUnique: async ({ where }) => (estado.ajustes.has(where.key) ? { value: estado.ajustes.get(where.key) } : null),
+    findUnique: async ({ where }) => {
+      if (estado.ajustesQueFallan.has(where.key)) throw new Error("la base no responde");
+      return estado.ajustes.has(where.key) ? { value: estado.ajustes.get(where.key) } : null;
+    },
     upsert: async ({ where, create, update }) => {
+      if (estado.ajustesQueFallan.has(where.key)) throw new Error("la base no responde");
       estado.ajustes.set(where.key, estado.ajustes.has(where.key) ? update.value : create.value);
     },
   },
@@ -90,6 +96,7 @@ async function prueba(nombre, fn) {
   estado.historial.length = 0;
   estado.intentos.length = 0;
   estado.ajustes.clear();
+  estado.ajustesQueFallan.clear();
   estado.cuposDelDia = null;
   estado.mensajes.length = 0;
   estado.esperando = [];
@@ -330,9 +337,16 @@ await prueba("resumenDeHoyParaLaPantalla devuelve las cifras, el texto corto y e
   const ahora = new Date("2026-10-23T02:30:00Z");
   const antes = await resumen.resumenDeHoyParaLaPantalla("ws1", ahora);
   assert.equal(antes.dia, "2026-10-22");
-  assert.deepEqual(antes.cifras, { listas: 1, conProblema: 0, esperando: 0, chocaronConMain: 1 });
-  assert.equal(antes.texto, "Resumen de Sistemas de hoy:\n✅ Se arregló: 1 tarea\n⚠️ Falló: nada (1 por choque con main)\n👆 Pendiente: nada");
-  assert.equal(antes.texto.split("\n").length, 4);
+  // 10-nov-2026: la subida (8:00 a. m. de Bogotá) también sale como despliegue del Coordinador en horario de ventas.
+  assert.deepEqual(antes.cifras, {
+    listas: 1, conProblema: 0, esperando: 0, chocaronConMain: 1,
+    despliegues: { delCoordinador: 1, enHorarioDeVentas: 1, deOtros: 0, devueltas: [], noSePudieronDevolver: 0 },
+  });
+  assert.equal(
+    antes.texto,
+    "Resumen de Sistemas de hoy:\n✅ Se arregló: 1 tarea\n⚠️ Falló: nada (1 por choque con main)\n👆 Pendiente: nada\n🚀 Despliegues: 1 del Coordinador (1 en horario de ventas)",
+  );
+  assert.equal(antes.texto.split("\n").length, 5);
   assert.equal(antes.aprobacionAutomatica, true);
   assert.ok(!("envioDeHoy" in antes) && !("ultimoEnvio" in antes), "ya no hay envío por WhatsApp");
   // Al día siguiente, sin movimiento, el texto queda vacío.
@@ -381,7 +395,7 @@ await prueba("la base de antes del 31-oct: promedio de las listas del 24 al 30, 
   assert.equal(await resumen.basePorDiaAntesDel31Oct("ws1", "2026-11-01"), 2, "queda guardada: no se vuelve a calcular");
 });
 
-await prueba("enviarResumenDiarioAlDueno el 31-oct: sale con las 6 líneas y la del link (7), en un solo WhatsApp", async () => {
+await prueba("enviarResumenDiarioAlDueno el 31-oct: sale con las 6 líneas, la del despliegue y la del link (8), en un solo WhatsApp", async () => {
   const TARDE = new Date("2026-10-31T23:30:00Z"); // 6:30 p. m. de Bogotá
   estado.ajustes.set("tablero:avisos-dueno:telefono:ws1", "573001112233");
   estado.ajustes.set("tablero:resumen-diario:base-antes-31oct:ws1", "7");
@@ -390,25 +404,173 @@ await prueba("enviarResumenDiarioAlDueno el 31-oct: sale con las 6 líneas y la 
   assert.deepEqual(await resumen.enviarResumenDiarioAlDueno(TARDE), { enviados: 1 });
   assert.equal(estado.mensajes.length, 1, "un solo WhatsApp");
   const lineas = estado.mensajes[0].text.split("\n");
-  // Con las 6 líneas llenas, la del link es la 7.ª y el recorte del envío no la borra (6-nov-2026).
-  assert.equal(lineas.length, 7);
+  // Con las 6 líneas llenas y la del despliegue (10-nov-2026), la del link es la 8.ª y el recorte del envío no la borra.
+  assert.equal(lineas.length, 8);
   assert.equal(lineas[4], "🔁 Corriendo a la vez: 5 (máx.) / en fila: 3");
   assert.match(lineas[5], /antes se terminaban 7 por día .* y hoy 1$/);
-  assert.equal(lineas[6], "📋 Ver lo trabajado hoy: https://app.aizenbot.com/cliente/tablero-ia?vista=terminados&dia=2026-10-31");
+  assert.equal(lineas[6], "🚀 Despliegues: 1 del Coordinador (1 en horario de ventas)");
+  assert.equal(lineas[7], "📋 Ver lo trabajado hoy: https://app.aizenbot.com/cliente/tablero-ia?vista=terminados&dia=2026-10-31");
   const pantalla = await resumen.resumenDeHoyParaLaPantalla("ws1", TARDE);
-  assert.equal(pantalla.texto.split("\n").length, 6, "la caja «Resumen de hoy» sigue con sus 6 líneas");
-  assert.equal(`${pantalla.texto}\n${lineas[6]}`, estado.mensajes[0].text, "la caja dice lo mismo, sin el link");
+  assert.equal(pantalla.texto.split("\n").length, 7, "la caja «Resumen de hoy» con sus 6 líneas y la del despliegue");
+  assert.equal(`${pantalla.texto}\n${lineas[7]}`, estado.mensajes[0].text, "la caja dice lo mismo, sin el link");
   estado.mensajes.length = 0;
   estado.esperando.length = 0;
 });
 
 await prueba("textoDelWhatsAppDelResumen: el texto más UNA línea con el link del día; vacío si no hay texto", () => {
-  assert.equal(resumen.MAXIMO_LINEAS_DEL_RESUMEN, 7);
+  assert.equal(resumen.MAXIMO_LINEAS_DEL_RESUMEN, 10);
   assert.equal(resumen.textoDelWhatsAppDelResumen("", "2026-11-06"), "", "sin movimiento: ni el link");
   const texto = resumen.textoDelResumen({ listas: 2, conProblema: 0, esperando: 0, chocaronConMain: 0 });
   const whatsapp = resumen.textoDelWhatsAppDelResumen(texto, "2026-11-06");
   assert.equal(whatsapp, `${texto}\n📋 Ver lo trabajado hoy: https://app.aizenbot.com/cliente/tablero-ia?vista=terminados&dia=2026-11-06`);
   assert.match(whatsapp.split("\n").at(-1), /\?vista=terminados&dia=2026-11-06$/);
+});
+
+/* ------------------------------------------------------------------ despliegues (10-nov-2026) */
+
+const CLAVE_VERSIONES = "sistemas:versiones-que-corrieron";
+// El 10-nov de Bogotá va de 2026-11-10T05:00Z a 2026-11-11T05:00Z. Las horas de abajo son de Bogotá.
+const aLas = (hora, minuto = 0) => new Date(Date.UTC(2026, 10, 10, hora + 5, minuto));
+const DIA = "2026-11-10";
+const commit = (letra) => letra.repeat(40);
+const subidaDe = (tarjetaId, c, cuando, version) =>
+  fila({ tarjetaId, creadoEn: cuando, despues: { estado: "HECHO", subida: { commit: c, linkCommit: null, ...(version ? { version } : {}) } } });
+const devuelta = (tarjetaId, motivo, reversion, cuando = aLas(11)) => fila({ tarjetaId, creadoEn: cuando, despues: { estado: "ERROR", motivo, reversion } });
+
+await prueba("HORARIO_DE_VENTAS: el supuesto es de 8 a. m. a 6 p. m. de Bogotá (6 p. m. ya no cuenta)", () => {
+  assert.deepEqual({ ...resumen.HORARIO_DE_VENTAS }, { desde: 8, hasta: 18 });
+  assert.equal(resumen.enHorarioDeVentas(aLas(7, 59)), false);
+  assert.equal(resumen.enHorarioDeVentas(aLas(8)), true);
+  assert.equal(resumen.enHorarioDeVentas(aLas(17, 59)), true);
+  assert.equal(resumen.enHorarioDeVentas(aLas(18)), false);
+});
+
+await prueba("desplieguesDelDia: subidas del Coordinador (una por commit) y cuántas en horario de ventas", () => {
+  const r = resumen.armarResumen(DIA, [
+    subidaDe("a", commit("a"), aLas(7, 30)),
+    subidaDe("b", commit("b"), aLas(8)),
+    subidaDe("b", commit("b").slice(0, 10), aLas(8, 5)), // el mismo commit dos veces (uno corto): cuenta una
+    subidaDe("c", commit("c"), aLas(17, 59)),
+    subidaDe("d", commit("d"), aLas(18)),
+    fila({ tarjetaId: "e", creadoEn: aLas(12), despues: { estado: "HECHO" } }), // terminada sin subir: no es despliegue
+    subidaDe("f", commit("f"), new Date("2026-11-09T20:00:00Z")), // de ayer
+  ]);
+  assert.deepEqual(resumen.desplieguesDelDia(r, []), { delCoordinador: 4, enHorarioDeVentas: 2, deOtros: 0, devueltas: [], noSePudieronDevolver: 0 });
+  assert.equal(resumen.desplieguesDelDia(resumen.armarResumen(DIA, []), []), null, "sin nada, no sale el bloque");
+  assert.equal(resumen.desplieguesDelDia(resumen.armarResumen(DIA, [fila({ creadoEn: aLas(12), despues: { estado: "HECHO" } })]), null), null);
+});
+
+await prueba("desplieguesDelDia: devueltas con su causa y las que no se pudieron devolver", () => {
+  const r = resumen.armarResumen(DIA, [
+    devuelta("a", `Se subió, no arrancó y se deshizo; producción vuelve a la versión anterior.\nCommit deshecho: aaaaaaaaaa (revert 1111111111).\nDetalle técnico: el contenedor no respondió /api/health`, { commit: commit("a"), revert: commit("1"), ok: true }),
+    devuelta("a", "Revertida: otra vez", { commit: commit("a"), revert: commit("1"), ok: true }), // la misma reversión dos veces: una
+    devuelta("b", "Revertida: [minuto 2] el bot dejó de contestar\nSubió sola, la vigilancia de 30 min vio la falla y se deshizo.", { commit: commit("b"), revert: commit("2"), ok: true }),
+    devuelta("c", "URGENTE: no se pudo deshacer, revisar a mano. El commit quedó en main.\nPor qué falló el despliegue: no arrancó\nPor qué no se pudo deshacer: conflicto", { commit: commit("c"), revert: null, ok: false }),
+    falla({ tarjetaId: "d", creadoEn: aLas(12) }), // una falla sin reversión: no es despliegue
+  ]);
+  const d = resumen.desplieguesDelDia(r, []);
+  assert.deepEqual(d, {
+    delCoordinador: 0,
+    enHorarioDeVentas: 0,
+    deOtros: 0,
+    devueltas: ["el contenedor no respondió /api/health", "[minuto 2] el bot dejó de contestar"],
+    noSePudieronDevolver: 1,
+  });
+  assert.equal(resumen.causaDeLaDevuelta(""), "sin motivo");
+  assert.equal(resumen.causaDeLaDevuelta("x".repeat(200)).length, 80, "la causa va corta");
+});
+
+await prueba("desplieguesDelDia: las versiones de hoy que no son del Coordinador cuentan como a mano o de otros", () => {
+  const r = resumen.armarResumen(DIA, [
+    subidaDe("a", commit("a"), aLas(10), commit("9")), // el Coordinador mandó la versión que vio (otro sha: un merge)
+    subidaDe("b", commit("b"), aLas(11)),
+    devuelta("c", "Revertida: x", { commit: commit("c"), revert: commit("2"), ok: true }),
+  ]);
+  const versiones = [
+    { version: commit("0"), desde: "2026-11-09T22:00:00Z" }, // de ayer: no es de hoy
+    { version: commit("9"), desde: aLas(10, 5).toISOString() }, // la versión de la subida a
+    { version: commit("b"), desde: aLas(11, 5).toISOString() }, // el commit de la subida b
+    { version: commit("2"), desde: aLas(11, 30).toISOString() }, // el revert del Coordinador
+    { version: commit("e"), desde: aLas(9).toISOString() }, // a mano
+    { version: commit("e"), desde: aLas(9, 1).toISOString() }, // la misma otra vez: una
+    { version: commit("f"), desde: aLas(20).toISOString() }, // otra a mano, de noche
+  ];
+  assert.equal(resumen.desplieguesDelDia(r, versiones).deOtros, 2);
+  assert.equal(resumen.desplieguesDelDia(r, null).deOtros, null, "si no se pudieron leer, no se sabe");
+  // Un día con solo una subida a mano también trae el bloque.
+  assert.deepEqual(resumen.desplieguesDelDia(resumen.armarResumen(DIA, []), [{ version: commit("e"), desde: aLas(9).toISOString() }]), {
+    delCoordinador: 0, enHorarioDeVentas: 0, deOtros: 1, devueltas: [], noSePudieronDevolver: 0,
+  });
+});
+
+await prueba("textoDelResumen con los despliegues: hasta 3 líneas más, cada una solo con datos; con todo son 9 y 10 con el link", () => {
+  const base = { listas: 3, conProblema: 2, esperando: 1, chocaronConMain: 0, corriendoMax: 5, enFilaMax: 3, cupos: 6, basePorDia: 7, hoy: 3 };
+  const despliegues = { delCoordinador: 5, enHorarioDeVentas: 3, deOtros: 1, devueltas: ["no arrancó", "el bot dejó de contestar", "otra"], noSePudieronDevolver: 1 };
+  const texto = resumen.textoDelResumen({ ...base, despliegues });
+  const lineas = texto.split("\n");
+  assert.equal(lineas.length, 9);
+  assert.equal(lineas[6], "🚀 Despliegues: 5 del Coordinador (3 en horario de ventas), 1 a mano o de otros");
+  assert.equal(lineas[7], "↩️ Devueltas: 3 (no arrancó; el bot dejó de contestar; …)");
+  assert.equal(lineas[8], "🆘 No se pudieron devolver: 1, revisar a mano");
+  const whatsapp = resumen.textoDelWhatsAppDelResumen(texto, DIA);
+  assert.equal(whatsapp.split("\n").length, resumen.MAXIMO_LINEAS_DEL_RESUMEN, "el máximo alcanza para todo, con el link al final");
+  // Cada línea sale solo con datos.
+  const solo = (d) => resumen.textoDelResumen({ listas: 1, conProblema: 0, esperando: 0, chocaronConMain: 0, despliegues: { delCoordinador: 0, enHorarioDeVentas: 0, deOtros: 0, devueltas: [], noSePudieronDevolver: 0, ...d } }).split("\n").slice(4);
+  assert.deepEqual(solo({ delCoordinador: 2, enHorarioDeVentas: 0 }), ["🚀 Despliegues: 2 del Coordinador (0 en horario de ventas)"]);
+  assert.deepEqual(solo({ deOtros: 2 }), ["🚀 Despliegues: 2 a mano o de otros"]);
+  assert.deepEqual(solo({ deOtros: null, devueltas: ["no arrancó"] }), ["↩️ Devueltas: 1 (no arrancó)"]);
+  assert.deepEqual(solo({ noSePudieronDevolver: 2 }), ["🆘 No se pudieron devolver: 2, revisar a mano"]);
+  assert.deepEqual(solo({}), []);
+  // Un día sin movimiento sigue sin texto (los despliegues solos no mandan el resumen).
+  assert.equal(resumen.textoDelResumen({ listas: 0, conProblema: 0, esperando: 0, chocaronConMain: 0, despliegues }), "");
+});
+
+await prueba("anotarVersionQueCorre: anota cada versión nueva una vez; sin versión no hace nada; si la base falla, no lanza y reintenta", async () => {
+  assert.equal(await resumen.anotarVersionQueCorre(aLas(9), ""), false, "sin versión (desarrollo) no anota");
+  assert.equal(estado.ajustes.has(CLAVE_VERSIONES), false);
+  estado.ajustesQueFallan.add(CLAVE_VERSIONES);
+  assert.equal(await resumen.anotarVersionQueCorre(aLas(9), commit("1")), false, "la base falla: no lanza");
+  estado.ajustesQueFallan.clear();
+  assert.equal(await resumen.anotarVersionQueCorre(aLas(9, 1), commit("1")), true, "el minuto siguiente la anota");
+  assert.equal(await resumen.anotarVersionQueCorre(aLas(9, 2), commit("1")), false, "la misma versión no se vuelve a anotar");
+  assert.equal(await resumen.anotarVersionQueCorre(aLas(14), commit("2")), true);
+  assert.deepEqual(JSON.parse(estado.ajustes.get(CLAVE_VERSIONES)), [
+    { version: commit("1"), desde: aLas(9, 1).toISOString() },
+    { version: commit("2"), desde: aLas(14).toISOString() },
+  ]);
+  // Las de hace más de 3 días se limpian al anotar una nueva; lo que no se entiende se descarta.
+  estado.ajustes.set(CLAVE_VERSIONES, JSON.stringify([{ version: commit("0"), desde: "2026-11-01T10:00:00Z" }, { nada: 1 }, { version: commit("2"), desde: aLas(14).toISOString() }]));
+  assert.equal(await resumen.anotarVersionQueCorre(aLas(15), commit("3")), true);
+  assert.deepEqual(JSON.parse(estado.ajustes.get(CLAVE_VERSIONES)).map((v) => v.version), [commit("2"), commit("3")]);
+  assert.deepEqual(resumen.versionesGuardadas("no es json"), []);
+  assert.deepEqual(await resumen.leerVersionesQueCorrieron(), JSON.parse(estado.ajustes.get(CLAVE_VERSIONES)));
+});
+
+await prueba("enviarResumenDiarioAlDueno con despliegues: el bloque va antes del link; si no se leen las versiones, sale igual sin «a mano»", async () => {
+  const TARDE = aLas(18, 30);
+  estado.ajustes.set("tablero:avisos-dueno:telefono:ws1", "573001112233");
+  estado.historial.push(
+    subidaDe("a", commit("a"), aLas(10)),
+    subidaDe("b", commit("b"), aLas(19)),
+    devuelta("c", "Revertida: el bot dejó de contestar", { commit: commit("c"), revert: commit("2"), ok: true }),
+  );
+  estado.ajustes.set(CLAVE_VERSIONES, JSON.stringify([{ version: commit("e"), desde: aLas(9).toISOString() }]));
+  assert.deepEqual(await resumen.enviarResumenDiarioAlDueno(TARDE), { enviados: 1 });
+  const lineas = estado.mensajes[0].text.split("\n");
+  assert.deepEqual(lineas.slice(4), [
+    "🚀 Despliegues: 2 del Coordinador (1 en horario de ventas), 1 a mano o de otros",
+    "↩️ Devueltas: 1 (el bot dejó de contestar)",
+    `📋 Ver lo trabajado hoy: https://app.aizenbot.com/cliente/tablero-ia?vista=terminados&dia=${DIA}`,
+  ]);
+  // La base no deja leer las versiones: el resumen sale igual, sin la parte de "a mano o de otros".
+  estado.mensajes.length = 0;
+  estado.ajustes.delete("tablero:resumen-diario:ultimo:ws1");
+  estado.ajustesQueFallan.add(CLAVE_VERSIONES);
+  assert.deepEqual(await resumen.enviarResumenDiarioAlDueno(TARDE), { enviados: 1 });
+  assert.equal(estado.mensajes[0].text.split("\n")[4], "🚀 Despliegues: 2 del Coordinador (1 en horario de ventas)");
+  const pantalla = await resumen.resumenDeHoyParaLaPantalla("ws1", TARDE);
+  assert.equal(pantalla.cifras.despliegues.deOtros, null);
+  estado.mensajes.length = 0;
 });
 
 assert.equal(resumen.enviarResumenDiarioSiToca, undefined, "el resumen ya no se manda por WhatsApp");

@@ -24,7 +24,7 @@ import { aprobarPlanesListosQueEsperan, aprobarSolasLasPendientes } from "@/feat
 import { sincronizarCerebroDeTodos } from "@/features/cerebro/services/sincronizar-negocio";
 import { revisarAlertaDeConexion } from "@/features/cerebro/services/alerta-de-conexion";
 import { revisarAvisosAlDueno } from "@/features/tableros-inteligentes/services/avisos-al-dueno";
-import { enviarResumenDiarioAlDueno } from "@/features/tableros-inteligentes/services/resumen-diario";
+import { anotarVersionQueCorre, enviarResumenDiarioAlDueno } from "@/features/tableros-inteligentes/services/resumen-diario";
 import { revisarAvisosDeTerminadas } from "@/features/tableros-inteligentes/services/avisos-de-terminadas";
 import { revisarAvisosAlEquipo } from "@/features/tableros-inteligentes/services/avisos-al-equipo";
 import { archivarLasHechas, archivarLasTerminadas } from "@/features/tableros-inteligentes/services/archivadas";
@@ -286,8 +286,10 @@ async function handleCron(request: Request) {
     } catch (error) {
       console.error("[cron/follows] avisos al dueno del tablero error", error);
     }
+    // Anota la versión que corre si es nueva (una lectura por arranque; nunca lanza): el resumen cuenta las subidas a mano o de otros.
+    await anotarVersionQueCorre();
     try {
-      // Resumen diario a Alexander (hasta 7 líneas con el link de lo trabajado, una vez al día, por la línea Admin).
+      // Resumen diario a Alexander (hasta 10 líneas con los despliegues y el link de lo trabajado, una vez al día, por la línea Admin).
       await enviarResumenDiarioAlDueno();
     } catch (error) {
       console.error("[cron/follows] resumen diario del tablero error", error);
