@@ -115,7 +115,7 @@ export function AvisoDeLlamada({
         <p className="min-w-0 flex-1 truncate text-[13px] leading-5 text-foreground">
           <span className="font-medium">{titulo}</span>
           <span className="text-muted-foreground">
-            {` · intento ${llamada.intento} · ${cuando(llamada.calledAt)}`}
+            {` · ${cuando(llamada.calledAt)}`}
             {llamada.pendiente ? " · falta decir cómo quedó" : ""}
           </span>
           {escrito ? <span className="text-muted-foreground">{` · “${escrito}”`}</span> : null}
