@@ -25,6 +25,7 @@ import {
   ZONAS_QUE_ARRANCAN_POR_VOZ,
   ZONAS_QUE_ARRANCAN_SOLAS,
 } from "./reglas-trabajador";
+import { PREFIJO_TABLEROS_ARCHIVADOS } from "./reglas";
 
 const AHORA = `($2::timestamptz AT TIME ZONE 'UTC')`;
 
@@ -244,7 +245,18 @@ const CONDICION_DE_LA_VIA = `(
     )`;
 
 /**
- * Lo que se pide para tomar, MENOS la vía de la aprobación: solo tipos con aprobación, con repo de la lista
+ * El tablero `b` NO está archivado (10-nov-2026, services/tableros-archivados.ts): la lista vive en AppSetting
+ * `tablero-ia:archivados:<workspaceId>` como JSON con los ids. Se busca el id entre comillas en el texto (no se lee
+ * como JSON: un valor dañado no rompe /tomar). Un tablero archivado no reparte trabajo.
+ */
+export const TABLERO_NO_ARCHIVADO = `NOT EXISTS (
+      SELECT 1 FROM "AppSetting" s
+      WHERE s."key" = '${PREFIJO_TABLEROS_ARCHIVADOS.replace(/[^A-Za-z0-9:_-]/g, "")}' || b."workspaceId"
+        AND strpos(s."value", '"' || b."id" || '"') > 0
+    )`;
+
+/**
+ * Lo que se pide para tomar, MENOS la vía de la aprobación (y solo de tableros sin archivar, TABLERO_NO_ARCHIVADO): solo tipos con aprobación, con repo de la lista
  * (`repos`, el parámetro text[]), sin borrar, en APROBADO, PLAN_APROBADO (con plan) o SUBIENDO pendiente (sin
  * candado). Una APROBADO o PLAN_APROBADO con una dependencia sin terminar (flecha esDependencia cuyo origen, sin
  * borrar y de un tipo con estados, no está HECHO) espera (un Área no tiene estado y bloquearía para siempre); una
@@ -252,6 +264,7 @@ const CONDICION_DE_LA_VIA = `(
  */
 const whereSinLaVia = (repos: string) => `
   WHERE b."workspaceId" = $1
+    AND ${TABLERO_NO_ARCHIVADO}
     AND c."borradoEn" IS NULL
     AND k."requiereAprobacion" AND k."usaEstados"
     AND c."repo" = ANY(${repos}::text[])

@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { porQueElPlanNuevoEsperaTuSi, porQueLaTareaEsperaTuSi, porQueNoSeApruebaSola } from "./reglas-riesgo";
 import { esDuenoDelNegocio, tareaAprobadaPorElDuenoEnElHistorial, zonasQueNoArrancanSolas } from "./reglas-trabajador";
+import { estaArchivado, idsDeTodosLosTablerosArchivados } from "./tableros-archivados";
 
 /*
   APROBACIÓN AUTOMÁTICA del Tablero IA (22-oct-2026, decisión de Alexander: "las cosas básicas que
@@ -257,6 +258,8 @@ export async function aprobarSolaLaTarea(tarjetaId: string): Promise<ResultadoDe
   if (tarjeta.estado !== "POR_APROBAR") return { aprobada: false, porQue: `está ${tarjeta.estado}, no POR_APROBAR` };
   if (!tarjeta.tipo.requiereAprobacion || !tarjeta.tipo.usaEstados) return { aprobada: false, porQue: "su tipo no pide aprobación" };
   const workspaceId = tarjeta.tablero.workspaceId;
+  // Un tablero archivado no avanza nada (tableros-archivados.ts): ni la aprobación sola.
+  if (await estaArchivado(workspaceId, tarjeta.tableroId)) return { aprobada: false, porQue: "su tablero está archivado" };
   const reglaDelDueno = await aprobarTareasSoloPrendido(workspaceId);
   let motivo: string;
   let registro: ReturnType<typeof registroDeAprobacionAutomatica>;
@@ -314,8 +317,10 @@ export async function aprobarSolaLaTarea(tarjetaId: string): Promise<ResultadoDe
  * No hace nada en un negocio con los dos interruptores apagados. Devuelve cuántas.
  */
 export async function aprobarSolasLasPendientes(limite = 200): Promise<number> {
+  // Las de un tablero archivado se quedan como están (y no ocupan la vuelta de las demás).
+  const archivados = await idsDeTodosLosTablerosArchivados();
   const pendientes = await prisma.tarjetaTablero.findMany({
-    where: { estado: "POR_APROBAR", repo: { not: null }, borradoEn: null },
+    where: { estado: "POR_APROBAR", repo: { not: null }, borradoEn: null, ...(archivados.length ? { tableroId: { notIn: archivados } } : {}) },
     orderBy: { actualizadoEn: "asc" },
     take: limite,
     select: { id: true, riesgo: true, tablero: { select: { workspaceId: true } } },

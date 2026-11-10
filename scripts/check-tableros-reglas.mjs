@@ -2553,6 +2553,8 @@ prueba("el código T-123 llega a la tarjeta, al cuadrito, a la ficha y al MCP", 
       findMany: async ({ where }) => historial.filter((fila) => fila.tarjetaId === where.tarjetaId && (!where.accion || fila.accion === where.accion)),
     },
     tableroInteligente: { update: async () => undefined, updateMany: async () => ({ count: 1 }) },
+    // Tableros archivados (10-nov-2026): en esta prueba no hay ninguno.
+    appSetting: { findUnique: async () => null },
     $transaction: async (fn) => fn(falso),
   };
   const servicio = cargar("src/features/tableros-inteligentes/services/trabajador.ts", {

@@ -17,6 +17,7 @@ import {
 } from "./avisos-al-dueno";
 import { EMPIEZA_URGENTE, esUrgente } from "./reglas-trabajador";
 import { linkDeLaTarjeta } from "./tableros";
+import { dondeTableroVivo } from "./tableros-archivados";
 
 /*
   AVISOS AL EQUIPO por WhatsApp (27-oct-2026). Decisión del dueño: que la gente se entere sin abrir el tablero.
@@ -339,7 +340,8 @@ async function leerTarjetas(workspaceId: string): Promise<TarjetaParaAvisar[]> {
   const filas = await prisma.tarjetaTablero.findMany({
     where: {
       borradoEn: null,
-      tablero: { workspaceId },
+      // Las de un tablero archivado no le avisan a nadie (tableros-archivados.ts).
+      tablero: await dondeTableroVivo({ workspaceId }),
       OR: [{ responsableId: { not: null }, estado: { notIn: [...ESTADOS_TERMINADOS] } }, { estado: { in: [...ESTADOS_QUE_ESPERAN] } }],
     },
     select: {

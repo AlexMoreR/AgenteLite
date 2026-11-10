@@ -116,6 +116,7 @@ import {
 } from "./sql-trabajador";
 import { QUIEN_TRABAJADOR, linkDeLaTarjeta } from "./tableros";
 import { cerrarLaMadreDeLaParte, cerrarLaMadreSiToca as cerrarMadrePartida } from "./madre-partida";
+import { dondeTableroVivo } from "./tableros-archivados";
 
 /*
   EL TRABAJADOR del Tablero IA (fase 2, 20-oct-2026): lo que hace la API /api/trabajador/tablero/*.
@@ -640,7 +641,8 @@ export async function candidatasDelTrabajador(contexto: ContextoTrabajador) {
  */
 export async function erroresDelTrabajador(contexto: ContextoTrabajador) {
   const filas = await prisma.tarjetaTablero.findMany({
-    where: { estado: "ERROR", borradoEn: null, repo: { in: [...REPOS_DEL_TRABAJADOR] }, tablero: { workspaceId: contexto.workspaceId } },
+    // Las de un tablero archivado no se recogen (tableros-archivados.ts): ese tablero no reparte trabajo.
+    where: { estado: "ERROR", borradoEn: null, repo: { in: [...REPOS_DEL_TRABAJADOR] }, tablero: await dondeTableroVivo(contexto) },
     orderBy: { actualizadoEn: "asc" },
     take: 50,
     select: SELECT_PARA_TRABAJAR,
@@ -685,7 +687,7 @@ export async function erroresDelTrabajador(contexto: ContextoTrabajador) {
  */
 export async function porRevisarDelTrabajador(contexto: ContextoTrabajador) {
   const filas = await prisma.tarjetaTablero.findMany({
-    where: { estado: "POR_REVISAR", borradoEn: null, repo: { in: [...REPOS_DEL_TRABAJADOR] }, tablero: { workspaceId: contexto.workspaceId } },
+    where: { estado: "POR_REVISAR", borradoEn: null, repo: { in: [...REPOS_DEL_TRABAJADOR] }, tablero: await dondeTableroVivo(contexto) },
     orderBy: { actualizadoEn: "asc" },
     take: 50,
     select: SELECT_PARA_TRABAJAR,

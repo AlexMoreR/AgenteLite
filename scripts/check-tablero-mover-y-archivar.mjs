@@ -3,11 +3,16 @@
 //     una madre permitida a un tipo (editarTipo) no cambia el estado ni la aprobación de ninguna tarjeta.
 //  2. Mover una tarjeta (de qué cuelga, área, orden, fecha, responsable) no le quita la aprobación ni el plan, se puede
 //     aunque el Coordinador la tenga (sin escribir su estado) y queda marcado como movimiento en el historial.
-// Carga el services/tableros.ts REAL y los manejadores MCP reales (src/lib/mcp/tableros-inteligentes.ts).
-// No necesita base ni red.
+//  3. "Eliminar tablero" lo archiva en AppSetting (tablero-ia:archivados:<workspaceId>): solo el dueño, con el nombre
+//     exacto y sin tarjetas en marcha; el archivado no sale en la pantalla ni en el MCP, no cuenta en "Te toca a ti" y el
+//     Coordinador no toma sus tarjetas (las consultas reales de sql-trabajador.ts en un Postgres embebido, PGlite).
+// Carga el services/tableros.ts REAL, services/tableros-archivados.ts y los manejadores MCP reales
+// (src/lib/mcp/tableros-inteligentes.ts). No necesita base ni red.
 // Correr: npm run test:tablero-mover-y-archivar
 import assert from "node:assert/strict";
-import { cargar } from "./supervisor-cargar.mjs";
+import fs from "node:fs";
+import path from "node:path";
+import { cargar, RAIZ } from "./supervisor-cargar.mjs";
 
 /* ------------------------------------------------------------------ prisma falso */
 
@@ -683,5 +688,246 @@ await prueba("los textos del MCP explican la regla de mover en editar_tarjeta", 
   assert.match(editar.description, /CONSERVA su estado/);
   assert.match(editar.description, /sin interrumpir su trabajo/);
 });
+
+/* ------------------------------------------------------------------ 3. eliminar tablero = archivarlo */
+
+seccion("eliminar un tablero lo archiva (AppSetting), no borra nada");
+
+const archivados = cargar("src/features/tableros-inteligentes/services/tableros-archivados.ts", mocks);
+const yo = { workspaceId: "ws1", userId: "u-dueno", esDueno: true };
+const ana = { workspaceId: "ws1", userId: "u-ana", esDueno: false };
+const CLAVE = "tablero-ia:archivados:ws1";
+const lista = () => JSON.parse(estado.ajustes.get(CLAVE) ?? "[]");
+
+/** Un tablero "Viejo" (tb2) con tarjetas que no frenan el archivado, y el tb1 de siempre. */
+function conTableroViejo() {
+  tableroDePrueba("tb2");
+  estado.tableros.get("tb2").nombre = "Viejo";
+  tarjeta("v-area", { tableroId: "tb2", tipo: "area", titulo: "Ventas" });
+  tarjeta("v-idea", { tableroId: "tb2", tipo: "idea", padreId: "v-area", estado: "IDEA" });
+  tarjeta("v-por", { tableroId: "tb2", padreId: "v-idea", estado: "POR_APROBAR", repo: "aizencrm", responsableId: "u-ana" });
+  tarjeta("v-hecho", { tableroId: "tb2", padreId: "v-idea", estado: "HECHO", repo: "aizencrm" });
+  tarjeta("v-fallida", { tableroId: "tb2", padreId: "v-idea", estado: "FALLIDO" });
+  tarjeta("v-error", { tableroId: "tb2", padreId: "v-idea", estado: "ERROR", repo: "aizencrm" });
+  // Aprobadas, pero borrada una y archivada la otra: no frenan.
+  tarjeta("v-borrada", { tableroId: "tb2", estado: "APROBADO", borradoEn: new Date("2026-11-01T00:00:00Z") });
+  tarjeta("v-archivada", { tableroId: "tb2", estado: "PLAN_LISTO", archivadaEn: new Date("2026-11-01T00:00:00Z") });
+}
+
+await prueba("solo el dueño del negocio, con el nombre exacto escrito; si no, no guarda nada", async () => {
+  conTableroViejo();
+  await rechaza(archivados.archivarTablero(ana, "tb2", "Viejo"), /solo el dueño del negocio/);
+  await rechaza(archivados.archivarTablero(yo, "tb2", "viejo"), /escribe el nombre exacto del tablero: Viejo/);
+  await rechaza(archivados.archivarTablero(yo, "tb2", ""), /escribe el nombre exacto/);
+  await rechaza(archivados.archivarTablero(yo, "no-existe", "Viejo"), /No existe ese tablero/);
+  assert.equal(estado.ajustes.has(CLAVE), false);
+});
+
+for (const frena of ["APROBADO", "PLANEANDO", "PLAN_LISTO", "PLAN_APROBADO", "EN_CURSO", "POR_REVISAR", "SUBIENDO"]) {
+  await prueba(`no se archiva con una tarjeta viva en ${frena}: dice cuál (código y título)`, async () => {
+    conTableroViejo();
+    tarjeta("v-frena", { tableroId: "tb2", numero: 412, titulo: "Cambiar el guion", estado: frena, repo: "aizencrm" });
+    await rechaza(archivados.archivarTablero(yo, "tb2", "Viejo"), (fallo) => {
+      assert.match(fallo.message, /No se puede eliminar: tiene 1 tarjeta\(s\)/);
+      assert.match(fallo.message, /T-412 «Cambiar el guion»/);
+      return true;
+    });
+    assert.equal(estado.ajustes.has(CLAVE), false);
+  });
+}
+
+await prueba("con muchas en marcha nombra 10 y dice cuántas más", async () => {
+  conTableroViejo();
+  for (let i = 1; i <= 12; i += 1) tarjeta(`m${i}`, { tableroId: "tb2", numero: i, titulo: `Tarea ${i}`, estado: "APROBADO", repo: "aizencrm" });
+  await rechaza(archivados.archivarTablero(yo, "tb2", "Viejo"), /tiene 12 tarjeta\(s\).*T-10 «Tarea 10».* y 2 más\./);
+});
+
+await prueba("archivar: guarda { tableroId, archivadoEn, archivadoPor } y no toca ninguna tarjeta", async () => {
+  conTableroViejo();
+  const antes = JSON.stringify([...estado.tarjetas.values()]);
+  const historialAntes = estado.historial.length;
+  const r = await archivados.archivarTablero(yo, "tb2", "  Viejo  ", new Date("2026-11-10T15:00:00Z"));
+  assert.deepEqual(r, { id: "tb2", nombre: "Viejo" });
+  assert.deepEqual(lista(), [{ tableroId: "tb2", archivadoEn: "2026-11-10T15:00:00.000Z", archivadoPor: "u-dueno" }]);
+  assert.equal(JSON.stringify([...estado.tarjetas.values()]), antes, "las tarjetas quedan igual");
+  assert.equal(estado.historial.length, historialAntes);
+  assert.equal(estado.tableros.get("tb2").actualizadoEn.toISOString(), "2026-11-10T15:00:00.000Z", "toca la hora del tablero (refresco)");
+  await rechaza(archivados.archivarTablero(yo, "tb2", "Viejo"), /ya está archivado/);
+});
+
+await prueba("archivado: no sale en listarTableros ni en listar_tableros, y la firma de la lista cambia", async () => {
+  conTableroViejo();
+  const firmaAntes = await tableros.firmaDeLosTableros(dueno);
+  await archivados.archivarTablero(yo, "tb2", "Viejo");
+  assert.deepEqual((await tableros.listarTableros(dueno)).map((t) => t.id), ["tb1"]);
+  const mcpLista = await llamar("listar_tableros", {});
+  assert.deepEqual(mcpLista.tableros.map((t) => t.tablero_id), ["tb1"]);
+  assert.notEqual(await tableros.firmaDeLosTableros(dueno), firmaAntes);
+  assert.match(await tableros.firmaDeLosTableros(dueno), /\|1$/, "cuenta uno");
+});
+
+await prueba("archivado: abrirlo por id (ver_tablero, crear_tarjeta, listar_tipos, renombrar) dice que está archivado", async () => {
+  conTableroViejo();
+  await archivados.archivarTablero(yo, "tb2", "Viejo");
+  await rechaza(llamar("ver_tablero", { tablero_id: "tb2" }), /está archivado/);
+  await rechaza(llamar("crear_tarjeta", { tablero_id: "tb2", titulo: "Nueva" }), /está archivado/);
+  await rechaza(llamar("listar_tipos", { tablero_id: "tb2" }), /está archivado/);
+  await rechaza(tableros.renombrarTablero(dueno, "tb2", "Otro nombre"), /está archivado/);
+  assert.equal(await tableros.firmaDelTablero(dueno, "tb2"), null, "la pantalla abierta lo ve como que ya no existe");
+  assert.ok(await tableros.firmaDelTablero(dueno, "tb1"));
+});
+
+await prueba("archivado: no cuenta en 'Te toca a ti' ni en 'Asignadas a mí'", async () => {
+  conTableroViejo();
+  tarjeta("t-por", { estado: "POR_APROBAR", repo: "aizencrm", responsableId: "u-ana" });
+  const antes = (await tableros.pendientesDelDueno(dueno)).map((t) => t.id).sort();
+  assert.deepEqual(antes, ["t-por", "v-error", "v-fallida", "v-por"]);
+  assert.deepEqual((await tableros.asignadasA(dueno, "u-ana")).map((t) => t.id).sort(), ["t-por", "v-por"]);
+  await archivados.archivarTablero(yo, "tb2", "Viejo");
+  assert.deepEqual((await tableros.pendientesDelDueno(dueno)).map((t) => t.id), ["t-por"]);
+  assert.deepEqual((await tableros.asignadasA(dueno, "u-ana")).map((t) => t.id), ["t-por"]);
+  assert.equal(await tableros.tarjetaAsignada("ws1", "u-ana", "v-por"), null);
+});
+
+await prueba("un nombre ocupado por un tablero archivado lo dice al crear otro con el mismo nombre", async () => {
+  conTableroViejo();
+  await archivados.archivarTablero(yo, "tb2", "Viejo");
+  await rechaza(tableros.crearTablero(dueno, "viejo"), /Ya existe un tablero "Viejo".*está archivado: el dueño lo puede recuperar/);
+});
+
+await prueba("Tableros archivados y Recuperar: solo el dueño; vuelve tal como estaba", async () => {
+  conTableroViejo();
+  const antes = JSON.stringify([...estado.tarjetas.values()]);
+  await archivados.archivarTablero(yo, "tb2", "Viejo", new Date("2026-11-10T15:00:00Z"));
+  await rechaza(archivados.listarTablerosArchivados(ana), /solo el dueño del negocio/);
+  await rechaza(archivados.recuperarTablero(ana, "tb2"), /solo el dueño del negocio/);
+  const enLista = await archivados.listarTablerosArchivados(yo);
+  assert.equal(enLista.length, 1);
+  assert.equal(enLista[0].id, "tb2");
+  assert.equal(enLista[0].nombre, "Viejo");
+  assert.equal(enLista[0].archivadoPor, "Alex Dueño");
+  assert.equal(enLista[0].tarjetas, 6, "las vivas: sin la borrada ni la archivada");
+  await archivados.recuperarTablero(yo, "tb2");
+  assert.deepEqual(lista(), []);
+  assert.deepEqual((await tableros.listarTableros(dueno)).map((t) => t.id).sort(), ["tb1", "tb2"]);
+  assert.equal(JSON.stringify([...estado.tarjetas.values()]), antes, "las tarjetas quedan igual");
+  await rechaza(archivados.recuperarTablero(yo, "tb2"), /no está archivado/);
+  assert.deepEqual(await archivados.listarTablerosArchivados(yo), []);
+});
+
+await prueba("la lista guardada se lee con cuidado: un valor dañado no rompe nada y no repite tableros", async () => {
+  assert.deepEqual(reglas.leerTablerosArchivados("no es json"), []);
+  assert.deepEqual(reglas.leerTablerosArchivados('{"tableroId":"x"}'), []);
+  assert.deepEqual(reglas.leerTablerosArchivados(null), []);
+  assert.deepEqual(
+    reglas.leerTablerosArchivados('[{"tableroId":"a","archivadoEn":"x","archivadoPor":"u"},{"tableroId":"a"},{"nada":1},7,{"tableroId":"b"}]'),
+    [
+      { tableroId: "a", archivadoEn: "x", archivadoPor: "u" },
+      { tableroId: "b", archivadoEn: "", archivadoPor: "" },
+    ],
+  );
+  estado.ajustes.set(CLAVE, "dañado");
+  assert.deepEqual((await tableros.listarTableros(dueno)).map((t) => t.id), ["tb1"]);
+});
+
+await prueba("las server actions usan isOwner y la pantalla solo le muestra los botones al dueño del negocio", async () => {
+  const leer = (ruta) => fs.readFileSync(path.join(RAIZ, ruta), "utf8");
+  const acciones = leer("src/app/actions/tableros-inteligentes-actions.ts");
+  assert.match(acciones, /esDueno: access\.isOwner/);
+  for (const accion of ["archivarTableroAction", "recuperarTableroAction", "tablerosArchivadosAction"]) {
+    assert.match(acciones, new RegExp(`export async function ${accion}\\(`), accion);
+  }
+  assert.match(leer("src/app/cliente/tablero-ia/page.tsx"), /esDuenoDelNegocio: access\.isOwner/);
+  const dialogo = leer("src/features/tableros-inteligentes/components/DialogoDeTablero.tsx");
+  assert.match(dialogo, /const puedeEliminar = edicion\.modo === "renombrar" && cuentas\.esDuenoDelNegocio;/);
+  assert.match(dialogo, /variant="destructive"/);
+  assert.match(dialogo, /Eliminar tablero/);
+  assert.match(dialogo, /confirmacion\.trim\(\) !== edicion\.nombre/);
+  const selector = leer("src/features/tableros-inteligentes/components/SelectorDeTablero.tsx");
+  assert.match(selector, /cuentas\.esDuenoDelNegocio \? \(/);
+  assert.match(selector, /Tableros archivados/);
+  assert.match(leer("src/features/tableros-inteligentes/components/DialogoDeTablerosArchivados.tsx"), /Recuperar/);
+});
+
+await prueba("todo lo que reparte trabajo, avisa o resume filtra los tableros archivados", async () => {
+  const leer = (ruta) => fs.readFileSync(path.join(RAIZ, ruta), "utf8");
+  const debenFiltrar = [
+    "src/features/tableros-inteligentes/services/tableros.ts",
+    "src/features/tableros-inteligentes/services/trabajador.ts",
+    "src/features/tableros-inteligentes/services/archivadas.ts",
+    "src/features/tableros-inteligentes/services/avisos-al-dueno.ts",
+    "src/features/tableros-inteligentes/services/avisos-al-equipo.ts",
+    "src/features/tableros-inteligentes/services/avisos-de-terminadas.ts",
+    "src/features/tableros-inteligentes/services/resumen-diario.ts",
+    "src/features/tableros-inteligentes/services/coordinador-en-vivo.ts",
+    "src/features/tableros-inteligentes/services/aprobacion-automatica.ts",
+    "src/features/agentes-de-area/servicios/revision-de-sistemas.ts",
+    "src/lib/mcp/que-es-esta-aplicacion.ts",
+  ];
+  for (const ruta of debenFiltrar) assert.match(leer(ruta), /dondeTableroVivo|estaArchivado|idsDeTodosLosTablerosArchivados/, ruta);
+  // El Coordinador: /tomar, /candidatas y las que esperan la pantalla, en SQL.
+  const sqlTrabajador = cargar("src/features/tableros-inteligentes/services/sql-trabajador.ts");
+  for (const consulta of ["SQL_CANDIDATAS", "SQL_TOMAR_UNA", "SQL_FUERA_POR_LA_VIA"]) {
+    assert.ok(sqlTrabajador[consulta].includes(sqlTrabajador.TABLERO_NO_ARCHIVADO), consulta);
+  }
+});
+
+/* ------------------------------------------------------------------ 3b. el SQL del Coordinador, en un Postgres embebido */
+
+seccion("el Coordinador no toma tarjetas de un tablero archivado (PGlite, las consultas reales)");
+
+{
+  const { PGlite } = await import("@electric-sql/pglite");
+  const sqlTrabajador = cargar("src/features/tableros-inteligentes/services/sql-trabajador.ts");
+  const carpeta = path.join(RAIZ, "prisma", "migrations");
+  const db = new PGlite();
+  for (const nombre of fs.readdirSync(carpeta, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).sort()) {
+    await db.exec(fs.readFileSync(path.join(carpeta, nombre, "migration.sql"), "utf8"));
+  }
+  await db.exec(`
+    INSERT INTO "User" ("id", "email", "password", "updatedAt") VALUES ('u-dueno', 'dueno@x.co', 'x', now());
+    INSERT INTO "Workspace" ("id", "name", "slug", "updatedAt", "ownerId") VALUES ('ws1', 'Magilus', 'magilus', now(), 'u-dueno');
+    INSERT INTO "TableroInteligente" ("id", "workspaceId", "nombre") VALUES ('vivo', 'ws1', 'Ventas'), ('viejo', 'ws1', 'Viejo');
+    INSERT INTO "TipoTarjeta" ("id", "tableroId", "nombre", "requiereAprobacion", "usaEstados", "orden") VALUES
+      ('tarea-vivo', 'vivo', 'Tarea', true, true, 2), ('tarea-viejo', 'viejo', 'Tarea', true, true, 2);
+    INSERT INTO "TarjetaTablero" ("id", "tableroId", "titulo", "estado", "creadoPor", "actualizadoEn", "tipoId", "repo", "plan") VALUES
+      ('a-vivo', 'vivo', 'Una del tablero vivo', 'APROBADO', 'u-dueno', '2026-11-10 10:00:00', 'tarea-vivo', 'aizencrm', NULL),
+      ('a-viejo', 'viejo', 'Una del archivado', 'APROBADO', 'u-dueno', '2026-11-10 09:00:00', 'tarea-viejo', 'aizencrm', NULL),
+      ('p-viejo', 'viejo', 'Plan del archivado', 'PLAN_APROBADO', 'u-dueno', '2026-11-10 08:00:00', 'tarea-viejo', 'gestion', 'El plan');
+  `);
+  const REPOS = ["gestion", "aizencrm"];
+  const ids = async (texto, valores) => (await db.query(texto, valores)).rows.map((fila) => fila.id).sort();
+  const guardar = (valor) =>
+    db.query(
+      `INSERT INTO "AppSetting" ("key", "value", "updatedAt") VALUES ($1, $2, now()) ON CONFLICT ("key") DO UPDATE SET "value" = EXCLUDED."value"`,
+      [CLAVE, valor],
+    );
+
+  await prueba("sin archivados, /candidatas trae las de los dos tableros", async () => {
+    assert.deepEqual(await ids(sqlTrabajador.SQL_CANDIDATAS, ["ws1", REPOS]), ["a-viejo", "a-vivo", "p-viejo"]);
+  });
+
+  await prueba("archivado: /candidatas y /tomar no traen ni toman sus tarjetas", async () => {
+    await guardar(JSON.stringify([{ tableroId: "viejo", archivadoEn: "2026-11-10T15:00:00.000Z", archivadoPor: "u-dueno" }]));
+    assert.deepEqual(await ids(sqlTrabajador.SQL_CANDIDATAS, ["ws1", REPOS]), ["a-vivo"]);
+    const AHORA = "2026-11-10T15:00:00.000Z";
+    const VENCE = "2026-11-10T15:05:00.000Z";
+    assert.deepEqual(await ids(sqlTrabajador.SQL_TOMAR_UNA, ["ws1", AHORA, REPOS, VENCE, []]), ["a-vivo"]);
+    assert.deepEqual(await ids(sqlTrabajador.SQL_TOMAR_UNA, ["ws1", AHORA, REPOS, VENCE, []]), [], "ya no queda nada para tomar");
+    const viejas = (await db.query(`SELECT "estado" FROM "TarjetaTablero" WHERE "tableroId" = 'viejo' ORDER BY "id"`)).rows;
+    assert.deepEqual(viejas.map((fila) => fila.estado), ["APROBADO", "PLAN_APROBADO"], "las del archivado quedan como estaban");
+  });
+
+  await prueba("un valor dañado en AppSetting no rompe /tomar (no lee JSON: busca el id)", async () => {
+    await guardar("esto no es json");
+    assert.deepEqual(await ids(sqlTrabajador.SQL_CANDIDATAS, ["ws1", REPOS]), ["a-viejo", "p-viejo"]);
+  });
+
+  await prueba("recuperado: vuelve a repartir trabajo", async () => {
+    await guardar("[]");
+    assert.deepEqual(await ids(sqlTrabajador.SQL_CANDIDATAS, ["ws1", REPOS]), ["a-viejo", "p-viejo"]);
+  });
+  await db.close();
+}
 
 console.log(`\n${pruebas} pruebas, todas bien`);

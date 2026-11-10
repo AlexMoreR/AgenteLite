@@ -3,7 +3,8 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Network, Pencil, Plus } from "lucide-react";
+import { Archive, Network, Pencil, Plus } from "lucide-react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import type { GrupoDeContador } from "../services/niveles";
@@ -25,6 +26,7 @@ import { VistaDeHoy } from "./VistaDeHoy";
 import { TrabajosTerminados } from "./TrabajosTerminados";
 import { SeccionTrabajador } from "./SeccionTrabajador";
 import { useListaDeTableros } from "../hooks/useRefrescoDelTablero";
+import { DialogoDeTablerosArchivados } from "./DialogoDeTablerosArchivados";
 
 /*
   La PÁGINA DE INICIO de Tablero IA (/cliente/tablero-ia sin ?tablero, ?tarjeta ni ?area): una
@@ -90,6 +92,8 @@ export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar,
     [lista],
   );
   const [edicion, setEdicion] = useState<EdicionDeTablero | null>(null);
+  // "Tableros archivados" (solo el dueño del negocio): también acá, por si archivó todos y no hay selector a mano.
+  const [verArchivados, setVerArchivados] = useState(false);
   // Las pestañas "Tableros", "Hoy", "Coordinador en vivo" y "Trabajos terminados" (solo el dueño o el ADMIN las ven).
   const [vista, setVista] = useState<VistaDelInicio>(puedeAdministrar ? vistaInicial : "tableros");
   const enHoy = puedeAdministrar && vista === "hoy";
@@ -187,10 +191,18 @@ export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar,
             </h1>
             <p className="text-sm text-muted-foreground">Las ideas que arma Claude contigo, un tablero por tema.</p>
           </div>
-          <Button className="h-11 md:h-9" onClick={() => setEdicion({ modo: "crear" })}>
-            <Plus />
-            Nuevo tablero
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            {cuentas.esDuenoDelNegocio ? (
+              <Button variant="outline" className="h-11 md:h-9" onClick={() => setVerArchivados(true)}>
+                <Archive />
+                Tableros archivados
+              </Button>
+            ) : null}
+            <Button className="h-11 md:h-9" onClick={() => setEdicion({ modo: "crear" })}>
+              <Plus />
+              Nuevo tablero
+            </Button>
+          </div>
         </div>
 
         {tableros.length === 0 ? (
@@ -280,6 +292,18 @@ export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar,
           setEdicion(null);
           router.push(linkDelTableroEnPantalla(id));
         }}
+        alArchivar={(id) => {
+          setTableros((lista) => lista.filter((tablero) => tablero.id !== id));
+          setEdicion(null);
+          toast.success("Tablero eliminado: quedó en Tableros archivados");
+          router.refresh();
+        }}
+      />
+
+      <DialogoDeTablerosArchivados
+        abierto={verArchivados}
+        alCerrar={() => setVerArchivados(false)}
+        alRecuperar={() => router.refresh()}
       />
     </div>
   );

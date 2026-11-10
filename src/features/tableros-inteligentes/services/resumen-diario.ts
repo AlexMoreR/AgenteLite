@@ -4,6 +4,7 @@ import { resumenCorto, tituloCorto } from "./resumen-corto";
 import { avisosPrendidos, enSilencioDeAvisos, enviarAlDueno } from "./avisos-al-dueno";
 import { leerCuposDelDia, type CuposDelDia } from "./coordinador-en-vivo";
 import { linkDeTerminadosDelDia, pendientesDelDueno, todoElNegocio } from "./tableros";
+import { dondeTableroVivo } from "./tableros-archivados";
 
 /*
   RESUMEN DIARIO del Tablero IA (22-oct-2026; formato corto el 26-oct-2026). Es el texto corto de 2 líneas que se
@@ -252,7 +253,8 @@ export async function resumenDelDia(workspaceId: string, dia: string): Promise<R
   const filas = await prisma.historialTarjeta.findMany({
     where: {
       creadoEn: { gte: desde, lt: hasta },
-      tarjeta: { tablero: { workspaceId } },
+      // Lo de un tablero archivado no cuenta en el resumen (tableros-archivados.ts).
+      tarjeta: { tablero: await dondeTableroVivo({ workspaceId }) },
       OR: [{ accion: "aprobar", quien: QUIEN_AUTOMATICO }, { accion: "estado", origen: "TRABAJADOR" }],
     },
     orderBy: { creadoEn: "asc" },
@@ -290,7 +292,7 @@ export async function cuantasChocaronConMain(workspaceId: string, dia: string): 
     where: {
       creadoEn: { gte: desde, lt: hasta },
       categoria: { in: [...CATEGORIAS_DE_CHOQUE_CON_MAIN] },
-      tarjeta: { tablero: { workspaceId } },
+      tarjeta: { tablero: await dondeTableroVivo({ workspaceId }) },
     },
     distinct: ["tarjetaId"],
     select: { tarjetaId: true },
@@ -367,7 +369,7 @@ export async function vistaDeHoy(workspaceId: string, ahora = new Date()): Promi
   const ids = [...idsListas, ...idsProblema];
   const filas = ids.length
     ? await prisma.tarjetaTablero.findMany({
-        where: { id: { in: ids }, borradoEn: null, tablero: { workspaceId } },
+        where: { id: { in: ids }, borradoEn: null, tablero: await dondeTableroVivo({ workspaceId }) },
         select: { id: true, titulo: true, detalle: true, plan: true, resultado: true },
       })
     : [];

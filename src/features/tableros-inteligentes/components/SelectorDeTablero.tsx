@@ -2,7 +2,8 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, ChevronDown, LayoutGrid, Loader2, Pencil, Plus } from "lucide-react";
+import { toast } from "sonner";
+import { Archive, Check, ChevronDown, LayoutGrid, Loader2, Pencil, Plus } from "lucide-react";
 
 import { TituloDeLaBarra } from "@/components/breadcrumb-label-context";
 import {
@@ -24,6 +25,7 @@ import {
   type CuentasDeTableros,
   type EdicionDeTablero,
 } from "./DialogoDeTablero";
+import { DialogoDeTablerosArchivados } from "./DialogoDeTablerosArchivados";
 
 /*
   El título de la barra superior en el diagrama de Tablero IA: el NOMBRE del tablero abierto, que al
@@ -36,6 +38,9 @@ import {
   Tableros por cuenta: cada persona ve los suyos y tiene el lápiz "Cambiar nombre" en ellos y
   "+ Nuevo tablero"; el dueño (o el ADMIN de la plataforma) ve todos, con "de Emanuel Diaz" en los
   ajenos, y el lápiz en todos. Los dos abren el mismo diálogo (DialogoDeTablero).
+
+  Tableros archivados (10-nov-2026): el dueño del negocio elimina un tablero desde "Cambiar nombre" (queda archivado,
+  no se borra) y lo recupera con "Tableros archivados", al final de esta lista. Nadie más ve esas dos cosas.
 */
 
 type Props = {
@@ -47,14 +52,17 @@ type Props = {
   alAbrir: () => Promise<void>;
   /** Un tablero renombrado desde acá: se cambia en la lista sin esperar el refresco. */
   alRenombrar: (id: string, cambio: Partial<TableroResumen>) => void;
+  /** Un tablero eliminado (archivado) desde acá: sale de la lista sin esperar el refresco. */
+  alQuitar: (id: string) => void;
 };
 
 const tarjetasEnTexto = (cuantas: number) => (cuantas === 1 ? "1 tarjeta" : `${cuantas} tarjetas`);
 
-export function SelectorDeTablero({ tableros, tableroId, cuentas, alAbrir, alRenombrar }: Props) {
+export function SelectorDeTablero({ tableros, tableroId, cuentas, alAbrir, alRenombrar, alQuitar }: Props) {
   const router = useRouter();
   const [cargando, setCargando] = useState(false);
   const [edicion, setEdicion] = useState<EdicionDeTablero | null>(null);
+  const [verArchivados, setVerArchivados] = useState(false);
   // El menú se cierra en el mismo clic que abre el diálogo: así sabe que el foco no vuelve a la barra.
   const conDialogo = useRef(false);
 
@@ -171,6 +179,18 @@ export function SelectorDeTablero({ tableros, tableroId, cuentas, alAbrir, alRen
             <LayoutGrid className="size-4 shrink-0" aria-hidden />
             Todos los tableros
           </DropdownMenuItem>
+          {cuentas.esDuenoDelNegocio ? (
+            <DropdownMenuItem
+              onClick={() => {
+                conDialogo.current = true;
+                setVerArchivados(true);
+              }}
+              className="min-h-11 gap-2 md:min-h-10"
+            >
+              <Archive className="size-4 shrink-0" aria-hidden />
+              Tableros archivados
+            </DropdownMenuItem>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
 
@@ -188,6 +208,23 @@ export function SelectorDeTablero({ tableros, tableroId, cuentas, alAbrir, alRen
         alCrear={(id) => {
           setEdicion(null);
           router.push(linkDelTableroEnPantalla(id));
+        }}
+        alArchivar={(id) => {
+          setEdicion(null);
+          alQuitar(id);
+          toast.success("Tablero eliminado: quedó en Tableros archivados");
+          // El abierto ya no existe en la pantalla: vuelve al inicio.
+          if (id === tableroId) router.push(RUTA_DEL_INICIO);
+          else router.refresh();
+        }}
+      />
+
+      <DialogoDeTablerosArchivados
+        abierto={verArchivados}
+        alCerrar={() => setVerArchivados(false)}
+        alRecuperar={() => {
+          void refrescar();
+          router.refresh();
         }}
       />
     </TituloDeLaBarra>

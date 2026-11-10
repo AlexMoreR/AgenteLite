@@ -15,6 +15,7 @@ import { tareaAprobadaPorElDueno } from "./aprobacion-automatica";
 import { porQueElPlanNuevoEsperaTuSi, porQueLaTareaEsperaTuSi } from "./reglas-riesgo";
 import { REPOS_DEL_TRABAJADOR, textoDeAprobarEnPantalla, zonasQueEsperanLaPantalla, zonasQueNoArrancanSolas } from "./reglas-trabajador";
 import { SQL_FUERA_POR_LA_VIA } from "./sql-trabajador";
+import { dondeTableroVivo } from "./tableros-archivados";
 import { tituloCorto } from "./resumen-corto";
 import { linkDeHoy, linkDeLaTarjeta, linkDelCoordinador, pendientesDelDueno, todoElNegocio } from "./tableros";
 
@@ -570,7 +571,8 @@ async function aprobadasFueraPorLaVia(workspaceId: string): Promise<TarjetaFuera
 }
 
 export async function leerSituacion(workspaceId: string): Promise<SituacionDeSistemas> {
-  const alcance = { borradoEn: null, tablero: { workspaceId } };
+  // Lo de un tablero archivado no avisa (tableros-archivados.ts).
+  const alcance = { borradoEn: null, tablero: await dondeTableroVivo({ workspaceId }) };
   const [latido, enCursoFilas, enFila, pendientes, fueraPorLaVia] = await Promise.all([
     ultimoLatido(workspaceId),
     prisma.tarjetaTablero.findMany({

@@ -402,6 +402,86 @@ export function problemaDelNombreDeTablero(
   return igual ? `Ya existe un tablero "${igual.nombre}". Elige otro nombre.` : null;
 }
 
+/*
+  TABLEROS ARCHIVADOS (10-nov-2026): el botón "Eliminar tablero" del dueño no borra nada, lo ARCHIVA. Sin
+  migración: la lista vive en AppSetting `tablero-ia:archivados:<workspaceId>` como JSON
+  [{ tableroId, archivadoEn, archivadoPor }]. Las tarjetas no se tocan. Un tablero archivado no sale en la
+  pantalla ni en listar_tableros, el Coordinador no toma sus tarjetas y no cuenta en avisos ni resúmenes
+  (services/tableros-archivados.ts). Lo recupera solo el dueño, desde "Tableros archivados".
+*/
+
+export const PREFIJO_TABLEROS_ARCHIVADOS = "tablero-ia:archivados:";
+export const claveDeTablerosArchivados = (workspaceId: string) => `${PREFIJO_TABLEROS_ARCHIVADOS}${workspaceId}`;
+
+export type TableroArchivado = { tableroId: string; archivadoEn: string; archivadoPor: string };
+
+/** La lista guardada, leída y limpia (sin repetidos). Un valor dañado no rompe nada: queda vacía. */
+export function leerTablerosArchivados(valor: string | null | undefined): TableroArchivado[] {
+  if (!valor) return [];
+  try {
+    const dato: unknown = JSON.parse(valor);
+    if (!Array.isArray(dato)) return [];
+    const vistos = new Set<string>();
+    const lista: TableroArchivado[] = [];
+    for (const item of dato) {
+      if (typeof item !== "object" || item === null) continue;
+      const { tableroId, archivadoEn, archivadoPor } = item as Record<string, unknown>;
+      if (typeof tableroId !== "string" || !tableroId || vistos.has(tableroId)) continue;
+      vistos.add(tableroId);
+      lista.push({
+        tableroId,
+        archivadoEn: typeof archivadoEn === "string" ? archivadoEn : "",
+        archivadoPor: typeof archivadoPor === "string" ? archivadoPor : "",
+      });
+    }
+    return lista;
+  } catch {
+    return [];
+  }
+}
+
+/** Mientras el tablero tenga tarjetas vivas en estos estados (aprobadas o con el Coordinador), no se archiva. */
+export const ESTADOS_QUE_FRENAN_ARCHIVAR = [
+  "APROBADO",
+  "PLANEANDO",
+  "PLAN_LISTO",
+  "PLAN_APROBADO",
+  "EN_CURSO",
+  "POR_REVISAR",
+  "SUBIENDO",
+] as const satisfies readonly EstadoTarjetaTablero[];
+
+export const SOLO_EL_DUENO_ARCHIVA = "Eliminar (archivar) y recuperar un tablero lo hace solo el dueño del negocio.";
+
+/** Cuántas tarjetas en marcha se nombran en el mensaje (las demás van como "y N más"). */
+const MAX_EN_EL_MENSAJE = 10;
+
+/**
+ * ¿Se puede archivar el tablero? Solo el dueño del negocio, escribiendo el nombre exacto del tablero, y sin
+ * tarjetas vivas en ESTADOS_QUE_FRENAN_ARCHIVAR (`enMarcha`: esas, con su código y título). Devuelve el porqué o null.
+ */
+export function problemaParaArchivarTablero(pedido: {
+  esDueno: boolean;
+  nombre: string;
+  confirmacion: unknown;
+  enMarcha: { codigo: string; titulo: string; estado: EstadoTarjetaTablero }[];
+}): Veredicto {
+  if (!pedido.esDueno) return SOLO_EL_DUENO_ARCHIVA;
+  const escrito = typeof pedido.confirmacion === "string" ? pedido.confirmacion.trim() : "";
+  if (escrito !== pedido.nombre.trim()) {
+    return `Para eliminarlo, escribe el nombre exacto del tablero: ${pedido.nombre}.`;
+  }
+  if (pedido.enMarcha.length) {
+    const nombradas = pedido.enMarcha
+      .slice(0, MAX_EN_EL_MENSAJE)
+      .map((tarjeta) => `${tarjeta.codigo ? `${tarjeta.codigo} ` : ""}«${tarjeta.titulo}» (${NOMBRE_DEL_ESTADO[tarjeta.estado]})`)
+      .join(", ");
+    const mas = pedido.enMarcha.length > MAX_EN_EL_MENSAJE ? ` y ${pedido.enMarcha.length - MAX_EN_EL_MENSAJE} más` : "";
+    return `No se puede eliminar: tiene ${pedido.enMarcha.length} tarjeta(s) aprobadas o en manos del Coordinador: ${nombradas}${mas}. Primero termínalas, devuélvelas a Por aprobar o bórralas.`;
+  }
+  return null;
+}
+
 /** Una persona que puede ser dueña de un tablero: un miembro activo del negocio. */
 export type MiembroDelNegocio = { userId: string; nombre: string; email: string };
 

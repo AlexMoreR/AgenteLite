@@ -41,6 +41,7 @@ import {
   type OrigenCambio,
 } from "./reglas";
 import { archivarAlTerminar, estaTerminada } from "./archivadas";
+import { YA_ESTA_ARCHIVADO, dondeTableroVivo, estaArchivado, idsDeTablerosArchivados } from "./tableros-archivados";
 import {
   dependenciaHaceCiclo,
   esDuenoDelNegocio,
@@ -406,6 +407,8 @@ async function tableroDelNegocio(alcance: Alcance, tableroId: unknown) {
   if (!tablero) {
     throw new Error("No existe ese tablero en este negocio. Ver listar_tableros para los ids.");
   }
+  // Un tablero archivado (el dueño lo "eliminó") no se abre ni se le agrega nada: services/tableros-archivados.ts.
+  if (await estaArchivado(alcance.workspaceId, tablero.id)) throw new Error(YA_ESTA_ARCHIVADO);
   return aReferencia(tablero);
 }
 
@@ -558,7 +561,8 @@ async function revisarHijas(tarjetaId: string, tipoNuevoId: string, tipos: TipoV
 /** Los tableros que la persona alcanza, con su dueño y sus contadores. */
 export async function listarTableros(alcance: Alcance) {
   const filas = await prisma.tableroInteligente.findMany({
-    where: dondeTablero(alcance),
+    // Sin los archivados (el dueño los "eliminó"): no salen en la pantalla ni en listar_tableros.
+    where: await dondeTableroVivo(alcance),
     orderBy: { creadoEn: "asc" },
     select: {
       id: true,
@@ -647,7 +651,8 @@ export function firmaDeLaLista(tableros: { actualizadoEn: Date }[]) {
 /** Lo único que lee el refresco de 5 s de la lista cuando no cambió nada: un agregado indexado por negocio. */
 export async function firmaDeLosTableros(alcance: Alcance) {
   const fila = await prisma.tableroInteligente.aggregate({
-    where: dondeTablero(alcance),
+    // Archivar o recuperar cambia cuántos son (y toca la hora del tablero): la lista se refresca sola.
+    where: await dondeTableroVivo(alcance),
     _max: { actualizadoEn: true },
     _count: { _all: true },
   });
@@ -698,6 +703,8 @@ export async function listarTipos(alcance: Alcance, tableroId: unknown) {
 
 /** Lo único que lee el refresco de 5 s: una fila por clave primaria. */
 export async function firmaDelTablero(alcance: Alcance, tableroId: string) {
+  // Un tablero archivado responde como uno que ya no existe (la pantalla abierta vuelve al inicio).
+  if (await estaArchivado(alcance.workspaceId, tableroId)) return null;
   const fila = await prisma.tableroInteligente.findFirst({
     where: { id: tableroId, ...dondeTablero(alcance) },
     select: { actualizadoEn: true },
@@ -889,7 +896,7 @@ export async function asignadasA(alcance: Alcance, userId: string): Promise<Asig
   const filas = await prisma.tarjetaTablero.findMany({
     where: {
       responsableId: userId,
-      tablero: { workspaceId: alcance.workspaceId },
+      tablero: await dondeTableroVivo({ workspaceId: alcance.workspaceId }),
       ...NO_BORRADA,
       estado: { not: "HECHO" },
     },
@@ -923,7 +930,7 @@ export async function asignadasA(alcance: Alcance, userId: string): Promise<Asig
  */
 export async function tarjetaAsignada(workspaceId: string, userId: string, tarjetaId: string) {
   const fila = await prisma.tarjetaTablero.findFirst({
-    where: { id: tarjetaId, responsableId: userId, tablero: { workspaceId }, ...NO_BORRADA },
+    where: { id: tarjetaId, responsableId: userId, tablero: await dondeTableroVivo({ workspaceId }), ...NO_BORRADA },
     select: { ...SELECT_TARJETA, tablero: { select: { id: true, nombre: true } } },
   });
   if (!fila) return null;
@@ -938,7 +945,7 @@ export async function tarjetaAsignada(workspaceId: string, userId: string, tarje
  */
 export async function tarjetaArchivada(alcance: Alcance, tarjetaId: string) {
   const fila = await prisma.tarjetaTablero.findFirst({
-    where: { id: tarjetaId, ...NO_BORRADA, archivadaEn: { not: null }, tablero: dondeTablero(alcance) },
+    where: { id: tarjetaId, ...NO_BORRADA, archivadaEn: { not: null }, tablero: await dondeTableroVivo(alcance) },
     select: { ...SELECT_TARJETA, tablero: { select: { id: true, nombre: true } } },
   });
   if (!fila) return null;
@@ -985,9 +992,9 @@ export type PendienteVista = TarjetaVista & {
 export async function pendientesDelDueno(alcance: Alcance): Promise<PendienteVista[]> {
   const filas = await prisma.tarjetaTablero.findMany({
     where: {
-      // Las FALLIDO archivadas ya no esperan nada del dueño.
+      // Las FALLIDO archivadas ya no esperan nada del dueño (ni lo de un tablero archivado).
       ...VISIBLE,
-      tablero: dondeTablero(alcance),
+      tablero: await dondeTableroVivo(alcance),
       OR: [
         { estado: { in: ["POR_APROBAR", "PLAN_LISTO", "POR_REVISAR", "ERROR"] }, tipo: { requiereAprobacion: true, usaEstados: true } },
         { estado: "FALLIDO", tipo: { usaEstados: true } },
@@ -1039,10 +1046,22 @@ async function crearTiposPorDefecto(tx: Tx, tableroId: string) {
 }
 
 /** El nombre limpio, o un error si está vacío, es muy largo o ya es de otro tablero del negocio. */
-function nombreDeTablero(valor: unknown, existentes: { id: string; nombre: string }[], salvo?: string) {
+function nombreDeTablero(
+  valor: unknown,
+  existentes: { id: string; nombre: string }[],
+  salvo?: string,
+  archivados: readonly string[] = [],
+) {
   const problema = problemaDelNombreDeTablero(valor, existentes, salvo);
   if (problema) {
-    throw new Error(problema);
+    // Un tablero archivado no se ve, pero su nombre sigue ocupado: se dice dónde está.
+    const limpio = typeof valor === "string" ? valor.trim().toLowerCase() : "";
+    const igual = existentes.find((tablero) => tablero.id !== salvo && tablero.nombre.toLowerCase() === limpio);
+    throw new Error(
+      igual && archivados.includes(igual.id)
+        ? `${problema} Ese tablero está archivado: el dueño lo puede recuperar desde Tableros archivados.`
+        : problema,
+    );
   }
   return String(valor).trim();
 }
@@ -1094,7 +1113,7 @@ export async function crearTablero(contexto: ContextoTablero, nombre: unknown, d
     where: { workspaceId: contexto.workspaceId },
     select: { id: true, nombre: true },
   });
-  const limpio = nombreDeTablero(nombre, existentes);
+  const limpio = nombreDeTablero(nombre, existentes, undefined, await idsDeTablerosArchivados(contexto.workspaceId));
   if (existentes.length >= LIMITE_TABLEROS) {
     throw new Error(`Este negocio ya tiene ${LIMITE_TABLEROS} tableros, que es el máximo.`);
   }
@@ -1127,7 +1146,11 @@ export async function renombrarTablero(contexto: ContextoTablero, tableroId: unk
   if (!actual) {
     throw new Error("Ese tablero no existe en este negocio (ver listar_tableros).");
   }
-  const limpio = nombre === undefined ? actual.nombre : nombreDeTablero(nombre, existentes, actual.id);
+  if (await estaArchivado(contexto.workspaceId, actual.id)) throw new Error(YA_ESTA_ARCHIVADO);
+  const limpio =
+    nombre === undefined
+      ? actual.nombre
+      : nombreDeTablero(nombre, existentes, actual.id, await idsDeTablerosArchivados(contexto.workspaceId));
   const duenoNuevo = await duenoDeEntrada(contexto, dueno);
   const antes = aReferencia(actual);
   const cambia: Prisma.TableroInteligenteUncheckedUpdateInput = {};

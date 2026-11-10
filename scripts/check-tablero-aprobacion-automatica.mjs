@@ -56,6 +56,9 @@ const falso = {
   },
   appSetting: {
     findUnique: async ({ where }) => (estado.ajustes.has(where.key) ? { value: estado.ajustes.get(where.key) } : null),
+    // Tableros archivados (10-nov-2026): la vuelta del reloj lee las listas de todos los negocios.
+    findMany: async ({ where }) =>
+      [...estado.ajustes].filter(([key]) => key.startsWith(where.key.startsWith)).map(([key, value]) => ({ key, value })),
     upsert: async ({ where, create, update }) => {
       estado.ajustes.set(where.key, estado.ajustes.has(where.key) ? update.value : create.value);
     },
