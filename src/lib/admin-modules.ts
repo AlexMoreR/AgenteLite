@@ -175,20 +175,6 @@ export const adminModuleDefinitions = [
     group: "Cliente",
   },
   {
-    key: "automatizaciones",
-    label: "Automatizaciones",
-    description: "Mover leads en cantidad: crear, correr y detener reglas sobre un grupo de leads.",
-    path: "/cliente/automatizaciones",
-    group: "Cliente",
-  },
-  {
-    key: "coach",
-    label: "Coach",
-    description: "El coach de ventas: el jefe ve al equipo y cada asesora, solo lo suyo.",
-    path: "/cliente/equipo/coach",
-    group: "Cliente",
-  },
-  {
     key: "client_team",
     label: "Equipo",
     description: "Invita empleados y define que modulos puede usar cada uno.",

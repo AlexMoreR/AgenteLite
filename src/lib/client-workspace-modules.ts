@@ -18,7 +18,6 @@ export const clientAssignableModuleKeys = [
   "tableros_inteligentes",
   "reuniones",
   "client_official_api",
-  "automatizaciones",
 ] as const satisfies readonly AdminModuleKey[];
 
 export type ClientAssignableModuleKey = (typeof clientAssignableModuleKeys)[number];
