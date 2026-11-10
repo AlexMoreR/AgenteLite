@@ -1,5 +1,7 @@
 "use client";
 
+import { useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
 import { ChevronDown, Mic, MicOff, PhoneOff } from "lucide-react";
 
 import { ContactAvatar } from "@/components/chats/contact-avatar";
@@ -15,7 +17,22 @@ import type { EstadoLlamada } from "./useLlamada";
  *
  * No hay botón de "Altavoz": el navegador de un celular no deja elegir por dónde sale el audio
  * (eso es cosa del sistema), así que un botón ahí sería un adorno que no hace nada.
+ *
+ * Se dibuja con un PORTAL directo en `document.body`, no donde se monta `BotonLlamar`: el botón
+ * vive dentro de la cabecera del chat, y esa caja (`relative z-10` y `@container` en
+ * chat-conversation-panel.tsx) encierra cualquier `fixed` que tenga adentro. Sin el portal, la
+ * pantalla "completa" quedaba debajo de la cabecera de la bandeja (`z-30`, la búsqueda y los
+ * filtros) y se veían encima de la llamada. La capa `z-[110]` queda sobre los menús y el aviso de
+ * versión (`z-[100]`) y debajo del bloqueo de plan vencido (`z-[120]`) y del visor de fotos
+ * (`z-[200]`). El `<audio>` NO se mueve: sigue en BotonLlamar.tsx.
  */
+
+// Solo en el navegador: en el servidor no hay `document.body` y el portal rompería la carga.
+// Mismo truco del visor de fotos del chat (useSyncExternalStore: false en el servidor, true en el
+// cliente), sin setState dentro de un efecto.
+const suscribirNada = () => () => {};
+const enElCliente = () => true;
+const enElServidor = () => false;
 
 export function PanelDeLlamada({
   estado,
@@ -48,15 +65,17 @@ export function PanelDeLlamada({
   onColgar: () => void;
   onAlternarSilencio: () => void;
 }) {
-  if (estado === "libre") {
+  const montado = useSyncExternalStore(suscribirNada, enElCliente, enElServidor);
+
+  if (estado === "libre" || !montado) {
     return null;
   }
 
   const detalle = textoDeEstado(estado, segundos, motivoFin ?? null, Boolean(recienContesto));
 
   if (!expandido) {
-    return (
-      <div className="pointer-events-none fixed inset-x-0 bottom-4 z-[60] flex justify-center px-3 sm:inset-x-auto sm:right-4 sm:bottom-4 sm:justify-end">
+    return createPortal(
+      <div className="pointer-events-none fixed inset-x-0 bottom-4 z-[110] flex justify-center px-3 sm:inset-x-auto sm:right-4 sm:bottom-4 sm:justify-end">
         <div className="pointer-events-auto flex w-full max-w-sm items-center gap-3 rounded-2xl border border-border bg-card px-3 py-2.5 shadow-[0_24px_60px_-24px_rgba(15,23,42,0.45)]">
           {/* Toda la zona del nombre vuelve a la pantalla grande: es el gesto que uno intenta. */}
           <button
@@ -102,17 +121,18 @@ export function PanelDeLlamada({
           <BotonMicrofono silenciado={silenciado} activo={estado === "hablando"} onClick={onAlternarSilencio} />
           <BotonColgar onClick={onColgar} tamano="chico" />
         </div>
-      </div>
+      </div>,
+      document.body,
     );
   }
 
-  return (
+  return createPortal(
     /**
      * Fondo oscuro fijo, no el del tema: una llamada es un estado excepcional y conviene que se
      * note de un vistazo que la pantalla está "tomada". Es la misma convención de cualquier app
      * de teléfono.
      */
-    <div className="fixed inset-0 z-[60] flex flex-col items-center bg-slate-900 text-white">
+    <div className="fixed inset-0 z-[110] flex flex-col items-center bg-slate-900 text-white">
       <div className="flex w-full items-center justify-between px-4 pt-[max(1rem,env(safe-area-inset-top))]">
         <button
           type="button"
@@ -181,7 +201,8 @@ export function PanelDeLlamada({
           <span className="text-xs text-white/70">Finalizar</span>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
