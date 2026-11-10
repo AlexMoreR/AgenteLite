@@ -82,6 +82,8 @@ const MOTORES_POR_DEFECTO = { planear: "claude", construir: "claude", revisar: "
 
 /** Cuántas tarjetas a la vez como mucho EN AIZEN1 (22-oct-2026). El CRM tampoco da más de 12 en total (aizen1 + nube). */
 const MAXIMO_EN_PARALELO = 5;
+/** Lo mínimo que se espera a que /api/version diga el commit nuevo antes de decir "no arrancó" y deshacer. */
+export const PISO_VERSION_MINUTOS = 15;
 
 /**
  * Tareas grandes y de desborde a la nube con `claude --cloud` (25-oct-2026, decisión del dueño). Reglas fijas, sin IA:
@@ -376,7 +378,9 @@ export function completarConfig(datos, base = process.cwd()) {
             typeof repo.subida?.workflowDespliegue === "string" && repo.subida.workflowDespliegue.trim() ? repo.subida.workflowDespliegue.trim() : null,
           urlVersion: typeof repo.subida?.urlVersion === "string" ? repo.subida.urlVersion : null,
           campoVersion: typeof repo.subida?.campoVersion === "string" ? repo.subida.campoVersion : "version",
-          versionMinutos: Number(repo.subida?.versionMinutos) || 10,
+          // Piso de 15 min (10-11-2026): el servidor nuevo del CRM tarda ~10 min en tomar la versión después
+          // del CI. Con 8 el Coordinador se rendía antes y deshacía cambios que sí arrancaban.
+          versionMinutos: Math.max(Number(repo.subida?.versionMinutos) || PISO_VERSION_MINUTOS, PISO_VERSION_MINUTOS),
           urlArranque: typeof repo.subida?.urlArranque === "string" ? repo.subida.urlArranque : null,
         },
       };

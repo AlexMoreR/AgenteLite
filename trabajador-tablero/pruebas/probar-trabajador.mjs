@@ -407,6 +407,10 @@ await prueba("agentes: la configuración inválida del agente da error, la váli
   assert.equal(ejemplo.repos.marketing.activo, false);
   assert.deepEqual(ejemplo.repos.marketing.agente.nombre, "Agente Marketing");
   const completa = completarConfig(ejemplo);
+  // 10-11-2026: la espera de la versión nueva no baja de 15 min (el servidor nuevo tarda ~10 en tomarla).
+  assert.equal(completa.repos.aizencrm.subida.versionMinutos, 15);
+  const conOcho = completarConfig({ ...ejemplo, repos: { ...ejemplo.repos, aizencrm: { ...ejemplo.repos.aizencrm, subida: { ...ejemplo.repos.aizencrm.subida, versionMinutos: 8 } } } });
+  assert.equal(conOcho.repos.aizencrm.subida.versionMinutos, 15, "un config.local.json con 8 no baja el piso");
   assert.ok(!("marketing" in completa.repos));
   assert.deepEqual(Object.values(completa.repos).map((r) => [r.clave, r.agente.nombre, r.agente.maxEnParalelo]), [["aizencrm", "Agente CRM", 5], ["gestion", "Agente Gestión", 3], ["messenger-basic", "Agente Marketplace (NETMAGI)", 1]], "parte 4: el agente cabe en sus puestos de aizen1 + nube (CRM 2 + 3, Gestión 1 + 2)");
   assert.doesNotThrow(() => completarConfig({ ...base, repos: { aizencrm: { ruta: ".", subirSolo: false }, marketing: { activo: false } } }));

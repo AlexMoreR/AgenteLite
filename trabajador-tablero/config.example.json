@@ -348,10 +348,10 @@
         ],
         "ciMinutos": 20,
         "workflowDespliegue": "docker-image.yml",
-        "urlVersion": "https://app.aizenbot.com/api/version",
+        "urlVersion": "https://crm.magilus.com/api/version",
         "campoVersion": "version",
-        "versionMinutos": 8,
-        "urlArranque": "https://app.aizenbot.com/login"
+        "versionMinutos": 15,
+        "urlArranque": "https://crm.magilus.com/login"
       }
     },
     "gestion": {
