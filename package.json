@@ -39,6 +39,7 @@
     "test:demora-asesora-ajuste": "npx tsx --test src/lib/demora-de-asesora-ajuste.test.ts",
     "test:velocidad-bandeja": "node scripts/check-velocidad-bandeja.mjs",
     "test:chats-celular": "node scripts/check-chats-celular.mjs",
+    "test:sin-sesion-en-after": "node scripts/check-sin-sesion-en-after.mjs",
     "test:sin-responder": "npx tsx --test src/features/chats/domain/sin-responder.test.ts && node scripts/check-sin-responder.mjs",
     "test:coach": "node scripts/check-coach.mjs",
     "test:coach-acciones": "node scripts/check-coach-acciones.mjs",

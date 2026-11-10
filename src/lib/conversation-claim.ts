@@ -22,10 +22,14 @@ export async function claimConversationIfUnassigned(input: {
   source: "agent" | "official";
   conversationId: string;
   workspaceId: string;
+  /**
+   * Quien contesto. Hay que pasarlo cuando se llama desde un after(): ahi ya no hay pedido y
+   * auth() revienta con "used headers() inside after()". Sin el, se busca la sesion como siempre.
+   */
+  userId?: string;
 }): Promise<void> {
   try {
-    const session = await auth();
-    const userId = session?.user?.id;
+    const userId = input.userId !== undefined ? input.userId : (await auth())?.user?.id;
     if (!userId) {
       return;
     }

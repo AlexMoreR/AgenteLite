@@ -943,6 +943,7 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
         source: "official",
         conversationId: conversationIdDelEnvio,
         workspaceId: workspaceIdDelEnvio,
+        userId: userIdDelEnvio,
       });
 
       // El panel de envio salio al cliente con el total: Caliente (nunca lanza).
@@ -1003,9 +1004,12 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
     const sugerenciaIdDelEnvio = parsed.data.sugerenciaId;
     const mensajeDelEnvio = parsed.data.message;
     const conTotalDePanelDelEnvio = parsed.data.conTotalDePanel === "1";
+    // La sesion se lee ACA, todavia dentro del pedido: dentro de after() auth() lee headers() y
+    // Next lo corta con "used headers() inside after()", y la asesora no se quedaba con el chat.
+    const session = await auth();
+    const userId = session?.user?.id ?? "";
     after(async () => {
       try {
-        const userId = (await auth())?.user?.id ?? "";
         const membership = await getPrimaryWorkspaceForUser(userId);
         if (!membership?.workspace.id) {
           return;
@@ -1014,6 +1018,7 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
           source: "agent",
           conversationId: conversationIdDelEnvio,
           workspaceId: membership.workspace.id,
+          userId,
         });
         // El panel de envio salio al cliente con el total: Caliente (nunca lanza).
         if (conTotalDePanelDelEnvio) {
