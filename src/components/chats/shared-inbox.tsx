@@ -550,9 +550,9 @@ export function SharedInbox({
     [filtrosDeLaUrl],
   );
   /*
-    Para /counts, las mismas condiciones SIN `sin_responder:si` (No leido): asi Todas, Mias y Sin
-    asignar no bajan a cero cuando No leido esta puesto. El numero de No leido (`sinResponder`) lo
-    calcula el servidor aparte, igual que antes.
+    Para /counts, las mismas condiciones SIN `sin_responder:si` ni `no_leido:si`: asi Todas, Mias y
+    Sin asignar no bajan a cero cuando Sin responder o No leido estan puestos. Sus numeros
+    (`sinResponder` y `noLeido`) los calcula el servidor aparte.
   */
   const ponerFiltrosParaContar = useCallback(
     (params: URLSearchParams) => {
@@ -630,7 +630,7 @@ export function SharedInbox({
     return () => window.clearTimeout(temporizador);
   }, [vistaEnCurso]);
 
-  const [assignedCounts, setAssignedCounts] = useState<{ mine: number; unassigned: number; all: number; sinResponder?: number } | null>(null);
+  const [assignedCounts, setAssignedCounts] = useState<{ mine: number; unassigned: number; all: number; sinResponder?: number; noLeido?: number } | null>(null);
   // El `espera` del ultimo /counts: la marca de cada fila, el numero de "Esperando" y su lista.
   const [esperaDelConteo, setEsperaDelConteo] = useState<EsperaDeChats | null>(null);
   /*
@@ -923,7 +923,7 @@ export function SharedInbox({
         const payload = (await response.json().catch(() => null)) as
           | {
               ok?: boolean;
-              counts?: { mine: number; unassigned: number; all: number; sinResponder?: number };
+              counts?: { mine: number; unassigned: number; all: number; sinResponder?: number; noLeido?: number };
               espera?: EsperaDeChats | null;
             }
           | null;

@@ -37,10 +37,9 @@ import { canalesQueMonitorea, enmascararSiEsTelefono, enmascararTelefono } from 
 import { esSupervisora } from "@/lib/permisos-del-equipo";
 import { chatKeyPorConversacion, puedeAbrirChatPorClave } from "@/lib/chats-acceso-por-enlace";
 import {
-  idsSinResponder,
+  idsParaLosFiltros,
   leerFiltrosDeBandeja,
   paramsDeFiltros,
-  necesitaIdsSinResponder,
   whereDeFiltros,
 } from "@/features/chats/services/filtros-de-bandeja";
 import { DIAS_DE_SIN_RESPONDER, SIN_FILTROS, leerEspera } from "@/features/chats/domain/filtros-de-bandeja";
@@ -532,20 +531,18 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const filtrosDeLaLista = paginaDeEsperando ? SIN_FILTROS : filtros;
 
   /**
-   * Las que quedaron sin responder, cuando ese filtro esta puesto.
+   * Las que quedaron sin responder y las no leidas, cuando esos filtros estan puestos.
    *
-   * Se pide una vez y entra como una lista de ids: es lo mismo que mira el contador y lo que
+   * Se piden una vez y entran como listas de ids: es lo mismo que mira el contador y lo que
    * devuelve el scroll infinito, asi que los tres coinciden.
    */
-  const conversacionesSinResponder = necesitaIdsSinResponder(filtrosDeLaLista)
-    ? await idsSinResponder({
-        workspaceId: membership.workspace.id,
-        visibleChannelIds: canalesVisibles,
-        channelId: conexionElegida.startsWith("channel:")
-          ? conexionElegida.slice("channel:".length)
-          : null,
-      })
-    : null;
+  const idsDeLosFiltros = await idsParaLosFiltros(filtrosDeLaLista, {
+    workspaceId: membership.workspace.id,
+    visibleChannelIds: canalesVisibles,
+    channelId: conexionElegida.startsWith("channel:")
+      ? conexionElegida.slice("channel:".length)
+      : null,
+  });
 
   const conversationWhere: Prisma.ConversationWhereInput = paginaDeEsperando
     ? {
@@ -566,7 +563,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         workspaceId: membership.workspace.id,
         AND: [
           // Las condiciones del filtro (todas: Y). Ver features/chats/services/filtros-de-bandeja.
-          whereDeFiltros(filtros, conversacionesSinResponder),
+          whereDeFiltros(filtros, idsDeLosFiltros),
           // Los contactos bloqueados no aparecen en la bandeja (ver lib/bloqueo-de-contactos).
           { contact: { bloqueadoEn: null } },
           canalesVisibles ? { channelId: { in: canalesVisibles } } : {},

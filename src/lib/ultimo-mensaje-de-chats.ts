@@ -251,3 +251,63 @@ export function sqlOficialSinResponderDesde(dias: number): Prisma.Sql {
         ), TIMESTAMP '-infinity')
     )`;
 }
+
+/*
+  "No leido": la misma regla que el globo verde de cada fila de la bandeja, en las dos fuentes.
+  - WhatsApp normal: entrantes con `readAt` vacio (sin los estados de WhatsApp), como el conteo
+    `incomingCount` de /api/cliente/chats/list.
+  - Linea oficial: entrantes con `readAt` vacio posteriores a la ultima saliente, como el
+    `incomingCount` de getOfficialApiChatsData.
+  - Solo lo de los ultimos `dias` dias (DIAS_DE_NO_LEIDO): es lo que la mantiene barata.
+  `readAt` lo pone abrir el chat (la dueña, o cualquiera si no tiene dueña). No se abre el rawPayload.
+*/
+
+/**
+ * Las conversaciones de WhatsApp normal con algo del cliente sin abrir.
+ *
+ * Recorre los mensajes del negocio de los ultimos `dias` dias por el indice (workspaceId,
+ * createdAt) y devuelve solo ids, que entran como una condicion mas en las consultas de la bandeja
+ * (igual que sqlIdsSinResponder). `canales`: `null` = todas las lineas; `[]` = ninguna.
+ */
+export function sqlIdsNoLeidos(input: {
+  workspaceId: string;
+  canales: string[] | null;
+  dias: number;
+}): Prisma.Sql {
+  const filtroDeCanales = input.canales
+    ? input.canales.length > 0
+      ? Prisma.sql`AND m."channelId" IN (${Prisma.join(input.canales)})`
+      : Prisma.sql`AND false`
+    : Prisma.empty;
+
+  return Prisma.sql`
+    SELECT DISTINCT m."conversationId" AS "conversationId"
+    FROM "Message" m
+    WHERE m."workspaceId" = ${input.workspaceId}
+      AND m."createdAt" > now() - make_interval(days => ${input.dias})
+      AND m."direction" = 'INBOUND'
+      AND m."readAt" IS NULL
+      AND m."isStatusBroadcast" = false
+      AND m."conversationId" IS NOT NULL
+      ${filtroDeCanales}
+  `;
+}
+
+/**
+ * La condicion "tiene algo sin abrir" de la linea oficial, para el WHERE de la bandeja: la
+ * conversacion va con el alias `c`. Usa el indice (conversationId, direction, createdAt).
+ */
+export function sqlOficialNoLeido(dias: number): Prisma.Sql {
+  return Prisma.sql`EXISTS (
+      SELECT 1 FROM "OfficialApiMessage" sinabrir
+      WHERE sinabrir."conversationId" = c."id"
+        AND sinabrir."direction" = 'INBOUND'
+        AND sinabrir."readAt" IS NULL
+        AND sinabrir."createdAt" > now() - make_interval(days => ${dias})
+        AND sinabrir."createdAt" > COALESCE((
+          SELECT MAX(saliente."createdAt") FROM "OfficialApiMessage" saliente
+          WHERE saliente."conversationId" = c."id"
+            AND saliente."direction" = 'OUTBOUND'
+        ), TIMESTAMP '1970-01-01')
+    )`;
+}

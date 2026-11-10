@@ -16,9 +16,8 @@ import {
   type PosicionEnBandeja,
 } from "@/lib/cursor-de-bandeja";
 import {
-  idsSinResponder,
+  idsParaLosFiltros,
   leerFiltrosDeBandeja,
-  necesitaIdsSinResponder,
   whereDeFiltros,
   type FiltrosDeBandeja,
 } from "@/features/chats/services/filtros-de-bandeja";
@@ -231,20 +230,18 @@ async function getAgentConversationList(input: {
    * instante y a los segundos volveria a llenarse de todo. Ya paso con el estado: resolver un chat
    * no servia de nada porque esta ruta lo devolvia de nuevo.
    */
-  const sinResponder = necesitaIdsSinResponder(input.filtros)
-    ? await idsSinResponder({
-        workspaceId: input.workspaceId,
-        visibleChannelIds: input.visibleChannelIds,
-        channelId: input.selectedConnectionKey.startsWith("channel:")
-          ? input.selectedConnectionKey.slice("channel:".length)
-          : null,
-      })
-    : null;
+  const idsDeLosFiltros = await idsParaLosFiltros(input.filtros, {
+    workspaceId: input.workspaceId,
+    visibleChannelIds: input.visibleChannelIds,
+    channelId: input.selectedConnectionKey.startsWith("channel:")
+      ? input.selectedConnectionKey.slice("channel:".length)
+      : null,
+  });
 
   const conversationWhere: Prisma.ConversationWhereInput = {
     workspaceId: input.workspaceId,
     AND: [
-      whereDeFiltros(input.filtros, sinResponder),
+      whereDeFiltros(input.filtros, idsDeLosFiltros),
       // Los contactos bloqueados no aparecen en la bandeja (ver lib/bloqueo-de-contactos).
       { contact: { bloqueadoEn: null } },
       // Con los mismos filtros que el resto: un fijado que no cumple el filtro puesto no aparece.

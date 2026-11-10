@@ -8,12 +8,13 @@ import { canalesQueMonitorea } from "@/lib/modo-monitoreo";
 import { esSupervisora } from "@/lib/permisos-del-equipo";
 import { fragmentosDeFiltrosOficiales } from "@/features/official-api/services/getOfficialApiChatsData";
 import {
-  idsSinResponder,
+  idsParaLosFiltros,
   leerFiltrosDeBandeja,
   hayFiltrosPuestos,
-  necesitaIdsSinResponder,
   whereDeFiltros,
+  type CondicionDeBandeja,
   type FiltrosDeBandeja,
+  type IdsDeLosFiltros,
 } from "@/features/chats/services/filtros-de-bandeja";
 import { conServerTiming, type MedidorServerTiming } from "@/lib/server-timing";
 import {
@@ -55,8 +56,8 @@ function buildBaseWhere(input: {
   snoozedContactIds: string[];
   visibleChannelIds: string[] | null;
   filtros: FiltrosDeBandeja;
-  // Las que quedaron sin responder, o null si ese filtro no esta puesto.
-  sinResponder: string[] | null;
+  // Los ids de "Sin responder" y "No leido" (null si esa condicion no esta puesta).
+  ids: IdsDeLosFiltros;
 }): Prisma.ConversationWhereInput {
   const normalizedSearchQuery = input.searchQuery.trim();
   // Con texto en el buscador el estado no filtra y los pospuestos tambien cuentan, igual que la
@@ -69,7 +70,7 @@ function buildBaseWhere(input: {
       buildStatusWhere(estadoQueAplica(input.statusFilter, normalizedSearchQuery)),
       // El numero de la pastilla tiene que contar LO MISMO que muestra la lista: si no, la asesora
       // filtra, ve 20 chats y al lado un "Todas 1956" que no le dice nada de lo que esta mirando.
-      whereDeFiltros(input.filtros, input.sinResponder),
+      whereDeFiltros(input.filtros, input.ids),
       // Los contactos bloqueados no aparecen en la bandeja (ver lib/bloqueo-de-contactos).
       { contact: { bloqueadoEn: null } },
       !buscando && input.snoozedContactIds.length ? { contactId: { notIn: input.snoozedContactIds } } : {},
@@ -283,6 +284,11 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
   });
 
   const filtros = leerFiltrosDeBandeja((clave) => requestUrl.searchParams.get(clave));
+  const quienPideIds = {
+    workspaceId: membership.workspace.id,
+    visibleChannelIds,
+    channelId: conexionElegida.startsWith("channel:") ? conexionElegida.slice("channel:".length) : null,
+  };
 
   const baseWhere = buildBaseWhere({
     workspaceId: membership.workspace.id,
@@ -292,15 +298,7 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     snoozedContactIds: snoozedRows.map((fila) => fila.id),
     visibleChannelIds,
     filtros,
-    sinResponder: necesitaIdsSinResponder(filtros)
-      ? await idsSinResponder({
-          workspaceId: membership.workspace.id,
-          visibleChannelIds,
-          channelId: conexionElegida.startsWith("channel:")
-            ? conexionElegida.slice("channel:".length)
-            : null,
-        })
-      : null,
+    ids: await idsParaLosFiltros(filtros, quienPideIds),
   });
   t.marca("filtros");
 
@@ -364,51 +362,64 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
   t.marca("espera");
 
   /*
-    El numero de "No leido" (la pastilla "Sin responder"): cuenta con las MISMAS reglas que la lista
-    cuando esa pastilla se enciende, sobre lo que ya hay puesto. Se arma igual que los otros numeros,
-    con la condicion `sin_responder:si` sumada. La consulta pesada (idsSinResponder) sale de su cache.
-    Si falla, el resto de los contadores responde igual y la pastilla va sin numero.
+    Los numeros de las pastillas "Sin responder" y "No leido": cuentan con las MISMAS reglas que la
+    lista cuando esa pastilla se enciende, sobre lo que ya hay puesto. Se arman igual que los otros
+    numeros, con su condicion sumada (`sin_responder:si` o `no_leido:si`), en las DOS fuentes: el
+    canal viejo (ids de su SQL, con cache) y la linea oficial (su fragmento en el mismo conteo).
+    Si uno falla, el resto de los contadores responde igual y esa pastilla va sin numero.
   */
-  const filtrosNoLeido: FiltrosDeBandeja = {
-    ...filtros,
-    condiciones: [
-      ...filtros.condiciones.filter((condicion) => condicion.campo !== "sin_responder"),
-      { campo: "sin_responder", operador: "si" },
-    ],
-  };
   const verTodo = isManager || monitoreados.length > 0;
-  let noLeido: { where: Prisma.ConversationWhereInput; oficial: number } | null = null;
-  try {
-    const ids = await idsSinResponder({
-      workspaceId: membership.workspace.id,
-      visibleChannelIds,
-      channelId: conexionElegida.startsWith("channel:") ? conexionElegida.slice("channel:".length) : null,
-    });
-    noLeido = {
-      where: buildBaseWhere({
-        workspaceId: membership.workspace.id,
-        searchQuery,
-        selectedConnectionKey: conexionElegida,
-        statusFilter,
-        snoozedContactIds: snoozedRows.map((fila) => fila.id),
-        visibleChannelIds,
-        filtros: filtrosNoLeido,
-        sinResponder: ids,
-      }),
-      oficial: await countOfficialConversations({
-        workspaceId: membership.workspace.id,
-        searchQuery,
-        selectedConnectionKey: conexionElegida,
-        userId: session.user.id,
-        assignedTo: verTodo ? "all" : "mine",
-        statusFilter,
-        filtros: filtrosNoLeido,
-      }),
+  const conLaCondicion = async (
+    condicion: CondicionDeBandeja,
+    nombre: string,
+  ): Promise<{ where: Prisma.ConversationWhereInput; oficial: number } | null> => {
+    const filtrosConLa: FiltrosDeBandeja = {
+      ...filtros,
+      condiciones: [...filtros.condiciones.filter((otra) => otra.campo !== condicion.campo), condicion],
     };
-  } catch (error) {
-    console.error("[chats/counts] no se pudo contar los no leidos", error);
-  }
-  t.marca("no_leido");
+    try {
+      const [ids, oficial] = await Promise.all([
+        idsParaLosFiltros(filtrosConLa, quienPideIds),
+        countOfficialConversations({
+          workspaceId: membership.workspace.id,
+          searchQuery,
+          selectedConnectionKey: conexionElegida,
+          userId: session.user.id,
+          assignedTo: verTodo ? "all" : "mine",
+          statusFilter,
+          filtros: filtrosConLa,
+        }),
+      ]);
+      return {
+        where: buildBaseWhere({
+          workspaceId: membership.workspace.id,
+          searchQuery,
+          selectedConnectionKey: conexionElegida,
+          statusFilter,
+          snoozedContactIds: snoozedRows.map((fila) => fila.id),
+          visibleChannelIds,
+          filtros: filtrosConLa,
+          ids,
+        }),
+        oficial,
+      };
+    } catch (error) {
+      console.error(`[chats/counts] no se pudo contar ${nombre}`, error);
+      return null;
+    }
+  };
+  const [conSinResponder, conNoLeido] = await Promise.all([
+    conLaCondicion({ campo: "sin_responder", operador: "si" }, "los sin responder"),
+    conLaCondicion({ campo: "no_leido", operador: "si" }, "los no leidos"),
+  ]);
+  t.marca("sin_responder_y_no_leido");
+
+  /** El numero de una de esas pastillas dentro de lo que ve esta persona (`alcance`). */
+  const contarPastilla = async (
+    cuenta: { where: Prisma.ConversationWhereInput; oficial: number } | null,
+    alcance: Prisma.ConversationWhereInput,
+  ): Promise<number | undefined> =>
+    cuenta ? (await prisma.conversation.count({ where: { AND: [cuenta.where, alcance] } })) + cuenta.oficial : undefined;
 
   if (monitoreados.length > 0) {
     const deSusLineas: Prisma.ConversationWhereInput = { AND: [baseWhere, { channelId: { in: monitoreados } }] };
@@ -417,10 +428,10 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
       prisma.conversation.count({ where: { AND: [deSusLineas, { assignedToUserId: null }] } }),
       prisma.conversation.count({ where: deSusLineas }),
     ]);
-    const sinResponder = noLeido
-      ? (await prisma.conversation.count({ where: { AND: [noLeido.where, { channelId: { in: monitoreados } }] } })) +
-        noLeido.oficial
-      : undefined;
+    const [sinResponder, noLeido] = await Promise.all([
+      contarPastilla(conSinResponder, { channelId: { in: monitoreados } }),
+      contarPastilla(conNoLeido, { channelId: { in: monitoreados } }),
+    ]);
     return NextResponse.json({
       ok: true,
       isManager,
@@ -429,6 +440,7 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
         unassigned: unassigned + officialUnassigned,
         all: all + officialAll,
         sinResponder,
+        noLeido,
       },
       espera,
     });
@@ -440,14 +452,14 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
       where: { AND: [baseWhere, whereEsMio(session.user.id)] },
     });
 
-    const sinResponder = noLeido
-      ? (await prisma.conversation.count({ where: { AND: [noLeido.where, whereEsMio(session.user.id)] } })) +
-        noLeido.oficial
-      : undefined;
+    const [sinResponder, noLeido] = await Promise.all([
+      contarPastilla(conSinResponder, whereEsMio(session.user.id)),
+      contarPastilla(conNoLeido, whereEsMio(session.user.id)),
+    ]);
     return NextResponse.json({
       ok: true,
       isManager,
-      counts: { mine: mine + officialMine, unassigned: 0, all: mine + officialAll, sinResponder },
+      counts: { mine: mine + officialMine, unassigned: 0, all: mine + officialAll, sinResponder, noLeido },
       espera,
     });
   }
@@ -458,7 +470,10 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     prisma.conversation.count({ where: baseWhere }),
   ]);
 
-  const sinResponder = noLeido ? (await prisma.conversation.count({ where: noLeido.where })) + noLeido.oficial : undefined;
+  const [sinResponder, noLeido] = await Promise.all([
+    contarPastilla(conSinResponder, {}),
+    contarPastilla(conNoLeido, {}),
+  ]);
   return NextResponse.json({
     ok: true,
     isManager,
@@ -467,6 +482,7 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
       unassigned: unassigned + officialUnassigned,
       all: all + officialAll,
       sinResponder,
+      noLeido,
     },
     espera,
   });

@@ -4,9 +4,14 @@ import { prisma } from "@/lib/prisma";
 import { getOfficialApiConfigByWorkspaceId, hasOfficialApiBaseCredentials } from "@/lib/official-api-config";
 import { downloadOfficialApiMedia, extractMediaRefFromRawPayload } from "@/lib/official-api-media";
 import { cifrasParaBuscarElTelefono, estadoQueAplica } from "@/lib/busqueda-de-chats";
-import { sqlOficialQuedoSinResponder, sqlOficialSinResponderDesde } from "@/lib/ultimo-mensaje-de-chats";
+import {
+  sqlOficialNoLeido,
+  sqlOficialQuedoSinResponder,
+  sqlOficialSinResponderDesde,
+} from "@/lib/ultimo-mensaje-de-chats";
 import type { OfficialApiChatsData } from "@/features/official-api/types/official-api";
 import {
+  DIAS_DE_NO_LEIDO,
   DIAS_DE_SIN_RESPONDER,
   SIN_ASIGNAR,
   SIN_FILTROS,
@@ -204,6 +209,10 @@ export async function fragmentosDeFiltrosOficiales(
         break;
       case "dias_sin_responder":
         partes.push(Prisma.sql`AND ${ultimoDelCliente} <= ${new Date(ahora.getTime() - cond.dias * DIA_MS)}`);
+        break;
+      case "no_leido":
+        // El globo verde de la fila (incomingCount): entrantes sin abrir despues de la ultima saliente.
+        partes.push(Prisma.sql`AND ${sqlOficialNoLeido(DIAS_DE_NO_LEIDO)}`);
         break;
     }
   }

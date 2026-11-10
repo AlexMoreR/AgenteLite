@@ -1,9 +1,10 @@
 import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
-import { sqlIdsSinResponder } from "@/lib/ultimo-mensaje-de-chats";
+import { sqlIdsNoLeidos, sqlIdsSinResponder } from "@/lib/ultimo-mensaje-de-chats";
 
 import {
+  DIAS_DE_NO_LEIDO,
   DIAS_DE_SIN_RESPONDER,
   SIN_ASIGNAR,
   condicionCompleta,
@@ -28,12 +29,23 @@ export function necesitaIdsSinResponder(filtros: FiltrosDeBandeja): boolean {
   return filtros.condiciones.some((c) => c.campo === "sin_responder");
 }
 
+/** ¿Hace falta pedir la lista de "no leidos"? (la condicion No leido) */
+export function necesitaIdsNoLeidos(filtros: FiltrosDeBandeja): boolean {
+  return filtros.condiciones.some((c) => c.campo === "no_leido");
+}
+
+/**
+ * Los ids que piden algunas condiciones (se calculan aparte, en SQL). null = esa condicion no esta
+ * puesta. Ver idsParaLosFiltros.
+ */
+export type IdsDeLosFiltros = { sinResponder: string[] | null; noLeidos: string[] | null };
+
 /** Los mensajes del CLIENTE que cuentan (sin notas del sistema ni borrados). */
 const DEL_CLIENTE: Prisma.MessageWhereInput = { direction: "INBOUND", type: { not: "SYSTEM" }, deletedAt: null };
 
 function unaCondicion(
   c: CondicionDeBandeja,
-  sinResponder: string[] | null,
+  { sinResponder, noLeidos }: IdsDeLosFiltros,
   ahora: Date,
 ): Prisma.ConversationWhereInput {
   switch (c.campo) {
@@ -82,6 +94,9 @@ function unaCondicion(
       const ids = sinResponder ?? [];
       return c.operador === "si" ? { id: { in: ids } } : ids.length ? { id: { notIn: ids } } : {};
     }
+    case "no_leido":
+      // Los ids de idsNoLeidos: sin la lista no entra ninguno, nunca todos.
+      return { id: { in: noLeidos ?? [] } };
     case "dias_sin_responder": {
       // El cliente escribio alguna vez y nada suyo desde hace N dias (indice Message[conversationId, createdAt]).
       const corte = new Date(ahora.getTime() - c.dias * DIA_MS);
@@ -96,16 +111,68 @@ function unaCondicion(
 }
 
 /**
- * Las condiciones como WHERE de Prisma (todas: Y). `sinResponder`: los ids de idsSinResponder, si
- * hay una condicion "Sin responder" (ver necesitaIdsSinResponder).
+ * Las condiciones como WHERE de Prisma (todas: Y). `ids`: lo de idsParaLosFiltros. Una lista sola
+ * se toma como los ids de "Sin responder" (como se llamaba antes).
  */
 export function whereDeFiltros(
   filtros: FiltrosDeBandeja,
-  sinResponder: string[] | null = null,
+  ids: IdsDeLosFiltros | string[] | null = null,
   ahora = new Date(),
 ): Prisma.ConversationWhereInput {
-  const partes = filtros.condiciones.filter(condicionCompleta).map((c) => unaCondicion(c, sinResponder, ahora));
+  const todos: IdsDeLosFiltros = Array.isArray(ids) || ids === null ? { sinResponder: ids, noLeidos: null } : ids;
+  const partes = filtros.condiciones.filter(condicionCompleta).map((c) => unaCondicion(c, todos, ahora));
   return partes.length ? { AND: partes } : {};
+}
+
+type QuienPideIds = {
+  workspaceId: string;
+  visibleChannelIds: string[] | null;
+  /** El canal elegido en la bandeja, si hay uno. */
+  channelId?: string | null;
+};
+
+/** Los ids que piden las condiciones puestas, en paralelo (solo las que estan puestas). */
+export async function idsParaLosFiltros(filtros: FiltrosDeBandeja, input: QuienPideIds): Promise<IdsDeLosFiltros> {
+  const [sinResponder, noLeidos] = await Promise.all([
+    necesitaIdsSinResponder(filtros) ? idsSinResponder(input) : null,
+    necesitaIdsNoLeidos(filtros) ? idsNoLeidos(input) : null,
+  ]);
+  return { sinResponder, noLeidos };
+}
+
+/**
+ * Menos que la de "sin responder": abrir un chat lo saca de No leido, y el numero de la pastilla
+ * (cada 60 s) tiene que notarlo en el siguiente ciclo.
+ */
+const VIDA_DE_LA_CACHE_NO_LEIDOS_MS = 20_000;
+const cacheNoLeidos = new Map<string, { vence: number; ids: string[] }>();
+
+/**
+ * Las conversaciones de WhatsApp normal con mensajes del cliente que nadie abrio (el globo verde
+ * de la fila). La linea oficial va aparte, en su propia consulta (sqlOficialNoLeido).
+ *
+ * Mismo patron que idsSinResponder: SQL que devuelve solo ids, con una memoria corta. Mira solo
+ * los ultimos DIAS_DE_NO_LEIDO dias y no abre el rawPayload (ver sqlIdsNoLeidos).
+ */
+export async function idsNoLeidos(input: QuienPideIds): Promise<string[]> {
+  const clave = JSON.stringify([
+    input.workspaceId,
+    input.visibleChannelIds ? [...input.visibleChannelIds].sort() : null,
+    input.channelId ?? "",
+  ]);
+  const guardado = cacheNoLeidos.get(clave);
+  if (guardado && guardado.vence > Date.now()) {
+    return guardado.ids;
+  }
+
+  const canales = input.channelId ? [input.channelId] : input.visibleChannelIds;
+  const filas = await prisma.$queryRaw<Array<{ conversationId: string }>>(
+    sqlIdsNoLeidos({ workspaceId: input.workspaceId, canales, dias: DIAS_DE_NO_LEIDO }),
+  );
+
+  const ids = filas.map((fila) => fila.conversationId);
+  cacheNoLeidos.set(clave, { vence: Date.now() + VIDA_DE_LA_CACHE_NO_LEIDOS_MS, ids });
+  return ids;
 }
 
 /** La respuesta se reusa un minuto: la bandeja se recarga sola y esta consulta no es barata. */
