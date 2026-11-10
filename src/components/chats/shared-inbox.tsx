@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { hayVersionNueva } from "@/components/app-version-guard";
 import {
+  ESPERA_GUARDAR_BORRADOR_MS,
   guardarEnvioPendiente,
   marcarOcupada,
+  pedirGuardadoDeBorrador,
   pedirRevisionDeVersion,
   puedeReenviarPendiente,
   tomarEnvioPendiente,
@@ -2957,8 +2959,9 @@ export function SharedInbox({
         /*
           Si el envio se cayo (la accion lanzo excepcion, no fue una respuesta de error) y el servidor
           ya tiene otra version, el servidor rechazo el pedido antes de ejecutarlo: el mensaje NO salio.
-          Se guarda como pendiente y la app se recarga sola; al volver se reenvia UNA vez (ver el
-          efecto de "envio pendiente" mas abajo). Si no es por la version, queda como "No se envió".
+          Se guarda como pendiente y se le dice a la asesora: desde el 10-nov-2026 (T-722) la app ya no
+          se recarga sola, asi que el mensaje sale cuando ella toca Actualizar (se reenvia UNA vez, ver
+          el efecto de "envio pendiente" mas abajo). Si no es por la version, queda como "No se envió".
         */
         if (!result && enviado?.envio && (enviado.type ?? "TEXT") === "TEXT") {
           const aReenviar = enviado;
@@ -2973,6 +2976,17 @@ export function SharedInbox({
               texto: (aReenviar.matchContent ?? aReenviar.content ?? "").trim(),
               contenido: aReenviar.content ?? "",
               creadoEn: Date.now(),
+            });
+            // El pendiente se reenvia solo si recarga en menos de 2 min (VIDA_MAX_PENDIENTE_MS): se dice.
+            toast("Tu mensaje no salió: hay una versión nueva del CRM. Toca «Actualizar y enviar» antes de 2 minutos y sale solo.", {
+              duration: 120_000,
+              action: {
+                label: "Actualizar y enviar",
+                onClick: () => {
+                  pedirGuardadoDeBorrador();
+                  window.setTimeout(() => window.location.reload(), ESPERA_GUARDAR_BORRADOR_MS);
+                },
+              },
             });
             pedirRevisionDeVersion();
           });
@@ -3783,7 +3797,7 @@ export function SharedInbox({
 
   /*
     Envio pendiente por version vieja (ver finalizeOptimisticSend): la primera vez que carga un chat
-    despues de la recarga automatica se mira si quedo un texto sin salir y se reenvia UNA vez. La marca
+    despues de que la asesora toca Actualizar se mira si quedo un texto sin salir y se reenvia UNA vez. La marca
     se borra ANTES de cualquier otra cosa (tomarEnvioPendiente), asi que nunca se reenvia dos veces.
     Solo sale si es de este chat, tiene menos de 2 minutos y el texto no esta ya guardado en el chat.
     Si algo no cuadra no pasa nada: el texto ya no esta, igual que antes de esta mejora.

@@ -283,4 +283,26 @@ prueba("[nota-de-voz] subida ok no trae la palabra error; una con error si", () 
   assert.equal(cuentaComoFalla(mala), true);
 });
 
+// ---- T-722 (10-nov-2026): la app NUNCA se recarga sola por una version nueva ----
+prueba("T-722: el aviso de version nueva solo avisa; recarga solo al tocar Actualizar", () => {
+  const guard = fs.readFileSync("src/components/app-version-guard.tsx", "utf8");
+  const componente = guard.slice(guard.indexOf("export function AppVersionGuard()"));
+  assert.match(componente, /Hay una versión nueva del CRM\. Actualiza cuando termines/);
+  assert.match(componente, /Actualizar/);
+  // El unico reload vive dentro de la funcion del boton, no en el efecto que revisa la version.
+  const efecto = componente.slice(componente.indexOf("React.useEffect("), componente.indexOf("if (!hayNueva)"));
+  assert.doesNotMatch(efecto, /location\.reload/);
+  assert.equal((componente.match(/location\.reload/g) ?? []).length, 1);
+  assert.match(componente, /const actualizar = \(\) => \{[\s\S]*pedirGuardadoDeBorrador\(\);[\s\S]*location\.reload/);
+  assert.doesNotMatch(guard, /decidirRecarga|registrarRecarga/);
+});
+
+prueba("T-722: la pantalla de error no recarga sola; solo con su boton", () => {
+  const error = fs.readFileSync("src/app/cliente/error.tsx", "utf8");
+  const efecto = error.slice(error.indexOf("useEffect("), error.indexOf("const reintentar"));
+  assert.doesNotMatch(efecto, /location\.reload/);
+  assert.doesNotMatch(error, /sessionStorage/);
+  assert.match(error, /const reintentar = \(\) => \{[\s\S]*location\.reload/);
+});
+
 console.log(`\n${pruebas} pruebas OK`);

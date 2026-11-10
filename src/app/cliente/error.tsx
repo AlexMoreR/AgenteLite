@@ -21,8 +21,6 @@ const SEÑALES_DE_VERSION_VIEJA = [
   "importing a module script failed",
 ];
 
-const CLAVE_ULTIMA_RECARGA = "aizen:recarga-por-version";
-
 function esVersionVieja(error: Error) {
   const texto = `${error.name} ${error.message}`.toLowerCase();
   return SEÑALES_DE_VERSION_VIEJA.some((señal) => texto.includes(señal));
@@ -52,21 +50,9 @@ export default function ClienteError({
   useEffect(() => {
     console.error("[cliente] error de pantalla", { digest: error.digest, message: error.message });
 
-    // Version vieja: se recarga sola UNA vez por minuto. Si recargando sigue fallando, se muestra la
-    // pantalla en vez de entrar en un bucle de recargas.
-    if (!versionVieja) {
-      return;
-    }
-    try {
-      const ultima = Number(window.sessionStorage.getItem(CLAVE_ULTIMA_RECARGA) ?? "0");
-      if (Date.now() - ultima > 60_000) {
-        window.sessionStorage.setItem(CLAVE_ULTIMA_RECARGA, String(Date.now()));
-        window.location.reload();
-      }
-    } catch {
-      // Sin sessionStorage (modo privado): queda el boton.
-    }
-  }, [error, versionVieja]);
+    // Version vieja: ya NO se recarga sola (T-722, 10-nov-2026). La pantalla lo explica y la asesora
+    // toca el boton cuando termine.
+  }, [error]);
 
   /*
     Un error del navegador (sin codigo) casi siempre se arregla recargando la pagina entera; reset()
