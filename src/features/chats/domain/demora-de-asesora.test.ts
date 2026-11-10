@@ -1,15 +1,20 @@
-// Pruebas de la demora de la asesora (partes 1 y 2). Correr: npm run test:demora-asesora
+// Pruebas de la demora de la asesora (partes 1, 2 y 3). Correr: npm run test:demora-asesora
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
   CONFIG_DEMORA_POR_DEFECTO,
+  agruparReasignaciones,
+  claveFotoDeCierre,
+  contarEsperaDeCierre,
   decidirDemora,
   dentroDeLaFranja,
   elegirAsesoraActiva,
+  esHoraDeLaFotoDeCierre,
   inicioDeLaFranjaDeHoy,
   inicioDelReloj,
   leerConfigDemoraDeTexto,
+  leerFotoDeCierreDeTexto,
   topeDeReasignacionAlcanzado,
 } from "./demora-de-asesora";
 
@@ -161,4 +166,84 @@ test("tras reasignar, el reloj de la nueva arranca en cero", () => {
   // A los 10 de ella la regla vuelve a decir "reasignar", pero el tope ya se usó: va al dueño.
   assert.equal(decidir("12:20:00", { ultimaAsignacion }).tipo, "reasignar");
   assert.equal(topeDeReasignacionAlcanzado([ultimaAsignacion], bogota("12:00:00")), true);
+});
+
+// ---- Parte 3: la medición ----
+
+test("foto del cierre: cuenta los que esperan 10 min o más y los agrupa por asesora", () => {
+  const ahora = new Date(bogota("23:00:00"));
+  const foto = contarEsperaDeCierre(
+    [
+      { desde: bogota("22:00:00"), assignedToUserId: "maria" },
+      { desde: bogota("22:30:00"), assignedToUserId: "maria" },
+      { desde: bogota("22:40:00"), assignedToUserId: "yair" },
+      { desde: bogota("22:55:00"), assignedToUserId: "yair" }, // 5 min: no cuenta
+    ],
+    ahora,
+  );
+  assert.deepEqual(foto, { total: 3, porAsesora: { maria: 2, yair: 1 }, sinAsignar: 0 });
+});
+
+test("foto del cierre: el chat sin dueña va a sinAsignar", () => {
+  const foto = contarEsperaDeCierre(
+    [
+      { desde: bogota("20:00:00"), assignedToUserId: null },
+      { desde: bogota("21:00:00"), assignedToUserId: "maria" },
+    ],
+    new Date(bogota("23:00:00")),
+  );
+  assert.deepEqual(foto, { total: 2, porAsesora: { maria: 1 }, sinAsignar: 1 });
+});
+
+test("foto del cierre: 9:59 de espera no cuenta, exactamente 10:00 sí", () => {
+  const ahora = new Date(bogota("23:00:00"));
+  assert.equal(contarEsperaDeCierre([{ desde: bogota("22:50:01"), assignedToUserId: "maria" }], ahora).total, 0);
+  assert.equal(contarEsperaDeCierre([{ desde: bogota("22:50:00"), assignedToUserId: "maria" }], ahora).total, 1);
+  assert.deepEqual(contarEsperaDeCierre([], ahora), { total: 0, porAsesora: {}, sinAsignar: 0 });
+});
+
+test("hora de la foto: 22:59 no, 23:00 sí, 23:59 sí, 0:00 no", () => {
+  assert.equal(esHoraDeLaFotoDeCierre(new Date(bogota("22:59:59"))), false);
+  assert.equal(esHoraDeLaFotoDeCierre(new Date(bogota("23:00:00"))), true);
+  assert.equal(esHoraDeLaFotoDeCierre(new Date(bogota("23:59:59"))), true);
+  assert.equal(esHoraDeLaFotoDeCierre(new Date(bogota("00:00:00"))), false);
+});
+
+test("la clave de la foto usa el día de Bogotá (a las 23:30 de Bogotá en UTC ya es el día siguiente)", () => {
+  const ahora = new Date(bogota("23:30:00"));
+  assert.equal(ahora.toISOString().slice(0, 10), "2026-11-09");
+  assert.equal(claveFotoDeCierre("ws1", ahora), "chats:demora-asesora:cierre:ws1:2026-11-08");
+  assert.equal(claveFotoDeCierre("ws1", "2026-11-08"), "chats:demora-asesora:cierre:ws1:2026-11-08");
+});
+
+test("leer la foto guardada; rota o con otra forma = null", () => {
+  const guardada = JSON.stringify({ total: 3, porAsesora: { maria: 2 }, sinAsignar: 1, guardadoEn: "2026-11-09T04:00:00.000Z" });
+  assert.deepEqual(leerFotoDeCierreDeTexto(guardada), {
+    total: 3,
+    porAsesora: { maria: 2 },
+    sinAsignar: 1,
+    guardadoEn: "2026-11-09T04:00:00.000Z",
+  });
+  assert.equal(leerFotoDeCierreDeTexto(null), null);
+  assert.equal(leerFotoDeCierreDeTexto("{roto"), null);
+  assert.equal(leerFotoDeCierreDeTexto("[1]"), null);
+  assert.equal(leerFotoDeCierreDeTexto(JSON.stringify({ total: "3", porAsesora: {}, sinAsignar: 0 })), null);
+  assert.equal(leerFotoDeCierreDeTexto(JSON.stringify({ total: 1, porAsesora: { maria: -1 }, sinAsignar: 0 })), null);
+});
+
+test("agrupar reasignaciones por quién se demoró y por quién recibió", () => {
+  const grupos = agruparReasignaciones([
+    { reasignadoDeUserId: "maria", assigneeUserId: "yair" },
+    { reasignadoDeUserId: "maria", assigneeUserId: "ingrid" },
+    { reasignadoDeUserId: "yair", assigneeUserId: "ingrid" },
+    // Sin uno de los ids: suma en el total, no en ese lado.
+    { assigneeUserId: "yair" },
+    null,
+  ]);
+  assert.deepEqual(grupos, {
+    total: 5,
+    porQuienSeDemoro: { maria: 2, yair: 1 },
+    porQuienRecibio: { yair: 2, ingrid: 2 },
+  });
+  assert.deepEqual(agruparReasignaciones([]), { total: 0, porQuienSeDemoro: {}, porQuienRecibio: {} });
 });

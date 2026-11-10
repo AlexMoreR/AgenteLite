@@ -72,7 +72,7 @@ export const HERRAMIENTAS_MCP_AGENTES_DE_AREA = [
     name: "numeros_de_ventas",
     title: "Números de ventas del día",
     description:
-      "Los números de UN día (por defecto ayer, hora de Colombia) POR ASESORA: chats atendidos, cotizaciones (las REALES: las que se crearon ese día en Gestión por esa vendedora, igual que listar_cotizaciones; null si Gestión no respondió), chats calientes (chats que llegaron a Tibio o Caliente: Propuesta, Negociación o Ganado; NO son cotizaciones), ventas (la venta cuenta en la línea de ventas, a nombre de quien vendió; la línea Admin nunca suma y un teléfono es una sola venta), tasa de cierre y tiempo de respuesta (mediana en minutos), más los avisos que detectó el Supervisor ese día. También MIDE los sugeridos del último resumen guardado: a cuáles les escribió el equipo, cuáles respondieron y cuáles compraron. Trae también `tasa_respuesta_bienvenida`: de los leads nuevos del día (todos los que entraron, sin importar su etapa), qué % mandó al menos un mensaje más después del primero y qué % lo hizo en menos de 2 horas, en total, por línea y por anuncio, con la meta de 60 %, separando los que respondieron la bienvenida, los recuperados por cada seguimiento (15 min, 1 hora, 1 día) y los que nunca respondieron, y la serie de los últimos 14 días (null = sin dato). Trae además `leads_nuevos`: los leads nuevos REALES del día (cliente cuyo primer mensaje de la vida cae ese día; si escribe por dos líneas cuenta una sola vez, en la que escribió primero; la línea Admin también cuenta), con total, por_origen (meta, marketplace con por_texto y por_linea, directo), por_linea (admin, ventas_1, ventas_2 y solo_ventas = Ventas 1 + Ventas 2) y por_asesora (más sin_asignar). Marketplace por línea = los que entran por Ventas 2. Así el agente no abre los chats uno por uno. Las ventas, abonos y saldos de dinero NO salen de aquí: se leen en el MCP de Gestión. Solo lectura.",
+      "Los números de UN día (por defecto ayer, hora de Colombia) POR ASESORA: chats atendidos, cotizaciones (las REALES: las que se crearon ese día en Gestión por esa vendedora, igual que listar_cotizaciones; null si Gestión no respondió), chats calientes (chats que llegaron a Tibio o Caliente: Propuesta, Negociación o Ganado; NO son cotizaciones), ventas (la venta cuenta en la línea de ventas, a nombre de quien vendió; la línea Admin nunca suma y un teléfono es una sola venta), tasa de cierre y tiempo de respuesta (mediana en minutos), más los avisos que detectó el Supervisor ese día. También MIDE los sugeridos del último resumen guardado: a cuáles les escribió el equipo, cuáles respondieron y cuáles compraron. Trae también `tasa_respuesta_bienvenida`: de los leads nuevos del día (todos los que entraron, sin importar su etapa), qué % mandó al menos un mensaje más después del primero y qué % lo hizo en menos de 2 horas, en total, por línea y por anuncio, con la meta de 60 %, separando los que respondieron la bienvenida, los recuperados por cada seguimiento (15 min, 1 hora, 1 día) y los que nunca respondieron, y la serie de los últimos 14 días (null = sin dato). Trae además `leads_nuevos`: los leads nuevos REALES del día (cliente cuyo primer mensaje de la vida cae ese día; si escribe por dos líneas cuenta una sola vez, en la que escribió primero; la línea Admin también cuenta), con total, por_origen (meta, marketplace con por_texto y por_linea, directo), por_linea (admin, ventas_1, ventas_2 y solo_ventas = Ventas 1 + Ventas 2) y por_asesora (más sin_asignar). Marketplace por línea = los que entran por Ventas 2. Trae además `demora_de_asesoras`: `cierre_del_dia` = chats con el cliente esperando 10 min o más sin respuesta humana a las 23:00 de esa fecha, por asesora y sin asignar (null si ese día no hay foto); `reasignaciones_7_dias` = cuántas veces la regla de la demora pasó un chat, por quién se demoró y por quién lo recibió. Así el agente no abre los chats uno por uno. Las ventas, abonos y saldos de dinero NO salen de aquí: se leen en el MCP de Gestión. Solo lectura.",
     inputSchema: {
       type: "object",
       properties: {
@@ -364,6 +364,39 @@ async function verNumeros(args: Argumentos, contexto: Contexto) {
   );
   const bienvenida = await intentar("tasa de respuesta a la bienvenida", () => numerosDeRespuestaBienvenida(contexto.workspaceId, fecha), null);
   const leadsNuevos = await intentar("leads nuevos", () => leadsNuevosDelDia(contexto.workspaceId, fecha), null);
+  // Se importa aquí para que numeros_de_ventas no cargue el reloj de la demora si no hace falta.
+  const cierreDelDia = await intentar(
+    "chats esperando al cierre",
+    async () => {
+      const { leerFotoDeCierre } = await import("@/features/chats/services/demora-de-asesora");
+      const foto = await leerFotoDeCierre(contexto.workspaceId, fecha);
+      return foto
+        ? {
+            fecha: foto.fecha,
+            total: foto.total,
+            sin_asignar: foto.sinAsignar,
+            por_asesora: foto.porAsesora.map(({ asesora, cuenta }) => ({ asesora, chats: cuenta })),
+          }
+        : null;
+    },
+    null,
+  );
+  const reasignaciones = await intentar(
+    "reasignaciones por demora",
+    async () => {
+      const { reasignacionesDeLaSemana } = await import("@/features/chats/services/demora-de-asesora");
+      const semana = await reasignacionesDeLaSemana(contexto.workspaceId);
+      const veces = (lista: typeof semana.porQuienSeDemoro) => lista.map(({ asesora, cuenta }) => ({ asesora, veces: cuenta }));
+      return {
+        desde: semana.desde,
+        hasta: semana.hasta,
+        total: semana.total,
+        por_quien_se_demoro: veces(semana.porQuienSeDemoro),
+        por_quien_recibio: veces(semana.porQuienRecibio),
+      };
+    },
+    null,
+  );
   // Si Gestión no respondió, las cotizaciones quedan en null: no se muestra el número de chats calientes con esa etiqueta.
   const gestionNoRespondio = numeros.avisos.length > 0;
   const total = porAsesora.reduce(
@@ -406,6 +439,7 @@ async function verNumeros(args: Argumentos, contexto: Contexto) {
           advertencias: leadsNuevos.advertencias,
         }
       : null,
+    demora_de_asesoras: { cierre_del_dia: cierreDelDia, reasignaciones_7_dias: reasignaciones },
     advertencias: [
       "Las ventas aquí son cambios de etapa a GANADO en el CRM; el dinero (ventas, abonos, saldos) se lee en el MCP de Gestión.",
       "Cotizaciones = las creadas ese día en Gestión por cada vendedora (cruzadas con la asesora por nombre; una vendedora sin asesora en el CRM sale en su propia fila). Si dice null, Gestión no respondió: míralo en no_se_pudo_leer y no lo reemplaces con otro número.",

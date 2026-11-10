@@ -1,9 +1,9 @@
-import { FRANJA_DEL_RESPALDO, minutoDelDiaEnBogota } from "@/lib/en-linea-reglas";
+import { FRANJA_DEL_RESPALDO, diaEnBogota, minutoDelDiaEnBogota } from "@/lib/en-linea-reglas";
 
 /**
  * DEMORA DE LA ASESORA: las reglas, sin base de datos (para poder probarlas solas).
  *
- * Partes 1 y 2 de 3 de "si la asesora no contesta en 10 minutos, el chat pasa a una asesora activa".
+ * Partes 1, 2 y 3 de 3 de "si la asesora no contesta en 10 minutos, el chat pasa a una asesora activa".
  * Un chat de ventas ASIGNADO que lleva `minutosAviso` (5) sin respuesta de una persona: la asesora
  * recibe un push. A los `minutosReasignar` (10) la regla dice "reasignar": el chat pasa a una
  * asesora ACTIVA (elegirAsesoraActiva). Una sola vez por espera (topeDeReasignacionAlcanzado); sin
@@ -174,4 +174,112 @@ export function elegirAsesoraActiva(entrada: EntradaDeEleccion): string | null {
       a.orden - b.orden,
   );
   return opciones[0].userId;
+}
+
+/*
+ * PARTE 3: LA MEDICIÓN (solo lee y guarda una foto al día; no cambia ninguna asignación).
+ *
+ * Medida 1, la FOTO DEL CIERRE: cuántos chats tienen al cliente esperando 10 min o más sin respuesta
+ * de una persona al cierre del día (las 23:00 de Bogotá, fin de FRANJA_DEL_RESPALDO). Es un dato del
+ * momento que no se puede reconstruir después, por eso se guarda una vez por negocio y día. Cuenta con
+ * el `desde` de la espera, sin el reloj de la regla, y se guarda aunque la regla esté apagada (para
+ * tener con qué comparar antes de prenderla).
+ *
+ * Medida 2, las REASIGNACIONES: las notas con origen ORIGEN_REASIGNACION_POR_DEMORA, agrupadas por
+ * quién se demoró (reasignadoDeUserId) y por quién recibió el chat (assigneeUserId).
+ */
+
+/** Espera mínima para contar en la foto del cierre. */
+export const MINUTOS_DE_ESPERA_DEL_CIERRE = 10;
+
+export const PREFIJO_FOTO_DE_CIERRE = "chats:demora-asesora:cierre:";
+
+/** `chats:demora-asesora:cierre:<workspaceId>:<AAAA-MM-DD>`. Con una fecha, el día es el de Bogotá. */
+export function claveFotoDeCierre(workspaceId: string, dia: string | Date): string {
+  return `${PREFIJO_FOTO_DE_CIERRE}${workspaceId}:${typeof dia === "string" ? dia : diaEnBogota(dia)}`;
+}
+
+/** ¿Ya es la hora de la foto? Desde las 23:00 de Bogotá (cierre de la franja) hasta las 23:59. */
+export function esHoraDeLaFotoDeCierre(ahora: Date): boolean {
+  return minutoDelDiaEnBogota(ahora) >= FRANJA_DEL_RESPALDO.hastaHora * 60;
+}
+
+export type FotoDeCierre = {
+  total: number;
+  /** userId de la asesora principal → chats esperando. */
+  porAsesora: Record<string, number>;
+  /** Chats esperando sin asesora asignada. */
+  sinAsignar: number;
+};
+
+/** Cuenta los chats con `ahora - desde >= 10 min` y los agrupa por asesora (o sin asignar). */
+export function contarEsperaDeCierre(
+  chats: ReadonlyArray<{ desde: number; assignedToUserId: string | null }>,
+  ahora: Date,
+): FotoDeCierre {
+  const foto: FotoDeCierre = { total: 0, porAsesora: {}, sinAsignar: 0 };
+  const limite = ahora.getTime() - MINUTOS_DE_ESPERA_DEL_CIERRE * 60_000;
+  for (const chat of chats) {
+    if (!(chat.desde <= limite)) continue;
+    foto.total += 1;
+    if (chat.assignedToUserId) {
+      foto.porAsesora[chat.assignedToUserId] = (foto.porAsesora[chat.assignedToUserId] ?? 0) + 1;
+    } else {
+      foto.sinAsignar += 1;
+    }
+  }
+  return foto;
+}
+
+function enteroNoNegativo(valor: unknown): number | null {
+  return typeof valor === "number" && Number.isInteger(valor) && valor >= 0 ? valor : null;
+}
+
+/** Lee la foto guardada. JSON roto o con otra forma = null. */
+export function leerFotoDeCierreDeTexto(
+  texto: string | null | undefined,
+): (FotoDeCierre & { guardadoEn: string | null }) | null {
+  let crudo: unknown;
+  try {
+    crudo = texto ? JSON.parse(texto) : null;
+  } catch {
+    return null;
+  }
+  if (!crudo || typeof crudo !== "object" || Array.isArray(crudo)) return null;
+  const v = crudo as Record<string, unknown>;
+  const total = enteroNoNegativo(v.total);
+  const sinAsignar = enteroNoNegativo(v.sinAsignar);
+  if (total === null || sinAsignar === null) return null;
+  if (!v.porAsesora || typeof v.porAsesora !== "object" || Array.isArray(v.porAsesora)) return null;
+  const porAsesora: Record<string, number> = {};
+  for (const [userId, cuenta] of Object.entries(v.porAsesora as Record<string, unknown>)) {
+    const n = enteroNoNegativo(cuenta);
+    if (n === null) return null;
+    porAsesora[userId] = n;
+  }
+  return { total, porAsesora, sinAsignar, guardadoEn: typeof v.guardadoEn === "string" ? v.guardadoEn : null };
+}
+
+export type ReasignacionesAgrupadas = {
+  total: number;
+  /** userId de la que se demoró (le quitaron el chat) → veces. */
+  porQuienSeDemoro: Record<string, number>;
+  /** userId de la que recibió el chat → veces. */
+  porQuienRecibio: Record<string, number>;
+};
+
+/** Agrupa los rawPayload de las notas. Una nota sin uno de los ids no suma en ese lado, pero sí en el total. */
+export function agruparReasignaciones(
+  notas: ReadonlyArray<{ reasignadoDeUserId?: unknown; assigneeUserId?: unknown } | null | undefined>,
+): ReasignacionesAgrupadas {
+  const grupos: ReasignacionesAgrupadas = { total: 0, porQuienSeDemoro: {}, porQuienRecibio: {} };
+  const sumar = (cuenta: Record<string, number>, id: unknown) => {
+    if (typeof id === "string" && id) cuenta[id] = (cuenta[id] ?? 0) + 1;
+  };
+  for (const nota of notas) {
+    grupos.total += 1;
+    sumar(grupos.porQuienSeDemoro, nota?.reasignadoDeUserId);
+    sumar(grupos.porQuienRecibio, nota?.assigneeUserId);
+  }
+  return grupos;
 }

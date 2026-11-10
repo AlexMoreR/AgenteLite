@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { calcularReparto } from "@/lib/channel-collaborators";
 import { recordConversationActivity } from "@/lib/conversation-activity";
 import { filtrarSinPausaManual } from "@/lib/en-linea";
+import { diaEnBogota } from "@/lib/en-linea-reglas";
 import { filtrarPorHorario, leerHorariosDeReparto, recibeEnEsteMomento } from "@/lib/horario-de-reparto";
 import { ORIGENES_HUMANOS, claseDelEvento } from "@/lib/turno-de-la-conversacion";
 import { sendPushToUser } from "@/lib/web-push";
@@ -11,14 +12,19 @@ import { sendPushToUser } from "@/lib/web-push";
 import {
   ORIGEN_REASIGNACION_POR_DEMORA,
   PREFIJO_CONFIG_DEMORA,
+  agruparReasignaciones,
+  claveFotoDeCierre,
+  contarEsperaDeCierre,
   decidirDemora,
   dentroDeLaFranja,
   elegirAsesoraActiva,
+  esHoraDeLaFotoDeCierre,
   leerConfigDemoraDeTexto,
+  leerFotoDeCierreDeTexto,
   topeDeReasignacionAlcanzado,
   type ConfigDemora,
 } from "../domain/demora-de-asesora";
-import { esperaDelNegocio, type ChatEnEspera } from "./espera-de-chats";
+import { cargarEsperaDelNegocio, esperaDelNegocio, type ChatEnEspera } from "./espera-de-chats";
 
 export * from "../domain/demora-de-asesora";
 
@@ -40,6 +46,8 @@ export * from "../domain/demora-de-asesora";
  *   las dos. Una sola vez por espera; sin activa, o con la reasignación ya usada, el chat se queda y
  *   se avisa a dueños y administradores (una vez por espera). Máximo MAXIMO_REASIGNACIONES_POR_VUELTA.
  *   No mueve la rueda del reparto normal ni cambia estado, etapa ni el bot.
+ * - Parte 3 (medición): desde las 23:00 guarda la foto del cierre (guardarFotoDeCierre), aunque la
+ *   regla esté apagada. reasignacionesDeLaSemana y leerFotoDeCierre las lee numeros_de_ventas (MCP).
  * - Nunca le escribe nada al cliente.
  */
 
@@ -269,6 +277,8 @@ export type ResultadoDeDemora = {
   topeAlcanzado: number;
   /** Chats en los que algo falló (no frenan a los demás). */
   errores: number;
+  /** Fotos del cierre guardadas en esta vuelta (solo desde las 23:00, una por negocio y día). */
+  fotosDeCierre: number;
 };
 
 type ChatDemorado = { id: string; asesora: string; segunda: string | null; channelId: string; desde: number };
@@ -284,7 +294,14 @@ export async function revisarDemorasDeAsesoras(ahora = new Date()): Promise<Resu
     sinActiva: 0,
     topeAlcanzado: 0,
     errores: 0,
+    fotosDeCierre: 0,
   };
+  // La foto del cierre va aparte: si falla, el aviso y la reasignación siguen.
+  try {
+    resultado.fotosDeCierre = await guardarFotoDeCierre(ahora);
+  } catch (error) {
+    console.error("[demora-de-asesora] foto del cierre error", error);
+  }
   // Los avisos al dueño también tienen tope por vuelta (a las 7:10 llegan muchas esperas juntas).
   const vuelta = { avisosAJefes: 0 };
 
@@ -531,4 +548,112 @@ async function reasignarDemorados(input: {
       console.error("[demora-de-asesora] reasignacion error", chat.id, error);
     }
   }
+}
+
+/**
+ * MEDIDA 1: la foto del cierre. Desde las 23:00 de Bogotá, una vez por negocio y día: los negocios
+ * con una línea de ventas que todavía no tienen la foto de hoy. Lista de espera SIN la memoria de
+ * 60 s; no mira el interruptor ni el reloj de la regla. Si un negocio falla, la vuelta siguiente lo
+ * vuelve a intentar. Devuelve cuántas fotos guardó.
+ */
+export async function guardarFotoDeCierre(ahora = new Date()): Promise<number> {
+  if (!esHoraDeLaFotoDeCierre(ahora)) return 0;
+  const dia = diaEnBogota(ahora);
+  const lineas = await prisma.whatsAppChannel.findMany({
+    where: { purpose: "SALES" },
+    select: { workspaceId: true },
+    distinct: ["workspaceId"],
+  });
+  const negocios = [...new Set(lineas.map((linea) => linea.workspaceId))];
+  if (!negocios.length) return 0;
+  const yaGuardadas = await prisma.appSetting.findMany({
+    where: { key: { in: negocios.map((workspaceId) => claveFotoDeCierre(workspaceId, dia)) } },
+    select: { key: true },
+  });
+  const hechas = new Set(yaGuardadas.map((fila) => fila.key));
+
+  let guardadas = 0;
+  for (const workspaceId of negocios) {
+    const key = claveFotoDeCierre(workspaceId, dia);
+    if (hechas.has(key)) continue;
+    try {
+      const foto = contarEsperaDeCierre(await cargarEsperaDelNegocio(workspaceId), ahora);
+      const value = JSON.stringify({ ...foto, guardadoEn: ahora.toISOString() });
+      await prisma.appSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+      guardadas += 1;
+    } catch (error) {
+      // Un negocio que falla no frena a los demás.
+      console.error("[demora-de-asesora] foto del cierre error", workspaceId, error);
+    }
+  }
+  return guardadas;
+}
+
+async function nombresDe(ids: string[]): Promise<(id: string) => string> {
+  const usuarios = ids.length
+    ? await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, email: true } })
+    : [];
+  return (id: string) => nombreDe(usuarios.find((usuario) => usuario.id === id));
+}
+
+export type CuentaPorAsesora = { asesora: string; cuenta: number };
+
+function listaPorAsesora(cuentas: Record<string, number>, nombre: (id: string) => string): CuentaPorAsesora[] {
+  return Object.entries(cuentas)
+    .map(([userId, cuenta]) => ({ asesora: nombre(userId), cuenta }))
+    .sort((a, b) => b.cuenta - a.cuenta || a.asesora.localeCompare(b.asesora));
+}
+
+export type FotoDeCierreLeida = {
+  fecha: string;
+  total: number;
+  sinAsignar: number;
+  porAsesora: CuentaPorAsesora[];
+};
+
+/** La foto del cierre de un día (AAAA-MM-DD de Bogotá), con los nombres. Sin foto ese día = null. */
+export async function leerFotoDeCierre(workspaceId: string, fecha: string): Promise<FotoDeCierreLeida | null> {
+  const fila = await prisma.appSetting.findUnique({ where: { key: claveFotoDeCierre(workspaceId, fecha) } });
+  const foto = leerFotoDeCierreDeTexto(fila?.value);
+  if (!foto) return null;
+  const nombre = await nombresDe(Object.keys(foto.porAsesora));
+  return { fecha, total: foto.total, sinAsignar: foto.sinAsignar, porAsesora: listaPorAsesora(foto.porAsesora, nombre) };
+}
+
+export type ReasignacionesDeLaSemana = {
+  desde: string;
+  hasta: string;
+  total: number;
+  porQuienSeDemoro: CuentaPorAsesora[];
+  porQuienRecibio: CuentaPorAsesora[];
+};
+
+/**
+ * MEDIDA 2: las reasignaciones de esta regla en los últimos 7 días (hasta `ahora`). Las notas SYSTEM
+ * con origen ORIGEN_REASIGNACION_POR_DEMORA (índice workspaceId + createdAt), solo su rawPayload.
+ */
+export async function reasignacionesDeLaSemana(workspaceId: string, ahora = new Date()): Promise<ReasignacionesDeLaSemana> {
+  const desde = new Date(ahora.getTime() - 7 * 24 * 60 * 60_000);
+  const notas = await prisma.message.findMany({
+    where: {
+      workspaceId,
+      type: "SYSTEM",
+      createdAt: { gte: desde, lte: ahora },
+      rawPayload: { path: ["origen"], equals: ORIGEN_REASIGNACION_POR_DEMORA },
+    },
+    select: { rawPayload: true },
+  });
+  const grupos = agruparReasignaciones(
+    notas.map((nota) => nota.rawPayload as { reasignadoDeUserId?: unknown; assigneeUserId?: unknown } | null),
+  );
+  const nombre = await nombresDe([
+    ...new Set([...Object.keys(grupos.porQuienSeDemoro), ...Object.keys(grupos.porQuienRecibio)]),
+  ]);
+  return {
+    desde: desde.toISOString(),
+    hasta: ahora.toISOString(),
+    total: grupos.total,
+    porQuienSeDemoro: listaPorAsesora(grupos.porQuienSeDemoro, nombre),
+    porQuienRecibio: listaPorAsesora(grupos.porQuienRecibio, nombre),
+  };
 }
