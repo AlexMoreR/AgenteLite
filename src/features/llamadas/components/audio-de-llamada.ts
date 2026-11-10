@@ -32,11 +32,15 @@ export const OPCIONES_CANAL_PCM: RTCDataChannelInit = { ordered: false, maxRetra
 export const MUESTRAS_POR_PAQUETE = 320;
 
 /**
- * Cuanto se deja acumular sin salir en el canal antes de empezar a tirar audio nuevo: 0,25 s de
+ * Cuanto se deja acumular sin salir en el canal antes de empezar a tirar audio nuevo: 0,5 s de
  * PCM (16 000 muestras/s × 2 bytes). Si la red de la asesora no da abasto, es mejor que el cliente
  * escuche con cortes cortos que con un retraso que crece hasta que no escucha nada.
+ *
+ * Era 0,25 s, pero la red de la asesora sale a rafagas: la cola pasaba ese tope en cada rafaga y se
+ * tiraba entre 2 % y 7 % de los paquetes del microfono, que el cliente oia como voz cortada. 0,5 s
+ * aguanta esas rafagas y sigue siendo poco retraso para una conversacion.
  */
-export const LIMITE_COLA_BYTES = 8000;
+export const LIMITE_COLA_BYTES = 16000;
 
 export function hayQueDescartar(bufferedAmount: number, limite = LIMITE_COLA_BYTES): boolean {
   return bufferedAmount > limite;
@@ -90,6 +94,10 @@ export type DiagnosticoDeLlamada = {
   huecoMaximoEnviadoMs: number;
   /** Veces que el microfono se apago solo (auricular desconectado, otro programa lo tomo...). */
   microfonoCaido: number;
+  /** Veces que la voz del cliente se corto en el parlante de la asesora por culpa de la red. */
+  cortesReproduccion: number;
+  /** El colchon de reproduccion mas alto visto en esos cortes, en ms (0 si no hubo cortes). */
+  objetivoColchonMaxMs: number;
   /** De getStats(): lo que realmente paso por la red y el tiempo de ida y vuelta. */
   bytesEnviadosRed: number | null;
   bytesRecibidosRed: number | null;
@@ -106,6 +114,8 @@ export function diagnosticoVacio(): DiagnosticoDeLlamada {
     huecoMaximoRecibidoMs: 0,
     huecoMaximoEnviadoMs: 0,
     microfonoCaido: 0,
+    cortesReproduccion: 0,
+    objetivoColchonMaxMs: 0,
     bytesEnviadosRed: null,
     bytesRecibidosRed: null,
     rttMs: null,

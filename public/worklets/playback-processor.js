@@ -127,6 +127,8 @@ class PlaybackProcessor extends AudioWorkletProcessor {
     }
     this.desdeUnderrun = 0;
     this.proximaBajada = ESPERA_PARA_BAJAR;
+    // Aca ya se sabe que fue la red y no un silencio: es lo que se cuenta en el diagnostico.
+    this.port.postMessage({ tipo: "corte", objetivoMs: this.objetivo / 16 });
   }
 
   siguienteMuestra() {

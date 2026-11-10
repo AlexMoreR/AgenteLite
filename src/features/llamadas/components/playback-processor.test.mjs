@@ -17,7 +17,13 @@ const BLOQUES_EN_10_S = 16000 * 10 / BLOQUE;
 function cargarWorklet() {
   const registrados = new Map();
   class AudioWorkletProcessor {
-    port = { onmessage: null };
+    port = {
+      onmessage: null,
+      enviados: [],
+      postMessage(mensaje) {
+        this.enviados.push(mensaje);
+      },
+    };
   }
   vm.runInNewContext(fuente, {
     AudioWorkletProcessor,
@@ -229,6 +235,49 @@ test("colchon: una vaciada reinicia la espera para bajar", () => {
   const objetivo = proc.objetivo;
   bloques(proc, BLOQUES_EN_10_S - 1);
   assert.equal(proc.objetivo, objetivo);
+});
+
+// El objeto nace dentro del vm: se copia para que deepEqual no lo rechace por tener otro prototipo.
+function cortes(proc) {
+  return proc.port.enviados.map((mensaje) => ({ ...mensaje }));
+}
+
+function vaciar(proc) {
+  enviar(proc, proc.objetivo);
+  do {
+    bloque(proc);
+  } while (proc.reproduciendo);
+}
+
+test("corte: una vaciada por la red avisa al hilo principal con el colchon vigente", () => {
+  const proc = crear();
+  provocarUnderrun(proc);
+  assert.deepEqual(cortes(proc), [{ tipo: "corte", objetivoMs: 150 }]);
+
+  // La segunda seguida es repetida: el colchon sube y el mensaje ya trae el nuevo.
+  provocarUnderrun(proc);
+  assert.deepEqual(cortes(proc), [
+    { tipo: "corte", objetivoMs: 150 },
+    { tipo: "corte", objetivoMs: 200 },
+  ]);
+});
+
+test("corte: se avisa cuando vuelve el audio, si tardo menos de 200 ms", () => {
+  const proc = crear();
+  vaciar(proc);
+  bloques(proc, 10);
+  assert.deepEqual(cortes(proc), []);
+
+  enviar(proc, 320);
+  assert.deepEqual(cortes(proc), [{ tipo: "corte", objetivoMs: 150 }]);
+});
+
+test("corte: un silencio largo no se avisa", () => {
+  const proc = crear();
+  vaciar(proc);
+  bloques(proc, 30);
+  enviar(proc, 320);
+  assert.deepEqual(cortes(proc), []);
 });
 
 test("salto de seguridad: con el objetivo inicial, respeta el margen y deja el objetivo", () => {

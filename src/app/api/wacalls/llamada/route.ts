@@ -50,6 +50,8 @@ const CAMPOS_DIAGNOSTICO = [
   "huecoMaximoRecibidoMs",
   "huecoMaximoEnviadoMs",
   "microfonoCaido",
+  "cortesReproduccion",
+  "objetivoColchonMaxMs",
   "bytesEnviadosRed",
   "bytesRecibidosRed",
   "rttMs",

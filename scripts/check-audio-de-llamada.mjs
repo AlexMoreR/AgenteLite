@@ -62,8 +62,8 @@ prueba("con la red ahogada se descarta audio nuevo en vez de apilarlo", () => {
   assert.equal(hayQueDescartar(0), false);
   assert.equal(hayQueDescartar(LIMITE_COLA_BYTES), false);
   assert.equal(hayQueDescartar(LIMITE_COLA_BYTES + 1), true);
-  // 0,25 s de PCM a 16 kHz y 16 bits.
-  assert.equal(LIMITE_COLA_BYTES, 16000 * 2 * 0.25);
+  // 0,5 s de PCM a 16 kHz y 16 bits.
+  assert.equal(LIMITE_COLA_BYTES, 16000 * 2 * 0.5);
 });
 
 prueba("lee bytes y RTT de la ruta de red elegida", () => {

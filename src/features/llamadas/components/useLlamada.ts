@@ -149,7 +149,7 @@ function esperarRutas(pc: RTCPeerConnection, topeMs = 3000) {
 
 /**
  * Deja en los registros del servidor cuanto audio fue y vino en la llamada. `keepalive` hace que
- * salga aunque la asesora cierre la pestaña al colgar.
+ * salga aunque la pestaña se este cerrando.
  */
 function enviarDiagnostico(
   callId: string,
@@ -204,11 +204,27 @@ export function useLlamada({ channelId, onError, onTerminada }: Opciones = {}) {
   const busquedasEnHistorialRef = useRef(0);
   /** Lo que se cuenta del audio para saber despues si fue en los dos sentidos (audio-de-llamada.ts). */
   const diagnosticoRef = useRef<DiagnosticoDeLlamada>(diagnosticoVacio());
+  /** La ultima llamada cuyo diagnostico ya salio: cada llamada manda uno solo. */
+  const diagnosticoEnviadoDeRef = useRef<string | null>(null);
   const revisionRef = useRef<number | null>(null);
 
   const cambiarEstado = useCallback((siguiente: EstadoLlamada) => {
     estadoRef.current = siguiente;
     setEstado(siguiente);
+  }, []);
+
+  /**
+   * Deja constancia en el servidor de cuanto audio fue y vino. Es lo que permite contestar "¿el
+   * cliente la escuchaba?" sin depender de lo que cada uno recuerde. Tambien sale con cero audio:
+   * una llamada en la que no paso nada es justo la que hay que poder ver.
+   */
+  const reportarDiagnostico = useCallback(() => {
+    const callId = callIdRef.current;
+    if (!callId || diagnosticoEnviadoDeRef.current === callId) {
+      return;
+    }
+    diagnosticoEnviadoDeRef.current = callId;
+    enviarDiagnostico(callId, canalRef.current, diagnosticoRef.current, segundosRef.current);
   }, []);
 
   /** Suelta micrófono, audio y conexión. Se llama al colgar y al desmontar. */
@@ -223,11 +239,7 @@ export function useLlamada({ channelId, onError, onTerminada }: Opciones = {}) {
       window.clearInterval(revisionRef.current);
       revisionRef.current = null;
     }
-    // Antes de soltar todo, se deja constancia en el servidor de cuanto audio fue y vino. Es lo
-    // que permite contestar "¿el cliente la escuchaba?" sin depender de lo que cada uno recuerde.
-    if (callIdRef.current && (diagnosticoRef.current.enviados > 0 || diagnosticoRef.current.recibidos > 0)) {
-      enviarDiagnostico(callIdRef.current, canalRef.current, diagnosticoRef.current, segundosRef.current);
-    }
+    reportarDiagnostico();
     diagnosticoRef.current = diagnosticoVacio();
     // El micrófono se apaga SIEMPRE, incluso si algo falló antes: dejar la lucecita del micro
     // encendida después de colgar es lo que hace que la gente desconfíe de la herramienta.
@@ -246,15 +258,18 @@ export function useLlamada({ channelId, onError, onTerminada }: Opciones = {}) {
     setSegundos(0);
     segundosRef.current = 0;
     setRecienContesto(false);
-  }, []);
+  }, [reportarDiagnostico]);
 
   useEffect(() => {
     const temporizadores = temporizadoresRef.current;
+    // Al cerrar la pestaña React no desmonta nada: sin esto la llamada se quedaba sin diagnostico.
+    window.addEventListener("pagehide", reportarDiagnostico);
     return () => {
+      window.removeEventListener("pagehide", reportarDiagnostico);
       limpiar();
       temporizadores.forEach((id) => window.clearTimeout(id));
     };
-  }, [limpiar]);
+  }, [limpiar, reportarDiagnostico]);
 
   // Cronómetro de la conversación.
   useEffect(() => {
@@ -509,6 +524,13 @@ export function useLlamada({ channelId, onError, onTerminada }: Opciones = {}) {
         const reproduccion = new AudioWorkletNode(ctx, "playback-processor");
         const destino = ctx.createMediaStreamDestination();
         reproduccion.connect(destino);
+        reproduccion.port.onmessage = (evento: MessageEvent<{ tipo: "corte"; objetivoMs: number }>) => {
+          if (evento.data.tipo !== "corte" || estadoRef.current !== "hablando") {
+            return;
+          }
+          diagnostico.cortesReproduccion += 1;
+          diagnostico.objetivoColchonMaxMs = Math.max(diagnostico.objetivoColchonMaxMs, evento.data.objetivoMs);
+        };
         let ultimoRecibido = 0;
         canal.onmessage = (evento: MessageEvent<ArrayBuffer>) => {
           const ahora = performance.now();
