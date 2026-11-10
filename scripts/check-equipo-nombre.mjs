@@ -33,6 +33,16 @@ function armar(miembro) {
       },
     },
     "@/lib/client-workspace-modules": { sanitizeClientModuleAccess: (x) => x },
+    // Lo usa solo guardarReglaDeDemoraAction, que esta prueba no llama.
+    "@/lib/demora-de-asesora-ajuste": {
+      agregarAlHistorial: (h) => h,
+      claveConfigDemora: (w) => w,
+      claveHistorialDemora: (w) => w,
+      estadoDelBotonDeTexto: () => ({}),
+      leerHistorialDemoraDeTexto: () => [],
+      textoDeConfigNueva: () => "",
+      validarPedidoDeDemora: () => ({}),
+    },
     "@/lib/en-linea": { guardarAsesoraDeRespaldo: async () => {} },
     "@/lib/horario-de-reparto": { guardarHorarioDeReparto: async () => {}, normalizarHorario: (x) => x },
     "@/lib/permisos-del-equipo": { guardarSupervisoras: async () => {}, leerSupervisoras: async () => [] },

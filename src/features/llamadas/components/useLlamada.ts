@@ -79,11 +79,48 @@ const RESTRICCIONES_MIC: MediaStreamConstraints = {
 };
 
 type Opciones = {
-  /** Canal del chat: la llamada sale por SU numero. */
-  channelId?: string | null;
   onError?: (mensaje: string) => void;
   onTerminada?: () => void;
 };
+
+/** Lo que se dice al marcar, ademas del destino. */
+type OpcionesDeMarcado = {
+  /** El destino es un identificador de WhatsApp, no un teléfono. */
+  esOculto?: boolean;
+  /**
+   * Canal del chat: la llamada sale por SU numero. Llega al marcar y no en las opciones del hook,
+   * porque la llamada es una sola para todo el CRM (LlamadaEnCurso.tsx) y cada chat tiene su linea.
+   */
+  channelId?: string | null;
+};
+
+/**
+ * Cuelga sin esperar respuesta, para cuando la pantalla se cierra o la llamada se desmonta.
+ *
+ * Antes, al desmontar solo se soltaba el micrófono de este lado: WaCalls nunca se enteraba y el
+ * cliente quedaba timbrando o en una llamada muda. `sendBeacon` sale aunque la pestaña se esté
+ * cerrando; si el navegador no lo tiene, `fetch` con `keepalive` hace lo mismo. Va el mismo cuerpo
+ * que usa colgar(), a la misma ruta.
+ */
+function colgarSinEsperar(callId: string, channelId: string | undefined) {
+  const cuerpo = JSON.stringify({ accion: "colgar", callId, channelId });
+  try {
+    if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
+      if (navigator.sendBeacon("/api/wacalls/llamada", cuerpo)) {
+        return;
+      }
+    }
+    void fetch("/api/wacalls/llamada", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      keepalive: true,
+      body: cuerpo,
+    }).catch(() => {});
+  } catch {
+    // Colgar al salir nunca puede romper el cierre de la pantalla.
+  }
+}
 
 async function pedir(body: unknown) {
   const respuesta = await fetch("/api/wacalls/llamada", {
@@ -170,7 +207,7 @@ function enviarDiagnostico(
   }
 }
 
-export function useLlamada({ channelId, onError, onTerminada }: Opciones = {}) {
+export function useLlamada({ onError, onTerminada }: Opciones = {}) {
   const [estado, setEstado] = useState<EstadoLlamada>("libre");
   const [silenciado, setSilenciado] = useState(false);
   const [segundos, setSegundos] = useState(0);
@@ -260,16 +297,30 @@ export function useLlamada({ channelId, onError, onTerminada }: Opciones = {}) {
     setRecienContesto(false);
   }, [reportarDiagnostico]);
 
+  /** Si hay una llamada activa, le avisa a WaCalls que se cuelga (la pantalla se va). */
+  const colgarAlSalir = useCallback(() => {
+    const callId = callIdRef.current;
+    if (callId) {
+      colgarSinEsperar(callId, canalRef.current);
+    }
+  }, []);
+
   useEffect(() => {
     const temporizadores = temporizadoresRef.current;
-    // Al cerrar la pestaña React no desmonta nada: sin esto la llamada se quedaba sin diagnostico.
-    window.addEventListener("pagehide", reportarDiagnostico);
+    // Al cerrar la pestaña React no desmonta nada: sin esto la llamada se quedaba sin diagnostico
+    // y, peor, sin colgar del lado de WaCalls.
+    const alCerrarPantalla = () => {
+      reportarDiagnostico();
+      colgarAlSalir();
+    };
+    window.addEventListener("pagehide", alCerrarPantalla);
     return () => {
-      window.removeEventListener("pagehide", reportarDiagnostico);
+      window.removeEventListener("pagehide", alCerrarPantalla);
+      colgarAlSalir();
       limpiar();
       temporizadores.forEach((id) => window.clearTimeout(id));
     };
-  }, [limpiar, reportarDiagnostico]);
+  }, [colgarAlSalir, limpiar, reportarDiagnostico]);
 
   // Cronómetro de la conversación.
   useEffect(() => {
@@ -388,9 +439,11 @@ export function useLlamada({ channelId, onError, onTerminada }: Opciones = {}) {
   }, [cambiarEstado, limpiar, onTerminada]);
 
   const llamar = useCallback(
-    /** `esOculto` = el destino es un identificador de WhatsApp, no un teléfono. */
-    async (telefono: string, esOculto = false) => {
-      if (estado !== "libre") {
+    async (telefono: string, { esOculto = false, channelId }: OpcionesDeMarcado = {}) => {
+      // Se lee del ref y no del estado de React: la llamada es una sola para todo el CRM y dos
+      // toques seguidos no pueden armar dos llamadas.
+      // (El `as` evita que TypeScript dé por fijo "libre" el resto de la función: el ref cambia.)
+      if ((estadoRef.current as EstadoLlamada) !== "libre") {
         return;
       }
       setMotivoFin(null);
@@ -617,7 +670,7 @@ export function useLlamada({ channelId, onError, onTerminada }: Opciones = {}) {
         cambiarEstado("libre");
       }
     },
-    [estado, channelId, colgar, limpiar, onError, cambiarEstado, revisarEstado],
+    [colgar, limpiar, onError, cambiarEstado, revisarEstado],
   );
 
   const alternarSilencio = useCallback(async () => {
