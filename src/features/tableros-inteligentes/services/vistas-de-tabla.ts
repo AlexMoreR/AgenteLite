@@ -72,7 +72,7 @@ export type FilaDeTabla<T extends TarjetaDeVista = TarjetaDeVista> = {
 
 /**
  * Arma las filas. El área de una tarjeta sin área es la carpeta (un tipo sin estados, como Área) más
- * cercana hacia arriba: así "Sistemas en curso" sirve igual si la tarjeta cuelga de la carpeta Sistemas.
+ * cercana hacia arriba: así filtrar por el área Sistemas trae también las tarjetas que cuelgan de esa carpeta.
  */
 export function filasDeTabla<T extends TarjetaDeVista>(tarjetas: readonly T[], tipos: readonly TipoDeVista[]): FilaDeTabla<T>[] {
   const tipoPorId = new Map(tipos.map((tipo) => [tipo.id, tipo]));
