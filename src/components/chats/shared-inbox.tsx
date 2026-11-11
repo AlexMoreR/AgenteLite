@@ -1197,7 +1197,11 @@ export function SharedInbox({
             return lista && Date.now() - lista.at < LISTA_VIGENTE_MS ? lista.items : undefined;
           },
         );
-        if (provisional) {
+        /*
+          Vacia NO: la primera tanda de Todas casi nunca trae los chats de quien mira (medido: "Mías"
+          salia vacia un instante y despues se llenaba). Sin filas se espera a /list como antes.
+        */
+        if (provisional && provisional.length > 0) {
           setHasMoreConversationItems(false);
           setConversationItems(provisional.map((item) => ({ ...item, href: hrefDeFila(item) })));
           setVersionDeVista((actual) => actual + 1);
