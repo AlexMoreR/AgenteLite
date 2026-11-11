@@ -135,7 +135,7 @@ export function VincularLlamadasDialog({
         <DialogHeader>
           <DialogTitle>Vincular la línea de llamadas</DialogTitle>
           <DialogDescription>
-            Escaneá el código desde el WhatsApp del número con el que vas a llamar.
+            Escanea el código desde el WhatsApp del número con el que vas a llamar.
           </DialogDescription>
         </DialogHeader>
 
@@ -150,7 +150,7 @@ export function VincularLlamadasDialog({
               </p>
               {numeroVinculado ? (
                 <p className="text-xs text-muted-foreground">
-                  Llamás desde el {numeroVinculado}. No hace falta escanear nada.
+                  Llamas desde el {numeroVinculado}. No hace falta escanear nada.
                 </p>
               ) : null}
             </div>
@@ -165,9 +165,9 @@ export function VincularLlamadasDialog({
                 className="rounded-lg border border-border bg-white p-2"
               />
               <ol className="space-y-1 text-xs text-muted-foreground">
-                <li>1. Abrí WhatsApp en el teléfono</li>
+                <li>1. Abre WhatsApp en el teléfono</li>
                 <li>2. Menú → Dispositivos vinculados</li>
-                <li>3. Escaneá este código</li>
+                <li>3. Escanea este código</li>
               </ol>
             </>
           ) : (

@@ -52,7 +52,7 @@ export function ProductObjectionsEditor({
       setObjecion({ trigger: "", text: "" });
       router.refresh();
     } catch {
-      toast.error("No se pudo guardar. Recargá la página e intentá de nuevo.");
+      toast.error("No se pudo guardar. Recarga la página e intenta de nuevo.");
     } finally {
       setOcupado(false);
     }
@@ -68,7 +68,7 @@ export function ProductObjectionsEditor({
       }
       router.refresh();
     } catch {
-      toast.error("No se pudo borrar. Recargá la página e intentá de nuevo.");
+      toast.error("No se pudo borrar. Recarga la página e intenta de nuevo.");
     } finally {
       setOcupado(false);
     }
@@ -128,7 +128,7 @@ export function ProductObjectionsEditor({
             className="w-full sm:flex-1"
             value={objecion.text}
             onChange={(event) => setObjecion((actual) => ({ ...actual, text: event.target.value }))}
-            placeholder="Le contestás…"
+            placeholder="Le contestas…"
           />
           <Button
             type="button"

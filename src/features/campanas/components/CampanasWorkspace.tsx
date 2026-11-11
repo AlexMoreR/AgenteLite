@@ -73,7 +73,7 @@ export function CampanasWorkspace({
       toast.success(exito);
       router.refresh();
     } catch {
-      toast.error("No se pudo. Recargá la página e intentá de nuevo.");
+      toast.error("No se pudo. Recarga la página e intenta de nuevo.");
     } finally {
       setOcupada(null);
     }

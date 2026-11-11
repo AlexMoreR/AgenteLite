@@ -110,12 +110,12 @@ export function NuevaCampanaDialog({
         toast.error(resultado.error);
         return;
       }
-      toast.success("Campaña creada. Todavía no mandó nada: revisala y dale Iniciar.");
+      toast.success("Campaña creada. Todavía no mandó nada: revísala y toca Iniciar.");
       setNombre("");
       setMensaje("");
       onCreada();
     } catch {
-      toast.error("No se pudo crear. Recargá la página e intentá de nuevo.");
+      toast.error("No se pudo crear. Recarga la página e intenta de nuevo.");
     } finally {
       setOcupado(false);
     }

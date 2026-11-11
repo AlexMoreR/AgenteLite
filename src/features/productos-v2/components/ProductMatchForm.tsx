@@ -83,7 +83,7 @@ export function ProductMatchForm({
       router.refresh();
       return true;
     } catch {
-      toast.error("No se pudo guardar. Recargá la página e intentá de nuevo.");
+      toast.error("No se pudo guardar. Recarga la página e intenta de nuevo.");
       return false;
     } finally {
       setOcupado(false);

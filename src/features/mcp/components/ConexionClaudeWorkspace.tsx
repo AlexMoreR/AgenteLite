@@ -129,11 +129,11 @@ export function ConexionClaudeWorkspace({
             </div>
             <p className="text-[12px] text-amber-900/80 dark:text-amber-100/80">
               <b>En claude.ai (web o celular):</b> Configuración → Conectores → Agregar conector personalizado.
-              Pegá la <b>dirección</b> de arriba —lleva la clave adentro— y elegí <b>“Sin inicio de sesión”</b>.
+              Pega la <b>dirección</b> de arriba —lleva la clave adentro— y elige <b>“Sin inicio de sesión”</b>.
             </p>
             <p className="text-[12px] text-amber-900/80 dark:text-amber-100/80">
-              <b>En Claude Code:</b> pegá el comando en una terminal. Después preguntale, por ejemplo, “revisá
-              los chats de ayer de Ventas 1 y decime dónde el agente dio información equivocada”.
+              <b>En Claude Code:</b> pega el comando en una terminal. Después pregúntale, por ejemplo, “revisa
+              los chats de ayer de Ventas 1 y dime dónde el agente dio información equivocada”.
             </p>
           </div>
         ) : null}

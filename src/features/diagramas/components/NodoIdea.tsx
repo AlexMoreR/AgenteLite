@@ -254,7 +254,7 @@ export function NodoIdea({
               // se perdía antes de que el botón actuara, así que nunca ponía nada en negrita.
               onMouseDown={(evento) => evento.preventDefault()}
               onClick={alternarNegrita}
-              title="Negrita: seleccioná el texto primero"
+              title="Negrita: selecciona el texto primero"
               aria-label="Poner en negrita"
               className="flex size-6 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground"
             >

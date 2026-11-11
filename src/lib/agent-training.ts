@@ -383,7 +383,7 @@ export function buildAgentSystemPrompt(input: {
     `Longitud de respuesta obligatoria: ${getResponseLengthPrompt(training.responseLength)}`,
     training.useTuteo ? "Trata al cliente de tu, no de usted." : "No fuerces el tuteo; habla de forma neutral o respetuosa.",
     training.useCustomerName
-      ? "Si ya conoces el nombre del cliente, usalo de forma natural para personalizar la conversacion."
+      ? "Si ya conoces el nombre del cliente, úsalo de forma natural para personalizar la conversacion."
       : "No inventes ni forces el nombre del cliente si no lo conoces.",
     training.useEmojis
       ? "Usa emojis solo cuando aporten claridad comercial; no los uses para sonar afectuoso o informal."
@@ -568,17 +568,17 @@ export function buildAgentSystemPrompt(input: {
     training.aiDrivenFlows
       ? [
           "ENVÍO DE CATÁLOGOS (herramienta enviar_flujo)",
-          "VOS decidís qué catálogo/flujo mandar y cuándo, como un buen vendedor. Los flujos son el contenido (fotos, PDFs) que le mostrás al cliente.",
-          "REGLA DE ORO: UN SOLO PRODUCTO A LA VEZ. Mandá SOLO el catálogo del producto del que se está hablando en ESTA conversación. Si el cliente vino por camillas, mandás camillas y NADA MÁS. Por defecto se envía UN SOLO flujo. Mandar un catálogo que el cliente no pidió (ej: mandar manicura cuando hablan de camillas) es un ERROR GRAVE — nunca lo hagas, aunque parezca 'un extra útil'.",
-          "OJO con la palabra 'combo': que el cliente diga 'combo' NO es permiso para mandar todos los combos que existen. Hay varios (combo de camillas, combo lavacabezas, combo mesa y sillas de manicura). Mandá SOLO el combo del producto que está en contexto. No mezcles: 'combo' + camilla = combo de camillas, y punto; jamás sumes el combo de manicura ni otros solo porque comparten la palabra 'combo'.",
-          "1. CONCRETO → mandá directo, sin preguntar de más. Si el cliente nombra algo que corresponde a UN catálogo, llamá consultar_flujos para el flow_id exacto y enviá con enviar_flujo de inmediato (UN flujo). Ej: 'silla de peluquería' → catálogo de sillas; 'lavacabezas' → catálogo de lavacabezas; 'camillas' → catálogo de camillas.",
-          "   OJO con camillas: 'camillas' manda el flujo de camillas, que YA incluye el combo de camillas adentro. No lo trates como un producto aparte ni te pongas a calificar: mandá SOLO el catálogo de camillas.",
-          "2. CATEGORÍA AMPLIA o AMBIGÜEDAD REAL (varios subtipos y no sabés cuál) → NO mandes al azar ni mandes todos. OFRECÉ las opciones y preguntá cuál. Ej: '¿tienen sillas?' → 'Tenemos sillas de peluquería, de barbería, neumáticas... ¿cuál te interesa?'. Solo enviá VARIOS flujos a la vez si el cliente tiene que ELEGIR entre ellos y se lo estás preguntando en el mismo mensaje — nunca como catálogos 'de más'.",
+          "TÚ decides qué catálogo/flujo mandar y cuándo, como un buen vendedor. Los flujos son el contenido (fotos, PDFs) que le muestras al cliente.",
+          "REGLA DE ORO: UN SOLO PRODUCTO A LA VEZ. Manda SOLO el catálogo del producto del que se está hablando en ESTA conversación. Si el cliente vino por camillas, mandas camillas y NADA MÁS. Por defecto se envía UN SOLO flujo. Mandar un catálogo que el cliente no pidió (ej: mandar manicura cuando hablan de camillas) es un ERROR GRAVE — nunca lo hagas, aunque parezca 'un extra útil'.",
+          "OJO con la palabra 'combo': que el cliente diga 'combo' NO es permiso para mandar todos los combos que existen. Hay varios (combo de camillas, combo lavacabezas, combo mesa y sillas de manicura). Manda SOLO el combo del producto que está en contexto. No mezcles: 'combo' + camilla = combo de camillas, y punto; jamás sumes el combo de manicura ni otros solo porque comparten la palabra 'combo'.",
+          "1. CONCRETO → manda directo, sin preguntar de más. Si el cliente nombra algo que corresponde a UN catálogo, llama consultar_flujos para el flow_id exacto y envía con enviar_flujo de inmediato (UN flujo). Ej: 'silla de peluquería' → catálogo de sillas; 'lavacabezas' → catálogo de lavacabezas; 'camillas' → catálogo de camillas.",
+          "   OJO con camillas: 'camillas' manda el flujo de camillas, que YA incluye el combo de camillas adentro. No lo trates como un producto aparte ni te pongas a calificar: manda SOLO el catálogo de camillas.",
+          "2. CATEGORÍA AMPLIA o AMBIGÜEDAD REAL (varios subtipos y no sabes cuál) → NO mandes al azar ni mandes todos. OFRECE las opciones y pregunta cuál. Ej: '¿tienen sillas?' → 'Tenemos sillas de peluquería, de barbería, neumáticas... ¿cuál te interesa?'. Solo envía VARIOS flujos a la vez si el cliente tiene que ELEGIR entre ellos y se lo estás preguntando en el mismo mensaje — nunca como catálogos 'de más'.",
           "   Si en esa categoría hay UNA sola opción → mandala directo, no preguntes al pedo.",
-          "3. Usá el flow_id EXACTO que devolvió consultar_flujos. NUNCA inventes un id.",
+          "3. Usa el flow_id EXACTO que devolvió consultar_flujos. NUNCA inventes un id.",
           "4. NUNCA mandes un catálogo que no corresponde a lo que pidió el cliente. Si habla de camillas, JAMÁS mandes manicura, sillas ni ningún otro. Ante la duda de si un flujo corresponde, NO lo mandes.",
-          "5. consultar_flujos y consultar_productos son INTERNOS: el cliente NO los ve. Nunca le digas 'espera, consulto'. Consultá en silencio y respondé con el resultado.",
-          "6. Después de que enviar_flujo confirma el envío, NO describas el catálogo de nuevo ni lo reenvíes. Los flujos YA traen su propio mensaje de cierre (p.ej. 'revísalo y contame qué código/color te interesa'). Por eso: si mandaste UN SOLO flujo, NO agregues otra pregunta de cierre (el flujo ya cerró) — quedate callado o una línea muy corta. Preguntá cuál le interesa SOLO si mandaste VARIOS y el cliente tiene que elegir.",
+          "5. consultar_flujos y consultar_productos son INTERNOS: el cliente NO los ve. Nunca le digas 'espera, consulto'. Consulta en silencio y responde con el resultado.",
+          "6. Después de que enviar_flujo confirma el envío, NO describas el catálogo de nuevo ni lo reenvíes. Los flujos YA traen su propio mensaje de cierre (p.ej. 'revísalo y contame qué código/color te interesa'). Por eso: si mandaste UN SOLO flujo, NO agregues otra pregunta de cierre (el flujo ya cerró) — quédate callado o una línea muy corta. Pregunta cuál le interesa SOLO si mandaste VARIOS y el cliente tiene que elegir.",
         ].join("\n")
       : null,
     `DIRECTIVAS DE COMUNICACIÓN CON EL USUARIO\n- ${communicationDirectives.join("\n- ")}`,
@@ -602,7 +602,7 @@ export function buildAgentSystemPrompt(input: {
           training.actions.notify.instruction.trim()
             ? `Usa la herramienta Notificar_asesor cuando: ${training.actions.notify.instruction.trim()}.`
             : "Si el cliente pide hablar con un asesor, necesita validacion humana o la conversación requiere seguimiento comercial, usa la herramienta Notificar_asesor."
-        }\n- Esa instruccion MANDA: si dice que notifiques en un caso, notifica aunque creas que podes resolverlo por tu cuenta.\n- Fuera de los casos que nombra, no la uses para dudas que puedas resolver solo.\n- Cuando la uses, entrega un motivo claro y un resumen breve del caso.`
+        }\n- Esa instruccion MANDA: si dice que notifiques en un caso, notifica aunque creas que puedes resolverlo por tu cuenta.\n- Fuera de los casos que nombra, no la uses para dudas que puedas resolver solo.\n- Cuando la uses, entrega un motivo claro y un resumen breve del caso.`
       : null,
     `COSAS QUE NUNCA DEBES HACER\n- ${strictRules.join("\n- ")}`,
     /*

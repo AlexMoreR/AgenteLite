@@ -3705,7 +3705,7 @@ export async function sendChatLocationReplyAction(input: {
   const latitude = Number(businessConfig.locationLatitude);
   const longitude = Number(businessConfig.locationLongitude);
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || (!latitude && !longitude)) {
-    return { error: "Primero cargá la ubicación del local en Negocio (pegando el link de Google Maps)." };
+    return { error: "Primero carga la ubicación del local en Negocio (pegando el link de Google Maps)." };
   }
 
   const conversation = await prisma.conversation.findFirst({

@@ -109,7 +109,7 @@ export function AgentAdvancedPromptForm({
               Prompt generado automaticamente
             </span>
             <span className="block text-[12px] text-slate-500 pl-3">
-              El que se usa cuando el modo avanzado esta desactivado. Usalo como base.
+              El que se usa cuando el modo avanzado esta desactivado. Úsalo como base.
             </span>
           </span>
           {showGenerated ? (

@@ -219,7 +219,7 @@ export function RegisterCallDialog({
             {selected?.pendingAttemptId ? "¿Cómo quedó la llamada?" : "Registrar llamada"}
           </DialogTitle>
           <DialogDescription>
-            {selected ? selected.name : "Buscá el contacto al que llamaste."}
+            {selected ? selected.name : "Busca el contacto al que llamaste."}
           </DialogDescription>
         </DialogHeader>
 
@@ -278,7 +278,7 @@ export function RegisterCallDialog({
                 <div className="space-y-1.5">
                   <p className="text-foreground">
                     <span className="font-medium">Sugerido por la IA</span>
-                    <span className="text-muted-foreground"> según la grabación. Revisalo antes de guardar.</span>
+                    <span className="text-muted-foreground"> según la grabación. Revísalo antes de guardar.</span>
                   </p>
                   <button
                     type="button"

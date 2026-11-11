@@ -234,11 +234,11 @@ export function NotificacionesWorkspace() {
         <div className="flex flex-1 flex-col items-center justify-center gap-2 py-16 text-center">
           <BellOff className="size-8 text-muted-foreground" />
           <p className="text-sm font-medium text-foreground">
-            {busqueda.trim() ? "Nada con esa búsqueda" : "No tenés mensajes nuevos"}
+            {busqueda.trim() ? "Nada con esa búsqueda" : "No tienes mensajes nuevos"}
           </p>
           <p className="max-w-xs text-xs text-muted-foreground">
             {busqueda.trim()
-              ? "Probá con el nombre del contacto o una palabra del mensaje."
+              ? "Prueba con el nombre del contacto o una palabra del mensaje."
               : "Acá van a aparecer los chats con mensajes sin responder."}
           </p>
         </div>

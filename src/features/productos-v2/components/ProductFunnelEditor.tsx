@@ -269,7 +269,7 @@ export function ProductFunnelEditor({
       toast.success("Embudo guardado");
       router.refresh();
     } catch {
-      toast.error("No se pudo guardar. Recargá la página e intentá de nuevo.");
+      toast.error("No se pudo guardar. Recarga la página e intenta de nuevo.");
     } finally {
       setOcupado(false);
     }
@@ -392,7 +392,7 @@ export function ProductFunnelEditor({
                       rows={3}
                       value={etapa?.script ?? ""}
                       onChange={(event) => actualizar(meta.stage, "script", event.target.value)}
-                      placeholder="El mensaje, como se lo dirías vos…"
+                      placeholder="El mensaje, como se lo dirías tú…"
                     />
 
                     {/*

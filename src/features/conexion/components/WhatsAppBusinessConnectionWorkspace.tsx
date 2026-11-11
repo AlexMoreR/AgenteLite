@@ -281,7 +281,7 @@ export function WhatsAppBusinessConnectionWorkspace({
               <p className="text-xs text-muted-foreground">
                 {estadoLlamadas?.conectado
                   ? "Las llamadas desde los chats de este canal salen de este número."
-                  : "Vinculá un WhatsApp con su QR para poder llamar desde los chats de este canal."}
+                  : "Vincula un WhatsApp con su QR para poder llamar desde los chats de este canal."}
               </p>
             </CardContent>
           </Card>
@@ -526,9 +526,9 @@ export function WhatsAppBusinessConnectionWorkspace({
               */}
               <ol className="space-y-2">
                 {[
-                  "Abrí WhatsApp en tu teléfono",
-                  "Entrá al menú → Dispositivos vinculados",
-                  "Escaneá el código y esperá la confirmación",
+                  "Abre WhatsApp en tu teléfono",
+                  "Entra al menú → Dispositivos vinculados",
+                  "Escanea el código y espera la confirmación",
                 ].map((paso, indice) => (
                   <li key={paso} className="flex items-center gap-3 text-sm text-foreground">
                     <span className="inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">

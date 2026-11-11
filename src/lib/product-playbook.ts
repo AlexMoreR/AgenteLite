@@ -238,7 +238,7 @@ export function buildProductPlaybookPrompt(
         `"Perfecto," — nunca "Perfecto, Sra.".\n` +
         `ESO NO TE AMORDAZA: si el cliente hace una pregunta concreta (precio, medidas, envio, ` +
         `colores, formas de pago), CONTESTALA primero con el dato real y despues segui con el paso ` +
-        `que toca. Repetir el guion sin responder lo que preguntaron es lo peor que podes hacer: ` +
+        `que toca. Repetir el guion sin responder lo que preguntaron es lo peor que puedes hacer: ` +
         `el cliente pregunta de nuevo, y a la tercera se va.\n${lineas.join("\n")}`,
     );
   }

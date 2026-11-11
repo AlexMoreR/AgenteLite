@@ -438,7 +438,7 @@ function Lienzo({
     setHayCambios(true);
     setQuitadas([...quitadasRef.current, stage]);
     const meta = PRODUCT_FUNNEL_STAGES.find((item) => item.stage === stage);
-    toast.success(`"${meta?.label ?? stage}" queda fuera del embudo. Guardá para aplicarlo.`);
+    toast.success(`"${meta?.label ?? stage}" queda fuera del embudo. Guarda para aplicarlo.`);
   }, []);
 
   const volverAUsar = useCallback((stage: string) => {

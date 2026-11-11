@@ -79,8 +79,8 @@ export default function ClienteError({
         </h1>
         <p className="mt-1.5 text-sm leading-6 text-muted-foreground">
           {versionVieja
-            ? "Se actualizó mientras la tenías abierta. Recargá para seguir; no se perdió ningún mensaje ni ningún dato."
-            : "Fue una falla al cargar, no se perdió ningún mensaje ni ningún dato. Probá de nuevo; si vuelve a pasar, mandá una captura al grupo de errores."}
+            ? "Se actualizó mientras la tenías abierta. Recarga para seguir; no se perdió ningún mensaje ni ningún dato."
+            : "Fue una falla al cargar, no se perdió ningún mensaje ni ningún dato. Prueba de nuevo; si vuelve a pasar, manda una captura al grupo de errores."}
         </p>
 
         <Button type="button" className="mt-4 w-full" onClick={reintentar}>

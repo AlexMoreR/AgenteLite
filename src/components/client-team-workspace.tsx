@@ -535,7 +535,7 @@ function AdminActions({ employee }: { employee: EmployeeRow }) {
             <DialogTitle>¿Pasar a {employee.name} a empleado?</DialogTitle>
             <DialogDescription>
               Dejará de ser administrador y perderá el acceso total. Quedará como empleado con los
-              módulos básicos (Chats, Contactos y CRM); después podés ajustarle los módulos.
+              módulos básicos (Chats, Contactos y CRM); después puedes ajustarle los módulos.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -636,7 +636,7 @@ function EmployeeActions({ employee }: { employee: EmployeeRow }) {
             <DialogDescription>
               Tendrá <strong>acceso total</strong>: todos los módulos del negocio y además el área de
               administración (catálogo, configuración, permisos y usuarios). Ya no se le gestionan
-              módulos uno por uno. Podés revertirlo cuando quieras.
+              módulos uno por uno. Puedes revertirlo cuando quieras.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

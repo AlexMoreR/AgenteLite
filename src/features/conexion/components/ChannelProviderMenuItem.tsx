@@ -127,7 +127,7 @@ export function ChannelProviderDialog({
             <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs leading-relaxed text-amber-900 dark:border-amber-500/40 dark:bg-amber-950 dark:text-amber-100">
               <p>Vas a tener que escanear el QR una vez.</p>
               <p className="mt-1">
-                Después, desconectá el servidor viejo: mientras los dos estén activos sobre el mismo
+                Después, desconecta el servidor viejo: mientras los dos estén activos sobre el mismo
                 número, los dos reciben todo.
               </p>
             </div>

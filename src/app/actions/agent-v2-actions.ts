@@ -923,7 +923,7 @@ export async function publicarAgenteV2(input: {
             "queda \"Perfecto,\" — nunca \"Perfecto, Sra.\".\n" +
             "ESO NO TE AMORDAZA: si el cliente hace una pregunta concreta (precio, medidas, envio, " +
             "colores, formas de pago), CONTESTALA primero con el dato real, y despues segui con el " +
-            "paso que toca. Repetir el guion sin responder lo que preguntaron es lo peor que podes " +
+            "paso que toca. Repetir el guion sin responder lo que preguntaron es lo peor que puedes " +
             "hacer: el cliente pregunta de nuevo, y a la tercera se va. La literalidad es para el " +
             "guion, no una prohibicion de contestar.\n" +
             funnelSteps.join("\n")
@@ -1126,7 +1126,7 @@ export async function publicarAgenteV2(input: {
     if (tituloDelFlujo) {
       partes.push(
         `Para eso, envia el flujo "${tituloDelFlujo}": llama a consultar_flujos con ese nombre ` +
-          `exacto, toma el flow_id que devuelve y llama a enviar_flujo con ese id. Lo haces vos, ` +
+          `exacto, toma el flow_id que devuelve y llama a enviar_flujo con ese id. Lo haces tú, ` +
           `sin avisar ni pedir permiso.`,
       );
     }

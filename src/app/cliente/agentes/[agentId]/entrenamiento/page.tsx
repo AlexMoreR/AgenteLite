@@ -309,7 +309,7 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                             name="useEmojis"
                             title="Usar emojis"
                             defaultChecked={training.useEmojis}
-                            helpText="Activalo si tu marca se comunica de forma cercana y natural. Si tu negocio es mas serio, puedes dejarlo apagado."
+                            helpText="Actívalo si tu marca se comunica de forma cercana y natural. Si tu negocio es mas serio, puedes dejarlo apagado."
                           />
                           <ToggleField
                             name="useExpressivePunctuation"
@@ -321,7 +321,7 @@ export default async function AgentTrainingPage({ params }: PageProps) {
                             name="useTuteo"
                             title="Tutear al cliente"
                             defaultChecked={training.useTuteo}
-                            helpText="Enciendelo si tu negocio habla de forma cercana. Apagalo si prefieres una comunicacion mas formal o neutra."
+                            helpText="Enciendelo si tu negocio habla de forma cercana. Apágalo si prefieres una comunicacion mas formal o neutra."
                           />
                           <ToggleField
                             name="useCustomerName"

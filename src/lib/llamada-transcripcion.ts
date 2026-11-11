@@ -70,7 +70,7 @@ async function resumir(transcripcion: string, apiKey: string) {
   const resultados = CALL_RESULTS.map((opcion) => `- ${opcion.value}: ${opcion.label}`).join("\n");
   const motivos = CRM_LOST_REASONS.map((opcion) => `- ${opcion.value}: ${opcion.label}`).join("\n");
   const sistema = [
-    "Sos el asistente de un equipo de ventas por telefono de un negocio en Colombia.",
+    "Eres el asistente de un equipo de ventas por telefono de un negocio en Colombia.",
     "Te paso la transcripcion automatica de UNA llamada entre una asesora y un cliente. No separa quien habla y puede tener errores de audio.",
     "Devolve SOLO un JSON con estas claves:",
     '- "resumen": una o dos frases en español, maximo 200 caracteres: que quiere el cliente y en que quedaron. Sin saludos ni relleno.',

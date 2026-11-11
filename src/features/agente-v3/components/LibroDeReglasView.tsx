@@ -147,7 +147,7 @@ export function LibroDeReglasView({ libro, problemas }: { libro: LibroDeReglas; 
           <Sparkles className="mx-auto size-6 text-muted-foreground" />
           <p className="mt-2 text-sm font-medium text-foreground">El libro está vacío</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Abrí Claude con el conector de AizenCRM y decile: <i>“empecemos el libro de reglas del V3”</i>.
+            Abre Claude con el conector de AizenCRM y dile: <i>“empecemos el libro de reglas del V3”</i>.
             Te va a preguntar por el negocio y cada respuesta va a aparecer acá.
           </p>
         </section>

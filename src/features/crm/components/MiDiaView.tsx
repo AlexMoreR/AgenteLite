@@ -73,7 +73,7 @@ export function MiDiaView({
               ? `${mios} ${mios === 1 ? "tuyo" : "tuyos"} y ${sinDuenio} sin dueño. De más urgente a menos.`
               : mios > 0
                 ? "Tus leads, de más urgente a menos."
-                : "Leads sin dueño: tomá los que puedas atender."}
+                : "Leads sin dueño: toma los que puedas atender."}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -173,7 +173,7 @@ export function MiDiaView({
                   que es justo el dato que la asesora necesita leer de un vistazo. */}
               {indice === 0 || leads[indice - 1]!.esMio !== lead.esMio ? (
                 <p className="px-1 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                  {lead.esMio ? "Tuyos" : "Sin dueño · tomá los que puedas"}
+                  {lead.esMio ? "Tuyos" : "Sin dueño · toma los que puedas"}
                 </p>
               ) : null}
               <Link

@@ -621,9 +621,9 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
                               />
                             </div>
                             <div className="mt-5 grid gap-3 md:grid-cols-2">
-                              <ToggleRow name="useEmojis" title="Usar emojis" helpText="Activalo si tu marca se comunica de forma cercana y natural." />
+                              <ToggleRow name="useEmojis" title="Usar emojis" helpText="Actívalo si tu marca se comunica de forma cercana y natural." />
                               <ToggleRow name="useExpressivePunctuation" title="Usar ! y ?" defaultChecked helpText="Permite respuestas con mas energia cuando encajen con la conversacion." />
-                              <ToggleRow name="useTuteo" title="Tutear al cliente" defaultChecked helpText="Enciendelo si tu negocio habla de forma cercana. Apagalo si prefieres una comunicacion mas formal." />
+                              <ToggleRow name="useTuteo" title="Tutear al cliente" defaultChecked helpText="Enciendelo si tu negocio habla de forma cercana. Apágalo si prefieres una comunicacion mas formal." />
                               <ToggleRow name="useCustomerName" title="Llamarlo por nombre" defaultChecked helpText="Ayuda a que la conversacion se sienta mas personal cuando el cliente ya compartio su nombre." />
                             </div>
                           </div>
@@ -638,7 +638,7 @@ export function AgentsWorkspace({ hasWorkspace, businessName, agents }: AgentsWo
                           <ToggleRow name="offerBestSeller" title="Ofrecer el producto mas vendido" defaultChecked helpText="Hace que el agente sugiera una opcion segura cuando el cliente no sabe cual elegir." />
                           <ToggleRow name="handlePriceObjections" title="Manejar objeciones de precio" defaultChecked helpText="Permite que el agente defienda el valor de tu oferta cuando el cliente dude por precio." />
                           <ToggleRow name="askForOrder" title="Pedir el pedido directamente" defaultChecked helpText="Hace que el agente intente cerrar la venta con una pregunta directa cuando vea intencion de compra." />
-                          <ToggleRow name="sendPaymentLink" title="Enviar link de pago automatico" helpText="Usalo si tu proceso de venta ya tiene un enlace o paso de pago claro." />
+                          <ToggleRow name="sendPaymentLink" title="Enviar link de pago automatico" helpText="Úsalo si tu proceso de venta ya tiene un enlace o paso de pago claro." />
                           <ToggleRow name="handoffToHuman" title="Escalar a humano si no puede ayudar" defaultChecked helpText="Recomendado para casos especiales, dudas complejas o cuando el cliente necesite atencion de una persona." />
                         </div>
                       </StepFrame>

@@ -74,7 +74,7 @@ function LeadCard({ lead, mode, onRegister, puedeMarcarEnLaApp }: { lead: Llamad
           <StageChip stage={lead.stage} />
         </div>
         <div className="truncate text-xs text-muted-foreground">
-          {lead.callablePhone ?? "Sin número para llamar · escribile por WhatsApp"}
+          {lead.callablePhone ?? "Sin número para llamar · escríbele por WhatsApp"}
         </div>
         <div className="mt-0.5 truncate text-xs">
           {lead.lastResultLabel ? (

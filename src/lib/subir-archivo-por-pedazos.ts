@@ -209,7 +209,7 @@ export async function subirArchivoPorPedazos(input: {
         motivo: `no se pudo leer el archivo: ${error instanceof Error ? error.message : String(error)}`,
       });
       return {
-        error: "No se pudo leer el archivo desde el telefono. Volve a elegirlo desde la galeria.",
+        error: "No se pudo leer el archivo desde el telefono. Vuelve a elegirlo desde la galeria.",
       };
     }
   }
@@ -333,7 +333,7 @@ export async function subirArchivoPorPedazos(input: {
 
   return {
     error: fallido.resultado.error
-      ? `Se cortó la subida (${enviado}% enviado). Revisá la señal y reintentá.`
+      ? `Se cortó la subida (${enviado}% enviado). Revisa la señal y reintenta.`
       : "Se cortó la subida.",
   };
 }

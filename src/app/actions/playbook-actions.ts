@@ -78,7 +78,7 @@ export async function savePlaybookScriptAction(
 ): Promise<{ ok: true } | { error: string }> {
   const parsed = saveScriptSchema.safeParse(input);
   if (!parsed.success) {
-    return { error: "Revisá el título y el texto del guion." };
+    return { error: "Revisa el título y el texto del guion." };
   }
 
   const workspaceId = await resolveWorkspaceId();
@@ -90,7 +90,7 @@ export async function savePlaybookScriptAction(
   // colgada de un embudo y aparezca donde no corresponde.
   const stage = parsed.data.kind === "STAGE" ? parsed.data.stage ?? null : null;
   if (parsed.data.kind === "STAGE" && !stage) {
-    return { error: "Elegí la etapa del guion." };
+    return { error: "Elige la etapa del guion." };
   }
 
   const data = {

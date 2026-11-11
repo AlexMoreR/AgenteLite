@@ -270,9 +270,9 @@ export function armarTranscripcion(turnos: TurnoDelChat[]): string {
     .join("\n");
 }
 
-const SISTEMA = `Sos un asistente que lee una conversacion de WhatsApp entre un negocio de mobiliario para salones de belleza y un cliente, y extrae SOLO los datos que el CLIENTE dio para hacerle una cotizacion.
+const SISTEMA = `Eres un asistente que lee una conversacion de WhatsApp entre un negocio de mobiliario para salones de belleza y un cliente, y extrae SOLO los datos que el CLIENTE dio para hacerle una cotizacion.
 
-Devolves SOLO un JSON con estas claves:
+Devuelves SOLO un JSON con estas claves:
 - "fullName": el nombre y apellido del cliente, tal como lo dijo. Si solo dijo el nombre de pila, ponelo igual.
 - "address": la direccion de entrega del cliente (calle, numero, barrio, conjunto, apartamento).
 - "products": que productos pidio y cuantos, en una linea corta. Ej: "2 sillas de barberia negras, 1 lavacabezas".
@@ -280,8 +280,8 @@ Devolves SOLO un JSON con estas claves:
 
 Reglas que no se rompen:
 - Solo lo que dijo el CLIENTE. Las lineas que empiezan con NOSOTROS son nuestras: la direccion de nuestra bodega, nuestro nombre y los productos que le OFRECIMOS no cuentan.
-- No adivines ni completes. Si el dato no esta, poné "" en el campo Y en su frase.
-- La frase tiene que aparecer LITERAL en la conversacion. Si no la podes copiar textual, el dato no esta: poné "".
+- No adivines ni completes. Si el dato no esta, pon "" en el campo Y en su frase.
+- La frase tiene que aparecer LITERAL en la conversacion. Si no la puedes copiar textual, el dato no esta: pon "".
 - No inventes direcciones a partir de una ciudad, ni apellidos a partir de un nombre.`;
 
 type RespuestaIA = {

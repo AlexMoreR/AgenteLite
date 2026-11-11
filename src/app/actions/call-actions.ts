@@ -418,7 +418,7 @@ export async function registerCallAttemptAction(input: RegisterCallInput) {
   const lostReason = isLost ? parsed.data.lostReason?.trim() || "" : null;
   // "Perdido" SIEMPRE requiere motivo — no se puede guardar sin él (regla del Playbook).
   if (isLost && !lostReason) {
-    return { error: "Para cerrar como Perdido tenés que elegir un motivo." };
+    return { error: "Para cerrar como Perdido tienes que elegir un motivo." };
   }
   if (isLost && motivoOtroSinDetalle(lostReason)) {
     return { error: "Escribe cuál fue la razón de «Otro»." };
@@ -483,7 +483,7 @@ export async function registerCallAttemptAction(input: RegisterCallInput) {
     : null;
 
   if (parsed.data.completeAttemptId && !paraCompletar) {
-    return { error: "Esa llamada ya no está disponible. Recargá la página." };
+    return { error: "Esa llamada ya no está disponible. Recarga la página." };
   }
 
   if (paraCompletar) {

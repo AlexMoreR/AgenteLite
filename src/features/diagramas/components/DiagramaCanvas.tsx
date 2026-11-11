@@ -1220,7 +1220,7 @@ export function DiagramaCanvas({
 
       {nodes.length === 0 ? (
         <p className="pointer-events-none absolute inset-x-0 bottom-24 text-center text-xs text-muted-foreground">
-          Doble clic en el lienzo para poner una idea. Arrastrá de un borde a otro para unirlas.
+          Doble clic en el lienzo para poner una idea. Arrastra de un borde a otro para unirlas.
         </p>
       ) : null}
 
@@ -1240,7 +1240,7 @@ export function DiagramaCanvas({
             </p>
           ) : versiones.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">
-              Todavía no hay versiones guardadas. Se guarda una cada pocos minutos, mientras trabajás.
+              Todavía no hay versiones guardadas. Se guarda una cada pocos minutos, mientras trabajas.
             </p>
           ) : (
             <div className="max-h-[50vh] space-y-1.5 overflow-auto">

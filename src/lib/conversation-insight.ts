@@ -49,7 +49,7 @@ export function buildInsightTranscript(turnos: Turno[]): string {
     .join("\n");
 }
 
-const SISTEMA = `Sos un analista de ventas. Lees una conversacion de WhatsApp entre un negocio de mobiliario para salones de belleza y un cliente, y devolves SOLO un JSON con lo que paso.
+const SISTEMA = `Eres un analista de ventas. Lees una conversacion de WhatsApp entre un negocio de mobiliario para salones de belleza y un cliente, y devuelves SOLO un JSON con lo que paso.
 
 Al final del texto vas a ver una linea con CUANTOS DIAS pasaron desde el ultimo mensaje y QUIEN hablo ultimo. Usala: una conversacion donde le respondimos y el cliente no volvio a escribir en varios dias esta MUERTA, aunque el texto parezca que quedo esperando.
 
@@ -62,15 +62,15 @@ Campos:
 
 Reglas del motivo (esto es lo mas importante):
 - "no contesto" es el ULTIMO recurso. Casi todo lead muerto deja de contestar: eso es COMO se murio,
-  no POR QUE. Usalo solo si le respondimos todo, no quedo ninguna pregunta sin responder, y aun asi
+  no POR QUE. Úsalo solo si le respondimos todo, no quedo ninguna pregunta sin responder, y aun asi
   desaparecio sin dar motivo.
-- Mira QUE fue lo ultimo que pasó antes del silencio y de ahi sacá el motivo:
+- Mira QUE fue lo ultimo que pasó antes del silencio y de ahi saca el motivo:
   - si el silencio vino despues de hablar de envio, ciudad, cobertura o tiempos de entrega → "envio o ciudad"
   - si vino despues de decir el precio, o pidiendo descuento o financiacion → "precio"
   - si el cliente pregunto algo y no se le respondio, o se le respondio con algo generico o
     equivocado → "el bot no supo"
   - si pidio un producto, medida o color que no manejamos → "no lo vendemos"
-- No inventes. Si algo no esta en la conversacion, poné "" o null.`;
+- No inventes. Si algo no esta en la conversacion, pon "" o null.`;
 
 /**
  * Si la conversacion esta muerta lo decide una REGLA, no la IA.

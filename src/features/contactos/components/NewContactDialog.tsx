@@ -42,7 +42,7 @@ export function NewContactDialog() {
       setAbierto(false);
       router.refresh();
     } catch {
-      toast.error("No se pudo crear el contacto. Probá de nuevo.");
+      toast.error("No se pudo crear el contacto. Prueba de nuevo.");
     } finally {
       setGuardando(false);
     }

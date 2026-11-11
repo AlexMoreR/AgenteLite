@@ -168,7 +168,7 @@ test("leerRespuestaDelEnvio: el proxy sin la app, 504 y cuerpos raros", () => {
 test("clasificarFalloDelGateway: tardo vs no estaba vs rechazo", () => {
   const timeout = Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" });
   assert.equal(clasificarFalloDelGateway(timeout), "timeout_gateway");
-  assert.equal(clasificarFalloDelGateway(new Error("WhatsApp no respondio a tiempo (25s). Volve a intentar en un minuto.")), "timeout_gateway");
+  assert.equal(clasificarFalloDelGateway(new Error("WhatsApp no respondio a tiempo (25s). Vuelve a intentar en un minuto.")), "timeout_gateway");
   assert.equal(clasificarFalloDelGateway(Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNRESET" } })), "timeout_gateway");
   assert.equal(clasificarFalloDelGateway(Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNREFUSED" } })), "conexion_cerrada");
   assert.equal(clasificarFalloDelGateway(new Error(MENSAJE_GATEWAY_TARDO)), "timeout_gateway");

@@ -695,7 +695,7 @@ export async function cambiarProveedorDeCanalAction(formData: FormData): Promise
   revalidatePath(detailPath);
   redirect(
     `${detailPath}?ok=${encodeURIComponent(
-      "Proveedor cambiado. Escaneá el QR; el historial y el CRM quedaron intactos.",
+      "Proveedor cambiado. Escanea el QR; el historial y el CRM quedaron intactos.",
     )}`,
   );
 }

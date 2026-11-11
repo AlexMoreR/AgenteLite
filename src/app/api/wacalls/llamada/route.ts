@@ -260,13 +260,13 @@ export async function POST(request: Request) {
 function traducir(error: string): string {
   switch (error) {
     case "operator already on a call":
-      return "Ya tenés una llamada en curso.";
+      return "Ya tienes una llamada en curso.";
     case "not paired":
       return "La línea de llamadas está desconectada.";
     case "invalid phone":
       return "Ese número no es válido.";
     case "max concurrent calls":
-      return "Hay demasiadas llamadas a la vez. Esperá un momento.";
+      return "Hay demasiadas llamadas a la vez. Espera un momento.";
     case "no such call":
       return "Esa llamada ya terminó.";
     default:

@@ -492,7 +492,7 @@ export async function createChatFollowUpAction(
 
   const parsed = chatFollowUpSchema.safeParse(input);
   if (!parsed.success) {
-    return { error: "Escribí el mensaje y cuándo enviarlo." };
+    return { error: "Escribe el mensaje y cuándo enviarlo." };
   }
 
   const membership = await getPrimaryWorkspaceForUser(session.user.id);

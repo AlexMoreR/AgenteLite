@@ -2631,7 +2631,7 @@ async function scanEvolutionGoHistoryCandidates(input: {
     ok: true as const,
     kind: "batch" as const,
     message: truncated
-      ? `Mostramos los ${candidates.length} chats mas recientes del historial del telefono; volve a escanear despues de importarlos para ver los que siguen.`
+      ? `Mostramos los ${candidates.length} chats mas recientes del historial del telefono; vuelve a escanear despues de importarlos para ver los que siguen.`
       : `Encontramos ${candidates.length} ${candidates.length === 1 ? "chat" : "chats"} en el historial que mando el telefono al vincular este canal.`,
     candidates,
   };
@@ -2723,7 +2723,7 @@ async function applyEvolutionGoHistoryCandidate(input: {
   if (!chat) {
     return {
       ok: false as const,
-      error: "Ese chat ya no aparece en el historial guardado del canal. Volve a escanear.",
+      error: "Ese chat ya no aparece en el historial guardado del canal. Vuelve a escanear.",
     };
   }
 

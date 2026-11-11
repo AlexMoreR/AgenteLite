@@ -104,7 +104,7 @@ export async function deshacerCambioMcp(
   if (posterior) {
     return {
       ok: false,
-      error: `Después de ese hubo otro cambio sobre lo mismo ("${posterior.titulo}"). Deshacé primero el más nuevo.`,
+      error: `Después de ese hubo otro cambio sobre lo mismo ("${posterior.titulo}"). Deshaz primero el más nuevo.`,
     };
   }
 

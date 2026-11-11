@@ -4365,7 +4365,7 @@ export async function POST(request: NextRequest) {
                     .map((f) => `"${f.title || f.flowId}"`)
                     .join(", ")}: es de OTRO producto distinto al que estamos viendo${
                     lockedProductName ? ` (${lockedProductName})` : ""
-                  }. NO lo mandes. Si el cliente quiere ver ese otro producto, PREGUNTALE primero para confirmar antes de cambiar; no cambies de producto por tu cuenta.`
+                  }. NO lo mandes. Si el cliente quiere ver ese otro producto, PREGÚNTALE primero para confirmar antes de cambiar; no cambies de producto por tu cuenta.`
                 : "";
             const notaEnviados = enviados.length
               ? "Los flujos ya fueron ENVIADOS al cliente. No los describas de nuevo ni los reenvies; solo continua la conversacion (p.ej. pregunta cual le interesa si enviaste varios)."

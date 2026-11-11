@@ -2287,7 +2287,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                     <FileText className="size-8 text-muted-foreground" />
                     <p className="text-sm font-medium text-foreground">Cotizaciones</p>
                     <p className="max-w-xs text-xs text-muted-foreground">
-                      Abrí un chat para ver los datos del cliente.
+                      Abre un chat para ver los datos del cliente.
                     </p>
                   </div>
                 )}
@@ -2737,7 +2737,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                                   void copiarArchivosAMemoria(files).then((copia) => {
                                     if (copia.ilegible) {
                                       toast.error(
-                                        `No se pudo leer "${copia.ilegible}" desde el telefono. Abrila en la galeria y compartila a la app, o elegila de nuevo.`,
+                                        `No se pudo leer "${copia.ilegible}" desde el telefono. Ábrela en la galería y compártela a la app, o elígela de nuevo.`,
                                         { duration: 10000 },
                                       );
                                       return;
@@ -2765,7 +2765,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                                   void copiarArchivosAMemoria(files).then((copia) => {
                                     if (copia.ilegible) {
                                       toast.error(
-                                        `No se pudo leer "${copia.ilegible}" desde el telefono. Abrila en la galeria y compartila a la app, o elegila de nuevo.`,
+                                        `No se pudo leer "${copia.ilegible}" desde el telefono. Ábrela en la galería y compártela a la app, o elígela de nuevo.`,
                                         { duration: 10000 },
                                       );
                                       return;
@@ -3157,7 +3157,7 @@ export const ConversationPanel = memo(function ConversationPanel({
               */
               <div className="z-20 shrink-0 px-1.5 pb-[calc(env(safe-area-inset-bottom)+0.375rem)] pt-1.5 md:px-5 md:py-2">
                 <p className="mx-auto w-full max-w-5xl rounded-xl border border-border bg-muted/60 px-3 py-2.5 text-center text-[13px] leading-snug text-muted-foreground">
-                  Modo monitoreo: podés ver la conversación, pero no escribir.
+                  Modo monitoreo: puedes ver la conversación, pero no escribir.
                 </p>
               </div>
             ) : null}

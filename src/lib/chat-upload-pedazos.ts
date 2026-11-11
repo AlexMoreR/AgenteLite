@@ -65,7 +65,7 @@ function estanTodos(pedazos: Map<number, number>, total: number) {
   return true;
 }
 
-const MENSAJE_FALTAN = "Faltan partes del archivo: la subida quedó incompleta. Volvé a enviarlo.";
+const MENSAJE_FALTAN = "Faltan partes del archivo: la subida quedó incompleta. Vuelve a enviarlo.";
 
 export async function recibirPedazo(input: {
   /** Carpeta de subidas a medias (`chat-media-tmp`). */
@@ -194,7 +194,7 @@ export async function recibirPedazo(input: {
         esperado,
         tamanoFinal,
       });
-      return { estado: "error", status: 500, error: "No se pudo armar el archivo. Volvé a enviarlo." };
+      return { estado: "error", status: 500, error: "No se pudo armar el archivo. Vuelve a enviarlo." };
     }
 
     await mkdir(input.destinoDir, { recursive: true });

@@ -148,7 +148,7 @@ export function ForwardMessageDialog({
         // mandar su transcripcion como texto no es reenviarlo.
         (esAudio && !archivoPropio)
       ) {
-        toast.error("Ese archivo todavía se está guardando. Abrí el chat y probá de nuevo en un momento.");
+        toast.error("Ese archivo todavía se está guardando. Abre el chat y prueba de nuevo en un momento.");
         setEnviandoA(null);
         return;
       }
@@ -200,7 +200,7 @@ export function ForwardMessageDialog({
       toast.success(`Reenviado a ${destino.label}`);
       onClose();
     } catch {
-      toast.error("No se pudo reenviar. Probá de nuevo.");
+      toast.error("No se pudo reenviar. Prueba de nuevo.");
     } finally {
       setEnviandoA(null);
     }

@@ -106,7 +106,7 @@ export function ProductBasicsForm({
       toast.success("Producto guardado");
       router.refresh();
     } catch {
-      toast.error("No se pudo guardar. Recargá la página e intentá de nuevo.");
+      toast.error("No se pudo guardar. Recarga la página e intenta de nuevo.");
     } finally {
       setOcupado(false);
     }

@@ -52,7 +52,7 @@ export function BotonLlamar({
       <button
         type="button"
         disabled
-        title="Este cliente llegó con número oculto de WhatsApp, así que no tenemos a dónde marcar. Pedile el número por el chat."
+        title="Este cliente llegó con número oculto de WhatsApp, así que no tenemos a dónde marcar. Pídele el número por el chat."
         aria-label="No se puede llamar: el cliente llegó con número oculto"
         className="inline-flex h-10 w-10 shrink-0 cursor-not-allowed items-center justify-center rounded-full text-muted-foreground opacity-40"
       >

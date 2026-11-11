@@ -3059,7 +3059,7 @@ export function OfficialApiChatbotWorkspace({
                       {newWorkflowOverlaps
                         .map((overlap) => `“${overlap.title}” (${overlap.sharedWords.join(", ")})`)
                         .join("; ")}
-                      . El bot podría dudar entre ambos y no activar ninguno. Usá palabras distintas o quitá
+                      . El bot podría dudar entre ambos y no activar ninguno. Usa palabras distintas o quita
                       esas de uno de los dos flujos.
                     </p>
                   </div>
@@ -3355,7 +3355,7 @@ export function OfficialApiChatbotWorkspace({
                       {editingWorkflowOverlaps
                         .map((overlap) => `“${overlap.title}” (${overlap.sharedWords.join(", ")})`)
                         .join("; ")}
-                      . El bot podría dudar entre ambos y no activar ninguno. Usá palabras distintas o quitá
+                      . El bot podría dudar entre ambos y no activar ninguno. Usa palabras distintas o quita
                       esas de uno de los dos flujos.
                     </p>
                   </div>

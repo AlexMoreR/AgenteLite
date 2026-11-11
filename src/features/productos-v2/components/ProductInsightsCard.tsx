@@ -68,7 +68,7 @@ export function ProductInsightsCard({
       toast.success(total > 0 ? `${total} conversaciones leídas` : "No había nada nuevo para leer");
       router.refresh();
     } catch {
-      toast.error("Se cortó la lectura. Volvé a intentar y sigue donde quedó.");
+      toast.error("Se cortó la lectura. Vuelve a intentar y sigue donde quedó.");
     } finally {
       setCorriendo(false);
     }

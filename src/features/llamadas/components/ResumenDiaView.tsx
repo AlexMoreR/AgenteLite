@@ -260,8 +260,8 @@ export function ResumenDiaView({ data }: { data: ResumenDiaData }) {
             </Button>
           </div>
           <p className="text-[11px] text-muted-foreground">
-            Al tocar “Enviar por WhatsApp” se abre WhatsApp con el informe escrito: elegís el chat y
-            tocás enviar.
+            Al tocar “Enviar por WhatsApp” se abre WhatsApp con el informe escrito: eliges el chat y
+            tocas enviar.
           </p>
         </CardContent>
       </Card>

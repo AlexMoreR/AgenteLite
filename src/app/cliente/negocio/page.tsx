@@ -134,7 +134,7 @@ export default async function MiNegocioPage({ searchParams }: PageProps) {
                 />
                 <p className="text-sm text-muted-foreground">
                   {config.locationLatitude && config.locationLongitude
-                    ? "✅ Ubicación cargada. Podés pegar otro link para cambiarla, o vaciar el campo para quitarla."
+                    ? "✅ Ubicación cargada. Puedes pegar otro link para cambiarla, o vaciar el campo para quitarla."
                     : "Todavía no hay ubicación cargada: el botón del chat va a pedir que la configures acá."}
                 </p>
               </div>

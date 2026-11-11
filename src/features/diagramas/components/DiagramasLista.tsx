@@ -70,7 +70,7 @@ export function DiagramasLista({ diagramas }: { diagramas: DiagramaDeLaLista[] }
           <Share2 className="mx-auto mb-2 size-6 text-muted-foreground" />
           <p className="text-sm font-medium">Todavía no hay diagramas</p>
           <p className="mx-auto mt-1 max-w-sm text-xs text-muted-foreground">
-            Un lienzo en blanco para pensar: poné una idea, sacale ramas y unilas. Son solo tuyos.
+            Un lienzo en blanco para pensar: pon una idea, sácale ramas y únelas. Son solo tuyos.
           </p>
         </div>
       ) : (

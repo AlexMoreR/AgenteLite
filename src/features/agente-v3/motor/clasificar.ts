@@ -69,9 +69,9 @@ export async function clasificarIntenciones(input: {
           {
             role: "system",
             content:
-              "Sos un clasificador. Te doy intenciones posibles y el ultimo mensaje de un cliente de WhatsApp. " +
-              "Devolves SOLO un JSON {\"ids\":[...]} con los ids de las intenciones que de verdad encajan con ese " +
-              "mensaje. Si ninguna encaja, devolves {\"ids\":[]}. No inventes ids. Ante la duda, no la incluyas: " +
+              "Eres un clasificador. Te doy intenciones posibles y el ultimo mensaje de un cliente de WhatsApp. " +
+              "Devuelves SOLO un JSON {\"ids\":[...]} con los ids de las intenciones que de verdad encajan con ese " +
+              "mensaje. Si ninguna encaja, devuelves {\"ids\":[]}. No inventes ids. Ante la duda, no la incluyas: " +
               "es preferible que el agente no haga nada a que haga lo que no le pidieron.",
           },
           {

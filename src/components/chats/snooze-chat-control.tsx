@@ -188,7 +188,7 @@ export function SnoozeChatControl({
               onClick={() => {
                 const elegido = new Date(personalizado);
                 if (!Number.isFinite(elegido.getTime())) {
-                  toast.error("Elegí una fecha válida.");
+                  toast.error("Elige una fecha válida.");
                   return;
                 }
                 void posponer(elegido);

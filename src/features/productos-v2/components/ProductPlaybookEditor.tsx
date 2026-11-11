@@ -78,7 +78,7 @@ export function ProductPlaybookEditor({
       toast.success("Guardado");
       router.refresh();
     } catch {
-      toast.error("No se pudo guardar. Recargá la página e intentá de nuevo.");
+      toast.error("No se pudo guardar. Recarga la página e intenta de nuevo.");
     } finally {
       setOcupado(false);
     }
@@ -99,7 +99,7 @@ export function ProductPlaybookEditor({
       }
       router.refresh();
     } catch {
-      toast.error("No se pudo guardar. Recargá la página e intentá de nuevo.");
+      toast.error("No se pudo guardar. Recarga la página e intenta de nuevo.");
     } finally {
       setOcupado(false);
     }
@@ -115,7 +115,7 @@ export function ProductPlaybookEditor({
       }
       router.refresh();
     } catch {
-      toast.error("No se pudo borrar. Recargá la página e intentá de nuevo.");
+      toast.error("No se pudo borrar. Recarga la página e intenta de nuevo.");
     } finally {
       setOcupado(false);
     }

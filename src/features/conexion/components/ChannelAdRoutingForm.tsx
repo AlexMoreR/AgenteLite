@@ -117,7 +117,7 @@ export function ChannelAdRoutingForm({
       toast.success(destinatarios.length > 0 ? "Regla guardada" : "Regla eliminada");
       router.refresh();
     } catch {
-      toast.error("No se pudo guardar. Recargá la página e intentá de nuevo.");
+      toast.error("No se pudo guardar. Recarga la página e intenta de nuevo.");
     } finally {
       setIsPending(false);
     }

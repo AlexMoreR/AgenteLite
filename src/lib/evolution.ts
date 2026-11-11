@@ -488,7 +488,7 @@ async function evolutionRequest<T>(
   } catch (error) {
     if (isAbortError(error)) {
       throw new Error(
-        `WhatsApp no respondio a tiempo (${Math.round((options.timeoutMs ?? 0) / 1000)}s). Volve a intentar en un minuto.`,
+        `WhatsApp no respondio a tiempo (${Math.round((options.timeoutMs ?? 0) / 1000)}s). Vuelve a intentar en un minuto.`,
       );
     }
     throw error;
@@ -2226,7 +2226,7 @@ export async function recreateEvolutionInstanceForChannel(input: {
   const provisioned = await withDeadline(
     provisionEvolutionInstance(),
     PROVISION_DEADLINE_MS,
-    "WhatsApp no respondio a tiempo al crear la cuenta nueva. Esperá un minuto y volvé a intentar.",
+    "WhatsApp no respondio a tiempo al crear la cuenta nueva. Espera un minuto y vuelve a intentar.",
   );
 
   const baseMetadata =

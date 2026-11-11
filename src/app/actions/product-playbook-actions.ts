@@ -169,7 +169,7 @@ export async function saveProductFunnelAction(input: {
     if (etapaNueva || seguimientoNuevo) {
       return {
         error:
-          "Este embudo cambió mientras lo tenías abierto. Recargá la pantalla para no pisar ese cambio.",
+          "Este embudo cambió mientras lo tenías abierto. Recarga la pantalla para no pisar ese cambio.",
       };
     }
   }
@@ -468,7 +468,7 @@ export async function saveProductBasicsAction(input: {
     return { error: "El nombre no puede quedar vacío" };
   }
   if (!productId) {
-    return { error: "Todavía no se creó el producto. Recargá la página e intentá de nuevo." };
+    return { error: "Todavía no se creó el producto. Recarga la página e intenta de nuevo." };
   }
 
   // El id tiene que ser de ESTE negocio: el catalogo dejo de ser compartido (29-09-2026).

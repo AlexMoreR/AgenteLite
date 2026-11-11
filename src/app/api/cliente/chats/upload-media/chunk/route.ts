@@ -96,7 +96,7 @@ export async function POST(request: Request) {
       total,
       motivo: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json({ ok: false, error: "No se pudo guardar el archivo. Volvé a enviarlo." }, { status: 500 });
+    return NextResponse.json({ ok: false, error: "No se pudo guardar el archivo. Vuelve a enviarlo." }, { status: 500 });
   }
 
   if (resultado.estado === "error") {

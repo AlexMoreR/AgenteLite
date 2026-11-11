@@ -290,22 +290,22 @@ export async function ejecutarHerramientaMcpV3(
         "en el mismo mensaje: esto es una conversacion, no un formulario (Alex, 21-sep-2026). " +
         "Pregunta por HECHOS de su dia a dia -que le escriben los clientes, que les contesta- y nunca por " +
         "abstracciones como 'cual es tu tono' o 'tu propuesta de valor': un dueño de negocio no sabe contestar " +
-        "eso y se traba. Despues de cada respuesta, PROPONE un borrador y pedile que lo corrija: corregir es " +
+        "eso y se traba. Despues de cada respuesta, PROPONE un borrador y pídele que lo corrija: corregir es " +
         "facil, escribir de cero no. Nunca inventes productos, precios ni textos; si falta un dato, preguntalo. " +
-        "CUESTIONA lo que te dicta: no sos un dictado. Si algo le va a jugar en contra -prometer tiempos que no " +
+        "CUESTIONA lo que te dicta: no eres un dictado. Si algo le va a jugar en contra -prometer tiempos que no " +
         "controla, perseguir al cliente a los dos minutos, un texto que da el precio antes de que vea el valor, " +
         "una palabra suelta que va a enganchar en otras charlas- decilo con el motivo y propone la alternativa. " +
         "Si insiste, se hace como el quiere y se deja anotado. " +
         "AL FINAL, cuando tengas producto, palabras, recorrido, material, escalada y seguimiento, cerra: " +
         "'ya tengo completo el contexto de tu negocio, esto es lo que consolide' con el resumen en palabras " +
-        "simples, y preguntale si hay algo que corregir antes de dar por cerrado el libro.",
+        "simples, y pregúntale si hay algo que corregir antes de dar por cerrado el libro.",
       preguntas: [
         {
           tema: "Quien es",
           pregunta: "¿Cómo se llama tu negocio, y tienes página web o Instagram?",
           para:
-            "Con eso investigalo vos (web/redes) y volve con un borrador: 'entendi que vendes esto, a esta gente, " +
-            "en esta ciudad, ¿esta bien?'. Recien cuando lo confirme, guardalo con v3_escribir_como_hablamos.",
+            "Con eso investígalo tú (web/redes) y vuelve con un borrador: 'entendi que vendes esto, a esta gente, " +
+            "en esta ciudad, ¿esta bien?'. Recien cuando lo confirme, guárdalo con v3_escribir_como_hablamos.",
         },
         {
           tema: "El producto estrella",
@@ -314,7 +314,7 @@ export async function ejecutarHerramientaMcpV3(
         },
         {
           tema: "Como lo piden",
-          pregunta: "¿Con qué palabras te lo piden los clientes? Decime tal cual como lo escriben ellos.",
+          pregunta: "¿Con qué palabras te lo piden los clientes? Dime tal cual como lo escriben ellos.",
           para: "Regla con cuando.tipo=frase (frases largas, no palabras sueltas) + accion activar_producto",
         },
         {
@@ -324,12 +324,12 @@ export async function ejecutarHerramientaMcpV3(
         },
         {
           tema: "Cuando entra una persona",
-          pregunta: "¿En qué casos el bot tiene que dejar de contestar y llamarte a vos o a un asesor?",
+          pregunta: "¿En qué casos el bot tiene que dejar de contestar y llamarte a ti o a un asesor?",
           para: "Reglas con accion avisar_asesor y pausar_ia",
         },
         {
           tema: "Si no contesta",
-          pregunta: "Si el cliente se queda callado, ¿a los cuántos minutos le escribís de nuevo y qué le decís?",
+          pregunta: "Si el cliente se queda callado, ¿a los cuántos minutos le escribes de nuevo y qué le dices?",
           para: "Reglas con cuando.tipo=sin_respuesta",
         },
         {
@@ -349,7 +349,7 @@ export async function ejecutarHerramientaMcpV3(
     if (!libro.comoHablamos.trim()) {
       huecos.push({
         falta: "No está escrito cómo habla el negocio.",
-        preguntar: "¿Qué vende, a quién, y cómo querés que hable: de tú o de usted, corto o explicado?",
+        preguntar: "¿Qué vende, a quién, y cómo quieres que hable: de tú o de usted, corto o explicado?",
       });
     }
     if (!libro.reglas.some((regla) => regla.soloSi?.esPrimerMensaje === true)) {

@@ -563,7 +563,7 @@ export function useLlamada({ onError, onTerminada }: Opciones = {}) {
                   vigilarMicrofono(nuevo);
                 })
                 .catch(() => {
-                  onError?.("Se desconectó el micrófono: el cliente no te escucha. Revisá el auricular y volvé a llamar.");
+                  onError?.("Se desconectó el micrófono: el cliente no te escucha. Revisa el auricular y vuelve a llamar.");
                 });
             });
           });
@@ -618,7 +618,7 @@ export function useLlamada({ onError, onTerminada }: Opciones = {}) {
         if (audioRef.current) {
           audioRef.current.srcObject = destino.stream;
           void audioRef.current.play().catch(() => {
-            onError?.("El navegador bloqueó el audio. Tocá la pantalla y volvé a intentar.");
+            onError?.("El navegador bloqueó el audio. Toca la pantalla y vuelve a intentar.");
           });
         }
 

@@ -3067,7 +3067,7 @@ export async function addConversationNoteAction(input: {
   const texto = input.text?.trim();
   const conversationId = input.conversationId?.trim();
   if (!texto || !conversationId) {
-    return { ok: false, error: "Escribí la nota primero." };
+    return { ok: false, error: "Escribe la nota primero." };
   }
   if (texto.length > 1000) {
     return { ok: false, error: "La nota es demasiado larga (máximo 1000 caracteres)." };
