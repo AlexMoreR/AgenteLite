@@ -2797,3 +2797,24 @@ model ColorDeCarta {
   @@unique([materialId, codigo])
   @@index([workspaceId, materialId])
 }
+
+/// Una "foto" del servidor (VPS) en un momento: CPU, carga, memoria, swap, disco y cada contenedor.
+/// No se relaciona con Workspace: es del servidor, no de una empresa. Reglas en src/lib/metricas-servidor.ts.
+model MetricaServidor {
+  id           String   @id @default(cuid())
+  tomadaEn     DateTime @default(now())
+  /// CPU total del servidor en % (0–100).
+  cpuTotal     Float
+  /// Carga promedio de 1 minuto (load1).
+  load1        Float
+  nucleos      Int?
+  memUsadaMb   Int
+  memTotalMb   Int
+  swapUsadoMb  Int
+  discoUsadoGb Float
+  discoTotalGb Float
+  /// Lista [{nombre, grupo, cpu, memMb, memLimiteMb}].
+  contenedores Json
+
+  @@index([tomadaEn])
+}
