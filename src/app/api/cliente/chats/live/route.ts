@@ -16,6 +16,7 @@ import { prisma } from "@/lib/prisma";
 import { tieneCierrePendiente } from "@/lib/crm-stage-sync";
 import { conServerTiming, type MedidorServerTiming } from "@/lib/server-timing";
 import { leerUltimaLlamada } from "@/lib/ultima-llamada";
+import { leerFichaDelContacto, type FichaDelContacto } from "@/lib/ficha-del-contacto";
 
 const INITIAL_MESSAGE_BATCH_SIZE = 10;
 // Al subir se traen 30: con 10 habia que esperar una vuelta al servidor cada pocos mensajes.
@@ -353,6 +354,31 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
   const ultimaLlamadaPromesa = incluirLlamada
     ? leerUltimaLlamada(membership.workspace.id, conversation.contact.id).catch(() => undefined)
     : Promise.resolve(undefined);
+  /*
+    LA FICHA Y EL INTERRUPTOR DE SEGUIMIENTOS, EN ESTA MISMA RESPUESTA (velocidad, 10-nov-2026).
+
+    Se pedian con dos acciones de servidor al abrir el chat, en fila detras de las demas (medido en
+    produccion: 0,6-1,4 s cada una y el servidor ocupado ~3 s por apertura). Solo al ABRIR (la misma
+    condicion que la llamada, sin pedir el modulo de Llamadas): ni la precarga, ni los refrescos, ni
+    paginar hacia arriba las piden. undefined = no viajan y el navegador las pide como antes.
+  */
+  const abriendoElChat = !beforeMessageId && !esPrecarga && requestUrl.searchParams.get("conLlamada") === "1";
+  const fichaPromesa: Promise<FichaDelContacto | null | undefined> = abriendoElChat
+    ? leerFichaDelContacto({
+        workspaceId: membership.workspace.id,
+        userId: session.user.id,
+        contactId: conversation.contact.id,
+      }).catch(() => undefined)
+    : Promise.resolve(undefined);
+  const seguimientosPromesa: Promise<boolean | undefined> = abriendoElChat
+    ? prisma.conversation
+        .findFirst({
+          where: { id: parsed.conversationId, workspaceId: membership.workspace.id },
+          select: { seguimientosApagados: true },
+        })
+        .then((fila) => (fila ? fila.seguimientosApagados : undefined))
+        .catch(() => undefined)
+    : Promise.resolve(undefined);
 
   // Saneos de BD (mediaUrl → ruta persistida) y resoluciones lentas que se terminan
   // después de responder, para que la próxima apertura del chat sea instantánea.
@@ -417,7 +443,11 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     }),
   );
   t.marca("medios");
-  const ultimaLlamada = await ultimaLlamadaPromesa;
+  const [ultimaLlamada, ficha, seguimientosApagados] = await Promise.all([
+    ultimaLlamadaPromesa,
+    fichaPromesa,
+    seguimientosPromesa,
+  ]);
   /*
     Quedaron medios resolviendose en segundo plano. Solo en ese caso el navegador vuelve a pedir
     el chat a los 2,5 s para recogerlos; antes lo hacia SIEMPRE, en cada apertura.
@@ -509,6 +539,9 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
       // undefined = no se pidio (sin conLlamada=1): el JSON no la lleva y el navegador conserva la
       // que ya tenia.
       ...(ultimaLlamada !== undefined ? { ultimaLlamada } : {}),
+      // Al abrir: la ficha del contacto y si los seguimientos automaticos estan apagados (ver arriba).
+      ...(ficha ? { ficha } : {}),
+      ...(seguimientosApagados !== undefined ? { seguimientosApagados } : {}),
       messages,
     },
     mediosPendientes,

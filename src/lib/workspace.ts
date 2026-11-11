@@ -13,11 +13,6 @@ export type PrimaryWorkspaceMembership = {
     planExpiresAt: Date | null;
     createdAt: Date;
     ownerId: string | null;
-    _count: {
-      agents: number;
-      channels: number;
-      conversations: number;
-    };
   };
 };
 
@@ -76,13 +71,11 @@ export const getPrimaryWorkspaceForUser = cache(async (userId: string): Promise<
           planExpiresAt: true,
           createdAt: true,
           ownerId: true,
-          _count: {
-            select: {
-              agents: true,
-              channels: true,
-              conversations: true,
-            },
-          },
+          /*
+            Sin _count (velocidad del chat, 10-nov-2026): contaba TODAS las conversaciones, agentes y
+            canales del negocio en cada llamada -y esta funcion se llama en unos 150 lugares, varias
+            veces al abrir un chat- y nadie leia esos numeros. Quien los necesite los pide aparte.
+          */
         },
       },
     },

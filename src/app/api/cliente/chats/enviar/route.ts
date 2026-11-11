@@ -2,7 +2,8 @@ import { NextResponse, after } from "next/server";
 import { auth } from "@/auth";
 import { sendUnifiedChatReplyAction } from "@/app/actions/chats-actions";
 import type { SendChatReplyResult } from "@/app/actions/agent-actions";
-import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
+import { canAccessClientModule, getClientWorkspaceAccessForUserCached } from "@/lib/client-workspace-access";
+import { conServerTiming, type MedidorServerTiming } from "@/lib/server-timing";
 import { idDeMensajeValido, motivoSeReintentaSolo, type MotivoDeFallo } from "@/lib/chat-envio-reintento";
 import { anotarErrorDeEnvio } from "@/lib/chat-errores-de-envio";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
@@ -51,16 +52,25 @@ function leerIntento(valor: FormDataEntryValue | null) {
   return Number.isInteger(numero) && numero > 0 ? Math.min(numero, 10) : 1;
 }
 
-export async function POST(request: Request) {
+/*
+  Con Server-Timing y la linea [timing] (velocidad del chat, 10-nov-2026): antes el envio no se podia
+  medir desde el navegador. Pasos: auth (sesion + permiso), datos (leer el formulario), envio (guardar y
+  mandar a WhatsApp).
+*/
+export const POST = conServerTiming(manejarPost, { log: "chats/enviar" });
+
+async function manejarPost(request: Request, t: MedidorServerTiming) {
   const session = await auth();
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     return noAutorizado("Tu sesión se cerró. Vuelve a entrar para enviar.", 401);
   }
   const userId = session.user.id;
-  const access = await getClientWorkspaceAccessForUser(userId);
+  // El permiso guardado 45 s, el mismo que usa /live (un permiso quitado tarda hasta 45 s aca tambien).
+  const access = await getClientWorkspaceAccessForUserCached(userId);
   if (!access || !canAccessClientModule(access, "chats")) {
     return noAutorizado("No autorizado", 403);
   }
+  t.marca("auth");
 
   let formData: FormData;
   try {
@@ -94,6 +104,7 @@ export async function POST(request: Request) {
     }
   }
 
+  t.marca("datos");
   const promesa = sendUnifiedChatReplyAction(formData);
   if (clave) {
     ENVIOS_EN_CURSO.set(clave, { promesa, at: Date.now() });
@@ -102,6 +113,7 @@ export async function POST(request: Request) {
   let resultado: SendChatReplyResult;
   try {
     resultado = await promesa;
+    t.marca("envio");
   } catch (error) {
     if (clave) {
       ENVIOS_EN_CURSO.delete(clave);

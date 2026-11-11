@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { esperarLaApertura, tomarFichaDeLaApertura } from "@/components/chats/datos-de-la-apertura";
 import dynamic from "next/dynamic";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type RefObject } from "react";
 import { useRouter } from "next/navigation";
@@ -62,9 +63,19 @@ function pedirDetalleDeContacto(contactId: string): Promise<DetalleDeContacto> {
   if (guardado && Date.now() - guardado.at < VIDA_DE_LA_CACHE_MS) {
     return guardado.pedido;
   }
-  const pedido = getContactDetailsAction(contactId).catch(
-    (error) => ({ error: error instanceof Error ? error.message : "No se pudo cargar" }) as DetalleDeContacto,
-  );
+  /*
+    Al abrir un chat la ficha viaja dentro de /live (velocidad, 10-nov-2026): se espera esa
+    respuesta y, si la trajo, no sale la accion de servidor (iba en fila detras de las demas).
+  */
+  const pedido = esperarLaApertura().then(() => {
+    const deLaApertura = tomarFichaDeLaApertura(contactId);
+    if (deLaApertura) {
+      return { details: deLaApertura } as DetalleDeContacto;
+    }
+    return getContactDetailsAction(contactId).catch(
+      (error) => ({ error: error instanceof Error ? error.message : "No se pudo cargar" }) as DetalleDeContacto,
+    );
+  });
   cacheDeContactos.set(contactId, { pedido, at: Date.now() });
   return pedido;
 }

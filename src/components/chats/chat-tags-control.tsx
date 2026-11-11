@@ -33,7 +33,8 @@ const createInitialState: { error?: string; success?: boolean } = {};
   (Alex, 21-sep-2026). Dura un minuto: crear o borrar una etiqueta la refresca igual, porque esas
   acciones vuelven a pedirla a proposito.
 */
-const VIDA_DE_LA_CACHE_MS = 60_000;
+// 5 min (antes 1): las etiquetas cambian poco y crear o borrar una ya borra lo guardado (olvidarEtiquetas).
+const VIDA_DE_LA_CACHE_MS = 5 * 60_000;
 let etiquetasEnCache: { pedido: ReturnType<typeof getEtiquetasAction>; at: number } | null = null;
 
 export function pedirEtiquetas() {

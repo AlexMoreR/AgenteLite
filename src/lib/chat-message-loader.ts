@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { sacarMiniaturasPesadas } from "@/lib/miniaturas-aparte";
 import { sqlPayloadSinArchivos } from "@/lib/payload-sin-archivos";
 import { PREFIJO_NOTA_INTERNA_DEL_AGENTE } from "@/lib/notas-internas-del-agente";
 import { extractEvolutionMessageText } from "@/lib/evolution-webhook";
@@ -294,7 +295,9 @@ export async function loadAgentConversationDetail(input: {
   }).map((message) => ({
     ...message,
     content: message.content?.trim() || extractEvolutionMessageText(message.rawPayload) || null,
-    rawPayload: stripHeavyBase64(message.rawPayload),
+    // Las miniaturas grandes (enlaces, videos, fotos, anuncios) salen aparte: eran el 90 % de lo que
+    // bajaba el navegador al subir a ver mensajes viejos (ver lib/miniaturas-aparte.ts).
+    rawPayload: sacarMiniaturasPesadas(stripHeavyBase64(message.rawPayload), message.id),
   }));
 
   return {

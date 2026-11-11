@@ -277,7 +277,10 @@ await prueba("la ficha y la lectura del interruptor usan el permiso guardado, si
   assert.doesNotMatch(ficha, /getPrimaryWorkspaceForUser|requireClientWorkspaceAccess/);
   assert.match(ficha, /getClientWorkspaceAccessForUserCached\(session\.user\.id\)/);
   assert.match(ficha, /canAccessClientModule\(access, "chats"\)/);
-  assert.match(ficha, /estaEnModoMonitoreo\(\{ workspaceId, userId: session\.user\.id \}\),\s*\]\)/, "el modo monitoreo va dentro del Promise.all");
+  // Desde el 10-nov-2026 la lectura vive en lib/ficha-del-contacto.ts (tambien viaja dentro de /live).
+  assert.match(ficha, /leerFichaDelContacto\(\{ workspaceId, userId: session\.user\.id, contactId \}\)/);
+  const lib = fs.readFileSync(path.resolve("src/lib/ficha-del-contacto.ts"), "utf8");
+  assert.match(lib, /estaEnModoMonitoreo\(\{ workspaceId, userId \}\),\s*\]\)/, "el modo monitoreo va dentro del Promise.all");
 
   const contexto = cuerpoDe(chatsActions, "chatDeSeguimientos");
   // (Transpilado sin comentarios: el `else` puede salir en otra linea, por eso se busca con regex.)

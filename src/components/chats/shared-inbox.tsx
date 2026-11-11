@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { listaProvisional } from "@/components/chats/lista-provisional";
+import { empezoLaApertura, terminoLaApertura } from "@/components/chats/datos-de-la-apertura";
 import { hayVersionNueva } from "@/components/app-version-guard";
 import { enviarArchivoPorRuta, enviarAudioPorRuta } from "@/lib/chats/enviar-por-ruta";
 import {
@@ -478,6 +480,7 @@ export function SharedInbox({
   veTodoElEquipo = false,
   chatsFijados,
   pastillasIniciales = null,
+  usuarioActualId = null,
   puedeBloquear = false,
   chatSignature = "",
   conversationListApiPath = "/api/cliente/chats/list",
@@ -1172,7 +1175,37 @@ export function SharedInbox({
           };
         }
       } else {
-        setVistaEnCurso(true);
+        /*
+          AL INSTANTE (velocidad, 10-nov-2026): si la vista sale de una lista que ya esta en memoria
+          (Todas o Mias, Abiertas, sin condiciones), se pinta filtrandola y /list la completa abajo.
+          Sin "hay mas" mientras tanto (el desplazamiento se calcula con la lista del servidor) y sin
+          marcar la vista como cargada: si /list falla, el proximo pedido lo vuelve a intentar.
+        */
+        const provisional = listaProvisional<SharedInboxConversationItem>(
+          {
+            asignada: assignedFilter,
+            estado: statusFilter,
+            condiciones: filtrosDeLaUrl.condiciones,
+            espera: enEspera,
+            busqueda: searchQuery,
+          },
+          usuarioActualId,
+          (base) => {
+            const lista = leerListaReciente<SharedInboxConversationItem>(
+              claveDeVista(searchQuery, selectedConnectionKey, base, "open", "", false),
+            );
+            return lista && Date.now() - lista.at < LISTA_VIGENTE_MS ? lista.items : undefined;
+          },
+        );
+        if (provisional) {
+          setHasMoreConversationItems(false);
+          setConversationItems(provisional.map((item) => ({ ...item, href: hrefDeFila(item) })));
+          setVersionDeVista((actual) => actual + 1);
+          setVistaEnCurso(false);
+          medir(true);
+        } else {
+          setVistaEnCurso(true);
+        }
       }
 
       const intentar = async (intento: number): Promise<void> => {
@@ -2628,6 +2661,10 @@ export function SharedInbox({
     async function loadSelectedConversationDetail() {
       let necesitaSegundo = true;
       let cargo = false;
+      // La ficha y el interruptor de seguimientos esperan esta respuesta en vez de pedirlos con
+      // acciones de servidor (ver datos-de-la-apertura.ts). Se cierra SIEMPRE en el finally.
+      let datosDeLaApertura: Parameters<typeof terminoLaApertura>[0];
+      empezoLaApertura();
       try {
         // conLlamada=1: la ultima llamada viaja en esta misma respuesta (ver live/route.ts).
         const response = await fetch(
@@ -2660,6 +2697,17 @@ export function SharedInbox({
 
         necesitaSegundo = Boolean(payload.mediosPendientes);
         cargo = true;
+        {
+          const traido = payload.conversation as { contactId?: unknown; ficha?: unknown; seguimientosApagados?: unknown };
+          datosDeLaApertura = {
+            contactId: typeof traido.contactId === "string" ? traido.contactId : null,
+            ficha: traido.ficha,
+            conversationId: normalizedSelectedConversationId.startsWith("agent:")
+              ? normalizedSelectedConversationId.slice("agent:".length)
+              : null,
+            seguimientosApagados: traido.seguimientosApagados,
+          };
+        }
 
         // Si la asesora sigue al final, lo que traiga entra sin bajada animada (ver la funcion).
         reabrirVentanaDeApertura();
@@ -2668,6 +2716,7 @@ export function SharedInbox({
       } catch {
         // Si falla, la vista cacheada/preview sigue siendo usable; abajo se marca el fallo.
       } finally {
+        terminoLaApertura(datosDeLaApertura);
         if (selectedConversationDetailInFlightRef.current === normalizedSelectedConversationId) {
           selectedConversationDetailInFlightRef.current = null;
         }

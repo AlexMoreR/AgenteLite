@@ -48,7 +48,8 @@ let miembrosEnCache: { cuando: number; pedido: Promise<ResultadoMiembros> } | nu
 
 export function pedirMiembros() {
   const ahora = Date.now();
-  if (!miembrosEnCache || ahora - miembrosEnCache.cuando > 60_000) {
+  // 5 min (antes 1): el equipo casi no cambia y cada pedido era una accion en fila al abrir el chat.
+  if (!miembrosEnCache || ahora - miembrosEnCache.cuando > 5 * 60_000) {
     const pedido = getAssignableMembersAction().catch(() => ({ error: "No se pudo cargar el equipo" }) as ResultadoMiembros);
     miembrosEnCache = { cuando: ahora, pedido };
     // Un error no se guarda: el proximo intento vuelve a preguntar.

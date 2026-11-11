@@ -35,7 +35,8 @@ import {
   reintentarMediaWaha,
 } from "@/lib/waha";
 import { persistChatMediaFromDataUrl } from "@/lib/chat-media-storage";
-import { AVISO_MODO_MONITOREO, enmascararTelefono, estaEnModoMonitoreo } from "@/lib/modo-monitoreo";
+import { AVISO_MODO_MONITOREO, estaEnModoMonitoreo } from "@/lib/modo-monitoreo";
+import { leerFichaDelContacto, type FichaDelContacto } from "@/lib/ficha-del-contacto";
 import { leerColaboradores, leerMonitores, leerPausadosDeReparto } from "@/lib/channel-collaborators";
 import { esSupervisora } from "@/lib/permisos-del-equipo";
 import { revisarFrenoDeAutomatico } from "@/lib/freno-de-automaticos";
@@ -110,33 +111,8 @@ type UpdateContactActionState =
       }>;
     };
 
-export type ContactDetails = {
-  contactId: string;
-  name: string;
-  phoneNumber: string;
-  city: string;
-  address: string;
-  interested: string;
-  tagIds: string[];
-  tags: Array<{
-    id: string;
-    name: string;
-    color: string;
-  }>;
-  availableTags: Array<{
-    id: string;
-    name: string;
-    color: string;
-  }>;
-};
+export type ContactDetails = FichaDelContacto;
 
-function readMetadataString(metadata: unknown, key: string): string {
-  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
-    return "";
-  }
-  const value = (metadata as Record<string, unknown>)[key];
-  return typeof value === "string" ? value : "";
-}
 
 export async function getContactDetailsAction(
   contactId: string,
@@ -157,59 +133,14 @@ export async function getContactDetailsAction(
   const workspaceId = access.workspaceId;
 
   /*
-    La ficha del contacto tambien sale tapada en modo monitoreo.
-
-    Es la puerta mas obvia despues de la lista: se abre el panel del cliente y ahi esta el numero
-    entero, listo para copiar. Ver `modo-monitoreo.ts`.
+    La ficha del contacto tambien sale tapada en modo monitoreo (ver lib/ficha-del-contacto.ts, la
+    misma lectura que viaja dentro de /live al abrir el chat).
   */
-  const [contact, availableTags, taparTelefonos] = await Promise.all([
-    prisma.contact.findFirst({
-      where: { id: contactId, workspaceId },
-      select: {
-        id: true,
-        name: true,
-        phoneNumber: true,
-        metadata: true,
-        ContactTag: {
-          orderBy: { createdAt: "asc" },
-          select: {
-            tagId: true,
-            Tag: {
-              select: {
-                id: true,
-                name: true,
-                color: true,
-              },
-            },
-          },
-        },
-      },
-    }),
-    prisma.tag.findMany({
-      where: { workspaceId },
-      select: { id: true, name: true, color: true },
-      orderBy: { createdAt: "asc" },
-    }),
-    estaEnModoMonitoreo({ workspaceId, userId: session.user.id }),
-  ]);
-
-  if (!contact) {
+  const ficha = await leerFichaDelContacto({ workspaceId, userId: session.user.id, contactId });
+  if (!ficha) {
     return { error: "Contacto no encontrado" };
   }
-
-  return {
-    details: {
-      contactId: contact.id,
-      name: contact.name ?? "",
-      phoneNumber: taparTelefonos ? enmascararTelefono(contact.phoneNumber) : contact.phoneNumber,
-      city: readMetadataString(contact.metadata, "city"),
-      address: readMetadataString(contact.metadata, "address"),
-      interested: readMetadataString(contact.metadata, "interested"),
-      tagIds: contact.ContactTag.map((item) => item.tagId),
-      tags: contact.ContactTag.map((item) => item.Tag),
-      availableTags,
-    },
-  };
+  return { details: ficha };
 }
 
 export async function updateContactAction(
@@ -1793,11 +1724,12 @@ export async function getEtiquetasAction(): Promise<{ items?: EtiquetaItem[]; er
   const session = await auth();
   if (!session?.user?.id) return { error: "No autorizado" };
 
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
-  if (!membership) return { error: "Workspace no encontrado" };
+  // El permiso guardado 45 s (el mismo de /live): se pide al abrir cada chat (velocidad, 10-nov-2026).
+  const access = await getClientWorkspaceAccessForUserCached(session.user.id);
+  if (!access) return { error: "Workspace no encontrado" };
 
   const tags = await prisma.tag.findMany({
-    where: { workspaceId: membership.workspace.id },
+    where: { workspaceId: access.workspaceId },
     select: { id: true, name: true, color: true },
     orderBy: { createdAt: "asc" },
   });
@@ -2105,8 +2037,10 @@ export async function getAssignableMembersAction(): Promise<{
   const session = await auth();
   if (!session?.user?.id) return { error: "No autorizado" };
 
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
-  if (!membership) return { error: "Workspace no encontrado" };
+  // El permiso guardado 45 s (el mismo de /live): se pide al abrir el chat (velocidad, 10-nov-2026).
+  const access = await getClientWorkspaceAccessForUserCached(session.user.id);
+  if (!access) return { error: "Workspace no encontrado" };
+  const membership = { role: access.membershipRole, workspace: { id: access.workspaceId } };
 
   const members = await prisma.workspaceMember.findMany({
     where: { workspaceId: membership.workspace.id, isActive: true },

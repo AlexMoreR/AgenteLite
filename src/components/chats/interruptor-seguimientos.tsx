@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { esperarLaApertura, tomarSeguimientosDeLaApertura } from "@/components/chats/datos-de-la-apertura";
 import { toast } from "sonner";
 import { Switch } from "@/components/ui/switch";
 import { fijarSeguimientosAutomaticosAction, leerSeguimientosAutomaticosAction } from "@/app/actions/chats-actions";
@@ -36,7 +37,17 @@ function pedirEstado(conversationId: string): Promise<boolean | null> {
   const enVuelo = pedidosEnVuelo.get(conversationId);
   if (enVuelo) return enVuelo;
   const desde = Date.now();
-  const pedido = leerSeguimientosAutomaticosAction(conversationId)
+  /*
+    Al abrir el chat el estado viaja dentro de /live (velocidad, 10-nov-2026): se espera esa
+    respuesta y, si lo trajo, no sale la accion de servidor (iba en fila detras de las demas).
+  */
+  const pedido = esperarLaApertura()
+    .then(() => {
+      const deLaApertura = tomarSeguimientosDeLaApertura(conversationId);
+      return deLaApertura !== null
+        ? ({ ok: true, apagados: deLaApertura } as Awaited<ReturnType<typeof leerSeguimientosAutomaticosAction>>)
+        : leerSeguimientosAutomaticosAction(conversationId);
+    })
     .then((respuesta) => {
       if (!respuesta.ok) return null;
       // Si mientras viajaba se cambio el interruptor, manda lo que se cambio (es mas nuevo).

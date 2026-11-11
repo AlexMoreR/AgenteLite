@@ -161,6 +161,7 @@
     "test:respuestas-rapidas": "npx tsx --test src/lib/respuestas-rapidas.test.ts",
     "test:respuesta-rapida-empresa-migracion": "node scripts/check-respuesta-rapida-empresa-migracion.mjs",
     "test:lista-sin-brincos": "npx tsx --test src/components/chats/texto-sin-formato.test.ts",
+    "test:velocidad-chat": "npx tsx --test src/lib/miniaturas-aparte.test.ts src/components/chats/lista-provisional.test.ts src/components/chats/datos-de-la-apertura.test.ts",
     "test:respuesta-rapida-duena-migracion": "node scripts/check-respuesta-rapida-duena-migracion.mjs",
     "test:segundo-asesor": "npx tsx --test src/lib/chats-asignacion-compartida.test.ts src/components/chats/segundo-asesor-en-la-bandeja.test.ts",
     "test:resuelto": "node scripts/check-resuelto.mjs",

@@ -219,6 +219,8 @@ export type SharedInboxProps = {
    * Las listas y el orden de las pastillas de quien mira, leidos con la pagina (ver AppSidebar):
    * la fila sale completa sin esperar otro pedido.
    */
+  /** Quien mira (para pintar "Mías" al instante con la lista que ya esta en memoria). */
+  usuarioActualId?: string | null;
   pastillasIniciales?: {
     listas: Array<{ id: string; nombre: string; query: string }>;
     preferencia: PreferenciaDePastillas;

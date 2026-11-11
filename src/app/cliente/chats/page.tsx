@@ -1520,6 +1520,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         // Los que quien mira fijo arriba de su bandeja (hasta 3, como WhatsApp).
         chatsFijados={chatsFijados}
         pastillasIniciales={pastillasIniciales}
+        usuarioActualId={access.userId}
         // Bloquear contactos: solo dueño y admin (ver lib/bloqueo-de-contactos).
         puedeBloquear={access.isOwner || access.role === "ADMIN"}
         chatSignature={chatSignature}

@@ -1171,11 +1171,6 @@ export async function createAgentAction(formData: FormData): Promise<void> {
         planExpiresAt: defaultPlan.planExpiresAt,
         createdAt: new Date(),
         ownerId: session.user.id,
-        _count: {
-          agents: 0,
-          channels: 0,
-          conversations: 0,
-        },
       },
     };
   }

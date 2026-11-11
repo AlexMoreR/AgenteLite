@@ -1,5 +1,6 @@
 import { File as FileIcon, FileSpreadsheet, FileText } from "lucide-react";
 import type { SharedInboxMessageItem } from "./chat-inbox-types";
+import { esMiniaturaAparte } from "@/lib/miniaturas-aparte";
 
 export function isMediaSourceUrl(url?: string | null) {
   if (!url) {
@@ -456,6 +457,10 @@ export function extraerTamanoDelMedio(rawPayload: unknown, tipo: "IMAGE" | "VIDE
 export function extraerMiniaturaDelVideo(rawPayload: unknown): string | null {
   const nodo = nodoPrincipalDelMedio(rawPayload, "VIDEO");
   const crudo = valorSinMayusculas(nodo, "jpegThumbnail");
+  // Las grandes llegan como direccion aparte (lib/miniaturas-aparte.ts): se usa tal cual.
+  if (esMiniaturaAparte(crudo)) {
+    return crudo;
+  }
   let base64: string | null = null;
   if (typeof crudo === "string") {
     const limpio = crudo.trim();
@@ -532,9 +537,12 @@ export function collectImagePreviewUrls(message: SharedInboxMessageItem) {
     // distinta profundidad (la ruta fija fallaba en evogo/whatsmeow).
     getNestedValue(findExternalAdReplyRecord(message.rawPayload), "thumbnail");
 
-  const base64 = bytesLikeToBase64(thumbnailBytes);
+  // Las grandes llegan como direccion aparte (lib/miniaturas-aparte.ts): se usa tal cual.
+  const base64 = esMiniaturaAparte(thumbnailBytes) ? null : bytesLikeToBase64(thumbnailBytes);
 
-  if (base64) {
+  if (esMiniaturaAparte(thumbnailBytes)) {
+    uniquePush(previewUrls, thumbnailBytes);
+  } else if (base64) {
     uniquePush(previewUrls, `data:image/jpeg;base64,${base64}`);
   }
 
@@ -654,8 +662,9 @@ export function extraerVistaPreviaDeEnlace(rawPayload: unknown): VistaPreviaDeEn
     url,
     titulo,
     descripcion: getNestedString(extended, "description") || null,
-    // Viaja en base64 dentro del mensaje: se arma el data: y listo, no hay que descargar nada.
-    miniatura: miniatura ? `data:image/jpeg;base64,${miniatura}` : null,
+    // Chica: viaja en base64 dentro del mensaje y se arma el data:. Grande: llega como direccion
+    // aparte (lib/miniaturas-aparte.ts) y el navegador la baja una vez.
+    miniatura: miniatura ? (esMiniaturaAparte(miniatura) ? miniatura : `data:image/jpeg;base64,${miniatura}`) : null,
     sitio,
   };
 }
