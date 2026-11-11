@@ -1059,13 +1059,12 @@ await prueba("pantalla: un solo reloj en la lista, nada por fila, y el efecto de
   const filaDeEtiquetas = lista.slice(lista.indexOf("function ConversationTagsRow("), lista.indexOf("const ConversationListItem = memo("));
   assert.match(filaDeEtiquetas, /espera\.texto/);
   assert.match(filaDeEtiquetas, /h-\[22px\]/);
-  // El efecto de conteos conserva sus dependencias de siempre, mas la pestaña (assignedFilter: No
-  // leido y Sin responder cuentan solo esa asignacion). Los filtros van con la firma de
+  // El efecto de conteos conserva sus dependencias de siempre. Los filtros van con la firma de
   // texto `firmaParaContar` (los mismos sin No leido ni Sin responder, ver pastillas-de-la-bandeja.ts):
   // tocar esas dos pastillas no vuelve a pedir /counts.
   assert.match(
     bandeja,
-    /\}, \[conversationListApiPath, searchQuery, selectedConnectionKey, statusFilter, assignedFilter, firmaParaContar, pedidoDeConteos\]\);/,
+    /\}, \[conversationListApiPath, searchQuery, selectedConnectionKey, statusFilter, firmaParaContar, pedidoDeConteos\]\);/,
   );
   assert.match(bandeja, /setEsperaDelConteo\(payload\.espera \?\? null\)/);
   assert.match(bandeja, /esperaPorClave\(esperaVigente\)/);
