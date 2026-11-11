@@ -1728,9 +1728,31 @@ export async function enviarMediaWaha(input: {
     },
   };
 
-  // La nota de voz y el video llevan `convert` obligatorio: sin el, WAHA rechaza el pedido.
+  /*
+    La nota de voz y el video llevan `convert` obligatorio: sin el, WAHA rechaza el pedido.
+
+    Nota de voz: si el archivo YA es OGG con opus (lo unico que WhatsApp acepta como nota de voz),
+    se manda con `convert: false` y WAHA se salta su segunda conversion con ffmpeg (medido el
+    10-nov-2026: ~10 s de los 15 s de una nota de 95 KB se iban en el paso de WAHA). Se decide por
+    los BYTES, no por la extension: un .ogg puede traer otro formato y la nota llegaria rota.
+    Ojo: las notas grabadas en el CRM se guardan en .m4a (AAC), asi que esas siguen con `convert: true`.
+
+    Video: sigue SIEMPRE con `convert: true`. No se cambio en la tarjeta 8l3ukw4k: WAHA lo pide
+    para el mp4 y no hay medicion que diga que se pueda saltar.
+  */
+  let convertDeVoz = true;
+  let msDeteccion: number | null = null;
+  if (input.tipo === "audio") {
+    const inicioDeteccion = Date.now();
+    const primeros = await primerosBytesDelArchivo({ url, base64 });
+    msDeteccion = Date.now() - inicioDeteccion;
+    convertDeVoz = !(primeros && esOggOpus(primeros));
+    if (!convertDeVoz) {
+      (cuerpo.file as Record<string, unknown>).mimetype = MIMETYPE_OGG_OPUS;
+    }
+  }
   if (input.tipo === "audio" || input.tipo === "video") {
-    cuerpo.convert = true;
+    cuerpo.convert = input.tipo === "audio" ? convertDeVoz : true;
   }
   // El audio de WhatsApp no tiene epigrafe; mandarlo hace que WAHA rechace el pedido.
   if (input.tipo !== "audio" && input.epigrafe?.trim()) {
@@ -1738,17 +1760,148 @@ export async function enviarMediaWaha(input: {
   }
 
   await marcarChatLeidoAntesDeResponder(input.connection, input.sesion, String(cuerpo.chatId));
-  const respuesta = await enviarConReintentoDeLid(String(cuerpo.chatId), (chatId) =>
-    wahaRequest<unknown>(input.connection, RUTA_POR_TIPO[input.tipo], {
-      method: "POST",
-      body: JSON.stringify({ ...cuerpo, chatId }),
-      timeoutMs: TIMEOUT_MEDIA_MS,
-    }),
-  );
+  const enviar = (extra: Record<string, unknown>) =>
+    enviarConReintentoDeLid(String(cuerpo.chatId), (chatId) =>
+      wahaRequest<unknown>(input.connection, RUTA_POR_TIPO[input.tipo], {
+        method: "POST",
+        body: JSON.stringify({ ...cuerpo, ...extra, chatId }),
+        timeoutMs: TIMEOUT_MEDIA_MS,
+      }),
+    );
+
+  const inicio = Date.now();
+  let reintento = false;
+  let convertUsado = cuerpo.convert;
+  let respuesta: unknown;
+  try {
+    try {
+      respuesta = await enviar({});
+    } catch (error) {
+      /*
+        Si WAHA RECHAZA (4xx) la nota con `convert: false`, se vuelve UNA vez al camino de siempre.
+        Solo con un rechazo: si se agoto el plazo, la nota pudo haber salido y reintentar la duplicaria.
+      */
+      const rechazo = error instanceof WahaError && error.status >= 400 && error.status < 500;
+      if (input.tipo !== "audio" || convertUsado !== false || !rechazo) {
+        throw error;
+      }
+      reintento = true;
+      convertUsado = true;
+      const archivo = { ...(cuerpo.file as Record<string, unknown>) };
+      if (input.mimetype?.trim()) {
+        archivo.mimetype = input.mimetype.trim();
+      } else {
+        delete archivo.mimetype;
+      }
+      respuesta = await enviar({ convert: true, file: archivo });
+    }
+    registrarPasoGatewayWaha({
+      tipo: input.tipo,
+      convert: convertUsado ?? null,
+      reintento,
+      ms: Date.now() - inicio,
+      msDeteccion,
+    });
+  } catch (error) {
+    registrarPasoGatewayWaha(
+      {
+        tipo: input.tipo,
+        convert: convertUsado ?? null,
+        reintento,
+        ms: Date.now() - inicio,
+        msDeteccion,
+        status: error instanceof WahaError ? error.status : null,
+      },
+      true,
+    );
+    throw error;
+  }
   // Enviar tambien deja la linea online: se la baja despues, no solo antes.
   await volverADesconectadaWaha(input.connection, input.sesion);
 
   return { externalId: leerIdDeMensaje(respuesta), raw: respuesta };
+}
+
+/** El tipo con el que va la nota de voz cuando ya esta en OGG con opus y WAHA no la convierte. */
+const MIMETYPE_OGG_OPUS = "audio/ogg; codecs=opus";
+
+/** Cuanto se espera para leer el comienzo del archivo. Si no alcanza, se sigue como hoy (convert: true). */
+const PLAZO_PRIMEROS_BYTES_MS = 3_000;
+const CUANTOS_BYTES_SE_LEEN = 64;
+
+/**
+ * Si los bytes son de un OGG con opus adentro: empieza con "OggS" y la primera pagina trae "OpusHead".
+ * Es la unica forma confiable: un .ogg puede traer vorbis (o un .m4a renombrado), y WhatsApp mostraria
+ * la nota rota.
+ */
+export function esOggOpus(bytes: Uint8Array): boolean {
+  if (bytes.length < 36) {
+    return false;
+  }
+  const texto = Buffer.from(bytes).toString("latin1");
+  return texto.startsWith("OggS") && texto.includes("OpusHead");
+}
+
+/**
+ * Los primeros bytes del archivo que se va a mandar, o null si no se pudieron leer.
+ *
+ * Del contenido en base64 se decodifica solo el comienzo. De la URL se piden los primeros bytes con
+ * un plazo corto y se corta la descarga apenas llegan: nunca baja el archivo entero.
+ */
+export async function primerosBytesDelArchivo(input: {
+  url?: string | null;
+  base64?: string | null;
+}): Promise<Uint8Array | null> {
+  try {
+    const base64 = input.base64?.trim() || "";
+    if (base64) {
+      // Por si viene como data URL ("data:audio/ogg;base64,....").
+      const limpio = base64.replace(/^data:[^,]*,/, "");
+      // 88 caracteres de base64 son 66 bytes: alcanza para la primera pagina del OGG.
+      return new Uint8Array(Buffer.from(limpio.slice(0, 88), "base64"));
+    }
+
+    const url = input.url?.trim() || "";
+    if (!/^https?:\/\//i.test(url)) {
+      return null;
+    }
+    const respuesta = await fetch(url, {
+      headers: { Range: `bytes=0-${CUANTOS_BYTES_SE_LEEN - 1}` },
+      cache: "no-store",
+      signal: AbortSignal.timeout(PLAZO_PRIMEROS_BYTES_MS),
+    });
+    if (!respuesta.ok || !respuesta.body) {
+      await respuesta.body?.cancel().catch(() => {});
+      return null;
+    }
+    // Si el servidor ignora el Range manda el archivo entero: se lee solo el comienzo y se corta.
+    const lector = respuesta.body.getReader();
+    const partes: Uint8Array[] = [];
+    let total = 0;
+    while (total < CUANTOS_BYTES_SE_LEEN) {
+      const { done, value } = await lector.read();
+      if (done || !value) {
+        break;
+      }
+      partes.push(value);
+      total += value.length;
+    }
+    await lector.cancel().catch(() => {});
+    return new Uint8Array(Buffer.concat(partes)).slice(0, CUANTOS_BYTES_SE_LEEN);
+  } catch {
+    // Sin poder leerlo se sigue como hoy: WAHA lo convierte.
+    return null;
+  }
+}
+
+/** Una linea [envio-medio] por envio de archivo a WAHA: cuanto tardo el gateway. Sin telefonos ni contenido. */
+function registrarPasoGatewayWaha(datos: Record<string, unknown>, fallo = false) {
+  const linea = `[envio-medio] ${JSON.stringify({ paso: "gateway-waha", ...datos })}`;
+  if (fallo) {
+    console.error(linea);
+  } else {
+    console.info(linea);
+  }
 }
 
 /* -------------------------------------------------------- fotos de perfil */
