@@ -4494,12 +4494,22 @@ export function SharedInbox({
     if (!container || !content) return;
 
     let lastScrollHeight = container.scrollHeight;
+    let lastClientHeight = container.clientHeight;
     const observer = new ResizeObserver(() => {
       const el = messagesScrollRef.current;
       if (!el) return;
       const grew = el.scrollHeight > lastScrollHeight + 1;
+      /*
+        Tambien cuando se ACHICA la ventana del chat (iPhone, 11-nov-2026: "se siente el brinco"):
+        el aviso de la ultima llamada o el de cierre llegan con /live y se ponen ARRIBA de los
+        mensajes. El area se achicaba ~52 px, el scroll quedaba igual y el ultimo mensaje quedaba
+        medio tapado por la barra de escribir hasta que otra cosa la volvia a bajar: ese era el
+        brinco. Se mira el contenedor, no solo el contenido.
+      */
+      const shrank = el.clientHeight < lastClientHeight - 1;
       lastScrollHeight = el.scrollHeight;
-      if (!grew) return;
+      lastClientHeight = el.clientHeight;
+      if (!grew && !shrank) return;
 
       // El contenido crecio porque se pidieron mensajes ANTERIORES: ese crecimiento va
       // arriba, no abajo, y bajar al fondo seria taparle a la asesora lo que fue a buscar.
@@ -4528,6 +4538,7 @@ export function SharedInbox({
     });
 
     observer.observe(content);
+    observer.observe(container);
     return () => observer.disconnect();
   }, [messageScrollBehavior, selectedConversationId, contenedorDeMensajes]);
 

@@ -504,14 +504,19 @@ function TarjetaDePdf({
           : "rounded-tl-[3px] bg-muted hover:bg-muted/70"
       }`}
     >
-      {tapa ? (
-        /*
-          Recortada por arriba y no encogida entera: lo que identifica una hoja de vida es el
-          nombre y la foto, que estan en los primeros centimetros. Una hoja A4 completa a este
-          tamano no se lee.
-        */
-        <span className="block h-[136px] w-full overflow-hidden bg-white">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
+      {/*
+        Recortada por arriba y no encogida entera: lo que identifica una hoja de vida es el
+        nombre y la foto, que estan en los primeros centimetros. Una hoja A4 completa a este
+        tamano no se lee.
+
+        El lugar de la hoja (136 px) esta SIEMPRE, desde el primer dibujo (iPhone, 11-nov-2026: "se
+        siente el brinco"). Antes la tarjeta nacia chica y crecia 136 px cuando la hoja terminaba
+        de dibujarse, y todo el chat se corria. Mientras llega -o si el PDF esta roto o protegido-
+        se ve la hoja en blanco con el icono del PDF al medio, como en WhatsApp.
+      */}
+      <span className="relative flex h-[136px] w-full items-center justify-center overflow-hidden bg-white">
+        {tapa ? (
+          /* eslint-disable-next-line @next/next/no-img-element */
           <img
             src={tapa.imagen}
             alt={`Primera página de ${nombre}`}
@@ -519,18 +524,16 @@ function TarjetaDePdf({
             decoding="async"
             className="h-full w-full object-cover object-top"
           />
-        </span>
-      ) : null}
-
-      <span className="flex items-center gap-2 p-1.5 pr-2.5">
-        {tapa ? null : (
-          <>
-            {(() => {
-              const { Icon, color } = getDocumentIcon("PDF");
-              return <Icon className="size-8 shrink-0" style={{ color }} />;
-            })()}
-          </>
+        ) : (
+          (() => {
+            const { Icon, color } = getDocumentIcon("PDF");
+            return <Icon className="size-10 opacity-60" style={{ color }} aria-hidden="true" />;
+          })()
         )}
+      </span>
+
+      {/* La fila de abajo mide lo mismo con hoja y sin hoja: el icono chico ya no entra y sale. */}
+      <span className="flex min-h-[44px] items-center gap-2 p-1.5 pr-2.5">
         <span className="flex min-w-0 flex-1 flex-col">
           <span
             className={`truncate text-[13px] font-normal leading-tight ${
