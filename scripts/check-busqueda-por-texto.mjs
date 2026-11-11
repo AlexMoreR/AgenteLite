@@ -163,13 +163,16 @@ prueba("la bandeja pide nombre/numero primero y despues por mensaje, con el mism
 
 // ---------------------------------------------------------------- la migracion
 
-prueba("la migracion solo asegura pg_trgm y los dos indices, en una transaccion", () => {
+prueba("la migracion solo asegura pg_trgm y los dos indices, en una transaccion, y no falla sin la extension", () => {
   const sql = leer("prisma/migrations/20261116000100_busqueda_por_texto/migration.sql");
   assert.doesNotMatch(sql, /\b(DROP|DELETE|TRUNCATE)\b/i);
   assert.match(sql, /^BEGIN;$/m);
   assert.match(sql, /^COMMIT;$/m);
-  assert.match(sql, /CREATE EXTENSION IF NOT EXISTS pg_trgm;/);
   const plano = sql.replace(/--.*$/gm, "").replace(/\s+/g, " ");
+  assert.ok(plano.includes("CREATE EXTENSION IF NOT EXISTS pg_trgm;"));
+  // Sin la extension (PGlite) no debe fallar: el error se captura y los indices solo se crean si existe.
+  assert.ok(plano.includes("EXCEPTION WHEN OTHERS THEN"));
+  assert.ok(plano.includes("IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm') THEN"));
   assert.ok(
     plano.includes(
       'CREATE INDEX IF NOT EXISTS "Message_content_trgm_idx" ON "Message" USING gin ("content" gin_trgm_ops) WHERE "content" IS NOT NULL;',
