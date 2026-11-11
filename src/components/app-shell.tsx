@@ -32,6 +32,7 @@ import { AvisoDeCanalCaido } from "@/features/monitoreo/components/AvisoDeCanalC
 import { HelpCopilotWidget } from "@/components/help/help-copilot-widget";
 import type { AdminModuleKey } from "@/lib/admin-modules";
 import { cn } from "@/lib/utils";
+import { fijarDuenoDelGuardado } from "@/components/chats/guardado-local/dueno";
 
 type InitialUser = {
   name?: string | null;
@@ -74,6 +75,8 @@ type AppShellProps = {
   /** Dueño, administrador o la supervisora del Supervisor accionable: le aparece Recuperación en el CRM. */
   /** Entra en el reparto de alguna línea de ventas: le sale el interruptor "Recibiendo clientes". */
   participaDelReparto?: boolean;
+  /** CHATS_GUARDADO_LOCAL=apagado: no se guarda nada de los chats en el navegador y se borra lo que habia. */
+  guardadoLocalApagado?: boolean;
 };
 
 const breadcrumbLabels: Record<string, string> = {
@@ -213,7 +216,18 @@ export function AppShell({
   chatRealtimeUserId = null,
   esJefeDelNegocio = false,
   participaDelReparto = false,
+  guardadoLocalApagado = false,
 }: AppShellProps) {
+  /*
+    De quien es lo guardado en el navegador (P5, T2: guardado-local/dueno.ts). Va DURANTE el render y
+    antes de cualquier return, no en un efecto: el armazon se dibuja antes que la bandeja, y la bandeja
+    lee la copia guardada en su primer render. Sin usuario (login) o con otro dueño se borra todo.
+  */
+  fijarDuenoDelGuardado({
+    workspaceId: chatRealtimeWorkspaceId,
+    userId: chatRealtimeUserId,
+    apagado: guardadoLocalApagado,
+  });
   const { data } = useSession();
   const pathname = usePathname();
   const searchParams = useSearchParams();

@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import { signOut } from "next-auth/react"
+import { borrarTodoElGuardado } from "@/components/chats/guardado-local/dueno"
 import {
   Avatar,
   AvatarFallback,
@@ -98,7 +99,11 @@ export function NavUser({
               </Link>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => signOut({ callbackUrl: "/login" })} className="flex items-center gap-2">
+            <DropdownMenuItem onClick={() => {
+              // Lo guardado de los chats no se queda para quien entre despues en este celular.
+              borrarTodoElGuardado()
+              void signOut({ callbackUrl: "/login" })
+            }} className="flex items-center gap-2">
               <LogOutIcon className="h-4 w-4 text-slate-500" />
               Cerrar sesion
             </DropdownMenuItem>

@@ -1,6 +1,8 @@
 "use client";
 
 import type { SharedInboxMessageItem, SharedInboxSelectedConversation } from "./chat-inbox-types";
+import { alCambiarElDueno, duenoDelGuardado } from "./guardado-local/dueno";
+import { MAX_HORAS_DEL_GUARDADO } from "./guardado-local/reglas";
 
 type CachedMessageItem = Omit<SharedInboxMessageItem, "createdAt" | "editedAt" | "deletedAt"> & {
   createdAt: string;
@@ -20,8 +22,16 @@ type ConversationCacheStore = {
 
 // v2: la v1 guardaba los adjuntos en base64 (ver stripBase64Attachments). Se cambia la clave
 // para no arrastrar esas entradas infladas; la v1 se borra al arrancar para liberar su espacio.
-const STORAGE_KEY = "aglite:chat-history-cache:v2";
-const LEGACY_STORAGE_KEYS = ["aglite:chat-history-cache:v1"];
+// v3 (P5, T2): la llave lleva el dueño (negocio + usuario + version, ver guardado-local/dueno.ts).
+// Sin dueño no se lee ni se guarda nada. La v2 (sin dueño) se borra: cada chat se pide una vez mas.
+const PREFIJO_DE_LA_LLAVE = "aglite:chat-history-cache:v3:";
+const LEGACY_STORAGE_KEYS = ["aglite:chat-history-cache:v1", "aglite:chat-history-cache:v2"];
+/** Nunca se muestra una copia con mas de esto, ni siquiera con ignoreFreshness. */
+const CADUCIDAD_DURA_MS = MAX_HORAS_DEL_GUARDADO * 3_600_000;
+
+function llaveDelStore(dueno: string) {
+  return `${PREFIJO_DE_LA_LLAVE}${dueno}`;
+}
 const VISITED_STORAGE_KEY = "aglite:chat-visited:v1";
 // Sin el base64 cada chat pesa unos pocos KB en vez de cientos, asi que entran todos y dejamos
 // de desalojar. Con el limite viejo (20) y 37 chats, abrir uno echaba a otro y reabrirlo
@@ -42,6 +52,8 @@ const pendingConversationSaves = new Map<string, SharedInboxSelectedConversation
 let pendingSaveTimer: number | null = null;
 let pendingIdleHandle: number | null = null;
 let cachedStore: ConversationCacheStore | null = null;
+/** De quien es `cachedStore`: si el dueño cambia, la copia en memoria no sirve. */
+let cachedStoreDueno: string | null = null;
 let cachedVisitedStore: Record<string, number> | null = null;
 let storageListenerAttached = false;
 
@@ -49,12 +61,32 @@ function isBrowser() {
   return typeof window !== "undefined";
 }
 
+/** Lo que vive en memoria se olvida al cambiar el dueño (lo del navegador ya lo borro dueno.ts). */
+function olvidarLoDeMemoria() {
+  pendingConversationSaves.clear();
+  if (pendingSaveTimer !== null && isBrowser()) {
+    window.clearTimeout(pendingSaveTimer);
+  }
+  pendingSaveTimer = null;
+  cachedStore = null;
+  cachedStoreDueno = null;
+  cachedVisitedStore = null;
+}
+alCambiarElDueno(olvidarLoDeMemoria);
+
 function invalidateCaches(event?: StorageEvent) {
-  if (event && event.key && event.key !== STORAGE_KEY && event.key !== VISITED_STORAGE_KEY) {
+  if (
+    event &&
+    event.key &&
+    !event.key.startsWith("aglite:chat-history-cache") &&
+    event.key !== VISITED_STORAGE_KEY &&
+    event.key !== "aglite:dueno-del-guardado"
+  ) {
     return;
   }
 
   cachedStore = null;
+  cachedStoreDueno = null;
   cachedVisitedStore = null;
 }
 
@@ -70,13 +102,16 @@ function ensureStorageListeners() {
 function readStore(): ConversationCacheStore {
   ensureStorageListeners();
 
-  if (cachedStore) {
-    return cachedStore;
-  }
-
-  if (!isBrowser()) {
+  // Sin dueño (o apagado) no se lee nada: ni lo del navegador ni lo que quedo en memoria.
+  const dueno = isBrowser() ? duenoDelGuardado() : null;
+  if (!dueno) {
     return { version: 1, conversations: {} };
   }
+
+  if (cachedStore && cachedStoreDueno === dueno) {
+    return cachedStore;
+  }
+  cachedStore = null;
 
   // La cache v1 quedaria ocupando espacio muerto (medido: 1.3 MB) sin que nadie la lea.
   for (const legacyKey of LEGACY_STORAGE_KEYS) {
@@ -88,7 +123,7 @@ function readStore(): ConversationCacheStore {
   }
 
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = window.localStorage.getItem(llaveDelStore(dueno));
     if (!raw) {
       return { version: 1, conversations: {} };
     }
@@ -99,6 +134,7 @@ function readStore(): ConversationCacheStore {
     }
 
     cachedStore = parsed;
+    cachedStoreDueno = dueno;
     return parsed;
   } catch {
     return { version: 1, conversations: {} };
@@ -106,23 +142,53 @@ function readStore(): ConversationCacheStore {
 }
 
 function writeStore(store: ConversationCacheStore) {
-  cachedStore = store;
-
   if (!isBrowser()) {
     return;
   }
 
+  // Sin dueño no se guarda nada, ni en memoria: la proxima lectura tampoco tendria dueño.
+  const dueno = duenoDelGuardado();
+  if (!dueno) {
+    cachedStore = null;
+    cachedStoreDueno = null;
+    return;
+  }
+  cachedStore = store;
+  cachedStoreDueno = dueno;
+
+  const llave = llaveDelStore(dueno);
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+    window.localStorage.setItem(llave, JSON.stringify(store));
+    return;
+  } catch {
+    // Lleno: se prueba con la mitad (abajo).
+  }
+
+  /*
+    Sin espacio (cuota): se quedan la mitad de los chats, los guardados mas recientemente, y se
+    intenta UNA vez mas. Antes el guardado quedaba roto y todos los chats volvian a pedirse al servidor.
+  */
+  const recortado = recortarALaMitad(store);
+  cachedStore = recortado;
+  try {
+    window.localStorage.setItem(llave, JSON.stringify(recortado));
   } catch (error) {
-    // Si esto falla, la cache deja de guardar y TODOS los chats vuelven a pedirse al servidor.
     // Callarlo hacia que el sintoma (abrir un chat va lento) no tuviera ninguna pista.
     console.warn("[chat-cache] no se pudo guardar la cache de chats", {
-      chats: Object.keys(store.conversations).length,
-      kb: Math.round(JSON.stringify(store).length / 1024),
+      chats: Object.keys(recortado.conversations).length,
+      kb: Math.round(JSON.stringify(recortado).length / 1024),
       motivo: String(error),
     });
   }
+}
+
+/** La mitad de los chats: los guardados mas recientemente (por cachedAt). */
+function recortarALaMitad(store: ConversationCacheStore): ConversationCacheStore {
+  const entries = Object.entries(store.conversations).sort((left, right) => right[1].cachedAt - left[1].cachedAt);
+  return {
+    version: 1,
+    conversations: Object.fromEntries(entries.slice(0, Math.floor(entries.length / 2))),
+  };
 }
 
 function readVisitedStore(): Record<string, number> {
@@ -157,7 +223,8 @@ function readVisitedStore(): Record<string, number> {
 function writeVisitedStore(store: Record<string, number>) {
   cachedVisitedStore = store;
 
-  if (!isBrowser()) {
+  // Sin dueño tampoco se anota que chats se visitaron (se borraria al fijar el dueño igual).
+  if (!isBrowser() || !duenoDelGuardado()) {
     return;
   }
 
@@ -711,7 +778,8 @@ export function saveConversationToCache(conversation: SharedInboxSelectedConvers
   }
 
   const conversationKey = normalizeConversationStoreKey(conversation.id);
-  if (!conversationKey) {
+  // Sin dueño ni siquiera queda esperando: no se leeria ni se guardaria.
+  if (!conversationKey || !duenoDelGuardado()) {
     return;
   }
 
@@ -796,7 +864,15 @@ export function readConversationFromCache(
     return null;
   }
 
+  // Sin dueño (login, otro usuario, apagado) no sale nada guardado, tampoco lo que espera guardarse.
+  if (!isBrowser() || !duenoDelGuardado()) {
+    return null;
+  }
+
   const store = readStore();
+  const ahora = Date.now();
+  const vigente = (copia: CachedConversation | null | undefined) =>
+    copia && typeof copia.cachedAt === "number" && ahora - copia.cachedAt <= CADUCIDAD_DURA_MS ? copia : null;
 
   /*
     Un chat recien guardado espera en `pendingConversationSaves` (600 ms mas la espera de
@@ -807,7 +883,7 @@ export function readConversationFromCache(
   */
   const pendiente = pendingConversationSaves.get(normalizeConversationStoreKey(conversationId));
   if (pendiente) {
-    const guardada = store.conversations[pendiente.id] ?? null;
+    const guardada = vigente(store.conversations[pendiente.id]);
     return hydrateConversation(mergeCachedConversations(guardada, serializeConversation(pendiente)));
   }
 
@@ -825,7 +901,13 @@ export function readConversationFromCache(
     return null;
   }
 
-  // Para mostrar (ignoreFreshness) devolvemos la caché aunque sea vieja: reabrir un chat
+  // Caducidad dura (P5, T2): con mas de 24 h no se muestra NUNCA, tampoco con ignoreFreshness. Una
+  // copia sin fecha tampoco.
+  if (!vigente(cached)) {
+    return null;
+  }
+
+  // Para mostrar (ignoreFreshness) devolvemos la caché aunque tenga mas de 30 min: reabrir un chat
   // es instantáneo y el /live de seguimiento la refresca enseguida. La frescura solo se
   // usa para decidir si el warmup debe volver a pedir el historial.
   if (
@@ -850,11 +932,22 @@ export function clearConversationCache() {
     pendingSaveTimer = null;
   }
 
-  cachedStore = { version: 1, conversations: {} };
+  cachedStore = null;
+  cachedStoreDueno = null;
   cachedVisitedStore = {};
 
   try {
-    window.localStorage.removeItem(STORAGE_KEY);
+    // Todas las copias de chats de este navegador, de cualquier dueño.
+    const claves: string[] = [];
+    for (let indice = 0; indice < window.localStorage.length; indice += 1) {
+      const clave = window.localStorage.key(indice);
+      if (clave?.startsWith("aglite:chat-history-cache")) {
+        claves.push(clave);
+      }
+    }
+    for (const clave of claves) {
+      window.localStorage.removeItem(clave);
+    }
   } catch {
     // Ignore storage failures so cache cleanup never breaks the UI.
   }

@@ -30,6 +30,10 @@ import {
   saveConversationToCache,
 } from "@/components/chats/chat-history-cache";
 import { precargaEnCamino } from "@/components/chats/chat-conversation-warmup";
+import { EVENTO_PONERSE_AL_DIA } from "@/components/agents/chats-auto-refresh";
+import { atenderChatSinAcceso, EVENTO_CHAT_SIN_ACCESO } from "@/components/chats/guardado-local/sin-acceso";
+import { reconciliarPrimeraPagina } from "@/components/chats/guardado-local/reglas";
+import { guardarListaEnElCelular } from "@/components/chats/guardado-local/lista-guardada";
 import { EditContactModal } from "@/components/chats/edit-contact-modal";
 import {
   resetConversationSelection,
@@ -668,6 +672,38 @@ export function SharedInbox({
   const [pedidoDeLista, setPedidoDeLista] = useState(0);
   const esperaDelPedidoDeListaRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /*
+    Ponerse al dia sin recargar (P5, T1): ChatsAutoRefresh avisa al volver a la app, al volver la red,
+    al reconectarse el socket o en su respaldo. Se pide /list y los numeros en vez de la pantalla
+    entera (preventDefault le dice que ya se atendio), y esa vez la lista tambien QUITA los chats que
+    salieron de la vista (reconciliarPrimeraPagina).
+  */
+  const reconciliarListaRef = useRef(false);
+  // Lo que ponerse al dia nunca quita: el chat abierto y los fijados (se ponen mas abajo, en el render).
+  const chatAbiertoParaConservarRef = useRef("");
+  const fijadosParaConservarRef = useRef<readonly string[]>([]);
+  useEffect(() => {
+    const alPonerseAlDia = (evento: Event) => {
+      evento.preventDefault();
+      reconciliarListaRef.current = true;
+      setPedidoDeLista((actual) => actual + 1);
+      setPedidoDeConteos((actual) => actual + 1);
+    };
+    window.addEventListener(EVENTO_PONERSE_AL_DIA, alPonerseAlDia);
+    return () => window.removeEventListener(EVENTO_PONERSE_AL_DIA, alPonerseAlDia);
+  }, []);
+  // Chat sin acceso (P5, T5): /live dijo 404, la copia ya se borro; aca sale la fila.
+  useEffect(() => {
+    const alQuedarSinAcceso = (evento: Event) => {
+      const chatKey = (evento as CustomEvent<{ chatKey?: string } | null>).detail?.chatKey?.trim() || "";
+      if (!chatKey) return;
+      setConversationItems((current) =>
+        current.some((item) => item.id === chatKey) ? current.filter((item) => item.id !== chatKey) : current,
+      );
+    };
+    window.addEventListener(EVENTO_CHAT_SIN_ACCESO, alQuedarSinAcceso);
+    return () => window.removeEventListener(EVENTO_CHAT_SIN_ACCESO, alQuedarSinAcceso);
+  }, []);
+  /*
     Los chats que se resolvieron mientras la bandeja estaba abierta, con la hora de su ultimo
     mensaje en ese momento.
 
@@ -954,6 +990,13 @@ export function SharedInbox({
     conversationItemsRef.current = conversationItems;
   }, [conversationItems]);
 
+  // La lista queda guardada en el celular para pintarla mientras carga la proxima vez (P5, T4). Con
+  // busqueda no: serian resultados sueltos, no la bandeja.
+  useEffect(() => {
+    if (searchInputValue.trim() || searchQuery.trim()) return;
+    guardarListaEnElCelular(vistaKey, conversationItems);
+  }, [vistaKey, conversationItems, searchInputValue, searchQuery]);
+
   // La vista cuyos chats estan HOY en conversationItems, y la ultima que mando el servidor.
   const vistaCargadaRef = useRef(vistaDelServidorKey);
   const vistaDelServidorRef = useRef(vistaDelServidorKey);
@@ -1031,6 +1074,9 @@ export function SharedInbox({
 
   useEffect(() => {
     let cancelled = false;
+    // Este pedido lo hizo "ponerse al dia" (ver alPonerseAlDia): tambien quita lo que salio de la vista.
+    const reconciliar = reconciliarListaRef.current;
+    reconciliarListaRef.current = false;
 
     // La pagina volvio a armarse en el servidor con ESTA vista (recarga, router.refresh): la
     // lista ya llego por ahi (la pone el efecto que sigue a `conversations`). No se pide de nuevo.
@@ -1189,7 +1235,7 @@ export function SharedInbox({
     */
     const esLaPrimera = primeraListaRef.current;
     primeraListaRef.current = false;
-    if (esLaPrimera && typeof performance !== "undefined" && performance.now() < 15_000) {
+    if (esLaPrimera && !reconciliar && typeof performance !== "undefined" && performance.now() < 15_000) {
       return () => {
         cancelled = true;
       };
@@ -1250,8 +1296,22 @@ export function SharedInbox({
           return;
         }
 
+        const hayMasEnElServidor = Boolean(payload.hasMore);
         setConversationItems((current) => {
           let next = current;
+          /*
+            Al ponerse al dia salen los chats que dejaron la vista (reasignados, resueltos): antes este
+            pedido solo agregaba y actualizaba. Con texto en el buscador no se toca nada (los
+            resultados se quedan quietos), y nunca salen el chat abierto, los fijados ni las filas de
+            la API oficial, que este /list no trae.
+          */
+          if (reconciliar && !isSearchActiveRef.current) {
+            const abierto = chatAbiertoParaConservarRef.current;
+            const fijados = new Set(fijadosParaConservarRef.current);
+            next = reconciliarPrimeraPagina(next, fresh, hayMasEnElServidor, (fila) =>
+              fila.id === abierto || fijados.has(fila.id) || fila.source === "official",
+            );
+          }
           for (const item of fresh) {
             if (!item.id) continue;
             next = updateConversationItemInSortedList(next, item.id, item);
@@ -1292,6 +1352,7 @@ export function SharedInbox({
     oficial, que igual casi siempre estan entre los recientes.
   */
   const fijadosEnVivo = useChatsFijados();
+  fijadosParaConservarRef.current = fijadosEnVivo;
   const fijadosYaPedidosRef = useRef(new Set<string>());
   useEffect(() => {
     const faltan = fijadosEnVivo.filter(
@@ -1766,6 +1827,7 @@ export function SharedInbox({
   // leyendolo crudo apuntarian al chat viejo; sombreandolo pasan todos a la fuente unica.
   const selectedConversationKey = useOpenChatKey(selectedConversationIdFromUrl);
   const selectedConversationId = selectedConversationKey;
+  chatAbiertoParaConservarRef.current = selectedConversationKey;
 
   /*
     Con el filtro "Sin responder" puesto, un chat ya contestado sale de la lista sin recargar (parte 4
@@ -2552,6 +2614,8 @@ export function SharedInbox({
           },
         );
 
+        // 404: reasignado, borrado o sin permiso. Fuera del guardado y de la lista (P5, T5).
+        atenderChatSinAcceso(response, normalizedSelectedConversationId);
         if (!response.ok || cancelled) {
           return;
         }

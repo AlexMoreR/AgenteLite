@@ -1,6 +1,7 @@
 "use client";
 
 import { readConversationFromCache, saveConversationToCache } from "./chat-history-cache";
+import { atenderChatSinAcceso } from "./guardado-local/sin-acceso";
 import type { SharedInboxSelectedConversation } from "./shared-inbox";
 
 type WarmupConversationResponse = {
@@ -80,6 +81,8 @@ export function warmConversationCache(chatKey: string) {
       });
 
       if (!response.ok) {
+        // 404: reasignado, borrado o sin permiso. Se borra la copia y la bandeja quita la fila.
+        atenderChatSinAcceso(response, normalizedChatKey);
         return;
       }
 

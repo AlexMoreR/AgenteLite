@@ -7,6 +7,7 @@ import { useOpenChatKey } from "@/components/chats/chat-selection-store";
 import { EVENTO_CHATS_RECONECTADO } from "@/lib/chat-envio-reintento";
 import { hayVersionNuevaParaEnviar } from "@/components/app-version-guard";
 import { pedirRevisionDeVersion } from "@/lib/actualizacion-automatica";
+import { atenderChatSinAcceso } from "@/components/chats/guardado-local/sin-acceso";
 
 /**
  * T-722 (10-nov-2026): con una version nueva en el servidor, un router.refresh() hace que Next.js
@@ -71,7 +72,33 @@ function hydrateConversationListSnapshot(value: unknown) {
   };
 }
 
+/** Lo escucha la bandeja (shared-inbox.tsx): trae la lista por /list en vez de la pantalla entera. */
+export const EVENTO_PONERSE_AL_DIA = "chats-ponerse-al-dia";
+
+/**
+ * Ponerse al dia SIN recargar la pantalla (P5, T1).
+ *
+ * Al volver a la app, al volver la red, al reconectarse el socket o en el respaldo de 60 s, antes se
+ * pedia la pantalla entera (router.refresh: 0,5-2,1 s en el servidor, 79 kB y repintar toda la
+ * bandeja; en el celular era lo que "se pega al volver"). Ahora se le avisa a la bandeja, que pide
+ * solo la lista y los numeros (/list, unos 16 kB). Si nadie atiende el aviso (la bandeja no esta
+ * montada), se recarga como siempre.
+ */
+function ponerseAlDiaSinRecargar(recargar: () => void) {
+  let atendido = false;
+  try {
+    atendido = !window.dispatchEvent(new CustomEvent(EVENTO_PONERSE_AL_DIA, { cancelable: true }));
+  } catch {
+    atendido = false;
+  }
+  if (!atendido) {
+    refrescarSinRecargar(recargar);
+  }
+}
+
 async function publicarChatAbierto(response: Response | null, chatKey: string) {
+  // 404: el chat ya no es de quien mira (reasignado, borrado): fuera del guardado y de la lista.
+  atenderChatSinAcceso(response, chatKey);
   if (!response?.ok) return;
   const payload = (await response.json().catch(() => null)) as
     | { ok?: boolean; conversation?: unknown }
@@ -128,6 +155,22 @@ export function ChatsAutoRefresh({
   useEffect(() => {
     selectedConversationKeyRef.current = chatAbierto || null;
   }, [chatAbierto]);
+
+  /*
+    Sin API oficial, ponerse al dia es pedir /list (ponerseAlDiaSinRecargar). Con API oficial (Magilus)
+    sigue igual que antes: el /list del refresco no trae sus filas, asi que se recarga la pantalla.
+  */
+  const sinApiOficialRef = useRef(officialRefreshMs <= 0);
+  sinApiOficialRef.current = officialRefreshMs <= 0;
+  const ponerseAlDiaORecargar = (recargar: () => void) => {
+    if (sinApiOficialRef.current) {
+      ponerseAlDiaSinRecargar(recargar);
+    } else {
+      refrescarSinRecargar(recargar);
+    }
+  };
+  const ponerseAlDiaORecargarRef = useRef(ponerseAlDiaORecargar);
+  ponerseAlDiaORecargarRef.current = ponerseAlDiaORecargar;
 
   useEffect(() => {
     function handleVisibilityChange() {
@@ -223,7 +266,7 @@ export function ChatsAutoRefresh({
         return;
       }
 
-      refrescarSinRecargar(() =>
+      ponerseAlDiaORecargarRef.current(() =>
         startTransition(() => {
           router.refresh();
         }),
@@ -292,7 +335,7 @@ export function ChatsAutoRefresh({
           });
       }
       // La lista entera (y el chat oficial): lo que cambio en otros chats mientras estuvo caido.
-      refrescarSinRecargar(() =>
+      ponerseAlDiaORecargarRef.current(() =>
         startTransition(() => {
           router.refresh();
         }),
@@ -434,7 +477,7 @@ export function ChatsAutoRefresh({
       */
       if (ids.length > MAXIMO_FILAS_AL_VOLVER) {
         lastRefreshAt = Date.now();
-        refrescarSinRecargar(() =>
+        ponerseAlDiaORecargarRef.current(() =>
           startTransition(() => {
             router.refresh();
           }),

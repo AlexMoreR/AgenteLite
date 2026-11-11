@@ -1,3 +1,4 @@
+import { ListaDesdeGuardado } from "@/components/chats/lista-desde-guardado";
 import { Skeleton } from "@/components/ui/skeleton";
 
 /**
@@ -21,7 +22,8 @@ export default function Cargando() {
           <Skeleton className="ml-auto size-7 rounded-full" />
         </div>
         <div className="min-h-0 flex-1 overflow-hidden">
-          {Array.from({ length: FILAS }, (_, indice) => (
+          {/* Las filas guardadas en el celular si las hay (P5, T4); si no, las siluetas. */}
+          <ListaDesdeGuardado fallback={Array.from({ length: FILAS }, (_, indice) => (
             <div key={indice} className="grid grid-cols-[68px_minmax(0,1fr)] items-start gap-2 px-3 py-3">
               <div className="flex justify-center">
                 <Skeleton className="size-12 rounded-full" />
@@ -35,7 +37,7 @@ export default function Cargando() {
                 <Skeleton className="h-3 w-1/3" />
               </div>
             </div>
-          ))}
+          ))} />
         </div>
       </div>
       <div className="hidden min-h-0 flex-1 border-y border-r border-border bg-muted/30 md:block" />

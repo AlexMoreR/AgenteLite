@@ -4,6 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
+import { borrarTodoElGuardado } from "@/components/chats/guardado-local/dueno";
 import { Fragment } from "react";
 import type { Role } from "@prisma/client";
 import { Bot, ChevronDown, Facebook, Instagram, LayoutDashboard, LogOut, Menu, Search, Settings, UserCircle2 } from "lucide-react";
@@ -29,6 +30,12 @@ type InitialUser = {
   role?: Role;
   primaryWorkspaceId?: string | null;
 };
+
+/** Cerrar sesion borra antes lo guardado de los chats: no se queda para quien entre despues. */
+function cerrarSesion() {
+  borrarTodoElGuardado();
+  void signOut({ callbackUrl: "/login" });
+}
 
 export function Navbar({
   initialUser,
@@ -181,7 +188,7 @@ export function Navbar({
                         </Link>
                       </DropdownMenuItem>
                     )}
-                    <DropdownMenuItem onClick={() => signOut({ callbackUrl: "/login" })} className="flex items-center gap-2">
+                    <DropdownMenuItem onClick={cerrarSesion} className="flex items-center gap-2">
                       <LogOut className="h-4 w-4 text-slate-500" />
                       Cerrar sesion
                     </DropdownMenuItem>
@@ -371,7 +378,7 @@ export function Navbar({
                     </Link>
                   </DropdownMenuItem>
                 )}
-                <DropdownMenuItem onClick={() => signOut({ callbackUrl: "/login" })} className="flex items-center gap-2">
+                <DropdownMenuItem onClick={cerrarSesion} className="flex items-center gap-2">
                   <LogOut className="h-4 w-4 text-slate-500" />
                   Cerrar sesion
                 </DropdownMenuItem>

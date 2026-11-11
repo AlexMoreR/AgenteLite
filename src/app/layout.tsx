@@ -313,6 +313,11 @@ export default async function RootLayout({
             /* Dirección y el Supervisor en el menú: solo dueño o administrador (Alex, 13-10-2026). */
             esJefeDelNegocio={clientAccess ? esJefeDelNegocioDelCrm(clientAccess) : false}
             participaDelReparto={participaDelReparto}
+            /*
+              Interruptor del guardado de chats en el navegador (P5, T2). Se lee al pedir la pagina, sin
+              base ni recompilar: se cambia en Portainer y se reinicia el contenedor.
+            */
+            guardadoLocalApagado={process.env.CHATS_GUARDADO_LOCAL === "apagado"}
           >
             {children}
           </AppShell>
