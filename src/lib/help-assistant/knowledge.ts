@@ -144,8 +144,9 @@ Para emoticones: toca la carita junto a la casilla y elige uno.
 3. Escribe tu respuesta y envíala. Para quitar la cita, toca la X ("Cancelar respuesta").
 
 ### Copiar el texto de un mensaje
-1. Abre el menú del mensaje (la flechita).
-2. Toca "Copiar" ("Mensaje copiado").
+1. Abre el menú del mensaje (la flechita, o mantén pulsado en el celular).
+2. Toca "Copiar" (sale el aviso "Copiado"). Solo aparece si el mensaje tiene texto (en una foto, video o documento, el texto que lo acompaña).
+3. Para copiar varios: márcalos y toca el botón Copiar de la barra de arriba. Se copian uno por línea.
 
 ### Enviar una foto o video
 1. En la casilla de mensaje, toca el botón + ("Adjuntar").
