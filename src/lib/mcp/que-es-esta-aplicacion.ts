@@ -8,6 +8,7 @@ import { agenteActivo } from "@/features/agentes-de-area/servicios/config";
 import { leerUltimosResumenes } from "@/features/agentes-de-area/servicios/resumenes";
 import { coachOpusActivo, diasSaltados } from "@/features/coach/revision-opus/servicio";
 import { prisma } from "@/lib/prisma";
+import { CLAVE_ESTADO_ALERTA_CPU, leerEstadoAlertaCpu } from "@/lib/recibir-metrica-servidor";
 import { aprobacionAutomaticaPrendida, aprobarPlanesSoloPrendido, aprobarTareasSoloPrendido } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
 import { recogidaDelResultado } from "@/features/tableros-inteligentes/services/reglas-trabajador";
 import { dondeTableroVivo } from "@/features/tableros-inteligentes/services/tableros-archivados";
@@ -639,6 +640,22 @@ async function estadoDelRepartoPorAnuncio(workspaceId: string) {
   return `activa: ${prendidas.length} reglas prendidas (${prendidas.filter((regla) => regla.tipo === "anuncio").length} por anuncio, ${prendidas.filter((regla) => regla.tipo === "campana").length} por campaña; ${sinBienvenida} sin bienvenida del bot)`;
 }
 
+/**
+ * La alerta de CPU del servidor (monitoreo, parte 2): la fecha de la última foto que mandó el script del VPS y el
+ * estado guardado en `servidor:alerta-cpu`. No es de ningún negocio: se ve igual desde cualquiera.
+ */
+async function estadoDeLaAlertaCpu() {
+  const [ultima, guardado] = await Promise.all([
+    prisma.metricaServidor.findFirst({ orderBy: { tomadaEn: "desc" }, select: { tomadaEn: true } }),
+    bandera(CLAVE_ESTADO_ALERTA_CPU),
+  ]);
+  if (!ultima) return "sin fotos: el script del servidor no ha mandado nada a /api/cron/metricas-servidor";
+  const fecha = (d: Date) => (Number.isNaN(d.getTime()) ? "(fecha rota)" : d.toISOString().slice(0, 16).replace("T", " ") + " UTC");
+  const estado = leerEstadoAlertaCpu(guardado);
+  const envio = estado.ultimoEnvio ? `último aviso ${fecha(new Date(estado.ultimoEnvio))}` : "nunca ha avisado";
+  return `activa: última foto ${fecha(ultima.tomadaEn)}; ${estado.activa ? "alerta sonando" : "sin alerta"}, ${envio}`;
+}
+
 async function automatizaciones(
   workspaceId: string,
   descritas: Map<string, string>,
@@ -742,6 +759,8 @@ async function automatizaciones(
     agente_de_ventas: await estadoDelAgenteDeVentas(workspaceId).catch(() => "no se pudo leer"),
     agente_de_marketing: await estadoDelAgenteDeMarketing(workspaceId).catch(() => "no se pudo leer"),
     agente_de_sistemas: await estadoDelAgenteDeSistemas(workspaceId).catch(() => "no se pudo leer"),
+    // La llama el script del VPS cada minuto (no el reloj del CRM): CPU > 85 % en 5 fotos seguidas → WhatsApp al dueño.
+    alerta_cpu_servidor: await estadoDeLaAlertaCpu().catch(() => "no se pudo leer"),
     recoger_errores_tablero: await estadoDeRecogerErrores(workspaceId).catch(() => "no se pudo leer"),
     recibo_de_caja: await estadoDelReciboDeCaja(workspaceId).catch(() => "no se pudo leer"),
     // Cron cada minuto: lo que WAHA no pudo descifrar y no llegó en 2 min queda en la bandeja con nota.

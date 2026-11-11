@@ -187,6 +187,7 @@
     "test:cache-de-chats": "npx tsx --test src/components/chats/chat-history-cache.test.ts",
     "test:permisos-del-crm": "npx tsx --test src/lib/permisos-del-crm.test.ts",
     "test:recuperar-contrasena": "npx tsx --test src/lib/limite-recuperacion-de-clave.test.ts",
+    "test:recibir-metrica-servidor": "npx tsx --test src/lib/recibir-metrica-servidor.test.ts",
     "test:ubicacion-del-local": "node scripts/check-ubicacion-del-local.mjs",
     "test:seguimiento-fecha-exacta": "node scripts/check-seguimiento-fecha-exacta.mjs",
     "test:metas-del-mes": "npx tsx --test src/features/metas/dominio/calculo.test.ts src/features/metas/dominio/metas-guardadas.test.ts src/features/metas/dominio/panel-visible.test.ts"
