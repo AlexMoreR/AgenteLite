@@ -38,7 +38,7 @@ export function conServerTiming(
 
     const poolEspera = esperaDelPool();
     const { contador, resultado } = medirPedido(() => manejador(request, t));
-    const extra = () => ({ poolEspera, consultas: contador.consultas });
+    const extra = () => ({ poolEspera, consultas: contador.consultas, externas: contador.externas ?? [] });
 
     let respuesta: Response;
     try {
@@ -51,7 +51,9 @@ export function conServerTiming(
     }
     const total = performance.now() - inicio;
     pasos.push(["total", total]);
-    const valor = pasos
+    // Las llamadas a WAHA (y otros de afuera) que terminaron dentro del pedido, para ver cual tarda.
+    const externas = (contador.externas ?? []).slice(0, 12);
+    const valor = [...pasos, ...externas]
       .map(([nombre, ms]) => `${nombre.replace(/[^a-zA-Z0-9_-]/g, "")};dur=${ms.toFixed(1)}`)
       .join(", ");
     try {
@@ -71,7 +73,7 @@ function escribirLinea(
   status: number,
   ms: number,
   pasos: Array<[string, number]>,
-  extra: { poolEspera: number | null; consultas: number },
+  extra: { poolEspera: number | null; consultas: number; externas?: Array<[string, number]> },
 ) {
   try {
     console.log(
@@ -82,6 +84,9 @@ function escribirLinea(
         pasos: Object.fromEntries(pasos.map(([nombre, duracion]) => [nombre, Math.round(duracion * 10) / 10])),
         poolEspera: extra.poolEspera,
         consultas: extra.consultas,
+        ...(extra.externas?.length
+          ? { externas: extra.externas.map(([nombre, duracion]) => [nombre, Math.round(duracion)]) }
+          : {}),
       })}`,
     );
   } catch {

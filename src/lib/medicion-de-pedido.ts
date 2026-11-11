@@ -11,7 +11,11 @@ import { AsyncLocalStorage } from "node:async_hooks";
  *
  * Medir no puede romper un pedido: todo lo de aca es best-effort.
  */
-type Contador = { consultas: number };
+type Contador = {
+  consultas: number;
+  /** Llamadas a servicios de afuera (WAHA) que terminaron DENTRO del pedido: [nombre, ms]. */
+  externas?: Array<[string, number]>;
+};
 
 const contexto = new AsyncLocalStorage<Contador>();
 
@@ -39,8 +43,23 @@ export function contarConsulta() {
   }
 }
 
+/**
+ * Anota una llamada a un servicio de afuera (por ejemplo "waha_sendText") con lo que tardo. Fuera de un
+ * pedido medido no hace nada. Medir nunca rompe nada: best-effort.
+ */
+export function anotarLlamadaExterna(nombre: string, ms: number) {
+  try {
+    const contador = contexto.getStore();
+    if (contador) {
+      (contador.externas ??= []).push([nombre, ms]);
+    }
+  } catch {
+    // Prescindible.
+  }
+}
+
 /** Corre `fn` contando sus consultas. */
 export function medirPedido<T>(fn: () => Promise<T>): { contador: Contador; resultado: Promise<T> } {
-  const contador: Contador = { consultas: 0 };
+  const contador: Contador = { consultas: 0, externas: [] };
   return { contador, resultado: contexto.run(contador, fn) };
 }

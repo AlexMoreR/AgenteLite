@@ -170,6 +170,7 @@
     "test:respaldo": "node scripts/check-respaldo.mjs",
     "test:etapa-automatica": "node scripts/check-etapa-automatica.mjs",
     "test:etapa-por-lectura": "node scripts/check-etapa-por-lectura.mjs",
+    "test:waha-paralelo": "npx tsx --test src/lib/waha-envio-en-paralelo.test.ts",
     "test:waha-ubicacion": "npx tsx --test src/lib/waha-ubicacion-y-contacto.test.ts",
     "test:waha-nota-de-voz": "npx tsx --test src/lib/waha-nota-de-voz.test.ts",
     "test:chat-medios": "npx tsx --test src/components/chats/chat-inbox-media.test.ts",

@@ -130,8 +130,7 @@ function getConversationAvatarClassName() {
 function renderStageBadge(crmStage?: string | null) {
   const stage = (crmStage ?? "").trim() as CrmStage;
   const meta = CRM_STAGE_META[stage];
-  // NUEVO se ve como "---" y no dice nada: en la lista no se dibuja (11-11-2026).
-  if (!meta || stage === "NUEVO") {
+  if (!meta) {
     return null;
   }
 
@@ -327,10 +326,10 @@ const ConversationListItem = memo(function ConversationListItem({
         </div>
 
         {/* Al tocar la etapa se elige la nueva: es lo que uno intenta al verla. El clic se corta
-            porque la fila entera es un enlace al chat. La etapa NUEVO ("---") no se dibuja en la
-            lista, ni el chip ni el selector: no dice nada. El alto de la fila es fijo, no brinca.
-            Dentro del chat (cabecera y ficha) la etapa sigue igual (11-11-2026). */}
-        {etapaDeLaFila === "NUEVO" ? null : conversation.contactId && CRM_STAGE_META[etapaDeLaFila] ? (
+            porque la fila entera es un enlace al chat. En TODOS los chats, tambien los de Nuevo: una
+            pastilla chica gris que dice "Nuevo" y abre el selector, igual que la de "Caliente"
+            (Alex, 11-11-2026: al quitar el "---" se habia perdido el selector). */}
+        {conversation.contactId && CRM_STAGE_META[etapaDeLaFila] ? (
           <span
             className="mt-auto"
             onClick={(evento) => {

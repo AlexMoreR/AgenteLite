@@ -1,3 +1,4 @@
+import { anotarLlamadaExterna } from "@/lib/medicion-de-pedido";
 /**
  * Cliente de WAHA, el tercer gateway de WhatsApp.
  *
@@ -105,7 +106,40 @@ const EVENTOS = [
   "message.revoked",
 ] as const;
 
+/** El nombre corto de una ruta de WAHA para medirla: "/api/sendText" -> "sendText", ".../messages/read" -> "read". */
+function nombreDeLaRuta(path: string): string {
+  const sinConsulta = path.split("?")[0] ?? "";
+  const partes = sinConsulta.split("/").filter(Boolean);
+  if (partes.includes("lids")) return "lids";
+  return (partes[partes.length - 1] ?? "otro").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 24) || "otro";
+}
+
+/** Mas de esto en una llamada a WAHA queda en el log del servidor ("[waha lento]"). */
+const WAHA_LENTO_MS = 1500;
+
 async function wahaRequest<T>(
+  connection: WahaConnection,
+  path: string,
+  init?: RequestInit & { esperaJson?: boolean; timeoutMs?: number },
+): Promise<T> {
+  const inicio = performance.now();
+  try {
+    return await wahaRequestSinMedir<T>(connection, path, init);
+  } finally {
+    /*
+      Medir cada llamada (velocidad, 11-nov-2026): un texto tardaba 6 s y no se sabia en cual de las
+      cuatro llamadas a WAHA. Va en el Server-Timing de la ruta y, si es lenta, en el log.
+    */
+    const ms = performance.now() - inicio;
+    const nombre = nombreDeLaRuta(path);
+    anotarLlamadaExterna(`waha_${nombre}`, ms);
+    if (ms > WAHA_LENTO_MS) {
+      console.warn(`[waha lento] ${JSON.stringify({ ruta: nombre, ms: Math.round(ms) })}`);
+    }
+  }
+}
+
+async function wahaRequestSinMedir<T>(
   connection: WahaConnection,
   path: string,
   init?: RequestInit & { esperaJson?: boolean; timeoutMs?: number },
@@ -613,8 +647,8 @@ export async function enviarUbicacionWaha(input: {
   titulo?: string | null;
 }): Promise<{ externalId: string | null; raw: unknown }> {
   const destino = await chatIdParaEnviar(input);
-  await marcarChatLeidoAntesDeResponder(input.connection, input.sesion, destino);
-  const respuesta = await enviarConReintentoDeLid(destino, (chatId) =>
+  const acompanantes = empezarLeidoEnParalelo(input.connection, input.sesion, destino);
+  const respuesta = await conAcompanantes(acompanantes, () => enviarConReintentoDeLid(destino, (chatId) =>
     wahaRequest<{ id?: string | { id?: string }; _data?: unknown }>(
       input.connection,
       "/api/sendLocation",
@@ -629,8 +663,7 @@ export async function enviarUbicacionWaha(input: {
         }),
       },
     ),
-  );
-  await volverADesconectadaWaha(input.connection, input.sesion);
+  ));
 
   return { externalId: leerIdDeMensaje(respuesta), raw: respuesta };
 }
@@ -645,8 +678,8 @@ export async function enviarTextoWaha(input: {
   sinVistaPrevia?: boolean;
 }): Promise<{ externalId: string | null; raw: unknown }> {
   const destino = await chatIdParaEnviar(input);
-  await marcarChatLeidoAntesDeResponder(input.connection, input.sesion, destino);
-  const respuesta = await enviarConReintentoDeLid(destino, (chatId) =>
+  const acompanantes = empezarLeidoEnParalelo(input.connection, input.sesion, destino);
+  const respuesta = await conAcompanantes(acompanantes, () => enviarConReintentoDeLid(destino, (chatId) =>
     wahaRequest<{ id?: string | { id?: string }; _data?: unknown }>(
       input.connection,
       "/api/sendText",
@@ -661,9 +694,7 @@ export async function enviarTextoWaha(input: {
         }),
       },
     ),
-  );
-  // Enviar tambien deja la linea online (visto en Admin: offline, audio, y quedo online).
-  await volverADesconectadaWaha(input.connection, input.sesion);
+  ));
 
   return { externalId: leerIdDeMensaje(respuesta), raw: respuesta };
 }
@@ -1759,7 +1790,7 @@ export async function enviarMediaWaha(input: {
     cuerpo.caption = input.epigrafe.trim();
   }
 
-  await marcarChatLeidoAntesDeResponder(input.connection, input.sesion, String(cuerpo.chatId));
+  const acompanantes = empezarLeidoEnParalelo(input.connection, input.sesion, String(cuerpo.chatId));
   const enviar = (extra: Record<string, unknown>) =>
     enviarConReintentoDeLid(String(cuerpo.chatId), (chatId) =>
       wahaRequest<unknown>(input.connection, RUTA_POR_TIPO[input.tipo], {
@@ -1775,7 +1806,7 @@ export async function enviarMediaWaha(input: {
   let respuesta: unknown;
   try {
     try {
-      respuesta = await enviar({});
+      respuesta = await conAcompanantes(acompanantes, () => enviar({}));
     } catch (error) {
       /*
         Si WAHA RECHAZA (4xx) la nota con `convert: false`, se vuelve UNA vez al camino de siempre.
@@ -1816,9 +1847,6 @@ export async function enviarMediaWaha(input: {
     );
     throw error;
   }
-  // Enviar tambien deja la linea online: se la baja despues, no solo antes.
-  await volverADesconectadaWaha(input.connection, input.sesion);
-
   return { externalId: leerIdDeMensaje(respuesta), raw: respuesta };
 }
 
@@ -2307,6 +2335,38 @@ export async function volverADesconectadaWaha(connection: WahaConnection, sesion
  * Usa la ruta que lee todo lo pendiente del chat sin pedir ids (con GOWS `sendSeen` necesita la
  * lista). Nunca frena el envio: si falla, el mensaje sale igual.
  */
+/**
+ * ENVÍOS EN PARALELO (velocidad, 11-nov-2026). Antes cada envío esperaba, en fila: marcar el chat
+ * leído (hasta 3 s), volver a "desconectada", enviar y volver a "desconectada" otra vez. Medido: un
+ * texto tardaba 6 s. Ahora marcar leído sale A LA VEZ que el envío y no se espera, y "desconectada"
+ * va UNA vez, por debajo, cuando terminan los dos (enviar también deja la línea en línea). La asesora
+ * solo espera el envío de verdad.
+ */
+type Acompanantes = { leido: Promise<void>; connection: WahaConnection; sesion: string };
+
+function empezarLeidoEnParalelo(connection: WahaConnection, sesion: string, chatId: string): Acompanantes {
+  const leido = chatId
+    ? wahaRequest(
+        connection,
+        `/api/${encodeURIComponent(sesion)}/chats/${encodeURIComponent(chatId)}/messages/read`,
+        { method: "POST", body: "{}", timeoutMs: PLAZO_DE_PRESENCIA_MS },
+      ).then(
+        () => undefined,
+        () => undefined,
+      )
+    : Promise.resolve();
+  return { leido, connection, sesion };
+}
+
+/** Corre el envío; al terminar (salga bien o mal), "desconectada" va por debajo sin que nadie espere. */
+async function conAcompanantes<T>(acompanantes: Acompanantes, enviar: () => Promise<T>): Promise<T> {
+  const envio = enviar();
+  void Promise.allSettled([acompanantes.leido, envio]).then(() =>
+    volverADesconectadaWaha(acompanantes.connection, acompanantes.sesion),
+  );
+  return envio;
+}
+
 async function marcarChatLeidoAntesDeResponder(
   connection: WahaConnection,
   sesion: string,
