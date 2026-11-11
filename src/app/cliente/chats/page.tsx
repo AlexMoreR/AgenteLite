@@ -12,6 +12,7 @@ import { PushSubscriptionManager } from "@/components/chats/push-subscription-ma
 import { loadAgentConversationDetail } from "@/lib/chat-message-loader";
 import { MenuDelContacto } from "@/components/chats/menu-del-contacto";
 import { leerChatsFijados } from "@/lib/chats-fijados";
+import { leerListasGuardadas, leerPreferenciaDePastillas } from "@/features/chats/services/pastillas-de-la-persona";
 import { SharedInbox } from "@/components/chats/shared-inbox";
 import type { AssignedFilter } from "@/components/chats/chat-inbox-types";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
@@ -259,7 +260,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       Usa isOwner/ADMIN del acceso, no isManager, asi que no espera a la supervisora.
     - Los chats que quien mira fijo arriba de su bandeja (hasta 3, como WhatsApp).
   */
-  const [esSupervisoraDelNegocio, usuarioConFirma, canalesMonitoreados, canalesVisibles, chatsFijados, chatKeyPorEnlaceDirecto] =
+  const [esSupervisoraDelNegocio, usuarioConFirma, canalesMonitoreados, canalesVisibles, chatsFijados, chatKeyPorEnlaceDirecto, pastillasIniciales] =
     await Promise.all([
       membership.role === "OWNER" || membership.role === "ADMIN"
         ? Promise.resolve(false)
@@ -284,6 +285,17 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
             conversationId: conversacionDeLaUrl,
           }).then((clave) => clave ?? "")
         : Promise.resolve(""),
+      /*
+        Las listas y el orden de la fila de pastillas de quien mira (dos renglones de AppSetting): con
+        la pagina, asi la fila sale completa desde el primer pintado (lista sin brincos, 10-11-2026).
+        Si fallan, la barra las pide sola como antes.
+      */
+      leerListasGuardadas(access.userId)
+        .then(async (listas) => ({
+          listas,
+          preferencia: await leerPreferenciaDePastillas(access.userId, listas.map((lista) => lista.id)),
+        }))
+        .catch(() => null),
     ]);
   const chatKeySolicitada = chatKeyDeLaUrl || chatKeyPorEnlaceDirecto;
   const selectedConnectionParam = typeof params.connection === "string" ? params.connection : "";
@@ -562,7 +574,45 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         ],
       };
 
-  const [evolutionSettings, channels, agentConversationsRaw, selectedAgentConversationRow, officialChatsData] = await Promise.all([
+  /*
+    Lo que se lee de cada chat de la lista. Lo usan la primera tanda y los fijados que no entraron en
+    ella (abajo): asi un fijado viejo sale con la pagina y no se mete arriba segundos despues.
+  */
+  const seleccionDeLaFila = {
+    id: true,
+    agentId: true,
+    channelId: true,
+    automationPaused: true,
+    status: true,
+    assignedToUserId: true,
+    assignedTo: { select: { id: true, name: true, email: true } },
+    segundoAsesorId: true,
+    segundoAsesor: { select: { id: true, name: true } },
+    activeProductContext: true,
+    contact: {
+      select: {
+        id: true,
+        name: true,
+        phoneNumber: true,
+        avatarUrl: true,
+        crmStage: true,
+        // Para saber si el lead esta pospuesto y no mostrarlo en la bandeja.
+        metadata: true,
+      },
+    },
+  } satisfies Prisma.ConversationSelect;
+  /*
+    Los fijados del canal viejo que no vengan en la primera tanda (lista sin brincos, 10-11-2026): se
+    piden A LA VEZ, con el MISMO filtro (si no lo cumplen no salen, igual que en /list?ids=). Antes los
+    pedia la bandeja al montar (3,6 s medido) y empujaban toda la lista hacia abajo al llegar.
+    En "Esperando" y buscando no: ahi la bandeja los pide como siempre.
+  */
+  const idsDeFijadosDelCanalViejo =
+    paginaDeEsperando || searchQuery
+      ? []
+      : chatsFijados.filter((clave) => clave.startsWith("agent:")).map((clave) => clave.slice("agent:".length));
+
+  const [evolutionSettings, channels, agentConversationsRaw, selectedAgentConversationRow, officialChatsData, fijadosFueraDeLaTanda] = await Promise.all([
     getEvolutionSettings(),
     prisma.whatsAppChannel.findMany({
       where: {
@@ -592,29 +642,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       where: conversationWhere,
       orderBy: [{ lastMessageAt: "desc" }, { updatedAt: "desc" }],
       take: conversationListTake + 1,
-      select: {
-        id: true,
-        agentId: true,
-        channelId: true,
-        automationPaused: true,
-        status: true,
-        assignedToUserId: true,
-        assignedTo: { select: { id: true, name: true, email: true } },
-        segundoAsesorId: true,
-        segundoAsesor: { select: { id: true, name: true } },
-        activeProductContext: true,
-        contact: {
-          select: {
-            id: true,
-            name: true,
-            phoneNumber: true,
-            avatarUrl: true,
-            crmStage: true,
-            // Para saber si el lead esta pospuesto y no mostrarlo en la bandeja.
-            metadata: true,
-          },
-        },
-      },
+      select: seleccionDeLaFila,
     }),
     // El chat seleccionado se carga TAMBIEN por su id, aparte de la lista. Sin esto, un deep-link
     // (p.ej. desde "Mi día") a un chat que NO esta en los ultimos 40 caia en "Selecciona un chat":
@@ -656,6 +684,12 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       // "Esperando": solo los de la pagina (una lista vacia no trae ninguno).
       ...(paginaDeEsperando ? { soloIds: idsEsperandoDe("official:") } : {}),
     }),
+    idsDeFijadosDelCanalViejo.length > 0
+      ? prisma.conversation.findMany({
+          where: { AND: [conversationWhere, { id: { in: idsDeFijadosDelCanalViejo } }] },
+          select: seleccionDeLaFila,
+        })
+      : Promise.resolve([]),
   ]);
 
   const channelsById = new Map(channels.map((channel) => [channel.id, channel]));
@@ -691,13 +725,22 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   const agentConversationsBase = hayBusqueda(searchQuery)
     ? agentConversationsConsumidas
     : agentConversationsConsumidas.filter((conversation) => !isSnoozed(conversation.contact?.metadata));
+  // Los fijados que no vinieron en la tanda (ver idsDeFijadosDelCanalViejo) van con la pagina; la
+  // lista los dibuja arriba. No cuentan para el offset: la tanda sigue siendo la misma.
+  const idsDeLaTanda = new Set(agentConversationsBase.map((conversation) => conversation.id));
+  const agentConversationsConFijados = [
+    ...agentConversationsBase,
+    ...fijadosFueraDeLaTanda.filter(
+      (conversation) => !idsDeLaTanda.has(conversation.id) && !isSnoozed(conversation.contact?.metadata),
+    ),
+  ];
   // Si el chat seleccionado (deep-link) no vino en el lote de la lista, lo agregamos para que el
   // panel lo abra. Va primero para que quede visible arriba al aterrizar desde Mi día.
   const agentConversations =
     selectedAgentConversationRow &&
-    !agentConversationsBase.some((conversation) => conversation.id === selectedAgentConversationRow.id)
-      ? [selectedAgentConversationRow, ...agentConversationsBase]
-      : agentConversationsBase;
+    !agentConversationsConFijados.some((conversation) => conversation.id === selectedAgentConversationRow.id)
+      ? [selectedAgentConversationRow, ...agentConversationsConFijados]
+      : agentConversationsConFijados;
 
   const activeAgentConversations = agentConversations.filter((conv) => {
     if (!conv.channelId) return true;
@@ -1476,6 +1519,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         veTodoElEquipo={modoMonitoreo}
         // Los que quien mira fijo arriba de su bandeja (hasta 3, como WhatsApp).
         chatsFijados={chatsFijados}
+        pastillasIniciales={pastillasIniciales}
         // Bloquear contactos: solo dueño y admin (ver lib/bloqueo-de-contactos).
         puedeBloquear={access.isOwner || access.role === "ADMIN"}
         chatSignature={chatSignature}

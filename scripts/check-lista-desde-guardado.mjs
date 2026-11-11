@@ -35,7 +35,10 @@ prueba("el componente lee en un efecto, es de solo lectura y sin lista deja las 
   assert.match(lista, /aria-busy="true"/);
   assert.match(lista, /pointer-events-none/);
   assert.ok(!/href=|onClick=|<a |<Link/.test(lista), "sin enlaces ni toques");
-  assert.ok(!/<img|avatarUrl/.test(lista), "no pide fotos a la red");
+  // Desde el 10-nov-2026 (Alex: "lista de chats sin brincos") la fila guardada lleva la MISMA foto en
+  // miniatura de la lista (casi siempre ya en el navegador), nunca la inicial que despues brincaba a la foto.
+  assert.match(lista, /<ContactAvatar[\s\S]*?avatarUrl=\{fila\.avatarUrl\}[\s\S]*?miniatura/, "la foto en miniatura de la lista");
+  assert.ok(!/charAt\(0\)/.test(lista), "sin la inicial del nombre");
 });
 
 prueba("la bandeja guarda la lista, pero no con busqueda", () => {

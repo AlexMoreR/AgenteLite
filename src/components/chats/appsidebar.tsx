@@ -87,6 +87,12 @@ type AppSidebarProps = {
   mensajesEncontrados?: MensajeEncontrado[];
   /** Abrir un chat desde el buscador (reciente o mensaje encontrado, con el mensaje al que ir). */
   alAbrirDesdeElBuscador?: (chat: ChatParaAbrir, messageId?: string) => void;
+  /**
+   * Las listas y el orden de la fila de esta persona, leidos por el SERVIDOR con la pagina: la fila
+   * sale completa desde el primer pintado, sin esperar /filtros-guardados (2,5 s medido). Sin esto se
+   * piden al montar, como antes.
+   */
+  pastillasIniciales?: { listas: ListaDeChats[]; preferencia: PreferenciaDePastillas } | null;
 };
 
 // En el celular la caja se esconde al bajar la lista y vuelve al subir, como en WhatsApp.
@@ -240,6 +246,7 @@ export const AppSidebar = React.memo(function AppSidebar({
   refBuscador,
   mensajesEncontrados = [],
   alAbrirDesdeElBuscador,
+  pastillasIniciales = null,
 }: AppSidebarProps) {
   const conversationListScrollRef = React.useRef<HTMLDivElement | null>(null);
 
@@ -325,7 +332,7 @@ export const AppSidebar = React.memo(function AppSidebar({
     borran. A diferencia de WhatsApp no se arman a mano: son filtros, se actualizan solas.
     Son de cada persona (las guarda /api/cliente/chats/filtros-guardados).
   */
-  const [listas, setListas] = React.useState<ListaDeChats[]>([]);
+  const [listas, setListas] = React.useState<ListaDeChats[]>(() => pastillasIniciales?.listas ?? []);
   /*
     LA FILA DE PASTILLAS (Alex, 10-11-2026): las fijas (Todas, Mias, No leido, Sin responder, Sin
     asignar) y las listas en UNA sola fila que cada persona ordena y en la que oculta las fijas que no
@@ -335,12 +342,27 @@ export const AppSidebar = React.memo(function AppSidebar({
     La fila espera a ese pedido (con un tope corto) para no dibujarse en el orden por defecto y
     despues saltar al de la persona. El + queda siempre, asi el alto de la fila no cambia.
   */
-  const [preferencia, setPreferencia] = React.useState<PreferenciaDePastillas>(SIN_PREFERENCIA);
+  const [preferencia, setPreferencia] = React.useState<PreferenciaDePastillas>(
+    () => pastillasIniciales?.preferencia ?? SIN_PREFERENCIA,
+  );
+  /*
+    Sin brincos (Alex, 10-11-2026): la fila se dibuja SIEMPRE (con su ancho), pero invisible hasta
+    que este completa. Con las pastillas del servidor se muestra antes del primer pintado del cliente,
+    ya con los numeros guardados en el equipo (los pone la bandeja en su useLayoutEffect, ver
+    conteos-guardados.ts): aparece una sola vez, completa, y despues solo cambian los numeros.
+  */
   const [filaLista, setFilaLista] = React.useState(false);
+  const pastillasDelServidor = pastillasIniciales !== null;
+  React.useLayoutEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- a proposito antes del primer pintado
+    if (pastillasDelServidor) setFilaLista(true);
+  }, [pastillasDelServidor]);
   const [menuDePastilla, setMenuDePastilla] = React.useState<ClaveDePastilla | null>(null);
   const [verOcultas, setVerOcultas] = React.useState(false);
   const toqueLargo = React.useRef<{ temporizador: number | null; disparo: boolean }>({ temporizador: null, disparo: false });
   React.useEffect(() => {
+    // Ya vinieron con la pagina: no se piden de nuevo (se vuelven a pedir al guardar o borrar una lista).
+    if (pastillasDelServidor) return;
     let vigente = true;
     const tope = window.setTimeout(() => setFilaLista(true), TOPE_PARA_DIBUJAR_LA_FILA_MS);
     void fetch("/api/cliente/chats/filtros-guardados", { credentials: "same-origin" })
@@ -362,7 +384,7 @@ export const AppSidebar = React.memo(function AppSidebar({
       vigente = false;
       window.clearTimeout(tope);
     };
-  }, []);
+  }, [pastillasDelServidor]);
 
   const contextoDeLaFila = React.useMemo(
     () => ({ isManager, idsDeListas: listas.map((lista) => lista.id) }),
@@ -787,7 +809,11 @@ export const AppSidebar = React.memo(function AppSidebar({
               Una sola fila que se desliza de lado, como las listas de WhatsApp (Alex, 04-10-2026),
               sin barra de scroll a la vista.
             */}
-            <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <div
+              className={`flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
+                filaLista ? "" : "invisible"
+              }`}
+            >
               {/*
                 LA FILA (Alex, 10-11-2026): las fijas y las listas de esta persona, en SU orden y sin
                 las que oculto (ver contextoDeLaFila). Mantener presionada o clic derecho: mover, y
@@ -798,15 +824,13 @@ export const AppSidebar = React.memo(function AppSidebar({
                 ancho al nombre y al conteo, que es lo unico que se mira de estas pastillas.
               */}
               {/* La pastilla "Esperando" se quitó a pedido de Alex (07-11-2026); la vista espera=1 sigue. */}
-              {filaLista
-                ? pastillasVisibles.map((clave) => {
-                    if (!esPastillaFija(clave)) {
-                      const lista = listas.find((otra) => otra.id === idDeLista(clave));
-                      return lista ? pastillaDeLista(lista) : null;
-                    }
-                    return pastillaFija(clave);
-                  })
-                : null}
+              {pastillasVisibles.map((clave) => {
+                if (!esPastillaFija(clave)) {
+                  const lista = listas.find((otra) => otra.id === idDeLista(clave));
+                  return lista ? pastillaDeLista(lista) : null;
+                }
+                return pastillaFija(clave);
+              })}
 
               <button
                 type="button"

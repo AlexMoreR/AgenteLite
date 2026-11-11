@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { PreferenciaDePastillas } from "@/features/chats/domain/orden-de-las-pastillas";
 import type { UltimaLlamada } from "@/lib/ultima-llamada";
 
 export type SharedInboxConversationItemLike = Partial<Omit<SharedInboxConversationItem, "lastMessageAt">> & {
@@ -214,6 +215,14 @@ export type SharedInboxProps = {
   veTodoElEquipo?: boolean;
   /** Claves (`agent:<id>` / `official:<id>`) que quien mira fijo arriba de su bandeja. */
   chatsFijados?: string[];
+  /**
+   * Las listas y el orden de las pastillas de quien mira, leidos con la pagina (ver AppSidebar):
+   * la fila sale completa sin esperar otro pedido.
+   */
+  pastillasIniciales?: {
+    listas: Array<{ id: string; nombre: string; query: string }>;
+    preferencia: PreferenciaDePastillas;
+  } | null;
   /** Dueño o admin: ve "Bloquear contacto" en el menú de cada fila. */
   puedeBloquear?: boolean;
   /** La firma de quien escribe, para dejarla visible en el compositor. */

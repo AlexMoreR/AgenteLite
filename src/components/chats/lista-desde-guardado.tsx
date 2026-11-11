@@ -2,8 +2,10 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 
+import { ContactAvatar } from "./contact-avatar";
 import { leerListaDelCelular } from "./guardado-local/lista-guardada";
 import type { FilaGuardada } from "./guardado-local/reglas";
+import { textoSinFormato } from "./texto-sin-formato";
 
 /*
   Las filas de la bandeja guardadas en el celular, mientras carga la pantalla de Chats (P5, T4).
@@ -24,11 +26,6 @@ function hora(iso: string | null) {
   return mismoDia
     ? fecha.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
     : fecha.toLocaleDateString([], { day: "2-digit", month: "2-digit" });
-}
-
-function inicial(fila: FilaGuardada) {
-  const nombre = (fila.label || fila.secondaryLabel || "").trim();
-  return nombre ? nombre.charAt(0).toUpperCase() : "·";
 }
 
 export function ListaDesdeGuardado({ fallback }: { fallback: ReactNode }) {
@@ -56,11 +53,17 @@ export function ListaDesdeGuardado({ fallback }: { fallback: ReactNode }) {
   return (
     <div aria-busy="true" className="pointer-events-none select-none">
       {filas.map((fila) => (
-        <div key={fila.id} className="grid grid-cols-[68px_minmax(0,1fr)] items-start gap-2 px-3 py-3">
+        <div key={fila.id} className="grid grid-cols-[68px_minmax(0,1fr)] items-start gap-2 border-b border-border px-3 py-2.5">
           <div className="flex justify-center">
-            <div className="flex size-12 items-center justify-center rounded-full bg-muted text-base font-medium text-muted-foreground">
-              {inicial(fila)}
-            </div>
+            {/* La foto guardada (la misma miniatura de la lista, casi siempre ya en el navegador) o la
+                silueta: nunca la letra del nombre, que despues brincaba a la foto. */}
+            <ContactAvatar
+              avatarUrl={fila.avatarUrl}
+              label={fila.label || fila.secondaryLabel}
+              className="size-12"
+              fallbackClassName="rounded-full bg-muted text-muted-foreground"
+              miniatura
+            />
           </div>
           <div className="flex min-w-0 flex-col gap-1 pt-1">
             <div className="flex items-center gap-2">
@@ -68,7 +71,7 @@ export function ListaDesdeGuardado({ fallback }: { fallback: ReactNode }) {
               <span className="ml-auto shrink-0 text-xs text-muted-foreground">{hora(fila.lastMessageAt)}</span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="truncate text-sm text-muted-foreground">{fila.lastMessage ?? ""}</span>
+              <span className="truncate text-sm text-muted-foreground">{textoSinFormato(fila.lastMessage)}</span>
               {fila.incomingCount ? (
                 <span className="ml-auto shrink-0 rounded-full bg-primary px-1.5 text-xs font-medium text-primary-foreground">
                   {fila.incomingCount}

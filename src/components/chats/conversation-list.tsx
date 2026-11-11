@@ -28,6 +28,7 @@ import { CRM_STAGE_META } from "@/features/crm/domain/crm-config";
 import type { CrmStage } from "@/features/crm/types";
 import { horaDeLista } from "@/lib/hora-de-lista";
 import type { SharedInboxConversationItem } from "./shared-inbox";
+import { textoSinFormato } from "./texto-sin-formato";
 
 // Logs de depuración desactivados (ensuciaban la consola en desarrollo).
 const CHAT_LIST_DEBUG = false;
@@ -62,14 +63,15 @@ function renderIncomingCountLabel(count?: number | null) {
 }
 
 function getConversationPreview(conversation: SharedInboxConversationItem) {
-  const content = conversation.lastMessage?.trim();
+  // Sin los signos de formato de WhatsApp (*negrita*, _cursiva_...): en la fila se veian crudos.
+  const content = textoSinFormato(conversation.lastMessage);
   if (content) return content;
   if (conversation.lastMessageType === "AUDIO") return "Audio";
   if (conversation.lastMessageType === "IMAGE") return "Foto";
   if (conversation.lastMessageType === "VIDEO") return "Video";
   if (conversation.lastMessageType === "STICKER") return "Sticker";
   if (conversation.lastMessageType === "DOCUMENT") return "Documento";
-  if (conversation.lastMessageType === "LOCATION") return "Ubicacion";
+  if (conversation.lastMessageType === "LOCATION") return "Ubicación";
   return "Sin mensajes visibles aun.";
 }
 

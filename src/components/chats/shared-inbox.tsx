@@ -34,6 +34,7 @@ import { EVENTO_PONERSE_AL_DIA } from "@/components/agents/chats-auto-refresh";
 import { atenderChatSinAcceso, EVENTO_CHAT_SIN_ACCESO } from "@/components/chats/guardado-local/sin-acceso";
 import { reconciliarPrimeraPagina } from "@/components/chats/guardado-local/reglas";
 import { guardarListaEnElCelular } from "@/components/chats/guardado-local/lista-guardada";
+import { guardarConteos, leerConteosGuardados } from "@/components/chats/guardado-local/conteos-guardados";
 import { EditContactModal } from "@/components/chats/edit-contact-modal";
 import {
   resetConversationSelection,
@@ -476,6 +477,7 @@ export function SharedInbox({
   isManager = false,
   veTodoElEquipo = false,
   chatsFijados,
+  pastillasIniciales = null,
   puedeBloquear = false,
   chatSignature = "",
   conversationListApiPath = "/api/cliente/chats/list",
@@ -898,6 +900,25 @@ export function SharedInbox({
     return () => window.removeEventListener(CHAT_SNOOZED_EVENT, handleSnoozed);
   }, []);
 
+  /*
+    LOS NUMEROS DE LAS PASTILLAS SIN BRINCOS (Alex, 10-11-2026). /counts tarda segundos y la fila
+    salia sin numeros y brincaba al llegar. Se pinta lo ultimo que se vio para esta misma vista de
+    conteo (guardado en el equipo, ver conteos-guardados.ts) ANTES del primer pintado del cliente, y
+    /counts lo actualiza por debajo. Con texto en el buscador no se guarda ni se lee: son resultados.
+  */
+  const firmaDeConteoGuardado = searchQuery.trim()
+    ? ""
+    : [conversationListApiPath, selectedConnectionKey.trim(), statusFilter, firmaParaContar].join("|");
+  const firmaDeConteoGuardadoRef = useRef(firmaDeConteoGuardado);
+  firmaDeConteoGuardadoRef.current = firmaDeConteoGuardado;
+  useLayoutEffect(() => {
+    if (!firmaDeConteoGuardado) return;
+    const guardados = leerConteosGuardados(firmaDeConteoGuardado);
+    if (!guardados) return;
+    setAssignedCounts(guardados.counts);
+    if (guardados.espera) setEsperaDelConteo(guardados.espera);
+  }, [firmaDeConteoGuardado]);
+
   // Conteos por filtro (Mías / Sin asignar / Todas) para mostrarlos junto a cada pestaña.
   useEffect(() => {
     const countsApiPath = conversationListApiPath.replace(/\/list$/, "/counts");
@@ -960,6 +981,10 @@ export function SharedInbox({
           setAssignedCounts(payload.counts);
           // La marca «espera N min», el numero de "Esperando" y su lista. null (no se pudo calcular) = sin nada.
           setEsperaDelConteo(payload.espera ?? null);
+          // Lo ultimo que se vio, para la proxima vez que se abra la bandeja (sin brincos).
+          if (firmaDeConteoGuardadoRef.current) {
+            guardarConteos(firmaDeConteoGuardadoRef.current, { counts: payload.counts, espera: payload.espera ?? null });
+          }
         }
       } catch {
         // Ignoramos errores de red: se reintenta en el siguiente intervalo.
@@ -4481,6 +4506,7 @@ export function SharedInbox({
         alBorrarBusqueda={handleSearchClear}
         mensajesEncontrados={mensajesDeLaBusqueda}
         alAbrirDesdeElBuscador={abrirChatDesdeElBuscador}
+        pastillasIniciales={pastillasIniciales}
         refBuscador={searchInputRef}
         assignedFilter={assignedFilter}
         statusFilter={statusFilter}
