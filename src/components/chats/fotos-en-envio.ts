@@ -138,55 +138,31 @@ export function fotosDelChat<T extends { conversationId: string }>(
 /*
   Los envios cuyo mensaje real ya llego al chat: hay que retirarlos.
 
-  Se cruza de dos maneras; basta con una:
-  - Por el numero unico del envio (clave = clientMessageId): el servidor lo guarda en
-    `rawPayload.clientMessageId` del mensaje real (agent-actions.ts). Sirve aunque el servidor haya
-    guardado OTRA direccion (otro tamaño de la foto, la del gateway, el eco del webhook), que era lo
-    que dejaba la burbuja encima de la real hasta VIDA_DE_FOTO_ENVIADA_MS. Una clave vacia nunca cuenta.
-  - Por la direccion del SERVIDOR, que es la que se guarda en el mensaje real; la vista previa local
-    (`blob:`) nunca coincidiria. Uno que todavia no termino de subir no tiene esa direccion. Se
-    mantiene para los envios sin clave (la API oficial no la guarda en las fotos).
-  Los mensajes son del chat `conversationId`: una coincidencia ahi no retira uno de otro chat.
+  Se compara contra la direccion del SERVIDOR, que es la que se guarda en el mensaje real; la vista
+  previa local (`blob:`) nunca coincidiria. Uno que todavia no termino de subir no tiene esa
+  direccion y no se retira. Los mensajes son del chat `conversationId`: una coincidencia ahi no
+  retira uno de otro chat.
 */
 export function fotosQueYaLlegaron(
-  fotos: readonly Pick<FotoEnEnvio, "id" | "conversationId" | "subida" | "clave">[],
+  fotos: readonly Pick<FotoEnEnvio, "id" | "conversationId" | "subida">[],
   conversationId: string | null | undefined,
-  mensajesReales: readonly Pick<SharedInboxMessageItem, "mediaUrl" | "rawPayload">[],
+  mensajesReales: readonly Pick<SharedInboxMessageItem, "mediaUrl">[],
 ): string[] {
   if (!conversationId || fotos.length === 0 || mensajesReales.length === 0) {
     return [];
   }
   const direcciones = new Set<string>();
-  const claves = new Set<string>();
   for (const mensaje of mensajesReales) {
     if (mensaje.mediaUrl) {
       direcciones.add(mensaje.mediaUrl);
     }
-    const clave = claveDelMensaje(mensaje.rawPayload);
-    if (clave) {
-      claves.add(clave);
-    }
   }
   return fotos
-    .filter((foto) => {
-      if (foto.conversationId !== conversationId) {
-        return false;
-      }
-      if (foto.clave && claves.has(foto.clave)) {
-        return true;
-      }
-      return Boolean(foto.subida?.url) && direcciones.has(foto.subida!.url);
-    })
+    .filter(
+      (foto) =>
+        foto.conversationId === conversationId && Boolean(foto.subida?.url) && direcciones.has(foto.subida!.url),
+    )
     .map((foto) => foto.id);
-}
-
-/** El `clientMessageId` que el servidor guardo en el crudo del mensaje real, si lo tiene. */
-function claveDelMensaje(rawPayload: unknown): string | null {
-  if (!rawPayload || typeof rawPayload !== "object") {
-    return null;
-  }
-  const clave = (rawPayload as { clientMessageId?: unknown }).clientMessageId;
-  return typeof clave === "string" && clave.length > 0 ? clave : null;
 }
 
 export type DecisionDeReintento = "solo-enviar" | "subir-y-enviar" | "nada";

@@ -89,33 +89,6 @@ describe("qué burbuja se retira al llegar el mensaje real", () => {
     const fallida = foto({ conversationId: "chat-a", subida: subida("/uploads/a.jpg"), estado: "fallida" });
     assert.deepEqual(fotosQueYaLlegaron([fallida], "chat-a", [{ mediaUrl: "/uploads/a.jpg" }]), [fallida.id]);
   });
-
-  it("se retira por clave aunque la URL sea distinta", () => {
-    const enviada = foto({ conversationId: "chat-a", clave: "k1", subida: subida("/uploads/a.jpg"), estado: "enviada" });
-    assert.deepEqual(
-      fotosQueYaLlegaron([enviada], "chat-a", [{ mediaUrl: "/uploads/a-grande.jpg", rawPayload: { clientMessageId: "k1" } }]),
-      [enviada.id],
-    );
-  });
-
-  it("la misma clave en otro chat no la retira", () => {
-    const deA = foto({ conversationId: "chat-a", clave: "k1", subida: subida("/uploads/a.jpg"), estado: "enviada" });
-    assert.deepEqual(
-      fotosQueYaLlegaron([deA], "chat-b", [{ mediaUrl: "/uploads/a-grande.jpg", rawPayload: { clientMessageId: "k1" } }]),
-      [],
-    );
-  });
-
-  it("no la retira una clave distinta ni una clave vacía", () => {
-    const conClave = foto({ conversationId: "chat-a", clave: "k1", subida: subida("/uploads/a.jpg"), estado: "enviada" });
-    const sinClave = foto({ conversationId: "chat-a", clave: "", subida: subida("/uploads/b.jpg"), estado: "enviada" });
-    const mensajes = [
-      { mediaUrl: "/uploads/a-grande.jpg", rawPayload: { clientMessageId: "k2" } },
-      { mediaUrl: "/uploads/b-grande.jpg", rawPayload: { clientMessageId: "" } },
-      { mediaUrl: "/uploads/c.jpg", rawPayload: null },
-    ];
-    assert.deepEqual(fotosQueYaLlegaron([conClave, sinClave], "chat-a", mensajes), []);
-  });
 });
 
 describe("cada chat ve solo sus burbujas", () => {
