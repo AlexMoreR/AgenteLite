@@ -4,6 +4,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
+import { listarBiblioteca, type MediaLibraryItemDto } from "@/lib/biblioteca";
 
 /**
  * BIBLIOTECA DE ARCHIVOS: los catalogos de siempre, subidos una vez.
@@ -24,26 +25,8 @@ async function getAccess() {
   return membership?.workspace.id ?? null;
 }
 
-export type MediaLibraryItemDto = {
-  id: string;
-  title: string;
-  url: string;
-  fileName: string;
-  mimeType: string;
-  mediaType: "IMAGE" | "VIDEO" | "DOCUMENT";
-  /** La tapa. Null = se muestra un icono. */
-  thumbnailUrl: string | null;
-  sizeBytes: number;
-  sentCount: number;
-};
+export type { MediaLibraryItemDto } from "@/lib/biblioteca";
 
-/**
- * Los mas usados primero.
- *
- * Por fecha, el catalogo que se manda veinte veces por dia se hunde debajo de cualquier archivo
- * suelto que alguien subio una vez. Ordenar por uso hace que lo que la asesora necesita este
- * siempre arriba, sin que nadie tenga que ordenar nada a mano.
- */
 export async function listarBibliotecaAction(): Promise<{
   items?: MediaLibraryItemDto[];
   error?: string;
@@ -53,29 +36,7 @@ export async function listarBibliotecaAction(): Promise<{
     return { error: "No autorizado" };
   }
 
-  const items = await prisma.mediaLibraryItem.findMany({
-    where: { workspaceId },
-    orderBy: [{ sentCount: "desc" }, { createdAt: "desc" }],
-    take: 100,
-    select: {
-      id: true,
-      title: true,
-      url: true,
-      fileName: true,
-      mimeType: true,
-      mediaType: true,
-      thumbnailUrl: true,
-      sizeBytes: true,
-      sentCount: true,
-    },
-  });
-
-  return {
-    items: items.map((item) => ({
-      ...item,
-      mediaType: item.mediaType as MediaLibraryItemDto["mediaType"],
-    })),
-  };
+  return { items: await listarBiblioteca(workspaceId) };
 }
 
 export async function agregarABibliotecaAction(input: {

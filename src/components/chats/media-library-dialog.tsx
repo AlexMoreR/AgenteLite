@@ -41,12 +41,51 @@ import { generarMiniaturaDeImagen } from "@/lib/miniatura-de-imagen";
 import {
   agregarABibliotecaAction,
   borrarDeBibliotecaAction,
-  listarBibliotecaAction,
   marcarEnvioDeBibliotecaAction,
   type MediaLibraryItemDto,
 } from "@/app/actions/media-library-actions";
+import {
+  guardarBiblioteca,
+  guardarTapaChica,
+  leerBibliotecaGuardada,
+  leerTapaChica,
+  rutaParaMostrar,
+} from "./biblioteca-guardada";
 
 type Vista = "cuadricula" | "lista";
+
+/*
+  La tapa de un archivo de la biblioteca (Alex, 11-11-2026: "salen sin miniatura, solo un cuadro
+  gris"). Abajo, la copia chica guardada en el celular, que sale de una; encima, la tapa de verdad
+  desde nuestro dominio (rutaParaMostrar: las guardadas con app.aizenbot.com tardaban ~1 s cada
+  una). La primera vez que la de verdad se dibuja, se guarda su copia chica.
+*/
+function TapaDeBiblioteca({ item }: { item: MediaLibraryItemDto }) {
+  const chica = leerTapaChica(item.id);
+  const direccion = rutaParaMostrar(item.thumbnailUrl ?? item.url) ?? item.thumbnailUrl ?? item.url;
+  const [lista, setLista] = useState(false);
+  return (
+    <>
+      {chica ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={chica} alt="" aria-hidden="true" className="absolute inset-0 size-full object-cover object-top" draggable={false} />
+      ) : null}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={direccion}
+        alt=""
+        className={`relative size-full object-cover object-top transition-opacity duration-150 ${chica && !lista ? "opacity-0" : "opacity-100"}`}
+        loading="lazy"
+        decoding="async"
+        draggable={false}
+        onLoad={(evento) => {
+          setLista(true);
+          guardarTapaChica(item.id, evento.currentTarget);
+        }}
+      />
+    </>
+  );
+}
 type Tipo = "todos" | MediaLibraryItemDto["mediaType"];
 
 /** Los badges de abajo del buscador. Salen solos del tipo de archivo: no hay que clasificar nada. */
@@ -122,13 +161,30 @@ export function MediaLibraryDialog({
    */
   const [mirando, setMirando] = useState<MediaLibraryItemDto | null>(null);
 
+  /*
+    AL INSTANTE (Alex, 11-11-2026): primero la copia guardada en el celular, y la ruta GET la
+    actualiza por debajo (antes era una accion del servidor, que hacia fila detras de las otras:
+    "Abriendo..." de 0,6 a 4,9 s). "Abriendo..." solo sale la primera vez, sin copia.
+  */
   const cargar = useCallback(async () => {
-    setCargando(true);
+    const guardada = leerBibliotecaGuardada();
+    if (guardada) {
+      setItems(guardada);
+      setCargando(false);
+    } else {
+      setCargando(true);
+    }
     try {
-      const resultado = await listarBibliotecaAction();
-      setItems(resultado.items ?? []);
+      const respuesta = await fetch("/api/cliente/chats/biblioteca", { credentials: "same-origin", cache: "no-store" });
+      const datos = (await respuesta.json().catch(() => null)) as { ok?: boolean; items?: MediaLibraryItemDto[] } | null;
+      if (!respuesta.ok || !datos?.ok || !Array.isArray(datos.items)) {
+        throw new Error("sin biblioteca");
+      }
+      setItems(datos.items);
+      guardarBiblioteca(datos.items);
     } catch {
-      toast.error("No se pudo abrir la biblioteca");
+      // Con la copia en pantalla no se molesta: se sigue usando lo guardado.
+      if (!guardada) toast.error("No se pudo abrir la biblioteca");
     } finally {
       setCargando(false);
     }
@@ -481,7 +537,7 @@ export function MediaLibraryDialog({
                 {mirando.thumbnailUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    src={mirando.thumbnailUrl}
+                    src={rutaParaMostrar(mirando.thumbnailUrl) ?? mirando.thumbnailUrl}
                     alt={`Portada de ${mirando.title}`}
                     className="mx-auto max-h-full w-auto rounded-lg border bg-background object-contain"
                   />
@@ -633,14 +689,7 @@ export function MediaLibraryDialog({
                   >
                     <span className="relative flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted/50">
                       {item.mediaType === "IMAGE" || item.thumbnailUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={item.thumbnailUrl ?? item.url}
-                          alt=""
-                          className="size-full object-cover object-top"
-                          loading="lazy"
-                          draggable={false}
-                        />
+                        <TapaDeBiblioteca item={item} />
                       ) : (
                         <span className="scale-125">{icono(item.mediaType)}</span>
                       )}
@@ -687,16 +736,9 @@ export function MediaLibraryDialog({
                     {/* La tapa: la miniatura de la foto, o la primera pagina del PDF si se pudo
                         sacar. object-top porque en un catalogo lo que identifica es el
                         encabezado, no el medio de la pagina. */}
-                    <span className="flex aspect-[4/3] items-center justify-center overflow-hidden bg-muted/50">
+                    <span className="relative flex aspect-[4/3] items-center justify-center overflow-hidden bg-muted/50">
                       {item.mediaType === "IMAGE" || item.thumbnailUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={item.thumbnailUrl ?? item.url}
-                          alt=""
-                          className="size-full object-cover object-top"
-                          loading="lazy"
-                          draggable={false}
-                        />
+                        <TapaDeBiblioteca item={item} />
                       ) : (
                         <span className="scale-[2.2]">{icono(item.mediaType)}</span>
                       )}
