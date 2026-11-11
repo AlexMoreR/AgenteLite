@@ -1,2 +1,0 @@
-## Advertencias de operación
-- `rutas_fijas_de_envio_del_chat`: los envíos del chat tienen rutas fijas (`/api/cliente/chats/enviar-archivo`, `enviar-audio`, `enviar-ubicacion`, `enviar-flujo`, `reaccionar`, además de `/enviar` para el texto) que llaman a la misma Server Action de siempre. No renombrarlas, no borrarlas y no quitarles campos: las pestañas abiertas mandan el formato con el que se cargaron. Solo se agregan campos opcionales; el contrato está en `src/lib/chats/ruta-de-envio.ts` y lo prueba `scripts/check-contrato-envios.mjs`.

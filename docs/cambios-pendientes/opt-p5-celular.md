@@ -1,6 +1,0 @@
-## Qué no existe hoy
-- `guardado_de_chats_en_el_celular`: el celular guarda en localStorage hasta 80 chats (50 mensajes cada uno) y la primera página de la lista (40 filas, solo lo que pinta la fila), con dueño (negocio + usuario + versión). No hay IndexedDB ni API "cambios desde": al volver a la app se vuelve a pedir la lista entera por /list. Los mensajes guardados todavía llevan el `rawPayload` (sin el base64).
-
-## Advertencias de operación
-- `CHATS_GUARDADO_LOCAL`: con `CHATS_GUARDADO_LOCAL=apagado` en el contenedor (Portainer y reiniciar, sin recompilar) no se guarda nada de los chats en el navegador y se borra lo guardado; todo se pide al servidor. Lo guardado se borra solo al cerrar sesión, al entrar al login, al cambiar de usuario o de negocio, y nunca se muestra con más de 24 h.
-- `ponerse_al_dia_sin_recargar`: sin API oficial, al volver a la app, al volver la red, al reconectarse el socket y en el respaldo de 60 s la bandeja pide /list y los números en vez de recargar la pantalla (antes, router.refresh). Los negocios con API oficial (Magilus) siguen recargando la pantalla como antes. Un /live que responde 404 (chat reasignado, borrado o sin permiso) borra la copia guardada y quita la fila.

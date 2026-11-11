@@ -1,2 +1,0 @@
-## Advertencias de operación
-- `ajustes_del_sistema_en_memoria`: el color, la marca, la moneda y los datos de Evolution y de la API oficial (AppSetting) se guardan 60 s en la memoria del contenedor (`src/lib/system-settings.ts`). Un cambio hecho desde la pantalla de configuración se ve al instante; uno escrito directo en la base (un script o SQL a mano) tarda hasta 60 s en verse. Si algún día hay dos réplicas, cada una tendría su copia.
