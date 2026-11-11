@@ -15,6 +15,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { crmDelArea, filtroDeArea } from "./lib/area-permitida.mjs";
 import { aplicarVersion, crearVigilanteDeVersion, marcarActualizacionOk, raizDelRepo } from "./lib/autoactualizar.mjs";
 import { crearPlanificador, crearRevisorDeNuevo, queTomarEsperandoVersion, unaVuelta } from "./lib/bucle.mjs";
 import { entornoSeguro, partirTarea } from "./lib/etapas.mjs";
@@ -62,7 +63,9 @@ if (argumentos.includes("--probar-arranque")) {
 }
 
 const registro = crearRegistro(config.carpetaTrabajo, { ocultar: [config.claveTrabajador] });
-const crm = crearCrm(config);
+// Con `areaPermitidaId` en la config solo se ven y se toman las tarjetas de esa área (lib/area-permitida.mjs).
+const crm = crmDelArea(crearCrm(config), config, registro);
+if (config.areaPermitidaId || config.tableroId) registro.info(`solo trabajo las tarjetas de ${filtroDeArea(config).texto} (sub-áreas incluidas)`);
 
 const avisarFallo = (error) => {
   // Sin red o el CRM caído: se reintenta en la próxima vuelta.

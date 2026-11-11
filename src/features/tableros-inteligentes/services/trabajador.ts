@@ -104,6 +104,7 @@ import {
   tareaAprobadaPorElDueno,
 } from "./aprobacion-automatica";
 import {
+  SQL_ANCESTROS,
   SQL_ARRANQUE,
   SQL_CANDADO_DEL_NEGOCIO,
   SQL_CANDIDATAS,
@@ -393,8 +394,20 @@ async function datosDeIntentos(tx: Tx, fila: { id: string; tableroId: string }):
   };
 }
 
-function paraElTrabajador(fila: FilaParaTrabajar, intentos: DatosDeIntentos) {
+/**
+ * Las madres de cada tarjeta, de la más cercana a la más lejana (SQL_ANCESTROS): el Coordinador trabaja solo las que cuelgan de
+ * su área (10-nov-2026, trabajador-tablero/lib/area-permitida.mjs). Una sin madre viva queda con [].
+ */
+async function ancestrosDe(tx: Tx, ids: string[]): Promise<Map<string, string[]>> {
+  if (!ids.length) return new Map();
+  const filas = await tx.$queryRawUnsafe<{ id: string; ancestros: string[] }[]>(SQL_ANCESTROS, [...new Set(ids)]);
+  return new Map(filas.map((fila) => [fila.id, fila.ancestros ?? []]));
+}
+
+function paraElTrabajador(fila: FilaParaTrabajar, intentos: DatosDeIntentos, ancestros: string[]) {
   return {
+    tableroId: fila.tableroId,
+    ancestros,
     reparaciones: fila.reparaciones,
     topeReparaciones: TOPE_DE_REPARACIONES,
     esperasSeguidas: intentos.esperasSeguidas,
@@ -518,7 +531,8 @@ export async function tomarTarjeta(contexto: ContextoTrabajador, pedido: PedidoD
     await tocarTableros(tx, [tomada.tableroId], ahora);
     const fila = await tx.tarjetaTablero.findUniqueOrThrow({ where: { id: tomada.id }, select: SELECT_PARA_TRABAJAR });
     const hacer = esEstado(tomada.estado) ? ETAPA_DEL_ESTADO[tomada.estado] : undefined;
-    return { tarjeta: paraElTrabajador(fila, await datosDeIntentos(tx, fila)), hacer: hacer as EtapaDelTrabajador, ...avisos };
+    const ancestros = (await ancestrosDe(tx, [fila.id])).get(fila.id) ?? [];
+    return { tarjeta: paraElTrabajador(fila, await datosDeIntentos(tx, fila), ancestros), hacer: hacer as EtapaDelTrabajador, ...avisos };
   });
 }
 
@@ -624,11 +638,13 @@ async function cerrarLaMadreSiToca(tx: Tx, contexto: ContextoTrabajador, hija: {
 /** POST /candidatas: las que /tomar podría tomar, sin tomarlas (con su repo, zonas y plan). */
 export async function candidatasDelTrabajador(contexto: ContextoTrabajador) {
   const filas = await prisma.$queryRawUnsafe<
-    { id: string; titulo: string; estado: string; repo: string; zonaProtegida: string[]; plan: string | null; desbloquea: number; prioridad: number }[]
+    { id: string; tableroId: string; titulo: string; estado: string; repo: string; zonaProtegida: string[]; plan: string | null; desbloquea: number; prioridad: number }[]
   >(SQL_CANDIDATAS, contexto.workspaceId, [...REPOS_DEL_TRABAJADOR]);
+  const ancestros = await ancestrosDe(prisma, filas.map((fila) => fila.id));
   return {
     candidatas: filas.map((fila) => ({
       ...fila,
+      ancestros: ancestros.get(fila.id) ?? [],
       hacer: esEstado(fila.estado) ? (AL_TOMAR[fila.estado]?.etapa ?? null) : null,
     })),
   };
@@ -648,6 +664,7 @@ export async function erroresDelTrabajador(contexto: ContextoTrabajador) {
     select: SELECT_PARA_TRABAJAR,
   });
   const tarjetas = [];
+  const ancestros = await ancestrosDe(prisma, filas.map((fila) => fila.id));
   for (const fila of filas) {
     const intentos = await datosDeIntentos(prisma, fila);
     const recogida = recogidaDelResultado(fila.resultado);
@@ -655,6 +672,8 @@ export async function erroresDelTrabajador(contexto: ContextoTrabajador) {
     const error = resultadoComoObjeto(resultado.error);
     tarjetas.push({
       id: fila.id,
+      tableroId: fila.tableroId,
+      ancestros: ancestros.get(fila.id) ?? [],
       titulo: fila.titulo,
       detalle: fila.detalle?.slice(0, 6000) ?? "",
       repo: fila.repo,
@@ -694,12 +713,15 @@ export async function porRevisarDelTrabajador(contexto: ContextoTrabajador) {
   });
   const tarjetas = [];
   const paraRevisarDeNuevo = [];
+  const ancestros = await ancestrosDe(prisma, filas.map((fila) => fila.id));
   for (const fila of filas) {
     const resultado = resultadoComoObjeto(fila.resultado);
     const esperaPor = typeof resultado.esperaPor === "string" ? resultado.esperaPor : null;
+    const deDonde = { tableroId: fila.tableroId, ancestros: ancestros.get(fila.id) ?? [] };
     if (resultado.paso === true && soloChatsOBot(fila.zonaProtegida) && !esGastoEnMetaAds(esperaPor)) {
       paraRevisarDeNuevo.push({
         id: fila.id,
+        ...deDonde,
         titulo: fila.titulo,
         repo: fila.repo,
         zonaProtegida: fila.zonaProtegida,
@@ -721,6 +743,7 @@ export async function porRevisarDelTrabajador(contexto: ContextoTrabajador) {
     if (!esperaPor && !aprobada) continue;
     tarjetas.push({
       id: fila.id,
+      ...deDonde,
       titulo: fila.titulo,
       detalle: fila.detalle?.slice(0, 6000) ?? "",
       repo: fila.repo,

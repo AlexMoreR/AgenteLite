@@ -583,10 +583,25 @@ export function completarConfig(datos, base = process.cwd()) {
   const perroGuardianMinutos = datos.perroGuardianMinutos === undefined ? 10 : Number(datos.perroGuardianMinutos);
   if (!Number.isFinite(perroGuardianMinutos) || perroGuardianMinutos < 0) errores.push("perroGuardianMinutos: minutos sin marca de vida antes de que el lanzador reinicie (0 = apagado).");
 
+  // Solo el área permitida (10-nov-2026, lib/area-permitida.mjs): ids de la tarjeta Área y de su tablero. Sin ellas, todo el tablero como antes.
+  const idDeTarjeta = (clave, queEs) => {
+    const valor = datos[clave];
+    if (valor === undefined || valor === null || valor === "") return null;
+    if (typeof valor !== "string" || !/^[A-Za-z0-9_-]{20,64}$/.test(valor.trim())) {
+      errores.push(`${clave}: el id ${queEs} (por ejemplo "cmwbcu28700b732qmru2nd890"), o quítala para tomar de todo el tablero.`);
+      return null;
+    }
+    return valor.trim();
+  };
+  const areaPermitidaId = idDeTarjeta("areaPermitidaId", "de la tarjeta Área de la que cuelgan las tarjetas que se toman");
+  const tableroId = idDeTarjeta("tableroId", "del tablero de esa área");
+
   if (errores.length) throw new Error(`La configuración tiene problemas:\n- ${errores.join("\n- ")}`);
 
   return {
     perroGuardianMinutos,
+    areaPermitidaId,
+    tableroId,
     urlCrm,
     claveTrabajador,
     carpetaTrabajo,

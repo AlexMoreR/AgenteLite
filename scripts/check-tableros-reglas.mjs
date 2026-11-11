@@ -2555,6 +2555,8 @@ prueba("el código T-123 llega a la tarjeta, al cuadrito, a la ficha y al MCP", 
     tableroInteligente: { update: async () => undefined, updateMany: async () => ({ count: 1 }) },
     // Tableros archivados (10-nov-2026): en esta prueba no hay ninguno.
     appSetting: { findUnique: async () => null },
+    // Las madres de cada tarjeta (SQL_ANCESTROS): aquí ninguna tiene madre viva.
+    $queryRawUnsafe: async () => [],
     $transaction: async (fn) => fn(falso),
   };
   const servicio = cargar("src/features/tableros-inteligentes/services/trabajador.ts", {

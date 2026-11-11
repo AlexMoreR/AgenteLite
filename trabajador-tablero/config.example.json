@@ -2,6 +2,8 @@
   "urlCrm": "https://app.aizenbot.com",
   "claveTrabajador": "aizen_trab_PEGAR_AQUI_LA_CLAVE_DEL_PANEL_TRABAJADOR",
   "carpetaTrabajo": "D:/Proyectos/trabajador-tablero-trabajo",
+  "areaPermitidaId": "cmwbcu28700b732qmru2nd890",
+  "tableroId": "cmvg35cqq001i2io6q1hfwvio",
   "perroGuardianMinutos": 10,
   "comandoClaude": [
     "claude"

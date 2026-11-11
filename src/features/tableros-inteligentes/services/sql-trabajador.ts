@@ -190,6 +190,27 @@ WHERE m."tableroId" = $1
   AND m."resultado" -> 'partida' -> 'hijas' @> jsonb_build_array($2::text)
 LIMIT 1`;
 
+/**
+ * Las madres de cada tarjeta (10-nov-2026, T-737): $1 = ids (text[]). Una fila por tarjeta con madre viva: `ancestros` va de la
+ * madre más cercana a la más lejana (sube por padreId, sin las borradas, hasta 50 niveles). El Coordinador lo usa para trabajar
+ * solo las tarjetas que cuelgan de un Área (trabajador-tablero/lib/area-permitida.mjs). Solo lee.
+ */
+export const SQL_ANCESTROS = `
+WITH RECURSIVE sube AS (
+  SELECT c."id" AS "origen", m."id" AS "ancestro", m."padreId" AS "siguiente", 1 AS "nivel"
+  FROM "TarjetaTablero" c
+  JOIN "TarjetaTablero" m ON m."id" = c."padreId" AND m."borradoEn" IS NULL
+  WHERE c."id" = ANY($1::text[])
+  UNION ALL
+  SELECT s."origen", m."id", m."padreId", s."nivel" + 1
+  FROM sube s
+  JOIN "TarjetaTablero" m ON m."id" = s."siguiente" AND m."borradoEn" IS NULL
+  WHERE s."nivel" < 50
+)
+SELECT "origen" AS "id", array_agg("ancestro" ORDER BY "nivel") AS "ancestros"
+FROM sube
+GROUP BY "origen"`;
+
 /** ¿El trabajador ya tiene una tarjeta de este negocio (con el candado vigente)? */
 export const SQL_HAY_UNA_TRABAJANDO = `
 SELECT c."id"
@@ -333,7 +354,7 @@ const ORDEN_PARA_TOMAR = `ORDER BY (c."estado" = 'SUBIENDO') DESC, ${PRIORIDAD_D
  * Parámetros: $1 = workspaceId, $2 = repos (text[]).
  */
 export const SQL_CANDIDATAS = `
-SELECT c."id", c."titulo", c."estado"::text AS "estado", c."repo", c."zonaProtegida", c."plan",
+SELECT c."id", c."tableroId", c."titulo", c."estado"::text AS "estado", c."repo", c."zonaProtegida", c."plan",
   (SELECT count(*)::int FROM "ConexionTarjeta" d WHERE d."origenId" = c."id" AND d."esDependencia") AS "desbloquea",
   ${PRIORIDAD_DE_LA_FILA}::int AS "prioridad"
 FROM "TarjetaTablero" c
