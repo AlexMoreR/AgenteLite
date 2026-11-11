@@ -164,6 +164,7 @@ import type {
 import { FichaDeCotizacion } from "@/features/cotizaciones/components/FichaDeCotizacion";
 import { CHAT_COMPOSER_RECENT_KEY, type ComposerEmojiTab } from "./chat-inbox-emojis";
 import { MessageBubble } from "./chat-message-bubble";
+import { copiarAlPortapapeles, textoDeVariosParaCopiar } from "./copiar-mensaje";
 import { useHayMasALaDerecha } from "./use-hay-mas-a-la-derecha";
 import { ChatFloatingDateBadge } from "./chat-floating-date-badge";
 import { esNotaInternaDelAgente } from "@/lib/notas-internas-del-agente";
@@ -1809,22 +1810,23 @@ export const ConversationPanel = memo(function ConversationPanel({
   */
   const unicoSeleccionado = mensajesSeleccionados.length === 1 ? mensajesSeleccionados[0] : null;
 
+  // El texto de los marcados, uno por linea (los que no tienen texto se saltan). null = ninguno tiene.
+  const textoDeLosSeleccionados = textoDeVariosParaCopiar(mensajesSeleccionados);
+
   const copiarSeleccionados = () => {
-    const texto = mensajesSeleccionados
-      .map((mensaje) => mensaje.content?.trim())
-      .filter((linea): linea is string => Boolean(linea))
-      .join("\n");
-    if (!texto) {
+    if (!textoDeLosSeleccionados) {
       toast.error("Los mensajes marcados no tienen texto para copiar");
       return;
     }
-    void navigator.clipboard
-      .writeText(texto)
-      .then(() => {
-        toast.success(mensajesSeleccionados.length > 1 ? "Mensajes copiados" : "Mensaje copiado");
-        setSeleccionados([]);
-      })
-      .catch(() => toast.error("No se pudo copiar"));
+    // Se copia en el acto, sin esperas antes: el iPhone solo deja copiar dentro del mismo toque.
+    void Promise.resolve(copiarAlPortapapeles(textoDeLosSeleccionados)).then((copiado) => {
+      if (!copiado) {
+        toast.error("No se pudo copiar");
+        return;
+      }
+      toast.success("Copiado");
+      setSeleccionados([]);
+    });
   };
 
   // overflow-clip (no overflow-hidden) en la tarjeta: con hidden el navegador podia correr la
@@ -1890,6 +1892,19 @@ export const ConversationPanel = memo(function ConversationPanel({
                       title="Reenviar"
                     >
                       <Forward className="h-5 w-5" />
+                    </button>
+                  ) : null}
+
+                  {/* Copiar: solo si alguno de los marcados tiene texto. "Copiar texto" sigue en ⋮. */}
+                  {textoDeLosSeleccionados ? (
+                    <button
+                      type="button"
+                      onClick={copiarSeleccionados}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-full text-foreground transition hover:bg-muted"
+                      aria-label="Copiar"
+                      title="Copiar"
+                    >
+                      <Copy className="h-5 w-5" />
                     </button>
                   ) : null}
 

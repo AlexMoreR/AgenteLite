@@ -71,6 +71,7 @@ import {
   extraerMiniaturaDelVideo,
   calcularCajaDelMedio,
 } from "./chat-inbox-media";
+import { copiarAlPortapapeles, textoParaCopiar } from "./copiar-mensaje";
 
 /*
   Topes de la caja de fotos y videos (Chats, parte 3: sin saltos).
@@ -270,20 +271,17 @@ function getMessageReplyPreview(
   return null;
 }
 
+// Copia en el acto (sin esperas antes, para que el iPhone no lo niegue) y avisa al terminar.
 function copyMessageText(message: SharedInboxMessageItem) {
-  const text = (message.content ?? "").trim();
+  const text = textoParaCopiar(message);
   if (!text) {
     toast.info("Este mensaje no tiene texto para copiar");
     return;
   }
-  if (!navigator.clipboard?.writeText) {
-    toast.error("Tu navegador no permite copiar");
-    return;
-  }
-  void navigator.clipboard
-    .writeText(text)
-    .then(() => toast.success("Mensaje copiado"))
-    .catch(() => toast.error("No se pudo copiar el mensaje"));
+  void Promise.resolve(copiarAlPortapapeles(text)).then((copiado) => {
+    if (copiado) toast.success("Copiado");
+    else toast.error("No se pudo copiar");
+  });
 }
 
 // En el celular no hay hover: la flecha del menu nunca aparece. Igual que en
@@ -653,11 +651,23 @@ function MessageTouchActionsSheet({
   };
 
   const preview = (message.content ?? "").trim() || getMediaPreviewLabel(message.type) || "Mensaje";
+  const tieneTextoParaCopiar = useMemo(() => textoParaCopiar(message) !== null, [message]);
 
-  const acciones = [
+  const acciones: Array<{
+    label: string;
+    icon: typeof Reply;
+    onClick?: () => void;
+    destructive?: boolean;
+    /** Actua en el mismo toque y DESPUES cierra (no pasa por `run`). */
+    enElActo?: boolean;
+  }> = [
     { label: "Responder", icon: Reply, onClick: onReply ? () => onReply(message) : undefined },
     { label: "Reenviar", icon: Forward, onClick: onForward ? () => onForward(message) : undefined },
-    { label: "Copiar", icon: Copy, onClick: () => copyMessageText(message) },
+    // Copiar NO puede esperar a que se cierre la hoja: el iPhone solo deja copiar dentro del
+    // mismo toque. Se copia primero y despues se cierra. Sin texto, no se ofrece.
+    ...(tieneTextoParaCopiar
+      ? [{ label: "Copiar", icon: Copy, onClick: () => copyMessageText(message), enElActo: true }]
+      : []),
     // "Editar" solo se ofrece si el mensaje todavia se puede editar (texto propio, menos de 15 min).
     ...(onEdit && puedeEditarseMensaje(message)
       ? [{ label: "Editar", icon: Pencil, onClick: () => onEdit(message), destructive: false }]
@@ -680,12 +690,19 @@ function MessageTouchActionsSheet({
           {preview}
         </p>
         <div className="border-t border-border">
-          {acciones.map(({ label, icon: Icon, onClick, destructive }) => (
+          {acciones.map(({ label, icon: Icon, onClick, destructive, enElActo }) => (
             <button
               key={label}
               type="button"
               disabled={!onClick}
-              onClick={run(onClick)}
+              onClick={
+                enElActo && onClick
+                  ? () => {
+                      onClick();
+                      onOpenChange(false);
+                    }
+                  : run(onClick)
+              }
               className={`flex w-full items-center gap-3 px-4 py-3.5 text-left text-[15px] active:bg-muted disabled:opacity-40 ${
                 destructive ? "text-destructive" : "text-foreground"
               }`}
@@ -728,6 +745,7 @@ function MessageActionsMenu({
   const mounted = useSyncExternalStore(subscribeNoop, getMountedClient, getMountedServer);
 
   const handleCopy = () => copyMessageText(message);
+  const tieneTextoParaCopiar = useMemo(() => textoParaCopiar(message) !== null, [message]);
 
   const pending = (label: string) => () => toast.info(`${label}: disponible próximamente`);
 
@@ -757,9 +775,11 @@ function MessageActionsMenu({
         <DropdownMenuItem onClick={() => onReply?.(message)}>
           <Reply className="size-4" /> Responder
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={handleCopy}>
-          <Copy className="size-4" /> Copiar
-        </DropdownMenuItem>
+        {tieneTextoParaCopiar ? (
+          <DropdownMenuItem onClick={handleCopy}>
+            <Copy className="size-4" /> Copiar
+          </DropdownMenuItem>
+        ) : null}
 
         {/*
           Bajar la nota de voz al computador.
