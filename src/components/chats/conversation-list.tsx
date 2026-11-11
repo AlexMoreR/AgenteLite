@@ -477,9 +477,11 @@ const ESTILO_DE_FILA = { height: ALTO_DE_FILA } as const;
 const DISTANCIA_PARA_CARGAR_MAS = 640;
 // Cuanto se espera sin movimiento del scroll antes de precargar lo que quedo en pantalla.
 const ESPERA_SIN_MOVIMIENTO_MS = 400;
-// Despues de cambiar de pestaña o filtro, durante este rato lo que aparece tampoco se precarga (la
-// lista se reacomoda un instante despues y eso parece un desplazamiento).
+// Despues de cambiar de pestaña o filtro se espera este rato antes de precargar lo que quedo en
+// pantalla: la lista se reacomoda un instante despues y eso parece un desplazamiento.
 const RATO_DEL_CAMBIO_DE_VISTA_MS = 500;
+// Buscando se precargan solo los primeros resultados, al dejar de escribir.
+const TOPE_DE_PRECARGA_BUSCANDO = 3;
 
 export function ConversationList({
   conversations: conversacionesPorFecha,
@@ -493,7 +495,10 @@ export function ConversationList({
 }: {
   /** Sube cuando la lista se reemplaza por un cambio de filtro: esa vez no se precarga nada. */
   versionDeVista?: number;
-  /** Mientras se busca no se precarga: la lista cambia con cada letra. */
+  /**
+   * Se esta buscando: la lista no se congela (lista quieta) y solo se precargan los primeros
+   * TOPE_DE_PRECARGA_BUSCANDO resultados, cuando se deja de escribir.
+   */
   sinPrecarga?: boolean;
   conversations: SharedInboxConversationItem[];
   selectedConversationId: string;
@@ -775,19 +780,19 @@ export function ConversationList({
     [altoVisible, conversations, primeraFila],
   );
   /*
-    Cambiar de pestaña o filtro NO precarga (Alex, 07-10-2026: no subir la carga). Antes cada
-    toque traia hasta 5 chats mas que quiza nadie abre. Sigue la precarga al cargar la pantalla,
-    al desplazarse y cuando entra un chat nuevo por tiempo real.
+    Cambiar de pestaña o filtro SI precarga lo que queda en pantalla (Alex, 11-11-2026: "que se vea
+    todo al instante"; reemplaza la regla del 07-10-2026, que no precargaba nada al cambiar de vista).
+    Sin esto, en "Mías" -la pestaña donde trabaja cada asesora- casi ningun chat estaba guardado y al
+    abrirlo salia un solo mensaje y despues el resto. Medido: cada chat precargado le cuesta al
+    servidor ~0,13 s y pesa 3-32 kB; en el iPhone se ven ~10.
 
-    Con las filas visibles no alcanza con saltarse esa vez: la lista se reacomoda un instante despues
-    (pareceria un desplazamiento) y, si despues entra un mensaje, se precargaria toda la pantalla
-    del filtro. Por eso los chats que aparecen por el cambio, y durante RATO_DEL_CAMBIO_DE_VISTA_MS,
-    quedan anotados como "no precargar". Solo se precargan los que aparezcan despues.
+    La lista se reacomoda un instante despues del cambio, asi que se espera a que quede quieta
+    (RATO_DEL_CAMBIO_DE_VISTA_MS) y se traen los que quedaron en pantalla, de a uno, como siempre.
+    Un chat ya pedido en los ultimos 30 min no se vuelve a pedir (chat-conversation-warmup).
   */
-  // Si la lista se monta ya despues de un cambio de filtro (venia de una vista vacia), tampoco.
+  // Si la lista se monta ya despues de un cambio de filtro (venia de una vista vacia), tambien espera.
   const versionPrecargadaRef = useRef(versionDeVista > 0 ? -1 : versionDeVista);
   const cambioDeVistaHastaRef = useRef(0);
-  const noPrecargarRef = useRef(new Set<string>());
   // El chat que se esta trayendo ahora: la cola nueva lo espera antes de pedir el siguiente.
   const precargaEnCaminoRef = useRef<Promise<void>>(Promise.resolve());
   useEffect(() => {
@@ -796,24 +801,21 @@ export function ConversationList({
       cambioDeVistaHastaRef.current = Date.now() + RATO_DEL_CAMBIO_DE_VISTA_MS;
     }
     const enPantalla = clavesEnPantalla ? clavesEnPantalla.split("|") : [];
-    if (Date.now() < cambioDeVistaHastaRef.current) {
-      for (const clave of enPantalla) {
-        noPrecargarRef.current.add(clave);
-      }
-      return;
-    }
-    if (sinPrecarga) {
-      return;
-    }
     const cola = clavesAPrecargar({
       claves: enPantalla,
       primeraFila: 0,
       altoVisible: enPantalla.length * ALTO_DE_FILA,
-      excluidas: noPrecargarRef.current,
+      /*
+        Buscando, solo los primeros resultados (Alex, 11-11-2026): la lista cambia con cada letra, y
+        como cada cambio cancela la espera, se traen cuando se deja de escribir.
+      */
+      ...(sinPrecarga ? { tope: TOPE_DE_PRECARGA_BUSCANDO } : {}),
     });
     if (cola.length === 0) {
       return;
     }
+    // Recien cambiada la vista, se espera a que la lista se acomode; si se mueve, esto se cancela.
+    const esperaMs = Math.max(ESPERA_SIN_MOVIMIENTO_MS, cambioDeVistaHastaRef.current - Date.now());
 
     let cancelado = false;
     let idleHandle: number | null = null;
@@ -836,7 +838,7 @@ export function ConversationList({
       } else {
         void tarea();
       }
-    }, ESPERA_SIN_MOVIMIENTO_MS);
+    }, esperaMs);
     return () => {
       cancelado = true;
       window.clearTimeout(espera);
