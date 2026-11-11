@@ -1393,6 +1393,83 @@ export function SharedInbox({
   }, [conversationListApiPath, vistaKey, vistaDelServidorKey, pedidoDeLista]);
 
   /*
+    "MÍAS" AL INSTANTE (Alex, 10-nov-2026). Filtrar Todas no alcanza: la primera tanda de Todas casi
+    nunca trae los chats de quien mira. Con Todas abierta, por debajo se trae la primera tanda de Mías a
+    los 3 s de cargar y se renueva cada 4 min (vive 5 en la memoria, ver listas-recientes-de-la-bandeja):
+    al tocar Mías se dibuja esa lista en el acto (el cambio de vista ya la toma de la memoria) y /list la
+    actualiza por debajo. Solo quien ve Todas (dueño, administradores, supervisora); con la pestaña
+    escondida no se pide nada. Es un /list liviano cada 4 min por pestaña.
+  */
+  const sinCondicionesEnLaUrl = filtrosDeLaUrl.condiciones.length === 0;
+  useEffect(() => {
+    if (!(isManager || veTodoElEquipo) || !usuarioActualId) return;
+    if (assignedFilter !== "all" || statusFilter !== "open" || enEspera || searchQuery.trim() || !sinCondicionesEnLaUrl) return;
+    const claveMias = claveDeVista(searchQuery, selectedConnectionKey, "mine", "open", "", false);
+    let cancelado = false;
+    const precargar = async () => {
+      if (cancelado || document.hidden) return;
+      const guardada = leerListaReciente<SharedInboxConversationItem>(claveMias);
+      if (guardada && Date.now() - guardada.at < LISTA_FRESCA_MS) return;
+      const desde = Date.now();
+      try {
+        const params = new URLSearchParams();
+        if (selectedConnectionKey.trim()) params.set("connection", selectedConnectionKey.trim());
+        params.set("assigned", "mine");
+        params.set("limit", String(Math.min(40, Math.max(1, initialConversationBatchSize))));
+        params.set("incluirOficial", "1");
+        const respuesta = await fetch(`${conversationListApiPath}?${params.toString()}`, {
+          credentials: "same-origin",
+          cache: "no-store",
+        });
+        const payload = respuesta.ok
+          ? ((await respuesta.json().catch(() => null)) as
+              | { ok?: boolean; conversations?: SharedInboxConversationItem[]; hasMore?: boolean; nextOffset?: number; nextCursor?: string | null }
+              | null)
+          : null;
+        if (cancelado || !payload?.ok || !Array.isArray(payload.conversations)) return;
+        // Si mientras viajaba se abrio Mias de verdad, esa lista es mas nueva: no se pisa.
+        const yaHay = leerListaReciente<SharedInboxConversationItem>(claveMias);
+        if (yaHay && yaHay.at >= desde) return;
+        const items = sortConversationItems(
+          normalizeConversationItems(payload.conversations, (item) =>
+            buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, "", item, "mine", "open", [], false),
+          ),
+          { ordenDelServidor: false },
+        );
+        guardarListaReciente(claveMias, {
+          items,
+          hasMore: Boolean(payload.hasMore),
+          offset: typeof payload.nextOffset === "number" ? payload.nextOffset : items.length,
+          cursor: typeof payload.nextCursor === "string" && payload.nextCursor ? payload.nextCursor : null,
+          at: Date.now(),
+        });
+      } catch {
+        // Sin la lista guardada, Mias espera a /list como antes.
+      }
+    };
+    const primera = window.setTimeout(() => void precargar(), 3000);
+    const cada = window.setInterval(() => void precargar(), 4 * 60_000);
+    return () => {
+      cancelado = true;
+      window.clearTimeout(primera);
+      window.clearInterval(cada);
+    };
+  }, [
+    isManager,
+    veTodoElEquipo,
+    usuarioActualId,
+    assignedFilter,
+    statusFilter,
+    enEspera,
+    searchQuery,
+    sinCondicionesEnLaUrl,
+    selectedConnectionKey,
+    conversationListApiPath,
+    initialConversationBatchSize,
+    searchAction,
+  ]);
+
+  /*
     LOS CHATS FIJADOS (ver lib/chats-fijados).
 
     El servidor manda la lista de quien mira; la bandeja la pone en el almacen compartido, que es de
