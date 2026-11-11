@@ -213,6 +213,7 @@ test("validarMuestra: rechaza un cuerpo roto", () => {
     { ...bueno, cpuTotal: "10" },
     { ...bueno, memTotalMb: undefined },
     { ...bueno, discoUsadoGb: Number.NaN },
+    { ...bueno, memTotalMb: 3_000_000_000 },
     { ...bueno, nucleos: 0 },
     { ...bueno, nucleos: 2.5 },
     { ...bueno, contenedores: "no" },
