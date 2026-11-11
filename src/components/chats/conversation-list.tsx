@@ -23,6 +23,7 @@ import {
   clavesAPrecargar,
   type VentanaDeLaLista,
 } from "./ventana-de-la-lista";
+import { MARGEN_AL_SOLTAR_MS, acomodarListaQuieta } from "./lista-quieta";
 import { iniciarMedicion, terminarMedicionAlPintar } from "@/lib/metricas-chats";
 import { CRM_STAGE_META } from "@/features/crm/domain/crm-config";
 import type { CrmStage } from "@/features/crm/types";
@@ -507,7 +508,7 @@ export function ConversationList({
     shared-inbox, con los mismos filtros.
   */
   const fijados = useChatsFijados();
-  const conversations = useMemo(() => {
+  const ordenadas = useMemo(() => {
     if (fijados.length === 0) {
       return conversacionesPorFecha;
     }
@@ -520,6 +521,121 @@ export function ConversationList({
     const subidas = new Set(arriba.map((fila) => fila.id));
     return [...arriba, ...conversacionesPorFecha.filter((fila) => !subidas.has(fila.id))];
   }, [conversacionesPorFecha, fijados]);
+
+  /*
+    LISTA QUIETA (ver lista-quieta.ts): con el mouse encima, o con el dedo apoyado y hasta
+    MARGEN_AL_SOLTAR_MS despues de soltar (y mientras siga deslizandose), ninguna fila cambia de
+    lugar. Se reordeno una vez justo antes del clic y se abrio el chat equivocado.
+
+    Buscando no se congela: los resultados cambian con cada letra y el mouse puede quedar quieto
+    encima de la lista mientras se escribe.
+  */
+  const [sujeta, setSujeta] = useState(false);
+  const quieta = sujeta && !sinPrecarga;
+  // La lista tal como estaba al sujetarla. Cambiar de pestaña o filtro (versionDeVista) la renueva.
+  const [base, setBase] = useState<{ filas: SharedInboxConversationItem[]; vista: number } | null>(null);
+  // Se ajusta en el render (patron de React para estado que depende de props): asi el primer cuadro
+  // sujeto ya es la lista que se estaba viendo, sin un cuadro de mas.
+  if (!quieta && base) {
+    setBase(null);
+  } else if (quieta && (!base || base.vista !== versionDeVista)) {
+    setBase({ filas: ordenadas, vista: versionDeVista });
+  }
+  const baseVigente = quieta && base && base.vista === versionDeVista ? base.filas : null;
+  const listaQuieta = useMemo(
+    () => (baseVigente ? acomodarListaQuieta(baseVigente, ordenadas) : null),
+    [baseVigente, ordenadas],
+  );
+  // La pagina siguiente que se agrego al final pasa a ser parte de la base: si despues uno de esos
+  // chats sube, se queda en su lugar como los demas.
+  if (listaQuieta && listaQuieta.agregadasAlFinal > 0) {
+    setBase({ filas: listaQuieta.filas, vista: versionDeVista });
+  }
+  const conversations = listaQuieta ? listaQuieta.filas : ordenadas;
+  const hayCambiosEnEspera = Boolean(listaQuieta?.hayCambios);
+
+  // El aviso "Hay mensajes nuevos": aplica el orden nuevo y sube al inicio. La lista sigue sujeta
+  // (el puntero sigue encima), pero ya con el orden nuevo como base.
+  const aplicarOrdenNuevo = useCallback(() => {
+    setBase({ filas: ordenadas, vista: versionDeVista });
+    scrollContainerRef?.current?.scrollTo({ top: 0 });
+  }, [ordenadas, scrollContainerRef, versionDeVista]);
+
+  useEffect(() => {
+    const container = scrollContainerRef?.current;
+    if (!container) {
+      return;
+    }
+    const caja = container;
+
+    // Si el mouse ya estaba encima al montar. Solo con mouse de verdad: en el celular :hover queda
+    // pegado despues de un toque y la lista no se soltaria nunca.
+    let mouseEncima = window.matchMedia("(hover: hover)").matches && caja.matches(":hover");
+    let dedoApoyado = false;
+    let soltando: number | null = null;
+
+    function actualizar() {
+      setSujeta(mouseEncima || dedoApoyado || soltando !== null);
+    }
+    function cancelarSoltar() {
+      if (soltando !== null) {
+        window.clearTimeout(soltando);
+        soltando = null;
+      }
+    }
+    function soltarEnUnRato() {
+      cancelarSoltar();
+      soltando = window.setTimeout(() => {
+        soltando = null;
+        actualizar();
+      }, MARGEN_AL_SOLTAR_MS);
+    }
+
+    // El mouse (y el lapiz con hover). El dedo va por touch: pointercancel salta apenas el navegador
+    // toma el gesto para desplazar, con el dedo todavia apoyado.
+    function alEntrar(evento: PointerEvent) {
+      if (evento.pointerType === "touch") return;
+      mouseEncima = true;
+      actualizar();
+    }
+    function alSalir(evento: PointerEvent) {
+      if (evento.pointerType === "touch") return;
+      mouseEncima = false;
+      actualizar();
+    }
+    function alTocar() {
+      cancelarSoltar();
+      dedoApoyado = true;
+      actualizar();
+    }
+    function alLevantar(evento: TouchEvent) {
+      if (evento.touches.length > 0) return;
+      dedoApoyado = false;
+      soltarEnUnRato();
+      actualizar();
+    }
+    // Despues de levantar el dedo la lista puede seguir deslizandose: el margen corre desde que para.
+    function alDesplazar() {
+      if (soltando !== null) soltarEnUnRato();
+    }
+
+    actualizar();
+    caja.addEventListener("pointerenter", alEntrar);
+    caja.addEventListener("pointerleave", alSalir);
+    caja.addEventListener("touchstart", alTocar, { passive: true });
+    caja.addEventListener("touchend", alLevantar, { passive: true });
+    caja.addEventListener("touchcancel", alLevantar, { passive: true });
+    caja.addEventListener("scroll", alDesplazar, { passive: true });
+    return () => {
+      cancelarSoltar();
+      caja.removeEventListener("pointerenter", alEntrar);
+      caja.removeEventListener("pointerleave", alSalir);
+      caja.removeEventListener("touchstart", alTocar);
+      caja.removeEventListener("touchend", alLevantar);
+      caja.removeEventListener("touchcancel", alLevantar);
+      caja.removeEventListener("scroll", alDesplazar);
+    };
+  }, [scrollContainerRef]);
 
   // Alto de la caja y primera fila visible. La fila solo cambia al cruzar una fila entera (108 px):
   // la lista se re-dibuja una vez por fila, no en cada cuadro del scroll.
@@ -853,7 +969,23 @@ export function ConversationList({
 
   return (
     <>
-      {ventana.espacioArriba > 0 ? <div aria-hidden="true" style={{ height: ventana.espacioArriba }} /> : null}
+      {/*
+        El aviso va en una caja de alto CERO pegada arriba (sticky): flota sobre la primera fila sin
+        correr ninguna hacia abajo, ni al aparecer ni al irse.
+      */}
+      {hayCambiosEnEspera ? (
+        <div className="pointer-events-none sticky top-0 z-20 flex h-0 justify-center">
+          <button
+            type="button"
+            onClick={aplicarOrdenNuevo}
+            className="pointer-events-auto mt-2 rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground shadow-md"
+          >
+            Hay mensajes nuevos
+          </button>
+        </div>
+      ) : null}
+
+      {ventana.espacioArriba > 0 ?<div aria-hidden="true" style={{ height: ventana.espacioArriba }} /> : null}
 
       {visibleConversations.map((conversation) => (
         <ConversationListItem
