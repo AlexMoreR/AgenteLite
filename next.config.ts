@@ -39,6 +39,12 @@ const nextConfig: NextConfig = {
   */
   images: {
     remotePatterns: [{ protocol: "https", hostname: "magilus.com", pathname: "/uploads/**" }],
+    /*
+      Las miniaturas ya hechas se guardan 31 dias (10-nov-2026). Next toma el mayor entre esto y el
+      max-age del original. El cache vive en .next/cache/images dentro del contenedor: se pierde en
+      cada deploy y se rehace la primera vez que alguien pide cada miniatura.
+    */
+    minimumCacheTTL: 2678400,
   },
 
   /*
@@ -76,31 +82,34 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       /*
-        Los archivos subidos se guardan para SIEMPRE en el navegador.
+        Los archivos subidos: cuanto los guarda el navegador.
 
         Los sirve el mismo proceso que atiende los chats, y eso se paga caro: en 29 horas salieron
         5,9 GB por ahi, y cuando entra una rafaga de imagenes del catalogo todo lo demas hace cola
         detras. Medido el 8-sep-2026: en el peor minuto, la mediana de TODA la app fue de 14
         segundos y las rutas colgadas eran `/uploads/categories/*.png`.
 
-        Se puede cachear sin miedo porque ningun archivo se pisa: todos nacen con un nombre unico
-        -marca de tiempo mas identificador, o el hash del contenido-. Si el contenido cambia, la
-        direccion cambia.
-
-        Va `private` y no `public`: aca adentro viven fotos, audios y curriculums de clientes, y
-        `private` deja que los guarde el navegador de quien los abrio pero no un intermediario.
-        Hoy no hay ninguno en el medio; el dia que se ponga uno, esto ya esta decidido.
-
-        OJO: esto cubre los archivos que ya estaban al construir la imagen, que los entrega el
-        manejador estatico con `max-age=0` -son las 15.111 revalidaciones que se veian en el log-.
-        Los que se suben despues los sirve `src/app/uploads/[...path]/route.ts`, que pone su
-        propia cabecera.
+        Desde el 10-nov-2026 depende del NOMBRE, igual que en `src/app/uploads/[...path]/route.ts`
+        (src/lib/archivos-subidos.ts), que sirve los que se suben despues del build:
+        - Nombre unico (sha256 del contenido, o marca de tiempo + uuid): un año, `immutable`. Ese
+          nombre nunca se reusa con otro contenido.
+        - Cualquier otro nombre (fotos de perfil, productos, carta de colores, que se pueden
+          reemplazar con el mismo nombre): el navegador pregunta cada vez y recibe un 304 sin bajar
+          nada si no cambio. Antes iban `immutable` y un reemplazo se veia viejo por un año.
+        Si dos reglas coinciden gana la ULTIMA: por eso la general va primero.
       */
       {
         source: "/uploads/:archivo*",
-        headers: [
-          { key: "Cache-Control", value: "private, max-age=31536000, immutable" },
-        ],
+        headers: [{ key: "Cache-Control", value: "private, max-age=0, must-revalidate" }],
+      },
+      {
+        source: "/uploads/:carpeta*/:archivo([0-9a-f]{64}\\.[A-Za-z0-9]{1,10})",
+        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+      },
+      {
+        source:
+          "/uploads/:carpeta*/:archivo(\\d{13}-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\.[A-Za-z0-9]{1,10})",
+        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
       },
       /*
         El sonido de aviso se servia con `max-age=0`: cada mensaje entrante lo volvia a pedir al

@@ -3,17 +3,17 @@ import { constants as fsConstants } from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { EXTENSION_PARA_ESCUCHAR, convertirAudioParaEscuchar } from "@/lib/audio-para-escuchar";
-
-// Carpeta servida por Next desde /public; reutiliza el mismo mecanismo de
-// almacenamiento que la subida manual de medios (src/app/api/cliente/chats/upload-media).
-const CHAT_MEDIA_DIR_SEGMENTS = ["public", "uploads", "chat-media"] as const;
-const CHAT_MEDIA_PUBLIC_PREFIX = "/uploads/chat-media/";
-
-// Limite defensivo para no llenar el disco con binarios anomalos. Los medios de
-// WhatsApp normalmente estan muy por debajo de esto.
-const MAX_PERSISTED_MEDIA_BYTES = 60 * 1024 * 1024;
-
-type PersistableMediaType = "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT";
+// Carpeta servida por Next desde /public (la misma que la subida manual de medios,
+// src/app/api/cliente/chats/upload-media), el limite de 60 MB y el nombre por hash viven en
+// guardar-archivo-de-chat.ts: lo comparten este archivo, la red de prisma.ts y la migracion.
+import {
+  CHAT_MEDIA_DIR_SEGMENTS,
+  CHAT_MEDIA_PUBLIC_PREFIX,
+  MAX_PERSISTED_MEDIA_BYTES,
+  extensionForMime,
+  guardarBytesDeChat,
+  type PersistableMediaType,
+} from "@/lib/guardar-archivo-de-chat";
 
 // Una URL ya persistida en nuestro almacenamiento propio es estable y renderable
 // directamente; los consumidores la detectan para no re-resolver contra Evolution.
@@ -44,40 +44,6 @@ export async function persistedChatMediaFileExists(publicUrl?: string | null): P
 
   const filePath = path.join(process.cwd(), ...CHAT_MEDIA_DIR_SEGMENTS, fileName);
   return fileExists(filePath);
-}
-
-function extensionForMime(mimeType: string, mediaType: PersistableMediaType) {
-  const mime = mimeType.toLowerCase();
-
-  if (mime.includes("jpeg") || mime.includes("jpg")) return ".jpg";
-  if (mime.includes("png")) return ".png";
-  if (mime.includes("webp")) return ".webp";
-  if (mime.includes("gif")) return ".gif";
-  if (mime.includes("ogg")) return ".ogg";
-  if (mime.includes("mpeg") && mediaType === "AUDIO") return ".mp3";
-  if (mime.includes("mp3")) return ".mp3";
-  if (mime.includes("wav")) return ".wav";
-  if (mime.includes("aac")) return ".aac";
-  if (mime.includes("amr")) return ".amr";
-  if (mime.includes("m4a") || mime.includes("mp4a")) return ".m4a";
-  if (mime.includes("quicktime")) return ".mov";
-  if (mime.includes("webm")) return ".webm";
-  if (mime.includes("mp4")) return ".mp4";
-  if (mime.includes("3gpp")) return ".3gp";
-  if (mime.includes("pdf")) return ".pdf";
-  if (mime.includes("msword")) return ".doc";
-  if (mime.includes("wordprocessingml")) return ".docx";
-  if (mime.includes("ms-excel")) return ".xls";
-  if (mime.includes("spreadsheetml")) return ".xlsx";
-  if (mime.includes("ms-powerpoint")) return ".ppt";
-  if (mime.includes("presentationml")) return ".pptx";
-  if (mime.includes("zip")) return ".zip";
-  if (mime.includes("text/plain")) return ".txt";
-
-  if (mediaType === "IMAGE" || mediaType === "STICKER") return ".jpg";
-  if (mediaType === "AUDIO") return ".ogg";
-  if (mediaType === "VIDEO") return ".mp4";
-  return ".bin";
 }
 
 function parseDataUrl(dataUrl: string): { mimeType: string; buffer: Buffer } | null {
@@ -169,17 +135,15 @@ export async function persistChatMediaFromDataUrl(input: {
     }
   }
 
-  const fileName = `${hash}${ext}`;
-  const publicUrl = `${CHAT_MEDIA_PUBLIC_PREFIX}${fileName}`;
-  const filePath = path.join(uploadDir, fileName);
+  // Mismo nombre de siempre (`<hash><ext>`). Idempotencia: si el binario ya existe (mismo hash), no
+  // se reescribe y se confia en el, como siempre. Lo nuevo: se escribe a un temporal y se renombra.
+  const guardado = await guardarBytesDeChat({
+    bytes: parsed.buffer,
+    mimeType: parsed.mimeType,
+    mediaType: input.mediaType,
+    comprobar: "nada",
+    carpeta: uploadDir,
+  });
 
-  // Idempotencia: si el binario ya existe (mismo hash), no reescribir.
-  if (await fileExists(filePath)) {
-    return publicUrl;
-  }
-
-  await mkdir(uploadDir, { recursive: true });
-  await writeFile(filePath, parsed.buffer);
-
-  return publicUrl;
+  return guardado.enlace;
 }

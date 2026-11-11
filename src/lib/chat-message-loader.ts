@@ -1,4 +1,6 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { sqlPayloadSinArchivos } from "@/lib/payload-sin-archivos";
 import { PREFIJO_NOTA_INTERNA_DEL_AGENTE } from "@/lib/notas-internas-del-agente";
 import { extractEvolutionMessageText } from "@/lib/evolution-webhook";
 
@@ -111,6 +113,27 @@ function stripHeavyBase64(value: unknown, depth = 0): unknown {
   return out;
 }
 
+/**
+ * El rawPayload de los mensajes de la tanda, sin el archivo en base64, en UNA consulta por id.
+ *
+ * Antes el `select` pedia `rawPayload: true` y el base64 se tiraba recien aca en Node: igual salia
+ * de la base (un PDF de 24 MB = 25 MB por apertura). Ahora Postgres recorta las rutas conocidas en las
+ * filas pesadas (`sqlPayloadSinArchivos`) y el archivo no viaja. `stripHeavyBase64` sigue como segunda
+ * red para rutas raras y para las filas de 4 a 64 KB.
+ */
+async function conPayloadsSinArchivos<F extends { id: string }>(filas: F[]): Promise<Array<F & { rawPayload: unknown }>> {
+  if (filas.length === 0) {
+    return [];
+  }
+  const payloads = await prisma.$queryRaw<Array<{ id: string; rawPayload: unknown }>>`
+    SELECT "id", ${Prisma.raw(sqlPayloadSinArchivos('"rawPayload"'))} AS "rawPayload"
+    FROM "Message"
+    WHERE "id" = ANY(${filas.map((fila) => fila.id)}::text[])
+  `;
+  const porId = new Map(payloads.map((fila) => [fila.id, fila.rawPayload] as const));
+  return filas.map((fila) => ({ ...fila, rawPayload: porId.get(fila.id) ?? null }));
+}
+
 export async function loadAgentConversationDetail(input: {
   workspaceId: string;
   conversationId: string;
@@ -170,8 +193,8 @@ export async function loadAgentConversationDetail(input: {
         workspaceId: input.workspaceId,
         conversationId: input.conversationId,
         // Los broadcasts/estados se excluyen vía columna indexada (antes era un
-        // filtro en JS sobre rawPayload). rawPayload se mantiene en el select
-        // porque el UI lo usa para resolver media y previews de anuncios.
+        // filtro en JS sobre rawPayload). El rawPayload lo usa el UI para resolver
+        // media y previews de anuncios: llega aparte, sin el base64 (conPayloadsSinArchivos).
         isStatusBroadcast: false,
         /*
           Sin las notas internas del Agente V3 (ver notas-internas-del-agente): siguen en la base,
@@ -199,7 +222,7 @@ export async function loadAgentConversationDetail(input: {
         createdAt: true,
         editedAt: true,
         deletedAt: true,
-        rawPayload: true,
+        // Sin rawPayload: sale aparte, ya recortado en SQL (ver la funcion conPayloadsSinArchivos, arriba).
         type: true,
         mediaUrl: true,
         reactionEmoji: true,
@@ -208,7 +231,9 @@ export async function loadAgentConversationDetail(input: {
         // Sin traerlo, la burbuja no podia mostrar acuse alguno por mas que la base lo supiera.
         status: true,
       },
-    }).then((filas) => ({ cursorMessage, filas })),
+    })
+      .then(conPayloadsSinArchivos)
+      .then((filas) => ({ cursorMessage, filas })),
   );
 
   const [conversation, { cursorMessage, filas: messages }] = await Promise.all([

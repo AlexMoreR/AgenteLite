@@ -302,12 +302,12 @@ async function computeMiDiaData(input: {
     // tardara ~4s -- y es la primera que ve todo el mundo al entrar. Se borra esa clave en la
     // consulta misma, asi el archivo no viaja de la base a la app: del payload solo se necesita
     // el texto de respaldo cuando el mensaje no trae `content`.
-    // Se limpian las dos rutas conocidas (evogo usa "Message", Evolution API "message"); borrar
-    // una ruta que no existe no hace nada.
+    // Se limpian las tres rutas conocidas (evogo usa "Message", Evolution API "message" y WAHA
+    // `data.base64`, que faltaba); borrar una ruta que no existe no hace nada.
     `SELECT DISTINCT ON (m."conversationId")
         m."conversationId", m."content", m."direction"::text AS "direction", m."type"::text AS "type",
         CASE WHEN COALESCE(m."content", '') = ''
-             THEN (m."rawPayload" #- '{evolution,data,Message,base64}') #- '{evolution,data,message,base64}'
+             THEN ((m."rawPayload" #- '{evolution,data,Message,base64}') #- '{evolution,data,message,base64}') #- '{evolution,data,base64}'
              ELSE NULL END AS "rawPayload"
      FROM "Message" m
      WHERE m."conversationId" = ANY($1::text[])

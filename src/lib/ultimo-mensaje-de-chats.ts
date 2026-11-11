@@ -146,12 +146,22 @@ export function sqlSinResponderDesdeDeChat(input: {
   `;
 }
 
-/** El rawPayload de unos pocos mensajes ya elegidos, por clave primaria. */
+/**
+ * El rawPayload de unos pocos mensajes ya elegidos, por clave primaria. Sin el archivo en base64: en
+ * las filas pesadas (> 64 KB; `pg_column_size` no descomprime) Postgres recorta las rutas conocidas y
+ * el archivo no viaja a la app; de aca solo se usa el texto o el nombre de respaldo.
+ *
+ * Es la misma expresion que `sqlPayloadSinArchivos('m."rawPayload"')` de payload-sin-archivos.ts,
+ * escrita a mano porque este archivo lo importan scripts con node a secas (sin el alias @/).
+ * `scripts/check-payload-sin-archivos.mjs` comprueba que sigan iguales.
+ */
+export const SQL_PAYLOAD_SIN_ARCHIVOS = `CASE WHEN pg_column_size(m."rawPayload") > 65536 THEN ((((((m."rawPayload" #- '{evolution,data,base64}') #- '{evolution,data,message,base64}') #- '{evolution,data,Message,base64}') #- '{evolution,message,base64}') #- '{evolution,Message,base64}') #- '{evolution,base64}') ELSE m."rawPayload" END`;
+
 export function sqlPayloadDeMensajes(input: { workspaceId: string; messageIds: string[] }): Prisma.Sql {
   return Prisma.sql`
     SELECT
       m."conversationId" AS "conversationId",
-      m."rawPayload" AS "rawPayload"
+      ${Prisma.raw(SQL_PAYLOAD_SIN_ARCHIVOS)} AS "rawPayload"
     FROM "Message" m
     WHERE m."workspaceId" = ${input.workspaceId}
       AND m."id" IN (${Prisma.join(input.messageIds)})

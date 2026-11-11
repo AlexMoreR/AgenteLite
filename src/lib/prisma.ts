@@ -4,6 +4,7 @@ import { Pool } from "pg";
 import { invalidarTrasEscritura } from "@/lib/cache-de-permisos";
 import { contarConsulta, registrarPoolParaMedir } from "@/lib/medicion-de-pedido";
 import { conDesarchivadoAlReabrir } from "@/features/tableros-inteligentes/services/archivar-al-terminar";
+import { operacionQueEscribeMensaje, sinArchivosEnMensaje } from "@/lib/mensaje-sin-archivos";
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 const connectionString = process.env.DATABASE_URL;
@@ -107,7 +108,16 @@ function withTransientRetry(client: PrismaClient) {
       async $allOperations({ model, operation, args: argsPedidos, query }) {
         // Una tarjeta del Tablero IA que vuelve a un estado abierto se desarchiva sola (archivar-al-terminar.ts). Las
         // HECHO se archivan aparte, después de guardarlas (archivadas.ts: archivarAlTerminar).
-        const args = conDesarchivadoAlReabrir(model, operation, argsPedidos);
+        const argsDelTablero = conDesarchivadoAlReabrir(model, operation, argsPedidos);
+        /*
+          Ningun Message se guarda con el archivo en base64 adentro del rawPayload: se pasa a disco
+          (/uploads/chat-media, nombre por hash) y del payload se quita solo esa clave. Cubre los ~40
+          lugares que escriben un rawPayload. Si algo falla, los args salen tal cual y el mensaje se
+          guarda como siempre (ver mensaje-sin-archivos.ts).
+        */
+        const args = operacionQueEscribeMensaje(model, operation)
+          ? await sinArchivosEnMensaje(operation, argsDelTablero)
+          : argsDelTablero;
         let lastError: unknown = null;
         /*
           Las caches de permisos de la bandeja (cache-de-permisos.ts) se vacian despues de CADA
