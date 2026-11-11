@@ -1,38 +1,33 @@
 "use client";
 
 import * as React from "react";
-import { RefreshCw } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import {
-  ESPERA_GUARDAR_BORRADOR_MS,
-  EVENTO_REVISAR_VERSION,
-  hayVersionNuevaAntesDeEnviar,
+  hayEnviosEnMemoria,
+  hayTextoEscrito,
+  hayVersionNuevaConEspera,
   type RevisionDeVersion,
-  pedirGuardadoDeBorrador,
 } from "@/lib/actualizacion-automatica";
+import { debeRecargarEnSilencio, tiempoEnSegundoPlano } from "@/lib/recarga-silenciosa";
 
 /**
- * Avisa cuando la pagina abierta quedo vieja despues de un despliegue.
+ * Pone la version nueva SIN que la asesora lo note (orden de Alexander, 11-nov-2026).
  *
- * Las asesoras dejan la app abierta todo el dia en el celular y nosotros desplegamos varias
- * veces al dia. Cuando desplegamos, el codigo que ellas tienen cargado deja de coincidir con el
- * del servidor y TODO boton que le habla al servidor se rompe: mandar un catalogo, responder un
- * chat, registrar una llamada. En pantalla no se ve un error entendible, se ve
- * "No se pudo enviar SILLAS DE BARBERIA.pdf" — y no hay nada malo con el PDF ni con el chat.
+ * Historia: las asesoras dejan la app abierta todo el dia y subimos varios cambios al dia. Del
+ * 27-oct al 10-nov-2026 se recargaba sola al ver la version nueva (le recargaba la bandeja a cada
+ * rato, T-722); del 10 al 11-nov salia un aviso con un boton Actualizar.
  *
- * Se comprueba al volver a la app Y cada pocos minutos mientras este abierta. Lo segundo faltaba,
- * y es el caso de quien trabaja sin soltar la pantalla: Alex tuvo la pestaña abierta y activa una
- * noche entera mientras se desplegaba seis veces, nunca perdio el foco, nunca se entero, y lo que
- * vio fue un panel que no cargaba y un "cambiar asesor" que no hacia nada (24-sep-2026). En el
- * servidor eso se lee como "Failed to find Server Action".
- *
- * Del 27-oct al 10-nov-2026 se recargaba SOLA al detectar la version nueva. Con varios despliegues
- * al dia eso le recargaba la bandeja a las asesoras a cada rato (T-722). Desde el 10-nov-2026 NUNCA
- * recarga sola: sale un aviso discreto "Hay una versión nueva del CRM. Actualiza cuando termines" con
- * el boton Actualizar, que guarda el borrador y recarga. La asesora decide cuando.
+ * Ahora no se dibuja nada. La version nueva entra al abrir o recargar la app (eso lo hace el
+ * navegador) o, en silencio, cuando la pestaña lleva MAS de 10 minutos seguidos en segundo plano sin
+ * nada escrito ni nada por salir (regla en src/lib/recarga-silenciosa.ts). Con la pestaña a la vista
+ * nunca se recarga. Tampoco se frena ningun envio por la version: los textos y archivos van por rutas
+ * normales (enviar-por-ruta.ts), que no se rompen con un despliegue.
  */
 
 const VERSION_CARGADA = process.env.NEXT_PUBLIC_DEPLOYMENT_ID?.trim() || "";
+/** Cada cuanto se mira, solo con la pestaña oculta (los navegadores igual lo frenan a ~1 por minuto). */
+const VUELTA_MS = 60_000;
+/** Version del servidor por la que ya se recargo una vez en esta pestaña (para no recargar en bucle). */
+const CLAVE_RECARGADA_POR = "aizen:recarga-silenciosa";
 
 async function leerVersionDelServidor(): Promise<string | null> {
   try {
@@ -45,11 +40,7 @@ async function leerVersionDelServidor(): Promise<string | null> {
   }
 }
 
-/**
- * ¿La pagina quedo vieja? Lo usa el chat para explicar un envio fallido en vez de dejar el
- * mensaje generico. Ante la duda responde `false`: nunca hay que empujar a recargar por las
- * dudas, se perderia lo que la asesora tenga escrito.
- */
+/** ¿La pagina quedo vieja? Ante la duda responde `false`. */
 export async function hayVersionNueva(): Promise<boolean> {
   if (!VERSION_CARGADA) {
     return false;
@@ -61,11 +52,11 @@ export async function hayVersionNueva(): Promise<boolean> {
 let ultimaRevision: RevisionDeVersion | null = null;
 
 /**
- * Para el momento de enviar: reusa la revision de hace menos de 15 s o pregunta (1,5 s como
- * maximo). Si /api/version no contesta, responde `false` y el mensaje se envia normal.
+ * Para los refrescos automaticos de la bandeja: reusa la revision de hace menos de 15 s o pregunta
+ * (1,5 s como maximo). Si /api/version no contesta, responde `false`. Nunca frena un envio.
  */
-export function hayVersionNuevaParaEnviar(): Promise<boolean> {
-  return hayVersionNuevaAntesDeEnviar({
+export function hayVersionNuevaReciente(): Promise<boolean> {
+  return hayVersionNuevaConEspera({
     ahora: Date.now(),
     ultima: ultimaRevision,
     consultar: hayVersionNueva,
@@ -75,10 +66,34 @@ export function hayVersionNuevaParaEnviar(): Promise<boolean> {
   });
 }
 
-export function AppVersionGuard() {
-  const [hayNueva, setHayNueva] = React.useState(false);
-  const [actualizando, setActualizando] = React.useState(false);
+/** Archivos en la cola del navegador (IndexedDB). Se carga solo al necesitarlo. Ante un error, `true`. */
+async function hayEnviosEnLaColaDelNavegador(): Promise<boolean> {
+  try {
+    const { leerEnviosGuardados } = await import("@/components/chats/envios-guardados");
+    return (await leerEnviosGuardados()).length > 0;
+  } catch {
+    return true;
+  }
+}
 
+function yaSeRecargoPor(version: string): boolean {
+  try {
+    return window.sessionStorage.getItem(CLAVE_RECARGADA_POR) === version;
+  } catch {
+    // Sin almacenamiento no se puede evitar el bucle: mejor no recargar.
+    return true;
+  }
+}
+
+function anotarRecargaPor(version: string) {
+  try {
+    window.sessionStorage.setItem(CLAVE_RECARGADA_POR, version);
+  } catch {
+    // nada: yaSeRecargoPor ya respondio que se podia anotar
+  }
+}
+
+export function AppVersionGuard() {
   React.useEffect(() => {
     // Sin version compilada (desarrollo) no hay nada que comparar.
     if (!VERSION_CARGADA) {
@@ -86,59 +101,62 @@ export function AppVersionGuard() {
     }
 
     let cancelado = false;
+    let revisando = false;
+    let ocultaDesde: number | null = document.visibilityState === "hidden" ? Date.now() : null;
 
-    // Solo avisa: NUNCA recarga sola (T-722). La asesora actualiza cuando termine lo que esta haciendo.
-    const comprobar = async () => {
-      if (cancelado || document.visibilityState !== "visible") {
+    const estadoAhora = (extra: { hayVersionNueva: boolean; enCola: boolean; version: string | null }) => ({
+      visible: document.visibilityState !== "hidden",
+      msEnSegundoPlano: tiempoEnSegundoPlano(ocultaDesde, Date.now()),
+      hayTextoEscrito: hayTextoEscrito(),
+      hayEnviosPendientes: extra.enCola || hayEnviosEnMemoria(),
+      hayVersionNueva: extra.hayVersionNueva,
+      yaSeRecargoPorEstaVersion: extra.version ? yaSeRecargoPor(extra.version) : false,
+    });
+
+    const revisar = async () => {
+      if (cancelado || revisando) {
         return;
       }
-      const nueva = await hayVersionNueva();
-      if (!cancelado) {
-        setHayNueva(nueva);
+      // Primero lo que no cuesta nada: si ya asi no se recargaria, ni se le pregunta al servidor.
+      if (!debeRecargarEnSilencio(estadoAhora({ hayVersionNueva: true, enCola: false, version: null }))) {
+        return;
+      }
+      revisando = true;
+      try {
+        const version = await leerVersionDelServidor();
+        if (cancelado || !version || version === VERSION_CARGADA) {
+          return;
+        }
+        const enCola = await hayEnviosEnLaColaDelNavegador();
+        // Se vuelve a mirar TODO justo antes: pudo volver a la pestaña o escribir mientras tanto.
+        if (cancelado || !debeRecargarEnSilencio(estadoAhora({ hayVersionNueva: true, enCola, version }))) {
+          return;
+        }
+        anotarRecargaPor(version);
+        window.location.reload();
+      } finally {
+        revisando = false;
       }
     };
 
-    const alVolver = () => void comprobar();
+    const alCambiarVisibilidad = () => {
+      if (document.visibilityState === "hidden") {
+        ocultaDesde ??= Date.now();
+        return;
+      }
+      // Volvio a primer plano: el reloj vuelve a cero y no se recarga.
+      ocultaDesde = null;
+    };
 
-    void comprobar();
-    document.addEventListener("visibilitychange", alVolver);
-    window.addEventListener("focus", alVolver);
-    window.addEventListener(EVENTO_REVISAR_VERSION, alVolver);
-    // Cada minuto: es una respuesta de dos lineas, y solo corre con la pestaña a la vista.
-    const reloj = window.setInterval(alVolver, 60 * 1000);
+    document.addEventListener("visibilitychange", alCambiarVisibilidad);
+    const reloj = window.setInterval(() => void revisar(), VUELTA_MS);
 
     return () => {
       cancelado = true;
       window.clearInterval(reloj);
-      document.removeEventListener("visibilitychange", alVolver);
-      window.removeEventListener("focus", alVolver);
-      window.removeEventListener(EVENTO_REVISAR_VERSION, alVolver);
+      document.removeEventListener("visibilitychange", alCambiarVisibilidad);
     };
   }, []);
 
-  if (!hayNueva) {
-    return null;
-  }
-
-  // Al tocar Actualizar: primero se guarda el borrador del chat abierto y despues se recarga.
-  const actualizar = () => {
-    setActualizando(true);
-    pedirGuardadoDeBorrador();
-    window.setTimeout(() => window.location.reload(), ESPERA_GUARDAR_BORRADOR_MS);
-  };
-
-  return (
-    <div className="pointer-events-none fixed inset-x-0 top-2 z-[100] flex justify-center px-3">
-      <div
-        role="status"
-        className="pointer-events-auto flex items-center gap-2 rounded-full border border-border bg-card py-1 pl-3 pr-1 text-[13px] text-foreground shadow-md"
-      >
-        <span>Hay una versión nueva del CRM. Actualiza cuando termines</span>
-        <Button type="button" size="sm" className="rounded-full" onClick={actualizar} disabled={actualizando}>
-          <RefreshCw className={actualizando ? "size-3.5 animate-spin" : "size-3.5"} />
-          Actualizar
-        </Button>
-      </div>
-    </div>
-  );
+  return null;
 }

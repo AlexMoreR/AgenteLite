@@ -48,16 +48,16 @@ export default function ClienteError({
   const versionVieja = esVersionVieja(error);
 
   useEffect(() => {
-    console.error("[cliente] error de pantalla", { digest: error.digest, message: error.message });
+    console.error("[cliente] error de pantalla", { digest: error.digest, message: error.message, versionVieja });
 
-    // Version vieja: ya NO se recarga sola (T-722, 10-nov-2026). La pantalla lo explica y la asesora
-    // toca el boton cuando termine.
-  }, [error]);
+    // Nunca se recarga sola: solo con el boton (T-722). Desde el 11-nov-2026 la pantalla tampoco
+    // habla de "version nueva": es el mismo mensaje de cualquier falla.
+  }, [error, versionVieja]);
 
   /*
-    Un error del navegador (sin codigo) casi siempre se arregla recargando la pagina entera; reset()
-    solo vuelve a dibujar con lo mismo que ya fallo. Los del servidor (con codigo) si pueden salir
-    bien reintentando sin perder lo que habia en pantalla.
+    Un error del navegador (sin codigo) o de version vieja casi siempre se arregla recargando la
+    pagina entera; reset() solo vuelve a dibujar con lo mismo que ya fallo. Los del servidor (con
+    codigo) si pueden salir bien reintentando sin perder lo que habia en pantalla.
   */
   const reintentar = () => {
     if (versionVieja || !error.digest) {
@@ -74,18 +74,15 @@ export default function ClienteError({
           <TriangleAlert className="size-5 text-amber-600" />
         </div>
 
-        <h1 className="text-base font-semibold text-foreground">
-          {versionVieja ? "Hay una versión nueva de la app" : "No se pudo cargar esta pantalla"}
-        </h1>
+        <h1 className="text-base font-semibold text-foreground">No se pudo cargar esta pantalla</h1>
         <p className="mt-1.5 text-sm leading-6 text-muted-foreground">
-          {versionVieja
-            ? "Se actualizó mientras la tenías abierta. Recarga para seguir; no se perdió ningún mensaje ni ningún dato."
-            : "Fue una falla al cargar, no se perdió ningún mensaje ni ningún dato. Prueba de nuevo; si vuelve a pasar, manda una captura al grupo de errores."}
+          Fue una falla al cargar, no se perdió ningún mensaje ni ningún dato. Prueba de nuevo; si vuelve a pasar,
+          manda una captura al grupo de errores.
         </p>
 
         <Button type="button" className="mt-4 w-full" onClick={reintentar}>
           <RotateCcw className="size-4" />
-          {versionVieja ? "Recargar" : "Reintentar"}
+          Reintentar
         </Button>
 
         {error.digest ? (

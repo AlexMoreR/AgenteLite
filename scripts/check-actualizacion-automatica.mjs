@@ -1,4 +1,6 @@
-// Pruebas de src/lib/actualizacion-automatica.ts (la app se actualiza sola, tarjeta maqn9g47).
+// Pruebas de src/lib/actualizacion-automatica.ts y de que la app se actualiza sin molestar
+// (orden de Alexander, 11-nov-2026: sin aviso de version nueva, sin recargar con la pestaña a la vista).
+// La regla de cuando recargar se prueba aparte: src/lib/recarga-silenciosa.test.ts.
 // Correr: npm run test:actualizacion-automatica
 import fs from "node:fs";
 import path from "node:path";
@@ -26,6 +28,7 @@ function cargar(relativo) {
 }
 
 const A = cargar("src/lib/actualizacion-automatica.ts");
+const leer = (archivo) => fs.readFileSync(archivo, "utf8").replace(/\r\n/g, "\n");
 
 function almacenFalso() {
   const datos = new Map();
@@ -33,6 +36,10 @@ function almacenFalso() {
     getItem: (k) => (datos.has(k) ? datos.get(k) : null),
     setItem: (k, v) => void datos.set(k, String(v)),
     removeItem: (k) => void datos.delete(k),
+    key: (i) => Array.from(datos.keys())[i] ?? null,
+    get length() {
+      return datos.size;
+    },
   };
 }
 
@@ -42,61 +49,78 @@ function prueba(nombre, fn) {
   pruebas += 1;
   console.log(`ok - ${nombre}`);
 }
+async function pruebaAsync(nombre, fn) {
+  await fn();
+  pruebas += 1;
+  console.log(`ok - ${nombre}`);
+}
 
 const T0 = 1_000_000_000;
+const vacio = almacenFalso();
 
-prueba("ocupada: escribio hace menos de 5 segundos", () => {
-  A.marcarEscritura(T0);
-  assert.equal(A.estaOcupada(T0 + 4_000), true);
-  assert.equal(A.estaOcupada(T0 + 5_000), false);
-});
-
-prueba("ocupada: envio en camino, grabando o subiendo; quieta cuando se apagan", () => {
-  for (const motivo of ["texto", "grabando", "subiendo"]) {
+prueba("algo escrito: grabando, adjunto elegido o menu de adjuntar abierto; nada cuando se apagan", () => {
+  assert.equal(A.hayTextoEscrito(vacio), false);
+  for (const motivo of ["grabando", "adjuntar"]) {
     A.marcarOcupada(motivo, true);
-    assert.equal(A.estaOcupada(T0 + 60_000), true, motivo);
+    assert.equal(A.hayTextoEscrito(vacio), true, motivo);
+    assert.equal(A.hayEnviosEnMemoria(), false, motivo);
     A.marcarOcupada(motivo, false);
-    assert.equal(A.estaOcupada(T0 + 60_000), false, motivo);
+    assert.equal(A.hayTextoEscrito(vacio), false, motivo);
   }
 });
 
-prueba("ocupada: se puede ignorar la ventana de adjuntar al abrirla", () => {
-  A.marcarOcupada("adjuntar", true);
-  assert.equal(A.estaOcupada(T0 + 60_000), true);
-  assert.equal(A.estaOcupada(T0 + 60_000, ["adjuntar"]), false);
-  A.marcarOcupada("adjuntar", false);
+prueba("envios en memoria: texto en camino, archivo subiendo o fallido sin reintentar", () => {
+  for (const motivo of ["texto", "textos-fallidos", "fotos-en-envio", "archivos-sin-salir", "enviando"]) {
+    A.marcarOcupada(motivo, true, "envio");
+    assert.equal(A.hayEnviosEnMemoria(), true, motivo);
+    assert.equal(A.hayTextoEscrito(vacio), false, motivo);
+    A.marcarOcupada(motivo, false);
+    assert.equal(A.hayEnviosEnMemoria(), false, motivo);
+  }
 });
 
-prueba("recarga cuando esta quieta y es la primera vez", () => {
-  const r = A.decidirRecarga({ ahora: T0, ocupada: false, recargas: { ultima: 0, intentos: 0 } });
-  assert.equal(r, "recargar");
+prueba("la caja del chat se lee en el momento, y al quitar el lector deja de contar", () => {
+  let texto = "";
+  const quitar = A.registrarLectorDeTexto("caja-del-chat", () => texto.trim().length > 0);
+  assert.equal(A.hayTextoEscrito(vacio), false);
+  texto = "hola, el precio es";
+  assert.equal(A.hayTextoEscrito(vacio), true);
+  texto = "   ";
+  assert.equal(A.hayTextoEscrito(vacio), false);
+  texto = "otra vez";
+  quitar();
+  assert.equal(A.hayTextoEscrito(vacio), false);
 });
 
-prueba("no recarga si esta ocupada", () => {
-  const r = A.decidirRecarga({ ahora: T0, ocupada: true, recargas: { ultima: 0, intentos: 0 } });
-  assert.equal(r, "esperar");
+prueba("un lector viejo no borra al nuevo con el mismo nombre (el panel se vuelve a crear al cambiar de chat)", () => {
+  const quitarViejo = A.registrarLectorDeTexto("caja-del-chat", () => false);
+  const quitarNuevo = A.registrarLectorDeTexto("caja-del-chat", () => true);
+  quitarViejo();
+  assert.equal(A.hayTextoEscrito(vacio), true);
+  quitarNuevo();
+  assert.equal(A.hayTextoEscrito(vacio), false);
 });
 
-prueba("tope de una recarga por minuto", () => {
-  const recargas = { ultima: T0, intentos: 1 };
-  assert.equal(A.decidirRecarga({ ahora: T0 + 30_000, ocupada: false, recargas }), "esperar");
-  assert.equal(A.decidirRecarga({ ahora: T0 + 60_000, ocupada: false, recargas }), "recargar");
+prueba("un lector que revienta cuenta como escrito (ante la duda, no recargar)", () => {
+  const quitar = A.registrarLectorDeTexto("roto", () => {
+    throw new Error("sin caja");
+  });
+  assert.equal(A.hayTextoEscrito(vacio), true);
+  quitar();
 });
 
-prueba("la pastilla aparece despues de 2 intentos", () => {
-  const recargas = { ultima: T0, intentos: 2 };
-  assert.equal(A.decidirRecarga({ ahora: T0 + 10_000, ocupada: false, recargas }), "pastilla");
-  assert.equal(A.decidirRecarga({ ahora: T0 + 999_000, ocupada: true, recargas }), "pastilla");
-});
-
-prueba("registrar recargas suma intentos y olvidar los borra", () => {
+prueba("borradores: un borrador con texto de cualquier chat cuenta como escrito", () => {
   const almacen = almacenFalso();
-  assert.deepEqual(A.leerRecargas(almacen), { ultima: 0, intentos: 0 });
-  A.registrarRecarga(T0, almacen);
-  A.registrarRecarga(T0 + 70_000, almacen);
-  assert.deepEqual(A.leerRecargas(almacen), { ultima: T0 + 70_000, intentos: 2 });
-  A.olvidarRecargas(almacen);
-  assert.deepEqual(A.leerRecargas(almacen), { ultima: 0, intentos: 0 });
+  almacen.setItem("otra-cosa", "x");
+  assert.equal(A.hayBorradoresGuardados(almacen), false);
+  A.guardarBorrador("agent:c2", "otro chat", almacen);
+  assert.equal(A.hayBorradoresGuardados(almacen), true);
+  assert.equal(A.hayTextoEscrito(almacen), true);
+  A.borrarBorrador("agent:c2", almacen);
+  assert.equal(A.hayBorradoresGuardados(almacen), false);
+  assert.equal(A.hayBorradoresGuardados(null), false);
+  const roto = { getItem: () => null, setItem() {}, removeItem() {}, key: () => { throw new Error("bloqueado"); }, length: 1 };
+  assert.equal(A.hayBorradoresGuardados(roto), true);
 });
 
 prueba("borrador: se guarda y se lee por chat, y se borra", () => {
@@ -128,67 +152,15 @@ prueba("borrador: sin almacenamiento no revienta", () => {
   };
   assert.equal(A.leerBorrador("agent:c1", roto), "");
   A.guardarBorrador("agent:c1", "x", roto);
-  assert.equal(A.tomarEnvioPendiente(roto), null);
 });
 
-const pendiente = {
-  chatKey: "agent:c1",
-  conversationId: "c1",
-  campos: [["message", "hola"], ["conversationId", "c1"]],
-  texto: "hola",
-  contenido: "*Asesora:* hola",
-  creadoEn: T0,
-};
-
-prueba("pendiente: se toma una sola vez (la marca se borra al leerlo)", () => {
-  const almacen = almacenFalso();
-  A.guardarEnvioPendiente(pendiente, almacen);
-  assert.deepEqual(A.tomarEnvioPendiente(almacen), pendiente);
-  assert.equal(A.tomarEnvioPendiente(almacen), null);
-});
-
-prueba("pendiente: dato roto se descarta", () => {
-  const almacen = almacenFalso();
-  almacen.setItem("aizen:envio-pendiente", "{no es json");
-  assert.equal(A.tomarEnvioPendiente(almacen), null);
-  almacen.setItem("aizen:envio-pendiente", JSON.stringify({ chatKey: "x" }));
-  assert.equal(A.tomarEnvioPendiente(almacen), null);
-  assert.equal(almacen.getItem("aizen:envio-pendiente"), null);
-});
-
-prueba("pendiente: se reenvia si es del chat abierto, reciente y no esta guardado", () => {
-  assert.equal(A.puedeReenviarPendiente({ pendiente, chatAbiertoId: "c1", ahora: T0 + 20_000, yaGuardado: false }), true);
-});
-
-prueba("pendiente: no se reenvia si ya esta guardado en el chat", () => {
-  assert.equal(A.puedeReenviarPendiente({ pendiente, chatAbiertoId: "c1", ahora: T0 + 20_000, yaGuardado: true }), false);
-});
-
-prueba("pendiente: no se reenvia con mas de 2 minutos", () => {
-  assert.equal(A.puedeReenviarPendiente({ pendiente, chatAbiertoId: "c1", ahora: T0 + 120_001, yaGuardado: false }), false);
-  assert.equal(A.puedeReenviarPendiente({ pendiente, chatAbiertoId: "c1", ahora: T0 + 120_000, yaGuardado: false }), true);
-});
-
-prueba("pendiente: no se reenvia a otro chat ni con hora en el futuro ni vacio", () => {
-  assert.equal(A.puedeReenviarPendiente({ pendiente, chatAbiertoId: "c2", ahora: T0 + 1_000, yaGuardado: false }), false);
-  assert.equal(A.puedeReenviarPendiente({ pendiente, chatAbiertoId: "c1", ahora: T0 - 5_000, yaGuardado: false }), false);
-  assert.equal(A.puedeReenviarPendiente({ pendiente: { ...pendiente, texto: "  " }, chatAbiertoId: "c1", ahora: T0 + 1_000, yaGuardado: false }), false);
-});
-
-
-// ---- Revision de version antes de enviar y envio salvo version vieja ----
-
-async function pruebaAsync(nombre, fn) {
-  await fn();
-  pruebas += 1;
-  console.log(`ok - ${nombre}`);
-}
+// ---- Revision de version con espera corta (solo para no pedir la pantalla entera) ----
 
 const sinGuardar = () => {};
 
-await pruebaAsync("antes de enviar: usa la revision de hace menos de 15 s sin preguntar", async () => {
+await pruebaAsync("revision: usa la de hace menos de 15 s sin preguntar", async () => {
   let preguntas = 0;
-  const vieja = await A.hayVersionNuevaAntesDeEnviar({
+  const vieja = await A.hayVersionNuevaConEspera({
     ahora: T0 + 10_000,
     ultima: { vieja: true, en: T0 },
     consultar: async () => { preguntas += 1; return false; },
@@ -198,9 +170,9 @@ await pruebaAsync("antes de enviar: usa la revision de hace menos de 15 s sin pr
   assert.equal(preguntas, 0);
 });
 
-await pruebaAsync("antes de enviar: con revision vieja pregunta y guarda el resultado", async () => {
+await pruebaAsync("revision: con una vieja pregunta y guarda el resultado", async () => {
   let guardada = null;
-  const vieja = await A.hayVersionNuevaAntesDeEnviar({
+  const vieja = await A.hayVersionNuevaConEspera({
     ahora: T0 + 15_000,
     ultima: { vieja: false, en: T0 },
     consultar: async () => true,
@@ -210,61 +182,17 @@ await pruebaAsync("antes de enviar: con revision vieja pregunta y guarda el resu
   assert.deepEqual(guardada, { vieja: true, en: T0 + 15_000 });
 });
 
-await pruebaAsync("antes de enviar: si /api/version falla o tarda mas de 1,5 s, responde false", async () => {
-  const falla = await A.hayVersionNuevaAntesDeEnviar({
+await pruebaAsync("revision: si /api/version falla o tarda mas de 1,5 s, responde false", async () => {
+  const falla = await A.hayVersionNuevaConEspera({
     ahora: T0, ultima: null, consultar: async () => { throw new Error("sin red"); }, guardar: sinGuardar,
   });
   assert.equal(falla, false);
   const inicio = Date.now();
-  const tarda = await A.hayVersionNuevaAntesDeEnviar({
+  const tarda = await A.hayVersionNuevaConEspera({
     ahora: T0, ultima: null, consultar: () => new Promise(() => {}), guardar: sinGuardar,
   });
   assert.equal(tarda, false);
   assert.ok(Date.now() - inicio < 3_000);
-});
-
-await pruebaAsync("con version nueva: guarda el pendiente y NO envia", async () => {
-  let enviados = 0;
-  let pendientes = 0;
-  const r = await A.enviarSalvoVersionVieja({
-    hayVersionNueva: async () => true,
-    enviar: async () => { enviados += 1; return { ok: true }; },
-    dejarPendiente: () => { pendientes += 1; },
-  });
-  assert.equal(r.enviado, false);
-  assert.equal(enviados, 0);
-  assert.equal(pendientes, 1);
-});
-
-await pruebaAsync("con la misma version: envia y no deja pendiente", async () => {
-  let pendientes = 0;
-  const r = await A.enviarSalvoVersionVieja({
-    hayVersionNueva: async () => false,
-    enviar: async () => ({ ok: true }),
-    dejarPendiente: () => { pendientes += 1; },
-  });
-  assert.deepEqual(r, { enviado: true, resultado: { ok: true } });
-  assert.equal(pendientes, 0);
-});
-
-await pruebaAsync("si /api/version no contesta, envia normal", async () => {
-  let enviados = 0;
-  const r = await A.enviarSalvoVersionVieja({
-    hayVersionNueva: () => A.hayVersionNuevaAntesDeEnviar({
-      ahora: T0, ultima: null, consultar: async () => { throw new Error("caido"); }, guardar: sinGuardar,
-    }),
-    enviar: async () => { enviados += 1; return "ok"; },
-    dejarPendiente: () => { throw new Error("no debia dejar pendiente"); },
-  });
-  assert.equal(r.enviado, true);
-  assert.equal(enviados, 1);
-});
-
-prueba("el pendiente se usa una sola vez aunque se pida dos veces", () => {
-  const almacen = almacenFalso();
-  A.guardarEnvioPendiente(pendiente, almacen);
-  assert.ok(A.tomarEnvioPendiente(almacen));
-  assert.equal(A.tomarEnvioPendiente(almacen), null);
 });
 
 // ---- Lineas [nota-de-voz]: las que salieron bien no cuentan como falla para la vigilancia ----
@@ -283,30 +211,60 @@ prueba("[nota-de-voz] subida ok no trae la palabra error; una con error si", () 
   assert.equal(cuentaComoFalla(mala), true);
 });
 
-// ---- T-722 (10-nov-2026): la app NUNCA se recarga sola por una version nueva ----
-prueba("T-722: el aviso de version nueva solo avisa; recarga solo al tocar Actualizar", () => {
-  const guard = fs.readFileSync("src/components/app-version-guard.tsx", "utf8");
-  const componente = guard.slice(guard.indexOf("export function AppVersionGuard()"));
-  assert.match(componente, /Hay una versión nueva del CRM\. Actualiza cuando termines/);
-  assert.match(componente, /Actualizar/);
-  // El unico reload vive dentro de la funcion del boton, no en el efecto que revisa la version.
-  const efecto = componente.slice(componente.indexOf("React.useEffect("), componente.indexOf("if (!hayNueva)"));
-  assert.doesNotMatch(efecto, /location\.reload/);
-  assert.equal((componente.match(/location\.reload/g) ?? []).length, 1);
-  assert.match(componente, /const actualizar = \(\) => \{[\s\S]*pedirGuardadoDeBorrador\(\);[\s\S]*location\.reload/);
-  assert.doesNotMatch(guard, /decidirRecarga|registrarRecarga/);
+// ---- 11-nov-2026: sin aviso de version nueva y sin recargar con la pestaña a la vista ----
+
+const SIN_AVISO = /versi[oó]n nueva del CRM|Hay una versi[oó]n nueva|Actualizar y enviar|Actualiza cuando termines/;
+
+prueba("ningun aviso de version nueva en la app", () => {
+  for (const archivo of [
+    "src/components/app-version-guard.tsx",
+    "src/components/chats/shared-inbox.tsx",
+    "src/components/chats/chat-conversation-panel.tsx",
+    "src/components/agents/chats-auto-refresh.tsx",
+    "src/app/cliente/error.tsx",
+  ]) {
+    assert.doesNotMatch(leer(archivo), SIN_AVISO, archivo);
+  }
 });
 
-prueba("T-722: la pantalla de error no recarga sola; solo con su boton", () => {
-  const error = fs.readFileSync("src/app/cliente/error.tsx", "utf8");
+prueba("el guardia no dibuja nada y su unica recarga pasa por debeRecargarEnSilencio", () => {
+  const guard = leer("src/components/app-version-guard.tsx");
+  const componente = guard.slice(guard.indexOf("export function AppVersionGuard()"));
+  assert.doesNotMatch(componente, /<div|<Button|toast/);
+  assert.match(componente, /return null;\s*\}\s*$/);
+  assert.equal((guard.match(/location\.reload/g) ?? []).length, 1);
+  // La recarga esta despues de volver a mirar todo con la regla pura, y solo con la pestaña oculta.
+  assert.match(
+    componente,
+    /if \(cancelado \|\| !debeRecargarEnSilencio\(estadoAhora\(\{ hayVersionNueva: true, enCola, version \}\)\)\) \{\s*return;\s*\}\s*anotarRecargaPor\(version\);\s*window\.location\.reload\(\);/,
+  );
+  assert.match(componente, /visible: document\.visibilityState !== "hidden"/);
+  assert.match(guard, /from "@\/lib\/recarga-silenciosa"/);
+});
+
+prueba("los envios no miran la version: sin pendiente, sin reenvio por version, sin pedir revision", () => {
+  const inbox = leer("src/components/chats/shared-inbox.tsx");
+  const panel = leer("src/components/chats/chat-conversation-panel.tsx");
+  for (const [archivo, texto] of [["shared-inbox", inbox], ["panel", panel]]) {
+    assert.doesNotMatch(texto, /hayVersionNueva|guardarEnvioPendiente|tomarEnvioPendiente|pedirRevisionDeVersion|marcarEscritura/, archivo);
+  }
+  // Lo que se perderia al recargar cuenta como envio pendiente.
+  assert.match(inbox, /marcarOcupada\("texto", chatsConTextoEnCurso\.length > 0, "envio"\)/);
+  assert.match(inbox, /marcarOcupada\("textos-fallidos", mensajesFallidos\.length > 0, "envio"\)/);
+  assert.match(panel, /registrarLectorDeTexto\("caja-del-chat"/);
+  assert.match(panel, /marcarOcupada\("archivos-sin-salir", hayArchivosSinSalir, "envio"\)/);
+});
+
+prueba("la pantalla de error no recarga sola; solo con su boton, y sin hablar de version", () => {
+  const error = leer("src/app/cliente/error.tsx");
   const efecto = error.slice(error.indexOf("useEffect("), error.indexOf("const reintentar"));
   assert.doesNotMatch(efecto, /location\.reload/);
   assert.doesNotMatch(error, /sessionStorage/);
   assert.match(error, /const reintentar = \(\) => \{[\s\S]*location\.reload/);
 });
 
-prueba("T-722: los refrescos automaticos de la bandeja pasan por refrescarSinRecargar", () => {
-  const auto = fs.readFileSync("src/components/agents/chats-auto-refresh.tsx", "utf8").replace(/\r\n/g, "\n");
+prueba("los refrescos automaticos de la bandeja pasan por refrescarSinRecargar (sin aviso)", () => {
+  const auto = leer("src/components/agents/chats-auto-refresh.tsx");
   const refrescos = auto.match(/router\.refresh\(\)/g) ?? [];
   // P5 (T1): tres pasan por ponerseAlDiaORecargarRef, que tambien termina en refrescarSinRecargar (ver abajo).
   const envueltos =
@@ -316,7 +274,8 @@ prueba("T-722: los refrescos automaticos de la bandeja pasan por refrescarSinRec
   assert.ok(refrescos.length >= llamadas);
   assert.equal(llamadas, 5, "los cinco refrescos automaticos de siempre");
   assert.equal(envueltos.length, llamadas, "ninguno se salta la revision de version");
-  assert.match(auto, /function refrescarSinRecargar[\s\S]*hayVersionNuevaParaEnviar\(\)[\s\S]*pedirRevisionDeVersion\(\)/);
+  assert.match(auto, /function refrescarSinRecargar[\s\S]*?hayVersionNuevaReciente\(\)[\s\S]*?if \(!nueva\) \{\s*refrescar\(\);/);
+  assert.doesNotMatch(auto, /pedirRevisionDeVersion/);
   assert.match(auto, /function ponerseAlDiaSinRecargar\([\s\S]*?if \(!atendido\) \{\s*refrescarSinRecargar\(recargar\);/);
   assert.match(auto, /const ponerseAlDiaORecargar = [\s\S]*?ponerseAlDiaSinRecargar\(recargar\);[\s\S]*?refrescarSinRecargar\(recargar\);/);
 });

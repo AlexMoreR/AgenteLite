@@ -82,13 +82,11 @@ function pedirDetalleDeContacto(contactId: string): Promise<DetalleDeContacto> {
 import { ChatScrollAnchor } from "@/components/agents/chat-scroll-anchor";
 import {
   ESPERA_GUARDAR_BORRADOR_MS,
-  EVENTO_GUARDAR_BORRADOR,
   borrarBorrador,
   guardarBorrador,
   leerBorrador,
-  marcarEscritura,
   marcarOcupada,
-  pedirRevisionDeVersion,
+  registrarLectorDeTexto,
 } from "@/lib/actualizacion-automatica";
 import { ACCEPT_DOCUMENTOS_CHAT, revisarArchivoAntesDeSubir } from "@/lib/chat-envio-seguro";
 import { ContactAvatar } from "@/components/chats/contact-avatar";
@@ -817,9 +815,13 @@ export const ConversationPanel = memo(function ConversationPanel({
   const hayFotosEnCurso = todasLasFotosEnEnvio.some(
     (foto) => foto.estado === "subiendo" || foto.estado === "enviando",
   );
+  // Un archivo que fallo y espera Reintentar tambien cuenta: la recarga en segundo plano no lo toca.
+  const hayArchivosSinSalir =
+    todasLasFotosEnEnvio.some((foto) => foto.estado === "fallida") || todosLosArchivosFallidos.length > 0;
   useEffect(() => {
-    marcarOcupada("fotos-en-envio", hayFotosEnCurso);
-  }, [hayFotosEnCurso]);
+    marcarOcupada("fotos-en-envio", hayFotosEnCurso, "envio");
+    marcarOcupada("archivos-sin-salir", hayArchivosSinSalir, "envio");
+  }, [hayFotosEnCurso, hayArchivosSinSalir]);
   const [isContactPanelOpen, setIsContactPanelOpen] = useState(false);
   const isMobile = useIsMobile();
   const [contactCity, setContactCity] = useState("");
@@ -1504,9 +1506,9 @@ export const ConversationPanel = memo(function ConversationPanel({
   }, []);
 
   /*
-    Actualizacion automatica (tarjeta maqn9g47): la app se recarga sola tras cada subida, asi que el
-    texto a medias se guarda en la pestaña, por chat, y vuelve igual. La caja es no controlada: se
-    lee y se escribe directo en el textarea. Reglas en src/lib/actualizacion-automatica.ts.
+    Borrador por chat: el texto a medias se guarda en la pestaña y vuelve igual al cambiar de chat o
+    al recargar. La caja es no controlada: se lee y se escribe directo en el textarea. Con algo
+    escrito la app nunca se recarga sola (src/lib/actualizacion-automatica.ts).
   */
   const hayCajaDeTexto = Boolean(composer && renderedConversation);
   const borradorTimerRef = useRef<number | null>(null);
@@ -1538,19 +1540,23 @@ export const ConversationPanel = memo(function ConversationPanel({
       autoResizeComposer(textarea);
     }
     const guardarYa = () => guardarBorradorAhora(chat);
-    window.addEventListener(EVENTO_GUARDAR_BORRADOR, guardarYa);
     window.addEventListener("pagehide", guardarYa);
     return () => {
-      window.removeEventListener(EVENTO_GUARDAR_BORRADOR, guardarYa);
       window.removeEventListener("pagehide", guardarYa);
       // Al cambiar de chat, el texto del que se deja queda guardado en el suyo.
       guardarYa();
     };
   }, [selectedConversationId, hayCajaDeTexto, autoResizeComposer, guardarBorradorAhora]);
+  // El texto de la caja se lee en el momento de decidir (tambien cuenta el que se puso sin teclear).
+  useEffect(
+    () =>
+      registrarLectorDeTexto("caja-del-chat", () => (composerTextAreaRef.current?.value ?? "").trim().length > 0),
+    [],
+  );
   // Avisos de "ocupada": mientras haya algo en curso, la app no se recarga sola.
   useEffect(() => {
     // Los archivos en envio se marcan aparte ("fotos-en-envio", mas arriba).
-    marcarOcupada("enviando", enviandoTexto);
+    marcarOcupada("enviando", enviandoTexto, "envio");
     marcarOcupada("grabando", isRecordingAudio);
     marcarOcupada("adjuntar", isAttachMenuOpen || pendingMediaFiles.length > 0);
     return () => {
@@ -2730,11 +2736,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                             />
                             <Popover
                               open={isAttachMenuOpen}
-                              onOpenChange={(abierto) => {
-                                setIsAttachMenuOpen(abierto);
-                                // Abrir "adjuntar": se actualiza ANTES de elegir el archivo (el archivo no se puede guardar).
-                                if (abierto) pedirRevisionDeVersion(["adjuntar"]);
-                              }}
+                              onOpenChange={setIsAttachMenuOpen}
                             >
                               <PopoverTrigger asChild>
                                 <Button
@@ -2990,12 +2992,9 @@ export const ConversationPanel = memo(function ConversationPanel({
                           name="message"
                           rows={1}
                           placeholder={composer.placeholder || "Escribe un mensaje..."}
-                          // Tocar la caja: se mira si hay version nueva antes de que escriba.
-                          onFocus={() => pedirRevisionDeVersion()}
                           onChange={(event) => {
                             const conTexto = event.currentTarget.value.trim().length > 0;
                             setComposerHasText(conTexto);
-                            marcarEscritura();
                             const chatDelBorrador = selectedConversationId ?? "";
                             if (borradorTimerRef.current !== null) window.clearTimeout(borradorTimerRef.current);
                             borradorTimerRef.current = window.setTimeout(

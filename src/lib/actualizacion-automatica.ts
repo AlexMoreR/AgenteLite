@@ -1,37 +1,27 @@
 /*
-  Actualizacion automatica de la app (tarjeta maqn9g47, 27-oct-2026).
+  Actualizacion de la app sin molestar (orden de Alexander, 11-nov-2026; antes tarjeta maqn9g47 y T-722).
 
-  Las asesoras dejan la app abierta todo el dia y subimos varios cambios al dia. Antes salia un boton
-  "Actualizar" y, mientras nadie lo tocaba, los envios le pegaban a la version vieja del servidor y
-  fallaban. Ahora la app se recarga SOLA en un momento seguro, sin perder el borrador ni el chat
-  (la direccion ya trae ?chatKey=), y un texto que se cayo por version vieja se reenvia UNA vez.
+  Ya no hay aviso de "version nueva", ni recarga forzada, ni envios frenados por la version. La app
+  se actualiza al abrirla o recargarla y, en silencio, tras mas de 10 minutos en segundo plano con
+  la barra vacia (la regla esta en src/lib/recarga-silenciosa.ts; la aplica app-version-guard.tsx).
 
-  Aca viven las reglas puras (sin React) para probarlas con `npm run test:actualizacion-automatica`,
-  y los avisos de "ocupada" que comparten el chat y el guardia de version.
+  Aca viven, sin React, las piezas que eso necesita (pruebas: `npm run test:actualizacion-automatica`):
+  - los avisos de "hay algo escrito / algo por salir" que dan el chat y la bandeja,
+  - el borrador por chat (guardado en la pestaña: sobrevive a una recarga),
+  - la revision de version con espera corta, para no pedir la pantalla entera con una version nueva.
 */
 
-/** Cuanto tiene que llevar quieta (sin teclear) para que se pueda recargar. */
-export const QUIETA_MS = 5_000;
-/** Como mucho una recarga automatica por minuto (misma idea que cliente/error.tsx). */
-export const MIN_ENTRE_RECARGAS_MS = 60_000;
-/** Con tantas recargas seguidas y la app todavia vieja, se muestra la pastilla de respaldo. */
-export const MAX_RECARGAS_SEGUIDAS = 2;
-/** Un envio pendiente mas viejo que esto ya no se reenvia. */
-export const VIDA_MAX_PENDIENTE_MS = 120_000;
 /** Espera tras la ultima tecla antes de guardar el borrador. */
 export const ESPERA_GUARDAR_BORRADOR_MS = 400;
 
-export const EVENTO_REVISAR_VERSION = "aizen:revisar-version";
-export const EVENTO_GUARDAR_BORRADOR = "aizen:guardar-borrador";
-
-const CLAVE_RECARGAS = "aizen:auto-recarga";
 const PREFIJO_BORRADOR = "aizen:borrador:";
-const CLAVE_PENDIENTE = "aizen:envio-pendiente";
 
 /** Lo minimo que se usa de sessionStorage (asi las pruebas pasan uno falso). */
 export type AlmacenSimple = Pick<Storage, "getItem" | "setItem" | "removeItem">;
+/** Para recorrer los borradores hace falta tambien contar y leer claves. */
+export type AlmacenRecorrible = AlmacenSimple & Pick<Storage, "key" | "length">;
 
-function almacenDelNavegador(): AlmacenSimple | null {
+function almacenDelNavegador(): AlmacenRecorrible | null {
   try {
     return typeof window !== "undefined" ? window.sessionStorage : null;
   } catch {
@@ -39,112 +29,70 @@ function almacenDelNavegador(): AlmacenSimple | null {
   }
 }
 
-/* ------------------------------ Avisos de "ocupada" ------------------------------ */
+/* --------------------------- Algo escrito o algo por salir --------------------------- */
 
-let ultimaEscrituraMs = 0;
-const ocupaciones = new Set<string>();
+/*
+  Dos clases de motivo, porque la regla los nombra por separado:
+  - "escrito": texto en la caja, adjunto elegido, menu de adjuntar abierto, nota de voz grabandose.
+  - "envio": un texto o archivo en camino, o uno que fallo y espera Reintentar (se perderia al recargar).
+*/
+export type ClaseDeMotivo = "escrito" | "envio";
 
-/** La asesora acaba de teclear. */
-export function marcarEscritura(ahora = Date.now()) {
-  ultimaEscrituraMs = ahora;
-}
+const motivos = new Map<string, ClaseDeMotivo>();
+const lectores = new Map<string, () => boolean>();
 
-/** Prende o apaga un motivo de "ocupada": envio, grabando, subiendo, adjuntar. */
-export function marcarOcupada(motivo: string, activa: boolean) {
+/** Prende o apaga un motivo para no recargar. */
+export function marcarOcupada(motivo: string, activa: boolean, clase: ClaseDeMotivo = "escrito") {
   if (activa) {
-    ocupaciones.add(motivo);
+    motivos.set(motivo, clase);
   } else {
-    ocupaciones.delete(motivo);
+    motivos.delete(motivo);
   }
 }
 
-export function estaOcupada(ahora = Date.now(), ignorar: string[] = []): boolean {
-  if (ahora - ultimaEscrituraMs < QUIETA_MS) {
-    return true;
-  }
-  for (const motivo of ocupaciones) {
-    if (!ignorar.includes(motivo)) {
+/**
+ * Registra una funcion que dice si hay texto en una caja no controlada (se lee en el momento, asi
+ * cuenta tambien el texto que se puso sin teclear: borrador, sugerencia, respuesta rapida).
+ * Devuelve la funcion para quitarla.
+ */
+export function registrarLectorDeTexto(nombre: string, hayTexto: () => boolean): () => void {
+  lectores.set(nombre, hayTexto);
+  return () => {
+    if (lectores.get(nombre) === hayTexto) {
+      lectores.delete(nombre);
+    }
+  };
+}
+
+function hayMotivoDe(clase: ClaseDeMotivo): boolean {
+  for (const valor of motivos.values()) {
+    if (valor === clase) {
       return true;
     }
   }
   return false;
 }
 
-/** Pide al guardia que mire ya si hay version nueva (tocar la caja, abrir "adjuntar"). */
-export function pedirRevisionDeVersion(ignorar: string[] = []) {
-  if (typeof window === "undefined") {
-    return;
+/** Texto en la caja, borradores guardados, adjuntos o nota de voz. Ante un error, `true`. */
+export function hayTextoEscrito(almacen: AlmacenRecorrible | null = almacenDelNavegador()): boolean {
+  if (hayMotivoDe("escrito")) {
+    return true;
   }
-  window.dispatchEvent(new CustomEvent(EVENTO_REVISAR_VERSION, { detail: { ignorar } }));
-}
-
-/** Pide al chat que guarde ya el borrador (justo antes de recargar). */
-export function pedirGuardadoDeBorrador() {
-  if (typeof window === "undefined") {
-    return;
-  }
-  window.dispatchEvent(new Event(EVENTO_GUARDAR_BORRADOR));
-}
-
-/* ------------------------------ Tope de recargas ------------------------------ */
-
-export type RegistroRecargas = { ultima: number; intentos: number };
-
-export function leerRecargas(almacen: AlmacenSimple | null = almacenDelNavegador()): RegistroRecargas {
-  try {
-    const crudo = almacen?.getItem(CLAVE_RECARGAS);
-    if (crudo) {
-      const dato = JSON.parse(crudo) as Partial<RegistroRecargas>;
-      return { ultima: Number(dato.ultima) || 0, intentos: Number(dato.intentos) || 0 };
+  for (const hayTexto of lectores.values()) {
+    try {
+      if (hayTexto()) {
+        return true;
+      }
+    } catch {
+      return true;
     }
-  } catch {
-    // Sin almacenamiento o dato roto: se parte de cero.
   }
-  return { ultima: 0, intentos: 0 };
+  return hayBorradoresGuardados(almacen);
 }
 
-export function registrarRecarga(ahora = Date.now(), almacen: AlmacenSimple | null = almacenDelNavegador()) {
-  const actual = leerRecargas(almacen);
-  try {
-    almacen?.setItem(CLAVE_RECARGAS, JSON.stringify({ ultima: ahora, intentos: actual.intentos + 1 }));
-  } catch {
-    // Sin almacenamiento: decidirRecarga no podra limitar, pero el boton de respaldo sigue.
-  }
-}
-
-/** La app ya esta al dia: se olvidan los intentos. */
-export function olvidarRecargas(almacen: AlmacenSimple | null = almacenDelNavegador()) {
-  try {
-    almacen?.removeItem(CLAVE_RECARGAS);
-  } catch {
-    // nada
-  }
-}
-
-export type DecisionDeRecarga = "recargar" | "esperar" | "pastilla";
-
-/**
- * Que hacer cuando se sabe que hay version nueva.
- * - pastilla: ya se recargo 2 veces seguidas y la app sigue vieja (el servidor tarda en quedar al dia).
- * - esperar: la asesora esta haciendo algo, o ya se recargo hace menos de un minuto.
- * - recargar: momento seguro.
- */
-export function decidirRecarga(input: {
-  ahora: number;
-  ocupada: boolean;
-  recargas: RegistroRecargas;
-}): DecisionDeRecarga {
-  const { ahora, ocupada, recargas } = input;
-  if (recargas.intentos >= MAX_RECARGAS_SEGUIDAS) {
-    return "pastilla";
-  }
-  if (ocupada) {
-    return "esperar";
-  }
-  if (recargas.intentos > 0 && ahora - recargas.ultima < MIN_ENTRE_RECARGAS_MS) {
-    return "esperar";
-  }
-  return "recargar";
+/** Envios en camino o fallidos que viven en memoria (la cola del navegador se mira aparte). */
+export function hayEnviosEnMemoria(): boolean {
+  return hayMotivoDe("envio");
 }
 
 /* ------------------------------ Borrador por chat ------------------------------ */
@@ -187,99 +135,39 @@ export function borrarBorrador(chatKey: string, almacen: AlmacenSimple | null = 
   }
 }
 
-/* --------------------------- Envio pendiente (reenvio unico) --------------------------- */
-
-export type EnvioPendiente = {
-  chatKey: string;
-  conversationId: string;
-  campos: Array<[string, string]>;
-  /** El texto SIN firma (con el que se compara contra lo guardado en el chat). */
-  texto: string;
-  /** El texto como se ve en la burbuja (con firma). */
-  contenido: string;
-  creadoEn: number;
-};
-
-export function guardarEnvioPendiente(
-  envio: EnvioPendiente,
-  almacen: AlmacenSimple | null = almacenDelNavegador(),
-) {
-  try {
-    almacen?.setItem(CLAVE_PENDIENTE, JSON.stringify(envio));
-  } catch {
-    // Sin almacenamiento: queda como "No se envió" con Reintentar, como antes.
-  }
-}
-
-/**
- * Lee el pendiente y BORRA la marca en el mismo paso, antes de cualquier reenvio: asi nunca se
- * reenvia dos veces, ni aunque la pagina se recargue en mitad del reenvio.
- */
-export function tomarEnvioPendiente(almacen: AlmacenSimple | null = almacenDelNavegador()): EnvioPendiente | null {
-  let crudo: string | null | undefined = null;
-  try {
-    crudo = almacen?.getItem(CLAVE_PENDIENTE);
-    almacen?.removeItem(CLAVE_PENDIENTE);
-  } catch {
-    return null;
-  }
-  if (!crudo) {
-    return null;
+/** ¿Queda algun borrador con texto, de cualquier chat? Si no se puede leer, `true` (no recargar). */
+export function hayBorradoresGuardados(almacen: AlmacenRecorrible | null = almacenDelNavegador()): boolean {
+  if (!almacen) {
+    return false;
   }
   try {
-    const dato = JSON.parse(crudo) as Partial<EnvioPendiente>;
-    if (
-      typeof dato.chatKey !== "string" ||
-      typeof dato.conversationId !== "string" ||
-      typeof dato.texto !== "string" ||
-      typeof dato.contenido !== "string" ||
-      typeof dato.creadoEn !== "number" ||
-      !Array.isArray(dato.campos)
-    ) {
-      return null;
+    for (let indice = 0; indice < almacen.length; indice += 1) {
+      const clave = almacen.key(indice);
+      if (clave?.startsWith(PREFIJO_BORRADOR) && (almacen.getItem(clave) ?? "").trim()) {
+        return true;
+      }
     }
-    return dato as EnvioPendiente;
+    return false;
   } catch {
-    return null;
+    return true;
   }
 }
 
-/**
- * ¿Se puede reenviar? Solo si es del chat abierto, tiene menos de 2 minutos y el texto NO esta ya
- * guardado en el chat (`yaGuardado`, calculado con textoCoincideConGuardado). Ante la duda, no.
- */
-export function puedeReenviarPendiente(input: {
-  pendiente: EnvioPendiente;
-  chatAbiertoId: string;
-  ahora: number;
-  yaGuardado: boolean;
-}): boolean {
-  const { pendiente, chatAbiertoId, ahora, yaGuardado } = input;
-  if (!pendiente.texto.trim() || pendiente.conversationId !== chatAbiertoId) {
-    return false;
-  }
-  const edad = ahora - pendiente.creadoEn;
-  if (edad < 0 || edad > VIDA_MAX_PENDIENTE_MS) {
-    return false;
-  }
-  return !yaGuardado;
-}
-
-/* ------------------------- Revision de version antes de enviar ------------------------- */
+/* ------------------------- Revision de version con espera corta ------------------------- */
 
 /** Si la ultima revision de version es mas reciente que esto, se usa su resultado. */
 export const VIDA_REVISION_MS = 15_000;
-/** Cuanto se espera como maximo la respuesta de /api/version antes de enviar. */
+/** Cuanto se espera como maximo la respuesta de /api/version. */
 export const ESPERA_REVISION_MS = 1_500;
 
 export type RevisionDeVersion = { vieja: boolean; en: number };
 
 /**
- * ¿Hay version nueva justo antes de enviar? Usa la ultima revision si tiene menos de 15 s; si no,
- * pregunta y espera como mucho 1,5 s. Si no contesta a tiempo o falla, responde `false`
- * (se envia normal, como antes de esta mejora). `guardar` recibe el resultado fresco.
+ * ¿Hay version nueva? Usa la ultima revision si tiene menos de 15 s; si no, pregunta y espera como
+ * mucho 1,5 s. Si no contesta a tiempo o falla, responde `false`. `guardar` recibe el resultado fresco.
+ * Solo sirve para decidir en silencio (por ejemplo, no pedir la pantalla entera): nunca frena un envio.
  */
-export async function hayVersionNuevaAntesDeEnviar(input: {
+export async function hayVersionNuevaConEspera(input: {
   ahora: number;
   ultima: RevisionDeVersion | null;
   consultar: () => Promise<boolean>;
@@ -307,20 +195,4 @@ export async function hayVersionNuevaAntesDeEnviar(input: {
   }
   guardar({ vieja: respuesta, en: ahora });
   return respuesta;
-}
-
-/**
- * Envia un texto salvo que haya version nueva: en ese caso NO se llama al servidor (que es el viejo
- * o el nuevo, y rechazaria la accion) y se deja como pendiente para reenviarlo UNA vez tras recargar.
- */
-export async function enviarSalvoVersionVieja<T>(input: {
-  hayVersionNueva: () => Promise<boolean>;
-  enviar: () => Promise<T>;
-  dejarPendiente: () => void;
-}): Promise<{ enviado: true; resultado: T } | { enviado: false }> {
-  if (await input.hayVersionNueva()) {
-    input.dejarPendiente();
-    return { enviado: false };
-  }
-  return { enviado: true, resultado: await input.enviar() };
 }

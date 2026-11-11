@@ -5,23 +5,21 @@ import { useRouter } from "next/navigation";
 
 import { useOpenChatKey } from "@/components/chats/chat-selection-store";
 import { EVENTO_CHATS_RECONECTADO } from "@/lib/chat-envio-reintento";
-import { hayVersionNuevaParaEnviar } from "@/components/app-version-guard";
-import { pedirRevisionDeVersion } from "@/lib/actualizacion-automatica";
+import { hayVersionNuevaReciente } from "@/components/app-version-guard";
 import { atenderChatSinAcceso } from "@/components/chats/guardado-local/sin-acceso";
 
 /**
  * T-722 (10-nov-2026): con una version nueva en el servidor, un router.refresh() hace que Next.js
  * recargue la pagina ENTERA (protege contra versiones mezcladas). Estos refrescos son automaticos:
- * si hay version nueva no se hacen y sale el aviso "Hay una versión nueva del CRM". La asesora
- * actualiza cuando termine. Mientras tanto la lista sigue al dia por el tiempo real (/live).
+ * si hay version nueva no se hacen, en silencio (sin aviso desde el 11-nov-2026). La version nueva
+ * entra al recargar o tras 10 min en segundo plano (app-version-guard.tsx). Mientras tanto la lista
+ * sigue al dia por el tiempo real (/live).
  */
 function refrescarSinRecargar(refrescar: () => void) {
-  void hayVersionNuevaParaEnviar().then((nueva) => {
-    if (nueva) {
-      pedirRevisionDeVersion();
-      return;
+  void hayVersionNuevaReciente().then((nueva) => {
+    if (!nueva) {
+      refrescar();
     }
-    refrescar();
   });
 }
 
