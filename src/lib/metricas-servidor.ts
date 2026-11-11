@@ -248,3 +248,111 @@ export function textoDeAlerta(muestra: MuestraServidor): string {
   ];
   return lineas.join("\n");
 }
+
+// ---------------------------------------------------------------------------------------------------------
+// Parte 3: la pantalla Dirección → Servidor. Funciones PURAS que usan la ruta GET y la página.
+// ---------------------------------------------------------------------------------------------------------
+
+/** Cuántas horas muestra la pantalla. */
+export const HORAS_PANEL = 24;
+
+/** Una foto tal como llega a la pantalla. Los contenedores vienen solo en la última (pesaría mucho en todas). */
+export type FotoPanel = {
+  tomadaEn: string;
+  cpuTotal: number;
+  load1: number;
+  nucleos: number | null;
+  memUsadaMb: number;
+  memTotalMb: number;
+  discoUsadoGb: number;
+  discoTotalGb: number;
+  contenedores?: ContenedorMuestra[];
+};
+
+/** La fila de la base con los campos que se dibujan (sin `contenedores`). */
+export type FilaPanel = Omit<FotoPanel, "tomadaEn" | "contenedores"> & { tomadaEn: Date };
+
+/** Los campos que se leen de la base para la gráfica: nunca `contenedores`. */
+export const CAMPOS_PANEL = {
+  tomadaEn: true,
+  cpuTotal: true,
+  load1: true,
+  nucleos: true,
+  memUsadaMb: true,
+  memTotalMb: true,
+  discoUsadoGb: true,
+  discoTotalGb: true,
+} as const;
+
+/** Desde cuándo se leen las fotos: ahora menos 24 h. */
+export function inicioDelPanel(ahora: Date): Date {
+  return new Date(ahora.getTime() - HORAS_PANEL * 60 * 60_000);
+}
+
+/** Convierte el JSON guardado en una lista segura de contenedores; salta las entradas rotas. */
+export function leerContenedores(json: unknown): ContenedorMuestra[] {
+  if (!Array.isArray(json)) return [];
+  const lista: ContenedorMuestra[] = [];
+  for (const crudo of json) {
+    if (!crudo || typeof crudo !== "object" || Array.isArray(crudo)) continue;
+    const c = crudo as Record<string, unknown>;
+    const nombre = typeof c.nombre === "string" ? c.nombre.trim() : "";
+    if (!nombre || !numeroValido(c.cpu) || !numeroValido(c.memMb)) continue;
+    lista.push({
+      nombre,
+      grupo: esGrupo(c.grupo) ? c.grupo : grupoDelContenedor(nombre),
+      cpu: c.cpu,
+      memMb: c.memMb,
+      memLimiteMb: numeroValido(c.memLimiteMb) ? c.memLimiteMb : null,
+    });
+  }
+  return lista;
+}
+
+/** Arma lo que viaja a la pantalla: las fotos en orden, con los contenedores solo en la última. */
+export function armarPanelServidor(filas: FilaPanel[], contenedoresDeLaUltima: unknown): FotoPanel[] {
+  const fotos: FotoPanel[] = filas.map((fila) => ({ ...fila, tomadaEn: fila.tomadaEn.toISOString() }));
+  if (fotos.length > 0) {
+    fotos[fotos.length - 1].contenedores = leerContenedores(contenedoresDeLaUltima);
+  }
+  return fotos;
+}
+
+/** De mayor a menor CPU; si empatan, por nombre. No cambia la lista original. */
+export function ordenarContenedoresPorCpu(contenedores: readonly ContenedorMuestra[]): ContenedorMuestra[] {
+  return [...contenedores].sort((a, b) => b.cpu - a.cpu || a.nombre.localeCompare(b.nombre));
+}
+
+export type GrupoDelPanel = {
+  grupo: GrupoContenedor;
+  contenedores: ContenedorMuestra[];
+  /** Suma de la CPU de sus contenedores, en %. */
+  cpu: number;
+  /** Suma de la memoria de sus contenedores, en MB. */
+  memMb: number;
+};
+
+/** Los contenedores por grupo, en el orden de GRUPOS_CONTENEDOR y sin los grupos vacíos. */
+export function agruparContenedores(contenedores: readonly ContenedorMuestra[]): GrupoDelPanel[] {
+  return GRUPOS_CONTENEDOR.map((grupo) => {
+    const delGrupo = ordenarContenedoresPorCpu(contenedores.filter((c) => c.grupo === grupo));
+    return {
+      grupo,
+      contenedores: delGrupo,
+      cpu: delGrupo.reduce((suma, c) => suma + c.cpu, 0),
+      memMb: delGrupo.reduce((suma, c) => suma + c.memMb, 0),
+    };
+  }).filter((g) => g.contenedores.length > 0);
+}
+
+export type PuntoPanel = { tomadaEn: string; cpu: number; memoria: number; disco: number };
+
+/** Por cada foto, el % de CPU (efectiva), de memoria y de disco. */
+export function seriePanelServidor(fotos: readonly FotoPanel[]): PuntoPanel[] {
+  return fotos.map((foto) => ({
+    tomadaEn: foto.tomadaEn,
+    cpu: cpuEfectivo(foto),
+    memoria: porcentaje(foto.memUsadaMb, foto.memTotalMb),
+    disco: porcentaje(foto.discoUsadoGb, foto.discoTotalGb),
+  }));
+}

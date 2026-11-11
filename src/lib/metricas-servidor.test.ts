@@ -3,7 +3,15 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
+import { puedeVerDireccion } from "./permisos-del-crm";
 import {
+  CAMPOS_PANEL,
+  agruparContenedores,
+  armarPanelServidor,
+  inicioDelPanel,
+  leerContenedores,
+  ordenarContenedoresPorCpu,
+  seriePanelServidor,
   colorCpu,
   colorDisco,
   colorMemoria,
@@ -12,7 +20,9 @@ import {
   grupoDelContenedor,
   textoDeAlerta,
   validarMuestra,
+  type ContenedorMuestra,
   type EstadoAlertaCpu,
+  type FotoPanel,
   type MuestraServidor,
 } from "./metricas-servidor";
 
@@ -250,4 +260,125 @@ test("la migración de MetricaServidor solo tiene CREATE TABLE y CREATE INDEX", 
     assert.match(s, /^(BEGIN|COMMIT|CREATE TABLE|CREATE INDEX)\b/, s);
   }
   assert.doesNotMatch(sql, /\b(ALTER|DROP|UPDATE|DELETE|INSERT|TRUNCATE)\b/i);
+});
+
+// ---- Parte 3: pantalla Dirección → Servidor ----
+
+const cuenta = (isOwner: boolean, role: string, membershipRole: string) => ({ isOwner, role, membershipRole });
+
+test("Servidor: el dueño y los administradores entran; EMPLEADO, MEMBER y SUPERVISORA no", () => {
+  assert.equal(puedeVerDireccion(cuenta(true, "CLIENTE", "MEMBER")), true);
+  assert.equal(puedeVerDireccion(cuenta(false, "ADMIN", "MEMBER")), true);
+  assert.equal(puedeVerDireccion(cuenta(false, "CLIENTE", "OWNER")), true);
+  assert.equal(puedeVerDireccion(cuenta(false, "CLIENTE", "ADMIN")), true);
+  assert.equal(puedeVerDireccion(cuenta(false, "EMPLEADO", "MEMBER")), false);
+  assert.equal(puedeVerDireccion(cuenta(false, "CLIENTE", "MEMBER")), false);
+  assert.equal(puedeVerDireccion(cuenta(false, "CLIENTE", "SUPERVISORA")), false);
+});
+
+test("la ruta GET y la página exigen la regla de Dirección (401/403 y /unauthorized)", () => {
+  const raiz = process.cwd();
+  const ruta = readFileSync(path.join(raiz, "src/app/api/admin/metricas-servidor/route.ts"), "utf8");
+  assert.match(ruta, /export const dynamic = "force-dynamic"/);
+  assert.match(ruta, /export async function GET/);
+  assert.match(ruta, /status: 401/);
+  assert.match(ruta, /puedeVerDireccion\(access\)[\s\S]*status: 403/);
+  const pagina = readFileSync(path.join(raiz, "src/app/cliente/direccion/servidor/page.tsx"), "utf8");
+  assert.match(pagina, /if \(!puedeVerDireccion\(access\)\) \{\s*redirect\("\/unauthorized"\)/);
+  const lectura = readFileSync(path.join(raiz, "src/lib/metricas-servidor-lectura.ts"), "utf8");
+  assert.match(lectura, /tomadaEn: \{ gte: desde \}/);
+  assert.match(lectura, /orderBy: \{ tomadaEn: "asc" \}/);
+  assert.match(lectura, /select: CAMPOS_PANEL/);
+  assert.equal("contenedores" in CAMPOS_PANEL, false);
+});
+
+test("inicioDelPanel: 24 h antes", () => {
+  assert.equal(inicioDelPanel(INICIO).toISOString(), "2026-11-10T12:00:00.000Z");
+});
+
+const c = (nombre: string, cpu: number, memMb = 100): ContenedorMuestra => ({
+  nombre,
+  grupo: grupoDelContenedor(nombre),
+  cpu,
+  memMb,
+  memLimiteMb: null,
+});
+
+test("ordenarContenedoresPorCpu: de mayor a menor, empates por nombre, sin cambiar la original", () => {
+  const lista = [c("b", 10), c("a", 50), c("d", 10), c("c", 80)];
+  const copia = [...lista];
+  assert.deepEqual(
+    ordenarContenedoresPorCpu(lista).map((x) => x.nombre),
+    ["c", "a", "b", "d"],
+  );
+  assert.deepEqual(lista, copia);
+});
+
+test("agruparContenedores: grupos en orden, sin grupos vacíos y con sumas", () => {
+  const grupos = agruparContenedores([
+    c("waha2", 5, 300),
+    c("otro-cosa", 1, 50),
+    c("crm-aizenbot_app.1", 20, 1000),
+    c("crm-realtime.1", 30, 200),
+  ]);
+  assert.deepEqual(
+    grupos.map((g) => g.grupo),
+    ["CRM", "WAHA", "Otros"],
+  );
+  assert.equal(grupos[0].cpu, 50);
+  assert.equal(grupos[0].memMb, 1200);
+  assert.deepEqual(
+    grupos[0].contenedores.map((x) => x.nombre),
+    ["crm-realtime.1", "crm-aizenbot_app.1"],
+  );
+  assert.deepEqual(agruparContenedores([]), []);
+});
+
+test("leerContenedores: JSON roto da lista vacía y salta entradas rotas", () => {
+  assert.deepEqual(leerContenedores(null), []);
+  assert.deepEqual(leerContenedores("roto"), []);
+  assert.deepEqual(leerContenedores({ nombre: "x" }), []);
+  const lista = leerContenedores([
+    { nombre: "crm-postgres.1", cpu: 3, memMb: 500 },
+    { nombre: "", cpu: 1, memMb: 1 },
+    { nombre: "sin-cpu", memMb: 1 },
+    null,
+    { nombre: "mf8_app", grupo: "Inventado", cpu: 2, memMb: 10, memLimiteMb: 512 },
+  ]);
+  assert.deepEqual(lista, [
+    { nombre: "crm-postgres.1", grupo: "Base", cpu: 3, memMb: 500, memLimiteMb: null },
+    { nombre: "mf8_app", grupo: "Marketplace", cpu: 2, memMb: 10, memLimiteMb: 512 },
+  ]);
+});
+
+test("armarPanelServidor: fechas en ISO y contenedores solo en la última foto", () => {
+  const fila = { cpuTotal: 10, load1: 0.5, nucleos: 4, memUsadaMb: 100, memTotalMb: 200, discoUsadoGb: 50, discoTotalGb: 100 };
+  const fotos = armarPanelServidor(
+    [
+      { ...fila, tomadaEn: INICIO },
+      { ...fila, tomadaEn: minutosDespues(1) },
+    ],
+    [{ nombre: "waha2", cpu: 1, memMb: 2 }],
+  );
+  assert.equal(fotos[0].tomadaEn, INICIO.toISOString());
+  assert.equal(fotos[0].contenedores, undefined);
+  assert.equal(fotos[1].contenedores?.length, 1);
+  assert.deepEqual(armarPanelServidor([], null), []);
+});
+
+test("seriePanelServidor: % de CPU efectiva, memoria y disco; total en 0 da 0 %", () => {
+  const foto: FotoPanel = {
+    tomadaEn: INICIO.toISOString(),
+    cpuTotal: 20,
+    load1: 2,
+    nucleos: 4,
+    memUsadaMb: 750,
+    memTotalMb: 1000,
+    discoUsadoGb: 90,
+    discoTotalGb: 100,
+  };
+  assert.deepEqual(seriePanelServidor([foto]), [{ tomadaEn: foto.tomadaEn, cpu: 50, memoria: 75, disco: 90 }]);
+  const sinTotales = seriePanelServidor([{ ...foto, memTotalMb: 0, discoTotalGb: 0 }])[0];
+  assert.equal(sinTotales.memoria, 0);
+  assert.equal(sinTotales.disco, 0);
 });
