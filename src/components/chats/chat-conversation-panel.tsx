@@ -103,30 +103,31 @@ import {
   actualizarFoto,
   agregarArchivosFallidos,
   agregarFotos,
+  clasificarRespuestaDeEnvio,
+  conReintentosAutomaticos,
   decidirReintento,
+  encolarFoto,
   esFotoEnEnvio,
   fotoComoMensaje,
   fotosDelChat,
   fotosQueYaLlegaron,
   leerFoto,
   marcarFotoEnviada,
+  nuevaClaveDeEnvio,
   nuevoIdDeFoto,
   quitarArchivosFallidos,
   quitarFotos,
+  reanudarEnviosGuardados,
+  tipoDeArchivo,
   useArchivosFallidos,
   useFotosEnEnvio,
-  VIDA_DE_FOTO_ENVIADA_MS,
   type DestinoDeFoto,
   type FotoEnEnvio,
+  type PasoDeEnvio,
+  type SubidaDeEnvio,
 } from "@/components/chats/fotos-en-envio";
 import { cuandoEsteLibre } from "@/lib/cuando-este-libre";
-import {
-  MENSAJE_SIN_CONEXION_ENVIO,
-  TIEMPO_LIMITE_SUBIDA_MS,
-  clasificarEnvio,
-  clasificarSubida,
-  conUnReintento,
-} from "@/lib/nota-de-voz-reintento";
+import { TIEMPO_LIMITE_SUBIDA_MS, clasificarSubida } from "@/lib/nota-de-voz-reintento";
 import { PlaybookPanelDialog } from "@/components/chats/playbook-panel-dialog";
 import { ForwardMessageDialog } from "@/components/chats/forward-message-dialog";
 import { SendFlowDialog, enviarFlujoAlChat } from "@/components/chats/send-flow-dialog";
@@ -179,6 +180,64 @@ const PanelDeEnvio = dynamic(() => import("./panel-de-envio").then((modulo) => m
       <p className="text-xs text-muted-foreground">Cargando…</p>
     ),
 });
+
+/*
+  Sube el archivo de un envio y dice si vale reintentarlo solo.
+
+  Fotos, videos y documentos van por pedazos (subirArchivoPorPedazos, que ya reintenta cada pedazo):
+  una subida que se corto se vuelve a probar; un no del servidor (formato, peso, permisos) o un
+  archivo que el telefono ya no puede leer, no. La nota de voz va de una, con tiempo limite, como
+  antes (clasificarSubida).
+*/
+async function subirArchivoEnEnvio(
+  foto: FotoEnEnvio,
+  archivo: File,
+  onAvance: (avance: number) => void,
+): Promise<PasoDeEnvio<SubidaDeEnvio>> {
+  if (foto.tipo === "AUDIO") {
+    const destino = foto.destinoDeAudio;
+    if (!destino) {
+      return { ok: false, motivo: "No se pudo preparar el envio.", reintentable: false };
+    }
+    // Con tiempo limite: sin esto, con mala señal se quedaba "pensando" para siempre.
+    const control = new AbortController();
+    let vencio = false;
+    const temporizador = setTimeout(() => {
+      vencio = true;
+      control.abort();
+    }, TIEMPO_LIMITE_SUBIDA_MS);
+    try {
+      const formData = new FormData();
+      formData.append("file", archivo);
+      const response = await fetch(destino.uploadPath, { method: "POST", body: formData, signal: control.signal });
+      const data = (await response.json().catch(() => null)) as { url?: string; error?: string } | null;
+      const paso = clasificarSubida({ status: response.status, url: data?.url, error: data?.error });
+      return paso.ok
+        ? { ok: true, valor: { url: paso.valor, fileName: archivo.name, mimeType: archivo.type, mediaType: "AUDIO" } }
+        : { ok: false, motivo: paso.falla.mensaje, reintentable: paso.falla.reintentable };
+    } catch {
+      const paso = clasificarSubida({ status: null, vencio });
+      return { ok: false, motivo: paso.ok ? "No se pudo subir el audio." : paso.falla.mensaje, reintentable: true };
+    } finally {
+      clearTimeout(temporizador);
+    }
+  }
+
+  const destino = foto.destino;
+  if (!destino) {
+    return { ok: false, motivo: "No se pudo preparar el envio.", reintentable: false };
+  }
+  /*
+    Por pedazos, con reintento por pedazo: con la señal de la calle (14-32 KB/s medidos el
+    14-ago-2026) 15 MB en una sola peticion tardan entre 8 y 18 minutos y no llegan a terminar.
+  */
+  const resultado = await subirArchivoPorPedazos({ file: archivo, endpoint: `${destino.uploadPath}/chunk`, onAvance });
+  if (resultado.archivo) {
+    return { ok: true, valor: resultado.archivo };
+  }
+  const motivo = resultado.error || `No se pudo subir "${archivo.name}".`;
+  return { ok: false, motivo, reintentable: /^(Se cortó la subida|La subida)/.test(motivo) };
+}
 
 const CHAT_MESSAGES_BACKGROUND_BASE_STYLE = {
   // Token por defecto de shadcn: blanco con una tonalidad un poco mas oscura.
@@ -629,23 +688,11 @@ export const ConversationPanel = memo(function ConversationPanel({
   const [grabacionPausada, setGrabacionPausada] = useState(false);
   // Nivel del microfono de las ultimas lecturas (0 a 1), para dibujar la onda mientras se graba.
   const [ondaEnVivo, setOndaEnVivo] = useState<number[]>([]);
-  const [isSendingAudio, setIsSendingAudio] = useState(false);
   /*
-    La nota de voz que no salio, para reintentarla sin volver a grabar (08-10-2026: en el celular
-    se quedaba "pensando", salia el aviso y el audio se perdia).
-
-    Se guarda el audio mismo y, si la subida ya habia funcionado, su URL: el reintento entonces
-    solo repite el envio. Tambien el chat al que iba, para no mandarlo a otro si ella cambio.
+    La nota de voz ya no bloquea la caja mientras sale ni deja una tarjeta si falla: va a la cola
+    de archivos en envio (fotos-en-envio.ts) y, si no sale, queda su burbuja en rojo con Reintentar,
+    con el audio guardado.
   */
-  const [notasDeVozFallidas, setNotasDeVozFallidas] = useState<Array<{
-    id: string;
-    blob: Blob;
-    mimeType: string;
-    duracionMs: number;
-    url: string | null;
-    motivo: string;
-    destino: NonNullable<NonNullable<typeof composer>["audio"]>;
-  }>>([]);
 
   // Trae la foto de perfil del contacto abierto AL INSTANTE (acción manual del usuario).
   const handleRefreshAvatar = useCallback(async () => {
@@ -683,35 +730,21 @@ export const ConversationPanel = memo(function ConversationPanel({
   // Aparte del de fotos: con un solo input, el selector del celular ofrece la galeria y esconde
   // el explorador de archivos, que es justo donde esta el PDF.
   const documentoFileInputRef = useRef<HTMLInputElement | null>(null);
-  const [isSendingMedia, setIsSendingMedia] = useState(false);
   const [isSendingLocation, setIsSendingLocation] = useState(false);
-  // Mensajes optimistas de archivos en envío: el documento/imagen aparece en el chat con un
-  // spinner mientras se envía (estilo WhatsApp), SIN bloquear el composer. Se ocultan solos
-  // cuando llega el mensaje real (se deduplican por mediaUrl en el render).
-  const [optimisticMediaMessages, setOptimisticMediaMessages] = useState<SharedInboxMessageItem[]>([]);
   /*
-    Burbuja de archivo o nota de voz ya enviada cuyo mensaje real no llega: se retira sola a los 5
-    minutos (igual que las fotos, VIDA_DE_FOTO_ENVIADA_MS). Sin la recarga de antes no hay nada
-    que la saque si se pierde el aviso, y no puede quedarse girando para siempre.
+    Los archivos en envio -fotos, videos, documentos y notas de voz- (fotos-en-envio.ts): aparecen
+    al tocar Enviar con el archivo local, como ya enviados, y viven fuera del panel para sobrevivir
+    al cambio de chat. Aca solo se muestran los de ESTE chat.
   */
-  const retirarBurbujaSiNoLlega = useCallback((idDeBurbuja: string) => {
-    window.setTimeout(() => {
-      setOptimisticMediaMessages((prev) => prev.filter((message) => message.id !== idDeBurbuja));
-    }, VIDA_DE_FOTO_ENVIADA_MS);
-  }, []);
-  /*
-    Las fotos en envio (fotos-en-envio.ts): aparecen al tocar Enviar con la vista previa local y
-    viven fuera del panel, para sobrevivir al cambio de chat. Aca solo se muestran las de ESTE chat.
-  */
-  const chatDeLasFotos = mediaConfig?.conversationId ?? null;
+  const chatDeLasFotos = mediaConfig?.conversationId ?? audioConfig?.conversationId ?? null;
   const todasLasFotosEnEnvio = useFotosEnEnvio();
   const fotosDeEsteChat = useMemo(
     () => fotosDelChat(todasLasFotosEnEnvio, chatDeLasFotos),
     [todasLasFotosEnEnvio, chatDeLasFotos],
   );
   const fotosPorId = useMemo(() => new Map(fotosDeEsteChat.map((foto) => [foto.id, foto])), [fotosDeEsteChat]);
-  // Lista final a renderizar: mensajes reales + optimistas que aún no llegaron (mismo
-  // mediaUrl ⇒ ya está el real, se descarta el optimista para no duplicar).
+  // Lista final a renderizar: mensajes reales + archivos en envio que aún no llegaron (misma
+  // direccion del servidor ⇒ ya está el real, se descarta el de envio para no duplicar).
   const displayedMessages = useMemo(() => {
     /*
       Las notas internas del Agente V3 fuera de la vista (ver notas-internas-del-agente). El
@@ -721,28 +754,24 @@ export const ConversationPanel = memo(function ConversationPanel({
     const sinNotasInternas = renderedMessages.some(esNotaInternaDelAgente)
       ? renderedMessages.filter((mensaje) => !esNotaInternaDelAgente(mensaje))
       : renderedMessages;
-    if (optimisticMediaMessages.length === 0 && fotosDeEsteChat.length === 0) {
+    if (fotosDeEsteChat.length === 0) {
       return sinNotasInternas;
     }
-    const pending = optimisticMediaMessages.filter(
-      (optimistic) =>
-        !sinNotasInternas.some((real) => Boolean(real.mediaUrl) && real.mediaUrl === optimistic.mediaUrl),
-    );
     /*
-      Una foto se compara contra la direccion del SERVIDOR (la vista previa `blob:` nunca
-      coincidiria). La que ya llego se deja de dibujar en este mismo render, para que no se vean dos
-      un instante; el efecto de abajo la retira del almacen y libera su vista previa.
+      Se compara contra la direccion del SERVIDOR (la vista previa `blob:` nunca coincidiria). El
+      que ya llego se deja de dibujar en este mismo render, para que no se vean dos un instante; el
+      efecto de abajo lo retira del almacen y libera su vista previa.
     */
     const yaLlegaron = new Set(fotosQueYaLlegaron(fotosDeEsteChat, chatDeLasFotos, sinNotasInternas));
-    const fotos = fotosDeEsteChat.filter((foto) => !yaLlegaron.has(foto.id)).map(fotoComoMensaje);
-    if (pending.length === 0 && fotos.length === 0) {
+    const enEnvio = fotosDeEsteChat
+      .filter((foto) => !yaLlegaron.has(foto.id))
+      .map(fotoComoMensaje)
+      .sort((izquierda, derecha) => new Date(izquierda.createdAt).getTime() - new Date(derecha.createdAt).getTime());
+    if (enEnvio.length === 0) {
       return sinNotasInternas;
     }
-    const enEnvio = [...pending, ...fotos].sort(
-      (izquierda, derecha) => new Date(izquierda.createdAt).getTime() - new Date(derecha.createdAt).getTime(),
-    );
     return [...sinNotasInternas, ...enEnvio];
-  }, [renderedMessages, optimisticMediaMessages, fotosDeEsteChat, chatDeLasFotos]);
+  }, [renderedMessages, fotosDeEsteChat, chatDeLasFotos]);
   // Llego el mensaje real de una foto: se retira la burbuja y se libera su vista previa local.
   useEffect(() => {
     const llegaron = fotosQueYaLlegaron(fotosDeEsteChat, chatDeLasFotos, renderedMessages);
@@ -750,7 +779,8 @@ export const ConversationPanel = memo(function ConversationPanel({
       quitarFotos(llegaron);
     }
   }, [fotosDeEsteChat, chatDeLasFotos, renderedMessages]);
-  // Mientras una foto sube o se envia (de cualquier chat), la app no se recarga sola.
+  // Mientras un archivo sube o se envia (de cualquier chat), la app no se recarga sola. Cerrar la
+  // pestaña en ese momento pregunta antes (beforeunload en fotos-en-envio.ts).
   const hayFotosEnCurso = todasLasFotosEnEnvio.some(
     (foto) => foto.estado === "subiendo" || foto.estado === "enviando",
   );
@@ -872,172 +902,80 @@ export const ConversationPanel = memo(function ConversationPanel({
   }, [mediaConfig, audioConfig, isSendingLocation, onScrollToBottom, avisarEnvioTerminado]);
 
   /*
-    Sube y envia UN archivo. Devuelve el MOTIVO del fallo, no solo que fallo.
+    Sube (si hace falta) y envia UN archivo en envio -foto, video, documento o nota de voz- que ya
+    tiene su burbuja en el chat. Devuelve si salio. Lo llama la cola del chat (encolarFoto).
 
-    Antes devolvia true/false y el motivo real se iba con el aviso flotante: en la tarjeta que
-    queda arriba del compositor siempre decia "Revisa la señal", aunque el problema fuera otro
-    -por ejemplo que el telefono no puede LEER el archivo, que es lo que pasa con un video o una
-    foto que llegaron compartidos desde otra app-. Mandaba a la asesora a pelear con la señal
-    cuando la señal estaba bien.
+    Todo sale del envio guardado y no del chat abierto: la asesora puede cambiar de chat a mitad de
+    la subida y el archivo tiene que seguir yendo al chat donde toco Enviar, con su mismo texto.
 
-    No toca el estado de carga global (eso lo maneja el batch) para poder reutilizarlo al enviar
-    varios en secuencia.
-  */
-  const sendSingleMediaFile = useCallback(
-    async (file: File, caption?: string, destino: DestinoDeFoto | undefined = mediaConfig): Promise<string | null> => {
-      if (!destino) {
-        return "No se pudo preparar el envio.";
-      }
+    Los cortes se reintentan solos, sin mostrar nada (conReintentosAutomaticos), y siempre con la
+    misma clave: el servidor reconoce el envio repetido y no lo manda dos veces a WhatsApp. Solo si
+    sigue fallando la burbuja queda en rojo con Reintentar. Una respuesta `{ error }` del servidor
+    no se reintenta sola (ver clasificarRespuestaDeEnvio).
 
-      // Formato y peso ANTES de subir: Excel/Word, HEIC del iPhone, archivos de mas de 100 MB y
-      // videos pesados se avisan al instante y con un texto claro, no tras minutos de subida.
-      const revision = revisarArchivoAntesDeSubir(file);
-      if (!revision.ok) {
-        toast.error(revision.motivo, { duration: 10000 });
-        return revision.motivo;
-      }
-      if (revision.aviso) {
-        toast.warning(revision.aviso, { duration: 10000 });
-      }
-      // Si el telefono no dijo el tipo (Android con .xlsx o .csv), va el deducido por la extension.
-      if (revision.mime !== file.type) {
-        file = new File([file], file.name, { type: revision.mime, lastModified: file.lastModified });
-      }
-      // Fotos (JPEG, PNG, WEBP) a 1600 px y unos 400 KB: suben en una fraccion del tiempo. Va despues
-      // de corregir el tipo para reconocer la foto. Si no se puede comprimir, sale la original.
-      file = await comprimirFotoParaEnviar(file);
-
-      const trimmedCaption = caption?.trim() || "";
-      let optimisticId: string | null = null;
-      try {
-        /**
-         * Por pedazos, con reintento por pedazo.
-         *
-         * Es el camino que mas se usa: la asesora toca adjuntar, entra a Drive, el catalogo se
-         * BAJA al celular y se SUBE aca. Con la señal de la calle (14-32 KB/s medidos el
-         * 14-ago-2026) 15 MB en una sola peticion tardan entre 8 y 18 minutos y no llegan a
-         * terminar: se cortaba sin dejar rastro y el chat decia "No se pudo enviar".
-         */
-        const subida = await subirArchivoPorPedazos({
-          file,
-          endpoint: `${destino.uploadPath}/chunk`,
-        });
-        if (subida.error || !subida.archivo) {
-          const motivo = subida.error || `No se pudo subir "${file.name}".`;
-          toast.error(motivo);
-          return motivo;
-        }
-        const data = subida.archivo;
-
-        // Burbuja optimista: el archivo aparece en el chat con spinner mientras se envía.
-        optimisticId = `optimistic-media:${data.url}`;
-        const optimisticMessage: SharedInboxMessageItem = {
-          id: optimisticId,
-          content: trimmedCaption || null,
-          direction: "OUTBOUND",
-          createdAt: new Date(),
-          authorType: "bot",
-          outboundStatusLabel: null,
-          type: data.mediaType,
-          mediaUrl: data.url,
-          rawPayload: {
-            source: "manual",
-            fileName: data.fileName || file.name,
-            mimeType: data.mimeType || file.type,
-            fileSize: file.size,
-          },
-        };
-        setOptimisticMediaMessages((prev) => [...prev, optimisticMessage]);
-        window.requestAnimationFrame(() => onScrollToBottom());
-
-        const result = await destino.sendAction({
-          source: destino.source,
-          conversationId: destino.conversationId,
-          agentId: destino.agentId,
-          mediaUrl: data.url,
-          mediaType: data.mediaType,
-          fileName: data.fileName || file.name,
-          mimeType: data.mimeType || file.type,
-          caption: trimmedCaption || undefined,
-          returnTo: destino.returnTo,
-        });
-
-        if (result && "ok" in result && result.ok) {
-          avisarEnvioTerminado({ conversationId: destino.conversationId, tipo: data.mediaType });
-          retirarBurbujaSiNoLlega(optimisticId);
-          return null;
-        }
-
-        // Falló el envío: quitar la burbuja optimista.
-        setOptimisticMediaMessages((prev) => prev.filter((message) => message.id !== optimisticId));
-        const motivo =
-          (result && "error" in result && result.error) || `No se pudo enviar "${file.name}".`;
-        toast.error(motivo);
-        return motivo;
-      } catch {
-        if (optimisticId) {
-          const failedId = optimisticId;
-          setOptimisticMediaMessages((prev) => prev.filter((message) => message.id !== failedId));
-        }
-
-        // Ya no se pregunta si la pagina quedo vieja: el envio va por una ruta fija (sendAction es
-        // enviarArchivoPorRuta, ver effectiveComposer) y no se rompe con un despliegue.
-        const motivo = `No se pudo enviar "${file.name}".`;
-        toast.error(motivo);
-        return motivo;
-      }
-    },
-    [mediaConfig, onScrollToBottom, avisarEnvioTerminado, retirarBurbujaSiNoLlega],
-  );
-
-  /*
-    Sube (si hace falta) y envia UNA foto que ya tiene su burbuja en el chat. Devuelve si salio.
-
-    Todo sale de la foto guardada y no del chat abierto: la asesora puede cambiar de chat a mitad de
-    la subida y la foto tiene que seguir yendo al chat donde toco Enviar, con su mismo texto.
-
-    Nada se reintenta solo: el servidor no reconoce envios repetidos, asi que si no hubo respuesta
-    la foto pudo haber salido. Se repite solo con el toque de la asesora en Reintentar.
+    Cada envio deja una linea [envio-medio] en la consola con cuanto tardo cada tramo.
   */
   const enviarFoto = useCallback(async (id: string): Promise<boolean> => {
     const inicial = leerFoto(id);
     if (!inicial) {
       return false;
     }
-    const { destino } = inicial;
-    const nombre = inicial.archivo.name;
+    const arranque = performance.now();
+    const tiempos = { comprimirMs: 0, subirMs: 0, enviarMs: 0, intentosDeSubida: 0, intentosDeEnvio: 0 };
+    const medir = (resultado: "ok" | "fallida", motivo?: string) => {
+      const linea = `[envio-medio] ${JSON.stringify({
+        paso: "navegador",
+        tipo: inicial.tipo,
+        resultado,
+        bytes: leerFoto(id)?.archivo.size ?? inicial.archivo.size,
+        comprimirMs: Math.round(tiempos.comprimirMs),
+        subirMs: Math.round(tiempos.subirMs),
+        enviarMs: Math.round(tiempos.enviarMs),
+        intentosDeSubida: tiempos.intentosDeSubida,
+        intentosDeEnvio: tiempos.intentosDeEnvio,
+        totalMs: Math.round(performance.now() - arranque),
+        ...(motivo ? { motivo } : {}),
+      })}`;
+      if (resultado === "ok") {
+        console.info(linea);
+      } else {
+        console.warn(linea);
+      }
+    };
     const fallar = (motivo: string) => {
       actualizarFoto(id, { estado: "fallida", motivo });
+      medir("fallida", motivo);
+      return false;
     };
 
     let subida = inicial.subida;
-    try {
-      if (!subida) {
-        actualizarFoto(id, { estado: "subiendo", motivo: null, avance: 0 });
-        // Fotos (JPEG, PNG, WEBP) a 1600 px y unos 400 KB. Si no se puede comprimir, sale la original.
-        // Se guarda la comprimida: un reintento no la vuelve a comprimir.
-        let archivo = inicial.archivo;
-        if (!inicial.comprimida) {
-          archivo = await comprimirFotoParaEnviar(archivo);
-          actualizarFoto(id, { archivo, comprimida: true });
-        }
-        const resultado = await subirArchivoPorPedazos({
-          file: archivo,
-          endpoint: `${destino.uploadPath}/chunk`,
-          onAvance: (avance) => actualizarFoto(id, { avance }),
-        });
-        if (resultado.error || !resultado.archivo) {
-          const motivo = resultado.error || `No se pudo subir "${nombre}".`;
-          toast.error(motivo);
-          fallar(motivo);
-          return false;
-        }
-        subida = resultado.archivo;
-        actualizarFoto(id, { subida, avance: 1 });
-        /*
-          Se deja la foto ya descargada en el navegador antes de que llegue el mensaje real: la
-          burbuja real la pide con esta misma direccion y aparece sin parpadear.
-        */
+    if (!subida) {
+      actualizarFoto(id, { estado: "subiendo", motivo: null, avance: 0 });
+      // Fotos (JPEG, PNG, WEBP) a 1600 px y unos 400 KB. Si no se puede comprimir, sale la original.
+      // Se guarda la comprimida: un reintento no la vuelve a comprimir.
+      let archivo = inicial.archivo;
+      if (inicial.tipo === "IMAGE" && !inicial.comprimida) {
+        const desde = performance.now();
+        archivo = await comprimirFotoParaEnviar(archivo);
+        tiempos.comprimirMs = performance.now() - desde;
+        actualizarFoto(id, { archivo, comprimida: true });
+      }
+      const desde = performance.now();
+      const resultado = await conReintentosAutomaticos(() =>
+        subirArchivoEnEnvio(inicial, archivo, (avance) => actualizarFoto(id, { avance })),
+      );
+      tiempos.subirMs = performance.now() - desde;
+      tiempos.intentosDeSubida = resultado.intentos;
+      if (!resultado.ok) {
+        return fallar(resultado.motivo);
+      }
+      subida = resultado.valor;
+      actualizarFoto(id, { subida, avance: 1 });
+      /*
+        Se deja la foto ya descargada en el navegador antes de que llegue el mensaje real: la
+        burbuja real la pide con esta misma direccion y aparece sin parpadear.
+      */
+      if (inicial.tipo === "IMAGE") {
         try {
           const precarga = new Image();
           precarga.decoding = "async";
@@ -1046,40 +984,78 @@ export const ConversationPanel = memo(function ConversationPanel({
           // Sin precarga solo se pierde el "sin parpadeo".
         }
       }
-
-      actualizarFoto(id, { estado: "enviando", motivo: null });
-      const result = await destino.sendAction({
-        source: destino.source,
-        conversationId: destino.conversationId,
-        agentId: destino.agentId,
-        mediaUrl: subida.url,
-        mediaType: subida.mediaType,
-        fileName: subida.fileName || nombre,
-        mimeType: subida.mimeType || inicial.archivo.type,
-        caption: inicial.caption || undefined,
-        returnTo: destino.returnTo,
-      });
-      if (result && "ok" in result && result.ok) {
-        marcarFotoEnviada(id);
-        avisarEnvioTerminado({ conversationId: destino.conversationId, tipo: subida.mediaType });
-        return true;
-      }
-      const motivo = (result && "error" in result && result.error) || `No se pudo enviar "${nombre}".`;
-      toast.error(motivo);
-      fallar(motivo);
-      return false;
-    } catch {
-      // Si la foto ya estaba subida, lo que se corto es el envio: pudo haber salido.
-      const motivo = subida
-        ? "El servidor no respondió: la foto pudo haber salido. Revisa el chat antes de reintentar."
-        : `No se pudo enviar "${nombre}". Revisa la señal.`;
-      toast.error(motivo);
-      fallar(motivo);
-      return false;
     }
+
+    actualizarFoto(id, { estado: "enviando", motivo: null });
+    const subidaFinal = subida;
+    const desdeElEnvio = performance.now();
+    const envio = await conReintentosAutomaticos(async () => {
+      try {
+        let resultado: unknown;
+        if (inicial.tipo === "AUDIO") {
+          const destino = inicial.destinoDeAudio;
+          if (!destino) {
+            return { ok: false as const, motivo: "No se pudo preparar el envio.", reintentable: false };
+          }
+          resultado = await destino.sendAction({
+            source: destino.source,
+            conversationId: destino.conversationId,
+            agentId: destino.agentId,
+            // La nota de voz no lleva clave: el servidor reconoce la misma URL (NOTAS_DE_VOZ_EN_CURSO).
+            audioUrl: subidaFinal.url,
+            returnTo: destino.returnTo,
+          });
+        } else {
+          const destino = inicial.destino;
+          if (!destino || subidaFinal.mediaType === "AUDIO") {
+            return { ok: false as const, motivo: "No se pudo preparar el envio.", reintentable: false };
+          }
+          resultado = await destino.sendAction({
+            source: destino.source,
+            conversationId: destino.conversationId,
+            agentId: destino.agentId,
+            mediaUrl: subidaFinal.url,
+            mediaType: subidaFinal.mediaType,
+            fileName: subidaFinal.fileName || inicial.archivo.name,
+            mimeType: subidaFinal.mimeType || inicial.archivo.type,
+            caption: inicial.caption || undefined,
+            returnTo: destino.returnTo,
+            clientMessageId: inicial.clave,
+          });
+        }
+        return clasificarRespuestaDeEnvio({ resultado });
+      } catch {
+        return clasificarRespuestaDeEnvio({ excepcion: true });
+      }
+    });
+    tiempos.enviarMs = performance.now() - desdeElEnvio;
+    tiempos.intentosDeEnvio = envio.intentos;
+    if (!envio.ok) {
+      return fallar(envio.motivo);
+    }
+    marcarFotoEnviada(id);
+    // Sin router.refresh(): la bandeja trae el mensaje real con /live (onEnvioTerminado).
+    avisarEnvioTerminado({ conversationId: inicial.conversationId, tipo: subidaFinal.mediaType });
+    medir("ok");
+    return true;
   }, [avisarEnvioTerminado]);
 
-  // Reintentar desde la burbuja: solo con el toque explicito de la asesora y solo si esta fallida.
+  /*
+    Lo que quedo guardado en el navegador de una pestaña anterior (se cerro o se recargo a mitad
+    del envio) vuelve al chat y, si es reciente, se retoma solo (reanudarEnviosGuardados). Va con
+    la version mas nueva de enviarFoto aunque el panel cambie.
+  */
+  const enviarFotoRef = useRef(enviarFoto);
+  useEffect(() => {
+    enviarFotoRef.current = enviarFoto;
+  }, [enviarFoto]);
+  useEffect(() => {
+    void reanudarEnviosGuardados((foto) => {
+      void encolarFoto(foto.id, foto.conversationId, (id) => enviarFotoRef.current(id));
+    });
+  }, []);
+
+  // Reintentar desde la burbuja roja: el mismo archivo y la misma clave, sin duplicar.
   const reintentarFoto = useCallback(
     (id: string) => {
       const foto = leerFoto(id);
@@ -1089,8 +1065,7 @@ export const ConversationPanel = memo(function ConversationPanel({
       }
       // Se saca de "fallida" ANTES de empezar: un segundo toque ya no la reintenta.
       actualizarFoto(id, decision === "solo-enviar" ? { estado: "enviando", motivo: null } : { estado: "subiendo", motivo: null, avance: 0 });
-      // Si sale, enviarFoto avisa a la bandeja (onEnvioTerminado): sin recargar la pagina.
-      void enviarFoto(id);
+      void encolarFoto(id, foto.conversationId, enviarFoto);
     },
     [enviarFoto],
   );
@@ -1101,99 +1076,87 @@ export const ConversationPanel = memo(function ConversationPanel({
     }
   }, []);
 
-  // Envía uno o varios archivos en secuencia. No bloquea el composer: cada archivo aparece
-  // como burbuja optimista con spinner y se resuelve al llegar el mensaje real.
+  /*
+    Uno o varios archivos: aparecen en el chat AL TOCAR ENVIAR, todos de una vez y como ya
+    enviados, y salen por debajo en la cola del chat, en el orden elegido. No bloquea nada.
+
+    Las revisiones de hoy van primero: un archivo que no se puede mandar (Excel/Word, HEIC, mas de
+    100 MB) no crea burbuja, se avisa al instante y queda en la tarjeta de arriba del compositor. El
+    mensaje escrito va con el primer archivo, como WhatsApp.
+  */
   const uploadAndSendMediaFiles = useCallback(
-    async (files: File[], caption?: string, destinoDelReintento?: DestinoDeFoto) => {
+    (files: File[], caption?: string, destinoDelReintento?: DestinoDeFoto) => {
       // El reintento de una tarjeta va a SU chat, no al que esta abierto ahora.
       const destino = destinoDelReintento ?? mediaConfig;
       if (!destino || files.length === 0) {
         return;
       }
 
-      setIsSendingMedia(true);
-
-      /*
-        Las fotos aparecen en el chat AL TOCAR ENVIAR, todas de una vez, antes de comprimir o subir.
-        Las revisiones de hoy van primero: una foto HEIC o demasiado pesada no crea burbuja y sigue
-        el camino de siempre (aviso y tarjeta). El mensaje escrito va con el primer archivo.
-      */
-      const fotoDe = new Map<number, string>();
       const nuevas: FotoEnEnvio[] = [];
+      const rechazados: File[] = [];
+      let motivoDelRechazo = "";
+      const creadaEn = new Date();
       files.forEach((file, index) => {
         const revision = revisarArchivoAntesDeSubir(file);
-        if (!revision.ok || !revision.mime.startsWith("image/")) {
+        if (!revision.ok) {
+          toast.error(revision.motivo, { duration: 10000 });
+          rechazados.push(file);
+          motivoDelRechazo = revision.motivo;
           return;
         }
+        if (revision.aviso) {
+          toast.warning(revision.aviso, { duration: 10000 });
+        }
+        // Si el telefono no dijo el tipo (Android con .xlsx o .csv), va el deducido por la extension.
         const archivo =
           revision.mime !== file.type
             ? new File([file], file.name, { type: revision.mime, lastModified: file.lastModified })
             : file;
-        const id = nuevoIdDeFoto();
-        fotoDe.set(index, id);
         nuevas.push({
-          id,
+          id: nuevoIdDeFoto(),
           conversationId: destino.conversationId,
+          tipo: tipoDeArchivo(revision.mime),
+          clave: nuevaClaveDeEnvio(),
           destino,
+          destinoDeAudio: null,
           archivo,
           comprimida: false,
           vistaPrevia: URL.createObjectURL(archivo),
           caption: index === 0 ? caption?.trim() || "" : "",
+          duracionMs: null,
           subida: null,
           avance: 0,
           estado: "subiendo",
           motivo: null,
-          creadaEn: new Date(),
+          // Un milisegundo de diferencia: el orden en el chat es el orden elegido.
+          creadaEn: new Date(creadaEn.getTime() + index),
           enviadaEn: null,
         });
       });
+
       if (nuevas.length > 0) {
         agregarFotos(nuevas);
         window.requestAnimationFrame(() => onScrollToBottom());
+        for (const nueva of nuevas) {
+          void encolarFoto(nueva.id, nueva.conversationId, enviarFoto);
+        }
       }
 
-      let sentCount = 0;
-      const fallidos: File[] = [];
-      let motivoDelFallo = "";
-      try {
-        for (let index = 0; index < files.length; index += 1) {
-          const idDeFoto = fotoDe.get(index);
-          if (idDeFoto) {
-            // Si falla, la foto se queda como burbuja con su motivo y Reintentar: no va a la tarjeta.
-            if (await enviarFoto(idDeFoto)) {
-              sentCount += 1;
-            }
-            continue;
-          }
-          // El caption (mensaje) va con el primer archivo, como WhatsApp.
-          const motivo = await sendSingleMediaFile(files[index], index === 0 ? caption : undefined, destino);
-          if (!motivo) {
-            sentCount += 1;
-          } else {
-            fallidos.push(files[index]);
-            motivoDelFallo = motivo;
-          }
-        }
-      } finally {
-        // El archivo se guarda para poder reintentarlo, en vez de perderse con el aviso. Cada
-        // tarjeta con su chat y su destino: un envio bueno en otro chat no la borra.
-        if (fallidos.length > 0) {
-          agregarArchivosFallidos({
-            id: nuevoIdDeFoto(),
-            conversationId: destino.conversationId,
-            destino,
-            files: fallidos,
-            // El mensaje escrito solo se repite si iba con el archivo que fallo.
-            caption: fallidos[0] === files[0] ? caption : undefined,
-            motivo: motivoDelFallo,
-          });
-        }
-
-        // Sin router.refresh(): cada envio bueno ya aviso a la bandeja (onEnvioTerminado).
-        setIsSendingMedia(false);
+      // Lo rechazado se guarda para poder reintentarlo, en vez de perderse con el aviso. Cada
+      // tarjeta con su chat y su destino.
+      if (rechazados.length > 0) {
+        agregarArchivosFallidos({
+          id: nuevoIdDeFoto(),
+          conversationId: destino.conversationId,
+          destino,
+          files: rechazados,
+          // El mensaje escrito solo se repite si iba con el archivo rechazado.
+          caption: rechazados[0] === files[0] ? caption : undefined,
+          motivo: motivoDelRechazo,
+        });
       }
     },
-    [mediaConfig, sendSingleMediaFile, enviarFoto, onScrollToBottom],
+    [mediaConfig, enviarFoto, onScrollToBottom],
   );
 
   const stopRecordTracks = useCallback(() => {
@@ -1217,135 +1180,49 @@ export const ConversationPanel = memo(function ConversationPanel({
   }, []);
 
   /*
-    Sube y envia una nota de voz. Si algo falla, el audio NO se pierde: queda en `notaDeVozFallida`
-    con su boton de reintentar (ver nota-de-voz-reintento.ts para que se reintenta solo y que no).
-
-    `reintento` llega desde ese boton: trae el chat original y, si ya se habia subido, la URL, asi
-    que solo se repite el envio. Para no mandarla dos veces, el servidor reconoce la misma URL.
+    Una nota de voz grabada: aparece en el chat al instante, como ya enviada, y sale por debajo en
+    la cola del chat (enviarFoto), igual que las fotos. Si falla tras los reintentos automaticos, la
+    burbuja queda en rojo con Reintentar: el audio no se pierde, y el servidor reconoce la misma URL
+    para no mandarla dos veces.
   */
   const uploadAndSendAudio = useCallback(
-    async (
-      blob: Blob,
-      mimeType: string,
-      duracionMs: number,
-      reintento?: { id: string; url: string | null; destino: NonNullable<typeof audioConfig> },
-    ) => {
-      const destino = reintento?.destino ?? audioConfig;
+    (blob: Blob, mimeType: string, duracionMs: number) => {
+      const destino = audioConfig;
       if (!destino) {
         return;
       }
-
-      setIsSendingAudio(true);
-      const id = reintento?.id ?? `nota-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      if (reintento) {
-        setNotasDeVozFallidas((prev) => prev.filter((nota) => nota.id !== id));
-      }
-      let optimisticId: string | null = null;
-      let url: string | null = reintento?.url ?? null;
-      const quitarBurbuja = () => {
-        if (optimisticId) {
-          const failedId = optimisticId;
-          setOptimisticMediaMessages((prev) => prev.filter((message) => message.id !== failedId));
-        }
+      // El mime de MediaRecorder suele venir como "audio/webm;codecs=opus"; usamos el tipo base.
+      const baseMime = mimeType.split(";")[0].trim() || "audio/webm";
+      const ext = baseMime.includes("ogg") || baseMime.includes("opus") ? "ogg" : baseMime.includes("mp4") ? "mp4" : "webm";
+      const archivo = new File([blob], `nota-de-voz-${Date.now()}.${ext}`, { type: baseMime });
+      const nueva: FotoEnEnvio = {
+        id: nuevoIdDeFoto(),
+        conversationId: destino.conversationId,
+        tipo: "AUDIO",
+        clave: nuevaClaveDeEnvio(),
+        destino: null,
+        destinoDeAudio: destino,
+        archivo,
+        comprimida: false,
+        vistaPrevia: URL.createObjectURL(archivo),
+        caption: "",
+        duracionMs,
+        subida: null,
+        avance: 0,
+        estado: "subiendo",
+        motivo: null,
+        creadaEn: new Date(),
+        enviadaEn: null,
       };
-      const fallo = (motivo: string) => {
-        quitarBurbuja();
-        toast.error(motivo);
-        setNotasDeVozFallidas((prev) => [
-          ...prev.filter((nota) => nota.id !== id),
-          { id, blob, mimeType, duracionMs, url, motivo, destino },
-        ]);
-      };
-
-      try {
-        // El mime de MediaRecorder suele venir como "audio/webm;codecs=opus"; usamos el tipo base.
-        const baseMime = mimeType.split(";")[0].trim() || "audio/webm";
-        const ext = baseMime.includes("ogg") || baseMime.includes("opus") ? "ogg" : baseMime.includes("mp4") ? "mp4" : "webm";
-        const file = new File([blob], `nota-de-voz-${Date.now()}.${ext}`, { type: baseMime });
-
-        if (!url) {
-          const subida = await conUnReintento(async () => {
-            // Con tiempo limite: sin esto, con mala señal se quedaba "pensando" para siempre.
-            const control = new AbortController();
-            let vencio = false;
-            const temporizador = setTimeout(() => {
-              vencio = true;
-              control.abort();
-            }, TIEMPO_LIMITE_SUBIDA_MS);
-            try {
-              const formData = new FormData();
-              formData.append("file", file);
-              const response = await fetch(destino.uploadPath, { method: "POST", body: formData, signal: control.signal });
-              const data = (await response.json().catch(() => null)) as { url?: string; error?: string } | null;
-              return clasificarSubida({ status: response.status, url: data?.url, error: data?.error });
-            } catch {
-              return clasificarSubida({ status: null, vencio });
-            } finally {
-              clearTimeout(temporizador);
-            }
-          });
-          if (!subida.ok) {
-            fallo(subida.falla.mensaje);
-            return;
-          }
-          url = subida.valor;
-        }
-        const audioUrl = url;
-
-        optimisticId = `optimistic-media:${audioUrl}`;
-        const optimisticMessage: SharedInboxMessageItem = {
-          id: optimisticId,
-          content: null,
-          direction: "OUTBOUND",
-          createdAt: new Date(),
-          authorType: "bot",
-          outboundStatusLabel: null,
-          type: "AUDIO",
-          mediaUrl: audioUrl,
-          rawPayload: {
-            source: "manual",
-            fileName: file.name,
-            mimeType: baseMime,
-            fileSize: file.size,
-          },
-        };
-        setOptimisticMediaMessages((prev) => [...prev, optimisticMessage]);
-        window.requestAnimationFrame(() => onScrollToBottom());
-
-        // Solo se reintenta si la llamada no dio respuesta; un `{ error }` del servidor no se repite.
-        const envio = await conUnReintento(async () => {
-          try {
-            const result = await destino.sendAction({
-              source: destino.source,
-              conversationId: destino.conversationId,
-              agentId: destino.agentId,
-              audioUrl,
-              returnTo: destino.returnTo,
-            });
-            return clasificarEnvio({ resultado: result });
-          } catch {
-            return clasificarEnvio({ excepcion: true });
-          }
-        });
-
-        if (envio.ok) {
-          // Sin router.refresh(): la bandeja trae el mensaje real con /live (onEnvioTerminado).
-          avisarEnvioTerminado({ conversationId: destino.conversationId, tipo: "AUDIO" });
-          retirarBurbujaSiNoLlega(optimisticId);
-        } else {
-          fallo(envio.falla.mensaje);
-        }
-      } catch {
-        fallo(MENSAJE_SIN_CONEXION_ENVIO);
-      } finally {
-        setIsSendingAudio(false);
-      }
+      agregarFotos([nueva]);
+      window.requestAnimationFrame(() => onScrollToBottom());
+      void encolarFoto(nueva.id, nueva.conversationId, enviarFoto);
     },
-    [audioConfig, onScrollToBottom, avisarEnvioTerminado, retirarBurbujaSiNoLlega],
+    [audioConfig, enviarFoto, onScrollToBottom],
   );
 
   const startAudioRecording = useCallback(async () => {
-    if (!audioConfig || isRecordingAudio || isSendingAudio) {
+    if (!audioConfig || isRecordingAudio) {
       return;
     }
 
@@ -1453,7 +1330,7 @@ export const ConversationPanel = memo(function ConversationPanel({
     } catch {
       stopRecordTracks();
     }
-  }, [audioConfig, clearRecordTimer, isRecordingAudio, isSendingAudio, stopRecordTracks, uploadAndSendAudio]);
+  }, [audioConfig, clearRecordTimer, isRecordingAudio, stopRecordTracks, uploadAndSendAudio]);
 
   const stopAndSendAudio = useCallback(() => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
@@ -1608,7 +1485,8 @@ export const ConversationPanel = memo(function ConversationPanel({
   }, [selectedConversationId, hayCajaDeTexto, autoResizeComposer, guardarBorradorAhora]);
   // Avisos de "ocupada": mientras haya algo en curso, la app no se recarga sola.
   useEffect(() => {
-    marcarOcupada("enviando", enviandoTexto || isSendingMedia || isSendingAudio);
+    // Los archivos en envio se marcan aparte ("fotos-en-envio", mas arriba).
+    marcarOcupada("enviando", enviandoTexto);
     marcarOcupada("grabando", isRecordingAudio);
     marcarOcupada("adjuntar", isAttachMenuOpen || pendingMediaFiles.length > 0);
     return () => {
@@ -1616,7 +1494,7 @@ export const ConversationPanel = memo(function ConversationPanel({
       marcarOcupada("grabando", false);
       marcarOcupada("adjuntar", false);
     };
-  }, [enviandoTexto, isSendingMedia, isSendingAudio, isRecordingAudio, isAttachMenuOpen, pendingMediaFiles.length]);
+  }, [enviandoTexto, isRecordingAudio, isAttachMenuOpen, pendingMediaFiles.length]);
 
   const firma = chatSignature.trim();
 
@@ -2418,7 +2296,6 @@ export const ConversationPanel = memo(function ConversationPanel({
                         haySeleccion={seleccionados.length > 0}
                         onSeleccionar={esFotoEnEnvio(message.id) ? undefined : alternarSeleccion}
                         fotoEstado={fotosPorId.get(message.id)?.estado}
-                        fotoAvance={fotosPorId.get(message.id)?.avance}
                         fotoMotivo={fotosPorId.get(message.id)?.motivo}
                         onReintentarFoto={reintentarFoto}
                         onDescartarFoto={descartarFoto}
@@ -2788,7 +2665,6 @@ export const ConversationPanel = memo(function ConversationPanel({
                                   type="button"
                                   variant="ghost"
                                   size="icon"
-                                  disabled={isSendingMedia}
                                   aria-label="Adjuntar"
                                   title="Adjuntar"
                                   className="inline-flex size-10 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-background hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:size-9"
@@ -2982,7 +2858,6 @@ export const ConversationPanel = memo(function ConversationPanel({
                                   <Button
                                     type="button"
                                     variant="ghost"
-                                    disabled={isSendingAudio}
                                     onClick={() => {
                                       setIsAttachMenuOpen(false);
                                       void startAudioRecording();
@@ -3011,7 +2886,6 @@ export const ConversationPanel = memo(function ConversationPanel({
                               type="button"
                               variant="ghost"
                               size="icon"
-                              disabled={isSendingAudio}
                               className="inline-flex size-10 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-background hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:size-9"
                               aria-label="Abrir selector de emoticones"
                               title="Emoticones"
@@ -3039,8 +2913,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                           ref={composerTextAreaRef}
                           name="message"
                           rows={1}
-                          placeholder={isSendingAudio ? "Enviando nota de voz..." : composer.placeholder || "Escribe un mensaje..."}
-                          disabled={isSendingAudio}
+                          placeholder={composer.placeholder || "Escribe un mensaje..."}
                           // Tocar la caja: se mira si hay version nueva antes de que escriba.
                           onFocus={() => pedirRevisionDeVersion()}
                           onChange={(event) => {
@@ -3090,8 +2963,9 @@ export const ConversationPanel = memo(function ConversationPanel({
                             if (!mediaConfig) {
                               return;
                             }
-                            if (isSendingMedia || isSendingAudio || isRecordingAudio) {
-                              toast.info("Espera a que termine el envío actual para pegar la imagen.");
+                            // Los envios ya no bloquean (van por la cola): solo una grabacion en curso.
+                            if (isRecordingAudio) {
+                              toast.info("Termina la grabación para pegar la imagen.");
                               return;
                             }
                             void copiarArchivosAMemoria(images).then((copia) => {
@@ -3120,7 +2994,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                           variant="ghost"
                           size="icon"
                           onClick={() => void handleSuggestReply()}
-                          disabled={isSuggestingReply || isSendingAudio}
+                          disabled={isSuggestingReply}
                           aria-label="Respuesta sugerida con IA"
                           title="Respuesta sugerida con IA"
                           className="inline-flex size-10 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-muted-foreground/20 hover:text-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:size-9"
@@ -3139,7 +3013,6 @@ export const ConversationPanel = memo(function ConversationPanel({
                             variant="ghost"
                             size="icon"
                             onClick={startAudioRecording}
-                            disabled={isSendingAudio}
                             aria-label="Grabar nota de voz"
                             title="Grabar nota de voz"
                             className="inline-flex size-10 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-muted-foreground/20 focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:size-9"
@@ -3280,11 +3153,10 @@ export const ConversationPanel = memo(function ConversationPanel({
             </span>
             <button
               type="button"
-              disabled={isSendingMedia}
               onClick={() => {
                 // Va al chat y al destino donde se toco Enviar, no al que este abierto.
                 quitarArchivosFallidos(mediaFallida.id);
-                void uploadAndSendMediaFiles(mediaFallida.files, mediaFallida.caption, mediaFallida.destino);
+                uploadAndSendMediaFiles(mediaFallida.files, mediaFallida.caption, mediaFallida.destino);
               }}
               className="shrink-0 rounded-lg bg-amber-600 px-2.5 py-1 text-[12px] font-medium text-white transition hover:opacity-90 disabled:opacity-60"
             >
@@ -3301,45 +3173,6 @@ export const ConversationPanel = memo(function ConversationPanel({
           </div>
         ))}
 
-        {/* La nota de voz que no salio: se queda aca, con su audio, hasta reintentar o descartar. */}
-        {notasDeVozFallidas
-          .filter((nota) => nota.destino.conversationId === audioConfig?.conversationId)
-          .map((nota) => (
-          <div
-            key={nota.id}
-            className="mx-3 mb-2 flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 dark:border-amber-900 dark:bg-amber-950/40"
-          >
-            <Mic className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
-            <span className="min-w-0 flex-1 text-[12px] leading-4 text-amber-900 dark:text-amber-200">
-              Nota de voz{" "}
-              {nota.duracionMs >= 1000 ? `(${Math.round(nota.duracionMs / 1000)} s) ` : ""}
-              no se envió. {nota.motivo}
-            </span>
-            <button
-              type="button"
-              disabled={isSendingAudio}
-              onClick={() => {
-                void uploadAndSendAudio(nota.blob, nota.mimeType, nota.duracionMs, {
-                  id: nota.id,
-                  url: nota.url,
-                  destino: nota.destino,
-                });
-              }}
-              className="shrink-0 rounded-lg bg-amber-600 px-2.5 py-1 text-[12px] font-medium text-white transition hover:opacity-90 disabled:opacity-60"
-            >
-              Reintentar
-            </button>
-            <button
-              type="button"
-              disabled={isSendingAudio}
-              onClick={() => setNotasDeVozFallidas((prev) => prev.filter((otra) => otra.id !== nota.id))}
-              className="shrink-0 rounded-lg px-1.5 py-1 text-[12px] text-amber-800 transition hover:bg-amber-100 disabled:opacity-60 dark:text-amber-300"
-            >
-              Descartar
-            </button>
-          </div>
-          ))}
-
         {pendingMediaFiles.length > 0 ? (
           <MediaPreviewDialog
             files={pendingMediaFiles}
@@ -3349,7 +3182,7 @@ export const ConversationPanel = memo(function ConversationPanel({
             onSend={(caption) => {
               const files = pendingMediaFiles;
               setPendingMediaFiles([]);
-              void uploadAndSendMediaFiles(files, caption);
+              uploadAndSendMediaFiles(files, caption);
             }}
           />
         ) : null}

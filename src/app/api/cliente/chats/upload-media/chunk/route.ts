@@ -34,6 +34,7 @@ import { indiceDePedazoValido, recibirPedazo } from "@/lib/chat-upload-pedazos";
  * compositor antes de subirlas (`src/lib/comprimir-foto.ts`), no esta ruta.
  */
 export async function POST(request: Request) {
+  const inicio = Date.now();
   const session = await auth();
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 401 });
@@ -110,6 +111,16 @@ export async function POST(request: Request) {
 
   const relativeUrl = `/uploads/chat-media/${fileName}`;
   const baseUrl = getBaseUrl(request);
+  // Solo el ultimo pedazo (el que arma el archivo): cuanto tardo este pedido, armado incluido.
+  console.info(
+    `[envio-medio] ${JSON.stringify({
+      paso: "subida-armada",
+      ms: Date.now() - inicio,
+      pedazos: total,
+      tipo: resolveMediaType(mimeDeclarado),
+      userId: session.user.id,
+    })}`,
+  );
 
   return NextResponse.json({
     ok: true,

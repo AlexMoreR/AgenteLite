@@ -287,6 +287,8 @@ export type SharedInboxProps = {
         mimeType: string;
         caption?: string;
         returnTo: string;
+        /** Numero unico del envio: con el, un reintento no sale dos veces (fotos-en-envio.ts). */
+        clientMessageId?: string;
       }) => Promise<{ ok: true } | { error: string }>;
     };
   };

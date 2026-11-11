@@ -19,7 +19,8 @@
 */
 
 export const RUTAS_DE_ENVIO = {
-  "enviar-archivo": ["source", "conversationId", "agentId", "mediaUrl", "mediaType", "fileName", "mimeType", "caption", "returnTo"],
+  // clientMessageId: agregado despues, opcional (un reintento con el mismo numero no sale dos veces).
+  "enviar-archivo": ["source", "conversationId", "agentId", "mediaUrl", "mediaType", "fileName", "mimeType", "caption", "returnTo", "clientMessageId"],
   "enviar-audio": ["source", "conversationId", "agentId", "audioUrl", "returnTo"],
   "enviar-ubicacion": ["conversationId", "agentId", "returnTo"],
   "enviar-flujo": ["source", "conversationId", "flowId", "agentId"],

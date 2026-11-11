@@ -35,6 +35,8 @@ export type EntradaDeArchivo = {
   mimeType: string;
   caption?: string;
   returnTo?: string;
+  /** Opcional: numero unico del envio, para que un reintento no salga dos veces. */
+  clientMessageId?: string;
 };
 
 export type EntradaDeAudio = {

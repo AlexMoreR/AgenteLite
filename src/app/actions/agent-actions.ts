@@ -3298,6 +3298,7 @@ async function enviarNotaDeVoz(
   }
 
   let outbound;
+  const inicioDelGateway = Date.now();
   try {
     outbound = await sendEvolutionAudioMessage({
       instanceName: conversation.channel.evolutionInstanceName,
@@ -3310,8 +3311,26 @@ async function enviarNotaDeVoz(
     });
   } catch (audioSendError) {
     const detail = audioSendError instanceof Error ? audioSendError.message : "";
+    registrarEnvioDeMedio(
+      {
+        resultado: "fallo",
+        canal: "evolution",
+        tipo: "AUDIO",
+        conversationId: conversation.id,
+        gatewayMs: Date.now() - inicioDelGateway,
+        error: detail || "sin detalle",
+      },
+      true,
+    );
     return { error: detail ? `No se pudo enviar la nota de voz: ${detail}` : "No se pudo enviar la nota de voz" };
   }
+  registrarEnvioDeMedio({
+    resultado: "ok",
+    canal: "evolution",
+    tipo: "AUDIO",
+    conversationId: conversation.id,
+    gatewayMs: Date.now() - inicioDelGateway,
+  });
 
   const now = new Date();
   await prisma.message.create({
@@ -3373,7 +3392,30 @@ const sendChatMediaReplySchema = z.object({
   mimeType: z.string().min(1),
   caption: z.string().optional(),
   returnTo: z.string().optional(),
+  // Numero unico del envio (lo pone el navegador, fotos-en-envio.ts). Opcional: una pestaña vieja
+  // o el reenvio no lo mandan y salen como siempre.
+  clientMessageId: z.string().optional(),
 });
+
+/*
+  Archivos que se estan enviando (o se enviaron hace poco), por chat + numero unico del envio.
+
+  El navegador reintenta solo cuando no tuvo respuesta. Pero el primer intento pudo haber llegado y
+  seguir esperando a WhatsApp: el reintento se engancha a ese envio en vez de mandarlo de nuevo.
+  Si ya termino, se mira en la base (enviarArchivoDelChat). Mismo criterio que NOTAS_DE_VOZ_EN_CURSO.
+*/
+const ARCHIVOS_EN_CURSO = new Map<string, { promesa: Promise<{ ok: true } | { error: string }>; at: number }>();
+const VIDA_ARCHIVO_EN_CURSO_MS = 10 * 60_000;
+
+/** Una linea por envio con prefijo [envio-medio]: cuanto tardo cada tramo. Sin telefonos ni contenido. */
+function registrarEnvioDeMedio(datos: Record<string, unknown>, fallo = false) {
+  const linea = `[envio-medio] ${JSON.stringify({ paso: "servidor", ...datos })}`;
+  if (fallo) {
+    console.error(linea);
+  } else {
+    console.info(linea);
+  }
+}
 
 /**
  * Envia un archivo (o un audio) por el canal de API OFICIAL.
@@ -3457,7 +3499,51 @@ export async function sendChatMediaReplyAction(input: {
   mimeType: string;
   caption?: string;
   returnTo: string;
+  clientMessageId?: string;
 }): Promise<{ ok: true } | { error: string }> {
+  const clave = idDeMensajeValido(input?.clientMessageId);
+  const claveEnCurso = clave && typeof input?.conversationId === "string" ? `${input.conversationId}:${clave}` : null;
+
+  const ahora = Date.now();
+  for (const [claveVieja, entrada] of ARCHIVOS_EN_CURSO) {
+    if (ahora - entrada.at > VIDA_ARCHIVO_EN_CURSO_MS) {
+      ARCHIVOS_EN_CURSO.delete(claveVieja);
+    }
+  }
+
+  const enCurso = claveEnCurso ? ARCHIVOS_EN_CURSO.get(claveEnCurso) : undefined;
+  if (enCurso) {
+    const resultado = await enCurso.promesa.catch(() => ({ error: "fallo el intento anterior" }));
+    // Si el primero fallo, este reintento si vale: se manda de nuevo.
+    if ("ok" in resultado) {
+      registrarEnvioDeMedio({ resultado: "repetido", motivo: "mismo envio en curso o ya enviado", conversationId: input.conversationId });
+      return resultado;
+    }
+  }
+
+  const promesa = enviarArchivoDelChat(input, clave);
+  if (claveEnCurso) {
+    ARCHIVOS_EN_CURSO.set(claveEnCurso, { promesa, at: Date.now() });
+  }
+  try {
+    const resultado = await promesa;
+    if (!("ok" in resultado) && claveEnCurso) {
+      ARCHIVOS_EN_CURSO.delete(claveEnCurso);
+    }
+    return resultado;
+  } catch (error) {
+    if (claveEnCurso) {
+      ARCHIVOS_EN_CURSO.delete(claveEnCurso);
+    }
+    throw error;
+  }
+}
+
+async function enviarArchivoDelChat(
+  input: Parameters<typeof sendChatMediaReplyAction>[0],
+  clave: string | null,
+): Promise<{ ok: true } | { error: string }> {
+  const inicio = Date.now();
   const session = await auth();
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     return { error: "No autorizado" };
@@ -3485,6 +3571,27 @@ export async function sendChatMediaReplyAction(input: {
   }
 
   if (parsed.data.source === "official") {
+    /*
+      Reintento de un envio que ya salio (la respuesta se perdio): no se repite. Solo con numero
+      unico: ese envio viene de la cola del chat, donde cada subida tiene su propia direccion. Sin
+      el (reenvio, pestaña vieja) sale como siempre.
+    */
+    if (clave) {
+      const yaEnviado = await prisma.officialApiMessage.findFirst({
+        where: {
+          conversationId: parsed.data.conversationId,
+          direction: "OUTBOUND",
+          mediaUrl: parsed.data.mediaUrl,
+          createdAt: { gte: new Date(Date.now() - 86_400_000) },
+        },
+        select: { id: true },
+      });
+      if (yaEnviado) {
+        registrarEnvioDeMedio({ resultado: "repetido", canal: "official", conversationId: parsed.data.conversationId });
+        return { ok: true };
+      }
+    }
+    const inicioDelGateway = Date.now();
     const enviado = await sendOfficialApiChatFile({
       workspaceId: membership.workspace.id,
       conversationId: parsed.data.conversationId,
@@ -3493,6 +3600,18 @@ export async function sendChatMediaReplyAction(input: {
       fileName: parsed.data.fileName,
       caption: parsed.data.caption,
     });
+    registrarEnvioDeMedio(
+      {
+        resultado: "ok" in enviado ? "ok" : "fallo",
+        canal: "official",
+        tipo: parsed.data.mediaType,
+        conversationId: parsed.data.conversationId,
+        gatewayMs: Date.now() - inicioDelGateway,
+        totalMs: Date.now() - inicio,
+        ...("error" in enviado ? { error: enviado.error } : {}),
+      },
+      "error" in enviado,
+    );
 
     // Mandar el catalogo tambien es atender: quien lo hace se queda con el lead si no tenia dueño.
     if ("ok" in enviado && enviado.ok) {
@@ -3526,6 +3645,23 @@ export async function sendChatMediaReplyAction(input: {
     return { error: "No se encontro el canal o contacto" };
   }
 
+  // Mismo numero unico ya guardado: es un reintento de un envio que SI salio. No se repite.
+  if (clave) {
+    const yaEnviado = await prisma.message.findFirst({
+      where: {
+        workspaceId: membership.workspace.id,
+        conversationId: conversation.id,
+        direction: "OUTBOUND",
+        rawPayload: { path: ["clientMessageId"], equals: clave },
+      },
+      select: { id: true },
+    });
+    if (yaEnviado) {
+      registrarEnvioDeMedio({ resultado: "repetido", canal: "evolution", conversationId: conversation.id });
+      return { ok: true };
+    }
+  }
+
   /*
     Solo se mira cuanto pesa; el archivo NO se carga entero.
 
@@ -3534,9 +3670,12 @@ export async function sendChatMediaReplyAction(input: {
     Postgres por falta de RAM, y ademas al pedo: el gateway se lleva la URL, no el contenido.
 
     El respaldo en base64 se conserva solo para los archivos chicos, que es donde de verdad
-    sirvio alguna vez (una nota de voz, una foto).
+    sirvio alguna vez (una nota de voz, una foto). Y se lee recien si hace falta: si el gateway
+    baja la URL, que es lo normal, no se lee ni se convierte nada (antes se leia hasta 8 MB en cada
+    envio, antes de hablar con WhatsApp).
   */
-  let mediaBase64 = "";
+  const inicioDeLectura = Date.now();
+  let leerRespaldo: (() => Promise<string | null>) | null = null;
   let fileSize = 0;
   let mediaPathname = "";
   try {
@@ -3546,11 +3685,12 @@ export async function sendChatMediaReplyAction(input: {
     const filePath = path.join(process.cwd(), "public", mediaPathname);
     fileSize = (await stat(filePath)).size;
     if (fileSize <= MAX_BASE64_FALLBACK_BYTES) {
-      mediaBase64 = (await readFile(filePath)).toString("base64");
+      leerRespaldo = async () => (await readFile(filePath)).toString("base64");
     }
   } catch {
     return { error: "No se pudo leer el archivo" };
   }
+  const leerMs = Date.now() - inicioDeLectura;
 
   // Evolution GO (/send/media) descarga la media desde una URL pública (no acepta base64),
   // por eso enviamos la URL absoluta pública y dejamos el base64 solo como respaldo legacy.
@@ -3559,6 +3699,7 @@ export async function sendChatMediaReplyAction(input: {
   const caption = parsed.data.caption?.trim() || "";
 
   let outbound;
+  const inicioDelGateway = Date.now();
   try {
     outbound = await sendEvolutionMediaUrl({
       instanceName: conversation.channel.evolutionInstanceName,
@@ -3568,10 +3709,24 @@ export async function sendChatMediaReplyAction(input: {
       url: publicMediaUrl,
       fileName: parsed.data.fileName,
       caption,
-      base64Fallback: mediaBase64,
+      base64Fallback: leerRespaldo,
     });
   } catch (mediaError) {
     const detail = mediaError instanceof Error ? mediaError.message : "";
+    registrarEnvioDeMedio(
+      {
+        resultado: "fallo",
+        canal: "evolution",
+        tipo: parsed.data.mediaType,
+        conversationId: conversation.id,
+        pesoKb: Math.round(fileSize / 1024),
+        leerMs,
+        gatewayMs: Date.now() - inicioDelGateway,
+        totalMs: Date.now() - inicio,
+        error: detail || "sin detalle",
+      },
+      true,
+    );
     // Sin esto el fallo era mudo por los dos lados: la asesora veia "No se pudo enviar X.pdf"
     // sin motivo, y en el servidor no quedaba rastro. Se registra el POR QUE, con el peso y la
     // instancia, que es lo primero que se necesita cuando dicen "no puedo mandar catalogos".
@@ -3586,6 +3741,8 @@ export async function sendChatMediaReplyAction(input: {
     return { error: detail ? `No se pudo enviar el archivo: ${detail}` : "No se pudo enviar el archivo" };
   }
 
+  const gatewayMs = Date.now() - inicioDelGateway;
+  const inicioDelGuardado = Date.now();
   const now = new Date();
 
   /**
@@ -3619,6 +3776,7 @@ export async function sendChatMediaReplyAction(input: {
           fileName: parsed.data.fileName,
           mimeType: parsed.data.mimeType,
           fileSize,
+          ...(clave ? { clientMessageId: clave } : {}),
           evolution: outbound.raw,
         } as never,
       },
@@ -3656,6 +3814,17 @@ export async function sendChatMediaReplyAction(input: {
     workspaceId: membership.workspace.id,
   });
 
+  registrarEnvioDeMedio({
+    resultado: "ok",
+    canal: "evolution",
+    tipo: parsed.data.mediaType,
+    conversationId: conversation.id,
+    pesoKb: Math.round(fileSize / 1024),
+    leerMs,
+    gatewayMs,
+    guardarMs: Date.now() - inicioDelGuardado,
+    totalMs: Date.now() - inicio,
+  });
   return { ok: true };
 }
 

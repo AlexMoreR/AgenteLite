@@ -2856,7 +2856,8 @@ export async function sendEvolutionMediaUrl(input: {
   url: string;
   fileName: string;
   caption?: string | null;
-  base64Fallback?: string | null;
+  /** El contenido en base64, o una funcion que lo lee recien si la URL falla (no se lee de gusto). */
+  base64Fallback?: string | null | (() => Promise<string | null>);
   delayMs?: number;
 }) {
   const normalizedCaption = input.caption?.trim() || "";
@@ -2892,11 +2893,15 @@ export async function sendEvolutionMediaUrl(input: {
   try {
     return await send(input.url);
   } catch (error) {
-    if (!input.base64Fallback?.trim()) {
+    const respaldo =
+      typeof input.base64Fallback === "function"
+        ? await input.base64Fallback().catch(() => null)
+        : input.base64Fallback;
+    if (!respaldo?.trim()) {
       throw error;
     }
 
-    return await send(input.base64Fallback);
+    return await send(respaldo);
   }
 }
 

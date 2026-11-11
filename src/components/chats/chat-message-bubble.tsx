@@ -808,54 +808,49 @@ function MessageActionsMenu({
 }
 
 /*
-  La barra de subida que va sobre una foto en envio.
-
-  Una foto ya comprimida suele pesar menos de un pedazo (512 KB, subir-archivo-por-pedazos.ts) y
-  sube de una: el avance real saltaria de 0 a 100 %. En ese caso la barra avanza de forma continua
-  hasta casi el final, sin mostrar un porcentaje inventado. Con varios pedazos sigue el avance real.
-  Al terminar la subida se llena y dice que se esta enviando.
+  El aviso de un archivo que no se pudo enviar (fotos-en-envio.ts): en rojo, "No se envió ·
+  Reintentar", con el motivo real debajo. Solo aparece cuando ya se gastaron los reintentos
+  automaticos. Reintentar usa el mismo archivo y la misma clave: no sale dos veces.
 */
-const UN_SOLO_PEDAZO_BYTES = 512 * 1024;
-
-function BarraDeSubida({
-  estado,
-  avance,
-  pesoDelArchivo,
+function AvisoDeEnvioFallido({
+  id,
+  motivo,
+  onReintentar,
+  onDescartar,
 }: {
-  estado: "subiendo" | "enviando";
-  avance: number;
-  pesoDelArchivo: number | null;
+  id: string;
+  motivo?: string | null;
+  onReintentar?: (id: string) => void;
+  onDescartar?: (id: string) => void;
 }) {
-  const [arrancada, setArrancada] = useState(false);
-  useEffect(() => {
-    const cuadro = window.requestAnimationFrame(() => setArrancada(true));
-    return () => window.cancelAnimationFrame(cuadro);
-  }, []);
-  const avanceReal = Math.min(1, Math.max(0, avance));
-  const deUnaVez = pesoDelArchivo !== null && pesoDelArchivo <= UN_SOLO_PEDAZO_BYTES;
-  const continua = estado === "subiendo" && deUnaVez && avanceReal < 1;
-  const ancho =
-    estado === "enviando" ? 1 : continua ? (arrancada ? 0.9 : 0.04) : Math.max(0.04, avanceReal);
   return (
-    <div className="pointer-events-none absolute inset-x-2 top-2 flex items-center gap-2 rounded-full bg-black/45 px-2 py-1 text-[10px] leading-none text-white">
-      <LoaderCircle className="h-3 w-3 shrink-0 animate-spin" aria-hidden="true" />
-      <div
-        className="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-white/30"
-        role="progressbar"
-        aria-label={estado === "enviando" ? "Enviando foto" : "Subiendo foto"}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={continua ? undefined : Math.round(ancho * 100)}
-      >
-        <div
-          className="h-full rounded-full bg-white"
-          style={{
-            width: `${ancho * 100}%`,
-            transition: continua ? "width 12s cubic-bezier(0.1, 0.7, 0.3, 1)" : "width 300ms ease-out",
-          }}
-        />
-      </div>
-      <span className="shrink-0">{estado === "enviando" ? "Enviando…" : "Subiendo…"}</span>
+    <div className="flex flex-wrap items-center gap-1 px-1 pt-1 text-[12px] font-medium text-red-700 dark:text-red-300">
+      <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden="true" />
+      No se envió
+      {onReintentar ? (
+        <>
+          <span aria-hidden="true">·</span>
+          <button
+            type="button"
+            onClick={() => onReintentar(id)}
+            className="ml-0.5 inline-flex min-h-7 cursor-pointer items-center gap-1 rounded-full bg-red-600/15 px-2.5 py-1 font-semibold text-red-800 transition hover:bg-red-600/25 dark:bg-red-300/20 dark:text-red-200 dark:hover:bg-red-300/30"
+          >
+            <RotateCcw className="h-3 w-3" />
+            Reintentar
+          </button>
+        </>
+      ) : null}
+      {onDescartar ? (
+        <button
+          type="button"
+          onClick={() => onDescartar(id)}
+          className="inline-flex min-h-7 cursor-pointer items-center gap-1 rounded-full bg-red-600/10 px-2.5 py-1 font-semibold text-red-800 transition hover:bg-red-600/20 dark:bg-red-300/15 dark:text-red-200 dark:hover:bg-red-300/25"
+        >
+          <X className="h-3 w-3" />
+          Descartar
+        </button>
+      ) : null}
+      {motivo?.trim() ? <span className="basis-full text-[11px] font-normal">{motivo.trim()}</span> : null}
     </div>
   );
 }
@@ -878,7 +873,6 @@ export const MessageBubble = memo(function MessageBubble({
   avatarUrl,
   contactLabel,
   fotoEstado,
-  fotoAvance,
   fotoMotivo,
   onReintentarFoto,
   onDescartarFoto,
@@ -902,12 +896,11 @@ export const MessageBubble = memo(function MessageBubble({
   avatarUrl?: string | null;
   contactLabel?: string | null;
   /*
-    Foto en envio (fotos-en-envio.ts): la vista previa local mientras sube. Llegan sueltos y no
-    como objeto para que el memo de la burbuja no la vuelva a dibujar en cada cambio del chat.
+    Archivo en envio (fotos-en-envio.ts): el archivo local, dibujado como ya enviado mientras sale
+    por debajo. Llegan sueltos y no como objeto para que el memo de la burbuja no la vuelva a
+    dibujar en cada cambio del chat.
   */
   fotoEstado?: EstadoDeFoto;
-  /** Avance real de la subida, de 0 a 1. */
-  fotoAvance?: number;
   /** El motivo real del fallo. */
   fotoMotivo?: string | null;
   onReintentarFoto?: (id: string) => void;
@@ -996,8 +989,13 @@ export const MessageBubble = memo(function MessageBubble({
   */
   const esPdf = useMemo(() => {
     const direccion = (documentUrl ?? "").toLowerCase();
+    // Un PDF en la cola de envio tiene una direccion local (`blob:`) sin extension: ahi manda el tipo.
+    if (direccion.startsWith("blob:")) {
+      const tipo = (message.rawPayload as { mimeType?: unknown } | null | undefined)?.mimeType;
+      return tipo === "application/pdf";
+    }
     return /\.pdf($|[?#])/.test(direccion) || direccion.includes(".pdf");
-  }, [documentUrl]);
+  }, [documentUrl, message.rawPayload]);
 
   /*
     Lo que manda el ancho de la burbuja: la nota de voz, el PDF y los stickers.
@@ -1028,8 +1026,13 @@ export const MessageBubble = memo(function MessageBubble({
     () => (message.type === "LOCATION" ? extractEvolutionLocation(message.rawPayload) : null),
     [message],
   );
-  // Mensaje de archivo aún enviándose (burbuja optimista): muestra spinner en vez de hora.
-  const isPendingMedia = message.id.startsWith("optimistic-media:") && fotoEstado !== "fallida";
+  /*
+    Un archivo de la cola de envio (trae fotoEstado) se dibuja como ya enviado: con su ✓, sin
+    ruedita ni reloj, mientras sale por debajo. Solo si falla del todo cambia (fotoFallida). La
+    ruedita queda para una burbuja optimista de archivo que no venga de la cola.
+  */
+  const enColaDeEnvio = Boolean(fotoEstado) && fotoEstado !== "fallida";
+  const isPendingMedia = message.id.startsWith("optimistic-media:") && !fotoEstado;
   const fotoFallida = fotoEstado === "fallida";
   const isDeleted = Boolean(message.deletedAt);
   const mediaPreviewLabel = getMediaPreviewLabel(message.type);
@@ -1262,6 +1265,10 @@ export const MessageBubble = memo(function MessageBubble({
             {isPendingMedia ? (
               <LoaderCircle className="ml-0.5 h-3 w-3 shrink-0 animate-spin" aria-label="Enviando" />
             ) : null}
+            {outbound && enColaDeEnvio ? (
+              // En la cola de envio se ve como ya enviado (fotos-en-envio.ts): sin ruedita ni reloj.
+              <Check className="ml-1 h-3 w-3 shrink-0" aria-label="Enviado" />
+            ) : null}
             {outbound && !message.outboundStatusLabel && message.id.startsWith("optimistic:") ? (
               // Burbuja optimista: reloj tenue del mismo ancho que el ✓ que trae la real, como
               // WhatsApp. Sin esto la hora se corria al llegar el mensaje guardado.
@@ -1348,7 +1355,9 @@ export const MessageBubble = memo(function MessageBubble({
     <span className="inline-flex items-center gap-1 text-[11px] leading-none text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.7)]">
       {message.authorType === "bot" ? <Bot className={`h-3 w-3 shrink-0 ${sombraDelIcono}`} aria-label="Bot" /> : null}
       {formatChatTime(message.createdAt)}
-      {!outbound ? null : isPendingMedia || (!message.outboundStatusLabel && message.id.startsWith("optimistic")) ? (
+      {!outbound || fotoFallida ? null : enColaDeEnvio ? (
+        <Check className={`h-3.5 w-3.5 shrink-0 ${sombraDelIcono}`} aria-label="Enviado" />
+      ) : isPendingMedia || (!message.outboundStatusLabel && message.id.startsWith("optimistic")) ? (
         <Clock3 className={`h-3 w-3 shrink-0 ${sombraDelIcono}`} aria-label="Enviando" />
       ) : message.outboundStatusLabel === "READ" ? (
         <CheckCheck className={`h-3.5 w-3.5 shrink-0 text-sky-300 ${sombraDelIcono}`} aria-label="Leído" />
@@ -1716,19 +1725,6 @@ export const MessageBubble = memo(function MessageBubble({
                   />
                   <span className="pointer-events-none absolute inset-0 rounded-[6px] ring-1 ring-inset ring-black/5 transition group-hover:bg-black/5" />
                 </button>
-                {fotoEstado === "subiendo" || fotoEstado === "enviando" ? (
-                  <BarraDeSubida
-                    estado={fotoEstado}
-                    avance={fotoAvance ?? 0}
-                    pesoDelArchivo={
-                      typeof message.rawPayload === "object" &&
-                      message.rawPayload !== null &&
-                      typeof (message.rawPayload as { fileSize?: unknown }).fileSize === "number"
-                        ? ((message.rawPayload as { fileSize: number }).fileSize)
-                        : null
-                    }
-                  />
-                ) : null}
                 {fotoFallida ? (
                   <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-[6px] bg-black/35">
                     <span className="inline-flex size-9 items-center justify-center rounded-full bg-black/55 text-white">
@@ -1742,33 +1738,12 @@ export const MessageBubble = memo(function MessageBubble({
               </div>
               {fotoFallida ? (
                 // Como el texto que no salio: el motivo real a la vista, Reintentar y Descartar.
-                <div className="flex flex-wrap items-center gap-1 px-1 text-[12px] font-medium text-amber-700 dark:text-amber-300">
-                  <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden="true" />
-                  No se envió
-                  {onReintentarFoto ? (
-                    <button
-                      type="button"
-                      onClick={() => onReintentarFoto(message.id)}
-                      className="ml-0.5 inline-flex min-h-7 cursor-pointer items-center gap-1 rounded-full bg-amber-600/15 px-2.5 py-1 font-semibold text-amber-800 transition hover:bg-amber-600/25 dark:bg-amber-300/20 dark:text-amber-200 dark:hover:bg-amber-300/30"
-                    >
-                      <RotateCcw className="h-3 w-3" />
-                      Reintentar
-                    </button>
-                  ) : null}
-                  {onDescartarFoto ? (
-                    <button
-                      type="button"
-                      onClick={() => onDescartarFoto(message.id)}
-                      className="inline-flex min-h-7 cursor-pointer items-center gap-1 rounded-full bg-amber-600/10 px-2.5 py-1 font-semibold text-amber-800 transition hover:bg-amber-600/20 dark:bg-amber-300/15 dark:text-amber-200 dark:hover:bg-amber-300/25"
-                    >
-                      <X className="h-3 w-3" />
-                      Descartar
-                    </button>
-                  ) : null}
-                  {fotoMotivo?.trim() ? (
-                    <span className="basis-full text-[11px] font-normal">{fotoMotivo.trim()}</span>
-                  ) : null}
-                </div>
+                <AvisoDeEnvioFallido
+                  id={message.id}
+                  motivo={fotoMotivo}
+                  onReintentar={onReintentarFoto}
+                  onDescartar={onDescartarFoto}
+                />
               ) : null}
               {pieDelMedio}
               {portalTarget && isImageViewerOpen && hasImagePreview
@@ -2160,6 +2135,16 @@ export const MessageBubble = memo(function MessageBubble({
           {/* Fotos, videos y stickers ya la dibujan adentro (horaSobreElMedio o pieDelMedio). */}
           {horaEnElAudio || horaDentroDelMedio ? null : filaDeLaHora}
           </div>
+
+          {/* Video, nota de voz o documento que no se pudo enviar (la foto lo muestra bajo la imagen). */}
+          {fotoFallida && !hasImagePreview ? (
+            <AvisoDeEnvioFallido
+              id={message.id}
+              motivo={fotoMotivo}
+              onReintentar={onReintentarFoto}
+              onDescartar={onDescartarFoto}
+            />
+          ) : null}
 
           {/* Reaccion del cliente (👍 ❤️ …): circulito pegado abajo a la derecha de la burbuja,
               como en WhatsApp. No es un mensaje aparte; antes llegaba como burbuja vacia. */}

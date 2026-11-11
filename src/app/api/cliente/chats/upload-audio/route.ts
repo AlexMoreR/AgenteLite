@@ -143,7 +143,18 @@ async function subirAudio(request: Request, registro: RegistroDeSubida) {
 
   const original = Buffer.from(await file.arrayBuffer());
   // Una copia que suene en cualquier navegador (ver audio-para-escuchar). Si no se puede, el original.
+  const inicioDeConversion = Date.now();
   const convertido = await convertirAudioParaEscuchar(original, getAudioExtension(baseMimeType));
+  // Cuanto de la subida se va en convertir (ffmpeg corre ANTES de contestarle al navegador).
+  console.info(
+    `[envio-medio] ${JSON.stringify({
+      paso: "convertir-audio",
+      ms: Date.now() - inicioDeConversion,
+      convertido: Boolean(convertido),
+      bytesAntes: original.length,
+      bytesDespues: convertido?.length ?? original.length,
+    })}`,
+  );
   const ext = convertido ? EXTENSION_PARA_ESCUCHAR : getAudioExtension(baseMimeType);
   const bytes = convertido ?? original;
   const fileName = `${Date.now()}-${randomUUID()}${ext}`;
