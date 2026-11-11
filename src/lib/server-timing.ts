@@ -52,7 +52,7 @@ export function conServerTiming(
     const total = performance.now() - inicio;
     pasos.push(["total", total]);
     // Las llamadas a WAHA (y otros de afuera) que terminaron dentro del pedido, para ver cual tarda.
-    const externas = (contador.externas ?? []).slice(0, 12);
+    const externas = (contador.externas ?? []).slice(0, 20);
     const valor = [...pasos, ...externas]
       .map(([nombre, ms]) => `${nombre.replace(/[^a-zA-Z0-9_-]/g, "")};dur=${ms.toFixed(1)}`)
       .join(", ");

@@ -1,6 +1,7 @@
 "use server";
 
 import { readFile, stat } from "node:fs/promises";
+import { anotarLlamadaExterna } from "@/lib/medicion-de-pedido";
 import path from "node:path";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -2568,8 +2569,13 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
   // Solo se loguea; no cambia nada del envio.
   const envioT0 = performance.now();
   const envioPasos: Record<string, number> = {};
+  let envioUltimaMarca = envioT0;
   const envioMarca = (paso: string) => {
-    envioPasos[paso] = Math.round(performance.now() - envioT0);
+    const ahora = performance.now();
+    envioPasos[paso] = Math.round(ahora - envioT0);
+    // Cada paso tambien va al Server-Timing de /api/cliente/chats/enviar (velocidad, 11-nov-2026).
+    anotarLlamadaExterna(`envio_${paso}`, ahora - envioUltimaMarca);
+    envioUltimaMarca = ahora;
   };
   const envioLog = (resultado: string) => {
     envioMarca("total");
@@ -2648,10 +2654,18 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
     perdio en el camino). No se vuelve a mandar.
   */
   if (clientMessageId) {
+    /*
+      Solo los ultimos 10 minutos (velocidad, 11-nov-2026). Sin fecha, Postgres tenia que leer el
+      crudo (rawPayload) de TODOS los mensajes salientes del chat para mirar el clientMessageId: en
+      un chat largo eran segundos en cada envio (medido: 4,4 s de los 5,5 s de un texto). Un
+      reintento de verdad llega en segundos o minutos; 10 min es lo mismo que recuerda la ruta
+      (VIDA_ENVIO_EN_CURSO_MS en /api/cliente/chats/enviar).
+    */
     const yaEnviado = await prisma.message.findFirst({
       where: {
         conversationId: conversation.id,
         direction: "OUTBOUND",
+        createdAt: { gte: new Date(Date.now() - 10 * 60_000) },
         rawPayload: { path: ["clientMessageId"], equals: clientMessageId },
       },
       select: { id: true },
