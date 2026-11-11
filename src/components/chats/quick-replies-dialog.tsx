@@ -23,10 +23,12 @@ type Props = {
   onSelect: (content: string) => void;
 };
 
-// Mismos valores que FILTRO_TODAS / FILTRO_SIN_REPARTIR de src/lib/respuestas-rapidas.ts (ese archivo usa
-// Prisma y no se importa en el navegador).
+// Mismos valores que FILTRO_TODAS / FILTRO_SIN_REPARTIR / FILTRO_EMPRESA / DUENA_EMPRESA de
+// src/lib/respuestas-rapidas.ts (ese archivo usa Prisma y no se importa en el navegador).
 const FILTRO_TODAS = "todas";
 const FILTRO_SIN_REPARTIR = "sin_repartir";
+const FILTRO_EMPRESA = "empresa";
+const DUENA_EMPRESA = "empresa";
 
 /*
   Lo ultimo que se trajo por filtro, guardado 60 s en el navegador.
@@ -50,8 +52,9 @@ function olvidarListasGuardadas() {
   versionDeLaLista += 1;
 }
 
-// Cada asesora ve y maneja solo sus respuestas. El dueño y los administradores (esJefe) ven todas, con el
-// nombre de la dueña, un filtro, casillas para crear una copia por asesora, cambio de dueña y "Duplicar".
+// Las de la EMPRESA las ven y las usan todas; solo el jefe las cambia. Ademas cada asesora ve y maneja las
+// suyas. El dueño y los administradores (esJefe) ven todas, con el nombre de la dueña, un filtro, «De la
+// empresa» o casillas para crear una copia por asesora, cambio de dueña y "Duplicar".
 // El servidor impone las reglas (src/lib/respuestas-rapidas.ts): esta ventana solo las refleja.
 export function QuickRepliesDialog({ open, onClose, onSelect }: Props) {
   const [items, setItems] = useState<QuickReplyItem[]>([]);
@@ -136,8 +139,9 @@ export function QuickRepliesDialog({ open, onClose, onSelect }: Props) {
     (base: { title: string; content: string } | null) => {
       setEditing(null);
       setDuplicando(base);
-      // Al crear desde el filtro de una asesora activa, queda marcada; al duplicar, ninguna (es "para otra").
-      setMarcadas(!base && activas.some((asesora) => asesora.id === filtro) ? [filtro] : []);
+      // Al crear desde el filtro de una asesora activa, queda marcada; si no, «De la empresa». Al duplicar,
+      // ninguna (es "para otra").
+      setMarcadas(base ? [] : activas.some((asesora) => asesora.id === filtro) ? [filtro] : [DUENA_EMPRESA]);
       setFormError(null);
       setMode("form");
     },
@@ -147,8 +151,9 @@ export function QuickRepliesDialog({ open, onClose, onSelect }: Props) {
   const abrirEditar = useCallback((item: QuickReplyItem) => {
     setEditing(item);
     setDuplicando(null);
-    // La lista arranca en la dueña ACTUAL (también una retirada o "Sin repartir"): guardar solo el título no la cambia.
-    setDuenaEditada(item.duenaId ?? "");
+    // La lista arranca en la dueña ACTUAL (también la empresa, una retirada o "Sin repartir"): guardar solo
+    // el título no la cambia.
+    setDuenaEditada(item.deEmpresa ? DUENA_EMPRESA : item.duenaId ?? "");
     setFormError(null);
     setMode("form");
   }, []);
@@ -163,7 +168,7 @@ export function QuickRepliesDialog({ open, onClose, onSelect }: Props) {
           formData.set("duenaId", duenaEditada);
         } else {
           if (!marcadas.length) {
-            setFormError("Marca al menos una asesora.");
+            setFormError("Marca «De la empresa» o al menos una asesora.");
             return;
           }
           for (const id of marcadas) formData.append("duenaIds", id);
@@ -211,8 +216,15 @@ export function QuickRepliesDialog({ open, onClose, onSelect }: Props) {
     });
   }, []);
 
+  // «De la empresa» va sola: marcarla quita las asesoras y marcar una asesora la quita.
   const alternarMarcada = (id: string, marcada: boolean) =>
-    setMarcadas((prev) => (marcada ? (prev.includes(id) ? prev : [...prev, id]) : prev.filter((x) => x !== id)));
+    setMarcadas((prev) => {
+      if (!marcada) return prev.filter((x) => x !== id);
+      if (id === DUENA_EMPRESA) return [DUENA_EMPRESA];
+      const sinEmpresa = prev.filter((x) => x !== DUENA_EMPRESA);
+      return sinEmpresa.includes(id) ? sinEmpresa : [...sinEmpresa, id];
+    });
+  const paraLaEmpresa = marcadas.includes(DUENA_EMPRESA);
 
   // Dueña actual que ya no está entre las activas (retirada): se muestra en la lista para no perderla.
   const duenaRetiradaDelEditado =
@@ -256,6 +268,7 @@ export function QuickRepliesDialog({ open, onClose, onSelect }: Props) {
                   disabled={busy}
                 >
                   <NativeSelectOption value={FILTRO_TODAS}>Todas</NativeSelectOption>
+                  <NativeSelectOption value={FILTRO_EMPRESA}>De la empresa</NativeSelectOption>
                   <NativeSelectOption value={FILTRO_SIN_REPARTIR}>Sin repartir</NativeSelectOption>
                   {activas.map((asesora) => (
                     <NativeSelectOption key={asesora.id} value={asesora.id}>
@@ -303,13 +316,15 @@ export function QuickRepliesDialog({ open, onClose, onSelect }: Props) {
                   ) : esJefe ? (
                     <>
                       <p className="text-sm font-medium text-foreground">Aún no hay respuestas rápidas</p>
-                      <p className="text-xs text-muted-foreground">Crea la primera y elige a qué asesoras les queda.</p>
+                      <p className="text-xs text-muted-foreground">
+                        Crea la primera: de la empresa (la ven todas) o para algunas asesoras.
+                      </p>
                     </>
                   ) : (
                     <>
                       <p className="text-sm font-medium text-foreground">Aún no tienes respuestas rápidas</p>
                       <p className="text-xs text-muted-foreground">
-                        Crea la tuya para reutilizar mensajes frecuentes. Solo tú las ves.
+                        Crea la tuya para reutilizar mensajes frecuentes. Las que crees solo las ves tú.
                       </p>
                     </>
                   )}
@@ -332,7 +347,11 @@ export function QuickRepliesDialog({ open, onClose, onSelect }: Props) {
                       >
                         <p className="truncate text-[13px] font-medium text-foreground">{item.title}</p>
                         <p className="line-clamp-2 text-[12px] leading-snug text-muted-foreground">{item.content}</p>
-                        {esJefe ? (
+                        {item.deEmpresa ? (
+                          <Badge variant="outline" className="mt-1 max-w-full">
+                            <span className="truncate">Empresa</span>
+                          </Badge>
+                        ) : esJefe ? (
                           <Badge variant={item.duenaId ? "secondary" : "outline"} className="mt-1 max-w-full">
                             <span className="truncate">{item.duenaId ? item.duenaNombre ?? "Sin nombre" : "Sin repartir"}</span>
                           </Badge>
@@ -350,6 +369,9 @@ export function QuickRepliesDialog({ open, onClose, onSelect }: Props) {
                           <Copy className="size-3.5" />
                         </button>
                       ) : null}
+                      {/* Las de la empresa solo las cambia el jefe (el servidor tambien lo impide). */}
+                      {esJefe || !item.deEmpresa ? (
+                      <>
                       <button
                         type="button"
                         onClick={() => abrirEditar(item)}
@@ -370,6 +392,8 @@ export function QuickRepliesDialog({ open, onClose, onSelect }: Props) {
                       >
                         <Trash2 className="size-3.5" />
                       </button>
+                      </>
+                      ) : null}
                     </li>
                   ))}
                 </ul>
@@ -428,7 +452,8 @@ export function QuickRepliesDialog({ open, onClose, onSelect }: Props) {
                   value={duenaEditada}
                   onChange={(event) => setDuenaEditada(event.target.value)}
                 >
-                  {!editing.duenaId ? <NativeSelectOption value="">Sin repartir</NativeSelectOption> : null}
+                  <NativeSelectOption value={DUENA_EMPRESA}>De la empresa (la ven todas)</NativeSelectOption>
+                  {!editing.deEmpresa && !editing.duenaId ? <NativeSelectOption value="">Sin repartir</NativeSelectOption> : null}
                   {duenaRetiradaDelEditado ? (
                     <NativeSelectOption value={duenaRetiradaDelEditado.id}>
                       {duenaRetiradaDelEditado.nombre} (retirada)
@@ -446,9 +471,18 @@ export function QuickRepliesDialog({ open, onClose, onSelect }: Props) {
             {esJefe && !editing ? (
               <fieldset className="space-y-1.5">
                 <legend className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                  Para qué asesoras
+                  Para quién
                 </legend>
-                <p className="text-[11px] text-muted-foreground">Se crea una copia para cada asesora marcada.</p>
+                <p className="text-[11px] text-muted-foreground">
+                  De la empresa la ven todas. Si marcas asesoras, se crea una copia para cada una.
+                </p>
+                <label className="flex cursor-pointer items-center gap-2 rounded-[12px] border border-border px-3.5 py-2 text-[13px] font-medium text-foreground transition hover:bg-muted">
+                  <Checkbox
+                    checked={paraLaEmpresa}
+                    onCheckedChange={(checked) => alternarMarcada(DUENA_EMPRESA, Boolean(checked))}
+                  />
+                  <span className="truncate">De la empresa (la ven todas)</span>
+                </label>
                 {activas.length ? (
                   // Desplazamiento propio: con muchas asesoras el botón Crear sigue a la vista en el celular.
                   <div className="max-h-40 space-y-0.5 overflow-y-auto rounded-[12px] border border-border p-1.5">
@@ -486,7 +520,7 @@ export function QuickRepliesDialog({ open, onClose, onSelect }: Props) {
                 className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-[10px] bg-[var(--primary)] text-[13px] font-semibold text-white transition hover:opacity-90 disabled:opacity-60"
               >
                 {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
-                {editing ? "Guardar cambios" : esJefe && marcadas.length > 1 ? `Crear ${marcadas.length}` : "Crear"}
+                {editing ? "Guardar cambios" : esJefe && !paraLaEmpresa && marcadas.length > 1 ? `Crear ${marcadas.length}` : "Crear"}
               </button>
             </div>
           </form>

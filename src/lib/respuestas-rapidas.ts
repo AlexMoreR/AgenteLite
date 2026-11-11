@@ -1,4 +1,11 @@
 /**
+ * Respuestas rápidas DE LA EMPRESA y de cada asesora.
+ *
+ * - De la empresa (`deEmpresa`, Alex 10-nov-2026): la ven y la usan TODAS. Solo el dueño y los administradores
+ *   la crean, la editan o la borran. Todas las que existían ese día pasaron a ser de la empresa (migración
+ *   20261116000200, que no borra ninguna y conserva la dueña que tenían). Como antes el jefe creaba una copia
+ *   por asesora, a la asesora las repetidas (mismo título y mensaje) le salen una sola vez.
+ *
  * Respuestas rápidas por asesora (pedido del dueño, 9-nov-2026): cada respuesta rápida es de una asesora.
  *
  * - La asesora ve, usa, crea, edita y borra SOLO las suyas. Lo que mande como dueña o como filtro se ignora.
@@ -21,6 +28,9 @@ export type QuienPide = AccesoDelCrm & { userId: string; workspaceId: string };
 /** Filtro del jefe: todas, solo las "Sin repartir" o el id de una asesora. */
 export const FILTRO_TODAS = "todas";
 export const FILTRO_SIN_REPARTIR = "sin_repartir";
+/** Filtro del jefe y valor de "dueña" al crear o editar: la respuesta es de la empresa (la ven todas). */
+export const FILTRO_EMPRESA = "empresa";
+export const DUENA_EMPRESA = "empresa";
 
 export type RespuestaRapida = {
   id: string;
@@ -28,6 +38,8 @@ export type RespuestaRapida = {
   content: string;
   duenaId: string | null;
   duenaNombre: string | null;
+  /** De la empresa: la ven todas; solo el jefe la toca. */
+  deEmpresa: boolean;
 };
 
 /** Asesora del filtro y de las casillas. `activa: false` = retirada que aún tiene respuestas. */
@@ -105,22 +117,46 @@ export async function listarRespuestasRapidas(
   filtro?: string | null,
 ): Promise<ListaDeRespuestas> {
   const esJefe = esJefeDelNegocio(quien);
-  const select = { id: true, title: true, content: true, duenaId: true } as const;
+  const select = { id: true, title: true, content: true, duenaId: true, deEmpresa: true } as const;
 
   if (!esJefe) {
-    const filas = await db.quickReply.findMany({
-      where: { workspaceId: quien.workspaceId, duenaId: quien.userId },
-      orderBy: { createdAt: "asc" },
-      select,
+    // Las de la empresa (una sola vez cada texto) y despues las suyas.
+    const [deLaEmpresa, suyas] = await Promise.all([
+      db.quickReply.findMany({
+        where: { workspaceId: quien.workspaceId, deEmpresa: true },
+        orderBy: { createdAt: "asc" },
+        select,
+      }),
+      db.quickReply.findMany({
+        where: { workspaceId: quien.workspaceId, duenaId: quien.userId, deEmpresa: false },
+        orderBy: { createdAt: "asc" },
+        select,
+      }),
+    ]);
+    const vistas = new Set<string>();
+    const empresaSinRepetidas = deLaEmpresa.filter((fila) => {
+      const llave = JSON.stringify([fila.title.trim(), fila.content.trim()]);
+      if (vistas.has(llave)) return false;
+      vistas.add(llave);
+      return true;
     });
-    return { items: filas.map((fila) => ({ ...fila, duenaNombre: null })), esJefe, asesoras: [] };
+    return {
+      items: [...empresaSinRepetidas, ...suyas].map((fila) => ({ ...fila, duenaNombre: null })),
+      esJefe,
+      asesoras: [],
+    };
   }
 
   const pedido = filtro?.trim() || FILTRO_TODAS;
-  const duenaId = pedido === FILTRO_TODAS ? undefined : pedido === FILTRO_SIN_REPARTIR ? null : pedido;
+  const where =
+    pedido === FILTRO_TODAS
+      ? {}
+      : pedido === FILTRO_EMPRESA
+        ? { deEmpresa: true }
+        : { deEmpresa: false, duenaId: pedido === FILTRO_SIN_REPARTIR ? null : pedido };
   const [filas, asesoras] = await Promise.all([
     db.quickReply.findMany({
-      where: { workspaceId: quien.workspaceId, ...(duenaId === undefined ? {} : { duenaId }) },
+      where: { workspaceId: quien.workspaceId, ...where },
       orderBy: { createdAt: "asc" },
       select,
     }),
@@ -128,15 +164,19 @@ export async function listarRespuestasRapidas(
   ]);
   const nombres = new Map(asesoras.map((asesora) => [asesora.id, asesora.nombre]));
   return {
-    items: filas.map((fila) => ({ ...fila, duenaNombre: fila.duenaId ? nombres.get(fila.duenaId) ?? "Sin nombre" : null })),
+    items: filas.map((fila) => ({
+      ...fila,
+      duenaNombre: !fila.deEmpresa && fila.duenaId ? nombres.get(fila.duenaId) ?? "Sin nombre" : null,
+    })),
     esJefe,
     asesoras,
   };
 }
 
 /**
- * Crea la respuesta. La asesora siempre la crea para ella (se ignora lo que mande). El jefe marca una o
- * varias asesoras activas del negocio y se crea una copia para cada una, todas o ninguna.
+ * Crea la respuesta. La asesora siempre la crea para ella (se ignora lo que mande). El jefe marca «De la
+ * empresa» (una sola, la ven todas) o una o varias asesoras activas del negocio y se crea una copia para
+ * cada una, todas o ninguna.
  */
 export async function crearRespuestasRapidas(
   db: DbRespuestasRapidas,
@@ -152,7 +192,14 @@ export async function crearRespuestasRapidas(
   }
 
   const ids = idsLimpios(duenaIdsPedidas);
-  if (!ids.length) return { error: "Marca al menos una asesora." };
+  if (ids.includes(DUENA_EMPRESA)) {
+    // De la empresa: una sola, para todas. Las asesoras marcadas ademas no hacen falta.
+    await db.quickReply.createMany({
+      data: [{ workspaceId: quien.workspaceId, duenaId: null, deEmpresa: true, title: datos.title, content: datos.content }],
+    });
+    return { creadas: 1 };
+  }
+  if (!ids.length) return { error: "Marca «De la empresa» o al menos una asesora." };
   const validas = await duenasValidas(db, quien.workspaceId, ids);
   if (ids.some((id) => !validas.has(id))) return { error: "Una de las asesoras marcadas no está activa en el negocio." };
 
@@ -163,20 +210,21 @@ export async function crearRespuestasRapidas(
   return { creadas: ids.length };
 }
 
-/** Busca una respuesta que quien pide puede tocar: del negocio y, si es asesora, suya. */
+/** Busca una respuesta que quien pide puede tocar: del negocio y, si es asesora, suya (no de la empresa). */
 async function respuestaPropia(db: DbRespuestasRapidas, quien: QuienPide, id: string) {
   const fila = await db.quickReply.findFirst({
     where: { id, workspaceId: quien.workspaceId },
-    select: { id: true, duenaId: true },
+    select: { id: true, duenaId: true, deEmpresa: true },
   });
   if (!fila) return null;
-  if (!esJefeDelNegocio(quien) && fila.duenaId !== quien.userId) return null;
+  if (!esJefeDelNegocio(quien) && (fila.deEmpresa || fila.duenaId !== quien.userId)) return null;
   return fila;
 }
 
 /**
- * Edita título y mensaje. Solo el jefe cambia la dueña, y solo a una asesora activa del negocio. Si la dueña
- * que llega es la misma que ya tiene (también una retirada o "Sin repartir", que llega como ""), no se toca.
+ * Edita título y mensaje. Solo el jefe cambia la dueña: a «De la empresa» (DUENA_EMPRESA) o a una asesora
+ * activa del negocio. Si la dueña que llega es la misma que ya tiene (también una retirada, "Sin repartir",
+ * que llega como "", o la empresa), no se toca.
  */
 export async function editarRespuestaRapida(
   db: DbRespuestasRapidas,
@@ -188,14 +236,22 @@ export async function editarRespuestaRapida(
   const fila = await respuestaPropia(db, quien, id);
   if (!fila) return { error: "Respuesta rápida no encontrada" };
 
-  const data: { title: string; content: string; duenaId?: string } = { title: datos.title, content: datos.content };
+  const data: { title: string; content: string; duenaId?: string; deEmpresa?: boolean } = {
+    title: datos.title,
+    content: datos.content,
+  };
   if (esJefeDelNegocio(quien) && typeof duenaIdPedida === "string") {
     const nueva = duenaIdPedida.trim();
-    if (nueva !== (fila.duenaId ?? "")) {
+    const actual = fila.deEmpresa ? DUENA_EMPRESA : fila.duenaId ?? "";
+    if (nueva === DUENA_EMPRESA && actual !== DUENA_EMPRESA) {
+      // Pasa a ser de la empresa. La dueña de antes queda anotada (no se usa para mostrarla).
+      data.deEmpresa = true;
+    } else if (nueva !== actual) {
       if (!nueva) return { error: "Elige a qué asesora le queda la respuesta." };
       const validas = await duenasValidas(db, quien.workspaceId, [nueva]);
       if (!validas.has(nueva)) return { error: "Esa asesora no está activa en el negocio." };
       data.duenaId = nueva;
+      data.deEmpresa = false;
     }
   }
 

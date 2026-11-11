@@ -168,7 +168,7 @@ Para emoticones: toca la carita junto a la casilla y elige uno.
 1. Toca + ("Adjuntar") → "Respuestas rápidas".
 2. En la ventana "Respuestas rápidas", toca una: su texto se coloca en la casilla (no se envía solo). Revísalo y envíalo.
 Para crear una: toca "Crear respuesta rápida", escribe "Título" y "Mensaje", y toca "Crear". Para editar/borrar usa el lápiz ("Editar") o el bote de basura ("Eliminar").
-Cada asesora ve, usa y modifica solo sus propias respuestas rápidas. El dueño y los administradores ven todas (con el nombre de la asesora, el filtro "Ver" y "Sin repartir"), marcan para qué asesoras se crea cada una, pueden cambiarle la asesora al editarla y usan "Duplicar para otra" (icono de copiar) para pasarle una copia a otra asesora.
+Las respuestas con la etiqueta "Empresa" las ven y las usan todas las asesoras; solo el dueño y los administradores las crean, las editan o las borran. Además, cada asesora puede crear las suyas, que solo ve ella. El dueño y los administradores ven todas (con el filtro "Ver": "De la empresa", "Sin repartir" o una asesora), al crear eligen "De la empresa (la ven todas)" o para qué asesoras, pueden cambiarle la dueña al editarla y usan "Duplicar para otra" (icono de copiar) para pasarle una copia a otra asesora.
 
 ### Respuesta sugerida con IA
 1. En la casilla, toca el icono de destello/estrellas ("Respuesta sugerida con IA"). Arriba aparece "Generando sugerencia…".

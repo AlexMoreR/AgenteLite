@@ -132,11 +132,15 @@ model QuickReply {
   /// Asesora dueña de la respuesta: solo ella la ve y la usa en el chat. Vacío = "Sin repartir"
   /// (solo la ven el dueño y los administradores). Ver src/lib/respuestas-rapidas.ts.
   duenaId     String?
+  /// De la empresa: la ven y la usan todas; solo el dueño y los administradores la cambian. Las que existían
+  /// el 10-nov-2026 pasaron todas a ser de la empresa (migración 20261116000200).
+  deEmpresa   Boolean   @default(false)
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   duena       User?     @relation("QuickReplyDuena", fields: [duenaId], references: [id], onDelete: SetNull)
 
   @@index([workspaceId, createdAt])
   @@index([workspaceId, duenaId, createdAt])
+  @@index([workspaceId, deEmpresa, createdAt])
 }
 
 model WorkspaceMember {

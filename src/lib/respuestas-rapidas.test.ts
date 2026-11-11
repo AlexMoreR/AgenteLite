@@ -5,6 +5,8 @@ import {
   borrarRespuestaRapida,
   crearRespuestasRapidas,
   editarRespuestaRapida,
+  DUENA_EMPRESA,
+  FILTRO_EMPRESA,
   FILTRO_SIN_REPARTIR,
   listarRespuestasRapidas,
   type DbRespuestasRapidas,
@@ -13,7 +15,7 @@ import {
 
 // ---- Base falsa en memoria: solo lo que usa src/lib/respuestas-rapidas.ts ----
 
-type Fila = { id: string; workspaceId: string; duenaId: string | null; title: string; content: string; createdAt: number };
+type Fila = { id: string; workspaceId: string; duenaId: string | null; deEmpresa: boolean; title: string; content: string; createdAt: number };
 type Miembro = { workspaceId: string; userId: string; isActive: boolean };
 type Usuario = { id: string; name: string | null; email: string };
 
@@ -48,12 +50,12 @@ function baseFalsa() {
   ];
   let reloj = 0;
   const filas: Fila[] = [
-    { id: "r-yair", workspaceId: "ws1", duenaId: "yair", title: "Saludo Yair", content: "Hola, soy Yair", createdAt: reloj++ },
-    { id: "r-maria", workspaceId: "ws1", duenaId: "maria", title: "Saludo María", content: "Hola, soy María", createdAt: reloj++ },
-    { id: "r-vieja", workspaceId: "ws1", duenaId: null, title: "Precios", content: "Lista de precios", createdAt: reloj++ },
-    { id: "r-retirada", workspaceId: "ws1", duenaId: "retirada", title: "Envío", content: "Envío gratis", createdAt: reloj++ },
-    { id: "r-ex", workspaceId: "ws1", duenaId: "ex", title: "Garantía", content: "Garantía de un año", createdAt: reloj++ },
-    { id: "r-ws2", workspaceId: "ws2", duenaId: "otra-ws", title: "Ajena", content: "De otro negocio", createdAt: reloj++ },
+    { id: "r-yair", workspaceId: "ws1", duenaId: "yair", deEmpresa: false, title: "Saludo Yair", content: "Hola, soy Yair", createdAt: reloj++ },
+    { id: "r-maria", workspaceId: "ws1", duenaId: "maria", deEmpresa: false, title: "Saludo María", content: "Hola, soy María", createdAt: reloj++ },
+    { id: "r-vieja", workspaceId: "ws1", duenaId: null, deEmpresa: false, title: "Precios", content: "Lista de precios", createdAt: reloj++ },
+    { id: "r-retirada", workspaceId: "ws1", duenaId: "retirada", deEmpresa: false, title: "Envío", content: "Envío gratis", createdAt: reloj++ },
+    { id: "r-ex", workspaceId: "ws1", duenaId: "ex", deEmpresa: false, title: "Garantía", content: "Garantía de un año", createdAt: reloj++ },
+    { id: "r-ws2", workspaceId: "ws2", duenaId: "otra-ws", deEmpresa: false, title: "Ajena", content: "De otro negocio", createdAt: reloj++ },
   ];
   let siguiente = 1;
   let fallarCreateMany = false;
@@ -80,9 +82,9 @@ function baseFalsa() {
         const fila = filas.find((f) => cumple(f, where));
         return fila ? pick(fila, select) : null;
       },
-      createMany: async ({ data }: { data: Omit<Fila, "id" | "createdAt">[] }) => {
+      createMany: async ({ data }: { data: (Omit<Fila, "id" | "createdAt" | "deEmpresa"> & { deEmpresa?: boolean })[] }) => {
         if (fallarCreateMany) throw new Error("la base no responde");
-        for (const d of data) filas.push({ ...d, id: `nueva-${siguiente++}`, createdAt: reloj++ });
+        for (const d of data) filas.push({ deEmpresa: false, ...d, id: `nueva-${siguiente++}`, createdAt: reloj++ });
         return { count: data.length };
       },
       update: async ({ where, data }: { where: { id: string }; data: Partial<Fila> }) => {
@@ -238,7 +240,7 @@ test("con cero asesoras marcadas devuelve error y no guarda", async () => {
   const { db, filas } = baseFalsa();
   const antes = filas.length;
   for (const marcadas of [undefined, [], ["", "  "]]) {
-    assert.equal((await crearRespuestasRapidas(db, dueno, datos, marcadas)).error, "Marca al menos una asesora.");
+    assert.equal((await crearRespuestasRapidas(db, dueno, datos, marcadas)).error, "Marca «De la empresa» o al menos una asesora.");
   }
   assert.equal(filas.length, antes);
 });
@@ -291,4 +293,84 @@ test("si la base falla al crear, el error sube para que la acción devuelva un a
   const { db, fallarAlCrear } = baseFalsa();
   fallarAlCrear();
   await assert.rejects(() => crearRespuestasRapidas(db, dueno, datos, ["yair"]), /la base no responde/);
+});
+
+// ---- De la empresa (Alex, 10-nov-2026) ----
+
+/** Las de Yair y María pasan a ser de la empresa, y hay dos copias iguales (el jefe creaba una por asesora). */
+function conEmpresa() {
+  const base = baseFalsa();
+  for (const fila of base.filas) if (fila.workspaceId === "ws1") fila.deEmpresa = true;
+  base.filas.push(
+    { id: "copia-1", workspaceId: "ws1", duenaId: "yair", deEmpresa: true, title: "Horario", content: "8 a 6", createdAt: 100 },
+    { id: "copia-2", workspaceId: "ws1", duenaId: "maria", deEmpresa: true, title: "Horario", content: "8 a 6", createdAt: 101 },
+    { id: "propia", workspaceId: "ws1", duenaId: "yair", deEmpresa: false, title: "Mía", content: "Solo mía", createdAt: 102 },
+  );
+  return base;
+}
+
+test("la asesora ve todas las de la empresa (las iguales una sola vez) y sus propias", async () => {
+  const { db } = conEmpresa();
+  const deYair = await listarRespuestasRapidas(db, asesora("yair"));
+  assert.deepEqual(ids(deYair.items), ["r-yair", "r-maria", "r-vieja", "r-retirada", "r-ex", "copia-1", "propia"]);
+  assert.ok(deYair.items.every((item) => item.duenaNombre === null));
+  const deMaria = await listarRespuestasRapidas(db, asesora("maria"));
+  assert.ok(!ids(deMaria.items).includes("propia"), "la propia de Yair no le sale a María");
+  assert.ok(ids(deMaria.items).includes("copia-1"));
+});
+
+test("la asesora no edita ni borra las de la empresa, aunque haya sido su dueña", async () => {
+  const { db, filas } = conEmpresa();
+  assert.equal((await editarRespuestaRapida(db, asesora("yair"), "r-yair", datos)).error, "Respuesta rápida no encontrada");
+  assert.equal((await borrarRespuestaRapida(db, asesora("yair"), "copia-1")).error, "Respuesta rápida no encontrada");
+  assert.ok(filas.some((f) => f.id === "copia-1"));
+  assert.deepEqual(await editarRespuestaRapida(db, asesora("yair"), "propia", datos), { success: true });
+});
+
+test("el jefe ve todas, sin nombre de dueña en las de la empresa, y filtra por «De la empresa»", async () => {
+  const { db } = conEmpresa();
+  const todas = await listarRespuestasRapidas(db, dueno);
+  assert.equal(todas.items.length, 8);
+  assert.equal(todas.items.find((i) => i.id === "copia-1")?.duenaNombre, null);
+  assert.equal(todas.items.find((i) => i.id === "propia")?.duenaNombre, "Yair");
+  const deEmpresa = await listarRespuestasRapidas(db, dueno, FILTRO_EMPRESA);
+  assert.ok(deEmpresa.items.every((i) => i.deEmpresa));
+  assert.equal(deEmpresa.items.length, 7);
+  assert.deepEqual(ids((await listarRespuestasRapidas(db, dueno, "yair")).items), ["propia"], "por asesora: solo las propias");
+});
+
+test("el jefe crea una sola de la empresa y la ven todas", async () => {
+  const { db, filas } = baseFalsa();
+  assert.deepEqual(await crearRespuestasRapidas(db, dueno, datos, [DUENA_EMPRESA, "yair"]), { creadas: 1 });
+  const nuevas = filas.filter((f) => f.title === "Nueva");
+  assert.equal(nuevas.length, 1);
+  assert.equal(nuevas[0].deEmpresa, true);
+  assert.equal(nuevas[0].duenaId, null);
+  for (const quien of ["yair", "maria"]) {
+    assert.ok(ids((await listarRespuestasRapidas(db, asesora(quien))).items).includes(nuevas[0].id), quien);
+  }
+});
+
+test("lo que la asesora mande como «De la empresa» se ignora", async () => {
+  const { db, filas } = baseFalsa();
+  await crearRespuestasRapidas(db, asesora("yair"), datos, [DUENA_EMPRESA]);
+  const nueva = filas.find((f) => f.title === "Nueva");
+  assert.equal(nueva?.deEmpresa, false);
+  assert.equal(nueva?.duenaId, "yair");
+  await editarRespuestaRapida(db, asesora("yair"), "r-yair", datos, DUENA_EMPRESA);
+  assert.equal(filas.find((f) => f.id === "r-yair")?.deEmpresa, false);
+});
+
+test("el jefe pasa una a la empresa y una de la empresa a una asesora", async () => {
+  const { db, filas } = conEmpresa();
+  assert.deepEqual(await editarRespuestaRapida(db, dueno, "propia", datos, DUENA_EMPRESA), { success: true });
+  assert.equal(filas.find((f) => f.id === "propia")?.deEmpresa, true);
+  assert.deepEqual(await editarRespuestaRapida(db, dueno, "copia-2", datos, "maria"), { success: true });
+  const copia = filas.find((f) => f.id === "copia-2");
+  assert.equal(copia?.deEmpresa, false);
+  assert.equal(copia?.duenaId, "maria");
+  // Guardar una de la empresa sin cambiar la dueña la deja de la empresa.
+  assert.deepEqual(await editarRespuestaRapida(db, dueno, "copia-1", datos, DUENA_EMPRESA), { success: true });
+  assert.equal(filas.find((f) => f.id === "copia-1")?.deEmpresa, true);
+  assert.ok((await editarRespuestaRapida(db, dueno, "copia-1", datos, "")).error, "de la empresa a nadie no");
 });

@@ -159,6 +159,8 @@
     "test:chats-acceso-por-enlace": "npx tsx --test src/lib/chats-acceso-por-enlace.test.ts",
     "test:busqueda-de-chats": "npx tsx --test src/lib/busqueda-de-chats.test.ts",
     "test:respuestas-rapidas": "npx tsx --test src/lib/respuestas-rapidas.test.ts",
+    "test:respuesta-rapida-empresa-migracion": "node scripts/check-respuesta-rapida-empresa-migracion.mjs",
+    "test:lista-sin-brincos": "npx tsx --test src/components/chats/texto-sin-formato.test.ts",
     "test:respuesta-rapida-duena-migracion": "node scripts/check-respuesta-rapida-duena-migracion.mjs",
     "test:segundo-asesor": "npx tsx --test src/lib/chats-asignacion-compartida.test.ts src/components/chats/segundo-asesor-en-la-bandeja.test.ts",
     "test:resuelto": "node scripts/check-resuelto.mjs",
