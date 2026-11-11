@@ -3656,11 +3656,17 @@ async function enviarArchivoDelChat(
 
   // Mismo numero unico ya guardado: es un reintento de un envio que SI salio. No se repite.
   if (clave) {
+    /*
+      Solo la ultima hora (velocidad, 11-nov-2026): sin fecha, Postgres leia el crudo (rawPayload) de
+      TODOS los mensajes salientes del chat -con archivos, los mas pesados- para mirar el numero unico.
+      En un chat largo eran segundos en cada foto o documento. La cola de envio reintenta en minutos.
+    */
     const yaEnviado = await prisma.message.findFirst({
       where: {
         workspaceId: membership.workspace.id,
         conversationId: conversation.id,
         direction: "OUTBOUND",
+        createdAt: { gte: new Date(Date.now() - 60 * 60_000) },
         rawPayload: { path: ["clientMessageId"], equals: clave },
       },
       select: { id: true },
