@@ -271,7 +271,7 @@ export async function loadAgentConversationDetail(input: {
             // El id hace falta para saber por que numero sale una llamada hecha desde este chat.
             id: true,
             evolutionInstanceName: true,
-            // Sin metadata: ver el tipo LoadedAgentConversationDetail.
+            // Sin los datos del canal: ver el tipo LoadedAgentConversationDetail.
           },
         },
       },
