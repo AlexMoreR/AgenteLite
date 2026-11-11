@@ -29,7 +29,6 @@
     "test:subir-por-pedazos": "npx tsx --test src/lib/subir-archivo-por-pedazos.test.ts src/lib/chat-upload-pedazos.test.ts",
     "test:chat-envio-reintento": "npx tsx --test src/lib/chat-envio-reintento.test.ts",
     "test:carta-de-colores": "npx tsx --test src/lib/carta-de-colores.test.ts src/lib/imagen-de-carta-de-colores.test.tsx",
-    "test:metricas-servidor": "npx tsx --test src/lib/metricas-servidor.test.ts",
     "test:sugerencia-catalogo": "npx tsx --test src/lib/sugerencia-de-respuesta.test.ts",
     "test:sugerencia-otro-chat": "npx tsx --test src/components/chats/destino-de-la-sugerencia.test.ts",
     "test:pegar-imagen": "npx tsx --test src/components/chats/imagenes-del-portapapeles.test.ts",
