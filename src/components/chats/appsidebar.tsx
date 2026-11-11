@@ -48,6 +48,8 @@ import { hrefDeEsperando } from "./chat-inbox-conversation-utils";
 import { CRM_STAGE_META } from "@/features/crm/domain/crm-config";
 import { iniciarMedicion, terminarMedicionAlPintar } from "@/lib/metricas-chats";
 import { esArrastre, filaDesborda, movimientoDeLaRueda } from "./deslizar-fila-de-pastillas";
+import { guardarFotoDeLaBandeja, hayFotoDeLaBandeja, quitarFotoDeLaBandeja } from "./guardado-local/foto-de-la-bandeja";
+import { ALTO_DE_FILA } from "./ventana-de-la-lista";
 
 type AppSidebarProps = {
   conversationItems: SharedInboxConversationItem[];
@@ -431,6 +433,68 @@ export const AppSidebar = React.memo(function AppSidebar({
     () => pastillasDeLaFila(preferencia, contextoDeLaFila),
     [preferencia, contextoDeLaFila],
   );
+
+  /*
+    LA FOTO DE LA BANDEJA (Alex, 11-11-2026: "que la copia guardada sea IDENTICA a la lista final").
+    Ver guardado-local/foto-de-la-bandeja.ts.
+
+    QUITARLA: al abrir, la foto tapa esta bandeja mientras se arma. Recien con la fila de pastillas
+    completa (filaLista) y dos cuadros despues -cuando ya se aplicaron los fijados y los numeros
+    guardados, que llegan en efectos de la bandeja- lo de abajo es igual a la foto y se saca.
+
+    GUARDARLA: con la lista quieta (arriba del todo, sin buscar, sin atenuar), 1,5 s despues del
+    ultimo cambio y cuando el navegador esta libre; y al esconder la app (cerrarla en el celular), que
+    es justo lo que se va a ver al volver a abrirla.
+  */
+  const refDeLaBandeja = React.useRef<HTMLElement | null>(null);
+  React.useEffect(() => {
+    if (!filaLista) return;
+    let segundo = 0;
+    const primero = window.requestAnimationFrame(() => {
+      segundo = window.requestAnimationFrame(() => quitarFotoDeLaBandeja());
+    });
+    return () => {
+      window.cancelAnimationFrame(primero);
+      window.cancelAnimationFrame(segundo);
+    };
+  }, [filaLista]);
+
+  const listaQuietaParaLaFoto = filaLista && !listaAtenuada && !busqueda.trim() && !buscadorEscondido && !mobileConversationActive;
+  const tomarFotoRef = React.useRef<() => void>(() => {});
+  React.useEffect(() => {
+    tomarFotoRef.current = () => {
+      const bandeja = refDeLaBandeja.current;
+      const lista = conversationListScrollRef.current;
+      if (!listaQuietaParaLaFoto || !bandeja || !lista || lista.scrollTop > 1 || hayFotoDeLaBandeja()) return;
+      guardarFotoDeLaBandeja(bandeja, lista, ALTO_DE_FILA);
+    };
+  });
+  React.useEffect(() => {
+    if (!listaQuietaParaLaFoto || conversationItems.length === 0) return;
+    let idle: number | null = null;
+    const espera = window.setTimeout(() => {
+      if (typeof window.requestIdleCallback === "function") {
+        idle = window.requestIdleCallback(() => tomarFotoRef.current(), { timeout: 2000 });
+      } else {
+        tomarFotoRef.current();
+      }
+    }, 1500);
+    return () => {
+      window.clearTimeout(espera);
+      if (idle !== null && typeof window.cancelIdleCallback === "function") window.cancelIdleCallback(idle);
+    };
+  }, [listaQuietaParaLaFoto, conversationItems, assignedCounts, pastillasVisibles, versionDeVista]);
+  React.useEffect(() => {
+    const alEsconder = () => {
+      if (document.visibilityState === "hidden") tomarFotoRef.current();
+    };
+    document.addEventListener("visibilitychange", alEsconder);
+    window.addEventListener("pagehide", alEsconder);
+    return () => {
+      document.removeEventListener("visibilitychange", alEsconder);
+      window.removeEventListener("pagehide", alEsconder);
+    };
+  }, []);
 
   /** Se aplica en el acto y se guarda de fondo; si no se guarda, la proxima carga trae lo de antes. */
   const guardarPreferencia = React.useCallback((nueva: PreferenciaDePastillas) => {
@@ -867,6 +931,7 @@ export const AppSidebar = React.memo(function AppSidebar({
 
   return (
     <aside
+      ref={refDeLaBandeja}
       className={`${mobileConversationActive ? "hidden md:flex" : "flex"} chat-inbox-sidebar min-h-0 flex-1 overflow-hidden border border-border bg-card p-0 shadow-none md:h-full md:shadow-[0_24px_60px_-44px_rgba(15,23,42,0.18)]`}
     >
       <div className="flex min-h-0 w-full flex-col">
@@ -1075,6 +1140,8 @@ export const AppSidebar = React.memo(function AppSidebar({
           // Tocar la lista cierra las busquedas recientes.
           onPointerDown={recientesDesde ? () => setRecientesDesde(null) : undefined}
           ref={conversationListScrollRef}
+          // La foto de la bandeja busca aca las filas que se ven (guardado-local/foto-de-la-bandeja).
+          data-lista-de-chats=""
           /*
             [overflow-anchor:none]: la lista recorta las filas que no se ven y cambia los espacios de
             arriba y abajo al bajar. Con el anclaje del navegador prendido, cada cambio "corregia" la

@@ -1,86 +1,25 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 
-import { ContactAvatar } from "./contact-avatar";
-import { leerListaDelCelular } from "./guardado-local/lista-guardada";
-import type { FilaGuardada } from "./guardado-local/reglas";
-import { textoSinFormato } from "./texto-sin-formato";
+import { mostrarFotoDeLaBandeja } from "./guardado-local/foto-de-la-bandeja";
 
 /*
-  Las filas de la bandeja guardadas en el celular, mientras carga la pantalla de Chats (P5, T4).
+  Lo guardado en el celular mientras carga la pantalla de Chats.
 
-  Se leen en un efecto (no en el render) para no chocar con lo que manda el servidor. Son de SOLO
-  LECTURA: sin enlaces ni toques (aria-busy), con la misma forma que las siluetas. Sin lista guardada
-  (otro dueño, apagado, mas de 24 h) se quedan las siluetas de siempre. Cuando llega la pantalla real,
-  esta se va entera.
+  Hasta el 11-11-2026 aca se dibujaba una version SIMPLIFICADA de las filas guardadas (sin pastillas,
+  asesora, linea, etiquetas, etapa ni fijados) y al llegar la lista real todo cambiaba de forma: el
+  brinco que vio Alex. Ahora lo guardado es la FOTO de la bandeja (guardado-local/foto-de-la-bandeja),
+  identica a la lista real, y se pone ENCIMA de la pantalla:
+  - al abrir la app, la pone el script de loading.tsx antes que cualquier JavaScript;
+  - al llegar a Chats desde otra pantalla de la app (ahi el script del HTML no corre), la pone este
+    efecto.
+  Debajo quedan siempre las siluetas, con la misma forma que la bandeja real.
 */
-
-function hora(iso: string | null) {
-  if (!iso) return "";
-  const fecha = new Date(iso);
-  if (!Number.isFinite(fecha.getTime())) return "";
-  const hoy = new Date();
-  const mismoDia =
-    fecha.getFullYear() === hoy.getFullYear() && fecha.getMonth() === hoy.getMonth() && fecha.getDate() === hoy.getDate();
-  return mismoDia
-    ? fecha.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-    : fecha.toLocaleDateString([], { day: "2-digit", month: "2-digit" });
-}
-
 export function ListaDesdeGuardado({ fallback }: { fallback: ReactNode }) {
-  const [filas, setFilas] = useState<FilaGuardada[] | null>(null);
-
   useEffect(() => {
-    try {
-      if (typeof performance !== "undefined") performance.mark("lista-guardada:leer");
-      const lista = leerListaDelCelular();
-      if (lista) {
-        // A proposito en el efecto y no en el render: el servidor no tiene el guardado del celular.
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setFilas(lista.filas);
-        if (typeof performance !== "undefined") performance.mark("lista-guardada:pintada");
-      }
-    } catch {
-      // Quedan las siluetas.
-    }
+    mostrarFotoDeLaBandeja();
   }, []);
 
-  if (!filas) {
-    return <>{fallback}</>;
-  }
-
-  return (
-    <div aria-busy="true" className="pointer-events-none select-none">
-      {filas.map((fila) => (
-        <div key={fila.id} className="grid grid-cols-[68px_minmax(0,1fr)] items-start gap-2 border-b border-border px-3 py-2.5">
-          <div className="flex justify-center">
-            {/* La foto guardada (la misma miniatura de la lista, casi siempre ya en el navegador) o la
-                silueta: nunca la letra del nombre, que despues brincaba a la foto. */}
-            <ContactAvatar
-              avatarUrl={fila.avatarUrl}
-              label={fila.label || fila.secondaryLabel}
-              className="size-12"
-              fallbackClassName="rounded-full bg-muted text-muted-foreground"
-              miniatura
-            />
-          </div>
-          <div className="flex min-w-0 flex-col gap-1 pt-1">
-            <div className="flex items-center gap-2">
-              <span className="truncate text-sm font-medium text-foreground">{fila.label || fila.secondaryLabel}</span>
-              <span className="ml-auto shrink-0 text-xs text-muted-foreground">{hora(fila.lastMessageAt)}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="truncate text-sm text-muted-foreground">{textoSinFormato(fila.lastMessage)}</span>
-              {fila.incomingCount ? (
-                <span className="ml-auto shrink-0 rounded-full bg-primary px-1.5 text-xs font-medium text-primary-foreground">
-                  {fila.incomingCount}
-                </span>
-              ) : null}
-            </div>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
+  return <>{fallback}</>;
 }
