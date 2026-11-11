@@ -173,6 +173,7 @@
     "test:waha-nota-de-voz": "npx tsx --test src/lib/waha-nota-de-voz.test.ts",
     "test:chat-medios": "npx tsx --test src/components/chats/chat-inbox-media.test.ts",
     "test:scroll-del-hilo": "npx tsx --test src/components/chats/scroll-del-hilo.test.ts",
+    "test:deslizar-fila-de-pastillas": "npx tsx --test src/components/chats/deslizar-fila-de-pastillas.test.ts",
     "test:quitar-archivo": "npx tsx --test src/components/chats/quitar-archivo-de-la-vista-previa.test.ts",
     "supervisor:guardian": "node scripts/supervisor-guardian.mjs",
     "supervisor:simular": "node scripts/supervisor-simulacion.mjs",

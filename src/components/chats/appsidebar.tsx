@@ -47,6 +47,7 @@ import {
 import { hrefDeEsperando } from "./chat-inbox-conversation-utils";
 import { CRM_STAGE_META } from "@/features/crm/domain/crm-config";
 import { iniciarMedicion, terminarMedicionAlPintar } from "@/lib/metricas-chats";
+import { esArrastre, filaDesborda, movimientoDeLaRueda } from "./deslizar-fila-de-pastillas";
 
 type AppSidebarProps = {
   conversationItems: SharedInboxConversationItem[];
@@ -360,6 +361,42 @@ export const AppSidebar = React.memo(function AppSidebar({
   const [menuDePastilla, setMenuDePastilla] = React.useState<ClaveDePastilla | null>(null);
   const [verOcultas, setVerOcultas] = React.useState(false);
   const toqueLargo = React.useRef<{ temporizador: number | null; disparo: boolean }>({ temporizador: null, disparo: false });
+
+  /*
+    DESLIZAR LA FILA CON EL MOUSE (Alex, 10-11-2026). En el celular se desliza con el dedo; en el
+    computador la barra esta escondida y no habia como llegar a las pastillas que no caben. Ahora
+    se arrastra (solo con el mouse: el dedo sigue con el scroll nativo) y la rueda la mueve de lado.
+  */
+  const filaRef = React.useRef<HTMLDivElement | null>(null);
+  const arrastre = React.useRef<{
+    inicioX: number;
+    scrollInicial: number;
+    arrastrando: boolean;
+    /** El clic que suelta un arrastre no activa la pastilla. */
+    tragarClic: boolean;
+    soltar: (() => void) | null;
+  }>({ inicioX: 0, scrollInicial: 0, arrastrando: false, tragarClic: false, soltar: null });
+  const [arrastrandoFila, setArrastrandoFila] = React.useState(false);
+  // Para la manito: solo si de verdad hay pastillas que no caben. Se mide al pasar el mouse.
+  const [filaSeDesborda, setFilaSeDesborda] = React.useState(false);
+  React.useEffect(() => {
+    const fila = filaRef.current;
+    if (!fila) return;
+    // Nativo y no pasivo: el onWheel de React es pasivo y no deja frenar el scroll de la pagina.
+    const alGirarLaRueda = (evento: WheelEvent) => {
+      if (evento.ctrlKey) return; // Ctrl + rueda es el zoom del navegador.
+      const { mover, frenarPagina } = movimientoDeLaRueda(evento, fila);
+      if (!frenarPagina) return;
+      evento.preventDefault();
+      fila.scrollLeft += mover;
+    };
+    fila.addEventListener("wheel", alGirarLaRueda, { passive: false });
+    const estado = arrastre.current;
+    return () => {
+      fila.removeEventListener("wheel", alGirarLaRueda);
+      estado.soltar?.();
+    };
+  }, []);
   React.useEffect(() => {
     // Ya vinieron con la pagina: no se piden de nuevo (se vuelven a pedir al guardar o borrar una lista).
     if (pastillasDelServidor) return;
@@ -580,6 +617,72 @@ export const AppSidebar = React.memo(function AppSidebar({
   const soltarToqueLargo = () => {
     if (toqueLargo.current.temporizador) window.clearTimeout(toqueLargo.current.temporizador);
     toqueLargo.current.temporizador = null;
+  };
+
+  /** Mira si la fila tiene pastillas que no caben, para mostrar la manito. Solo con el mouse. */
+  const medirLaFila = (evento: React.PointerEvent<HTMLDivElement>) => {
+    if (evento.pointerType !== "mouse") return;
+    setFilaSeDesborda(filaDesborda(evento.currentTarget));
+  };
+
+  /*
+    Arrastrar la fila con el mouse. Se sigue el mouse en `window` (y no con setPointerCapture, que
+    cambia a quien le llega el clic) para no perderlo si sale de la fila. Hasta pasar los 5 px no
+    pasa nada: el clic y el toque largo de la pastilla siguen igual.
+  */
+  const empezarArrastre = (evento: React.PointerEvent<HTMLDivElement>) => {
+    if (evento.pointerType !== "mouse" || evento.button !== 0) return;
+    const fila = evento.currentTarget;
+    const estado = arrastre.current;
+    estado.soltar?.();
+    estado.tragarClic = false;
+    if (!filaDesborda(fila)) return;
+    estado.inicioX = evento.clientX;
+    estado.scrollInicial = fila.scrollLeft;
+    estado.arrastrando = false;
+
+    const alMover = (movimiento: PointerEvent) => {
+      const desplazamiento = movimiento.clientX - estado.inicioX;
+      if (!estado.arrastrando) {
+        if (!esArrastre(desplazamiento)) return;
+        estado.arrastrando = true;
+        // Empezo un arrastre de verdad: ya no es mantener presionada la pastilla.
+        soltarToqueLargo();
+        setArrastrandoFila(true);
+      }
+      movimiento.preventDefault();
+      fila.scrollLeft = estado.scrollInicial - desplazamiento;
+    };
+    const alSoltar = () => {
+      const huboArrastre = estado.arrastrando;
+      quitar();
+      if (!huboArrastre) return;
+      estado.tragarClic = true;
+      // Si el clic no llega (se solto fuera de la fila), que no se coma el siguiente clic de verdad.
+      window.setTimeout(() => {
+        estado.tragarClic = false;
+      }, 0);
+    };
+    const quitar = () => {
+      window.removeEventListener("pointermove", alMover);
+      window.removeEventListener("pointerup", alSoltar);
+      window.removeEventListener("pointercancel", alSoltar);
+      estado.soltar = null;
+      estado.arrastrando = false;
+      setArrastrandoFila(false);
+    };
+    window.addEventListener("pointermove", alMover);
+    window.addEventListener("pointerup", alSoltar);
+    window.addEventListener("pointercancel", alSoltar);
+    estado.soltar = quitar;
+  };
+
+  /** El clic que suelta un arrastre no llega a la pastilla, ni al "+", ni a las chapitas. */
+  const tragarClicDelArrastre = (evento: React.MouseEvent) => {
+    if (!arrastre.current.tragarClic) return;
+    arrastre.current.tragarClic = false;
+    evento.preventDefault();
+    evento.stopPropagation();
   };
 
   /** Tocar hace lo de la pastilla; mantener presionado (o clic derecho) abre su menu. */
@@ -810,9 +913,14 @@ export const AppSidebar = React.memo(function AppSidebar({
               sin barra de scroll a la vista.
             */}
             <div
+              ref={filaRef}
+              onPointerEnter={medirLaFila}
+              onPointerMove={medirLaFila}
+              onPointerDown={empezarArrastre}
+              onClickCapture={tragarClicDelArrastre}
               className={`flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
                 filaLista ? "" : "invisible"
-              }`}
+              } ${arrastrandoFila ? "cursor-grabbing select-none [&_*]:cursor-grabbing" : filaSeDesborda ? "cursor-grab [&_*]:cursor-grab" : ""}`}
             >
               {/*
                 LA FILA (Alex, 10-11-2026): las fijas y las listas de esta persona, en SU orden y sin
