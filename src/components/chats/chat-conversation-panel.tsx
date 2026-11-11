@@ -177,7 +177,6 @@ import { AvisoDeCierre } from "./aviso-de-cierre";
 import { AvisoDeLlamada } from "./aviso-de-llamada";
 import { BotonDeMapaDeCaminos } from "./boton-mapa-de-caminos";
 import { dondeVaLaSugerencia } from "./destino-de-la-sugerencia";
-import { copiarAlPortapapeles, textoDeVariosParaCopiar } from "./copiar-mensaje";
 import { ALTO_DE_LA_BARRA, CLASES_BOTON_DE_LA_BARRA, CLASES_ETIQUETA_DE_LA_BARRA, mostrarNombreAlMantener } from "./boton-de-la-barra";
 import { textoTraeElTotal } from "@/lib/etapa-automatica-crm-texto";
 
@@ -1869,24 +1868,22 @@ export const ConversationPanel = memo(function ConversationPanel({
   */
   const unicoSeleccionado = mensajesSeleccionados.length === 1 ? mensajesSeleccionados[0] : null;
 
-  // Lo que se copiaria de los marcados; null si ninguno tiene texto (el boton Copiar no aparece).
-  const textoDeLosSeleccionados = textoDeVariosParaCopiar(mensajesSeleccionados);
-
   const copiarSeleccionados = () => {
-    const texto = textoDeLosSeleccionados;
+    const texto = mensajesSeleccionados
+      .map((mensaje) => mensaje.content?.trim())
+      .filter((linea): linea is string => Boolean(linea))
+      .join("\n");
     if (!texto) {
       toast.error("Los mensajes marcados no tienen texto para copiar");
       return;
     }
-    // Se copia en el mismo toque (sin esperar nada antes): si no, Safari no deja copiar.
-    void Promise.resolve(copiarAlPortapapeles(texto)).then((copiado) => {
-      if (!copiado) {
-        toast.error("No se pudo copiar");
-        return;
-      }
-      toast.success("Copiado");
-      setSeleccionados([]);
-    });
+    void navigator.clipboard
+      .writeText(texto)
+      .then(() => {
+        toast.success(mensajesSeleccionados.length > 1 ? "Mensajes copiados" : "Mensaje copiado");
+        setSeleccionados([]);
+      })
+      .catch(() => toast.error("No se pudo copiar"));
   };
 
   // overflow-clip (no overflow-hidden) en la tarjeta: con hidden el navegador podia correr la
@@ -1952,18 +1949,6 @@ export const ConversationPanel = memo(function ConversationPanel({
                       title="Reenviar"
                     >
                       <Forward className="h-5 w-5" />
-                    </button>
-                  ) : null}
-
-                  {textoDeLosSeleccionados ? (
-                    <button
-                      type="button"
-                      onClick={copiarSeleccionados}
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-full text-foreground transition hover:bg-muted"
-                      aria-label="Copiar"
-                      title="Copiar"
-                    >
-                      <Copy className="h-5 w-5" />
                     </button>
                   ) : null}
 
