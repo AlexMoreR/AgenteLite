@@ -954,10 +954,15 @@ export const MessageBubble = memo(function MessageBubble({
   const fotoPrincipal = imagePreviewUrls[0] ?? null;
   const borrosaDeLaFoto = useMemo(() => {
     if (!fotoPrincipal) return null;
-    const deWhatsApp = imagePreviewUrls.find(
-      (url, indice) => indice > 0 && (url.startsWith("data:image/") || esMiniaturaAparte(url)),
+    // Primero lo que sale AL INSTANTE (la de WhatsApp que viene adentro, o la guardada); la de
+    // WhatsApp que viene aparte hay que pedirla al servidor, por eso va ultima.
+    const otras = imagePreviewUrls.slice(1);
+    return (
+      otras.find((url) => url.startsWith("data:image/")) ??
+      leerBorrosa(fotoPrincipal) ??
+      otras.find((url) => esMiniaturaAparte(url)) ??
+      null
     );
-    return deWhatsApp ?? leerBorrosa(fotoPrincipal);
   }, [fotoPrincipal, imagePreviewUrls]);
   /*
     Una foto que ya se vio nitida NO se vuelve a esconder: ni si la burbuja se vuelve a montar (la

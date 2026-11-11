@@ -59,16 +59,23 @@ function leerTodas(): Guardadas {
   return enMemoria;
 }
 
-/** La llave de una foto: su direccion sin lo que cambia entre pedidos (la firma de la URL de WhatsApp). */
+const FIRMAS = ["oh", "oe", "_nc_sid", "_nc_ohc", "_nc_oc", "ccb", "_nc_zt", "_nc_ht", "_nc_gid", "_nc_cat"];
+
+/**
+ * La llave de una foto: su direccion sin lo que cambia entre pedidos. Las de WhatsApp traen una firma
+ * que vence (oh, oe...) y suelen ir ADENTRO de la del proxy (/api/media/proxy?url=...): la misma foto
+ * llegaba con otra firma en la copia guardada y en /live, y la borrosa no se encontraba.
+ */
 export function llaveDeLaFoto(url: string): string {
   try {
     const base = typeof window === "undefined" ? "https://x" : window.location.origin;
-    const direccion = new URL(url, base);
-    // Las de WhatsApp traen una firma que vence (oh, oe...): la foto es la misma.
-    for (const firma of ["oh", "oe", "_nc_sid", "_nc_ohc", "_nc_oc", "ccb", "_nc_zt", "_nc_ht", "_nc_gid"]) {
+    let direccion = new URL(url, base);
+    const adentro = direccion.pathname.startsWith("/api/media/proxy") ? direccion.searchParams.get("url") : null;
+    if (adentro) direccion = new URL(adentro, base);
+    for (const firma of FIRMAS) {
       direccion.searchParams.delete(firma);
     }
-    return `${direccion.pathname}?${direccion.searchParams.toString()}`.slice(0, 300);
+    return `${direccion.host}${direccion.pathname}?${direccion.searchParams.toString()}`.slice(0, 300);
   } catch {
     return url.slice(0, 300);
   }
