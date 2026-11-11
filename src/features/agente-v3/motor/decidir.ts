@@ -119,8 +119,14 @@ function seDispara(
   switch (regla.cuando.tipo) {
     case "frase": {
       const frases = regla.cuando.frases.map(normalizar).filter(Boolean);
+      /*
+        "Exacta" = el mensaje ES esa frase... o, si es un texto LARGO como el de un anuncio, EMPIEZA con
+        ella y la clienta agregó algo (caso del 10-nov-2026, chat 573162585763: el texto del anuncio del
+        combo + "disculpa tienes la camilla portátil?"). Las cortas ("hola", "buenas tardes") siguen
+        exigiendo el mensaje entero: si no, "hola, quiero el lavacabezas" seria "solo saluda".
+      */
       return regla.cuando.exacta
-        ? frases.includes(texto)
+        ? frases.includes(texto) || frases.some((frase) => esTextoDeAnuncio(frase) && texto.startsWith(`${frase} `))
         : frases.some((frase) => texto.includes(frase));
     }
     case "intencion":
@@ -144,6 +150,25 @@ function seDispara(
     default:
       return false;
   }
+}
+
+/** Una frase exacta tan larga solo puede ser un texto prellenado (el del anuncio), nunca un saludo. */
+export const LARGO_MINIMO_DE_TEXTO_DE_ANUNCIO = 30;
+function esTextoDeAnuncio(fraseNormalizada: string): boolean {
+  return fraseNormalizada.length >= LARGO_MINIMO_DE_TEXTO_DE_ANUNCIO;
+}
+
+/** Lo que viene después de la frase exacta, si el mensaje EMPIEZA con ella y trae algo más. */
+function restoDespuesDeLaFraseExacta(regla: ReglaV3, mensaje: string): string | null {
+  if (regla.cuando.tipo !== "frase" || !regla.cuando.exacta) return null;
+  const texto = normalizar(mensaje);
+  for (const frase of regla.cuando.frases.map(normalizar).filter(Boolean)) {
+    if (esTextoDeAnuncio(frase) && texto.startsWith(`${frase} `)) {
+      const resto = texto.slice(frase.length).trim();
+      return resto || null;
+    }
+  }
+  return null;
 }
 
 function comoSeLee(regla: ReglaV3): string {
@@ -247,6 +272,44 @@ export function decidir(input: {
   const ganadora = ordenadas[0].regla;
 
   /*
+    LLEGÓ DEL ANUNCIO Y ADEMÁS PREGUNTÓ ALGO (caso del 10-nov-2026, chat 573162585763).
+
+    Gana la regla del anuncio (sale la bienvenida primero) y, si lo que la clienta agregó después del
+    texto del anuncio dispara una regla que pasa a una asesora, esa respuesta sale en el MISMO turno,
+    después de la bienvenida. No se encadena la pregunta del paso: la asesora toma el chat.
+  */
+  const loQueAgrego = restoDespuesDeLaFraseExacta(ganadora, input.mensaje);
+  if (loQueAgrego) {
+    const deLaPregunta = ordenadas
+      .slice(1)
+      .map(({ regla }) => regla)
+      .find(
+        (regla) =>
+          pasaAUnaAsesora(regla) &&
+          regla.cuando.tipo === "frase" &&
+          seDispara(regla, loQueAgrego, input.estado, intenciones),
+      );
+    if (deLaPregunta) {
+      const productosDeLaGanadora = new Set(
+        ganadora.entonces.flatMap((accion) => (accion.tipo === "activar_producto" ? [accion.productoId] : [])),
+      );
+      const accionesDeLaPregunta = deLaPregunta.entonces.filter(
+        (accion) => !(accion.tipo === "activar_producto" && productosDeLaGanadora.has(accion.productoId)),
+      );
+      return {
+        regla: ganadora,
+        saludo,
+        acciones: [...ganadora.entonces, ...accionesDeLaPregunta],
+        porque: `Ganó "${ganadora.nombre}" porque ${comoSeLee(ganadora)} (llegó del anuncio). Como además preguntó algo que pasa a una asesora, sigue con "${deLaPregunta.nombre}" en el mismo turno.`,
+        tambienEncajaban: ordenadas
+          .slice(1)
+          .filter(({ regla }) => regla.id !== deLaPregunta.id)
+          .map(({ regla }) => ({ id: regla.id, nombre: regla.nombre })),
+      };
+    }
+  }
+
+  /*
     VARIAS PREGUNTAS EN UN MENSAJE (caso del 26-10-2026, ver `juntarVariasPreguntas`).
 
     Solo si la que ganaría es una regla de tema (garantía, envío, materiales...). Si gana una que
@@ -277,8 +340,13 @@ export function decidir(input: {
     mensajes de golpe, que es justo lo que no queremos.
   */
   const despues = siguienteEstado(input.estado, ganadora.entonces);
+  /*
+    Si la ganadora pausa la IA (pasa a una asesora), NO se encadena la pregunta del paso: decía "una
+    asesora te confirma en breve" y enseguida "¿qué servicios vas a ofrecer?" (chat 573162585763).
+  */
+  const pausaLaIA = ganadora.entonces.some((accion) => accion.tipo === "pausar_ia");
   const reglaDelPaso =
-    despues.pasoActual && despues.pasoActual !== input.estado.pasoActual
+    !pausaLaIA && despues.pasoActual && despues.pasoActual !== input.estado.pasoActual
       ? input.libro.reglas.find(
           (regla) =>
             regla.activa &&
