@@ -100,10 +100,11 @@ async function mandarTrozo(input: {
   file: File;
   indice: number;
   total: number;
+  tamanoTrozo: number;
   senal: AbortSignal;
 }): Promise<Response> {
-  const desde = input.indice * TAMANO_TROZO;
-  const trozo = input.file.slice(desde, desde + TAMANO_TROZO);
+  const desde = input.indice * input.tamanoTrozo;
+  const trozo = input.file.slice(desde, desde + input.tamanoTrozo);
 
   const formData = new FormData();
   formData.append("chunk", trozo);
@@ -125,6 +126,7 @@ async function mandarTrozoConReintentos(input: {
   file: File;
   indice: number;
   total: number;
+  tamanoTrozo: number;
   senal: AbortSignal;
   esperar: (ms: number) => Promise<void>;
 }): Promise<ResultadoDelTrozo> {
@@ -183,6 +185,11 @@ export async function subirArchivoPorPedazos(input: {
   onAvance?: (avance: number) => void;
   /** Solo para las pruebas: reemplaza la espera entre reintentos. */
   esperar?: (ms: number) => Promise<void>;
+  /**
+   * Tamaño de cada trozo (por defecto 512 KB). El compositor sube la foto ya achicada en un solo
+   * trozo de hasta 1 MB (chat-conversation-panel.tsx); todo lo demas sigue con 512 KB.
+   */
+  tamanoTrozo?: number;
 }): Promise<{ archivo?: ArchivoSubido; error?: string }> {
   /*
     Antes de empezar, se comprueba que el archivo se pueda LEER.
@@ -215,7 +222,8 @@ export async function subirArchivoPorPedazos(input: {
   }
 
   const uploadId = generarId();
-  const total = Math.max(1, Math.ceil(input.file.size / TAMANO_TROZO));
+  const tamanoTrozo = input.tamanoTrozo && input.tamanoTrozo > 0 ? input.tamanoTrozo : TAMANO_TROZO;
+  const total = Math.max(1, Math.ceil(input.file.size / tamanoTrozo));
   const esperar = input.esperar ?? esperarDeVerdad;
   const cancelar = new AbortController();
 
@@ -230,6 +238,7 @@ export async function subirArchivoPorPedazos(input: {
       file: input.file,
       indice,
       total,
+      tamanoTrozo,
       senal: cancelar.signal,
       esperar,
     });

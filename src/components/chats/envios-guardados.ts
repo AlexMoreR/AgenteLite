@@ -33,6 +33,11 @@ export type EnvioGuardado = {
   estado: "pendiente" | "fallida";
   motivo: string | null;
   creadaEn: number;
+  /**
+   * Cuando salio el ultimo pedido de envio al servidor (ms), para el tope de 1 hora
+   * (plazo-de-envio.ts). Falta en los guardados de antes del 11-nov-2026: se lee como null.
+   */
+  intentoDeEnvioEn?: number | null;
 };
 
 let abierta: Promise<IDBDatabase | null> | null = null;

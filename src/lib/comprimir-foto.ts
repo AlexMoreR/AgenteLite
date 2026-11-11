@@ -21,11 +21,21 @@ export const TIPOS_DE_FOTO_COMPRIMIBLES = ["image/jpeg", "image/png", "image/web
 /** Lado largo maximo de la foto que sale, en px. */
 export const LADO_MAXIMO_PX = 1600;
 
-/** Peso hasta el que una foto ya chica sale tal cual, y meta de la compresion. */
+/** Peso hasta el que una foto ya chica sale tal cual (si ademas mide 1600 px o menos). */
 export const PESO_MAXIMO_BYTES = 400 * 1024;
 
 /** Calidades del JPEG, de mayor a menor. No se baja de 0,6 para no pixelar. */
 export const CALIDADES_JPEG = [0.8, 0.7, 0.6] as const;
+
+/*
+  Peso con el que el JPEG ya se acepta y no se vuelve a codificar (velocidad de fotos, 11-nov-2026).
+
+  Antes se buscaba bajar de 400 KB: una foto de 1600 px con mucho detalle sale a 0,8 con 450-700 KB
+  y se codificaba otra vez a 0,7 y a 0,6 (cada pasada, cientos de ms en un celular). WhatsApp la
+  vuelve a comprimir igual, y hasta 900 KB sube en UN solo pedido (chat-conversation-panel.tsx).
+  Casi siempre alcanza con la primera pasada; las otras quedan para las fotos rarisimas que la pasan.
+*/
+export const PESO_ACEPTABLE_BYTES = 900 * 1024;
 
 export function esFotoComprimible(tipo: string): boolean {
   return (TIPOS_DE_FOTO_COMPRIMIBLES as readonly string[]).includes(tipo.toLowerCase());
@@ -94,7 +104,7 @@ export async function comprimirFotoParaEnviar(file: File): Promise<File> {
       blob = await new Promise<Blob | null>((resolver) =>
         canvas.toBlob((resultado) => resolver(resultado), "image/jpeg", calidad),
       );
-      if (!blob || blob.size <= PESO_MAXIMO_BYTES) break;
+      if (!blob || blob.size <= PESO_ACEPTABLE_BYTES) break;
     }
     // Sin resultado, o uno que no pesa menos: mejor el original.
     if (!blob || blob.size >= file.size) return file;

@@ -2559,6 +2559,8 @@ async function sendEvolutionMediaRequest(input: {
   delayMs?: number;
   legacyPath?: string;
   legacyBody: Record<string, unknown>;
+  /** Solo WAHA: el contenido en base64 para mandarlo dentro del pedido (ver sendEvolutionMediaUrl). */
+  contenidoParaWaha?: (() => Promise<string | null>) | null;
 }) {
   const sendNumber = normalizeEvolutionSendNumber(input.phoneNumber);
   const mediaSource = input.mediaSource ?? "url";
@@ -2574,16 +2576,31 @@ async function sendEvolutionMediaRequest(input: {
   */
   const waha = await conexionWahaDe(input.instanceName);
   if (waha) {
-    return enviarMediaWaha({
-      connection: waha,
-      sesion: input.instanceName,
-      telefono: input.phoneNumber,
-      tipo: input.type,
-      ...(mediaSource === "base64" ? { base64: mediaValue } : { url: mediaValue }),
-      mimetype: input.mimetype,
-      nombreDeArchivo: input.fileName,
-      epigrafe: normalizedCaption,
-    });
+    const enviarAWaha = (fuente: { url: string } | { base64: string }) =>
+      enviarMediaWaha({
+        connection: waha,
+        sesion: input.instanceName,
+        telefono: input.phoneNumber,
+        tipo: input.type,
+        ...fuente,
+        mimetype: input.mimetype,
+        nombreDeArchivo: input.fileName,
+        epigrafe: normalizedCaption,
+      });
+    if (mediaSource === "url" && input.contenidoParaWaha) {
+      const contenido = await input.contenidoParaWaha().catch(() => null);
+      if (contenido?.trim()) {
+        try {
+          return await enviarAWaha({ base64: contenido });
+        } catch (error) {
+          // Solo si WAHA lo RECHAZO (4xx) se vuelve a la URL: si se agoto el plazo, pudo haber salido.
+          if (!esRechazoDeWaha(error)) {
+            throw error;
+          }
+        }
+      }
+    }
+    return enviarAWaha(mediaSource === "base64" ? { base64: mediaValue } : { url: mediaValue });
   }
 
   const baseMediaBody = {
@@ -2859,6 +2876,14 @@ export async function sendEvolutionMediaUrl(input: {
   /** El contenido en base64, o una funcion que lo lee recien si la URL falla (no se lee de gusto). */
   base64Fallback?: string | null | (() => Promise<string | null>);
   delayMs?: number;
+  /*
+    Solo en lineas WAHA (velocidad de fotos, 11-nov-2026): el contenido en base64 para mandarlo
+    DENTRO del pedido. Con la URL, WAHA tiene que bajar el archivo de nuestra direccion publica: un
+    viaje de ida y vuelta por internet hasta nuestro propio servidor antes de subirlo a WhatsApp. Lo
+    pasa solo la foto chica del chat (agent-actions.ts); el resto sigue con la URL. Si WAHA rechaza
+    el contenido (4xx) se manda la URL como siempre. En Evolution no se usa (no acepta base64).
+  */
+  contenidoParaWaha?: (() => Promise<string | null>) | null;
 }) {
   const normalizedCaption = input.caption?.trim() || "";
 
@@ -2872,7 +2897,7 @@ export async function sendEvolutionMediaUrl(input: {
     delay: input.delayMs ?? 1200,
   });
 
-  const send = (legacyMedia: string) =>
+  const send = (legacyMedia: string, contenidoParaWaha?: (() => Promise<string | null>) | null) =>
     sendEvolutionMediaRequest({
       instanceName: input.instanceName,
       phoneNumber: input.phoneNumber,
@@ -2884,6 +2909,7 @@ export async function sendEvolutionMediaUrl(input: {
       caption: normalizedCaption,
       delayMs: input.delayMs,
       legacyBody: buildLegacyBody(legacyMedia),
+      contenidoParaWaha,
     });
 
   // Mandamos la URL publica: el gateway la descarga (payload liviano). Antes se enviaba
@@ -2891,7 +2917,7 @@ export async function sendEvolutionMediaUrl(input: {
   // en v2 hace fallar TODO medio (imagen/video/pdf) por tamaño del payload, mientras el
   // texto pasaba sin problema. El base64 queda solo como reintento si la URL falla.
   try {
-    return await send(input.url);
+    return await send(input.url, input.contenidoParaWaha);
   } catch (error) {
     const respaldo =
       typeof input.base64Fallback === "function"
@@ -2901,8 +2927,17 @@ export async function sendEvolutionMediaUrl(input: {
       throw error;
     }
 
+    // El reintento va sin el contenido para WAHA: si el primero se agoto, no se manda dos veces asi.
     return await send(respaldo);
   }
+}
+
+/** WAHA contesto que no (4xx): el archivo no salio y se puede probar por otro camino. */
+function esRechazoDeWaha(error: unknown): boolean {
+  const status = (error as { name?: unknown; status?: unknown } | null)?.status;
+  return (
+    (error as { name?: unknown } | null)?.name === "WahaError" && typeof status === "number" && status >= 400 && status < 500
+  );
 }
 
 export async function sendEvolutionMediaBase64(input: {

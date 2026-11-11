@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   CALIDADES_JPEG,
   LADO_MAXIMO_PX,
+  PESO_ACEPTABLE_BYTES,
   PESO_MAXIMO_BYTES,
   comprimirFotoParaEnviar,
   debeComprimirFoto,
@@ -23,6 +24,11 @@ test("los topes son 1600 px, 400 KB y las calidades 0,8 → 0,7 → 0,6", () => 
   assert.equal(LADO_MAXIMO_PX, 1600);
   assert.equal(PESO_MAXIMO_BYTES, 400 * KB);
   assert.deepEqual([...CALIDADES_JPEG], [0.8, 0.7, 0.6]);
+});
+
+test("se acepta la primera pasada hasta 900 KB: entra en un solo pedido de 1 MB", () => {
+  assert.equal(PESO_ACEPTABLE_BYTES, 900 * KB);
+  assert.ok(PESO_ACEPTABLE_BYTES <= 1024 * KB);
 });
 
 test("una foto chica sale tal cual", () => {

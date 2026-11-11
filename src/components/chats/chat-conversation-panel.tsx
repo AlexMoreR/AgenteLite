@@ -126,6 +126,7 @@ import {
   marcarFotoEnviada,
   nuevaClaveDeEnvio,
   nuevoIdDeFoto,
+  plazoDe,
   quitarArchivosFallidos,
   quitarFotos,
   reanudarEnviosGuardados,
@@ -137,6 +138,12 @@ import {
   type PasoDeEnvio,
   type SubidaDeEnvio,
 } from "@/components/chats/fotos-en-envio";
+import {
+  AVISO_REINTENTO_VENCIDO,
+  MOTIVO_PASO_LA_HORA,
+  claveParaReintentar,
+  plazoVencido,
+} from "@/components/chats/plazo-de-envio";
 import { cuandoEsteLibre } from "@/lib/cuando-este-libre";
 import { TIEMPO_LIMITE_SUBIDA_MS, clasificarSubida } from "@/lib/nota-de-voz-reintento";
 import { PlaybookPanelDialog } from "@/components/chats/playbook-panel-dialog";
@@ -192,6 +199,9 @@ const PanelDeEnvio = dynamic(() => import("./panel-de-envio").then((modulo) => m
     ),
 });
 
+/** Hasta este peso una foto sube en un solo pedido (ver subirArchivoEnEnvio). */
+const TROZO_DE_FOTO_ACHICADA_BYTES = 1024 * 1024;
+
 /*
   Sube el archivo de un envio y dice si vale reintentarlo solo.
 
@@ -241,8 +251,17 @@ async function subirArchivoEnEnvio(
   /*
     Por pedazos, con reintento por pedazo: con la señal de la calle (14-32 KB/s medidos el
     14-ago-2026) 15 MB en una sola peticion tardan entre 8 y 18 minutos y no llegan a terminar.
+
+    La foto ya achicada (comprimirFotoParaEnviar, ~200-600 KB) va en UN solo pedido (velocidad de
+    fotos, 11-nov-2026): en pedazos de 512 KB una de 600 KB eran dos pedidos en fila, cada uno con su
+    sesion y su permiso. Con 15 KB/s 1 MB son ~70 s, todavia una peticion que termina.
   */
-  const resultado = await subirArchivoPorPedazos({ file: archivo, endpoint: `${destino.uploadPath}/chunk`, onAvance });
+  const resultado = await subirArchivoPorPedazos({
+    file: archivo,
+    endpoint: `${destino.uploadPath}/chunk`,
+    onAvance,
+    ...(foto.tipo === "IMAGE" && archivo.size <= TROZO_DE_FOTO_ACHICADA_BYTES ? { tamanoTrozo: TROZO_DE_FOTO_ACHICADA_BYTES } : {}),
+  });
   if (resultado.archivo) {
     return { ok: true, valor: resultado.archivo };
   }
@@ -935,6 +954,9 @@ export const ConversationPanel = memo(function ConversationPanel({
       return false;
     }
     const arranque = performance.now();
+    // Desde que se toco Enviar hasta que arranca: la espera en la cola del chat (otro archivo del
+    // mismo chat saliendo). En un reintento o al retomar cuenta desde el envio original.
+    const colaMs = Math.max(0, Date.now() - inicial.creadaEn.getTime());
     const tiempos = { comprimirMs: 0, subirMs: 0, enviarMs: 0, intentosDeSubida: 0, intentosDeEnvio: 0 };
     const medir = (resultado: "ok" | "fallida", motivo?: string) => {
       const linea = `[envio-medio] ${JSON.stringify({
@@ -942,6 +964,7 @@ export const ConversationPanel = memo(function ConversationPanel({
         tipo: inicial.tipo,
         resultado,
         bytes: leerFoto(id)?.archivo.size ?? inicial.archivo.size,
+        colaMs,
         comprimirMs: Math.round(tiempos.comprimirMs),
         subirMs: Math.round(tiempos.subirMs),
         enviarMs: Math.round(tiempos.enviarMs),
@@ -1003,7 +1026,19 @@ export const ConversationPanel = memo(function ConversationPanel({
     actualizarFoto(id, { estado: "enviando", motivo: null });
     const subidaFinal = subida;
     const desdeElEnvio = performance.now();
+    let intentosDeEnvio = 0;
     const envio = await conReintentosAutomaticos(async () => {
+      /*
+        Tope de 1 hora (plazo-de-envio.ts): un reintento automatico solo sale si el intento anterior
+        fue hace menos de una hora; si no, el servidor ya no reconoceria la clave y podria duplicar.
+        Con esperas de 1,5 s y 4 s no deberia pasar nunca: es la red de seguridad.
+      */
+      const actual = leerFoto(id);
+      if (intentosDeEnvio > 0 && actual && plazoVencido(plazoDe(actual), Date.now())) {
+        return { ok: false as const, motivo: MOTIVO_PASO_LA_HORA, reintentable: false };
+      }
+      intentosDeEnvio += 1;
+      actualizarFoto(id, { intentoDeEnvioEn: Date.now() });
       try {
         let resultado: unknown;
         if (inicial.tipo === "AUDIO") {
@@ -1069,7 +1104,12 @@ export const ConversationPanel = memo(function ConversationPanel({
     });
   }, []);
 
-  // Reintentar desde la burbuja roja: el mismo archivo y la misma clave, sin duplicar.
+  /*
+    Reintentar desde la burbuja roja: el mismo archivo y la misma clave, sin duplicar.
+
+    Pasada la hora (plazo-de-envio.ts) el servidor ya no reconoce la clave: sale con una NUEVA, como
+    envio nuevo, y se le avisa a la asesora que si ya habia llegado el cliente lo recibe dos veces.
+  */
   const reintentarFoto = useCallback(
     (id: string) => {
       const foto = leerFoto(id);
@@ -1077,8 +1117,16 @@ export const ConversationPanel = memo(function ConversationPanel({
       if (decision === "nada" || !foto) {
         return;
       }
+      const { clave, nueva } = claveParaReintentar({ ...plazoDe(foto), clave: foto.clave }, Date.now(), nuevaClaveDeEnvio);
+      if (nueva) {
+        toast.warning(AVISO_REINTENTO_VENCIDO, { duration: 10000 });
+      }
       // Se saca de "fallida" ANTES de empezar: un segundo toque ya no la reintenta.
-      actualizarFoto(id, decision === "solo-enviar" ? { estado: "enviando", motivo: null } : { estado: "subiendo", motivo: null, avance: 0 });
+      actualizarFoto(id, {
+        ...(decision === "solo-enviar" ? { estado: "enviando" as const, motivo: null } : { estado: "subiendo" as const, motivo: null, avance: 0 }),
+        // La clave nueva empieza de cero: su hora cuenta desde el proximo intento.
+        ...(nueva ? { clave, intentoDeEnvioEn: null } : {}),
+      });
       void encolarFoto(id, foto.conversationId, enviarFoto);
     },
     [enviarFoto],
@@ -1145,6 +1193,7 @@ export const ConversationPanel = memo(function ConversationPanel({
           // Un milisegundo de diferencia: el orden en el chat es el orden elegido.
           creadaEn: new Date(creadaEn.getTime() + index),
           enviadaEn: null,
+          intentoDeEnvioEn: null,
         });
       });
 
@@ -1227,6 +1276,7 @@ export const ConversationPanel = memo(function ConversationPanel({
         motivo: null,
         creadaEn: new Date(),
         enviadaEn: null,
+        intentoDeEnvioEn: null,
       };
       agregarFotos([nueva]);
       window.requestAnimationFrame(() => onScrollToBottom());

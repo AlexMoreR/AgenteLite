@@ -57,6 +57,7 @@ function foto(cambios: Partial<FotoEnEnvio> & { conversationId: string }): FotoE
     motivo: null,
     creadaEn: new Date(),
     enviadaEn: null,
+    intentoDeEnvioEn: null,
     ...cambios,
   };
 }

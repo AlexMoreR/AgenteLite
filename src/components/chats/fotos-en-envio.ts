@@ -6,6 +6,7 @@ import { ESPERAS_REINTENTO_MS } from "@/lib/chat-envio-reintento";
 import { enviarArchivoPorRuta, enviarAudioPorRuta } from "@/lib/chats/enviar-por-ruta";
 import { borrarEnvio, guardarArchivo, guardarEnvio, leerEnviosGuardados, type EnvioGuardado } from "./envios-guardados";
 import type { SharedInboxMessageItem, SharedInboxProps } from "./chat-inbox-types";
+import { MOTIVO_PASO_LA_HORA, plazoVencido, puedeRetomarseSolo, type ConPlazo } from "./plazo-de-envio";
 
 /*
   Archivos en envio (fotos, videos, documentos y notas de voz): la burbuja que aparece AL TOCAR
@@ -65,6 +66,11 @@ export type FotoEnEnvio = {
   motivo: string | null;
   creadaEn: Date;
   enviadaEn: number | null;
+  /**
+   * Cuando salio el ultimo pedido de envio al servidor (ms), o null si todavia no se intento. Con
+   * esto se cuenta la hora del tope (plazo-de-envio.ts): pasada, la clave ya no evita duplicados.
+   */
+  intentoDeEnvioEn: number | null;
 };
 
 /** Tarjeta de lo que no se pudo enviar y no tiene burbuja (rechazado antes de subir: formato o peso). */
@@ -92,9 +98,17 @@ export const ESPERAS_AUTOMATICAS_MS = ESPERAS_REINTENTO_MS;
   Al volver a abrir la pagina, un envio guardado se retoma solo si es reciente: mandarle a un
   cliente una foto media hora despues, sin que la asesora lo vea, puede no tener sentido. Uno mas
   viejo vuelve en rojo con Reintentar. Pasado un dia se descarta.
+
+  Ademas, uno con mas de una hora desde su ultimo intento NUNCA sale solo (plazo-de-envio.ts): el
+  servidor ya no reconoceria su clave y podria llegarle dos veces al cliente.
 */
 export const REANUDAR_SOLO_HASTA_MS = 30 * 60_000;
 export const VIDA_DEL_GUARDADO_MS = 24 * 60 * 60_000;
+
+/** Lo que mira el tope de 1 hora de un envio. */
+export function plazoDe(foto: Pick<FotoEnEnvio, "creadaEn" | "intentoDeEnvioEn">): ConPlazo {
+  return { creadaEn: foto.creadaEn.getTime(), intentoDeEnvioEn: foto.intentoDeEnvioEn };
+}
 
 function aleatorio(): string {
   return typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
@@ -311,6 +325,7 @@ function comoGuardado(foto: FotoEnEnvio): EnvioGuardado {
     estado: foto.estado === "fallida" ? "fallida" : "pendiente",
     motivo: foto.motivo,
     creadaEn: foto.creadaEn.getTime(),
+    intentoDeEnvioEn: foto.intentoDeEnvioEn,
   };
 }
 
@@ -422,11 +437,13 @@ export function actualizarFoto(id: string, cambios: Partial<Omit<FotoEnEnvio, "i
     if (enCurso(cambios.estado)) tomarCandado(id);
     else soltarCandado(id);
   }
-  // Lo que importa para retomarlo: el archivo comprimido, lo que devolvio la subida y si fallo.
+  // Lo que importa para retomarlo: el archivo comprimido, lo que devolvio la subida, si fallo, la
+  // clave (Reintentar la cambia pasada la hora) y cuando se intento enviar (tope de 1 hora).
   if (cambios.archivo) {
     void guardarArchivo(id, cambios.archivo);
   }
-  if (foto.estado !== "enviada" && ("subida" in cambios || "estado" in cambios || "archivo" in cambios || "comprimida" in cambios)) {
+  const loQueSeGuarda = ["subida", "estado", "archivo", "comprimida", "clave", "intentoDeEnvioEn"] as const;
+  if (foto.estado !== "enviada" && loQueSeGuarda.some((campo) => campo in cambios)) {
     void guardarEnvio(comoGuardado(foto));
   }
 }
@@ -530,6 +547,9 @@ let reanudacionHecha = false;
   mitad del envio). Los recientes y pendientes se retoman (alRetomar los manda a la cola); los
   viejos o fallidos vuelven en rojo con Reintentar; los de mas de un dia se descartan. Corre una
   vez por pagina. Lo que otra pestaña abierta esta mandando no se toca.
+
+  Uno que paso la hora del servidor (plazo-de-envio.ts) nunca se retoma: vuelve en rojo con un
+  motivo que pide revisar el chat antes de reintentar.
 */
 export async function reanudarEnviosGuardados(alRetomar: (foto: FotoEnEnvio) => void): Promise<void> {
   if (reanudacionHecha || typeof window === "undefined") {
@@ -551,7 +571,11 @@ export async function reanudarEnviosGuardados(alRetomar: (foto: FotoEnEnvio) => 
       void borrarEnvio(guardado.id);
       continue;
     }
-    const retomar = guardado.estado === "pendiente" && edad <= REANUDAR_SOLO_HASTA_MS;
+    const plazo: ConPlazo = { creadaEn: guardado.creadaEn, intentoDeEnvioEn: guardado.intentoDeEnvioEn ?? null };
+    const retomar = puedeRetomarseSolo({ ...plazo, estado: guardado.estado }, ahora, REANUDAR_SOLO_HASTA_MS);
+    const motivoSinRetomar = plazoVencido(plazo, ahora)
+      ? MOTIVO_PASO_LA_HORA
+      : guardado.motivo || "Quedó sin enviar al cerrar la pestaña.";
     let vistaPrevia = "";
     try {
       vistaPrevia = URL.createObjectURL(guardado.archivo);
@@ -573,9 +597,10 @@ export async function reanudarEnviosGuardados(alRetomar: (foto: FotoEnEnvio) => 
       subida: guardado.subida,
       avance: 0,
       estado: retomar ? (guardado.subida ? "enviando" : "subiendo") : "fallida",
-      motivo: retomar ? null : guardado.motivo || "Quedó sin enviar al cerrar la pestaña.",
+      motivo: retomar ? null : motivoSinRetomar,
       creadaEn: new Date(guardado.creadaEn),
       enviadaEn: null,
+      intentoDeEnvioEn: plazo.intentoDeEnvioEn,
     };
     agregarSinGuardar([foto]);
     if (retomar) {

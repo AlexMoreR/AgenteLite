@@ -2,8 +2,8 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
-import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
+import { canAccessClientModule, getClientWorkspaceAccessForUserCached } from "@/lib/client-workspace-access";
+import { conServerTiming, type MedidorServerTiming } from "@/lib/server-timing";
 import {
   ALLOWED_MIME_TYPES,
   CHAT_MEDIA_DIR,
@@ -32,23 +32,32 @@ import { indiceDePedazoValido, recibirPedazo } from "@/lib/chat-upload-pedazos";
  * llegan intactos, porque un catalogo con las fotos machacadas vende menos que uno que tarda. Las
  * fotos sueltas del compositor de Chats si llegan achicadas (1600 px, unos 400 KB): las achica el
  * compositor antes de subirlas (`src/lib/comprimir-foto.ts`), no esta ruta.
+ *
+ * Con Server-Timing y la linea [timing] (velocidad de fotos, 11-nov-2026). Pasos: auth (sesion +
+ * permiso), cuerpo (leer el pedazo), disco (guardarlo y, en el ultimo, armar el archivo).
+ *
+ * El permiso sale de la cache de 45 s (la misma de /enviar y /live) y el negocio del mismo permiso:
+ * antes cada pedazo hacia el permiso sin cache (varias consultas) mas getPrimaryWorkspaceForUser.
  */
-export async function POST(request: Request) {
+export const POST = conServerTiming(manejarPost, { log: "chats/upload-media/chunk" });
+
+async function manejarPost(request: Request, t: MedidorServerTiming) {
   const inicio = Date.now();
   const session = await auth();
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 401 });
   }
 
-  const access = await getClientWorkspaceAccessForUser(session.user.id);
+  const access = await getClientWorkspaceAccessForUserCached(session.user.id);
   if (!access || !canAccessClientModule(access, "chats")) {
     return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 403 });
   }
 
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
-  if (!membership?.workspace.id) {
+  // El permiso trae la misma membresia que getPrimaryWorkspaceForUser (ver client-workspace-access).
+  if (!access.workspaceId) {
     return NextResponse.json({ ok: false, error: "Workspace no encontrado" }, { status: 404 });
   }
+  t.marca("auth");
 
   const formData = await request.formData().catch(() => null);
   const chunk = formData?.get("chunk");
@@ -79,17 +88,20 @@ export async function POST(request: Request) {
   // (ver chat-upload-pedazos). Asi se pueden mandar varios a la vez sin desordenar el archivo.
   let resultado;
   try {
+    const datos = Buffer.from(await chunk.arrayBuffer());
+    t.marca("cuerpo");
     resultado = await recibirPedazo({
       tmpDir,
       destinoDir: uploadDir,
       uploadId,
       indice,
       total,
-      datos: Buffer.from(await chunk.arrayBuffer()),
+      datos,
       maxBytes: MAX_FILE_SIZE_BYTES,
       maxMb: MAX_FILE_SIZE_MB,
       nombreFinal: fileName,
     });
+    t.marca("disco");
   } catch (error) {
     console.error("[chat-upload] no se pudo guardar un pedazo", {
       uploadId,

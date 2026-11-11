@@ -88,6 +88,11 @@ import { resolveEvolutionQuickResponseFlow } from "@/features/flows/services/res
   tampoco iba a entrar en el pedido.
 */
 const MAX_BASE64_FALLBACK_BYTES = 8 * 1024 * 1024;
+/*
+  Hasta este peso la FOTO va dentro del pedido a WAHA en vez de por URL (velocidad de fotos,
+  11-nov-2026). La del compositor sale achicada (~200-600 KB); 1,5 MB deja margen sin cargar la RAM.
+*/
+const MAX_IMAGEN_DENTRO_DEL_PEDIDO_BYTES = 1.5 * 1024 * 1024;
 
 const createAgentSchema = z.object({
   assistantName: z.string().trim().max(40).default(""),
@@ -3553,33 +3558,48 @@ async function enviarArchivoDelChat(
   clave: string | null,
 ): Promise<{ ok: true } | { error: string }> {
   const inicio = Date.now();
+  /*
+    Cada paso va al Server-Timing de /api/cliente/chats/enviar-archivo (archivo_sesion, archivo_datos,
+    archivo_whatsapp, archivo_guardado, archivo_postEnvio), igual que el texto (envioMarca). Fuera de
+    esa ruta no hace nada.
+  */
+  let ultimaMarca = performance.now();
+  const marca = (paso: string) => {
+    const ahora = performance.now();
+    anotarLlamadaExterna(`archivo_${paso}`, ahora - ultimaMarca);
+    ultimaMarca = ahora;
+  };
+
   const session = await auth();
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     return { error: "No autorizado" };
   }
-  await requireClientWorkspaceAccess("chats");
+  const userId = session.user.id;
+  // El permiso ya trae el negocio: es la MISMA membresia que daba getPrimaryWorkspaceForUser (ver
+  // client-workspace-access.ts). Una consulta menos en cada archivo.
+  const access = await requireClientWorkspaceAccess("chats");
+  marca("sesion");
 
   const parsed = sendChatMediaReplySchema.safeParse(input);
   if (!parsed.success) {
     return { error: "Datos invalidos" };
   }
 
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
-  if (!membership) {
+  const workspaceId = access.workspaceId;
+  if (!workspaceId) {
     return { error: "Debes configurar tu negocio primero" };
   }
 
-  /*
-    Quien solo monitorea no envia. Se corta ACA, en el servidor.
-
-    Ocultar el cuadro de escribir alcanza para que no pase sin querer, pero no es una puerta con
-    llave: la accion se puede llamar igual desde afuera. La regla vale donde de verdad se decide.
-  */
-  if (await estaEnModoMonitoreo({ workspaceId: membership.workspace.id, userId: session.user.id })) {
-    return { error: AVISO_MODO_MONITOREO };
-  }
-
   if (parsed.data.source === "official") {
+    /*
+      Quien solo monitorea no envia. Se corta ACA, en el servidor.
+
+      Ocultar el cuadro de escribir alcanza para que no pase sin querer, pero no es una puerta con
+      llave: la accion se puede llamar igual desde afuera. La regla vale donde de verdad se decide.
+    */
+    if (await estaEnModoMonitoreo({ workspaceId, userId })) {
+      return { error: AVISO_MODO_MONITOREO };
+    }
     /*
       Reintento de un envio que ya salio (la respuesta se perdio): no se repite. Solo con numero
       unico: ese envio viene de la cola del chat, donde cada subida tiene su propia direccion. Sin
@@ -3602,7 +3622,7 @@ async function enviarArchivoDelChat(
     }
     const inicioDelGateway = Date.now();
     const enviado = await sendOfficialApiChatFile({
-      workspaceId: membership.workspace.id,
+      workspaceId,
       conversationId: parsed.data.conversationId,
       mediaUrl: parsed.data.mediaUrl,
       kind: parsed.data.mediaType,
@@ -3627,23 +3647,74 @@ async function enviarArchivoDelChat(
       await claimConversationIfUnassigned({
         source: "official",
         conversationId: parsed.data.conversationId,
-        workspaceId: membership.workspace.id,
+        workspaceId,
       });
     }
 
     return enviado;
   }
 
-  const conversation = await prisma.conversation.findFirst({
-    where: {
-      id: parsed.data.conversationId,
-      workspaceId: membership.workspace.id,
-    },
-    include: {
-      contact: { select: { id: true, phoneNumber: true } },
-      channel: { select: { id: true, provider: true, evolutionInstanceName: true } },
-    },
-  });
+  // Los medios recibidos se guardan con ruta relativa (/uploads/chat-media/...): sin base,
+  // new URL() lanzaba y reenviar fallaba con "No se pudo leer el archivo".
+  let mediaPathname = "";
+  try {
+    mediaPathname = new URL(parsed.data.mediaUrl, "http://local").pathname;
+  } catch {
+    return { error: "No se pudo leer el archivo" };
+  }
+  const filePath = path.join(process.cwd(), "public", mediaPathname);
+
+  /*
+    Los cuatro controles de antes de mandar salen A LA VEZ (velocidad de fotos, 11-nov-2026). Antes
+    iban en fila: modo monitoreo, conversacion, numero unico y peso del archivo, cuatro viajes uno
+    detras del otro. Ninguno depende de otro; el envio sigue esperando a los cuatro y cada uno corta
+    igual que antes y en el mismo orden.
+
+    - Quien solo monitorea no envia. Se corta ACA, en el servidor: ocultar el cuadro de escribir no
+      es una puerta con llave, la accion se puede llamar igual desde afuera.
+    - Numero unico: solo la ultima hora (11-nov-2026). Sin fecha, Postgres leia el crudo (rawPayload)
+      de TODOS los mensajes salientes del chat para mirar el numero unico: segundos en un chat largo.
+      La pantalla no reintenta sola con mas de una hora (plazo-de-envio.ts: PLAZO_ANTI_DUPLICADO_MS).
+    - Del archivo solo se mira cuanto pesa; NO se carga entero (un video de 85 MB en base64 son
+      ~114 MB de texto en un servidor que ya se queda sin RAM). El respaldo en base64 se lee recien
+      si hace falta, y solo para los chicos.
+  */
+  const inicioDeLosControles = Date.now();
+  const [enMonitoreo, conversation, yaEnviado, fileSize] = await Promise.all([
+    estaEnModoMonitoreo({ workspaceId, userId }),
+    prisma.conversation.findFirst({
+      where: {
+        id: parsed.data.conversationId,
+        workspaceId,
+      },
+      include: {
+        contact: { select: { id: true, phoneNumber: true } },
+        channel: { select: { id: true, provider: true, evolutionInstanceName: true } },
+      },
+    }),
+    clave
+      ? prisma.message.findFirst({
+          where: {
+            workspaceId,
+            conversationId: parsed.data.conversationId,
+            direction: "OUTBOUND",
+            createdAt: { gte: new Date(Date.now() - 60 * 60_000) },
+            rawPayload: { path: ["clientMessageId"], equals: clave },
+          },
+          select: { id: true },
+        })
+      : Promise.resolve(null),
+    stat(filePath).then(
+      (datos) => datos.size,
+      () => null,
+    ),
+  ]);
+  const controlesMs = Date.now() - inicioDeLosControles;
+  marca("datos");
+
+  if (enMonitoreo) {
+    return { error: AVISO_MODO_MONITOREO };
+  }
 
   if (
     !conversation ||
@@ -3655,57 +3726,23 @@ async function enviarArchivoDelChat(
   }
 
   // Mismo numero unico ya guardado: es un reintento de un envio que SI salio. No se repite.
-  if (clave) {
-    /*
-      Solo la ultima hora (velocidad, 11-nov-2026): sin fecha, Postgres leia el crudo (rawPayload) de
-      TODOS los mensajes salientes del chat -con archivos, los mas pesados- para mirar el numero unico.
-      En un chat largo eran segundos en cada foto o documento. La cola de envio reintenta en minutos.
-    */
-    const yaEnviado = await prisma.message.findFirst({
-      where: {
-        workspaceId: membership.workspace.id,
-        conversationId: conversation.id,
-        direction: "OUTBOUND",
-        createdAt: { gte: new Date(Date.now() - 60 * 60_000) },
-        rawPayload: { path: ["clientMessageId"], equals: clave },
-      },
-      select: { id: true },
-    });
-    if (yaEnviado) {
-      registrarEnvioDeMedio({ resultado: "repetido", canal: "evolution", conversationId: conversation.id });
-      return { ok: true };
-    }
+  if (yaEnviado) {
+    registrarEnvioDeMedio({ resultado: "repetido", canal: "evolution", conversationId: conversation.id });
+    return { ok: true };
   }
 
-  /*
-    Solo se mira cuanto pesa; el archivo NO se carga entero.
-
-    Antes se leia completo y se pasaba a base64 por si habia que reintentar por ahi. Para un video
-    de 85 MB eso son ~114 MB de texto en memoria, en un servidor donde el kernel ya viene matando
-    Postgres por falta de RAM, y ademas al pedo: el gateway se lleva la URL, no el contenido.
-
-    El respaldo en base64 se conserva solo para los archivos chicos, que es donde de verdad
-    sirvio alguna vez (una nota de voz, una foto). Y se lee recien si hace falta: si el gateway
-    baja la URL, que es lo normal, no se lee ni se convierte nada (antes se leia hasta 8 MB en cada
-    envio, antes de hablar con WhatsApp).
-  */
-  const inicioDeLectura = Date.now();
-  let leerRespaldo: (() => Promise<string | null>) | null = null;
-  let fileSize = 0;
-  let mediaPathname = "";
-  try {
-    // Los medios recibidos se guardan con ruta relativa (/uploads/chat-media/...): sin base,
-    // new URL() lanzaba y reenviar fallaba con "No se pudo leer el archivo".
-    mediaPathname = new URL(parsed.data.mediaUrl, "http://local").pathname;
-    const filePath = path.join(process.cwd(), "public", mediaPathname);
-    fileSize = (await stat(filePath)).size;
-    if (fileSize <= MAX_BASE64_FALLBACK_BYTES) {
-      leerRespaldo = async () => (await readFile(filePath)).toString("base64");
-    }
-  } catch {
+  if (fileSize === null) {
     return { error: "No se pudo leer el archivo" };
   }
-  const leerMs = Date.now() - inicioDeLectura;
+  const leerRespaldo =
+    fileSize <= MAX_BASE64_FALLBACK_BYTES ? async () => (await readFile(filePath)).toString("base64") : null;
+  /*
+    La foto chica va DENTRO del pedido a WAHA (sendEvolutionMediaUrl: contenidoParaWaha): asi WAHA no
+    tiene que bajarla de nuestra direccion publica antes de subirla a WhatsApp. Videos, documentos y
+    fotos grandes siguen con la URL.
+  */
+  const contenidoParaWaha =
+    parsed.data.mediaType === "IMAGE" && fileSize <= MAX_IMAGEN_DENTRO_DEL_PEDIDO_BYTES ? leerRespaldo : null;
 
   // Evolution GO (/send/media) descarga la media desde una URL pública (no acepta base64),
   // por eso enviamos la URL absoluta pública y dejamos el base64 solo como respaldo legacy.
@@ -3725,8 +3762,10 @@ async function enviarArchivoDelChat(
       fileName: parsed.data.fileName,
       caption,
       base64Fallback: leerRespaldo,
+      contenidoParaWaha,
     });
   } catch (mediaError) {
+    marca("whatsapp");
     const detail = mediaError instanceof Error ? mediaError.message : "";
     registrarEnvioDeMedio(
       {
@@ -3735,7 +3774,7 @@ async function enviarArchivoDelChat(
         tipo: parsed.data.mediaType,
         conversationId: conversation.id,
         pesoKb: Math.round(fileSize / 1024),
-        leerMs,
+        controlesMs,
         gatewayMs: Date.now() - inicioDelGateway,
         totalMs: Date.now() - inicio,
         error: detail || "sin detalle",
@@ -3757,6 +3796,7 @@ async function enviarArchivoDelChat(
   }
 
   const gatewayMs = Date.now() - inicioDelGateway;
+  marca("whatsapp");
   const inicioDelGuardado = Date.now();
   const now = new Date();
 
@@ -3768,10 +3808,11 @@ async function enviarArchivoDelChat(
    * le llegaba el catalogo dos veces. Se deja el rastro en el log y se confirma el envio, que
    * es lo que de verdad paso.
    */
+  let guardado = false;
   try {
     await prisma.message.create({
       data: {
-        workspaceId: membership.workspace.id,
+        workspaceId,
         conversationId: conversation.id,
         channelId: conversation.channel.id,
         contactId: conversation.contact.id,
@@ -3787,7 +3828,7 @@ async function enviarArchivoDelChat(
         sentAt: now,
         rawPayload: {
           source: "manual",
-          enviadoPorUserId: session.user.id,
+          enviadoPorUserId: userId,
           fileName: parsed.data.fileName,
           mimeType: parsed.data.mimeType,
           fileSize,
@@ -3796,22 +3837,24 @@ async function enviarArchivoDelChat(
         } as never,
       },
     });
+    guardado = true;
+    marca("guardado");
 
-    await syncLeadLifecycleForContact({
-      workspaceId: membership.workspace.id,
-      contactId: conversation.contact.id,
-      hasHistory: true,
-    });
-
-    await prisma.conversation.update({
-      where: { id: conversation.id },
-      data: { lastMessageAt: now, status: "OPEN" },
-    });
-
-    await setConversationAutomationPaused({
-      conversationId: conversation.id,
-      paused: true,
-    });
+    /*
+      lastMessageAt y la pausa de la IA a la vez (antes en fila). La pausa se espera a proposito,
+      como en el texto: en after(), un mensaje del cliente que entre en ese hueco podria hacer
+      contestar al bot encima de la asesora.
+    */
+    await Promise.all([
+      prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { lastMessageAt: now, status: "OPEN" },
+      }),
+      setConversationAutomationPaused({
+        conversationId: conversation.id,
+        paused: true,
+      }),
+    ]);
     // Sin revalidatePath: igual que el audio y el texto (ver sendManualAgentReplyAction).
   } catch (persistError) {
     console.error("[chats] el archivo SI se envio pero no se pudo guardar en el chat", {
@@ -3821,12 +3864,28 @@ async function enviarArchivoDelChat(
       detalle: persistError instanceof Error ? persistError.message : String(persistError),
     });
   }
+  marca("postEnvio");
 
-  // Mandar el catalogo tambien es atender: quien lo hace se queda con el lead si no tenia dueño.
-  await claimConversationIfUnassigned({
-    source: "agent",
-    conversationId: conversation.id,
-    workspaceId: membership.workspace.id,
+  /*
+    Lo que la asesora no tiene por que esperar va despues de responder, igual que en el texto
+    (sendManualAgentReplyAction y sendUnifiedChatReplyAction): las etiquetas de ciclo de vida y
+    quedarse con el lead si no tenia dueño (mandar el catalogo tambien es atender).
+  */
+  const conversationIdDelEnvio = conversation.id;
+  const contactIdDelEnvio = conversation.contact.id;
+  after(async () => {
+    if (guardado) {
+      try {
+        await syncLeadLifecycleForContact({ workspaceId, contactId: contactIdDelEnvio, hasHistory: true });
+      } catch (error) {
+        console.error("[chats] etiquetas post-envio del archivo fallaron (archivo ya enviado)", error);
+      }
+    }
+    try {
+      await claimConversationIfUnassigned({ source: "agent", conversationId: conversationIdDelEnvio, workspaceId });
+    } catch (error) {
+      console.error("[chats] no se pudo asignar el chat tras enviar el archivo (archivo ya enviado)", error);
+    }
   });
 
   registrarEnvioDeMedio({
@@ -3835,7 +3894,7 @@ async function enviarArchivoDelChat(
     tipo: parsed.data.mediaType,
     conversationId: conversation.id,
     pesoKb: Math.round(fileSize / 1024),
-    leerMs,
+    controlesMs,
     gatewayMs,
     guardarMs: Date.now() - inicioDelGuardado,
     totalMs: Date.now() - inicio,

@@ -1,0 +1,3 @@
+## Advertencias de operación
+- `tope_de_una_hora_de_la_cola`: un archivo del chat (foto, video, documento, nota de voz) que pasa más de 1 hora sin salir ya no se reintenta solo ni se retoma al reabrir la página: queda en rojo con "Reintentar" y el motivo pide revisar el chat. El servidor solo reconoce un envío repetido (clientMessageId) en la última hora; por eso Reintentar, pasada la hora, lo manda con una clave nueva y avisa que el cliente podría recibirlo dos veces. Reglas en `src/components/chats/plazo-de-envio.ts`.
+- `foto_dentro_del_pedido_a_waha`: en las líneas WAHA la foto de hasta 1,5 MB va dentro del pedido (base64) en vez de por URL pública; si WAHA la rechaza (4xx) se manda la URL como antes. Videos, documentos y fotos grandes siguen por URL.
