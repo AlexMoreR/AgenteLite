@@ -272,6 +272,8 @@ type ConversationPanelProps = {
    * de la lista o, si faltan, en silueta del mismo alto. Asi no aparece "al rato" ni empuja.
    */
   barraAnticipada?: boolean;
+  /** El contacto segun la fila de la lista, para dibujar las etiquetas mientras llega el chat. */
+  contactIdDeLaFila?: string | null;
   isLoadingOlderMessages: boolean;
   loadMoreSentinelRef: RefObject<HTMLDivElement | null>;
   messageScrollBehavior: "bottom" | "preserve";
@@ -392,6 +394,7 @@ export const ConversationPanel = memo(function ConversationPanel({
   composerHiddenFields,
   hasSettledConversation,
   barraAnticipada = false,
+  contactIdDeLaFila = null,
   isLoadingOlderMessages,
   loadMoreSentinelRef,
   messageScrollBehavior,
@@ -1976,11 +1979,17 @@ export const ConversationPanel = memo(function ConversationPanel({
                         title="Contacto"
                       >
                         <span className="relative block">
+                          {/*
+                            La MISMA miniatura de la lista (iPhone, 11-11-2026): ya esta en el
+                            navegador, asi que la foto sale al abrir el chat y no un circulo vacio.
+                            Para un circulo de 36 px alcanza y sobra.
+                          */}
                           <ContactAvatar
                             avatarUrl={renderedConversation.avatarUrl}
                             label={renderedConversation.label}
                             className="h-9 w-9 rounded-full border-0 bg-muted text-muted-foreground after:border-0 transition"
                             fallbackClassName="rounded-full bg-muted text-muted-foreground"
+                            miniatura
                           />
                         </span>
                       </TooltipTrigger>
@@ -2025,7 +2034,12 @@ export const ConversationPanel = memo(function ConversationPanel({
                 </div>
               </div>
 
-              {hasSettledConversation && (headerActions || headerBadge || headerBar || mediaConfig) ? (
+              {/*
+                Con los botones listos se dibujan YA, aunque el chat siga cargando (iPhone,
+                11-11-2026): salen de la fila de la lista (ver clientHeaderActions en shared-inbox) y
+                al llegar /live solo cambian los datos, sin correr nada.
+              */}
+              {(hasSettledConversation || headerActions) && (headerActions || headerBadge || headerBar || mediaConfig) ? (
                 <div className="flex shrink-0 items-center justify-end gap-2">
                   {headerActions}
                   {headerBadge}
@@ -2116,9 +2130,10 @@ export const ConversationPanel = memo(function ConversationPanel({
                     <CalendarPlus className="size-4 text-[#0ea5e9]" />
                     <span className={CLASES_ETIQUETA_DE_LA_BARRA}>Agendar</span>
                   </button>
-                  {renderedConversation.contactId ? (
+                  {/* Mientras carga, el contacto sale de la fila de la lista: el boton no aparece despues. */}
+                  {renderedConversation.contactId || contactIdDeLaFila ? (
                     <ChatTagsControl
-                      contactId={renderedConversation.contactId}
+                      contactId={(renderedConversation.contactId || contactIdDeLaFila) as string}
                       conversationId={renderedConversation.id}
                       tags={contactPanelTags ?? renderedConversation.tags ?? []}
                       canDelete={canDeleteTags}

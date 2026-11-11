@@ -48,6 +48,8 @@ import { recuperarArchivoPerdidoAction } from "@/app/actions/chats-actions";
 import { reaccionarPorRuta } from "@/lib/chats/enviar-por-ruta";
 import type { SharedInboxMessageItem } from "./chat-inbox-types";
 import type { EstadoDeFoto } from "./fotos-en-envio";
+import { guardarBorrosa, leerBorrosa } from "./miniatura-borrosa";
+import { esMiniaturaAparte } from "@/lib/miniaturas-aparte";
 import {
   chatDateFormatter,
   formatChatTime,
@@ -942,6 +944,37 @@ export const MessageBubble = memo(function MessageBubble({
     () => (isImageMessage ? calcularCajaDelMedio(extraerTamanoDelMedio(message.rawPayload, "IMAGE"), TOPES_DE_FOTO) : null),
     [isImageMessage, message.rawPayload],
   );
+  /*
+    La miniatura borrosa mientras baja la foto (Alex, 11-11-2026: "como WhatsApp", ver
+    miniatura-borrosa.ts): la de WhatsApp si el mensaje la trae; si no, la copia chiquita guardada la
+    vez anterior. La foto nitida aparece encima al cargar, del mismo tamaño: no se mueve nada.
+  */
+  const fotoPrincipal = imagePreviewUrls[0] ?? null;
+  const borrosaDeLaFoto = useMemo(() => {
+    if (!fotoPrincipal) return null;
+    const deWhatsApp = imagePreviewUrls.find(
+      (url, indice) => indice > 0 && (url.startsWith("data:image/") || esMiniaturaAparte(url)),
+    );
+    return deWhatsApp ?? leerBorrosa(fotoPrincipal);
+  }, [fotoPrincipal, imagePreviewUrls]);
+  const [fotoCargadaUrl, setFotoCargadaUrl] = useState<string | null>(null);
+  const fotoNitidaLista = Boolean(imagePreviewUrl) && fotoCargadaUrl === imagePreviewUrl;
+  const refDeLaFoto = useRef<HTMLImageElement | null>(null);
+  const alCargarLaFoto = useCallback(() => {
+    const foto = refDeLaFoto.current;
+    setFotoCargadaUrl(imagePreviewUrl);
+    // Solo la foto de verdad se guarda (no la miniatura que se usa si la foto falla).
+    if (foto && imagePreviewUrl && imagePreviewUrl === fotoPrincipal) {
+      guardarBorrosa(fotoPrincipal, foto);
+    }
+  }, [fotoPrincipal, imagePreviewUrl]);
+  // Si la foto ya estaba en el navegador puede terminar de cargar antes de que React escuche el onLoad.
+  useEffect(() => {
+    const foto = refDeLaFoto.current;
+    if (foto && foto.complete && foto.naturalWidth > 0 && fotoCargadaUrl !== imagePreviewUrl) {
+      alCargarLaFoto();
+    }
+  }, [alCargarLaFoto, fotoCargadaUrl, imagePreviewUrl]);
   const audioUrl = useMemo(
     () =>
       archivoRecuperado?.tipo === "AUDIO"
@@ -1711,20 +1744,35 @@ export const MessageBubble = memo(function MessageBubble({
                 <button
                   type="button"
                   onClick={openImageViewer}
-                  className="group block w-full cursor-zoom-in overflow-hidden rounded-[6px] bg-muted"
+                  className="group relative block w-full cursor-zoom-in overflow-hidden rounded-[6px] bg-muted"
                   style={{
                     aspectRatio: `${(cajaDeLaFoto ?? FOTO_SIN_TAMANO).ancho} / ${(cajaDeLaFoto ?? FOTO_SIN_TAMANO).alto}`,
                   }}
                   aria-label="Abrir imagen en pantalla completa"
                 >
+                  {/* La borrosa, debajo, hasta que la nitida termina de cargar. */}
+                  {borrosaDeLaFoto && !fotoNitidaLista ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={borrosaDeLaFoto}
+                      alt=""
+                      aria-hidden="true"
+                      decoding="async"
+                      className="absolute inset-0 h-full w-full scale-110 object-cover blur-md"
+                    />
+                  ) : null}
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
+                    ref={refDeLaFoto}
                     src={imagePreviewUrl}
                     alt={message.content?.trim() || "Imagen del chat"}
                     loading="lazy"
                     decoding="async"
+                    onLoad={alCargarLaFoto}
                     onError={handleImageError}
-                    className="block h-full w-full rounded-[6px] bg-muted object-cover transition duration-200 group-hover:scale-[1.01]"
+                    className={`relative block h-full w-full rounded-[6px] object-cover transition duration-200 group-hover:scale-[1.01] ${
+                      fotoNitidaLista ? "opacity-100" : "opacity-0"
+                    }`}
                   />
                   <span className="pointer-events-none absolute inset-0 rounded-[6px] ring-1 ring-inset ring-black/5 transition group-hover:bg-black/5" />
                 </button>

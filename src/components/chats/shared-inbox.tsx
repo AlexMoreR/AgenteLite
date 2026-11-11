@@ -3596,40 +3596,6 @@ export function SharedInbox({
   // el chat viejo —o es null si se entro por la lista—, y la vendedora se quedaba sin los botones
   // que mas usa. Se prefiere la version del cliente cuando hay datos frescos y se cae al prop del
   // servidor mientras no los haya (primer render por deep link).
-  const clientHeaderActions = useMemo(() => {
-    const conversation = renderedConversation;
-    if (
-      !conversation ||
-      conversation.isPreview ||
-      !selectedConversationKey.startsWith("agent:") ||
-      !conversation.contactId ||
-      !conversation.crmStage
-    ) {
-      return null;
-    }
-
-    return (
-      <ChatHeaderActions
-        key={`header-actions:${conversation.id}:${conversation.status ?? "OPEN"}`}
-        contactId={conversation.contactId}
-        stage={conversation.crmStage as CrmStage}
-        /*
-          Se pasa el DESTINO de la llamada, que puede ser un telefono o el identificador oculto de
-          WhatsApp. A los leads de anuncios -que llegan sin telefono- ahora tambien se les puede
-          llamar: probado el 25-09-2026 y el boton ya no se apaga con ellos.
-        */
-        telefono={resolveCallTarget({ phoneNumber: conversation.secondaryLabel })}
-        nombreContacto={conversation.label}
-        channelId={conversation.channelId ?? null}
-        avatarUrl={conversation.avatarUrl ?? null}
-        conversationId={conversation.id}
-        automationPaused={Boolean(conversation.automationPaused)}
-        status={conversation.status ?? "OPEN"}
-        returnTo={typeof window === "undefined" ? "" : window.location.pathname + window.location.search}
-        toggleAutomationAction={toggleConversationAutomationAction}
-      />
-    );
-  }, [renderedConversation, selectedConversationKey]);
 
   /*
     La fila de la lista del chat abierto. Ya trae etapa, asignada, agente y estado (misma consulta
@@ -3643,6 +3609,48 @@ export function SharedInbox({
         : null,
     [conversationItems, selectedConversationKey],
   );
+
+  const clientHeaderActions = useMemo(() => {
+    const conversation = renderedConversation;
+    if (!conversation || !selectedConversationKey.startsWith("agent:")) {
+      return null;
+    }
+    /*
+      Mientras llega /live (vista previa), los botones salen de la FILA de la lista, que ya trae
+      contacto, etapa, linea, agente y estado (iPhone, 11-11-2026: "la cabecera sale sin el boton de
+      llamar y luego aparece y los botones se corren"). Misma clave que la de /live: al llegar no se
+      vuelve a montar, solo cambian los datos.
+    */
+    const fila = conversation.isPreview ? filaDelChatAbierto : null;
+    const contactId = conversation.isPreview ? fila?.contactId : conversation.contactId;
+    const etapa = conversation.isPreview ? fila?.crmStage : conversation.crmStage;
+    if (!contactId || !etapa) {
+      return null;
+    }
+    const estado = (conversation.isPreview ? fila?.status : conversation.status) ?? "OPEN";
+
+    return (
+      <ChatHeaderActions
+        key={`header-actions:${conversation.id}:${estado}`}
+        contactId={contactId}
+        stage={etapa as CrmStage}
+        /*
+          Se pasa el DESTINO de la llamada, que puede ser un telefono o el identificador oculto de
+          WhatsApp. A los leads de anuncios -que llegan sin telefono- ahora tambien se les puede
+          llamar: probado el 25-09-2026 y el boton ya no se apaga con ellos.
+        */
+        telefono={resolveCallTarget({ phoneNumber: conversation.secondaryLabel })}
+        nombreContacto={conversation.label}
+        channelId={(conversation.isPreview ? fila?.channelId : conversation.channelId) ?? null}
+        avatarUrl={conversation.avatarUrl ?? null}
+        conversationId={conversation.id}
+        automationPaused={Boolean(conversation.isPreview ? fila?.automationPaused : conversation.automationPaused)}
+        status={estado}
+        returnTo={typeof window === "undefined" ? "" : window.location.pathname + window.location.search}
+        toggleAutomationAction={toggleConversationAutomationAction}
+      />
+    );
+  }, [filaDelChatAbierto, renderedConversation, selectedConversationKey]);
 
   // La barra de abajo de la cabecera angosta, con los mismos datos frescos que la cabecera.
   // Mientras llega /live se arma con la fila; si a la fila le falta algo, siluetas del mismo alto.
@@ -4684,6 +4692,7 @@ export function SharedInbox({
         composerHiddenFields={composerHiddenFields}
         hasSettledConversation={hasSettledConversation}
         barraAnticipada={barraAnticipada}
+        contactIdDeLaFila={filaDelChatAbierto?.contactId ?? null}
         isLoadingOlderMessages={isLoadingOlderMessages}
         loadMoreSentinelRef={loadMoreSentinelRef}
         messageScrollBehavior={messageScrollBehavior}
