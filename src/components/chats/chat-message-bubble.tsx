@@ -83,6 +83,8 @@ import {
 */
 const TOPES_DE_FOTO = { anchoMaximo: 360, altoMaximo: 260, ladoMinimo: 120 };
 const FOTO_SIN_TAMANO = { ancho: 260, alto: 220 };
+/** Las fotos que ya se dibujaron en esta pestaña: al volver a montarse salen nitidas de una. */
+const FOTOS_YA_VISTAS = new Set<string>();
 // El minimo deja lugar a los controles del reproductor.
 const TOPES_DE_VIDEO = { anchoMaximo: 260, altoMaximo: 260, ladoMinimo: 140 };
 
@@ -957,12 +959,18 @@ export const MessageBubble = memo(function MessageBubble({
     );
     return deWhatsApp ?? leerBorrosa(fotoPrincipal);
   }, [fotoPrincipal, imagePreviewUrls]);
-  const [fotoCargadaUrl, setFotoCargadaUrl] = useState<string | null>(null);
-  const fotoNitidaLista = Boolean(imagePreviewUrl) && fotoCargadaUrl === imagePreviewUrl;
+  /*
+    Una foto que ya se vio nitida NO se vuelve a esconder: ni si la burbuja se vuelve a montar (la
+    copia guardada cambia por la del servidor) ni si cambia su direccion. Medido: al llegar /live
+    dos fotos ya nitidas volvian a gris un momento.
+  */
+  const [yaSeVioNitida, setYaSeVioNitida] = useState(false);
+  const fotoNitidaLista = yaSeVioNitida || Boolean(imagePreviewUrl && FOTOS_YA_VISTAS.has(imagePreviewUrl));
   const refDeLaFoto = useRef<HTMLImageElement | null>(null);
   const alCargarLaFoto = useCallback(() => {
     const foto = refDeLaFoto.current;
-    setFotoCargadaUrl(imagePreviewUrl);
+    if (imagePreviewUrl) FOTOS_YA_VISTAS.add(imagePreviewUrl);
+    setYaSeVioNitida(true);
     // Solo la foto de verdad se guarda (no la miniatura que se usa si la foto falla).
     if (foto && imagePreviewUrl && imagePreviewUrl === fotoPrincipal) {
       guardarBorrosa(fotoPrincipal, foto);
@@ -971,10 +979,10 @@ export const MessageBubble = memo(function MessageBubble({
   // Si la foto ya estaba en el navegador puede terminar de cargar antes de que React escuche el onLoad.
   useEffect(() => {
     const foto = refDeLaFoto.current;
-    if (foto && foto.complete && foto.naturalWidth > 0 && fotoCargadaUrl !== imagePreviewUrl) {
+    if (foto && foto.complete && foto.naturalWidth > 0 && !yaSeVioNitida) {
       alCargarLaFoto();
     }
-  }, [alCargarLaFoto, fotoCargadaUrl, imagePreviewUrl]);
+  }, [alCargarLaFoto, yaSeVioNitida]);
   const audioUrl = useMemo(
     () =>
       archivoRecuperado?.tipo === "AUDIO"

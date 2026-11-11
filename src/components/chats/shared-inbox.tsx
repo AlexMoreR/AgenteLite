@@ -3621,13 +3621,16 @@ export function SharedInbox({
       llamar y luego aparece y los botones se corren"). Misma clave que la de /live: al llegar no se
       vuelve a montar, solo cambian los datos.
     */
-    const fila = conversation.isPreview ? filaDelChatAbierto : null;
-    const contactId = conversation.isPreview ? fila?.contactId : conversation.contactId;
-    const etapa = conversation.isPreview ? fila?.crmStage : conversation.crmStage;
+    // Tambien con la copia guardada del chat, que puede venir sin contacto o sin etapa (medido: el
+    // boton de llamar salia a los 0,4-1,5 s igual).
+    const usaFila = conversation.isPreview || !conversation.contactId || !conversation.crmStage;
+    const fila = usaFila ? filaDelChatAbierto : null;
+    const contactId = conversation.contactId || fila?.contactId;
+    const etapa = conversation.crmStage || fila?.crmStage;
     if (!contactId || !etapa) {
       return null;
     }
-    const estado = (conversation.isPreview ? fila?.status : conversation.status) ?? "OPEN";
+    const estado = (usaFila ? fila?.status ?? conversation.status : conversation.status) ?? "OPEN";
 
     return (
       <ChatHeaderActions
@@ -3641,10 +3644,10 @@ export function SharedInbox({
         */
         telefono={resolveCallTarget({ phoneNumber: conversation.secondaryLabel })}
         nombreContacto={conversation.label}
-        channelId={(conversation.isPreview ? fila?.channelId : conversation.channelId) ?? null}
+        channelId={conversation.channelId ?? fila?.channelId ?? null}
         avatarUrl={conversation.avatarUrl ?? null}
         conversationId={conversation.id}
-        automationPaused={Boolean(conversation.isPreview ? fila?.automationPaused : conversation.automationPaused)}
+        automationPaused={Boolean(usaFila && fila ? fila.automationPaused : conversation.automationPaused)}
         status={estado}
         returnTo={typeof window === "undefined" ? "" : window.location.pathname + window.location.search}
         toggleAutomationAction={toggleConversationAutomationAction}
