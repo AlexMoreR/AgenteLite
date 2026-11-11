@@ -1,0 +1,6 @@
+## Automatizaciones
+- `reparto_por_turno`: desde el 11-11-2026, en las líneas de ventas el chat sin asesora se reparte solo cuando lo necesita (regla en `src/lib/reparto-cuando-lo-necesita.ts`): (a) el agente dejó la nota "El agente pide un asesor" o la IA está pausada, o (b) la clienta pregunta precio, forma de pago, envío, contraentrega o dice su ciudad. Ya no basta con responder la bienvenida ("ok", "Para el combo de estética" siguen con el bot). El rescate de chats huérfanos usa la misma regla. Se configura en `AppSetting` `reparto:cuando:<workspaceId>` (JSON con `agentePide`, `clientaPreguntaPlataOEntrega`, `asesoraEscribe`, `comoAntes`); `comoAntes: true` vuelve a la regla del 30-10-2026.
+
+## Advertencias de operación
+- `reparto_cuando_lo_necesita`: el cambio de `reparto:cuando:<workspaceId>` tarda hasta 1 minuto en verse en cada proceso (caché en memoria). Si las asesoras dejan de recibir chats que sí necesitaban, se vuelve atrás con `{"comoAntes": true}` en esa fila. El interruptor `asesoraEscribe` se guarda pero todavía no hace nada (lo usan las partes siguientes).
+- `rescate_chats_huerfanos`: con la regla nueva, el rescate de la media hora solo pasa el chat si la regla dice que sí, salvo que nadie le haya contestado nunca a la clienta (bot caído): ese se rescata igual.

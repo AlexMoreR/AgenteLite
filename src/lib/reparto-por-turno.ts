@@ -1,9 +1,15 @@
 import { prisma } from "@/lib/prisma";
 import { autoAssignConversationToCollaborator } from "@/lib/reparto-de-leads";
-import { respondioLaBienvenida } from "@/lib/turno-con-contenido";
+import { elChatNecesitaAsesora, leerConfigDeAsignacion, leerSiElAgentePidioAsesor } from "@/lib/reparto-cuando-lo-necesita";
 
 /**
- * EL REPARTO: la clienta recibe asesora apenas responde la bienvenida.
+ * EL REPARTO: la clienta recibe asesora cuando el chat la necesita.
+ *
+ * Desde el 11-11-2026 (Alex) decide `elChatNecesitaAsesora` (reparto-cuando-lo-necesita.ts): el
+ * agente pidió asesor o la IA está pausada, o la clienta pregunta por plata o por la entrega. Con el
+ * interruptor `comoAntes` vuelve la regla del 30-10-2026, que es la que se describe abajo.
+ *
+ * Lo de antes, como referencia:
  *
  * Regla de Alex (30-10-2026, pisa la del 02-10 y el interruptor `exigirPrecioOFotos` del 12-10).
  * Se asigna cuando se cumplen tres cosas: el chat no tiene asesora, la línea es de ventas
@@ -22,7 +28,11 @@ import { respondioLaBienvenida } from "@/lib/turno-con-contenido";
  *  - No cambia al agente ni manda mensajes: asignar no lo pausa.
  */
 
-/** Cuántos mensajes (los primeros del chat) se leen: sobran para ver nuestro primer mensaje y una respuesta. */
+/**
+ * Cuántos mensajes (los más nuevos del chat) se leen. Los más nuevos y no los primeros: la pregunta
+ * de precio o de envío puede llegar tarde en un chat largo. Para `comoAntes` también alcanzan:
+ * `respondioLaBienvenida` ordena por fecha, y en 60 mensajes ya hay uno nuestro y una respuesta.
+ */
 const MENSAJES_A_MIRAR = 60;
 
 export async function repartirSiElTurnoLoAmerita(input: {
@@ -33,7 +43,7 @@ export async function repartirSiElTurnoLoAmerita(input: {
   const [conversacion, canal] = await Promise.all([
     prisma.conversation.findUnique({
       where: { id: input.conversationId },
-      select: { assignedToUserId: true },
+      select: { assignedToUserId: true, automationPaused: true },
     }),
     prisma.whatsAppChannel.findUnique({
       where: { id: input.channelId },
@@ -44,14 +54,24 @@ export async function repartirSiElTurnoLoAmerita(input: {
     return { asignada: false };
   }
 
-  const mensajes = await prisma.message.findMany({
-    where: { conversationId: input.conversationId, type: { not: "SYSTEM" }, deletedAt: null },
-    orderBy: { createdAt: "asc" },
-    take: MENSAJES_A_MIRAR,
-    select: { direction: true, type: true, content: true, createdAt: true },
-  });
+  const [mensajes, config, agentePidioAsesor] = await Promise.all([
+    prisma.message.findMany({
+      where: { conversationId: input.conversationId, type: { not: "SYSTEM" }, deletedAt: null },
+      orderBy: { createdAt: "desc" },
+      take: MENSAJES_A_MIRAR,
+      select: { direction: true, type: true, content: true, createdAt: true },
+    }),
+    leerConfigDeAsignacion(input.workspaceId),
+    leerSiElAgentePidioAsesor(input.conversationId),
+  ]);
 
-  if (!respondioLaBienvenida(mensajes)) {
+  const necesita = elChatNecesitaAsesora({
+    mensajes,
+    config,
+    agentePidioAsesor,
+    iaPausada: conversacion.automationPaused === true,
+  });
+  if (!necesita) {
     return { asignada: false };
   }
 

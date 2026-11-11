@@ -140,6 +140,7 @@
     "test:automatizaciones": "node scripts/check-automatizaciones.mjs",
     "test:solo-excepciones": "node scripts/check-solo-excepciones.mjs",
     "test:reparto-turno": "node scripts/check-reparto-turno.mjs",
+    "test:reparto-cuando-lo-necesita": "node scripts/check-reparto-cuando-lo-necesita.mjs",
     "test:dia-siguiente": "node scripts/check-dia-siguiente.mjs",
     "test:tras-asesora-cierre": "node scripts/check-tras-asesora-cierre.mjs",
     "test:seguimiento-que-escucha": "node scripts/check-seguimiento-que-escucha.mjs",

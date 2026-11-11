@@ -2,7 +2,13 @@ import { leerMarcaExterior } from "@/features/seguimiento-inteligente/dominio/ex
 import { ventanaDeMadrugada } from "@/lib/en-linea-reglas";
 import { prisma } from "@/lib/prisma";
 import { autoAssignConversationToCollaborator } from "@/lib/reparto-de-leads";
-import { respondioLaBienvenida } from "@/lib/turno-con-contenido";
+import {
+  chatsDondeElAgentePidioAsesor,
+  elChatNecesitaAsesora,
+  leerConfigDeAsignacion,
+  leerSiElAgentePidioAsesor,
+  type ConfigDeAsignacion,
+} from "@/lib/reparto-cuando-lo-necesita";
 
 /**
  * LA RED: un cliente esperando y sin nadie a cargo.
@@ -27,6 +33,15 @@ import { respondioLaBienvenida } from "@/lib/turno-con-contenido";
  * líneas de VENTAS sin dueño con movimiento en las últimas 48 h —sin la media hora de espera: ya
  * respondió— y se rescatan si `respondioLaBienvenida` dice que sí.
  *
+ * LA REGLA NUEVA (Alex, 11-11-2026): ninguno de los dos casos se salta `elChatNecesitaAsesora`
+ * (reparto-cuando-lo-necesita.ts), la misma regla del reparto por turno. Sin eso, un "Para el combo
+ * de estética" que el reparto no asignó lo asignaba el rescate a la media hora.
+ *  - Segundo caso: se rescata solo si la regla dice que sí (antes: si respondió la bienvenida).
+ *  - Primer caso (media hora sin respuesta): también pasa por la regla, menos cuando nadie le ha
+ *    contestado nunca a la clienta. Ese chat sí está abandonado (el bot se cayó) y se rescata igual.
+ *  - Con `comoAntes` prendido los dos casos quedan como antes del 11-11-2026.
+ * Los chats que ya tienen asesora no se miran: las dos búsquedas piden `assignedToUserId: null`.
+ *
  * No manda ningún mensaje al cliente: solo pone a alguien a cargo. Quien decide qué decirle es la
  * asesora que lo recibe.
  */
@@ -50,25 +65,67 @@ const VENTANA_BIENVENIDA_HORAS = 48;
  */
 const CUANTOS_MIRAR_BIENVENIDA = 500;
 
-/** Mensajes del comienzo del chat que alcanzan para saber si respondió la bienvenida. */
+/** Mensajes del comienzo del chat que alcanzan para saber si respondió la bienvenida (`comoAntes`). */
 const MENSAJES_PARA_BIENVENIDA = 30;
+
+/** Mensajes (los más nuevos) que se leen para decidir el primer caso con la regla nueva. */
+const MENSAJES_PARA_LA_REGLA = 60;
 
 const SELECCION = {
   id: true,
   channelId: true,
   workspaceId: true,
   lastMessageAt: true,
+  automationPaused: true,
   contact: { select: { metadata: true } },
 } as const;
 
+/** La configuración de cada negocio, leída una vez por vuelta (y con su minuto de memoria). */
+function configsPorNegocio() {
+  const leidas = new Map<string, Promise<ConfigDeAsignacion>>();
+  return (workspaceId: string) => {
+    let config = leidas.get(workspaceId);
+    if (!config) {
+      config = leerConfigDeAsignacion(workspaceId);
+      leidas.set(workspaceId, config);
+    }
+    return config;
+  };
+}
+
 /**
- * Chats de ventas sin dueño de las últimas 48 h donde la clienta respondió la bienvenida.
+ * Primer caso: ¿este chat que espera hace media hora necesita asesora?
+ * Con la regla nueva: sí si nadie le ha contestado nunca (chat abandonado), o si lo dice la regla.
+ */
+async function elHuerfanoNecesitaAsesora(
+  conversacion: { id: string; automationPaused: boolean },
+  config: ConfigDeAsignacion,
+): Promise<boolean> {
+  if (config.comoAntes) return true;
+  const [mensajes, agentePidioAsesor] = await Promise.all([
+    prisma.message.findMany({
+      where: { conversationId: conversacion.id, type: { not: "SYSTEM" }, deletedAt: null },
+      orderBy: { createdAt: "desc" },
+      take: MENSAJES_PARA_LA_REGLA,
+      select: { type: true, direction: true, content: true, createdAt: true },
+    }),
+    leerSiElAgentePidioAsesor(conversacion.id),
+  ]);
+  if (!mensajes.some((mensaje) => mensaje.direction === "OUTBOUND")) return true;
+  return elChatNecesitaAsesora({ mensajes, config, agentePidioAsesor, iaPausada: conversacion.automationPaused });
+}
+
+/**
+ * Chats de ventas sin dueño de las últimas 48 h donde la clienta respondió y la regla dice que
+ * necesitan asesora.
  *
  * Primero, en lote: el primer mensaje nuestro y el último de la clienta de cada chat. Si la clienta
- * no escribió después del primero nuestro, no respondió y no se sigue. A los que pasan se les traen
- * los primeros mensajes y decide `respondioLaBienvenida`, la misma regla del reparto por turno.
+ * no escribió después del primero nuestro, no respondió y no se sigue (el reparto por turno ya lo
+ * miró cuando escribió). A los que pasan los decide `elChatNecesitaAsesora`, la misma regla del
+ * reparto por turno: con `comoAntes`, leyendo los primeros mensajes de cada chat; con la regla nueva,
+ * con dos consultas en lote (lo que escribió la clienta y las notas "El agente pide un asesor").
  */
-async function chatsQueRespondieronLaBienvenida(ahora: Date) {
+async function chatsQueNecesitanAsesora(ahora: Date, configDe: (workspaceId: string) => Promise<ConfigDeAsignacion>) {
   const sinDueno = await prisma.conversation.findMany({
     where: {
       assignedToUserId: null,
@@ -102,32 +159,77 @@ async function chatsQueRespondieronLaBienvenida(ahora: Date) {
   const primerNuestro = new Map(primerosNuestros.map((fila) => [fila.conversationId, fila._min.createdAt]));
   const ultimoDelCliente = new Map(ultimosDelCliente.map((fila) => [fila.conversationId, fila._max.createdAt]));
 
+  const respondieron = sinDueno.filter((conversacion) => {
+    const nuestro = primerNuestro.get(conversacion.id);
+    const cliente = ultimoDelCliente.get(conversacion.id);
+    return Boolean(nuestro && cliente && cliente >= nuestro) && !leerMarcaExterior(conversacion.contact?.metadata);
+  });
+  if (respondieron.length === 0) {
+    return [];
+  }
+
+  const configs = new Map<string, ConfigDeAsignacion>();
+  for (const workspaceId of new Set(respondieron.map((conversacion) => conversacion.workspaceId))) {
+    configs.set(workspaceId, await configDe(workspaceId));
+  }
+  const conReglaNueva = respondieron.filter((conversacion) => !configs.get(conversacion.workspaceId)?.comoAntes);
+  const idsReglaNueva = conReglaNueva.map((conversacion) => conversacion.id);
+  const [pidioAsesor, textosDeLaClienta] = await Promise.all([
+    chatsDondeElAgentePidioAsesor(idsReglaNueva),
+    idsReglaNueva.length === 0
+      ? Promise.resolve([])
+      : prisma.message.findMany({
+          // Solo lo de la ventana: lo de antes ya lo miró el reparto por turno cuando ella lo escribió.
+          where: {
+            conversationId: { in: idsReglaNueva },
+            direction: "INBOUND",
+            type: "TEXT",
+            deletedAt: null,
+            createdAt: { gte: new Date(ahora.getTime() - VENTANA_BIENVENIDA_HORAS * 3_600_000) },
+          },
+          select: { conversationId: true, direction: true, type: true, content: true },
+        }),
+  ]);
+  const textosPorChat = new Map<string, typeof textosDeLaClienta>();
+  for (const texto of textosDeLaClienta) {
+    const lista = textosPorChat.get(texto.conversationId) ?? [];
+    lista.push(texto);
+    textosPorChat.set(texto.conversationId, lista);
+  }
+
   const elegidas: typeof sinDueno = [];
-  for (const conversacion of sinDueno) {
+  for (const conversacion of respondieron) {
     if (elegidas.length >= CUANTOS_POR_VUELTA * 3) {
       break;
     }
-    const nuestro = primerNuestro.get(conversacion.id);
-    const cliente = ultimoDelCliente.get(conversacion.id);
-    if (!nuestro || !cliente || cliente < nuestro) {
+    const config = configs.get(conversacion.workspaceId);
+    if (!config) {
       continue;
     }
-    if (leerMarcaExterior(conversacion.contact?.metadata)) {
-      continue;
+    let mensajes: Parameters<typeof elChatNecesitaAsesora>[0]["mensajes"];
+    if (config.comoAntes) {
+      const filas = await prisma.message.findMany({
+        where: { conversationId: conversacion.id, type: { not: "SYSTEM" }, deletedAt: null },
+        orderBy: { createdAt: "asc" },
+        take: MENSAJES_PARA_BIENVENIDA,
+        select: { type: true, direction: true, createdAt: true, deletedAt: true },
+      });
+      mensajes = filas.map((mensaje) => ({
+        type: mensaje.type,
+        direction: mensaje.direction,
+        createdAt: mensaje.createdAt,
+        borrado: mensaje.deletedAt != null,
+      }));
+    } else {
+      mensajes = textosPorChat.get(conversacion.id) ?? [];
     }
-    const mensajes = await prisma.message.findMany({
-      where: { conversationId: conversacion.id, type: { not: "SYSTEM" }, deletedAt: null },
-      orderBy: { createdAt: "asc" },
-      take: MENSAJES_PARA_BIENVENIDA,
-      select: { type: true, direction: true, createdAt: true, deletedAt: true },
+    const necesita = elChatNecesitaAsesora({
+      mensajes,
+      config,
+      agentePidioAsesor: pidioAsesor.has(conversacion.id),
+      iaPausada: conversacion.automationPaused,
     });
-    const delTurno = mensajes.map((mensaje) => ({
-      type: mensaje.type,
-      direction: mensaje.direction,
-      createdAt: mensaje.createdAt,
-      borrado: mensaje.deletedAt != null,
-    }));
-    if (respondioLaBienvenida(delTurno)) {
+    if (necesita) {
       elegidas.push(conversacion);
     }
   }
@@ -152,12 +254,13 @@ export async function rescatarChatsHuerfanos(ahora = new Date()): Promise<{ repa
 
   /*
     El segundo caso va aparte y con su propio try: si su búsqueda falla, el caso de siempre sigue
-    rescatando. Sus chats ya vienen revisados (respondieron la bienvenida), no hace falta que el
-    último mensaje sea de la clienta.
+    rescatando. Sus chats ya vienen revisados (la regla dijo que necesitan asesora), no hace falta
+    que el último mensaje sea de la clienta.
   */
-  let respondieron: Awaited<ReturnType<typeof chatsQueRespondieronLaBienvenida>> = [];
+  const configDe = configsPorNegocio();
+  let respondieron: Awaited<ReturnType<typeof chatsQueNecesitanAsesora>> = [];
   try {
-    respondieron = await chatsQueRespondieronLaBienvenida(ahora);
+    respondieron = await chatsQueNecesitanAsesora(ahora, configDe);
   } catch (error) {
     console.error("[rescate] no se pudo buscar a quienes respondieron la bienvenida", {
       error: error instanceof Error ? error.message : String(error),
@@ -201,6 +304,19 @@ export async function rescatarChatsHuerfanos(ahora = new Date()): Promise<{ repa
       if (!ultimo || ultimo.direction !== "INBOUND") {
         continue;
       }
+    }
+
+    try {
+      // La regla nueva tampoco se salta acá (ver arriba). Los del segundo caso ya pasaron por ella.
+      if (!respondio && !(await elHuerfanoNecesitaAsesora(conversacion, await configDe(conversacion.workspaceId)))) {
+        continue;
+      }
+    } catch (error) {
+      console.error("[rescate] no se pudo revisar si el chat necesita asesora", {
+        conversationId: conversacion.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      continue;
     }
 
     try {

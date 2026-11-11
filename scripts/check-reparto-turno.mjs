@@ -4,6 +4,17 @@ import assert from "node:assert/strict";
 import { cargar } from "./supervisor-cargar.mjs";
 
 const t = cargar("src/lib/turno-con-contenido.ts");
+// Desde el 11-11-2026 el reparto decide con esta regla (reparto-cuando-lo-necesita.ts); la base no se toca acá.
+const r = cargar("src/lib/reparto-cuando-lo-necesita.ts", { "@/lib/prisma": { prisma: {} } });
+const reparte = (mensajes, cambios = {}, extra = {}) =>
+  r.elChatNecesitaAsesora({
+    mensajes,
+    config: { ...r.CONFIG_DE_ASIGNACION_POR_DEFECTO, ...cambios },
+    agentePidioAsesor: false,
+    iaPausada: false,
+    ...extra,
+  });
+const COMO_ANTES = { comoAntes: true };
 
 let pruebas = 0;
 function prueba(nombre, fn) {
@@ -186,6 +197,29 @@ prueba("respondioLaBienvenida con filas del rescate: el bot habló último pero 
 prueba("respondioLaBienvenida con filas del rescate: solo bienvenida, o respuesta borrada = false", () => {
   assert.equal(t.respondioLaBienvenida(comoRescate([fila("INBOUND", 0), fila("OUTBOUND", 1)])), false);
   assert.equal(t.respondioLaBienvenida(comoRescate([fila("INBOUND", 0), fila("OUTBOUND", 1), fila("INBOUND", 2, new Date())])), false);
+});
+
+/* 7. La regla nueva (Alex, 11-11-2026): responder la bienvenida ya no basta; con comoAntes, sí */
+prueba("regla nueva: 'ok' o 'Masajes' tras la bienvenida ya NO asignan; con comoAntes, sí", () => {
+  for (const texto of ["ok", "Masajes", "Para el combo de estética"]) {
+    const c = viejoAlNuevo(IN(ANUNCIO), BOT(BIENVENIDA), IN(texto), BOT(PASO_2));
+    assert.equal(t.respondioLaBienvenida(c), true, texto);
+    assert.equal(reparte(c), false, texto);
+    assert.equal(reparte(c, COMO_ANTES), true, texto);
+  }
+});
+prueba("regla nueva: 'ok' con filas del rescate no asigna; con comoAntes, sí", () => {
+  const c = comoRescate([fila("INBOUND", 0), fila("OUTBOUND", 1), fila("INBOUND", 2), fila("OUTBOUND", 3)]);
+  assert.equal(reparte(c), false);
+  assert.equal(reparte(c, COMO_ANTES), true);
+});
+prueba("regla nueva: precio o ciudad de la clienta, o el agente pide asesor, sí asignan", () => {
+  assert.equal(reparte(viejoAlNuevo(IN(ANUNCIO), BOT(PRECIO), IN("Cali"))), true);
+  assert.equal(reparte(viejoAlNuevo(IN(ANUNCIO), BOT(BIENVENIDA), IN("cuánto vale"))), true);
+  assert.equal(reparte(viejoAlNuevo(IN(ANUNCIO), BOT(BIENVENIDA), IN("Masajes")), {}, { agentePidioAsesor: true }), true);
+});
+prueba("comoAntes: solo bienvenida sin respuesta sigue sin asignar", () => {
+  assert.equal(reparte(viejoAlNuevo(IN(ANUNCIO), BOT(BIENVENIDA)), COMO_ANTES), false);
 });
 
 console.log(`\n${pruebas} pruebas ok`);
