@@ -2791,7 +2791,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                                   disabled={isSendingMedia}
                                   aria-label="Adjuntar"
                                   title="Adjuntar"
-                                  className="inline-flex size-[34px] shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-background hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:size-7"
+                                  className="inline-flex size-10 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-background hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:size-9"
                                 >
                                   <Plus className="size-5" />
                                 </Button>
@@ -3012,7 +3012,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                               variant="ghost"
                               size="icon"
                               disabled={isSendingAudio}
-                              className="inline-flex size-[34px] shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-background hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:size-7"
+                              className="inline-flex size-10 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-background hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:size-9"
                               aria-label="Abrir selector de emoticones"
                               title="Emoticones"
                             >
@@ -3107,8 +3107,13 @@ export const ConversationPanel = memo(function ConversationPanel({
                            * del iPhone HACE ZOOM solo al tocar el campo y deja la pantalla
                            * corrida. Ademas se lee, que era la queja: con 14px las asesoras no
                            * veian bien lo que escribian.
+                           *
+                           * Una linea mide lo mismo que los botones (40px celular, 36px compu:
+                           * linea de 24px + relleno), asi el texto y los iconos quedan centrados.
+                           * Con varias lineas la fila esta en items-end y los iconos se quedan
+                           * abajo, a la altura de la ultima linea, como en WhatsApp.
                            */
-                          className="min-h-[40px] min-w-0 flex-1 resize-none bg-transparent px-1 py-2.5 text-[16px] leading-[1.35] md:text-[15px] text-foreground placeholder:text-muted-foreground outline-none disabled:opacity-70 md:min-h-[46px] md:py-3"
+                          className="min-h-10 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-[16px] leading-6 md:text-[15px] text-foreground placeholder:text-muted-foreground outline-none disabled:opacity-70 md:min-h-9 md:py-1.5"
                         />
                         <Button
                           type="button"
@@ -3118,7 +3123,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                           disabled={isSuggestingReply || isSendingAudio}
                           aria-label="Respuesta sugerida con IA"
                           title="Respuesta sugerida con IA"
-                          className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-muted-foreground/20 hover:text-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:size-8"
+                          className="inline-flex size-10 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-muted-foreground/20 hover:text-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:size-9"
                         >
                           {isSuggestingReply ? (
                             <LoaderCircle className="size-5 animate-spin" />
@@ -3137,7 +3142,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                             disabled={isSendingAudio}
                             aria-label="Grabar nota de voz"
                             title="Grabar nota de voz"
-                            className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-muted-foreground/20 focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:size-8"
+                            className="inline-flex size-10 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-muted-foreground/20 focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:size-9"
                           >
                             <Mic className="size-5" />
                           </Button>

@@ -31,11 +31,11 @@ export function ComposerSendButton({
       variant="ghost"
       size="icon"
       disabled={pending || bloqueado}
-      className="inline-flex size-[34px] shrink-0 items-center justify-center rounded-full text-[var(--primary)] transition hover:bg-muted-foreground/20 disabled:cursor-not-allowed disabled:opacity-70 md:size-8"
+      className="inline-flex size-10 shrink-0 items-center justify-center rounded-full text-[var(--primary)] transition hover:bg-muted-foreground/20 disabled:cursor-not-allowed disabled:opacity-70 md:size-9"
       aria-label={pending ? "Enviando mensaje" : bloqueado ? "Espera a que cargue el chat" : "Enviar mensaje"}
       title={bloqueado ? "Espera a que cargue el chat" : undefined}
     >
-      <SendHorizonal className={`size-6 ${pending ? "animate-pulse" : ""}`} />
+      <SendHorizonal className={`size-5 ${pending ? "animate-pulse" : ""}`} />
     </Button>
   );
 }
