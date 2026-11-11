@@ -172,6 +172,7 @@ import { AvisoDeCierre } from "./aviso-de-cierre";
 import { AvisoDeLlamada } from "./aviso-de-llamada";
 import { BotonDeMapaDeCaminos } from "./boton-mapa-de-caminos";
 import { dondeVaLaSugerencia } from "./destino-de-la-sugerencia";
+import { copiarAlPortapapeles, textoDeVariosParaCopiar } from "./copiar-mensaje";
 import { ALTO_DE_LA_BARRA, CLASES_BOTON_DE_LA_BARRA, CLASES_ETIQUETA_DE_LA_BARRA, mostrarNombreAlMantener } from "./boton-de-la-barra";
 import { textoTraeElTotal } from "@/lib/etapa-automatica-crm-texto";
 
@@ -1812,22 +1813,30 @@ export const ConversationPanel = memo(function ConversationPanel({
   */
   const unicoSeleccionado = mensajesSeleccionados.length === 1 ? mensajesSeleccionados[0] : null;
 
+  // El texto de los marcados, uno por linea (sin las fotos sin texto, audios ni stickers).
+  const textoDeLosSeleccionados = textoDeVariosParaCopiar(mensajesSeleccionados);
+
   const copiarSeleccionados = () => {
-    const texto = mensajesSeleccionados
-      .map((mensaje) => mensaje.content?.trim())
-      .filter((linea): linea is string => Boolean(linea))
-      .join("\n");
+    const texto = textoDeLosSeleccionados;
     if (!texto) {
       toast.error("Los mensajes marcados no tienen texto para copiar");
       return;
     }
-    void navigator.clipboard
-      .writeText(texto)
-      .then(() => {
-        toast.success(mensajesSeleccionados.length > 1 ? "Mensajes copiados" : "Mensaje copiado");
+    // Se copia en el mismo toque, sin esperar nada antes: si no, el iPhone no deja copiar.
+    const avisar = (ok: boolean) => {
+      if (ok) {
+        toast.success("Copiado");
         setSeleccionados([]);
-      })
-      .catch(() => toast.error("No se pudo copiar"));
+      } else {
+        toast.error("No se pudo copiar");
+      }
+    };
+    const resultado = copiarAlPortapapeles(texto);
+    if (typeof resultado === "boolean") {
+      avisar(resultado);
+    } else {
+      void resultado.then(avisar);
+    }
   };
 
   // overflow-clip (no overflow-hidden) en la tarjeta: con hidden el navegador podia correr la
@@ -1893,6 +1902,18 @@ export const ConversationPanel = memo(function ConversationPanel({
                       title="Reenviar"
                     >
                       <Forward className="h-5 w-5" />
+                    </button>
+                  ) : null}
+
+                  {textoDeLosSeleccionados ? (
+                    <button
+                      type="button"
+                      onClick={copiarSeleccionados}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-full text-foreground transition hover:bg-muted"
+                      aria-label="Copiar"
+                      title="Copiar"
+                    >
+                      <Copy className="h-5 w-5" />
                     </button>
                   ) : null}
 

@@ -49,6 +49,7 @@ import { reaccionarPorRuta } from "@/lib/chats/enviar-por-ruta";
 import type { SharedInboxMessageItem } from "./chat-inbox-types";
 import type { EstadoDeFoto } from "./fotos-en-envio";
 import { guardarBorrosa, leerBorrosa } from "./miniatura-borrosa";
+import { copiarAlPortapapeles, textoParaCopiar } from "./copiar-mensaje";
 import { esMiniaturaAparte } from "@/lib/miniaturas-aparte";
 import {
   chatDateFormatter,
@@ -275,19 +276,19 @@ function getMessageReplyPreview(
 }
 
 function copyMessageText(message: SharedInboxMessageItem) {
-  const text = (message.content ?? "").trim();
+  const text = textoParaCopiar(message);
   if (!text) {
     toast.info("Este mensaje no tiene texto para copiar");
     return;
   }
-  if (!navigator.clipboard?.writeText) {
-    toast.error("Tu navegador no permite copiar");
-    return;
+  // Se copia en el mismo toque, sin esperar nada antes: si no, el iPhone no deja copiar.
+  const avisar = (ok: boolean) => (ok ? toast.success("Copiado") : toast.error("No se pudo copiar"));
+  const resultado = copiarAlPortapapeles(text);
+  if (typeof resultado === "boolean") {
+    avisar(resultado);
+  } else {
+    void resultado.then(avisar);
   }
-  void navigator.clipboard
-    .writeText(text)
-    .then(() => toast.success("Mensaje copiado"))
-    .catch(() => toast.error("No se pudo copiar el mensaje"));
 }
 
 // En el celular no hay hover: la flecha del menu nunca aparece. Igual que en
@@ -657,11 +658,22 @@ function MessageTouchActionsSheet({
   };
 
   const preview = (message.content ?? "").trim() || getMediaPreviewLabel(message.type) || "Mensaje";
+  const tieneTexto = textoParaCopiar(message) !== null;
 
   const acciones = [
     { label: "Responder", icon: Reply, onClick: onReply ? () => onReply(message) : undefined },
     { label: "Reenviar", icon: Forward, onClick: onForward ? () => onForward(message) : undefined },
-    { label: "Copiar", icon: Copy, onClick: () => copyMessageText(message) },
+    // Copiar NO pasa por `run`: Safari solo deja copiar dentro del mismo toque, y `run` actua
+    // despues de cerrar la hoja. Primero se copia y recien despues se cierra.
+    ...(tieneTexto
+      ? [{
+          label: "Copiar",
+          icon: Copy,
+          onClick: () => copyMessageText(message),
+          destructive: false,
+          enElMismoToque: true,
+        }]
+      : []),
     // "Editar" solo se ofrece si el mensaje todavia se puede editar (texto propio, menos de 15 min).
     ...(onEdit && puedeEditarseMensaje(message)
       ? [{ label: "Editar", icon: Pencil, onClick: () => onEdit(message), destructive: false }]
@@ -684,12 +696,19 @@ function MessageTouchActionsSheet({
           {preview}
         </p>
         <div className="border-t border-border">
-          {acciones.map(({ label, icon: Icon, onClick, destructive }) => (
+          {acciones.map(({ label, icon: Icon, onClick, destructive, enElMismoToque }) => (
             <button
               key={label}
               type="button"
               disabled={!onClick}
-              onClick={run(onClick)}
+              onClick={
+                enElMismoToque && onClick
+                  ? () => {
+                      onClick();
+                      onOpenChange(false);
+                    }
+                  : run(onClick)
+              }
               className={`flex w-full items-center gap-3 px-4 py-3.5 text-left text-[15px] active:bg-muted disabled:opacity-40 ${
                 destructive ? "text-destructive" : "text-foreground"
               }`}
@@ -761,9 +780,11 @@ function MessageActionsMenu({
         <DropdownMenuItem onClick={() => onReply?.(message)}>
           <Reply className="size-4" /> Responder
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={handleCopy}>
-          <Copy className="size-4" /> Copiar
-        </DropdownMenuItem>
+        {textoParaCopiar(message) !== null ? (
+          <DropdownMenuItem onClick={handleCopy}>
+            <Copy className="size-4" /> Copiar
+          </DropdownMenuItem>
+        ) : null}
 
         {/*
           Bajar la nota de voz al computador.
