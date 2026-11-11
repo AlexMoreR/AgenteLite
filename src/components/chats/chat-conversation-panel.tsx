@@ -769,7 +769,8 @@ export const ConversationPanel = memo(function ConversationPanel({
       return sinNotasInternas;
     }
     /*
-      Se compara contra la direccion del SERVIDOR (la vista previa `blob:` nunca coincidiria). El
+      Se cruza por el numero unico del envio (rawPayload.clientMessageId) o por la direccion del
+      SERVIDOR (la vista previa `blob:` nunca coincidiria). El
       que ya llego se deja de dibujar en este mismo render, para que no se vean dos un instante; el
       efecto de abajo lo retira del almacen y libera su vista previa.
     */
