@@ -41,6 +41,8 @@ export const MINUTOS_ENTRE_ALERTAS = 60;
 /** Tope de contenedores por foto, para que un cuerpo roto no llene la tabla. */
 export const MAXIMO_CONTENEDORES = 200;
 const LARGO_MAXIMO_NOMBRE = 200;
+/** Mayor valor que cabe en una columna Int de Postgres (los MB se guardan así). */
+const MAXIMO_INT = 2_147_483_647;
 
 // mf7 a mf12 en cualquier parte del nombre, con el número exacto: "mf1" o "mf13" no cuentan.
 const MARKETPLACE = /mf(?:[7-9]|1[0-2])(?!\d)/;
@@ -121,10 +123,20 @@ export function validarMuestra(json: unknown): ResultadoValidacion {
       return { ok: false, error: `Falta "${campo}" o no es un número mayor o igual a 0.` };
     }
   }
+  for (const campo of CAMPOS_ENTEROS) {
+    if ((cuerpo[campo] as number) > MAXIMO_INT) {
+      return { ok: false, error: `"${campo}" es demasiado grande.` };
+    }
+  }
 
   let nucleos: number | null = null;
   if (cuerpo.nucleos !== undefined && cuerpo.nucleos !== null) {
-    if (!numeroValido(cuerpo.nucleos) || !Number.isInteger(cuerpo.nucleos) || cuerpo.nucleos < 1) {
+    if (
+      !numeroValido(cuerpo.nucleos) ||
+      !Number.isInteger(cuerpo.nucleos) ||
+      cuerpo.nucleos < 1 ||
+      cuerpo.nucleos > MAXIMO_INT
+    ) {
       return { ok: false, error: '"nucleos" tiene que ser un número entero mayor que 0.' };
     }
     nucleos = cuerpo.nucleos;
