@@ -31,6 +31,11 @@ import {
   type EsperaDeChats,
   type QuienMira,
 } from "@/features/chats/services/espera-de-chats";
+import {
+  alcanceDeLasPastillas,
+  type AlcanceDeLasPastillas,
+  type AsignacionOficialDeLasPastillas,
+} from "@/features/chats/domain/alcance-de-las-pastillas";
 
 export const dynamic = "force-dynamic";
 
@@ -101,7 +106,8 @@ async function countOfficialConversations(input: {
   searchQuery: string;
   selectedConnectionKey: string;
   userId: string;
-  assignedTo: "mine" | "unassigned" | "all";
+  // `user:<id>[,<id>...]` = una o varias asesoras: lo usan las pastillas cuando un jefe mira "Por asesora".
+  assignedTo: AsignacionOficialDeLasPastillas;
   statusFilter: ChatsStatusFilter;
   filtros: FiltrosDeBandeja;
 }): Promise<number> {
@@ -151,7 +157,9 @@ async function countOfficialConversations(input: {
         ? Prisma.sql`AND c."assignedToUserId" = ${input.userId}`
         : input.assignedTo === "unassigned"
           ? Prisma.sql`AND c."assignedToUserId" IS NULL`
-          : Prisma.empty;
+          : input.assignedTo.startsWith("user:")
+            ? Prisma.sql`AND c."assignedToUserId" IN (${Prisma.join(input.assignedTo.slice("user:".length).split(","))})`
+            : Prisma.empty;
 
     const filas = await prisma.$queryRaw<Array<{ total: bigint }>>`
       SELECT COUNT(*)::bigint AS "total"
@@ -177,7 +185,9 @@ async function countOfficialConversations(input: {
         ? { assignedToUserId: input.userId }
         : input.assignedTo === "unassigned"
           ? { assignedToUserId: null }
-          : {}),
+          : input.assignedTo.startsWith("user:")
+            ? { assignedToUserId: { in: input.assignedTo.slice("user:".length).split(",") } }
+            : {}),
       ...whereDeBusquedaDeChatsOficiales(normalizedSearchQuery),
     },
   });
@@ -212,6 +222,22 @@ async function calcularEspera(input: {
     console.error("[chats/counts] no se pudo calcular la espera", error);
     return null;
   }
+}
+
+/**
+ * El `where` del alcance de las pastillas en el canal viejo: la asignacion puesta y, para la
+ * monitora, solo sus lineas. Es lo mismo que arma /list para la lista (filtroDeAsignacion).
+ */
+function whereDelAlcance(alcance: AlcanceDeLasPastillas, userId: string): Prisma.ConversationWhereInput {
+  const asignacion: Prisma.ConversationWhereInput =
+    alcance.asignacion.tipo === "mios"
+      ? whereEsMio(userId)
+      : alcance.asignacion.tipo === "sinAsesora"
+        ? { assignedToUserId: null }
+        : alcance.asignacion.tipo === "asesoras"
+          ? { assignedToUserId: { in: alcance.asignacion.ids } }
+          : {};
+  return alcance.lineas ? { AND: [{ channelId: { in: alcance.lineas } }, asignacion] } : asignacion;
 }
 
 export const GET = conServerTiming(manejarGet, { log: "chats/counts" });
@@ -327,7 +353,19 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     canal viejo (ids de su SQL, con cache) y la linea oficial (su fragmento en el mismo conteo).
     Si uno falla, el resto de los contadores responde igual y esa pastilla va sin numero.
   */
-  const verTodo = isManager || monitoreados.length > 0;
+  /*
+    Y cuentan SOLO la asignacion puesta (Todas, Mias, Sin asignar o una asesora), con la misma
+    regla que /list: con "Mias" puesta, el numero de No leido es el de mis chats no leidos. Sin
+    `assigned` (una pestaña abierta antes del despliegue) cuenta todo lo que ve, como antes.
+  */
+  const alcance = alcanceDeLasPastillas(
+    requestUrl.searchParams.get("assigned"),
+    monitoreados.length > 0
+      ? { tipo: "monitora", lineas: monitoreados }
+      : isManager
+        ? { tipo: "jefe" }
+        : { tipo: "asesora" },
+  );
   const conLaCondicion = async (
     condicion: CondicionDeBandeja,
     nombre: string,
@@ -344,7 +382,7 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
           searchQuery,
           selectedConnectionKey: conexionElegida,
           userId: session.user.id,
-          assignedTo: verTodo ? "all" : "mine",
+          assignedTo: alcance.asignacionOficial,
           statusFilter,
           filtros: filtrosConLa,
         }),
@@ -419,12 +457,12 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     ids: idsDeLosFiltros,
   });
 
-  /** El numero de una de esas pastillas dentro de lo que ve esta persona (`alcance`). */
+  /** El numero de una de esas pastillas dentro del alcance puesto (lineas y asignacion). */
+  const wherePastillas = whereDelAlcance(alcance, session.user.id);
   const contarPastilla = async (
     cuenta: { where: Prisma.ConversationWhereInput; oficial: number } | null,
-    alcance: Prisma.ConversationWhereInput,
   ): Promise<number | undefined> =>
-    cuenta ? (await prisma.conversation.count({ where: { AND: [cuenta.where, alcance] } })) + cuenta.oficial : undefined;
+    cuenta ? (await prisma.conversation.count({ where: { AND: [cuenta.where, wherePastillas] } })) + cuenta.oficial : undefined;
 
   if (monitoreados.length > 0) {
     const deSusLineas: Prisma.ConversationWhereInput = { AND: [baseWhere, { channelId: { in: monitoreados } }] };
@@ -434,8 +472,8 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
       prisma.conversation.count({ where: deSusLineas }),
     ]);
     const [sinResponder, noLeido] = await Promise.all([
-      contarPastilla(conSinResponder, { channelId: { in: monitoreados } }),
-      contarPastilla(conNoLeido, { channelId: { in: monitoreados } }),
+      contarPastilla(conSinResponder),
+      contarPastilla(conNoLeido),
     ]);
     return NextResponse.json({
       ok: true,
@@ -458,8 +496,8 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     });
 
     const [sinResponder, noLeido] = await Promise.all([
-      contarPastilla(conSinResponder, whereEsMio(session.user.id)),
-      contarPastilla(conNoLeido, whereEsMio(session.user.id)),
+      contarPastilla(conSinResponder),
+      contarPastilla(conNoLeido),
     ]);
     return NextResponse.json({
       ok: true,
@@ -476,8 +514,8 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
   ]);
 
   const [sinResponder, noLeido] = await Promise.all([
-    contarPastilla(conSinResponder, {}),
-    contarPastilla(conNoLeido, {}),
+    contarPastilla(conSinResponder),
+    contarPastilla(conNoLeido),
   ]);
   return NextResponse.json({
     ok: true,

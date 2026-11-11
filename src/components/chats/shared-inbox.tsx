@@ -911,7 +911,7 @@ export function SharedInbox({
   */
   const firmaDeConteoGuardado = searchQuery.trim()
     ? ""
-    : [conversationListApiPath, selectedConnectionKey.trim(), statusFilter, firmaParaContar].join("|");
+    : [conversationListApiPath, selectedConnectionKey.trim(), statusFilter, assignedFilter, firmaParaContar].join("|");
   const firmaDeConteoGuardadoRef = useRef(firmaDeConteoGuardado);
   firmaDeConteoGuardadoRef.current = firmaDeConteoGuardado;
   useLayoutEffect(() => {
@@ -962,6 +962,9 @@ export function SharedInbox({
         // El contador tiene que contar lo mismo que se ve en la lista: si estas en "Resueltas",
         // el numero de al lado de la pestaña es el de las resueltas.
         if (statusFilter !== "open") params.set("status", statusFilter);
+        // La pestaña puesta (lo mismo que va a /list): No leido y Sin responder cuentan solo esa
+        // asignacion. Todas, Mias y Sin asignar no cambian.
+        params.set("assigned", assignedFilter);
         for (const [clave, valor] of paresParaContarRef.current) params.set(clave, valor);
         const qs = params.toString();
 
@@ -1012,7 +1015,7 @@ export function SharedInbox({
       document.removeEventListener("visibilitychange", alCambiarVisibilidad);
     };
     // paresParaContarRef cambia SIEMPRE junto con firmaParaContar.
-  }, [conversationListApiPath, searchQuery, selectedConnectionKey, statusFilter, firmaParaContar, pedidoDeConteos]);
+  }, [conversationListApiPath, searchQuery, selectedConnectionKey, statusFilter, assignedFilter, firmaParaContar, pedidoDeConteos]);
 
   useEffect(() => {
     conversationItemsRef.current = conversationItems;
