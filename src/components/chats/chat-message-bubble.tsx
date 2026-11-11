@@ -1783,9 +1783,13 @@ export const MessageBubble = memo(function MessageBubble({
                     decoding="async"
                     onLoad={alCargarLaFoto}
                     onError={handleImageError}
-                    className={`relative block h-full w-full rounded-[6px] object-cover transition duration-200 group-hover:scale-[1.01] ${
-                      fotoNitidaLista ? "opacity-100" : "opacity-0"
-                    }`}
+                    /*
+                      Siempre visible (iPhone, 11-11-2026: una foto se quedo borrosa). Una foto que
+                      no ha cargado no pinta nada, asi que deja ver la borrosa de abajo; cuando carga,
+                      la tapa. Antes se escondia con opacidad hasta el onLoad, y si el navegador no lo
+                      avisaba, la foto no aparecia nunca.
+                    */
+                    className="relative block h-full w-full rounded-[6px] object-cover transition duration-200 group-hover:scale-[1.01]"
                   />
                   <span className="pointer-events-none absolute inset-0 rounded-[6px] ring-1 ring-inset ring-black/5 transition group-hover:bg-black/5" />
                 </button>
