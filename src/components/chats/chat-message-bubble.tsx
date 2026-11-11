@@ -19,6 +19,7 @@ import {
   MessageCircle,
   Pencil,
   Pin,
+  Play,
   MoreVertical,
   Reply,
   RotateCcw,
@@ -1008,9 +1009,8 @@ export const MessageBubble = memo(function MessageBubble({
 
     Con la hora apilada la burbuja mide lo que mide el contenido, que es como se ve en WhatsApp.
 
-    Las fotos y los videos NO entran aca: esos llevan la hora encima de la imagen
-    (showInlineMediaTimestamp). Un sticker no puede -es transparente y el texto quedaria ilegible
-    sobre el fondo del chat-, asi que va apilada.
+    Las fotos, los videos y los stickers dibujan su hora adentro del propio bloque (horaDentroDelMedio):
+    encima del archivo si van solos, o al lado del texto si llevan uno.
   */
   const apilarLaHora = Boolean(audioUrl) || Boolean(documentUrl && esPdf) || Boolean(stickerUrl);
 
@@ -1077,11 +1077,8 @@ export const MessageBubble = memo(function MessageBubble({
 
   const hasImagePreview = isImageMessage && imagePreviewUrl !== null;
   const imagePreviewExhausted = isImageMessage && imagePreviewUrls.length > 0 && !hasImagePreview;
-  const showInlineImageTimestamp = hasImagePreview;
-  // La hora vive en una columna aparte, a la DERECHA del contenido. Con una foto o un video
-  // verticales eso dejaba una franja blanca al lado y la hora colgada en el aire. En esos casos
-  // se dibuja encima del propio archivo, como WhatsApp, y la burbuja se ajusta al ancho real.
-  const showInlineMediaTimestamp = hasImagePreview || Boolean(videoUrl);
+  const [videoActivo, setVideoActivo] = useState(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
 
   const handleImageError = () => {
     setImagePreviewIndex((current) => {
@@ -1130,6 +1127,41 @@ export const MessageBubble = memo(function MessageBubble({
   const replyPreview = useMemo(() => getMessageReplyPreview(message), [message]);
   const idWhatsApp = useMemo(() => idCrudoDelMensajeWhatsApp(message), [message]);
   const activity = isActivityMessage(message);
+
+  /*
+    Fotos, videos y stickers como en WhatsApp.
+
+    La hora y los chulitos vivian en una columna aparte, a la DERECHA del contenido: aunque la hora
+    se pintara encima de la foto, los chulitos quedaban en esa columna y dejaban una franja del color
+    de la burbuja al lado de la imagen. Ahora el medio dibuja su propia hora:
+    - Solo (sin texto): hora y chulitos juntos ENCIMA del archivo, abajo a la derecha, en blanco con
+      sombra y sin cuadro. La burbuja deja un margen fino y parejo (3px) y mide lo que mide la foto.
+    - Con texto: la hora va al lado del texto, debajo de la foto, como un mensaje de texto.
+    - Eliminado, editado o con el envio fallido: igual que con texto, porque esas marcas y el motivo
+      del fallo no caben encima de la foto.
+    El tipo sigue el mismo orden que el render (llamada y anuncio van antes).
+  */
+  const tipoDeMedio: "foto" | "video" | "sticker" | null =
+    callSummary || adPreview
+      ? null
+      : hasImagePreview
+        ? "foto"
+        : imagePreviewExhausted
+          ? null
+          : videoUrl
+            ? "video"
+            : stickerUrl
+              ? "sticker"
+              : null;
+  const horaDentroDelMedio = tipoDeMedio !== null;
+  // "Foto", "Video" o "Sticker" no son un texto real: es la etiqueta que se guarda sin caption.
+  const textoDelMedio = horaDentroDelMedio && shouldRenderMediaCaption ? contenidoVisible : null;
+  const envioFallido =
+    outbound && (message.outboundStatusLabel === "FAILED" || message.outboundStatusLabel === "error");
+  const showInlineMediaTimestamp =
+    horaDentroDelMedio && !textoDelMedio && !isDeleted && !message.editedAt && !envioFallido;
+  // El sticker va sin burbuja; con una cita arriba la necesita para enmarcarla.
+  const stickerSinBurbuja = tipoDeMedio === "sticker" && showInlineMediaTimestamp && !replyPreview;
 
   // Acciones del mensaje: menu de hover en escritorio, hoja al mantener apretado en el celular.
   const [isTouchMenuOpen, setIsTouchMenuOpen] = useState(false);
@@ -1307,6 +1339,36 @@ export const MessageBubble = memo(function MessageBubble({
     </div>
   );
 
+  /*
+    La hora encima de una foto, un video o un sticker: texto blanco con sombra, sin cuadro, y los
+    chulitos pegados a la hora. El filtro da sombra a los iconos (text-shadow no llega a un SVG).
+  */
+  const sombraDelIcono = "drop-shadow-[0_1px_1px_rgba(0,0,0,0.6)]";
+  const horaSobreElMedio = (
+    <span className="inline-flex items-center gap-1 text-[11px] leading-none text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.7)]">
+      {message.authorType === "bot" ? <Bot className={`h-3 w-3 shrink-0 ${sombraDelIcono}`} aria-label="Bot" /> : null}
+      {formatChatTime(message.createdAt)}
+      {!outbound ? null : isPendingMedia || (!message.outboundStatusLabel && message.id.startsWith("optimistic")) ? (
+        <Clock3 className={`h-3 w-3 shrink-0 ${sombraDelIcono}`} aria-label="Enviando" />
+      ) : message.outboundStatusLabel === "READ" ? (
+        <CheckCheck className={`h-3.5 w-3.5 shrink-0 text-sky-300 ${sombraDelIcono}`} aria-label="Leído" />
+      ) : message.outboundStatusLabel === "DELIVERED" || message.outboundStatusLabel === "entregado" ? (
+        <CheckCheck className={`h-3.5 w-3.5 shrink-0 ${sombraDelIcono}`} aria-label="Entregado" />
+      ) : message.outboundStatusLabel === "SENT" ? (
+        <Check className={`h-3.5 w-3.5 shrink-0 ${sombraDelIcono}`} aria-label="Enviado" />
+      ) : null}
+    </span>
+  );
+  // Con texto (o con una marca que no cabe encima): texto y hora en el mismo flujo que un mensaje
+  // de texto, dentro del ancho del medio. El px-1 suma con el margen de 3px de la burbuja.
+  const pieDelMedio =
+    horaDentroDelMedio && !showInlineMediaTimestamp ? (
+      <div className="flex flex-wrap items-end gap-x-2 px-1 pb-0.5">
+        {textoDelMedio ? <div className="min-w-0">{renderMessageText(textoDelMedio)}</div> : null}
+        {filaDeLaHora}
+      </div>
+    ) : null;
+
   return (
     <div
       /*
@@ -1408,10 +1470,14 @@ export const MessageBubble = memo(function MessageBubble({
             transform: swipe.offset > 0 ? `translateX(${swipe.offset}px)` : undefined,
             transition: swipe.arrastrando ? "none" : "transform 150ms ease-out",
           }}
-          className={`group/bubble relative touch-pan-y max-w-[88%] rounded-[8px] px-[7px] py-[6px] text-[14px] leading-5 shadow-[0_1px_1px_rgba(15,23,42,0.14)] [-webkit-touch-callout:none] md:max-w-[72%] [@media(pointer:coarse)]:select-none ${
-            outbound
-              ? "rounded-tr-[3px] bg-[var(--chat-out-bubble)] text-[var(--chat-out-text)]"
-              : "rounded-tl-[3px] border border-border bg-card text-card-foreground"
+          className={`group/bubble relative touch-pan-y max-w-[88%] rounded-[8px] text-[14px] leading-5 [-webkit-touch-callout:none] md:max-w-[72%] [@media(pointer:coarse)]:select-none ${
+            stickerSinBurbuja ? "p-0" : horaDentroDelMedio ? "p-[3px]" : "px-[7px] py-[6px]"
+          } ${
+            stickerSinBurbuja
+              ? "bg-transparent text-foreground"
+              : outbound
+                ? "rounded-tr-[3px] bg-[var(--chat-out-bubble)] text-[var(--chat-out-text)] shadow-[0_1px_1px_rgba(15,23,42,0.14)]"
+                : "rounded-tl-[3px] border border-border bg-card text-card-foreground shadow-[0_1px_1px_rgba(15,23,42,0.14)]"
           } ${isTouchMenuOpen ? "ring-2 ring-[var(--primary)]/40" : ""}`}
         >
           {swipe.offset > 0 ? (
@@ -1628,12 +1694,12 @@ export const MessageBubble = memo(function MessageBubble({
               tomaba el ancho de la foto y crecia en ancho y en alto, y el hilo saltaba. En el
               celular la caja se encoge (max-w-full) sin perder la proporcion.
             */
-            <div className="max-w-full space-y-2" style={{ width: (cajaDeLaFoto ?? FOTO_SIN_TAMANO).ancho }}>
+            <div className="max-w-full space-y-1" style={{ width: (cajaDeLaFoto ?? FOTO_SIN_TAMANO).ancho }}>
               <div className="relative">
                 <button
                   type="button"
                   onClick={openImageViewer}
-                  className="group block w-full cursor-zoom-in overflow-hidden rounded-xl bg-muted"
+                  className="group block w-full cursor-zoom-in overflow-hidden rounded-[6px] bg-muted"
                   style={{
                     aspectRatio: `${(cajaDeLaFoto ?? FOTO_SIN_TAMANO).ancho} / ${(cajaDeLaFoto ?? FOTO_SIN_TAMANO).alto}`,
                   }}
@@ -1646,9 +1712,9 @@ export const MessageBubble = memo(function MessageBubble({
                     loading="lazy"
                     decoding="async"
                     onError={handleImageError}
-                    className="block h-full w-full rounded-xl bg-muted object-cover transition duration-200 group-hover:scale-[1.01]"
+                    className="block h-full w-full rounded-[6px] bg-muted object-cover transition duration-200 group-hover:scale-[1.01]"
                   />
-                  <span className="pointer-events-none absolute inset-0 rounded-xl ring-1 ring-inset ring-black/5 transition group-hover:bg-black/5" />
+                  <span className="pointer-events-none absolute inset-0 rounded-[6px] ring-1 ring-inset ring-black/5 transition group-hover:bg-black/5" />
                 </button>
                 {fotoEstado === "subiendo" || fotoEstado === "enviando" ? (
                   <BarraDeSubida
@@ -1664,30 +1730,19 @@ export const MessageBubble = memo(function MessageBubble({
                   />
                 ) : null}
                 {fotoFallida ? (
-                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-xl bg-black/35">
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-[6px] bg-black/35">
                     <span className="inline-flex size-9 items-center justify-center rounded-full bg-black/55 text-white">
                       <AlertTriangle className="size-5" aria-hidden="true" />
                     </span>
                   </div>
                 ) : null}
-                {showInlineImageTimestamp ? (
-                  <div
-                    className={`absolute right-2 bottom-2 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] leading-none ${
-                      outbound ? "bg-black/45 text-white" : "bg-black/45 text-white"
-                    }`}
-                  >
-                    {message.authorType === "bot" ? (
-                      <Bot className="h-3 w-3" />
-                    ) : (
-                      <UserRound className="h-3 w-3" />
-                    )}
-                    {formatChatTime(message.createdAt)}
-                  </div>
+                {showInlineMediaTimestamp ? (
+                  <div className="pointer-events-none absolute bottom-1.5 right-2">{horaSobreElMedio}</div>
                 ) : null}
               </div>
               {fotoFallida ? (
                 // Como el texto que no salio: el motivo real a la vista, Reintentar y Descartar.
-                <div className="flex flex-wrap items-center gap-1 text-[12px] font-medium text-amber-700 dark:text-amber-300">
+                <div className="flex flex-wrap items-center gap-1 px-1 text-[12px] font-medium text-amber-700 dark:text-amber-300">
                   <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden="true" />
                   No se envió
                   {onReintentarFoto ? (
@@ -1715,7 +1770,7 @@ export const MessageBubble = memo(function MessageBubble({
                   ) : null}
                 </div>
               ) : null}
-              {renderMessageText(contenidoVisible)}
+              {pieDelMedio}
               {portalTarget && isImageViewerOpen && hasImagePreview
                 ? createPortal(
                     <div
@@ -1829,44 +1884,67 @@ export const MessageBubble = memo(function MessageBubble({
               {renderMessageText(contenidoVisible)}
             </div>
           ) : videoUrl ? (
-            <div className="space-y-2">
-              <div className="relative w-fit max-w-full overflow-hidden rounded-xl">
+            // El ancho del bloque es el del video: un texto largo no ensancha la burbuja.
+            <div className="max-w-full space-y-1" style={{ width: cajaDelVideo?.ancho ?? 260 }}>
+              <div className="relative max-w-full overflow-hidden rounded-[6px]">
                 {/*
                   preload="none": el video no se baja hasta que la asesora le da play (antes cada
                   video del hilo pedia sus datos al abrir el chat). Tamano fijo: con preload="none"
                   el navegador no sabe cuanto mide, y asi el hilo no salta al cargarlo. Con el tamaño
                   que manda WhatsApp la caja toma su proporcion; sin el, la caja de siempre.
                   La miniatura que viene en el mensaje es el poster: se ve sin bajar el video.
+
+                  Como WhatsApp, antes de reproducirlo se ve un play al centro y la hora abajo a la
+                  derecha; los controles del navegador aparecen al darle play (si estuvieran desde
+                  el principio, su barra de abajo quedaria debajo de la hora).
                 */}
                 <video
+                  ref={videoRef}
                   src={videoUrl}
-                  controls
+                  controls={videoActivo}
                   preload="none"
                   poster={posterDelVideo ?? undefined}
-                  className={`max-w-full rounded-xl bg-black object-contain ${cajaDelVideo ? "h-auto" : "h-[240px] w-[260px]"}`}
+                  className={`block max-w-full rounded-[6px] bg-black object-contain ${cajaDelVideo ? "h-auto" : "h-[240px] w-[260px]"}`}
                   style={
                     cajaDelVideo
                       ? { width: cajaDelVideo.ancho, aspectRatio: `${cajaDelVideo.ancho} / ${cajaDelVideo.alto}` }
                       : undefined
                   }
                 />
-                {/* Arriba y no abajo: el reproductor pone sus propios botones en el borde
-                    inferior y la hora quedaría tapada por el play y el volumen. */}
-                <div className="pointer-events-none absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/45 px-1.5 py-0.5 text-[10px] leading-none text-white">
-                  {message.authorType === "bot" ? (
-                    <Bot className="h-3 w-3" />
-                  ) : (
-                    <UserRound className="h-3 w-3" />
-                  )}
-                  {formatChatTime(message.createdAt)}
-                </div>
+                {!videoActivo ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // Con la seleccion abierta el toque es para marcar el mensaje.
+                      if (haySeleccion) return;
+                      setVideoActivo(true);
+                      void videoRef.current?.play().catch(() => {});
+                    }}
+                    className="absolute inset-0 flex cursor-pointer items-center justify-center"
+                    aria-label="Reproducir video"
+                  >
+                    <span className="inline-flex size-12 items-center justify-center rounded-full bg-black/45 text-white">
+                      <Play className="size-6 translate-x-px fill-current" aria-hidden="true" />
+                    </span>
+                  </button>
+                ) : null}
+                {/* Ya reproduciendo, la barra del navegador ocupa el borde de abajo: la hora sube. */}
+                {showInlineMediaTimestamp ? (
+                  <div className={`pointer-events-none absolute right-2 ${videoActivo ? "top-1.5" : "bottom-1.5"}`}>
+                    {horaSobreElMedio}
+                  </div>
+                ) : null}
               </div>
-              {renderMessageText(contenidoVisible)}
+              {pieDelMedio}
             </div>
           ) : stickerUrl ? (
-            <div className="space-y-2">
-              {/* Caja cuadrada fija (los stickers de WhatsApp son de 512x512): no crece al cargar. */}
-              <div className="flex aspect-square w-[220px] max-w-full items-center justify-center overflow-hidden rounded-xl border border-border bg-card">
+            <div className="space-y-1">
+              {/*
+                Caja cuadrada fija (los stickers de WhatsApp son de 512x512): no crece al cargar.
+                Sin borde ni fondo: el sticker va suelto sobre el chat, como en WhatsApp, y la hora
+                encima, abajo a la derecha.
+              */}
+              <div className="relative flex aspect-square w-[220px] max-w-full items-center justify-center overflow-hidden">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={stickerUrl}
@@ -1875,8 +1953,11 @@ export const MessageBubble = memo(function MessageBubble({
                   decoding="async"
                   className="h-full w-full object-contain"
                 />
+                {showInlineMediaTimestamp ? (
+                  <div className="pointer-events-none absolute bottom-1 right-1.5">{horaSobreElMedio}</div>
+                ) : null}
               </div>
-              {renderMessageText(contenidoVisible)}
+              {pieDelMedio}
             </div>
           ) : audioUrl ? (
             <AudioMessageCard
@@ -2076,7 +2157,8 @@ export const MessageBubble = memo(function MessageBubble({
           )}
           </div>
 
-          {horaEnElAudio ? null : filaDeLaHora}
+          {/* Fotos, videos y stickers ya la dibujan adentro (horaSobreElMedio o pieDelMedio). */}
+          {horaEnElAudio || horaDentroDelMedio ? null : filaDeLaHora}
           </div>
 
           {/* Reaccion del cliente (👍 ❤️ …): circulito pegado abajo a la derecha de la burbuja,
