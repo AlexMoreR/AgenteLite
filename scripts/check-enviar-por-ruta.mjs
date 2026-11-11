@@ -281,8 +281,9 @@ await prueba("se quitaron los 'Actualizamos la app' de los envios de archivos; e
     assert.doesNotMatch(texto, /Actualizamos la app/, archivo);
     assert.doesNotMatch(texto, /hayVersionNueva/, archivo);
   }
-  const panel = leer("src/components/chats/chat-conversation-panel.tsx");
-  assert.match(panel, /la foto pudo haber salido/);
+  // Desde el envio instantaneo (T-744) el aviso ya no vive en el panel: la cola de fotos no repite sola
+  // si el servidor contesto un error, porque el archivo pudo haber salido.
+  assert.match(leer("src/components/chats/fotos-en-envio.ts"), /el archivo pudo haber salido/);
   assert.match(leer("src/components/app-version-guard.tsx"), /Hay una versión nueva del CRM/);
   // Las Server Actions no se borran: page.tsx las sigue pasando y las rutas las usan.
   assert.match(leer("src/app/cliente/chats/page.tsx"), /sendAction: sendChatMediaReplyAction/);
