@@ -45,9 +45,16 @@ export function terminoLaApertura(datos?: {
   despertar();
 }
 
-/** Espera a que no quede ninguna apertura en camino, como mucho `maxMs`. */
-export function esperarLaApertura(maxMs: number = ESPERA_MAXIMA_MS): Promise<void> {
-  if (aperturasEnCamino === 0) return Promise.resolve();
+/**
+ * Espera a que no quede ninguna apertura en camino, como mucho `maxMs`.
+ *
+ * Primero deja pasar un instante (setTimeout 0): el interruptor esta mas adentro que la bandeja, asi que
+ * su efecto corre ANTES que el de la bandeja que avisa la apertura (React corre los efectos de los hijos
+ * primero). Sin esa pausa veia "nada en camino" y salia la accion igual (medido en produccion).
+ */
+export async function esperarLaApertura(maxMs: number = ESPERA_MAXIMA_MS): Promise<void> {
+  await new Promise<void>((listo) => setTimeout(listo, 0));
+  if (aperturasEnCamino === 0) return;
   return new Promise((resolver) => {
     let temporizador: ReturnType<typeof setTimeout> | null = null;
     const listo = () => {

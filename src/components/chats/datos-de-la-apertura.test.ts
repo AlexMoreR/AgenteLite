@@ -16,6 +16,14 @@ test("sin apertura en camino no se espera nada", async () => {
   assert.ok(Date.now() - inicio < 50);
 });
 
+test("el interruptor que pregunta ANTES de que la bandeja avise tambien espera (efectos de hijos primero)", async () => {
+  const espera = esperarLaApertura(2000).then(() => tomarSeguimientosDeLaApertura("chat-hijo"));
+  // La bandeja avisa en el mismo ciclo, despues del hijo.
+  empezoLaApertura();
+  setTimeout(() => terminoLaApertura({ conversationId: "chat-hijo", seguimientosApagados: false }), 15);
+  assert.equal(await espera, false);
+});
+
 test("la ficha y el interruptor esperan a /live y lo toman una sola vez", async () => {
   empezoLaApertura();
   const espera = esperarLaApertura(2000).then(() => ({

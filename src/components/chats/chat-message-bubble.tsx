@@ -2092,12 +2092,14 @@ export const MessageBubble = memo(function MessageBubble({
                   target="_blank"
                   rel="noreferrer noopener"
                   onClick={(evento) => evento.stopPropagation()}
-                  // Sin tope de ancho: con 280px la direccion de abajo ensanchaba la burbuja y la
-                  // tarjeta quedaba corta, con un hueco blanco a la derecha. Ocupa lo que ocupe el texto.
-                  className={`block w-full overflow-hidden rounded-xl border transition hover:opacity-90 ${
-                    outbound
-                      ? "border-[var(--chat-out-overlay-strong)] bg-[var(--chat-out-overlay)]"
-                      : "border-border bg-background"
+                  /*
+                    Como en WhatsApp (Alex, 10-nov-2026): una caja compacta gris claro, la imagen chica y
+                    cuadrada a la izquierda y a la derecha el titulo en negrita, la descripcion en 2
+                    lineas y el dominio abajo. Nada de imagen grande recortada; sin imagen, solo el texto.
+                    Sin tope de ancho: ocupa lo que ocupe el texto de la burbuja.
+                  */
+                  className={`flex w-full items-stretch gap-2.5 overflow-hidden rounded-lg p-1.5 transition hover:opacity-90 ${
+                    outbound ? "bg-[var(--chat-out-overlay)]" : "bg-muted/70"
                   }`}
                 >
                   {vistaPreviaDelEnlace.miniatura ? (
@@ -2107,16 +2109,21 @@ export const MessageBubble = memo(function MessageBubble({
                       alt=""
                       loading="lazy"
                       decoding="async"
-                      // Alto fijo: con h-auto la tarjeta crecia al decodificar la miniatura.
-                      className="block h-[160px] w-full object-cover"
+                      // Tamaño fijo: la caja no cambia de alto cuando llega la miniatura.
+                      className="block size-[72px] shrink-0 rounded-md object-cover"
                     />
                   ) : null}
-                  <div className="space-y-0.5 px-2.5 py-2">
-                    <p className={`line-clamp-2 text-[12px] font-medium leading-4 ${outbound ? "text-[var(--chat-out-text)]" : "text-foreground"}`}>
+                  <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 py-0.5 pr-1">
+                    <p className={`line-clamp-2 text-[12.5px] font-semibold leading-4 ${outbound ? "text-[var(--chat-out-text)]" : "text-foreground"}`}>
                       {vistaPreviaDelEnlace.titulo}
                     </p>
+                    {vistaPreviaDelEnlace.descripcion ? (
+                      <p className={`line-clamp-2 text-[11.5px] leading-4 ${outbound ? "text-[var(--chat-out-text-soft)]" : "text-muted-foreground"}`}>
+                        {vistaPreviaDelEnlace.descripcion}
+                      </p>
+                    ) : null}
                     {vistaPreviaDelEnlace.sitio ? (
-                      <p className={`truncate text-[11px] ${outbound ? "text-[var(--chat-out-text-soft)]" : "text-muted-foreground"}`}>
+                      <p className={`truncate text-[11px] ${outbound ? "text-[var(--chat-out-text-faint)]" : "text-muted-foreground/80"}`}>
                         {vistaPreviaDelEnlace.sitio}
                       </p>
                     ) : null}
