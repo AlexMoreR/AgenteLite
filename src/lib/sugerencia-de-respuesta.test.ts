@@ -71,8 +71,9 @@ test("el mensaje a la IA trae el catálogo con precios de venta y sin ningún ma
   for (const mayorista of MAYORISTAS) assert.ok(!sistema.includes(mayorista), `no trae el mayorista ${mayorista}`);
   assert.ok(!/mayorista\s*[:=]/i.test(sistema));
   assert.equal(pedidos.length, 1, "la respuesta buena no se corrige");
-  assert.deepEqual(final?.problemas, []);
-  assert.equal(final?.faltaDato, false);
+  assert.ok(final && !("causa" in final));
+  assert.deepEqual(final.problemas, []);
+  assert.equal(final.faltaDato, false);
 });
 
 test("el mensaje a la IA trae la regla dura y no habla de contraentrega", async () => {
@@ -132,7 +133,8 @@ test("el precio mayorista de un producto que no es el activo queda marcado", () 
 test("'Déjame confirmarlo con una asesora' marca que falta un dato", async () => {
   const { resultado } = redactar([{ texto: "Déjame confirmarlo con una asesora, ¿me dices tu ciudad?", falta_dato: false }]);
   const final = await resultado;
-  assert.equal(final?.faltaDato, true);
+  assert.ok(final && !("causa" in final));
+  assert.equal(final.faltaDato, true);
 });
 
 test("si la IA insiste en una política inventada, el texto final sale con problemas (el V3 no lo envía)", async () => {
@@ -141,5 +143,5 @@ test("si la IA insiste en una política inventada, el texto final sale con probl
   const final = await resultado;
   assert.equal(pedidos.length, 3, "pide corregir dos veces");
   assert.match(pedidos[1].messages.at(-1)!.content, /no se vende por separado/);
-  assert.ok(final && final.problemas.length > 0);
+  assert.ok(final && !("causa" in final) && final.problemas.length > 0);
 });

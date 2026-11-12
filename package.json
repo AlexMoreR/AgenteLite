@@ -37,6 +37,7 @@
     "test:orden-del-menu": "npx tsx --test src/components/chats/orden-del-menu-del-mensaje.test.ts",
     "test:agente-v3-anuncio": "npx tsx --test src/features/agente-v3/motor/anuncio-mas-pregunta.test.ts",
     "test:agente-v3-foto": "node scripts/check-agente-v3-foto.mjs",
+    "test:redactor-causa": "node scripts/check-redactor-causa.mjs",
     "test:agente-v3-historial": "node scripts/check-agente-v3-historial.mjs",
     "test:v3-mapa": "node scripts/check-v3-mapa.mjs",
     "test:espera-bandeja": "node scripts/check-espera-bandeja.mjs",

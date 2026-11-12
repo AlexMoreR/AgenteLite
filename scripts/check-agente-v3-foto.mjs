@@ -403,7 +403,7 @@ await prueba("varias reglas de foto + precio: gana la que pasa a una asesora", (
 await prueba("(d) el redactor avisa a una asesora porque falta un dato: la IA queda pausada", async () => {
   mundo.sugerencia = { texto: "Te confirmo el valor de esa referencia. ¿En qué *ciudad* estás?", faltaDato: true, problemas: [] };
   const { registro, herramientas } = herramientasDePrueba();
-  const porque = await responderConElRedactor({
+  const { porque, respondio } = await responderConElRedactor({
     workspaceId: "ws",
     conversationId: "cv",
     foto: "una silla rosada",
@@ -420,6 +420,7 @@ await prueba("(d) el redactor avisa a una asesora porque falta un dato: la IA qu
   assert.match(registro.avisos[0], /dato que no está en el libro/);
   assert.equal(registro.pausas, 1);
   assert.match(porque, /pausó la IA/);
+  assert.equal(respondio, true, "la clienta sí recibió el mensaje");
 });
 
 await prueba("(d) el redactor contesta sin que falte nada: NO pausa", async () => {
