@@ -91,6 +91,7 @@ import {
   sincronizarConEspera,
 } from "./chat-inbox-conversation-utils";
 import { filtroSinResponderPuesto, seOcultaPorSinResponder } from "@/features/chats/domain/sin-responder";
+import { dentroDeLaVista, filasVisibles } from "@/features/chats/domain/chat-abierto-fuera-de-la-vista";
 import { filtrosParaContar } from "./pastillas-de-la-bandeja";
 import {
   LISTA_FRESCA_MS,
@@ -406,6 +407,14 @@ function noEnviadoParaGuardar(fallido: OptimisticDraftMessage): NoEnviadoGuardad
     errorDetail: fallido.errorDetail ?? "",
     replyTo: rawPayload?.replyTo ?? null,
   };
+}
+
+/**
+ * Las filas que llegan de /list SI cumplen el filtro: van con `fueraDeLaVista: false` explicito, asi
+ * pisan la marca del chat abierto escondido y, si ese chat entro al filtro, aparece normal.
+ */
+function deList(items: SharedInboxConversationItem[]): SharedInboxConversationItem[] {
+  return items.map(dentroDeLaVista);
 }
 
 function noEnviadoGuardadoAMensaje(guardado: NoEnviadoGuardado): OptimisticDraftMessage {
@@ -1245,7 +1254,7 @@ export function SharedInbox({
             throw new Error("lista");
           }
           const items = sortConversationItems(
-            normalizeConversationItems(payload.conversations, (item) => hrefDeFila(item)),
+            deList(normalizeConversationItems(payload.conversations, (item) => hrefDeFila(item))),
             { ordenDelServidor },
           );
           const lista = {
@@ -1336,7 +1345,7 @@ export function SharedInbox({
           return;
         }
 
-        const fresh = normalizeConversationItems(payload.conversations, (item) => hrefDeFila(item));
+        const fresh = deList(normalizeConversationItems(payload.conversations, (item) => hrefDeFila(item)));
 
         if (ordenDelServidor) {
           // Orden del servidor: la pagina en su orden y despues lo cargado al bajar que no vino.
@@ -1430,8 +1439,10 @@ export function SharedInbox({
         const yaHay = leerListaReciente<SharedInboxConversationItem>(claveMias);
         if (yaHay && yaHay.at >= desde) return;
         const items = sortConversationItems(
-          normalizeConversationItems(payload.conversations, (item) =>
-            buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, "", item, "mine", "open", [], false),
+          deList(
+            normalizeConversationItems(payload.conversations, (item) =>
+              buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, "", item, "mine", "open", [], false),
+            ),
           ),
           { ordenDelServidor: false },
         );
@@ -1529,9 +1540,7 @@ export function SharedInbox({
         if (cancelado || !datos?.ok || !Array.isArray(datos.conversations)) {
           return;
         }
-        const filas = normalizeConversationItems(datos.conversations, (item) =>
-          hrefDeFila(item),
-        );
+        const filas = deList(normalizeConversationItems(datos.conversations, (item) => hrefDeFila(item)));
         setConversationItems((current) => {
           let next = current;
           for (const item of filas) {
@@ -1605,7 +1614,7 @@ export function SharedInbox({
           | { ok?: boolean; conversations?: SharedInboxConversationItem[] }
           | null;
         if (!payload?.ok || !Array.isArray(payload.conversations)) return null;
-        return normalizeConversationItems(payload.conversations, (item) => hrefDeFila(item, q));
+        return deList(normalizeConversationItems(payload.conversations, (item) => hrefDeFila(item, q)));
       };
 
       try {
@@ -1614,9 +1623,15 @@ export function SharedInbox({
           setConversationItems((current) => {
             const currentIds = new Set(current.map((item) => item.id));
             const additions = porNombreYNumero.filter((item) => item.id && !currentIds.has(item.id));
-            return additions.length === 0
-              ? current
-              : sortConversationItems([...current, ...additions], { ordenDelServidor: ordenDelServidorRef.current });
+            // El chat abierto escondido que el buscador SI trae vuelve a verse (la fila de /list manda).
+            const encontrados = new Map(porNombreYNumero.map((item) => [item.id, item]));
+            const desmarcadas = current.some((item) => item.fueraDeLaVista === true && encontrados.has(item.id))
+              ? current.map((item) =>
+                  item.fueraDeLaVista === true && encontrados.has(item.id) ? encontrados.get(item.id)! : item,
+                )
+              : current;
+            if (additions.length === 0) return desmarcadas;
+            return sortConversationItems([...desmarcadas, ...additions], { ordenDelServidor: ordenDelServidorRef.current });
           });
         }
 
@@ -1896,8 +1911,8 @@ export function SharedInbox({
         return;
       }
 
-      const normalizedPayloadConversations = normalizeConversationItems(payload.conversations, (item) =>
-        hrefDeFila(item),
+      const normalizedPayloadConversations = deList(
+        normalizeConversationItems(payload.conversations, (item) => hrefDeFila(item)),
       );
       debugConversationList("loadMore payload", {
         offset,
@@ -1974,9 +1989,15 @@ export function SharedInbox({
     entrar, y es lo esperado.
   */
   const filasDeLaBarraLateral = useMemo(() => {
+    /*
+      El chat abierto que no cumple el filtro (marcado `fueraDeLaVista`) no se dibuja ni se cuenta
+      (pastillas que coinciden, parte 3). Sigue en conversationItems: el panel de la derecha lo busca
+      ahi, no en estas filas, y queda abierto.
+    */
+    const visibles = filasVisibles(displayedConversationItems);
     const filtroPuesto = filtroSinResponderPuesto(filtrosDeLaUrl.condiciones);
-    if (!filtroPuesto) return displayedConversationItems;
-    return displayedConversationItems.filter(
+    if (!filtroPuesto) return visibles;
+    return visibles.filter(
       (item) =>
         !seOcultaPorSinResponder({
           filtroPuesto,
@@ -2462,8 +2483,10 @@ export function SharedInbox({
         setConversationItems((current) => {
           const currentItem = findConversationItemBySnapshotId(current, snapshot.id) ?? undefined;
           const updatedItem = normalizeRealtimeConversationItem(buildConversationItemFromSnapshot(snapshot, currentItem));
+          // Si el chat abierto no estaba en la lista, entra escondido: no se sabe si cumple el filtro.
           return updateConversationItemInSortedList(current, snapshot.id, updatedItem, {
             ordenDelServidor: ordenDelServidorRef.current,
+            fueraDeLaVistaSiFalta: true,
           });
         });
       }
@@ -2557,8 +2580,10 @@ export function SharedInbox({
             ? { ...mergedItem, incomingCount: 0 }
             : mergedItem,
         );
+        // Si entre medio la fila se fue de la lista, vuelve escondida: la trae /list si cumple el filtro.
         return updateConversationItemInSortedList(current, snapshot.id, updatedItem, {
           ordenDelServidor: ordenDelServidorRef.current,
+          fueraDeLaVistaSiFalta: true,
         });
       });
     }

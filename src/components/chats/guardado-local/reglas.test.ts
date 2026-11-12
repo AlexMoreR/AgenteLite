@@ -211,3 +211,11 @@ test("lista guardada: lo que se guarda no tiene campos fuera de la lista", async
   }
   assert.ok(!JSON.stringify(lista).includes("secreto"));
 });
+
+test("filaParaGuardar: el chat abierto fuera del filtro guarda su marca; las demas filas no la llevan", () => {
+  const escondida = filaParaGuardar(item({ id: "agent:abierto", fueraDeLaVista: true }))!;
+  assert.equal(escondida.fueraDeLaVista, true, "al volver a la vista sigue escondida");
+  const normal = filaParaGuardar(item({ id: "agent:a", fueraDeLaVista: false }))!;
+  assert.equal("fueraDeLaVista" in normal, false);
+  assert.deepEqual(Object.keys(normal).sort(), CAMPOS_PERMITIDOS);
+});
