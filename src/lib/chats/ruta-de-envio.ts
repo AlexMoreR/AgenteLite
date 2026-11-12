@@ -25,6 +25,8 @@ export const RUTAS_DE_ENVIO = {
   "enviar-ubicacion": ["conversationId", "agentId", "returnTo"],
   "enviar-flujo": ["source", "conversationId", "flowId", "agentId"],
   reaccionar: ["messageId", "emoji"],
+  // Fijar es solo del CRM (no sale a WhatsApp). messageId null = desfijar.
+  fijar: ["conversationId", "messageId"],
 } as const satisfies Record<string, readonly string[]>;
 
 export type NombreDeRutaDeEnvio = keyof typeof RUTAS_DE_ENVIO;

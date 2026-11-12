@@ -232,6 +232,7 @@ const ACCION_DE_CADA_RUTA = {
   "enviar-ubicacion": ["sendChatLocationReplyAction", "@/app/actions/agent-actions"],
   "enviar-flujo": ["sendFlowToChatAction", "@/app/actions/flow-send-actions"],
   reaccionar: ["reaccionarAlMensajeAction", "@/app/actions/chats-actions"],
+  fijar: ["fijarMensajeAction", "@/app/actions/mensaje-fijado-actions"],
 };
 const PROHIBIDO = /prisma|evolution|waha|official-api|gateway/i;
 

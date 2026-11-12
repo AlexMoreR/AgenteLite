@@ -4,6 +4,7 @@ import { sacarMiniaturasPesadas } from "@/lib/miniaturas-aparte";
 import { sqlPayloadSinArchivos } from "@/lib/payload-sin-archivos";
 import { PREFIJO_NOTA_INTERNA_DEL_AGENTE } from "@/lib/notas-internas-del-agente";
 import { extractEvolutionMessageText } from "@/lib/evolution-webhook";
+import { armarMensajeFijado, type MensajeFijado } from "@/lib/chats/mensaje-fijado";
 
 export type AgentConversationMessageRecord = {
   id: string;
@@ -55,6 +56,8 @@ export type LoadedAgentConversationDetail = {
   messages: AgentConversationMessageRecord[];
   hasMoreMessages: boolean;
   loadMoreCursor: string | null;
+  /** El mensaje fijado del chat (solo CRM). null = no hay, o se elimino o ya no existe. */
+  mensajeFijado: MensajeFijado | null;
 };
 
 const DEFAULT_MESSAGE_BATCH_SIZE = 10;
@@ -257,6 +260,8 @@ export async function loadAgentConversationDetail(input: {
         assignedTo: { select: { id: true, name: true, email: true } },
         segundoAsesorId: true,
         segundoAsesor: { select: { id: true, name: true } },
+        // El mensaje fijado (Fijar del menu del mensaje, solo CRM).
+        mensajeFijadoId: true,
         contact: {
           select: {
             id: true,
@@ -300,6 +305,13 @@ export async function loadAgentConversationDetail(input: {
     rawPayload: sacarMiniaturasPesadas(stripHeavyBase64(message.rawPayload), message.id),
   }));
 
+  const mensajeFijado = await leerMensajeFijado({
+    workspaceId: input.workspaceId,
+    conversationId: conversation.id,
+    mensajeFijadoId: conversation.mensajeFijadoId,
+    enLaTanda: orderedMessages,
+  });
+
   return {
     id: conversation.id,
     agentId: conversation.agentId,
@@ -325,7 +337,51 @@ export async function loadAgentConversationDetail(input: {
     }),
     hasMoreMessages: messages.length > batchSize,
     loadMoreCursor: orderedMessages.at(0)?.id ?? null,
+    mensajeFijado,
   } satisfies LoadedAgentConversationDetail;
+}
+
+/**
+ * El mensaje fijado del chat. Si esta en la tanda que ya se trajo, sale de ahi sin otra consulta; si
+ * es mas viejo, se lee solo ese (de este chat y de este negocio). Si falla la lectura, sale null: la
+ * franja no se ve, pero el chat abre igual.
+ */
+async function leerMensajeFijado(input: {
+  workspaceId: string;
+  conversationId: string;
+  mensajeFijadoId: string | null;
+  enLaTanda: Array<{ id: string; content: string | null; type: string | null; deletedAt: Date | null }>;
+}): Promise<MensajeFijado | null> {
+  const id = input.mensajeFijadoId?.trim();
+  if (!id) {
+    return null;
+  }
+  const enLaTanda = input.enLaTanda.find((mensaje) => mensaje.id === id);
+  if (enLaTanda) {
+    return armarMensajeFijado(id, enLaTanda);
+  }
+  try {
+    const filas = await prisma.message.findMany({
+      where: { id, conversationId: input.conversationId, workspaceId: input.workspaceId },
+      select: { id: true, content: true, type: true, deletedAt: true },
+      take: 1,
+    });
+    const fila = filas[0];
+    if (!fila) {
+      return null;
+    }
+    if (fila.content?.trim() || fila.deletedAt) {
+      return armarMensajeFijado(id, fila);
+    }
+    // Sin texto guardado: el pie de foto puede estar solo en el payload (recortado, sin el archivo).
+    const [conPayload] = await conPayloadsSinArchivos(filas);
+    return armarMensajeFijado(id, {
+      ...fila,
+      content: extractEvolutionMessageText(conPayload?.rawPayload) || null,
+    });
+  } catch {
+    return null;
+  }
 }
 
 /**

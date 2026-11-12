@@ -1,6 +1,7 @@
 import { after } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { armarMensajeFijado } from "@/lib/chats/mensaje-fijado";
 import { getOfficialApiConfigByWorkspaceId, hasOfficialApiBaseCredentials } from "@/lib/official-api-config";
 import { downloadOfficialApiMedia, extractMediaRefFromRawPayload } from "@/lib/official-api-media";
 import { cifrasParaBuscarElTelefono, estadoQueAplica } from "@/lib/busqueda-de-chats";
@@ -444,6 +445,10 @@ async function loadOfficialApiChatsData(input: {
     messageRawPayload: unknown;
     // Motivo por el que WhatsApp rechazo el envio, para no dejar un triangulito mudo.
     messageErrorDetail: string | null;
+    // El mensaje fijado del chat (solo CRM). Sale igual en cada fila; null si no hay o ya no existe.
+    fijadoId: string | null;
+    fijadoContent: string | null;
+    fijadoType: string | null;
   };
 
   async function fetchConversationDetail(conversationId: string) {
@@ -469,7 +474,10 @@ async function loadOfficialApiChatsData(input: {
         m."type"::text AS "messageType",
         m."mediaUrl" AS "messageMediaUrl",
         m."rawPayload" AS "messageRawPayload",
-        m."errorDetail" AS "messageErrorDetail"
+        m."errorDetail" AS "messageErrorDetail",
+        fm."id" AS "fijadoId",
+        fm."content" AS "fijadoContent",
+        fm."type"::text AS "fijadoType"
       FROM "OfficialApiConversation" c
       INNER JOIN "OfficialApiContact" ct
         ON ct."id" = c."contactId"
@@ -497,6 +505,10 @@ async function loadOfficialApiChatsData(input: {
         ORDER BY msg."createdAt" DESC
         LIMIT ${INITIAL_MESSAGE_LIMIT}
       ) m ON true
+      -- El mensaje fijado, solo si sigue siendo de este chat (si se borro, no sale y la franja se va).
+      LEFT JOIN "OfficialApiMessage" fm
+        ON fm."id" = c."mensajeFijadoId"
+        AND fm."conversationId" = c."id"
       WHERE c."id" = ${conversationId}
         AND c."configId" = ${activeConfig.id}
       ORDER BY m."createdAt" ASC NULLS FIRST
@@ -607,6 +619,13 @@ async function loadOfficialApiChatsData(input: {
         : null,
       status: firstRow.conversationStatus,
       automationPaused: Boolean(firstRow.conversationAutomationPaused),
+      mensajeFijado: firstRow.fijadoId
+        ? armarMensajeFijado(firstRow.fijadoId, {
+            id: firstRow.fijadoId,
+            content: firstRow.fijadoContent,
+            type: firstRow.fijadoType,
+          })
+        : null,
       messages: conversationDetailRows
         .filter((row) => row.messageId && row.messageDirection && row.messageCreatedAt && row.messageStatus)
         .map((row) => ({

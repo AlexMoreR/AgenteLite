@@ -334,6 +334,9 @@ model Conversation {
   /// (ningún seguimiento automático sale ni se agenda). Ver features/seguimientos/dominio/apagado.ts.
   seguimientosApagados    Boolean                  @default(false)
   seguimientosApagadosAt  DateTime?
+  /// Mensaje fijado del chat (Fijar del menu del mensaje). Solo del CRM: no viaja a WhatsApp y la
+  /// clienta no lo ve. Uno por chat; id suelto, sin relacion. Ver src/lib/chats/mensaje-fijado.ts.
+  mensajeFijadoId         String?
   seguimientosApagadosPor String?
   agent                   Agent?                   @relation(fields: [agentId], references: [id])
   channel                 WhatsAppChannel?         @relation(fields: [channelId], references: [id])
@@ -679,6 +682,8 @@ model OfficialApiConversation {
   // como "Sin asignar" y el equipo no se lo podia repartir como hace en el canal viejo.
   // Se guarda el id suelto (sin relacion) porque las consultas de la bandeja son SQL crudo.
   assignedToUserId     String?
+  /// Mensaje fijado del chat (OfficialApiMessage.id), igual que Conversation.mensajeFijadoId.
+  mensajeFijadoId      String?
   config               OfficialApiClientConfig       @relation(fields: [configId], references: [id], onDelete: Cascade)
   contact              OfficialApiContact            @relation(fields: [contactId], references: [id], onDelete: Cascade)
   messages             OfficialApiMessage[]

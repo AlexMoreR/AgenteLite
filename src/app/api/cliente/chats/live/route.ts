@@ -236,6 +236,9 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
         canImportHistory: false,
         hasMoreMessages: false,
         loadMoreCursor: null,
+        // El mensaje fijado (solo CRM). Siempre viaja, null incluido: si faltara, la pantalla se
+        // quedaria con el fijado viejo.
+        mensajeFijado: detalle.mensajeFijado ?? null,
         messages: detalle.messages.map((mensaje) => ({
           id: mensaje.id,
           content: mensaje.content,
@@ -536,6 +539,8 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
       // El segundo asesor, para el boton "Agregar asesor" de la ficha.
       segundoAsesorId: conversation.segundoAsesorId ?? null,
       segundoAsesorNombre: conversation.segundoAsesorNombre ?? null,
+      // El mensaje fijado (solo CRM). Siempre viaja, null incluido, para que la franja se vaya sola.
+      mensajeFijado: conversation.mensajeFijado ?? null,
       // undefined = no se pidio (sin conLlamada=1): el JSON no la lleva y el navegador conserva la
       // que ya tenia.
       ...(ultimaLlamada !== undefined ? { ultimaLlamada } : {}),

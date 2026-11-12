@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import type { PreferenciaDePastillas } from "@/features/chats/domain/orden-de-las-pastillas";
 import type { UltimaLlamada } from "@/lib/ultima-llamada";
+import type { MensajeFijado } from "@/lib/chats/mensaje-fijado";
 
 export type SharedInboxConversationItemLike = Partial<Omit<SharedInboxConversationItem, "lastMessageAt">> & {
   id?: string;
@@ -131,6 +132,11 @@ export type SharedInboxSelectedConversation = {
    * abrir el chat (conLlamada=1). undefined = no llego por ahi y el aviso la pide por su cuenta.
    */
   ultimaLlamada?: UltimaLlamada | null;
+  /**
+   * El mensaje fijado del chat (Fijar del menu del mensaje, solo CRM). Lo trae /live siempre: null =
+   * no hay, o se elimino o ya no existe. undefined = no vino (cache vieja) y se conserva el de antes.
+   */
+  mensajeFijado?: MensajeFijado | null;
 };
 
 export type OptimisticDraftMessage = SharedInboxMessageItem & {

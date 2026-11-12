@@ -1,3 +1,5 @@
+import type { MensajeFijado } from "@/lib/chats/mensaje-fijado";
+
 export type OfficialApiSetupStatus = "connected" | "pending";
 
 export type OfficialApiFeatureStatus = "phase-1" | "next-phase";
@@ -82,6 +84,8 @@ export type OfficialApiChatConversationDetail = {
   assignedTo: { id: string; name: string | null; email: string } | null;
   status: "OPEN" | "PENDING" | "CLOSED" | "ARCHIVED";
   automationPaused: boolean;
+  /** El mensaje fijado del chat (solo CRM). null = no hay o ya no existe. */
+  mensajeFijado: MensajeFijado | null;
   messages: OfficialApiChatMessage[];
 };
 

@@ -111,6 +111,7 @@
     "test:archivo-legible": "node scripts/check-archivo-legible.mjs",
     "test:contrato-envios": "node scripts/check-contrato-envios.mjs",
     "test:rutas-de-envio": "node scripts/check-rutas-de-envio.mjs",
+    "test:mensaje-fijado": "npx tsx --test src/lib/chats/mensaje-fijado.test.ts",
     "test:apertura-chats": "node scripts/check-apertura-chats.mjs",
     "test:sin-precarga-en-chats": "node scripts/check-sin-precarga-en-chats.mjs",
     "test:chat-sin-refresco": "node scripts/check-chat-sin-refresco.mjs",

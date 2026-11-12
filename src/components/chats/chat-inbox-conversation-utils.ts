@@ -779,6 +779,10 @@ export function areSelectedConversationsEqual(
     // La ultima llamada llega con /live: sin esto, si los mensajes eran los mismos de la cache, la
     // respuesta se descartaba por "igual" y el aviso no aparecia.
     sonLaMismaLlamada(left.ultimaLlamada, right.ultimaLlamada) &&
+    // El fijado llega con /live: sin esto, fijar o desfijar no se veia hasta que cambiara otra cosa.
+    (left.mensajeFijado?.id ?? null) === (right.mensajeFijado?.id ?? null) &&
+    (left.mensajeFijado?.texto ?? null) === (right.mensajeFijado?.texto ?? null) &&
+    (left.mensajeFijado?.tipo ?? null) === (right.mensajeFijado?.tipo ?? null) &&
     left.loadMoreHref === right.loadMoreHref &&
     left.loadMoreCursor === right.loadMoreCursor &&
     left.hasMoreMessages === right.hasMoreMessages &&

@@ -10,6 +10,7 @@ import { ChatsRealtimeSync } from "@/components/chats/chats-realtime-sync";
 import { ChatsEvolutionApiRealtime } from "@/components/chats/chats-evolution-api-realtime";
 import { PushSubscriptionManager } from "@/components/chats/push-subscription-manager";
 import { loadAgentConversationDetail } from "@/lib/chat-message-loader";
+import type { MensajeFijado } from "@/lib/chats/mensaje-fijado";
 import { MenuDelContacto } from "@/components/chats/menu-del-contacto";
 import { leerChatsFijados } from "@/lib/chats-fijados";
 import { leerListasGuardadas, leerPreferenciaDePastillas } from "@/features/chats/services/pastillas-de-la-persona";
@@ -1305,6 +1306,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     hasMoreMessages?: boolean;
     cacheKey?: string | null;
     isPreview?: boolean;
+    /** El mensaje fijado del chat (solo CRM), igual que lo manda /live. */
+    mensajeFijado?: MensajeFijado | null;
     messages: Array<{
         id: string;
         content: string | null;
@@ -1410,6 +1413,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       loadMoreHref: null,
       // Si trajimos mensajes reales NO es preview: el chat se muestra completo de una.
       isPreview: !hasRealMessages,
+      mensajeFijado: detail?.mensajeFijado ?? null,
     };
   } else if (selectedUnified?.source === "official") {
     const detail = officialChatsData.selectedConversation;
@@ -1463,6 +1467,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       loadMoreCursor: null,
       loadMoreHref: null,
       isPreview: !hasRealMessages,
+      mensajeFijado: detail?.mensajeFijado ?? null,
     };
   }
 
