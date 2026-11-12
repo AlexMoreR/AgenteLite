@@ -315,7 +315,7 @@ export function FollowUpDialog({
 
   return (
     <Dialog open={open} onOpenChange={(next) => (!next ? onClose() : undefined)}>
-      <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] max-w-md overflow-y-auto">
+      <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] max-w-md grid-cols-[minmax(0,1fr)] overflow-x-hidden overflow-y-auto">
         <DialogHeader>
           {/*
             Sin bajada: decia lo mismo que la nota del final ("si el cliente escribe antes, el
@@ -325,7 +325,7 @@ export function FollowUpDialog({
           <DialogTitle>Agendar seguimiento</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-3">
+        <div className="min-w-0 space-y-3">
           <div className="space-y-1.5">
             <Label>¿Cuándo?</Label>
             <div className="flex flex-wrap gap-1.5">
@@ -398,9 +398,9 @@ export function FollowUpDialog({
 
           <div className="space-y-1.5">
             {adjuntos.length ? (
-              <ul className="space-y-1.5">
+              <ul className="min-w-0 space-y-1.5">
                 {adjuntos.map((adjunto) => (
-                  <li key={adjunto.id} className="flex items-center gap-2 rounded-xl border border-border bg-card p-1.5">
+                  <li key={adjunto.id} className="flex min-w-0 items-center gap-2 rounded-xl border border-border bg-card p-1.5">
                     <div className="flex size-11 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted">
                       {adjunto.tipo === "IMAGE" && adjunto.vistaPrevia ? (
                         // eslint-disable-next-line @next/next/no-img-element
@@ -419,7 +419,7 @@ export function FollowUpDialog({
                         {adjunto.estado === "subiendo" ? "Subiendo…" : adjunto.estado === "error" ? adjunto.motivo || "No se pudo subir" : "Listo"}
                       </p>
                       {adjunto.tipo === "AUDIO" && adjunto.vistaPrevia ? (
-                        <audio src={adjunto.vistaPrevia} controls preload="metadata" className="mt-1 h-8 w-full" />
+                        <audio src={adjunto.vistaPrevia} controls preload="metadata" className="mt-1 block h-8 w-full min-w-0 max-w-full" />
                       ) : null}
                     </div>
                     {adjunto.estado === "subiendo" ? <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" /> : null}
