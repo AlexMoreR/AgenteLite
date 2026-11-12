@@ -7,6 +7,7 @@ import { enviarArchivoPorRuta, enviarAudioPorRuta } from "@/lib/chats/enviar-por
 import { borrarEnvio, guardarArchivo, guardarEnvio, leerEnviosGuardados, type EnvioGuardado } from "./envios-guardados";
 import type { SharedInboxMessageItem, SharedInboxProps } from "./chat-inbox-types";
 import { MOTIVO_PASO_LA_HORA, plazoVencido, puedeRetomarseSolo, type ConPlazo } from "./plazo-de-envio";
+import { leerArchivoEntero, motivoDeArchivoPerdido } from "./archivo-legible";
 
 /*
   Archivos en envio (fotos, videos, documentos y notas de voz): la burbuja que aparece AL TOCAR
@@ -71,6 +72,13 @@ export type FotoEnEnvio = {
    * esto se cuenta la hora del tope (plazo-de-envio.ts): pasada, la clave ya no evita duplicados.
    */
   intentoDeEnvioEn: number | null;
+  /** Vino del navegador tras una recarga (reanudarEnviosGuardados). */
+  retomada?: boolean;
+  /**
+   * El archivo no se puede leer (Safari lo perdio al recargar) y todavia no habia subido: no hay
+   * Reintentar que sirva, solo Descartar (archivo-legible.ts).
+   */
+  archivoPerdido?: boolean;
 };
 
 /** Tarjeta de lo que no se pudo enviar y no tiene burbuja (rechazado antes de subir: formato o peso). */
@@ -185,12 +193,19 @@ export type DecisionDeReintento = "solo-enviar" | "subir-y-enviar" | "nada";
   Que hace Reintentar. Solo uno FALLIDO se reintenta: uno que esta subiendo o enviando no (un doble
   toque cuenta como uno, porque el primero ya lo saca de "fallida"). Si la subida habia terminado,
   solo se repite el envio con la direccion guardada. Siempre con la misma clave.
+
+  Uno con el archivo perdido y sin subir no se reintenta: volveria a fallar igual.
 */
-export function decidirReintento(foto: Pick<FotoEnEnvio, "estado" | "subida"> | null | undefined): DecisionDeReintento {
+export function decidirReintento(
+  foto: (Pick<FotoEnEnvio, "estado" | "subida"> & Partial<Pick<FotoEnEnvio, "archivoPerdido">>) | null | undefined,
+): DecisionDeReintento {
   if (!foto || foto.estado !== "fallida") {
     return "nada";
   }
-  return foto.subida?.url ? "solo-enviar" : "subir-y-enviar";
+  if (foto.subida?.url) {
+    return "solo-enviar";
+  }
+  return foto.archivoPerdido ? "nada" : "subir-y-enviar";
 }
 
 /** Uno enviado cuyo mensaje real no llego en VIDA_DE_FOTO_ENVIADA_MS se retira solo. */
@@ -571,16 +586,44 @@ export async function reanudarEnviosGuardados(alRetomar: (foto: FotoEnEnvio) => 
       void borrarEnvio(guardado.id);
       continue;
     }
+    /*
+      Si todavia no habia subido, el archivo tiene que poder leerse entero (archivo-legible.ts):
+      Safari puede devolver tras la recarga uno que no se lee, y subirlo daba "No se recibió ningún
+      archivo" en cada Reintentar. Ese vuelve en rojo con "se perdió", sin Reintentar. Si ya habia
+      subido, el archivo no hace falta: solo falta el envio.
+    */
+    let archivoPerdido = false;
+    if (!guardado.subida) {
+      const lectura = await leerArchivoEntero(guardado.archivo);
+      if (!lectura.ok) {
+        archivoPerdido = true;
+        console.warn(
+          `[envio-medio] ${JSON.stringify({
+            paso: "retomar",
+            tipo: guardado.tipo,
+            resultado: lectura.motivo,
+            bytes: guardado.archivo?.size ?? null,
+            mime: guardado.archivo?.type ?? null,
+          })}`,
+        );
+      }
+    }
+    const archivo =
+      guardado.archivo ?? new File([], guardado.subida?.fileName || "archivo", { type: guardado.subida?.mimeType || "" });
     const plazo: ConPlazo = { creadaEn: guardado.creadaEn, intentoDeEnvioEn: guardado.intentoDeEnvioEn ?? null };
-    const retomar = puedeRetomarseSolo({ ...plazo, estado: guardado.estado }, ahora, REANUDAR_SOLO_HASTA_MS);
-    const motivoSinRetomar = plazoVencido(plazo, ahora)
-      ? MOTIVO_PASO_LA_HORA
-      : guardado.motivo || "Quedó sin enviar al cerrar la pestaña.";
+    const retomar =
+      !archivoPerdido && puedeRetomarseSolo({ ...plazo, estado: guardado.estado }, ahora, REANUDAR_SOLO_HASTA_MS);
+    const motivoSinRetomar = archivoPerdido
+      ? motivoDeArchivoPerdido(guardado.tipo, true)
+      : plazoVencido(plazo, ahora)
+        ? MOTIVO_PASO_LA_HORA
+        : guardado.motivo || "Quedó sin enviar al cerrar la pestaña.";
     let vistaPrevia = "";
     try {
-      vistaPrevia = URL.createObjectURL(guardado.archivo);
+      vistaPrevia = URL.createObjectURL(archivo);
     } catch {
-      continue;
+      // Uno perdido igual se muestra (en rojo, para Descartar); los demas sin vista previa no.
+      if (!archivoPerdido) continue;
     }
     const foto: FotoEnEnvio = {
       id: guardado.id,
@@ -589,7 +632,7 @@ export async function reanudarEnviosGuardados(alRetomar: (foto: FotoEnEnvio) => 
       clave: guardado.clave,
       destino,
       destinoDeAudio,
-      archivo: guardado.archivo,
+      archivo,
       comprimida: guardado.comprimida,
       vistaPrevia,
       caption: guardado.caption,
@@ -601,6 +644,8 @@ export async function reanudarEnviosGuardados(alRetomar: (foto: FotoEnEnvio) => 
       creadaEn: new Date(guardado.creadaEn),
       enviadaEn: null,
       intentoDeEnvioEn: plazo.intentoDeEnvioEn,
+      retomada: true,
+      archivoPerdido,
     };
     agregarSinGuardar([foto]);
     if (retomar) {

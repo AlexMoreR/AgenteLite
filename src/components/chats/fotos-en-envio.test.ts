@@ -133,6 +133,11 @@ describe("decisión de reintento", () => {
     assert.equal(decidirReintento({ estado: "enviada", subida: subida("/uploads/a.jpg") }), "nada");
     assert.equal(decidirReintento(null), "nada");
   });
+
+  it("un archivo perdido al recargar y sin subir no se reintenta; si ya había subido, solo envía", () => {
+    assert.equal(decidirReintento({ estado: "fallida", subida: null, archivoPerdido: true }), "nada");
+    assert.equal(decidirReintento({ estado: "fallida", subida: subida("/uploads/a.m4a"), archivoPerdido: true }), "solo-enviar");
+  });
 });
 
 describe("foto enviada sin mensaje real", () => {

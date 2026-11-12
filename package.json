@@ -105,6 +105,7 @@
     "test:migraciones-pglite": "node scripts/ensayo-migraciones-pglite.mjs",
     "test:enviar-por-ruta": "node scripts/check-enviar-por-ruta.mjs",
     "test:plazo-de-envio": "node scripts/check-plazo-de-envio.mjs",
+    "test:archivo-legible": "node scripts/check-archivo-legible.mjs",
     "test:contrato-envios": "node scripts/check-contrato-envios.mjs",
     "test:rutas-de-envio": "node scripts/check-rutas-de-envio.mjs",
     "test:apertura-chats": "node scripts/check-apertura-chats.mjs",

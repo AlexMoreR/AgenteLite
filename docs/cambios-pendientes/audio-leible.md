@@ -1,0 +1,4 @@
+## Advertencias de operación
+- `envios_guardados_ilegibles`: un archivo en envío (nota de voz, foto, video, documento) retomado del navegador tras una recarga se lee entero antes de subir; si Safari lo devolvió ilegible, la burbuja queda en rojo con "se perdió al recargar la app" y solo Descartar (no hay Reintentar que sirva). La consola deja `[envio-medio] {"paso":"retomar"|"leer-archivo",...}`.
+- `nota_de_voz_sin_archivo`: si una nota llega a `/api/cliente/chats/upload-audio` sin el campo `file`, el log del servidor deja `[nota-de-voz] {"paso":"subida-sin-archivo",...}` con content-type, bytes del cuerpo, si se leyó el formulario y el navegador; cruzarla con la línea del mismo nombre en la consola del celular.
+- `microfono_ocupado`: si el micrófono no arranca o la grabación sale sin datos (por ejemplo, con una llamada de WhatsApp en curso), el chat avisa "El micrófono está en uso (¿llamada en curso?)" y no encola la nota.

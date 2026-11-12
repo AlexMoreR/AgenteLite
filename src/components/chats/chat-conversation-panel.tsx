@@ -142,6 +142,15 @@ import {
   claveParaReintentar,
   plazoVencido,
 } from "@/components/chats/plazo-de-envio";
+import {
+  MENSAJE_MICROFONO_OCUPADO,
+  MOTIVO_NOTA_ILEGIBLE,
+  esFaltaDeArchivo,
+  leerArchivoEntero,
+  mensajeDeFallaDelMicrofono,
+  motivoDeArchivoPerdido,
+  tipoDeNotaDeVoz,
+} from "@/components/chats/archivo-legible";
 import { cuandoEsteLibre } from "@/lib/cuando-este-libre";
 import { TIEMPO_LIMITE_SUBIDA_MS, clasificarSubida } from "@/lib/nota-de-voz-reintento";
 import { PlaybookPanelDialog } from "@/components/chats/playbook-panel-dialog";
@@ -200,6 +209,12 @@ const PanelDeEnvio = dynamic(() => import("./panel-de-envio").then((modulo) => m
 /** Hasta este peso una foto sube en un solo pedido (ver subirArchivoEnEnvio). */
 const TROZO_DE_FOTO_ACHICADA_BYTES = 1024 * 1024;
 
+/** iPhone, iPad (que se presenta como Mac con pantalla tactil) o Mac: graban la nota en audio/mp4. */
+function esEquipoApple(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent);
+}
+
 /*
   Sube el archivo de un envio y dice si vale reintentarlo solo.
 
@@ -218,6 +233,10 @@ async function subirArchivoEnEnvio(
     if (!destino) {
       return { ok: false, motivo: "No se pudo preparar el envio.", reintentable: false };
     }
+    // Un archivo vacio no se sube: el servidor contestaria "No se recibió ningún archivo".
+    if (!(archivo.size > 0)) {
+      return { ok: false, motivo: MOTIVO_NOTA_ILEGIBLE, reintentable: false };
+    }
     // Con tiempo limite: sin esto, con mala señal se quedaba "pensando" para siempre.
     const control = new AbortController();
     let vencio = false;
@@ -226,11 +245,26 @@ async function subirArchivoEnEnvio(
       control.abort();
     }, TIEMPO_LIMITE_SUBIDA_MS);
     try {
+      // Un File con nombre y tipo (nota-de-voz-….m4a / audio/mp4 en el iPhone), nunca un Blob suelto.
       const formData = new FormData();
-      formData.append("file", archivo);
+      formData.append("file", archivo, archivo.name || "nota.m4a");
       const response = await fetch(destino.uploadPath, { method: "POST", body: formData, signal: control.signal });
       const data = (await response.json().catch(() => null)) as { url?: string; error?: string } | null;
       const paso = clasificarSubida({ status: response.status, url: data?.url, error: data?.error });
+      if (!paso.ok && esFaltaDeArchivo(data?.error)) {
+        // Para cruzar con la linea [nota-de-voz] del servidor: que se mando de verdad.
+        console.warn(
+          `[nota-de-voz] ${JSON.stringify({
+            paso: "subida-sin-archivo",
+            bytes: archivo.size,
+            mime: archivo.type || null,
+            nombre: archivo.name || null,
+            esFile: typeof File !== "undefined" && archivo instanceof File,
+            retomada: Boolean(foto.retomada),
+            navegador: typeof navigator !== "undefined" ? navigator.userAgent.slice(0, 160) : null,
+          })}`,
+        );
+      }
       return paso.ok
         ? { ok: true, valor: { url: paso.valor, fileName: archivo.name, mimeType: archivo.type, mediaType: "AUDIO" } }
         : { ok: false, motivo: paso.falla.mensaje, reintentable: paso.falla.reintentable };
@@ -990,9 +1024,34 @@ export const ConversationPanel = memo(function ConversationPanel({
     let subida = inicial.subida;
     if (!subida) {
       actualizarFoto(id, { estado: "subiendo", motivo: null, avance: 0 });
+      /*
+        Antes de subir, el archivo tiene que leerse entero (archivo-legible.ts). Uno retomado tras
+        una recarga puede venir ilegible de Safari: subirlo daba "No se recibió ningún archivo" en
+        cada Reintentar. Ese queda en rojo con "se perdió" y sin Reintentar.
+      */
+      const lectura = await leerArchivoEntero(inicial.archivo);
+      if (!lectura.ok) {
+        console.warn(
+          `[envio-medio] ${JSON.stringify({
+            paso: "leer-archivo",
+            tipo: inicial.tipo,
+            resultado: lectura.motivo,
+            bytes: inicial.archivo?.size ?? null,
+            mime: inicial.archivo?.type ?? null,
+            retomada: Boolean(inicial.retomada),
+          })}`,
+        );
+        actualizarFoto(id, { archivoPerdido: true });
+        return fallar(motivoDeArchivoPerdido(inicial.tipo, Boolean(inicial.retomada)));
+      }
       // Fotos (JPEG, PNG, WEBP) a 1600 px y unos 400 KB. Si no se puede comprimir, sale la original.
       // Se guarda la comprimida: un reintento no la vuelve a comprimir.
       let archivo = inicial.archivo;
+      if (inicial.tipo === "AUDIO") {
+        // La nota sube con los bytes recien leidos, con su nombre y tipo (nota-de-voz-….m4a en iOS).
+        const { tipo, extension } = tipoDeNotaDeVoz(inicial.archivo.type, esEquipoApple());
+        archivo = new File([lectura.bytes], `nota-de-voz-${inicial.creadaEn.getTime()}.${extension}`, { type: tipo });
+      }
       if (inicial.tipo === "IMAGE" && !inicial.comprimida) {
         const desde = performance.now();
         archivo = await comprimirFotoParaEnviar(archivo);
@@ -1256,10 +1315,10 @@ export const ConversationPanel = memo(function ConversationPanel({
       if (!destino) {
         return;
       }
-      // El mime de MediaRecorder suele venir como "audio/webm;codecs=opus"; usamos el tipo base.
-      const baseMime = mimeType.split(";")[0].trim() || "audio/webm";
-      const ext = baseMime.includes("ogg") || baseMime.includes("opus") ? "ogg" : baseMime.includes("mp4") ? "mp4" : "webm";
-      const archivo = new File([blob], `nota-de-voz-${Date.now()}.${ext}`, { type: baseMime });
+      // El mime de MediaRecorder suele venir como "audio/webm;codecs=opus" (en el iPhone, audio/mp4
+      // o nada): va el tipo base con su extension, nota-de-voz-….m4a / audio/mp4 en iOS.
+      const { tipo, extension } = tipoDeNotaDeVoz(mimeType, esEquipoApple());
+      const archivo = new File([blob], `nota-de-voz-${Date.now()}.${extension}`, { type: tipo });
       const nueva: FotoEnEnvio = {
         id: nuevoIdDeFoto(),
         conversationId: destino.conversationId,
@@ -1354,13 +1413,22 @@ export const ConversationPanel = memo(function ConversationPanel({
         const chunks = audioChunksRef.current;
         audioChunksRef.current = [];
         const cancelled = recordCancelledRef.current;
-        const mimeType = recorder.mimeType || "audio/webm";
+        // Sin tipo (pasa en Safari) se deduce despues, en uploadAndSendAudio (tipoDeNotaDeVoz).
+        const mimeType = recorder.mimeType || "";
 
-        if (cancelled || chunks.length === 0) {
+        if (cancelled) {
           return;
         }
 
+        /*
+          Grabo y no salio nada (0 bytes): el microfono lo tiene otra cosa, casi siempre una
+          llamada de WhatsApp en curso (WaCalls). Se avisa y no se encola una nota vacia.
+        */
         const grabado = new Blob(chunks, { type: mimeType });
+        if (chunks.length === 0 || grabado.size === 0) {
+          toast.error(MENSAJE_MICROFONO_OCUPADO, { duration: 10000 });
+          return;
+        }
 
         /*
           Una nota de voz de cero segundos NO se manda.
@@ -1375,13 +1443,42 @@ export const ConversationPanel = memo(function ConversationPanel({
           depende del codec. Cualquiera de las dos que falle, se descarta y se avisa.
         */
         const duroMs = Date.now() - arrancoEn;
-        if (duroMs < 1000 || grabado.size < 2000) {
+        if (duroMs < 1000) {
           toast.error("La nota de voz quedó muy corta. Mantén el botón mientras hablas.");
+          return;
+        }
+        // Mas de un segundo y casi sin bytes: el microfono no estaba entregando sonido.
+        if (grabado.size < 2000) {
+          toast.error(MENSAJE_MICROFONO_OCUPADO, { duration: 10000 });
           return;
         }
 
         void uploadAndSendAudio(grabado, mimeType, duroMs);
       };
+
+      /*
+        Si una llamada le quita el microfono a mitad de la nota (la pista termina o el grabador
+        falla), se corta sin mandar un pedazo y se avisa.
+      */
+      const cortarPorMicrofono = () => {
+        if (recorder.state === "inactive" || recordCancelledRef.current) {
+          return;
+        }
+        recordCancelledRef.current = true;
+        toast.error(MENSAJE_MICROFONO_OCUPADO, { duration: 10000 });
+        try {
+          recorder.stop();
+        } catch {
+          clearRecordTimer();
+          stopRecordTracks();
+          setIsRecordingAudio(false);
+          setRecordSeconds(0);
+        }
+      };
+      recorder.onerror = cortarPorMicrofono;
+      stream.getAudioTracks().forEach((pista) => {
+        pista.addEventListener("ended", cortarPorMicrofono);
+      });
 
       recorder.start();
       mediaRecorderRef.current = recorder;
@@ -1393,8 +1490,14 @@ export const ConversationPanel = memo(function ConversationPanel({
           setRecordSeconds((value) => value + 1);
         }
       }, 1000);
-    } catch {
+    } catch (error) {
+      // getUserMedia o MediaRecorder no arrancaron: sin permiso, o el microfono esta ocupado.
+      console.warn(
+        `[nota-de-voz] ${JSON.stringify({ paso: "microfono", resultado: (error as { name?: string } | null)?.name ?? "desconocido" })}`,
+      );
+      toast.error(mensajeDeFallaDelMicrofono(error), { duration: 10000 });
       stopRecordTracks();
+      setIsRecordingAudio(false);
     }
   }, [audioConfig, clearRecordTimer, isRecordingAudio, stopRecordTracks, uploadAndSendAudio]);
 
@@ -2379,7 +2482,8 @@ export const ConversationPanel = memo(function ConversationPanel({
                         onSeleccionar={esFotoEnEnvio(message.id) ? undefined : alternarSeleccion}
                         fotoEstado={fotosPorId.get(message.id)?.estado}
                         fotoMotivo={fotosPorId.get(message.id)?.motivo}
-                        onReintentarFoto={reintentarFoto}
+                        /* Un archivo perdido al recargar no se puede reintentar: solo Descartar. */
+                        onReintentarFoto={fotosPorId.get(message.id)?.archivoPerdido ? undefined : reintentarFoto}
                         onDescartarFoto={descartarFoto}
                         /*
                           Los emoticones salen solo sobre la UNICA marcada: con varias no hay un

@@ -56,7 +56,23 @@ function getAudioExtension(mimeType: string) {
   return ".webm";
 }
 
-type RegistroDeSubida = { bytes: number | null; mime: string | null; userId: string | null };
+/** "iPhone iOS 18.1 Safari 18", "Android Chrome 131": lo justo para saber desde donde fallo. */
+function navegadorCorto(userAgent: string | null): string | null {
+  if (!userAgent) return null;
+  const equipo = userAgent.match(/iPhone|iPad|Android|Windows|Macintosh|Linux/)?.[0] ?? "otro";
+  const ios = userAgent.match(/OS (\d+)[_.](\d+)/);
+  const navegador = userAgent.match(/(CriOS|FxiOS|EdgiOS|Edg|Chrome|Firefox|Version)\/(\d+)/);
+  return [
+    equipo,
+    ios && /iPhone|iPad/.test(equipo) ? `iOS ${ios[1]}.${ios[2]}` : null,
+    navegador ? `${navegador[1] === "Version" ? "Safari" : navegador[1]} ${navegador[2]}` : null,
+    /; wv\)|FBAN|FBAV|Instagram/.test(userAgent) ? "webview" : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+type RegistroDeSubida ={ bytes: number | null; mime: string | null; userId: string | null };
 
 /*
   Una linea por intento de subida, con prefijo [nota-de-voz] (08-10-2026: las notas de voz fallaban
@@ -121,9 +137,34 @@ async function subirAudio(request: Request, registro: RegistroDeSubida) {
     return NextResponse.json({ ok: false, error: "Workspace no encontrado" }, { status: 404 });
   }
 
-  const formData = await request.formData().catch(() => null);
+  const contentType = request.headers.get("content-type");
+  const contentLength = request.headers.get("content-length");
+  let fallaDelFormulario: string | null = null;
+  const formData = await request.formData().catch((error: unknown) => {
+    fallaDelFormulario = error instanceof Error ? error.message.slice(0, 160) : String(error).slice(0, 160);
+    return null;
+  });
   const file = formData?.get("file");
   if (!(file instanceof File)) {
+    /*
+      Para diagnosticar las notas que llegan sin archivo desde el iPhone (11-nov-2026): que tipo de
+      cuerpo llego, cuanto pesaba, si se pudo leer el formulario, que traia el campo "file" y el
+      navegador. Sin datos personales.
+    */
+    console.error(
+      `[nota-de-voz] ${JSON.stringify({
+        paso: "subida-sin-archivo",
+        contentType: contentType?.split(";")[0]?.trim() || null,
+        conBoundary: Boolean(contentType?.includes("boundary=")),
+        bytesDelCuerpo: contentLength ? Number(contentLength) : null,
+        formularioLeido: formData !== null,
+        fallaDelFormulario,
+        campos: formData ? [...new Set([...formData.keys()])].slice(0, 10) : null,
+        campoFile: file === null || file === undefined ? null : typeof file === "string" ? `texto(${file.length})` : typeof file,
+        navegador: navegadorCorto(request.headers.get("user-agent")),
+        userId: registro.userId,
+      })}`,
+    );
     return NextResponse.json({ ok: false, error: "No se recibio ningun archivo." }, { status: 400 });
   }
 
