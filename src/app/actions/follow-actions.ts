@@ -5,7 +5,9 @@ import { z } from "zod";
 import { auth } from "@/auth";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
+import { headers } from "next/headers";
 import { horaDeBogotaAUtc, validarFechaExacta } from "@/features/seguimientos/dominio/fecha-exacta";
+import { armarAccionesDelChat, esArchivoPropio } from "@/features/seguimientos/dominio/acciones-del-chat";
 import {
   cancelPendingFollowsByContact,
   createFollow,
@@ -465,11 +467,39 @@ const chatFollowUpSchema = z.object({
   contactId: z.string().trim().min(1),
   timeType: z.enum(["MINUTES", "HOURS", "DAYS"]),
   timeValue: z.coerce.number().int().min(1).max(9999),
-  content: z.string().trim().min(2).max(5000),
+  // Puede ir vacio si lleva una foto, un video, un PDF o una nota de voz (se revisa abajo).
+  content: z.string().trim().max(5000),
   cancelOnActivity: z.boolean().optional().default(true),
   // 'YYYY-MM-DDTHH:mm' en hora de Colombia (input datetime-local). Si viene, manda sobre timeType/timeValue.
   fechaExacta: z.string().trim().optional(),
+  // Ya subidos por el chat (upload-media / upload-audio). Salen como en WhatsApp (armarAccionesDelChat).
+  adjuntos: z
+    .array(z.object({ tipo: z.enum(["IMAGE", "VIDEO", "DOC", "AUDIO"]), url: z.string().trim().min(1).max(2000) }))
+    .max(5)
+    .optional()
+    .default([]),
 });
+
+/** Nuestros dominios: el de este pedido, el configurado y los dos conocidos. */
+async function hostsPropios(): Promise<Set<string>> {
+  const hosts = new Set(["crm.magilus.com", "app.aizenbot.com"]);
+  try {
+    const encabezados = await headers();
+    for (const nombre of ["x-forwarded-host", "host"]) {
+      const valor = encabezados.get(nombre)?.split(",")[0]?.trim().toLowerCase();
+      if (valor) hosts.add(valor);
+    }
+  } catch {
+    // Fuera de un pedido: quedan los conocidos.
+  }
+  try {
+    const configurada = process.env.NEXT_PUBLIC_APP_URL?.trim();
+    if (configurada) hosts.add(new URL(configurada).host.toLowerCase());
+  } catch {
+    // Mal escrita: se ignora.
+  }
+  return hosts;
+}
 
 export type ChatFollowUpInput = z.input<typeof chatFollowUpSchema>;
 
@@ -494,6 +524,15 @@ export async function createChatFollowUpAction(
   if (!parsed.success) {
     return { error: "Escribe el mensaje y cuándo enviarlo." };
   }
+  const propios = await hostsPropios();
+  if (parsed.data.adjuntos.some((adjunto) => !esArchivoPropio(adjunto.url, propios))) {
+    return { error: "Un archivo adjunto no se subió bien. Quítalo y vuelve a adjuntarlo." };
+  }
+  if (parsed.data.content.length < 2 && parsed.data.adjuntos.length === 0) {
+    return { error: "Escribe el mensaje o adjunta una foto, un video, un PDF o un audio." };
+  }
+  const acciones = armarAccionesDelChat(parsed.data.content, parsed.data.adjuntos);
+  const primera = acciones[0];
 
   const membership = await getPrimaryWorkspaceForUser(session.user.id);
   if (!membership) {
@@ -528,10 +567,10 @@ export async function createChatFollowUpAction(
     channelId: null,
     timeType: fechaExacta ? "MINUTES" : parsed.data.timeType,
     timeValue: minutosQueFaltan ?? parsed.data.timeValue,
-    messageType: "TEXT",
-    content: parsed.data.content,
-    mediaUrl: null,
-    actions: [{ order: 1, messageType: "TEXT", content: parsed.data.content, mediaUrl: "" }],
+    messageType: primera.messageType,
+    content: primera.content || null,
+    mediaUrl: primera.mediaUrl || null,
+    actions: acciones,
     executeAt: fechaExacta,
     cancelOnActivity: parsed.data.cancelOnActivity ?? true,
   });

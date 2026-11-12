@@ -43,6 +43,21 @@ export function ahoraEnBogotaParaInput(ahora: Date): string {
   return new Date(ahora.getTime() - DESFASE_COLOMBIA_HORAS * 60 * MINUTO_MS).toISOString().slice(0, 16);
 }
 
+/** 'HH:mm' de ahora en hora de Colombia, para el selector de hora de los atajos. */
+export function horaDeBogotaParaInput(ahora: Date): string {
+  return ahoraEnBogotaParaInput(ahora).slice(11, 16);
+}
+
+/**
+ * 'YYYY-MM-DDTHH:mm' (hora de Colombia) del dia de hoy + `dias`, a la hora `hora` ('HH:mm').
+ * Para los atajos "Mañana", "En 2 días"...: el dia se cuenta en el calendario de Colombia.
+ */
+export function diaMasHoraDeBogota(ahora: Date, dias: number, hora: string): string | null {
+  if (!/^\d{2}:\d{2}$/.test(hora)) return null;
+  const dia = new Date(ahora.getTime() - DESFASE_COLOMBIA_HORAS * 60 * MINUTO_MS + dias * DIA_MS);
+  return `${dia.toISOString().slice(0, 10)}T${hora}`;
+}
+
 /** Ejemplo: 'mar. 3 nov., 3:30 p. m.' */
 export function formatoBogota(fecha: Date): string {
   return new Intl.DateTimeFormat("es-CO", {
