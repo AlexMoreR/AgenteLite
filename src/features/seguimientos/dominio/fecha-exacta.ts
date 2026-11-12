@@ -30,10 +30,17 @@ export function horaDeBogotaAUtc(valor: string): Date | null {
   return fecha;
 }
 
-/** 'pasada' si queda a menos de 1 minuto de ahora; 'muy lejana' si queda a más de 90 días. */
-export function validarFechaExacta(fecha: Date, ahora: Date): ResultadoFechaExacta {
+/**
+ * 'pasada' si ya paso; 'muy lejana' si queda a más de 90 días.
+ *
+ * Antes pedia al menos 1 minuto: a las 9:35 y medio, "9:36" quedaba a 30 segundos y salia "escoge
+ * una hora que todavia no haya pasado" (Alex, 11-nov-2026). Ahora vale cualquier hora que no paso.
+ * El servidor la revisa con `holguraMs` (lo que tarda en llegar el pedido): si sale unos segundos
+ * tarde, el reloj la manda en su proxima vuelta.
+ */
+export function validarFechaExacta(fecha: Date, ahora: Date, holguraMs = 0): ResultadoFechaExacta {
   const diferencia = fecha.getTime() - ahora.getTime();
-  if (Number.isNaN(diferencia) || diferencia < MINUTO_MS) return { ok: false, motivo: "pasada" };
+  if (Number.isNaN(diferencia) || diferencia <= -holguraMs) return { ok: false, motivo: "pasada" };
   if (diferencia > MAXIMO_DIAS_FECHA_EXACTA * DIA_MS) return { ok: false, motivo: "muy lejana" };
   return { ok: true };
 }

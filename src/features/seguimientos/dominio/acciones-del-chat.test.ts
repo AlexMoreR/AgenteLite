@@ -49,3 +49,11 @@ test("Mañana a las 9:00 es el dia siguiente en Colombia, aunque en UTC ya sea o
   assert.equal(diaMasHoraDeBogota(ahora, 7, "15:30"), "2026-11-18T15:30");
   assert.equal(diaMasHoraDeBogota(ahora, 1, "9"), null);
 });
+
+test("una hora a 30 segundos vale; una que ya paso no (el servidor da 2 min de holgura)", async () => {
+  const { validarFechaExacta } = await import("./fecha-exacta");
+  const ahora = new Date("2026-11-12T02:35:30Z");
+  assert.deepEqual(validarFechaExacta(new Date("2026-11-12T02:36:00Z"), ahora), { ok: true });
+  assert.deepEqual(validarFechaExacta(new Date("2026-11-12T02:35:00Z"), ahora), { ok: false, motivo: "pasada" });
+  assert.deepEqual(validarFechaExacta(new Date("2026-11-12T02:35:00Z"), ahora, 2 * 60_000), { ok: true });
+});

@@ -543,7 +543,8 @@ export async function createChatFollowUpAction(
   if (parsed.data.fechaExacta) {
     const fecha = horaDeBogotaAUtc(parsed.data.fechaExacta);
     const ahora = new Date();
-    const validacion = fecha ? validarFechaExacta(fecha, ahora) : null;
+    // 2 minutos de holgura: la asesora pudo tardar en apretar Agendar despues de elegir la hora.
+    const validacion = fecha ? validarFechaExacta(fecha, ahora, 2 * 60_000) : null;
     if (!fecha || !validacion || !validacion.ok) {
       return {
         error:
