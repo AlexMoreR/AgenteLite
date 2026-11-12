@@ -34,6 +34,7 @@
     "test:sugerencia-otro-chat": "npx tsx --test src/components/chats/destino-de-la-sugerencia.test.ts",
     "test:pegar-imagen": "npx tsx --test src/components/chats/imagenes-del-portapapeles.test.ts",
     "test:copiar-mensaje": "npx tsx --test src/components/chats/copiar-mensaje.test.ts",
+    "test:orden-del-menu": "npx tsx --test src/components/chats/orden-del-menu-del-mensaje.test.ts",
     "test:agente-v3-anuncio": "npx tsx --test src/features/agente-v3/motor/anuncio-mas-pregunta.test.ts",
     "test:agente-v3-foto": "node scripts/check-agente-v3-foto.mjs",
     "test:agente-v3-historial": "node scripts/check-agente-v3-historial.mjs",

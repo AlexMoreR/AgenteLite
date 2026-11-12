@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import {
@@ -19,11 +19,11 @@ import {
   MessageCircle,
   Pencil,
   Pin,
+  PinOff,
   Play,
   MoreVertical,
   Reply,
   RotateCcw,
-  Star,
   Trash2,
   UserRound,
   X,
@@ -50,6 +50,7 @@ import type { SharedInboxMessageItem } from "./chat-inbox-types";
 import type { EstadoDeFoto } from "./fotos-en-envio";
 import { guardarBorrosa, leerBorrosa } from "./miniatura-borrosa";
 import { copiarAlPortapapeles, textoParaCopiar } from "./copiar-mensaje";
+import { accionesDelMensaje } from "./orden-del-menu-del-mensaje";
 import { esMiniaturaAparte } from "@/lib/miniaturas-aparte";
 import {
   chatDateFormatter,
@@ -631,6 +632,23 @@ function FilaDeReacciones({
   );
 }
 
+/*
+  Fijar (parte 4): si el componente no recibe `onPin`/`onUnpin`, Fijar no aparece. Hoy nadie las
+  pasa; el punto de enganche queda listo. Desfijar sale cuando este mensaje es el fijado del chat.
+*/
+type PropsDeFijar = {
+  onPin?: (message: SharedInboxMessageItem) => void;
+  onUnpin?: (message: SharedInboxMessageItem) => void;
+  /** Id del mensaje fijado del chat, si hay uno. */
+  pinnedMessageId?: string | null;
+};
+
+function datosDeFijar(message: SharedInboxMessageItem, { onPin, onUnpin, pinnedMessageId }: PropsDeFijar) {
+  const estaFijado = Boolean(pinnedMessageId) && pinnedMessageId === message.id;
+  const puedeFijar = estaFijado ? Boolean(onUnpin) : Boolean(onPin);
+  return { estaFijado, puedeFijar };
+}
+
 function MessageTouchActionsSheet({
   message,
   open,
@@ -639,6 +657,9 @@ function MessageTouchActionsSheet({
   onForward,
   onEdit,
   onDelete,
+  onPin,
+  onUnpin,
+  pinnedMessageId,
 }: {
   message: SharedInboxMessageItem;
   open: boolean;
@@ -647,7 +668,7 @@ function MessageTouchActionsSheet({
   onForward?: (message: SharedInboxMessageItem) => void;
   onEdit?: (message: SharedInboxMessageItem) => void;
   onDelete?: (message: SharedInboxMessageItem) => void;
-}) {
+} & PropsDeFijar) {
   // Se cierra primero y despues se actua: Eliminar levanta un confirm() del
   // navegador y pelearia con el foco atrapado de la hoja.
   const run = (action?: () => void) => () => {
@@ -667,24 +688,45 @@ function MessageTouchActionsSheet({
     copyMessageText(message);
     onOpenChange(false);
   };
-  const puedeCopiarse = textoParaCopiar(message) !== null;
 
-  const acciones: Array<{
+  type BotonDeLaHoja = {
     label: string;
     icon: typeof Copy;
     onClick?: () => void;
     destructive?: boolean;
     sinRun?: boolean;
-  }> = [
-    { label: "Responder", icon: Reply, onClick: onReply ? () => onReply(message) : undefined },
-    { label: "Reenviar", icon: Forward, onClick: onForward ? () => onForward(message) : undefined },
-    ...(puedeCopiarse ? [{ label: "Copiar", icon: Copy, onClick: copiarYCerrar, sinRun: true }] : []),
+  };
+
+  // El orden sale de `accionesDelMensaje`, el mismo que usa el menu de la compu.
+  // La hoja no ofrece Descargar audio (no recibe `audioUrl`), igual que antes.
+  const acciones = accionesDelMensaje({
+    tieneTexto: textoParaCopiar(message) !== null,
     // "Editar" solo se ofrece si el mensaje todavia se puede editar (texto propio, menos de 15 min).
-    ...(onEdit && puedeEditarseMensaje(message)
-      ? [{ label: "Editar", icon: Pencil, onClick: () => onEdit(message), destructive: false }]
-      : []),
-    { label: "Eliminar", icon: Trash2, onClick: onDelete ? () => onDelete(message) : undefined, destructive: true },
-  ];
+    puedeEditar: Boolean(onEdit) && puedeEditarseMensaje(message),
+    tieneAudio: false,
+    ...datosDeFijar(message, { onPin, onUnpin, pinnedMessageId }),
+  }).flatMap((accion): BotonDeLaHoja[] => {
+    switch (accion) {
+      case "responder":
+        return [{ label: "Responder", icon: Reply, onClick: onReply ? () => onReply(message) : undefined }];
+      case "reenviar":
+        return [{ label: "Reenviar", icon: Forward, onClick: onForward ? () => onForward(message) : undefined }];
+      case "copiar":
+        return [{ label: "Copiar", icon: Copy, onClick: copiarYCerrar, sinRun: true }];
+      case "editar":
+        return onEdit ? [{ label: "Editar", icon: Pencil, onClick: () => onEdit(message) }] : [];
+      case "fijar":
+        return onPin ? [{ label: "Fijar", icon: Pin, onClick: () => onPin(message) }] : [];
+      case "desfijar":
+        return onUnpin ? [{ label: "Desfijar", icon: PinOff, onClick: () => onUnpin(message) }] : [];
+      case "eliminar":
+        return [
+          { label: "Eliminar", icon: Trash2, onClick: onDelete ? () => onDelete(message) : undefined, destructive: true },
+        ];
+      default:
+        return [];
+    }
+  });
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -722,8 +764,8 @@ function MessageTouchActionsSheet({
 }
 
 // Menu de acciones del mensaje (estilo WhatsApp): flecha que aparece al pasar el
-// mouse y abre las opciones. "Copiar" y "Responder" funcionan; el resto se
-// implementa por partes (varias requieren backend: Evolution API + schema + realtime).
+// mouse y abre las opciones. El orden sale de `accionesDelMensaje`, el mismo de la
+// hoja del celular: Responder, Reenviar, Copiar, (Editar / Descargar audio), (Fijar), Eliminar.
 function MessageActionsMenu({
   message,
   outbound,
@@ -732,6 +774,9 @@ function MessageActionsMenu({
   onEdit,
   onDelete,
   audioUrl,
+  onPin,
+  onUnpin,
+  pinnedMessageId,
 }: {
   message: SharedInboxMessageItem;
   outbound: boolean;
@@ -741,22 +786,24 @@ function MessageActionsMenu({
   onDelete?: (message: SharedInboxMessageItem) => void;
   /** Solo en las notas de voz: habilita "Descargar audio". */
   audioUrl?: string | null;
-}) {
+} & PropsDeFijar) {
   // El DropdownMenu de base-ui (FloatingTree/ids/atributos) no es estable en SSR y
   // provoca un mismatch de hidratación que ROMPE la interactividad del menú. Lo
   // montamos solo en el cliente (useSyncExternalStore: false en server, true en
   // cliente) para evitarlo sin setState dentro de un efecto.
   const mounted = useSyncExternalStore(subscribeNoop, getMountedClient, getMountedServer);
 
-  const handleCopy = () => copyMessageText(message);
-  // Sin texto de verdad (una foto sola, un audio) no se ofrece Copiar.
-  const puedeCopiarse = textoParaCopiar(message) !== null;
-
-  const pending = (label: string) => () => toast.info(`${label}: disponible próximamente`);
-
   if (!mounted) {
     return null;
   }
+
+  const acciones = accionesDelMensaje({
+    // Sin texto de verdad (una foto sola, un audio) no se ofrece Copiar.
+    tieneTexto: textoParaCopiar(message) !== null,
+    puedeEditar: Boolean(onEdit) && puedeEditarseMensaje(message),
+    tieneAudio: Boolean(audioUrl),
+    ...datosDeFijar(message, { onPin, onUnpin, pinnedMessageId }),
+  });
 
   return (
     <DropdownMenu>
@@ -777,59 +824,85 @@ function MessageActionsMenu({
         {/* Igual que en el celular: los emoticones primero, que es lo que mas se usa. */}
         <FilaDeReacciones message={message} />
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => onReply?.(message)}>
-          <Reply className="size-4" /> Responder
-        </DropdownMenuItem>
-        {puedeCopiarse ? (
-          <DropdownMenuItem onClick={handleCopy}>
-            <Copy className="size-4" /> Copiar
-          </DropdownMenuItem>
-        ) : null}
+        {acciones.map((accion) => {
+          switch (accion) {
+            case "responder":
+              return (
+                <DropdownMenuItem key={accion} onClick={() => onReply?.(message)}>
+                  <Reply className="size-4" /> Responder
+                </DropdownMenuItem>
+              );
+            case "reenviar":
+              return (
+                <DropdownMenuItem key={accion} onClick={() => onForward?.(message)}>
+                  <Forward className="size-4" /> Reenviar
+                </DropdownMenuItem>
+              );
+            case "copiar":
+              return (
+                <DropdownMenuItem key={accion} onClick={() => copyMessageText(message)}>
+                  <Copy className="size-4" /> Copiar
+                </DropdownMenuItem>
+              );
+            case "editar":
+              return (
+                <DropdownMenuItem key={accion} onClick={() => onEdit?.(message)}>
+                  <Pencil className="size-4" /> Editar
+                </DropdownMenuItem>
+              );
+            case "descargar-audio":
+              /*
+                Bajar la nota de voz al computador.
 
-        {/*
-          Bajar la nota de voz al computador.
+                Es un enlace y no un boton: asi el navegador la guarda solo, sin que tengamos que
+                armar la descarga a mano. `download` funciona porque el archivo es NUESTRO (sale de
+                /uploads, mismo dominio); con una direccion de afuera el navegador lo ignora y abriria
+                el audio en otra pestaña.
 
-          Es un enlace y no un boton: asi el navegador la guarda solo, sin que tengamos que
-          armar la descarga a mano. `download` funciona porque el archivo es NUESTRO (sale de
-          /uploads, mismo dominio); con una direccion de afuera el navegador lo ignora y abriria
-          el audio en otra pestaña.
-
-          El nombre sale del id del mensaje para que dos audios del mismo dia no se pisen en la
-          carpeta de descargas.
-        */}
-        {audioUrl ? (
-          <DropdownMenuItem
-            render={
-              <a
-                href={audioUrl}
-                download={`audio-${message.id}.ogg`}
-                target="_blank"
-                rel="noreferrer"
-              />
-            }
-          >
-            <Download className="size-4" /> Descargar audio
-          </DropdownMenuItem>
-        ) : null}
-
-        <DropdownMenuItem onClick={() => onForward?.(message)}>
-          <Forward className="size-4" /> Reenviar
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={pending("Fijar")}>
-          <Pin className="size-4" /> Fijar
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={pending("Destacar")}>
-          <Star className="size-4" /> Destacar
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        {onEdit && puedeEditarseMensaje(message) ? (
-          <DropdownMenuItem onClick={() => onEdit(message)}>
-            <Pencil className="size-4" /> Editar
-          </DropdownMenuItem>
-        ) : null}
-        <DropdownMenuItem variant="destructive" onClick={() => onDelete?.(message)}>
-          <Trash2 className="size-4" /> Eliminar
-        </DropdownMenuItem>
+                El nombre sale del id del mensaje para que dos audios del mismo dia no se pisen en la
+                carpeta de descargas.
+              */
+              return audioUrl ? (
+                <DropdownMenuItem
+                  key={accion}
+                  render={
+                    <a
+                      href={audioUrl}
+                      download={`audio-${message.id}.ogg`}
+                      target="_blank"
+                      rel="noreferrer"
+                    />
+                  }
+                >
+                  <Download className="size-4" /> Descargar audio
+                </DropdownMenuItem>
+              ) : null;
+            case "fijar":
+              return (
+                <DropdownMenuItem key={accion} onClick={() => onPin?.(message)}>
+                  <Pin className="size-4" /> Fijar
+                </DropdownMenuItem>
+              );
+            case "desfijar":
+              return (
+                <DropdownMenuItem key={accion} onClick={() => onUnpin?.(message)}>
+                  <PinOff className="size-4" /> Desfijar
+                </DropdownMenuItem>
+              );
+            case "eliminar":
+              // El separador antes de Eliminar se queda, como en WhatsApp Web.
+              return (
+                <Fragment key={accion}>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem variant="destructive" onClick={() => onDelete?.(message)}>
+                    <Trash2 className="size-4" /> Eliminar
+                  </DropdownMenuItem>
+                </Fragment>
+              );
+            default:
+              return null;
+          }
+        })}
       </DropdownMenuContent>
     </DropdownMenu>
   );
