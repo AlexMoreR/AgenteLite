@@ -908,7 +908,12 @@ export function SharedInbox({
   useLayoutEffect(() => {
     if (!firmaDeConteoGuardado) return;
     const guardados = leerConteosGuardados(firmaDeConteoGuardado);
-    if (!guardados) return;
+    if (!guardados) {
+      // Sin nada guardado para esta asignacion, No leido y Sin responder quedan sin numero hasta
+      // que llegue /counts: el de la pestaña anterior no coincide con esta lista.
+      setAssignedCounts((actual) => (actual ? { ...actual, sinResponder: undefined, noLeido: undefined } : actual));
+      return;
+    }
     setAssignedCounts(guardados.counts);
     if (guardados.espera) setEsperaDelConteo(guardados.espera);
   }, [firmaDeConteoGuardado]);
