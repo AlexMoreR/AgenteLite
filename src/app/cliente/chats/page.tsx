@@ -52,6 +52,7 @@ import {
   type QuienMira,
 } from "@/features/chats/services/espera-de-chats";
 import { isSnoozed } from "@/lib/lead-snooze";
+import { debeMarcarseFueraDeLaVista } from "@/features/chats/domain/chat-abierto-fuera-de-la-vista";
 import { estadoQueAplica, hayBusqueda, whereDeBusquedaDeChats } from "@/lib/busqueda-de-chats";
 import { syncLeadLifecycleForContacts } from "@/lib/contact-default-tags";
 import { tieneCierrePendiente } from "@/lib/crm-stage-sync";
@@ -98,6 +99,8 @@ type UnifiedConversation = {
   sinResponderDesde?: Date | null;
   lastMessageStatus?: string | null;
   lastMessageAt?: Date | null;
+  // El chat abierto que no cumple el filtro (ver features/chats/domain/chat-abierto-fuera-de-la-vista).
+  fueraDeLaVista?: boolean;
   activeProductContext?: ActiveProductContextSummary | null;
 };
 
@@ -612,7 +615,15 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       ? []
       : chatsFijados.filter((clave) => clave.startsWith("agent:")).map((clave) => clave.slice("agent:".length));
 
-  const [evolutionSettings, channels, agentConversationsRaw, selectedAgentConversationRow, officialChatsData, fijadosFueraDeLaTanda] = await Promise.all([
+  const [
+    evolutionSettings,
+    channels,
+    agentConversationsRaw,
+    selectedAgentConversationRow,
+    officialChatsData,
+    fijadosFueraDeLaTanda,
+    chatAbiertoEnElFiltro,
+  ] = await Promise.all([
     getEvolutionSettings(),
     prisma.whatsAppChannel.findMany({
       where: {
@@ -663,7 +674,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
             segundoAsesor: { select: { id: true, name: true } },
             activeProductContext: true,
             contact: {
-              select: { id: true, name: true, phoneNumber: true, avatarUrl: true, crmStage: true },
+              // metadata: para saber si esta pospuesto, con la misma regla que la lista.
+              select: { id: true, name: true, phoneNumber: true, avatarUrl: true, crmStage: true, metadata: true },
             },
           },
         })
@@ -690,6 +702,13 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           select: seleccionDeLaFila,
         })
       : Promise.resolve([]),
+    // ¿El chat abierto cumple el filtro de la lista? El MISMO where de la tanda, mas su id. Solo con
+    // chat abierto del canal viejo: sin el, ninguna consulta de mas.
+    selectedChatRef?.source === "agent"
+      ? prisma.conversation.count({
+          where: { AND: [conversationWhere, { id: selectedChatRef.conversationId }] },
+        })
+      : Promise.resolve(0),
   ]);
 
   const channelsById = new Map(channels.map((channel) => [channel.id, channel]));
@@ -736,11 +755,28 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
   ];
   // Si el chat seleccionado (deep-link) no vino en el lote de la lista, lo agregamos para que el
   // panel lo abra. Va primero para que quede visible arriba al aterrizar desde Mi día.
+  const chatAbiertoVinoEnLaTanda = selectedAgentConversationRow
+    ? agentConversationsConFijados.some((conversation) => conversation.id === selectedAgentConversationRow.id)
+    : false;
   const agentConversations =
-    selectedAgentConversationRow &&
-    !agentConversationsConFijados.some((conversation) => conversation.id === selectedAgentConversationRow.id)
+    selectedAgentConversationRow && !chatAbiertoVinoEnLaTanda
       ? [selectedAgentConversationRow, ...agentConversationsConFijados]
       : agentConversationsConFijados;
+  /*
+    Si no vino en la tanda y NO cumple el filtro (el where de la lista, y no pospuesto salvo buscando,
+    la misma regla de arriba), la fila se marca `fueraDeLaVista`: el panel la sigue abriendo, pero
+    la lista no la debe contar. Antes la lista "Maria" con 0 mostraba un chat de otra asesora.
+  */
+  const idDelChatAbiertoFueraDeLaVista =
+    selectedAgentConversationRow &&
+    debeMarcarseFueraDeLaVista({
+      vinoEnLaTanda: chatAbiertoVinoEnLaTanda,
+      cumpleElFiltro:
+        chatAbiertoEnElFiltro > 0 &&
+        (hayBusqueda(searchQuery) || !isSnoozed(selectedAgentConversationRow.contact?.metadata)),
+    })
+      ? selectedAgentConversationRow.id
+      : null;
 
   const activeAgentConversations = agentConversations.filter((conv) => {
     if (!conv.channelId) return true;
@@ -1034,6 +1070,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       lastMessageStatus: latestMessage?.status ?? null,
       lastMessageAt: latestMessage?.createdAt ?? null,
       activeProductContext,
+      // Toda fila de la tanda cumple el filtro (false); solo el chat abierto que no lo cumple, true.
+      fueraDeLaVista: conversation.id === idDelChatAbiertoFueraDeLaVista,
     };
   });
 
@@ -1110,13 +1148,14 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     });
   /*
     "Esperando": el orden de la lista de esperas (el que mas lleva primero), como /list, y no el del
-    ultimo mensaje. El chat abierto por enlace que no esta esperando va arriba, para que se pueda abrir.
+    ultimo mensaje. El chat abierto por enlace que no esta esperando va arriba, para que se pueda abrir,
+    pero marcado `fueraDeLaVista`: no cumple el filtro (no esta esperando) y la lista no lo cuenta.
   */
   const merged = paginaDeEsperando
     ? [
-        ...mergedPorFecha.filter(
-          (item) => item.key === selectedChatKeyParam && !paginaDeEsperando.claves.includes(item.key),
-        ),
+        ...mergedPorFecha
+          .filter((item) => item.key === selectedChatKeyParam && !paginaDeEsperando.claves.includes(item.key))
+          .map((item) => ({ ...item, fueraDeLaVista: true })),
         ...ordenarSegunEspera(mergedPorFecha, paginaDeEsperando.claves),
       ]
     : mergedPorFecha;
@@ -1562,6 +1601,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           sinResponderDesde: item.sinResponderDesde ?? null,
           lastMessageStatus: item.lastMessageStatus,
           lastMessageAt: item.lastMessageAt,
+          // Solo llega la marca: la bandeja todavia no esconde nada con ella (pastillas, parte 2).
+          ...(item.fueraDeLaVista !== undefined ? { fueraDeLaVista: item.fueraDeLaVista } : {}),
           href: `/cliente/chats?chatKey=${encodeURIComponent(item.key)}${selectedConnectionKey ? `&connection=${encodeURIComponent(selectedConnectionKey)}` : ""}${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ""}${assignedFilter !== "all" ? `&assigned=${assignedFilter}` : ""}${statusFilter !== "open" ? `&status=${statusFilter}` : ""}${paramsDeFiltros(filtros)
             .map(([clave, valor]) => `&${clave}=${encodeURIComponent(valor)}`)
             .join("")}${pideEspera ? "&espera=1" : ""}`,

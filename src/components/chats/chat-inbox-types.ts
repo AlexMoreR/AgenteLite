@@ -61,6 +61,12 @@ export type SharedInboxConversationItem = {
   /** Acuse del ultimo mensaje. Solo se dibuja si es NUESTRO: al del cliente no le corresponde. */
   lastMessageStatus?: string | null;
   lastMessageAt?: Date | null;
+  /**
+   * True = es el chat abierto y NO cumple el filtro de la lista: viene solo para que el panel lo
+   * abra, y la lista no lo debe contar ni dibujar (ver features/chats/domain/chat-abierto-fuera-de-la-vista).
+   * false = la fila cumple el filtro (vino en la tanda o de /list). undefined = la fila no lo dice.
+   */
+  fueraDeLaVista?: boolean;
   href: string;
 };
 

@@ -45,7 +45,7 @@
     "test:sin-responder": "npx tsx --test src/features/chats/domain/sin-responder.test.ts && node scripts/check-sin-responder.mjs",
     "test:pastillas-bandeja": "npx tsx --test src/components/chats/pastillas-de-la-bandeja.test.ts",
     "test:pastillas-ordenables": "node scripts/check-pastillas-ordenables.mjs",
-    "test:pastillas-coinciden": "npx tsx --test src/features/chats/domain/alcance-de-las-pastillas.test.ts",
+    "test:pastillas-coinciden": "npx tsx --test src/features/chats/domain/alcance-de-las-pastillas.test.ts src/features/chats/domain/chat-abierto-fuera-de-la-vista.test.ts",
     "test:coach": "node scripts/check-coach.mjs",
     "test:coach-acciones": "node scripts/check-coach-acciones.mjs",
     "test:coach-resueltos": "node scripts/check-coach-resueltos.mjs",
