@@ -82,8 +82,6 @@ export type FilaGuardada = {
   /** ISO. */
   lastMessageAt: string | null;
   href: string;
-  /** Solo si es true: el chat abierto fuera del filtro sigue escondido al volver a la vista. */
-  fueraDeLaVista?: true;
 };
 
 function texto(valor: unknown): string | null {
@@ -128,7 +126,6 @@ export function filaParaGuardar(item: SharedInboxConversationItem): FilaGuardada
     lastMessageStatus: texto(item.lastMessageStatus),
     lastMessageAt: fechaIso(item.lastMessageAt),
     href: texto(item.href) ?? "",
-    ...(item.fueraDeLaVista === true ? { fueraDeLaVista: true as const } : {}),
   };
 }
 
