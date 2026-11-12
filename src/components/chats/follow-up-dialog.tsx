@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { createChatFollowUpAction } from "@/app/actions/follow-actions";
 import { SeguimientosDelCliente } from "@/components/chats/seguimientos-del-cliente";
+import { dentroDelHorario, siguienteApertura } from "@/lib/anti-bloqueo/reglas";
 import { subirArchivoPorPedazos } from "@/lib/subir-archivo-por-pedazos";
 import {
   MAXIMO_DIAS_FECHA_EXACTA,
@@ -115,6 +116,8 @@ export function FollowUpDialog({
   const [adjuntos, setAdjuntos] = useState<Adjunto[]>([]);
   const [grabandoDesde, setGrabandoDesde] = useState<number | null>(null);
   const [ahoraGrabando, setAhoraGrabando] = useState(0);
+  // El horario de envíos del negocio: fuera de él, el seguimiento sale en la próxima apertura.
+  const [horario, setHorario] = useState<{ activo: boolean; desdeHora: number; hastaHora: number } | null>(null);
   const grabadoraRef = useRef<MediaRecorder | null>(null);
   const selectorRef = useRef<HTMLInputElement | null>(null);
 
@@ -137,6 +140,20 @@ export function FollowUpDialog({
       grabadora.stream.getTracks().forEach((pista) => pista.stop());
     }
     grabadoraRef.current = null;
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    let vivo = true;
+    fetch("/api/cliente/chats/seguimientos?solo=horario", { cache: "no-store" })
+      .then((respuesta) => respuesta.json())
+      .then((datos: { horario?: { activo: boolean; desdeHora: number; hastaHora: number } }) => {
+        if (vivo && datos?.horario) setHorario(datos.horario);
+      })
+      .catch(() => undefined);
+    return () => {
+      vivo = false;
+    };
   }, [open]);
 
   useEffect(() => {
@@ -283,6 +300,14 @@ export function FollowUpDialog({
   const listos = adjuntos.filter((adjunto) => adjunto.estado === "listo" && adjunto.url);
   const faltaMensaje = content.trim().length < 2 && listos.length === 0;
   const grabando = grabandoDesde !== null;
+  // Cuándo sale DE VERDAD: si la hora elegida cae fuera del horario de envíos, en la próxima apertura
+  // (antes la ventana decía "sale a las 9:36 p. m." y salía a la mañana siguiente).
+  const fechaDeEnvio = presetElegido && !llevaHora ? new Date(ahora.getTime() + presetElegido.timeValue * 3_600_000) : fechaElegida;
+  const saleRealmente =
+    horario?.activo && fechaDeEnvio && (!llevaHora && !esOtraFecha ? true : fechaValida) && !dentroDelHorario(fechaDeEnvio, horario)
+      ? siguienteApertura(fechaDeEnvio, horario)
+      : null;
+  const horaCorta = (hora24: number) => (hora24 === 0 || hora24 === 24 ? "12 a. m." : hora24 === 12 ? "12 m." : hora24 < 12 ? `${hora24} a. m.` : `${hora24 - 12} p. m.`);
 
   const handleSave = () => {
     if (!contactId) {
@@ -400,6 +425,13 @@ export function FollowUpDialog({
               </div>
             ) : null}
           </div>
+
+          {saleRealmente && horario ? (
+            <p className="rounded-lg bg-amber-100 px-3 py-2 text-[12px] text-amber-900 dark:bg-amber-500/15 dark:text-amber-200">
+              Esa hora es fuera del horario de envíos ({horaCorta(horario.desdeHora)} a {horaCorta(horario.hastaHora)}). Sale el{" "}
+              <span className="font-medium">{formatoBogota(saleRealmente)}</span>, o hasta 30 minutos después.
+            </p>
+          ) : null}
 
           <div className="space-y-1.5">
             <Label htmlFor="followUpContent">Mensaje que se va a enviar</Label>

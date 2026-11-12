@@ -4,6 +4,7 @@ import { canAccessClientModule, getClientWorkspaceAccessForUserCached } from "@/
 import { conServerTiming, type MedidorServerTiming } from "@/lib/server-timing";
 import { aSeguimientoDelCliente, ordenarSeguimientos } from "@/features/seguimientos/dominio/seguimientos-del-cliente";
 import { listFollowsByContact } from "@/features/seguimientos/services/follows";
+import { leerConfigAntiBloqueo } from "@/lib/anti-bloqueo/servicio";
 
 /**
  * "Ver seguimientos" de la ventana de Agendar (11-nov-2026): los seguimientos de UN cliente, los
@@ -23,7 +24,15 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
   if (!access || !canAccessClientModule(access, "chats")) {
     return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 403 });
   }
-  const contactId = new URL(request.url).searchParams.get("contactId")?.trim() ?? "";
+  const parametros = new URL(request.url).searchParams;
+  // El horario de envíos: lo que se agenda fuera de él sale en la próxima apertura (anti-bloqueo).
+  // La ventana lo usa para decir la hora REAL en que sale (Alex, 11-nov-2026: "nunca llegó").
+  const config = await leerConfigAntiBloqueo(access.workspaceId);
+  const horario = { activo: config.horario.activo, desdeHora: config.horario.desdeHora, hastaHora: config.horario.hastaHora };
+  if (parametros.get("solo") === "horario") {
+    return NextResponse.json({ ok: true, horario }, { headers: { "Cache-Control": "private, no-store" } });
+  }
+  const contactId = parametros.get("contactId")?.trim() ?? "";
   if (!contactId || contactId.length > 64) {
     return NextResponse.json({ ok: false, error: "Falta el contacto" }, { status: 400 });
   }
@@ -32,5 +41,5 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
   const filas = await listFollowsByContact({ workspaceId: access.workspaceId, contactId, limit: 100 });
   t.marca("lista");
   const seguimientos = ordenarSeguimientos(filas.map((fila) => aSeguimientoDelCliente(fila)));
-  return NextResponse.json({ ok: true, seguimientos }, { headers: { "Cache-Control": "private, no-store" } });
+  return NextResponse.json({ ok: true, seguimientos, horario }, { headers: { "Cache-Control": "private, no-store" } });
 }
