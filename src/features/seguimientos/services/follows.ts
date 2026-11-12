@@ -1371,6 +1371,45 @@ export async function cancelPendingFollowsByContact(input: {
   return { cancelled: pendingFollows.length };
 }
 
+/**
+ * Cancela UN seguimiento pendiente de este negocio (botón "Cancelar" de "Ver seguimientos" en el chat).
+ * Si ya salió, ya estaba cancelado o lo está mandando el reloj en este momento, no lo toca.
+ */
+export async function cancelarSeguimientoPendiente(input: {
+  workspaceId: string;
+  followId: string;
+  reason: string;
+}): Promise<boolean> {
+  const hasActionsColumn = await hasFollowActionsColumn("Follow");
+  const [fila] = await prisma.$queryRaw<Array<{ messageType: FollowMessageType; content: string | null; mediaUrl: string | null; actions: Prisma.JsonValue | null }>>(Prisma.sql`
+    SELECT "messageType", "content", "mediaUrl", ${hasActionsColumn ? Prisma.sql`"actions"` : Prisma.sql`NULL::jsonb AS "actions"`}
+    FROM public."Follow"
+    WHERE "id" = ${input.followId} AND "workspaceId" = ${input.workspaceId} AND "status" = 'PENDING' AND "lockedAt" IS NULL
+  `);
+  if (!fila) return false;
+  const now = new Date();
+  const actions = buildCancelledFollowActions({
+    actions: fila.actions,
+    messageType: fila.messageType,
+    content: fila.content,
+    mediaUrl: fila.mediaUrl,
+    reason: input.reason,
+  });
+  // El candado (status PENDING y sin lockedAt) va también en el UPDATE: si el reloj lo tomó entre
+  // la lectura y acá, no se marca cancelado uno que ya está saliendo.
+  const cambiadas = await prisma.$executeRaw(Prisma.sql`
+    UPDATE public."Follow"
+    SET
+      "status" = 'CANCELLED',
+      "cancelledAt" = ${now},
+      "executionError" = ${input.reason},
+      ${hasActionsColumn ? Prisma.sql`"actions" = ${JSON.stringify(actions)}::jsonb,` : Prisma.empty}
+      "updatedAt" = ${now}
+    WHERE "id" = ${input.followId} AND "workspaceId" = ${input.workspaceId} AND "status" = 'PENDING' AND "lockedAt" IS NULL
+  `);
+  return cambiadas > 0;
+}
+
 async function claimDueFollowsForExecution(input: {
   workspaceId?: string;
   limit: number;

@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { createChatFollowUpAction } from "@/app/actions/follow-actions";
+import { SeguimientosDelCliente } from "@/components/chats/seguimientos-del-cliente";
 import { subirArchivoPorPedazos } from "@/lib/subir-archivo-por-pedazos";
 import {
   MAXIMO_DIAS_FECHA_EXACTA,
@@ -104,6 +105,8 @@ export function FollowUpDialog({
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  // "Ver seguimientos" (Alex, 11-nov-2026): la misma ventana muestra los de este cliente.
+  const [vista, setVista] = useState<"agendar" | "lista">("agendar");
   const [presetIndex, setPresetIndex] = useState(1);
   const [content, setContent] = useState("");
   const [fechaExacta, setFechaExacta] = useState("");
@@ -117,6 +120,7 @@ export function FollowUpDialog({
 
   useEffect(() => {
     if (open) {
+      setVista("agendar");
       setPresetIndex(1);
       setContent("");
       setFechaExacta("");
@@ -322,10 +326,22 @@ export function FollowUpDialog({
             seguimiento se cancela solo"), asi que era la misma frase dos veces en una ventana
             que se abre para hacer una cosa rapida.
           */}
-          <DialogTitle>Agendar seguimiento</DialogTitle>
+          <div className="flex min-w-0 items-center justify-between gap-2 pr-8">
+            <DialogTitle>{vista === "lista" ? "Seguimientos del cliente" : "Agendar seguimiento"}</DialogTitle>
+            <button
+              type="button"
+              onClick={() => setVista(vista === "lista" ? "agendar" : "lista")}
+              disabled={grabando}
+              className="shrink-0 rounded-full px-2.5 py-1 text-[13px] font-medium text-primary transition hover:bg-primary/10 disabled:opacity-50"
+            >
+              {vista === "lista" ? "Agendar uno" : "Ver seguimientos"}
+            </button>
+          </div>
         </DialogHeader>
 
-        <div className="min-w-0 space-y-3">
+        {vista === "lista" ? <SeguimientosDelCliente contactId={contactId} /> : null}
+
+        <div className={vista === "lista" ? "hidden" : "min-w-0 space-y-3"}>
           <div className="space-y-1.5">
             <Label>¿Cuándo?</Label>
             <div className="flex flex-wrap gap-1.5">
@@ -487,7 +503,7 @@ export function FollowUpDialog({
           </p>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className={vista === "lista" ? "hidden" : undefined}>
           <Button variant="outline" onClick={onClose} disabled={isPending}>
             Cancelar
           </Button>

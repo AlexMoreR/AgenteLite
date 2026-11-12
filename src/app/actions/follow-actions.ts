@@ -10,6 +10,7 @@ import { horaDeBogotaAUtc, validarFechaExacta } from "@/features/seguimientos/do
 import { armarAccionesDelChat, esArchivoPropio } from "@/features/seguimientos/dominio/acciones-del-chat";
 import {
   cancelPendingFollowsByContact,
+  cancelarSeguimientoPendiente,
   createFollow,
   createFollowRule,
   deleteFollowRule,
@@ -585,6 +586,34 @@ export async function createChatFollowUpAction(
 
   const executeAt = follow.executeAt instanceof Date ? follow.executeAt.toISOString() : String(follow.executeAt ?? "");
   return { ok: true, executeAt };
+}
+
+/** Cancela UN seguimiento pendiente desde "Ver seguimientos" del chat. */
+export async function cancelarSeguimientoDelChatAction(followId: string): Promise<{ ok: true } | { error: string }> {
+  const session = await auth();
+  if (!session?.user?.id || !isAllowedRole(session.user.role)) {
+    return { error: "No autorizado" };
+  }
+  await requireClientWorkspaceAccess("chats");
+  const id = typeof followId === "string" ? followId.trim() : "";
+  if (!id || id.length > 64) {
+    return { error: "Seguimiento no encontrado" };
+  }
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) {
+    return { error: "Workspace no encontrado" };
+  }
+  const nombre = session.user.name?.trim() || "una asesora";
+  const cancelado = await cancelarSeguimientoPendiente({
+    workspaceId: membership.workspace.id,
+    followId: id,
+    reason: `Cancelado desde el chat por ${nombre}`,
+  });
+  if (!cancelado) {
+    return { error: "Ese seguimiento ya salió o ya estaba cancelado" };
+  }
+  revalidatePath("/cliente/seguimientos");
+  return { ok: true };
 }
 
 export async function cancelFollowsByContactAction(formData: FormData): Promise<void> {

@@ -50,6 +50,34 @@ test("Mañana a las 9:00 es el dia siguiente en Colombia, aunque en UTC ya sea o
   assert.equal(diaMasHoraDeBogota(ahora, 1, "9"), null);
 });
 
+test("ver seguimientos: los pendientes primero (el mas proximo arriba) y se distingue lo de una persona", async () => {
+  const { aSeguimientoDelCliente, ordenarSeguimientos } = await import("./seguimientos-del-cliente");
+  const base = { executionError: null, messageType: "TEXT", content: null, mediaUrl: null, followRuleId: null };
+  const lista = [
+    aSeguimientoDelCliente({ ...base, id: "a", name: "Seguimiento desde el chat", executeAt: "2026-11-10T15:00:00Z", status: "EXECUTED", actions: [] }),
+    aSeguimientoDelCliente({
+      ...base,
+      id: "b",
+      name: "Seguimiento desde el chat",
+      executeAt: "2026-11-14T15:00:00Z",
+      status: "PENDING",
+      actions: [
+        { messageType: "IMAGE", content: "Mira", mediaUrl: "https://x/uploads/a.jpg" },
+        { messageType: "AUDIO", content: null, mediaUrl: "https://x/uploads/b.ogg" },
+      ],
+    }),
+    aSeguimientoDelCliente({ ...base, id: "c", name: "Etapa Bienvenida · 1", followRuleId: "r1", executeAt: "2026-11-12T15:00:00Z", status: "PENDING", actions: [] }),
+    aSeguimientoDelCliente({ ...base, id: "d", name: null, executeAt: "2026-11-11T15:00:00Z", status: "CANCELLED", executionError: "Cancelado por actividad", actions: [] }),
+  ];
+  const orden = ordenarSeguimientos(lista);
+  assert.deepEqual(orden.map((s) => s.id), ["c", "b", "d", "a"]);
+  assert.equal(orden[0].deUnaPersona, false);
+  assert.equal(orden[0].origen, "Etapa Bienvenida · 1");
+  assert.equal(orden[1].origen, "Desde el chat");
+  assert.deepEqual(orden[1].piezas.map((p) => p.tipo), ["IMAGE", "AUDIO"]);
+  assert.equal(orden[2].motivo, "Cancelado por actividad");
+});
+
 test("una hora a 30 segundos vale; una que ya paso no (el servidor da 2 min de holgura)", async () => {
   const { validarFechaExacta } = await import("./fecha-exacta");
   const ahora = new Date("2026-11-12T02:35:30Z");
