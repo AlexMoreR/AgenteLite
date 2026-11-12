@@ -25,6 +25,8 @@ import {
   MoreVertical,
   PenLine,
   Mic,
+  Pin,
+  PinOff,
   Palette,
   Pause,
   Pencil,
@@ -184,6 +186,8 @@ import { esNotaInternaDelAgente } from "@/lib/notas-internas-del-agente";
 import { ComposerEmojiPicker, ComposerSendButton } from "./chat-composer";
 import { AvisoDeCierre } from "./aviso-de-cierre";
 import { AvisoDeLlamada } from "./aviso-de-llamada";
+import { FranjaMensajeFijado } from "./franja-mensaje-fijado";
+import type { MensajeFijado } from "@/lib/chats/mensaje-fijado";
 import { BotonDeMapaDeCaminos } from "./boton-mapa-de-caminos";
 import { dondeVaLaSugerencia } from "./destino-de-la-sugerencia";
 import { copiarAlPortapapeles, textoDeVariosParaCopiar } from "./copiar-mensaje";
@@ -352,6 +356,17 @@ type ConversationPanelProps = {
   onReplyToMessage?: (message: SharedInboxMessageItem) => void;
   onDeleteMessage?: (message: SharedInboxMessageItem) => void;
   onEditMessage?: (message: SharedInboxMessageItem) => void;
+  /*
+    Fijar (Chats, parte 4; solo CRM, la clienta no ve nada). `mensajeFijado` es el que se ve ahora
+    (el optimista o el que trajo /live). Sin onPinMessage/onUnpinMessage no sale Fijar/Desfijar.
+  */
+  mensajeFijado?: MensajeFijado | null;
+  onPinMessage?: (message: SharedInboxMessageItem) => void;
+  onUnpinMessage?: (message: SharedInboxMessageItem) => void;
+  /** La X de la franja: desfija el que se ve. */
+  onDesfijarDesdeLaFranja?: (fijado: MensajeFijado) => void;
+  /** Tocar la franja: lleva al mensaje fijado, igual que tocar una cita. */
+  onIrAlMensajeFijado?: (fijado: MensajeFijado) => void;
   replyTarget?: ComposerReplyTarget | null;
   onCancelReply?: () => void;
   renderedConversation: SharedInboxSelectedConversation | null;
@@ -466,6 +481,11 @@ export const ConversationPanel = memo(function ConversationPanel({
   onReplyToMessage,
   onDeleteMessage,
   onEditMessage,
+  mensajeFijado = null,
+  onPinMessage,
+  onUnpinMessage,
+  onDesfijarDesdeLaFranja,
+  onIrAlMensajeFijado,
   replyTarget,
   onCancelReply,
   renderedConversation,
@@ -1971,6 +1991,20 @@ export const ConversationPanel = memo(function ConversationPanel({
     en silencio, el boton no aparece.
   */
   const unicoSeleccionado = mensajesSeleccionados.length === 1 ? mensajesSeleccionados[0] : null;
+  /*
+    Fijar en la barra de la seleccion (el celular: mantener apretado selecciona), entre Copiar y
+    Eliminar. Solo con UNO marcado, y nunca un mensaje optimista o eliminado: todavia no existe en
+    la base, o ya no se puede fijar.
+  */
+  const unicoEsElFijado = Boolean(unicoSeleccionado && mensajeFijado?.id === unicoSeleccionado.id);
+  const unicoSePuedeFijar = Boolean(
+    unicoSeleccionado && !unicoSeleccionado.id.startsWith("optimistic:") && !unicoSeleccionado.deletedAt,
+  );
+  const accionDeFijarDelUnico = !unicoSePuedeFijar
+    ? null
+    : unicoEsElFijado
+      ? onUnpinMessage ?? null
+      : onPinMessage ?? null;
 
   // Lo que se copiaria de los marcados; null si ninguno tiene texto (el boton Copiar no aparece).
   const textoDeLosSeleccionados = textoDeVariosParaCopiar(mensajesSeleccionados);
@@ -2067,6 +2101,21 @@ export const ConversationPanel = memo(function ConversationPanel({
                       title="Copiar"
                     >
                       <Copy className="h-5 w-5" />
+                    </button>
+                  ) : null}
+
+                  {unicoSeleccionado && accionDeFijarDelUnico ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        accionDeFijarDelUnico(unicoSeleccionado);
+                        setSeleccionados([]);
+                      }}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-full text-foreground transition hover:bg-muted"
+                      aria-label={unicoEsElFijado ? "Desfijar" : "Fijar"}
+                      title={unicoEsElFijado ? "Desfijar" : "Fijar"}
+                    >
+                      {unicoEsElFijado ? <PinOff className="h-5 w-5" /> : <Pin className="h-5 w-5" />}
                     </button>
                   ) : null}
 
@@ -2395,6 +2444,17 @@ export const ConversationPanel = memo(function ConversationPanel({
                 inicial={renderedConversation.ultimaLlamada}
               />
             ) : null}
+            {/*
+              El mensaje fijado (solo CRM). En el mismo lugar que los avisos: dentro del contenedor
+              que mira el observador del pegado al final, asi achicar el area no hace brincar el chat.
+            */}
+            {onIrAlMensajeFijado && !renderedConversation?.isPreview ? (
+              <FranjaMensajeFijado
+                fijado={mensajeFijado}
+                alTocar={onIrAlMensajeFijado}
+                alDesfijar={onDesfijarDesdeLaFranja}
+              />
+            ) : null}
             <div className="relative min-h-0 flex-1">
               <div
                 ref={messagesScrollRef}
@@ -2492,6 +2552,14 @@ export const ConversationPanel = memo(function ConversationPanel({
                         onForward={esFotoEnEnvio(message.id) ? undefined : setMensajeAReenviar}
                         onEdit={esFotoEnEnvio(message.id) ? undefined : onEditMessage}
                         onDelete={esFotoEnEnvio(message.id) ? undefined : onDeleteMessage}
+                        /*
+                          Fijar: igual que Eliminar, nada para una foto en envio ni un optimista.
+                          pinnedMessageId solo va en la burbuja fijada, asi cambiar el fijado no
+                          vuelve a dibujar todas las demas.
+                        */
+                        onPin={esFotoEnEnvio(message.id) || message.id.startsWith("optimistic:") ? undefined : onPinMessage}
+                        onUnpin={esFotoEnEnvio(message.id) || message.id.startsWith("optimistic:") ? undefined : onUnpinMessage}
+                        pinnedMessageId={mensajeFijado?.id === message.id ? message.id : null}
                         seleccionado={seleccionados.includes(message.id)}
                         haySeleccion={seleccionados.length > 0}
                         onSeleccionar={esFotoEnEnvio(message.id) ? undefined : alternarSeleccion}

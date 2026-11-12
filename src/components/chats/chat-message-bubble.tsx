@@ -633,8 +633,8 @@ function FilaDeReacciones({
 }
 
 /*
-  Fijar (parte 4): si el componente no recibe `onPin`/`onUnpin`, Fijar no aparece. Hoy nadie las
-  pasa; el punto de enganche queda listo. Desfijar sale cuando este mensaje es el fijado del chat.
+  Fijar (parte 4): si el componente no recibe `onPin`/`onUnpin`, Fijar no aparece. Se las pasa
+  MessageBubble (desde el panel del chat). Desfijar sale cuando este mensaje es el fijado del chat.
 */
 type PropsDeFijar = {
   onPin?: (message: SharedInboxMessageItem) => void;
@@ -967,6 +967,9 @@ export const MessageBubble = memo(function MessageBubble({
   onForward,
   onEdit,
   onDelete,
+  onPin,
+  onUnpin,
+  pinnedMessageId,
   seleccionado,
   haySeleccion,
   onSeleccionar,
@@ -986,6 +989,11 @@ export const MessageBubble = memo(function MessageBubble({
   onForward?: (message: SharedInboxMessageItem) => void;
   onEdit?: (message: SharedInboxMessageItem) => void;
   onDelete?: (message: SharedInboxMessageItem) => void;
+  /** Fijar/Desfijar del menu (solo CRM). Sin ellas no aparecen. */
+  onPin?: (message: SharedInboxMessageItem) => void;
+  onUnpin?: (message: SharedInboxMessageItem) => void;
+  /** El id del fijado del chat, solo si es ESTA burbuja (si no, null: el memo no la redibuja). */
+  pinnedMessageId?: string | null;
   /** Esta burbuja esta seleccionada: se pinta la fila entera. */
   seleccionado?: boolean;
   /** Hay una seleccion abierta: un toque simple suma o saca, sin mantener apretado. */
@@ -1645,7 +1653,18 @@ export const MessageBubble = memo(function MessageBubble({
           ) : null}
           {tieneAcciones ? (
             <>
-              <MessageActionsMenu message={message} outbound={outbound} onReply={onReply} onForward={onForward} onEdit={onEdit} onDelete={onDelete} audioUrl={audioUrl} />
+              <MessageActionsMenu
+                message={message}
+                outbound={outbound}
+                onReply={onReply}
+                onForward={onForward}
+                onEdit={onEdit}
+                onDelete={onDelete}
+                onPin={onPin}
+                onUnpin={onUnpin}
+                pinnedMessageId={pinnedMessageId}
+                audioUrl={audioUrl}
+              />
               <MessageTouchActionsSheet
                 message={message}
                 open={isTouchMenuOpen}
@@ -1654,6 +1673,9 @@ export const MessageBubble = memo(function MessageBubble({
                 onForward={onForward}
                 onEdit={onEdit}
                 onDelete={onDelete}
+                onPin={onPin}
+                onUnpin={onUnpin}
+                pinnedMessageId={pinnedMessageId}
               />
             </>
           ) : null}

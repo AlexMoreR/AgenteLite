@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { listaProvisional } from "@/components/chats/lista-provisional";
 import { empezoLaApertura, terminoLaApertura } from "@/components/chats/datos-de-la-apertura";
-import { enviarArchivoPorRuta, enviarAudioPorRuta } from "@/lib/chats/enviar-por-ruta";
+import { enviarArchivoPorRuta, enviarAudioPorRuta, fijarPorRuta } from "@/lib/chats/enviar-por-ruta";
+import type { MensajeFijado } from "@/lib/chats/mensaje-fijado";
+import { textoDeLaFranja } from "./franja-mensaje-fijado";
 import { marcarOcupada } from "@/lib/actualizacion-automatica";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -3519,6 +3521,104 @@ export function SharedInbox({
       });
   }, []);
 
+  /*
+    FIJAR (Chats, parte 4). Solo del CRM: no sale nada por WhatsApp.
+
+    Al tocar Fijar/Desfijar la franja cambia al instante (optimista). Ese valor manda hasta que
+    /live traiga el mismo id (o null si se desfijo) o hasta 15 s: una respuesta de /live que salio
+    ANTES de guardar trae el valor viejo y no debe hacer parpadear la franja. Si la ruta falla, la
+    franja vuelve a como estaba y se avisa.
+  */
+  const [fijadoLocal, setFijadoLocal] = useState<{
+    conversationId: string;
+    fijado: MensajeFijado | null;
+    hasta: number;
+  } | null>(null);
+  const idDelChatParaFijar =
+    renderedConversation && !renderedConversation.isPreview ? extractConversationIdFromKey(renderedConversation.id) : "";
+  const fijadoDelServidor = renderedConversation?.mensajeFijado;
+  const fijadoLocalDeEsteChat =
+    fijadoLocal && idDelChatParaFijar && fijadoLocal.conversationId === idDelChatParaFijar ? fijadoLocal : null;
+  const fijadoQueSeVe = fijadoLocalDeEsteChat ? fijadoLocalDeEsteChat.fijado : fijadoDelServidor ?? null;
+  // Eliminar el mensaje fijado saca la franja al instante; /live despues trae null.
+  const mensajeFijadoVisible = fijadoQueSeVe && !deletedMessageIds.has(fijadoQueSeVe.id) ? fijadoQueSeVe : null;
+
+  // /live confirmo lo mismo que se toco: manda el servidor.
+  useEffect(() => {
+    if (!fijadoLocalDeEsteChat || fijadoDelServidor === undefined) return;
+    if ((fijadoDelServidor?.id ?? null) === (fijadoLocalDeEsteChat.fijado?.id ?? null)) {
+      setFijadoLocal(null);
+    }
+  }, [fijadoDelServidor, fijadoLocalDeEsteChat]);
+
+  // Como mucho 15 s: despues manda lo que diga el servidor.
+  useEffect(() => {
+    if (!fijadoLocal) return;
+    const espera = window.setTimeout(
+      () => setFijadoLocal((actual) => (actual === fijadoLocal ? null : actual)),
+      Math.max(0, fijadoLocal.hasta - Date.now()),
+    );
+    return () => window.clearTimeout(espera);
+  }, [fijadoLocal]);
+
+  const datosParaFijarRef = useRef({ conversationId: idDelChatParaFijar, fijado: mensajeFijadoVisible });
+  datosParaFijarRef.current = { conversationId: idDelChatParaFijar, fijado: mensajeFijadoVisible };
+  const refrescarChatParaFijarRef = useRef(refreshSelectedConversationFromServer);
+  refrescarChatParaFijarRef.current = refreshSelectedConversationFromServer;
+
+  // Estable (con refs): MessageBubble es memo y no debe redibujarse entera por esto.
+  const cambiarFijado = useCallback((nuevo: MensajeFijado | null) => {
+    const { conversationId, fijado: anterior } = datosParaFijarRef.current;
+    if (!conversationId) {
+      toast.error("Espera a que cargue el chat");
+      return;
+    }
+    const optimista = { conversationId, fijado: nuevo, hasta: Date.now() + 15_000 };
+    setFijadoLocal(optimista);
+
+    const volverAtras = (error?: string) => {
+      setFijadoLocal((actual) =>
+        actual === optimista ? { conversationId, fijado: anterior, hasta: Date.now() + 15_000 } : actual,
+      );
+      toast.error(error || (nuevo ? "No se pudo fijar el mensaje" : "No se pudo desfijar el mensaje"));
+    };
+
+    void fijarPorRuta({ conversationId, messageId: nuevo?.id ?? null })
+      .then((resultado) => {
+        if (!resultado?.ok) {
+          volverAtras(resultado?.error);
+          return;
+        }
+        // Guardado: el chat abierto queda con el fijado nuevo (asi tambien en la cache del chat)
+        // y /live lo confirma.
+        setLiveConversation((actual) =>
+          actual && conversationIdMatchesKey(actual.id, conversationId) && !actual.isPreview
+            ? { ...actual, mensajeFijado: nuevo }
+            : actual,
+        );
+        void refrescarChatParaFijarRef.current();
+      })
+      .catch(() => volverAtras());
+  }, []);
+
+  const handlePinMessage = useCallback(
+    (target: SharedInboxMessageItem) => {
+      if (!target.id || target.id.startsWith("optimistic:") || target.deletedAt) return;
+      cambiarFijado({ id: target.id, texto: target.content?.trim() ?? "", tipo: target.type || "TEXT" });
+    },
+    [cambiarFijado],
+  );
+  const handleUnpinMessage = useCallback(() => cambiarFijado(null), [cambiarFijado]);
+  const handleDesfijarDesdeLaFranja = useCallback(() => cambiarFijado(null), [cambiarFijado]);
+  // Tocar la franja: lo mismo que tocar un mensaje encontrado (el efecto de mensajeAEnfocar).
+  const handleIrAlMensajeFijado = useCallback(
+    (fijado: MensajeFijado) => {
+      if (!selectedConversationKey || !textoDeLaFranja(fijado)) return;
+      pedirIrAlMensaje(selectedConversationKey, fijado.id);
+    },
+    [selectedConversationKey],
+  );
+
   useEffect(() => {
     setReplyTarget(null);
   }, [selectedConversationId]);
@@ -4638,6 +4738,11 @@ export function SharedInbox({
         onReplyToMessage={handleReplyToMessage}
         onDeleteMessage={handleDeleteMessage}
         onEditMessage={handleEditMessage}
+        mensajeFijado={mensajeFijadoVisible}
+        onPinMessage={handlePinMessage}
+        onUnpinMessage={handleUnpinMessage}
+        onDesfijarDesdeLaFranja={handleDesfijarDesdeLaFranja}
+        onIrAlMensajeFijado={handleIrAlMensajeFijado}
         replyTarget={replyTarget}
         onCancelReply={handleCancelReply}
         renderedConversation={renderedConversation}

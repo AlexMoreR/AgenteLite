@@ -130,6 +130,13 @@ export function reaccionarPorRuta(entrada: { messageId: string; emoji: string })
   return pedirALaRuta<ResultadoDeReaccion>("reaccionar", JSON.stringify(entrada), LIMITE_ESPERA_RUTA_MS);
 }
 
+export type ResultadoDeFijar = { ok: boolean; error?: string; mensajeFijadoId?: string | null };
+
+/** Fijar (o desfijar con messageId null) un mensaje del chat. Solo CRM: no sale nada por WhatsApp. */
+export function fijarPorRuta(entrada: { conversationId: string; messageId: string | null }) {
+  return pedirALaRuta<ResultadoDeFijar>("fijar", JSON.stringify(entrada), LIMITE_ESPERA_RUTA_MS);
+}
+
 /** Texto suelto (reenviar) por la ruta que ya existe, /api/cliente/chats/enviar, con el mismo FormData. */
 export function enviarTextoSimplePorRuta(datos: FormData) {
   return pedirALaRuta<ResultadoDeTexto>("enviar", datos, LIMITE_ESPERA_RUTA_MS);
