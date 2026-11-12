@@ -1,9 +1,13 @@
 import { prisma } from "@/lib/prisma";
 import { autoAssignConversationToCollaborator } from "@/lib/reparto-de-leads";
-import { respondioLaBienvenida } from "@/lib/turno-con-contenido";
+import { chatNecesitaAsesora } from "@/lib/reparto-cuando-lo-necesita";
 
 /**
- * EL REPARTO: la clienta recibe asesora apenas responde la bienvenida.
+ * EL REPARTO: la clienta recibe asesora cuando el chat la NECESITA (Alex, 11-nov-2026).
+ *
+ * Desde el 11-11-2026 decide `chatNecesitaAsesora` (reparto-cuando-lo-necesita.ts): nadie antes de
+ * que el bot mande las fotos, y después solo si el agente pidió asesora o la clienta habla de
+ * precio, pago, envío, contraentrega o ciudad. Lo de abajo es la historia de la regla anterior.
  *
  * Regla de Alex (30-10-2026, pisa la del 02-10 y el interruptor `exigirPrecioOFotos` del 12-10).
  * Se asigna cuando se cumplen tres cosas: el chat no tiene asesora, la línea es de ventas
@@ -22,8 +26,8 @@ import { respondioLaBienvenida } from "@/lib/turno-con-contenido";
  *  - No cambia al agente ni manda mensajes: asignar no lo pausa.
  */
 
-/** Cuántos mensajes (los primeros del chat) se leen: sobran para ver nuestro primer mensaje y una respuesta. */
-const MENSAJES_A_MIRAR = 60;
+/** Cuántos mensajes (los últimos del chat, con las notas) se leen: un chat sin asesora es casi siempre nuevo. */
+const MENSAJES_A_MIRAR = 80;
 
 export async function repartirSiElTurnoLoAmerita(input: {
   conversationId: string;
@@ -44,14 +48,16 @@ export async function repartirSiElTurnoLoAmerita(input: {
     return { asignada: false };
   }
 
+  // Con las notas del sistema: la de "El agente pide un asesor" es una de las dos razones para asignar.
   const mensajes = await prisma.message.findMany({
-    where: { conversationId: input.conversationId, type: { not: "SYSTEM" }, deletedAt: null },
-    orderBy: { createdAt: "asc" },
+    where: { conversationId: input.conversationId, deletedAt: null },
+    orderBy: { createdAt: "desc" },
     take: MENSAJES_A_MIRAR,
     select: { direction: true, type: true, content: true, createdAt: true },
   });
 
-  if (!respondioLaBienvenida(mensajes)) {
+  const decision = chatNecesitaAsesora(mensajes);
+  if (!decision.asignar) {
     return { asignada: false };
   }
 
@@ -65,6 +71,8 @@ export async function repartirSiElTurnoLoAmerita(input: {
       conversationId: input.conversationId,
       channelId: input.channelId,
       userId: elegida,
+      motivo: decision.motivo,
+      detalle: decision.detalle,
     });
   }
   return { asignada: Boolean(elegida) };

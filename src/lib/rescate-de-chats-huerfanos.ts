@@ -2,7 +2,7 @@ import { leerMarcaExterior } from "@/features/seguimiento-inteligente/dominio/ex
 import { ventanaDeMadrugada } from "@/lib/en-linea-reglas";
 import { prisma } from "@/lib/prisma";
 import { autoAssignConversationToCollaborator } from "@/lib/reparto-de-leads";
-import { respondioLaBienvenida } from "@/lib/turno-con-contenido";
+import { chatNecesitaAsesora } from "@/lib/reparto-cuando-lo-necesita";
 
 /**
  * LA RED: un cliente esperando y sin nadie a cargo.
@@ -27,6 +27,12 @@ import { respondioLaBienvenida } from "@/lib/turno-con-contenido";
  * líneas de VENTAS sin dueño con movimiento en las últimas 48 h —sin la media hora de espera: ya
  * respondió— y se rescatan si `respondioLaBienvenida` dice que sí.
  *
+ * DESDE EL 11-11-2026 el segundo caso ya no pregunta "¿respondió la bienvenida?" sino
+ * `chatNecesitaAsesora` (reparto-cuando-lo-necesita.ts), la misma regla del reparto por turno: con
+ * las fotos ya mandadas, que el agente haya pedido asesora o que la clienta hable de precio, pago,
+ * envío, contraentrega o ciudad. Corre cada minuto, así ve lo que pasó después del último mensaje de
+ * la clienta (las fotos o la nota del agente llegan después de su mensaje).
+ *
  * No manda ningún mensaje al cliente: solo pone a alguien a cargo. Quien decide qué decirle es la
  * asesora que lo recibe.
  */
@@ -50,8 +56,8 @@ const VENTANA_BIENVENIDA_HORAS = 48;
  */
 const CUANTOS_MIRAR_BIENVENIDA = 500;
 
-/** Mensajes del comienzo del chat que alcanzan para saber si respondió la bienvenida. */
-const MENSAJES_PARA_BIENVENIDA = 30;
+/** Mensajes (los últimos, con las notas) que alcanzan para decidir si el chat necesita asesora. */
+const MENSAJES_PARA_BIENVENIDA = 80;
 
 const SELECCION = {
   id: true,
@@ -66,7 +72,7 @@ const SELECCION = {
  *
  * Primero, en lote: el primer mensaje nuestro y el último de la clienta de cada chat. Si la clienta
  * no escribió después del primero nuestro, no respondió y no se sigue. A los que pasan se les traen
- * los primeros mensajes y decide `respondioLaBienvenida`, la misma regla del reparto por turno.
+ * los últimos mensajes y decide `chatNecesitaAsesora` (desde el 11-11-2026), la misma regla del reparto por turno.
  */
 async function chatsQueRespondieronLaBienvenida(ahora: Date) {
   const sinDueno = await prisma.conversation.findMany({
@@ -87,10 +93,12 @@ async function chatsQueRespondieronLaBienvenida(ahora: Date) {
 
   const ids = sinDueno.map((conversacion) => conversacion.id);
   const vigentes = { conversationId: { in: ids }, type: { not: "SYSTEM" as const }, deletedAt: null };
+  // Antes de leer cada chat: que ya tenga fotos nuestras (sin fotos la regla nunca asigna) y algún
+  // mensaje de la clienta. Así se leen pocos chats por vuelta.
   const [primerosNuestros, ultimosDelCliente] = await Promise.all([
     prisma.message.groupBy({
       by: ["conversationId"],
-      where: { ...vigentes, direction: "OUTBOUND" },
+      where: { ...vigentes, direction: "OUTBOUND", type: { in: ["IMAGE", "VIDEO", "DOCUMENT"] } },
       _min: { createdAt: true },
     }),
     prisma.message.groupBy({
@@ -109,25 +117,19 @@ async function chatsQueRespondieronLaBienvenida(ahora: Date) {
     }
     const nuestro = primerNuestro.get(conversacion.id);
     const cliente = ultimoDelCliente.get(conversacion.id);
-    if (!nuestro || !cliente || cliente < nuestro) {
+    if (!nuestro || !cliente) {
       continue;
     }
     if (leerMarcaExterior(conversacion.contact?.metadata)) {
       continue;
     }
     const mensajes = await prisma.message.findMany({
-      where: { conversationId: conversacion.id, type: { not: "SYSTEM" }, deletedAt: null },
-      orderBy: { createdAt: "asc" },
+      where: { conversationId: conversacion.id, deletedAt: null },
+      orderBy: { createdAt: "desc" },
       take: MENSAJES_PARA_BIENVENIDA,
-      select: { type: true, direction: true, createdAt: true, deletedAt: true },
+      select: { type: true, direction: true, content: true, createdAt: true },
     });
-    const delTurno = mensajes.map((mensaje) => ({
-      type: mensaje.type,
-      direction: mensaje.direction,
-      createdAt: mensaje.createdAt,
-      borrado: mensaje.deletedAt != null,
-    }));
-    if (respondioLaBienvenida(delTurno)) {
+    if (chatNecesitaAsesora(mensajes).asignar) {
       elegidas.push(conversacion);
     }
   }
