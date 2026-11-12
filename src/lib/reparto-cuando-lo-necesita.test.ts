@@ -19,9 +19,18 @@ test("el caso de Alex: 'estética facial' antes de las fotos NO asigna", () => {
   assert.equal(chatNecesitaAsesora([...comienzo, cliente(61, "estética facial")]).motivo, "sin_fotos");
 });
 
-test("antes de las fotos no asigna NADA, ni preguntando precio ni con la nota del agente", () => {
+test("antes de las fotos, lo que escribe la clienta no asigna (ni preguntando precio)", () => {
   assert.equal(chatNecesitaAsesora([...comienzo, cliente(61, "¿cuánto vale?")]).asignar, false);
-  assert.equal(chatNecesitaAsesora([...comienzo, nota(61, "El agente pide un asesor: no entendió")]).asignar, false);
+});
+
+test("si el agente pide asesora, se asigna aunque no haya fotos (caso 'Quiropodia' del 11-11)", () => {
+  const decision = chatNecesitaAsesora([
+    ...comienzo,
+    cliente(61, "Quiropodia"),
+    nota(61, "El agente pide un asesor: El agente no pudo redactar una respuesta: que conteste una persona"),
+  ]);
+  assert.equal(decision.asignar, true);
+  assert.equal(decision.motivo, "agente_pide_asesora");
 });
 
 test("con las fotos mandadas, 'sí' o 'qué lindo' no asignan", () => {

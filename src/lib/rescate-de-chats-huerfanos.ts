@@ -95,7 +95,7 @@ async function chatsQueRespondieronLaBienvenida(ahora: Date) {
   const vigentes = { conversationId: { in: ids }, type: { not: "SYSTEM" as const }, deletedAt: null };
   // Antes de leer cada chat: que ya tenga fotos nuestras (sin fotos la regla nunca asigna) y algún
   // mensaje de la clienta. Así se leen pocos chats por vuelta.
-  const [primerosNuestros, ultimosDelCliente] = await Promise.all([
+  const [primerosNuestros, ultimosDelCliente, conPedidoDelAgente] = await Promise.all([
     prisma.message.groupBy({
       by: ["conversationId"],
       where: { ...vigentes, direction: "OUTBOUND", type: { in: ["IMAGE", "VIDEO", "DOCUMENT"] } },
@@ -106,7 +106,14 @@ async function chatsQueRespondieronLaBienvenida(ahora: Date) {
       where: { ...vigentes, direction: "INBOUND" },
       _max: { createdAt: true },
     }),
+    // El agente pidió asesora: esos se asignan aunque todavía no haya fotos.
+    prisma.message.groupBy({
+      by: ["conversationId"],
+      where: { conversationId: { in: ids }, type: "SYSTEM", deletedAt: null, content: { startsWith: "El agente pide un asesor" } },
+      _min: { createdAt: true },
+    }),
   ]);
+  const pidioAsesora = new Set(conPedidoDelAgente.map((fila) => fila.conversationId));
   const primerNuestro = new Map(primerosNuestros.map((fila) => [fila.conversationId, fila._min.createdAt]));
   const ultimoDelCliente = new Map(ultimosDelCliente.map((fila) => [fila.conversationId, fila._max.createdAt]));
 
@@ -117,7 +124,7 @@ async function chatsQueRespondieronLaBienvenida(ahora: Date) {
     }
     const nuestro = primerNuestro.get(conversacion.id);
     const cliente = ultimoDelCliente.get(conversacion.id);
-    if (!nuestro || !cliente) {
+    if ((!nuestro && !pidioAsesora.has(conversacion.id)) || !cliente) {
       continue;
     }
     if (leerMarcaExterior(conversacion.contact?.metadata)) {

@@ -5,12 +5,14 @@ import { departamentoDeCiudad, limpiarTexto } from "../features/pauta/dominio/de
   la bienvenida"). Caso: chat 253948799807545, la clienta contestó "estética facial" a las 10:01 p. m.
   y Yair quedó asignado en ese instante, con el bot todavía calificando.
 
-  La regla nueva tiene dos partes:
-    1. NADIE se asigna antes de que el bot mande las fotos: una foto, un video o un catálogo (PDF)
-       salientes. Con la bienvenida y la pregunta de qué servicios ofrece todavía no.
-    2. Con las fotos ya mandadas, se asigna solo si
-       (a) el agente pidió asesora (la nota "El agente pide un asesor: …"), o
-       (b) la clienta preguntó precio, pago, envío o contraentrega, o dijo su ciudad.
+  La regla nueva:
+    (a) Si el agente pidió asesora (la nota "El agente pide un asesor: …"), se asigna SIEMPRE, con o
+        sin fotos: el bot se rindió y si nadie la toma la clienta queda sin respuesta. Caso real del
+        11-11 (cv70a2c874fc1e084c485c2ac5): "Quiropodia", el bot "no pudo redactar una respuesta" y
+        todavía no había mandado fotos.
+    (b) Lo que escribe la clienta NO asigna antes de que el bot mande las fotos (una foto, un video o
+        un catálogo PDF salientes): con la bienvenida y "qué servicios ofreces" todavía no. Con las
+        fotos ya mandadas, asigna si pregunta precio, pago, envío o contraentrega, o dice su ciudad.
   La reasignación a los 10 minutos sin respuesta (demora-de-asesora) no cambia.
 
   Código puro (sin base): lo usan el reparto por turno (al entrar cada mensaje) y el rescate de
@@ -158,14 +160,15 @@ export type DecisionDelReparto =
  */
 export function chatNecesitaAsesora(mensajes: ReadonlyArray<MensajeDelReparto>): DecisionDelReparto {
   const ordenados = enOrden(mensajes);
+
+  // (a) El agente pidió asesora: siempre, haya fotos o no.
+  const nota = ordenados.find((m) => (m.type ?? "").toUpperCase() === "SYSTEM" && NOTA_PIDE_ASESOR.test((m.content ?? "").trim()));
+  if (nota) return { asignar: true, motivo: "agente_pide_asesora", detalle: (nota.content ?? "").slice(0, 160) };
+
   const primeraFoto = ordenados.findIndex(
     (m) => m.direction === "OUTBOUND" && TIPOS_DE_FOTOS.has((m.type ?? "TEXT").toUpperCase()),
   );
   if (primeraFoto === -1) return { asignar: false, motivo: "sin_fotos" };
-
-  // (a) El agente pidió asesora: la nota cuenta esté antes o después de las fotos (con fotos ya enviadas).
-  const nota = ordenados.find((m) => (m.type ?? "").toUpperCase() === "SYSTEM" && NOTA_PIDE_ASESOR.test((m.content ?? "").trim()));
-  if (nota) return { asignar: true, motivo: "agente_pide_asesora", detalle: (nota.content ?? "").slice(0, 160) };
 
   // (b) Cualquier mensaje de la clienta (también uno de antes de las fotos: "Precio en Bogotá" en el
   // primer mensaje sigue pendiente de respuesta cuando llegan las fotos).
