@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { FileText, Loader2, Mic, Paperclip, Square, X } from "lucide-react";
+import { FileText, Loader2, Mic, Music, Paperclip, Square, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -18,6 +18,7 @@ import { createChatFollowUpAction } from "@/app/actions/follow-actions";
 import { SeguimientosDelCliente } from "@/components/chats/seguimientos-del-cliente";
 import { dentroDelHorario, siguienteApertura } from "@/lib/anti-bloqueo/reglas";
 import { subirArchivoPorPedazos } from "@/lib/subir-archivo-por-pedazos";
+import { ACCEPT_AUDIOS, MAXIMO_AUDIO_BYTES, tipoDeAudioElegido } from "@/components/chats/archivo-legible";
 import {
   MAXIMO_DIAS_FECHA_EXACTA,
   ahoraEnBogotaParaInput,
@@ -69,6 +70,8 @@ function tipoDelArchivo(archivo: File): TipoDeAdjunto | null {
   if (archivo.type.startsWith("image/")) return "IMAGE";
   if (archivo.type.startsWith("video/")) return "VIDEO";
   if (archivo.type === "application/pdf" || /\.pdf$/i.test(archivo.name)) return "DOC";
+  // Un audio ya grabado ("Subir audio", 12-nov-2026) sale como nota de voz.
+  if (tipoDeAudioElegido(archivo.name, archivo.type)) return "AUDIO";
   return null;
 }
 
@@ -120,6 +123,7 @@ export function FollowUpDialog({
   const [horario, setHorario] = useState<{ activo: boolean; desdeHora: number; hastaHora: number } | null>(null);
   const grabadoraRef = useRef<MediaRecorder | null>(null);
   const selectorRef = useRef<HTMLInputElement | null>(null);
+  const selectorDeAudiosRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -202,16 +206,26 @@ export function FollowUpDialog({
     for (const archivo of archivos.slice(0, libres)) {
       const tipo = tipoDelArchivo(archivo);
       if (!tipo) {
-        toast.error(`"${archivo.name}" no es foto, video ni PDF`);
+        toast.error(`"${archivo.name}" no es foto, video, PDF ni audio`);
         continue;
       }
+      let paraSubir = archivo;
+      if (tipo === "AUDIO") {
+        if (archivo.size > MAXIMO_AUDIO_BYTES) {
+          toast.error(`"${archivo.name}" pesa más de 16 MB: WhatsApp no lo deja mandar como audio.`);
+          continue;
+        }
+        // Con el tipo que acepta la subida: Windows entrega el .m4a como "audio/x-m4a" y el .opus sin tipo.
+        const audio = tipoDeAudioElegido(archivo.name, archivo.type);
+        if (audio) paraSubir = new File([archivo], `audio-${Date.now()}.${audio.extension}`, { type: audio.tipo });
+      }
       nuevos.push({
-        archivo,
+        archivo: paraSubir,
         adjunto: {
           id: nuevoId(),
           tipo,
           nombre: archivo.name,
-          vistaPrevia: tipo === "IMAGE" || tipo === "VIDEO" ? URL.createObjectURL(archivo) : null,
+          vistaPrevia: tipo === "IMAGE" || tipo === "VIDEO" || tipo === "AUDIO" ? URL.createObjectURL(paraSubir) : null,
           estado: "subiendo",
           url: null,
           motivo: null,
@@ -494,6 +508,17 @@ export function FollowUpDialog({
                 evento.target.value = "";
               }}
             />
+            <input
+              ref={selectorDeAudiosRef}
+              type="file"
+              accept={ACCEPT_AUDIOS}
+              multiple
+              className="hidden"
+              onChange={(evento) => {
+                agregarArchivos(evento.target.files);
+                evento.target.value = "";
+              }}
+            />
             <div className="flex flex-wrap gap-1.5">
               <button
                 type="button"
@@ -524,6 +549,15 @@ export function FollowUpDialog({
                   Grabar audio
                 </button>
               )}
+              <button
+                type="button"
+                onClick={() => selectorDeAudiosRef.current?.click()}
+                disabled={adjuntos.length >= MAXIMO_DE_ADJUNTOS || grabando}
+                className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-[13px] text-foreground transition hover:bg-muted disabled:opacity-50"
+              >
+                <Music className="size-4" />
+                Subir audio
+              </button>
             </div>
             {listos.some((adjunto) => adjunto.tipo !== "AUDIO") && content.trim() ? (
               <p className="text-[12px] text-muted-foreground">El texto sale debajo de la primera foto, video o PDF.</p>

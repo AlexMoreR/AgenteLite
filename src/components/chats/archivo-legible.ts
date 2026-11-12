@@ -119,6 +119,43 @@ export function tipoDeNotaDeVoz(mimeDelGrabador: string, esApple: boolean): { ti
   return { tipo: base.startsWith("audio/") ? base : "audio/webm", extension: "webm" };
 }
 
+/*
+  "Subir audio" (Alex, 12-nov-2026: "no tengo la opción de subir audio"): un audio que ya existe
+  -una nota de voz guardada, un mp3, un audio de WhatsApp (.opus)- sale como nota de voz.
+
+  El tipo del archivo no es confiable: Windows suele entregar el .m4a como "audio/x-m4a", el .opus
+  sin tipo, y algunos celulares mandan "application/octet-stream". Se mira el tipo y, si no dice
+  nada, la extension. Devuelve el tipo que acepta el servidor (upload-audio) o null si no es audio.
+*/
+export const ACCEPT_AUDIOS = "audio/*,.mp3,.m4a,.aac,.ogg,.opus,.oga,.wav,.webm";
+export const MAXIMO_AUDIO_BYTES = 16 * 1024 * 1024;
+
+export function tipoDeAudioElegido(nombre: string, tipoDelArchivo: string): { tipo: string; extension: string } | null {
+  const base = (tipoDelArchivo || "").split(";")[0].trim().toLowerCase();
+  const extension = (/\.([a-z0-9]+)$/i.exec(nombre || "")?.[1] ?? "").toLowerCase();
+  // Un tipo de audio conocido manda; "audio/amr" y similares no los acepta el servidor.
+  if (base.startsWith("audio/") && /mp4|m4a|aac|ogg|opus|mpeg|mp3|wav|webm/.test(base)) {
+    return tipoDeNotaDeVoz(base, false);
+  }
+  switch (extension) {
+    case "mp3":
+      return { tipo: "audio/mpeg", extension: "mp3" };
+    case "m4a":
+    case "aac":
+      return { tipo: "audio/mp4", extension: "m4a" };
+    case "ogg":
+    case "oga":
+    case "opus":
+      return { tipo: "audio/ogg", extension: "ogg" };
+    case "wav":
+      return { tipo: "audio/wav", extension: "wav" };
+    case "webm":
+      return { tipo: "audio/webm", extension: "webm" };
+    default:
+      return null;
+  }
+}
+
 /** El error del servidor cuando el formulario llego sin el archivo (upload-audio/route.ts). */
 export function esFaltaDeArchivo(error: string | null | undefined): boolean {
   return /no se recibi[oó] ning[uú]n archivo/i.test(error ?? "");

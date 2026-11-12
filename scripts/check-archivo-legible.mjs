@@ -106,6 +106,30 @@ await prueba("guardado en el navegador: bytes + tipo + nombre, y vuelve el mismo
   assert.equal(A.esArchivoGuardado({ formato: 2, bytes: new ArrayBuffer(1), tipo: "", nombre: "" }), false);
 });
 
+await prueba("'Subir audio': un audio ya grabado se reconoce por tipo o extension y lo acepta la subida", () => {
+  const ruta = leer("src/app/api/cliente/chats/upload-audio/route.ts");
+  const permitidos = ruta.slice(ruta.indexOf("ALLOWED_AUDIO_MIME_TYPES"), ruta.indexOf("]);"));
+  const casos = [
+    ["nota.m4a", "audio/x-m4a", "audio/mp4"],
+    ["nota.m4a", "", "audio/mp4"],
+    ["cancion.mp3", "audio/mpeg", "audio/mpeg"],
+    ["cancion.MP3", "application/octet-stream", "audio/mpeg"],
+    ["PTT-20261112.opus", "", "audio/ogg"],
+    ["audio.ogg", "audio/ogg", "audio/ogg"],
+    ["grabacion.wav", "audio/x-wav", "audio/wav"],
+    ["voz.aac", "audio/aac", "audio/mp4"],
+    ["voz.webm", "audio/webm", "audio/webm"],
+  ];
+  for (const [nombre, tipo, esperado] of casos) {
+    const salida = A.tipoDeAudioElegido(nombre, tipo);
+    assert.equal(salida?.tipo, esperado, `${nombre} (${tipo})`);
+    assert.ok(permitidos.includes(`"${salida.tipo}"`), `${nombre} -> ${salida.tipo} no lo acepta la subida`);
+  }
+  for (const [nombre, tipo] of [["foto.jpg", "image/jpeg"], ["video.mp4", "video/mp4"], ["doc.pdf", ""], ["voz.amr", "audio/amr"], ["sin-extension", ""]]) {
+    assert.equal(A.tipoDeAudioElegido(nombre, tipo), null, nombre);
+  }
+});
+
 await prueba("la nota de voz va con nombre y tipo que acepta la subida (m4a / audio/mp4 en iOS)", () => {
   assert.deepStrictEqual(A.tipoDeNotaDeVoz("audio/mp4", true), { tipo: "audio/mp4", extension: "m4a" });
   assert.deepStrictEqual(A.tipoDeNotaDeVoz("audio/mp4;codecs=mp4a.40.2", true), { tipo: "audio/mp4", extension: "m4a" });

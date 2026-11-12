@@ -17,6 +17,7 @@ import {
   Forward,
   FileText,
   Headphones,
+  Music,
   ImageIcon,
   LoaderCircle,
   MapPin,
@@ -152,6 +153,9 @@ import {
   mensajeDeFallaDelMicrofono,
   motivoDeArchivoPerdido,
   tipoDeNotaDeVoz,
+  ACCEPT_AUDIOS,
+  MAXIMO_AUDIO_BYTES,
+  tipoDeAudioElegido,
 } from "@/components/chats/archivo-legible";
 import { cuandoEsteLibre } from "@/lib/cuando-este-libre";
 import { TIEMPO_LIMITE_SUBIDA_MS, clasificarSubida } from "@/lib/nota-de-voz-reintento";
@@ -450,6 +454,32 @@ async function copiarArchivosAMemoria(
     }
   }
   return { archivos, ilegible: null };
+}
+
+/** Cuanto dura un audio elegido, para la burbuja. Si el navegador no lo puede leer, 0. */
+function duracionDelAudio(archivo: Blob): Promise<number> {
+  return new Promise((resolver) => {
+    const url = URL.createObjectURL(archivo);
+    const audio = document.createElement("audio");
+    let listo = false;
+    const terminar = (ms: number) => {
+      if (listo) return;
+      listo = true;
+      URL.revokeObjectURL(url);
+      resolver(Number.isFinite(ms) && ms > 0 ? Math.round(ms) : 0);
+    };
+    const plazo = setTimeout(() => terminar(0), 4000);
+    audio.preload = "metadata";
+    audio.onloadedmetadata = () => {
+      clearTimeout(plazo);
+      terminar(audio.duration * 1000);
+    };
+    audio.onerror = () => {
+      clearTimeout(plazo);
+      terminar(0);
+    };
+    audio.src = url;
+  });
 }
 
 /** Si la barra de primera accion del celular quedo escondida ("no") o visible ("si"). */
@@ -816,6 +846,7 @@ export const ConversationPanel = memo(function ConversationPanel({
   // Aparte del de fotos: con un solo input, el selector del celular ofrece la galeria y esconde
   // el explorador de archivos, que es justo donde esta el PDF.
   const documentoFileInputRef = useRef<HTMLInputElement | null>(null);
+  const audioFileInputRef = useRef<HTMLInputElement | null>(null);
   const [isSendingLocation, setIsSendingLocation] = useState(false);
   /*
     Los archivos en envio -fotos, videos, documentos y notas de voz- (fotos-en-envio.ts): aparecen
@@ -1521,6 +1552,30 @@ export const ConversationPanel = memo(function ConversationPanel({
       setIsRecordingAudio(false);
     }
   }, [audioConfig, clearRecordTimer, isRecordingAudio, stopRecordTracks, uploadAndSendAudio]);
+
+  /*
+    "Subir audio" (Alex, 12-nov-2026): un audio que ya existe sale como nota de voz, por la misma
+    cola que la grabada (subida, reintento, burbuja). El servidor lo convierte para que suene.
+  */
+  const enviarAudiosElegidos = useCallback(
+    async (archivos: File[]) => {
+      for (const archivo of archivos) {
+        const tipo = tipoDeAudioElegido(archivo.name, archivo.type);
+        if (!tipo) {
+          toast.error(`"${archivo.name}" no es un audio que se pueda mandar (mp3, m4a, ogg, opus o wav).`);
+          continue;
+        }
+        if (archivo.size <= 0 || archivo.size > MAXIMO_AUDIO_BYTES) {
+          toast.error(`"${archivo.name}" pesa más de 16 MB: WhatsApp no lo deja mandar como audio.`);
+          continue;
+        }
+        const conTipo = new Blob([archivo], { type: tipo.tipo });
+        const duracionMs = await duracionDelAudio(conTipo);
+        uploadAndSendAudio(conTipo, tipo.tipo, duracionMs);
+      }
+    },
+    [uploadAndSendAudio],
+  );
 
   const stopAndSendAudio = useCallback(() => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
@@ -2921,6 +2976,28 @@ export const ConversationPanel = memo(function ConversationPanel({
                                 }
                               }}
                             />
+                            {audioConfig ? (
+                              <input
+                                ref={audioFileInputRef}
+                                type="file"
+                                accept={ACCEPT_AUDIOS}
+                                multiple
+                                className="hidden"
+                                onChange={(event) => {
+                                  const files = Array.from(event.currentTarget.files ?? []);
+                                  event.currentTarget.value = "";
+                                  if (files.length > 0) {
+                                    void copiarArchivosAMemoria(files).then((copia) => {
+                                      if (copia.ilegible) {
+                                        toast.error(`No se pudo leer "${copia.ilegible}". Elígelo de nuevo.`, { duration: 10000 });
+                                        return;
+                                      }
+                                      void enviarAudiosElegidos(copia.archivos);
+                                    });
+                                  }
+                                }}
+                              />
+                            ) : null}
                             <Popover
                               open={isAttachMenuOpen}
                               onOpenChange={setIsAttachMenuOpen}
@@ -3130,7 +3207,21 @@ export const ConversationPanel = memo(function ConversationPanel({
                                     className="flex h-auto w-full items-center justify-start gap-2.5 rounded-md px-2.5 py-2 text-left text-[13px] font-medium text-foreground md:py-1.5 transition hover:bg-muted focus:outline-none focus-visible:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
                                   >
                                     <Headphones className="size-4 shrink-0 text-[#ff7a59]" />
-                                    <span>Audio</span>
+                                    <span>Grabar audio</span>
+                                  </Button>
+                                ) : null}
+                                {audioConfig ? (
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    onClick={() => {
+                                      setIsAttachMenuOpen(false);
+                                      audioFileInputRef.current?.click();
+                                    }}
+                                    className="flex h-auto w-full items-center justify-start gap-2.5 rounded-md px-2.5 py-2 text-left text-[13px] font-medium text-foreground md:py-1.5 transition hover:bg-muted focus:outline-none focus-visible:bg-muted"
+                                  >
+                                    <Music className="size-4 shrink-0 text-[#f59e0b]" />
+                                    <span>Subir audio</span>
                                   </Button>
                                 ) : null}
                               </PopoverContent>
