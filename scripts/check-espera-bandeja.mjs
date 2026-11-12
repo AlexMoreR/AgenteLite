@@ -1064,7 +1064,7 @@ await prueba("pantalla: un solo reloj en la lista, nada por fila, y el efecto de
   // tocar esas dos pastillas no vuelve a pedir /counts.
   assert.match(
     bandeja,
-    /\}, \[conversationListApiPath, searchQuery, selectedConnectionKey, statusFilter, firmaParaContar, pedidoDeConteos\]\);/,
+    /\}, \[conversationListApiPath, searchQuery, selectedConnectionKey, assignedFilter, statusFilter, firmaParaContar, pedidoDeConteos\]\);/,
   );
   assert.match(bandeja, /setEsperaDelConteo\(payload\.espera \?\? null\)/);
   assert.match(bandeja, /esperaPorClave\(esperaVigente\)/);

@@ -31,6 +31,11 @@ import {
   type EsperaDeChats,
   type QuienMira,
 } from "@/features/chats/services/espera-de-chats";
+import {
+  alcanceDeLasPastillas,
+  type AlcanceDeLasPastillas,
+  type AsignacionDeLasPastillas,
+} from "@/features/chats/domain/alcance-de-las-pastillas";
 
 export const dynamic = "force-dynamic";
 
@@ -101,7 +106,8 @@ async function countOfficialConversations(input: {
   searchQuery: string;
   selectedConnectionKey: string;
   userId: string;
-  assignedTo: "mine" | "unassigned" | "all";
+  // `user:<id>[,<id>...]` solo lo usan las pastillas No leido y Sin responder (ver alcanceDeLasPastillas).
+  assignedTo: AsignacionDeLasPastillas;
   statusFilter: ChatsStatusFilter;
   filtros: FiltrosDeBandeja;
 }): Promise<number> {
@@ -138,6 +144,10 @@ async function countOfficialConversations(input: {
    * relacion declarada, asi que Prisma no puede llegar hasta ella. Se usan los MISMOS fragmentos
    * que arma la lista: si el contador se escribiera aparte, terminarian diciendo cosas distintas.
    */
+  const asesorasPedidas = input.assignedTo.startsWith("user:")
+    ? input.assignedTo.slice("user:".length).split(",")
+    : [];
+
   if (hayFiltrosPuestos(input.filtros)) {
     const { etapa, sinResponder } = await fragmentosDeFiltrosOficiales(input.filtros, input.workspaceId);
     const estado =
@@ -151,7 +161,9 @@ async function countOfficialConversations(input: {
         ? Prisma.sql`AND c."assignedToUserId" = ${input.userId}`
         : input.assignedTo === "unassigned"
           ? Prisma.sql`AND c."assignedToUserId" IS NULL`
-          : Prisma.empty;
+          : asesorasPedidas.length
+            ? Prisma.sql`AND c."assignedToUserId" IN (${Prisma.join(asesorasPedidas)})`
+            : Prisma.empty;
 
     const filas = await prisma.$queryRaw<Array<{ total: bigint }>>`
       SELECT COUNT(*)::bigint AS "total"
@@ -177,7 +189,9 @@ async function countOfficialConversations(input: {
         ? { assignedToUserId: input.userId }
         : input.assignedTo === "unassigned"
           ? { assignedToUserId: null }
-          : {}),
+          : asesorasPedidas.length
+            ? { assignedToUserId: { in: asesorasPedidas } }
+            : {}),
       ...whereDeBusquedaDeChatsOficiales(normalizedSearchQuery),
     },
   });
@@ -288,6 +302,18 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
   const monitoreados = isManager ? [] : lineasQueMonitorea;
   t.marca("permisos");
 
+  /*
+    De quien cuentan "No leido" y "Sin responder": de la asignacion puesta en la bandeja
+    (Todas, Mias, Sin asignar o una asesora), igual que la lista con esa pastilla encendida.
+    Antes los jefes contaban siempre todo y, con Mias puesta, el numero no coincidia con la lista.
+    Sin `assigned` (pestaña vieja) cuenta todo, como antes. Todas, Mias y Sin asignar no cambian.
+  */
+  const alcance = alcanceDeLasPastillas(
+    requestUrl.searchParams.get("assigned"),
+    isManager ? { tipo: "jefe" } : monitoreados.length > 0 ? { tipo: "monitora", lineas: monitoreados } : { tipo: "asesora" },
+  );
+  const alcanceDePastillas = whereDelAlcance(alcance, session.user.id);
+
   /**
    * El contador tiene que contar lo mismo que muestra la lista, incluida la conexion elegida: si
    * la lista descarta una conexion que no es de este negocio, el numero de al lado tambien.
@@ -327,7 +353,6 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     canal viejo (ids de su SQL, con cache) y la linea oficial (su fragmento en el mismo conteo).
     Si uno falla, el resto de los contadores responde igual y esa pastilla va sin numero.
   */
-  const verTodo = isManager || monitoreados.length > 0;
   const conLaCondicion = async (
     condicion: CondicionDeBandeja,
     nombre: string,
@@ -344,7 +369,8 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
           searchQuery,
           selectedConnectionKey: conexionElegida,
           userId: session.user.id,
-          assignedTo: verTodo ? "all" : "mine",
+          // La misma asignacion que el canal viejo (alcanceDePastillas), tambien en la linea oficial.
+          assignedTo: alcance.asignacion,
           statusFilter,
           filtros: filtrosConLa,
         }),
@@ -434,8 +460,9 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
       prisma.conversation.count({ where: deSusLineas }),
     ]);
     const [sinResponder, noLeido] = await Promise.all([
-      contarPastilla(conSinResponder, { channelId: { in: monitoreados } }),
-      contarPastilla(conNoLeido, { channelId: { in: monitoreados } }),
+      // Siempre dentro de sus lineas (alcance.lineas), con la asignacion puesta.
+      contarPastilla(conSinResponder, alcanceDePastillas),
+      contarPastilla(conNoLeido, alcanceDePastillas),
     ]);
     return NextResponse.json({
       ok: true,
@@ -458,8 +485,9 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     });
 
     const [sinResponder, noLeido] = await Promise.all([
-      contarPastilla(conSinResponder, whereEsMio(session.user.id)),
-      contarPastilla(conNoLeido, whereEsMio(session.user.id)),
+      // A la asesora el alcance siempre le da los suyos (whereEsMio).
+      contarPastilla(conSinResponder, alcanceDePastillas),
+      contarPastilla(conNoLeido, alcanceDePastillas),
     ]);
     return NextResponse.json({
       ok: true,
@@ -476,8 +504,8 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
   ]);
 
   const [sinResponder, noLeido] = await Promise.all([
-    contarPastilla(conSinResponder, {}),
-    contarPastilla(conNoLeido, {}),
+    contarPastilla(conSinResponder, alcanceDePastillas),
+    contarPastilla(conNoLeido, alcanceDePastillas),
   ]);
   return NextResponse.json({
     ok: true,
@@ -491,4 +519,17 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     },
     espera,
   });
+}
+
+/** El `where` del canal viejo para el alcance de "No leido" y "Sin responder". */
+function whereDelAlcance(alcance: AlcanceDeLasPastillas, userId: string): Prisma.ConversationWhereInput {
+  const deQuien: Prisma.ConversationWhereInput =
+    alcance.quienes.tipo === "mios"
+      ? whereEsMio(userId)
+      : alcance.quienes.tipo === "sin_asesora"
+        ? { assignedToUserId: null }
+        : alcance.quienes.tipo === "asesoras"
+          ? { assignedToUserId: { in: alcance.quienes.ids } }
+          : {};
+  return alcance.lineas ? { AND: [{ channelId: { in: alcance.lineas } }, deQuien] } : deQuien;
 }

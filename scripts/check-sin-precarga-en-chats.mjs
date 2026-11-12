@@ -101,7 +101,7 @@ prueba("bandeja: /counts depende de la firma de lo que se cuenta, no de todos lo
   assert.match(bandejaSinComentarios, /const firmaParaContar = paresParaContar\.map\(/);
   assert.match(
     bandejaSinComentarios,
-    /\}, \[conversationListApiPath, searchQuery, selectedConnectionKey, statusFilter, firmaParaContar, pedidoDeConteos\]\);/,
+    /\}, \[conversationListApiPath, searchQuery, selectedConnectionKey, assignedFilter, statusFilter, firmaParaContar, pedidoDeConteos\]\);/,
   );
   assert.ok(!/ponerFiltrosParaContar/.test(bandejaSinComentarios));
 });

@@ -902,7 +902,7 @@ export function SharedInbox({
   */
   const firmaDeConteoGuardado = searchQuery.trim()
     ? ""
-    : [conversationListApiPath, selectedConnectionKey.trim(), statusFilter, firmaParaContar].join("|");
+    : [conversationListApiPath, selectedConnectionKey.trim(), assignedFilter, statusFilter, firmaParaContar].join("|");
   const firmaDeConteoGuardadoRef = useRef(firmaDeConteoGuardado);
   firmaDeConteoGuardadoRef.current = firmaDeConteoGuardado;
   useLayoutEffect(() => {
@@ -952,6 +952,9 @@ export function SharedInbox({
         if (selectedConnectionKey.trim()) params.set("connection", selectedConnectionKey.trim());
         // El contador tiene que contar lo mismo que se ve en la lista: si estas en "Resueltas",
         // el numero de al lado de la pestaña es el de las resueltas.
+        // La asignacion puesta, la MISMA que va a /list: "No leido" y "Sin responder" cuentan solo
+        // los chats de Todas, Mias, Sin asignar o la asesora elegida, como la lista.
+        params.set("assigned", assignedFilter);
         if (statusFilter !== "open") params.set("status", statusFilter);
         for (const [clave, valor] of paresParaContarRef.current) params.set(clave, valor);
         const qs = params.toString();
@@ -1003,7 +1006,7 @@ export function SharedInbox({
       document.removeEventListener("visibilitychange", alCambiarVisibilidad);
     };
     // paresParaContarRef cambia SIEMPRE junto con firmaParaContar.
-  }, [conversationListApiPath, searchQuery, selectedConnectionKey, statusFilter, firmaParaContar, pedidoDeConteos]);
+  }, [conversationListApiPath, searchQuery, selectedConnectionKey, assignedFilter, statusFilter, firmaParaContar, pedidoDeConteos]);
 
   useEffect(() => {
     conversationItemsRef.current = conversationItems;
