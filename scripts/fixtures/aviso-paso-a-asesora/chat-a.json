@@ -1,0 +1,146 @@
+{
+  "chat": "chat-a",
+  "telefono": "•••• 9101",
+  "descripcion": "El caso de la tarjeta: pidió fotos y precio a las 12:08, se asignó a una asesora, el bot mandó las fotos y siguió preguntando; la asesora escribió a las 12:26.",
+  "mensajes": [
+    {
+      "direccion": "IN",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "Hola, me interesa el COMBO de estética (camilla, escalera, silla y auxiliar)",
+      "en": "2026-11-12T17:01:00.000Z",
+      "externalId": "a-1"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "Bienvenid@ a *Magilus* 👑\nFabricantes de mobiliario para *peluquerías, barbería, spa y salones de belleza.*",
+      "en": "2026-11-12T17:01:15.000Z"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "¿Qué servicios vas a ofrecer en tu espacio - *masajes, estética facial, tratamientos corporales*?",
+      "en": "2026-11-12T17:01:20.000Z"
+    },
+    {
+      "direccion": "IN",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "Fotos y precio por favor",
+      "en": "2026-11-12T17:08:00.000Z",
+      "externalId": "a-2"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "SYSTEM",
+      "origen": "activity",
+      "kind": "assigned",
+      "texto": "Asesora 1 auto-asignado a esta conversación",
+      "en": "2026-11-12T17:08:12.000Z"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "¡Claro! Este es nuestro *combo de estética* 💆 camilla, escalera, silla y auxiliar.",
+      "en": "2026-11-12T17:08:15.000Z"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "IMAGE",
+      "origen": null,
+      "texto": null,
+      "en": "2026-11-12T17:08:18.000Z"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "IMAGE",
+      "origen": null,
+      "texto": null,
+      "en": "2026-11-12T17:08:21.000Z"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "IMAGE",
+      "origen": null,
+      "texto": null,
+      "en": "2026-11-12T17:08:24.000Z"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "IMAGE",
+      "origen": null,
+      "texto": null,
+      "en": "2026-11-12T17:08:27.000Z"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "El combo tiene un precio de *$1.890.000* con envío incluido.",
+      "en": "2026-11-12T17:08:30.000Z"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "IMAGE",
+      "origen": null,
+      "texto": null,
+      "en": "2026-11-12T17:08:33.000Z"
+    },
+    {
+      "direccion": "IN",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "Qué lindo 😍",
+      "en": "2026-11-12T17:11:00.000Z",
+      "externalId": "a-3"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "¿En qué color te gustaría? Lo tenemos en blanco, negro y rosado.",
+      "en": "2026-11-12T17:11:12.000Z"
+    },
+    {
+      "direccion": "IN",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "Blanco",
+      "en": "2026-11-12T17:14:00.000Z",
+      "externalId": "a-4"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "¡Excelente elección! ¿Para cuándo lo necesitas?",
+      "en": "2026-11-12T17:14:12.000Z"
+    },
+    {
+      "direccion": "IN",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "Para el otro mes",
+      "en": "2026-11-12T17:19:00.000Z",
+      "externalId": "a-5"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "Perfecto. ¿Qué te gustaría saber del combo?",
+      "en": "2026-11-12T17:19:12.000Z"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "TEXT",
+      "origen": "manual",
+      "texto": "Hola, soy tu asesora de Magilus. ¿Te ayudo a separar tu combo?",
+      "en": "2026-11-12T17:26:00.000Z"
+    }
+  ]
+}

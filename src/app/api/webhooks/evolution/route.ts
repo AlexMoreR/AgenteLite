@@ -122,6 +122,7 @@ import { leerMonitores, leerPausadosDeReparto } from "@/lib/channel-collaborator
 import { filtrarPorHorario } from "@/lib/horario-de-reparto";
 import { filtrarEnLinea } from "@/lib/en-linea";
 import { repartirSiElTurnoLoAmerita } from "@/lib/reparto-por-turno";
+import { avisarPasoAAsesoraSiToca } from "@/lib/reparto-aviso-a-la-clienta";
 import {
   marcarRespuestaExteriorEnviada,
   revisarExteriorEnWebhook,
@@ -2104,6 +2105,9 @@ export async function POST(request: NextRequest) {
     !exteriorDelSeguimiento.excluir
   ) {
     const conversacionDelReparto = conversation.id;
+    const telefonoDelReparto = phoneNumber;
+    const mensajeDelReparto = inboundExternalId;
+    const instanciaDelReparto = channel.evolutionInstanceName;
     after(async () => {
       try {
         await repartirSiElTurnoLoAmerita({
@@ -2113,6 +2117,30 @@ export async function POST(request: NextRequest) {
         });
       } catch (error) {
         console.error("[reparto-por-turno] fallo", {
+          conversationId: conversacionDelReparto,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      /*
+        Aviso a la clienta (12-nov-2026): si el chat pasó a una asesora en este turno, al final de lo
+        que respondió el bot sale una sola vez "Te paso con una asesora…". Con su propio try: si
+        falla, el reparto ya quedó hecho. Ver lib/reparto-aviso-a-la-clienta.ts.
+      */
+      // Sin instancia de Evolution no hay por dónde mandarlo: el bot tampoco pudo contestar.
+      if (!instanciaDelReparto) return;
+      try {
+        await avisarPasoAAsesoraSiToca({
+          conversationId: conversacionDelReparto,
+          channelId: channel.id,
+          workspaceId: channel.workspaceId,
+          contactId: contact.id,
+          agentId: channel.agentId ?? undefined,
+          instanceName: instanciaDelReparto,
+          phoneNumber: telefonoDelReparto,
+          externalIdDeEstePaso: mensajeDelReparto,
+        });
+      } catch (error) {
+        console.error("[reparto-aviso-a-la-clienta] fallo", {
           conversationId: conversacionDelReparto,
           error: error instanceof Error ? error.message : String(error),
         });

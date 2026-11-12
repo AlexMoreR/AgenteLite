@@ -1,0 +1,44 @@
+{
+  "chat": "chat-d",
+  "telefono": "•••• 7350",
+  "descripcion": "No se asigna: la clienta solo contó qué servicios ofrece y el bot no ha mandado fotos.",
+  "mensajes": [
+    {
+      "direccion": "IN",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "Hola, me interesa la camilla",
+      "en": "2026-11-12T16:02:00.000Z",
+      "externalId": "d-1"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "Bienvenid@ a *Magilus* 👑\nFabricantes de mobiliario para *peluquerías, barbería, spa y salones de belleza.*",
+      "en": "2026-11-12T16:02:14.000Z"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "¿Qué servicios vas a ofrecer en tu espacio - *masajes, estética facial, tratamientos corporales*?",
+      "en": "2026-11-12T16:02:18.000Z"
+    },
+    {
+      "direccion": "IN",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "Estética facial",
+      "en": "2026-11-12T16:04:00.000Z",
+      "externalId": "d-2"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "¡Perfecto! Nuestra *camilla* 💆 soporta hasta *200 kg*. ¿Te comparto *fotos*?",
+      "en": "2026-11-12T16:04:12.000Z"
+    }
+  ]
+}

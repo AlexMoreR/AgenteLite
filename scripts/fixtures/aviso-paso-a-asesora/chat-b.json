@@ -1,0 +1,104 @@
+{
+  "chat": "chat-b",
+  "telefono": "•••• 4417",
+  "descripcion": "El agente pide asesora en medio de su respuesta (V3): se asigna antes del último mensaje del bot.",
+  "mensajes": [
+    {
+      "direccion": "IN",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "Buenos días, info del combo de peluquería",
+      "en": "2026-11-12T14:40:00.000Z",
+      "externalId": "b-1"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "Bienvenid@ a *Magilus* 👑\nFabricantes de mobiliario para *peluquerías, barbería, spa y salones de belleza.*",
+      "en": "2026-11-12T14:40:14.000Z"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "¿Ya tienes el local o lo estás montando?",
+      "en": "2026-11-12T14:40:18.000Z"
+    },
+    {
+      "direccion": "IN",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "Lo estoy montando, me mandas fotos?",
+      "en": "2026-11-12T14:46:00.000Z",
+      "externalId": "b-2"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "IMAGE",
+      "origen": null,
+      "texto": null,
+      "en": "2026-11-12T14:46:15.000Z"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "IMAGE",
+      "origen": null,
+      "texto": null,
+      "en": "2026-11-12T14:46:18.000Z"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "Estas son las fotos del combo 💇‍♀️ ¿Te gustaría saber algo más?",
+      "en": "2026-11-12T14:46:21.000Z"
+    },
+    {
+      "direccion": "IN",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "Necesito factura a nombre de la empresa, se puede?",
+      "en": "2026-11-12T14:52:00.000Z",
+      "externalId": "b-3"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "SYSTEM",
+      "origen": "activity",
+      "kind": "note",
+      "texto": "El agente pide un asesor: factura a nombre de empresa",
+      "en": "2026-11-12T14:52:10.000Z"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "SYSTEM",
+      "origen": "activity",
+      "kind": "assigned",
+      "texto": "Asesora 2 auto-asignado a esta conversación",
+      "en": "2026-11-12T14:52:11.000Z"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "¡Sí! Con gusto revisamos lo de la factura.",
+      "en": "2026-11-12T14:52:14.000Z"
+    },
+    {
+      "direccion": "IN",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "Gracias",
+      "en": "2026-11-12T15:05:00.000Z",
+      "externalId": "b-4"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "¡Con gusto! 🙌",
+      "en": "2026-11-12T15:05:12.000Z"
+    }
+  ]
+}

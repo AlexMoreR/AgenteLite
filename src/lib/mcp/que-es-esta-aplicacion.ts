@@ -706,6 +706,8 @@ async function automatizaciones(
     // Corre en cada mensaje de la clienta (webhook), no en el reloj. Se gobierna desde Equipo
     // (pausa de reparto y horario por vendedora), no con una bandera.
     reparto_por_turno: sinInterruptor,
+    // Corre en el mismo paso del reparto por turno (webhook de Evolution): "Te paso con una asesora…".
+    aviso_paso_a_asesora: sinInterruptor,
     // Corre en el webhook, en el primer mensaje de un chat que llega de un anuncio de Meta.
     reparto_por_anuncio: await estadoDelRepartoPorAnuncio(workspaceId).catch(() => "no se pudo leer"),
     sincronizacion_gestion:

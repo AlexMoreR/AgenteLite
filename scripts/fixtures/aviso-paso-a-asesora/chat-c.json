@@ -1,0 +1,104 @@
+{
+  "chat": "chat-c",
+  "telefono": "•••• 2268",
+  "descripcion": "Se asigna al preguntar el envío y a los 10 minutos se reasigna por demora: el aviso sale una sola vez.",
+  "mensajes": [
+    {
+      "direccion": "IN",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "Hola, precio del combo de barbería",
+      "en": "2026-11-12T15:10:00.000Z",
+      "externalId": "c-1"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "Bienvenid@ a *Magilus* 👑\nFabricantes de mobiliario para *peluquerías, barbería, spa y salones de belleza.*",
+      "en": "2026-11-12T15:10:14.000Z"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "¿Te comparto fotos del combo?",
+      "en": "2026-11-12T15:10:18.000Z"
+    },
+    {
+      "direccion": "IN",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "Si",
+      "en": "2026-11-12T15:12:00.000Z",
+      "externalId": "c-2"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "IMAGE",
+      "origen": null,
+      "texto": null,
+      "en": "2026-11-12T15:12:12.000Z"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "IMAGE",
+      "origen": null,
+      "texto": null,
+      "en": "2026-11-12T15:12:15.000Z"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "¿Qué te parece? ¿Tienes alguna pregunta?",
+      "en": "2026-11-12T15:12:18.000Z"
+    },
+    {
+      "direccion": "IN",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "¿Hacen envíos a Pasto?",
+      "en": "2026-11-12T15:15:00.000Z",
+      "externalId": "c-3"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "SYSTEM",
+      "origen": "activity",
+      "kind": "assigned",
+      "texto": "Asesora 3 auto-asignado a esta conversación",
+      "en": "2026-11-12T15:15:10.000Z"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "¡Sí! Enviamos a todo el país 🚚",
+      "en": "2026-11-12T15:15:14.000Z"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "SYSTEM",
+      "origen": "activity",
+      "kind": "assigned",
+      "texto": "Asesora 4 asignado por demora (Asesora 3 no contestó en 10 min)",
+      "en": "2026-11-12T15:26:00.000Z"
+    },
+    {
+      "direccion": "IN",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "¿Y cuánto vale el envío?",
+      "en": "2026-11-12T15:27:00.000Z",
+      "externalId": "c-4"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "El envío va incluido en el precio del combo.",
+      "en": "2026-11-12T15:27:12.000Z"
+    }
+  ]
+}

@@ -1,0 +1,104 @@
+{
+  "chat": "chat-e",
+  "telefono": "•••• 5832",
+  "descripcion": "Tanda: la clienta manda dos mensajes seguidos; el primero cede y solo el segundo (el que contestó) avisa.",
+  "mensajes": [
+    {
+      "direccion": "IN",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "Hola",
+      "en": "2026-11-12T20:30:00.000Z",
+      "externalId": "e-1"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "Bienvenid@ a *Magilus* 👑\nFabricantes de mobiliario para *peluquerías, barbería, spa y salones de belleza.*",
+      "en": "2026-11-12T20:30:14.000Z"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "¿Qué servicios vas a ofrecer en tu espacio - *masajes, estética facial, tratamientos corporales*?",
+      "en": "2026-11-12T20:30:18.000Z"
+    },
+    {
+      "direccion": "IN",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "Uñas y pestañas, mándame fotos",
+      "en": "2026-11-12T20:33:00.000Z",
+      "externalId": "e-2"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "IMAGE",
+      "origen": null,
+      "texto": null,
+      "en": "2026-11-12T20:33:12.000Z"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "IMAGE",
+      "origen": null,
+      "texto": null,
+      "en": "2026-11-12T20:33:15.000Z"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "¿Qué te parecen? ¿Te gustaría saber algo más?",
+      "en": "2026-11-12T20:33:18.000Z"
+    },
+    {
+      "direccion": "IN",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "Cuánto cuesta",
+      "en": "2026-11-12T20:35:00.000Z",
+      "externalId": "e-3"
+    },
+    {
+      "direccion": "IN",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "Y aceptan Nequi?",
+      "en": "2026-11-12T20:35:04.000Z",
+      "externalId": "e-4"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "SYSTEM",
+      "origen": "activity",
+      "kind": "assigned",
+      "texto": "Asesora 5 auto-asignado a esta conversación",
+      "en": "2026-11-12T20:35:10.000Z"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "El combo de uñas y pestañas está en *$1.450.000* y sí, aceptamos Nequi 💜",
+      "en": "2026-11-12T20:35:16.000Z"
+    },
+    {
+      "direccion": "IN",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "Listo, gracias",
+      "en": "2026-11-12T20:40:00.000Z",
+      "externalId": "e-5"
+    },
+    {
+      "direccion": "OUT",
+      "tipo": "TEXT",
+      "origen": null,
+      "texto": "¡Con gusto!",
+      "en": "2026-11-12T20:40:12.000Z"
+    }
+  ]
+}
