@@ -1,2 +1,0 @@
-## Entidades
-- `MetricaServidor`: una "foto" del servidor cada vez que la manda el script del VPS: CPU total, carga (load1), núcleos, memoria y swap, disco usado/total y la lista de contenedores (nombre, grupo CRM/Marketplace/Base/WAHA/Otros, CPU, memoria y límite). No es de ninguna empresa (sin `workspaceId`). Las reglas de colores, grupos y alerta están en `src/lib/metricas-servidor.ts`; por ahora nadie la llena (la ruta y la pantalla vienen en las partes 2 y 3).
