@@ -24,24 +24,34 @@ export const AVISO_ENVIO_DE_FLUJO = "aizen:envio-de-flujo";
 export type DetalleAvisoEnvioDeFlujo = { conversationId: string; envioId: string; total: number };
 
 const CADA_MS = 1500;
+/** Si la lectura falla por la red, se reintenta con espera creciente hasta este tope de veces seguidas. */
+const REINTENTOS_DE_RED = 5;
+const ESPERA_MAXIMA_MS = 10_000;
 
 export function avisarEnvioDeFlujoEnCurso(detalle: DetalleAvisoEnvioDeFlujo) {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent<DetalleAvisoEnvioDeFlujo>(AVISO_ENVIO_DE_FLUJO, { detail: detalle }));
 }
 
-async function leerAvance(conversationId: string, senal: AbortSignal): Promise<AvanceDeFlujo[] | null> {
+/**
+ * «ok» con los envíos; «permanente» si la ruta dijo que no (sesión vencida, sin permiso, chat
+ * inválido): no se vuelve a preguntar; «red» si no hubo respuesta o el servidor falló: se reintenta.
+ */
+type Lectura = { tipo: "ok"; envios: AvanceDeFlujo[] } | { tipo: "permanente" } | { tipo: "red" };
+
+async function leerAvance(conversationId: string, senal: AbortSignal): Promise<Lectura> {
   try {
     const respuesta = await fetch(`/api/cliente/chats/avance-de-flujo?conversationId=${encodeURIComponent(conversationId)}`, {
       cache: "no-store",
       signal: senal,
     });
-    if (!respuesta.ok) return null;
+    if (respuesta.status >= 400 && respuesta.status < 500) return { tipo: "permanente" };
+    if (!respuesta.ok) return { tipo: "red" };
     const cuerpo = (await respuesta.json()) as { ok?: boolean; envios?: AvanceDeFlujo[] };
-    return cuerpo.ok && Array.isArray(cuerpo.envios) ? cuerpo.envios : null;
+    return cuerpo.ok && Array.isArray(cuerpo.envios) ? { tipo: "ok", envios: cuerpo.envios } : { tipo: "permanente" };
   } catch {
-    // Sin señal o el chat cambió: la próxima vuelta (o el próximo mensaje) vuelve a preguntar.
-    return null;
+    // Sin señal o el chat cambió: se reintenta (si había uno en curso) o pregunta el próximo mensaje.
+    return { tipo: "red" };
   }
 }
 
@@ -59,6 +69,10 @@ export function FranjaEnvioDeFlujo({
 }) {
   const [envios, setEnvios] = React.useState<AvanceDeFlujo[]>([]);
   const [cerrados, setCerrados] = React.useState<ReadonlySet<string>>(() => new Set());
+  // Había uno en curso y ya no se pudo leer el avance: se dice, en vez de dejar el número congelado.
+  const [sinAvance, setSinAvance] = React.useState(false);
+  // Lo último leído, para saber (fuera del render) si había uno en curso cuando falla la lectura.
+  const enviosRef = React.useRef<AvanceDeFlujo[]>([]);
   // Se sube cada vez que hay que preguntar de una (aviso del diálogo o mensaje nuevo).
   const [pedido, setPedido] = React.useState(0);
   const onAvanceRef = React.useRef(onAvance);
@@ -72,6 +86,8 @@ export function FranjaEnvioDeFlujo({
   React.useEffect(() => {
     setEnvios([]);
     setCerrados(new Set());
+    setSinAvance(false);
+    enviosRef.current = [];
     vistosRef.current = new Map();
   }, [conversationId]);
 
@@ -94,36 +110,50 @@ export function FranjaEnvioDeFlujo({
     const control = new AbortController();
     let temporizador: number | null = null;
     let vigente = true;
+    let fallosSeguidos = 0;
 
     const vuelta = async () => {
-      const leidos = await leerAvance(conversationId, control.signal);
+      const lectura = await leerAvance(conversationId, control.signal);
       if (!vigente) return;
-      if (leidos) {
-        let avanzo = false;
-        for (const envio of leidos) {
-          const antes = vistosRef.current.get(envio.envioId);
-          if (antes !== undefined && envio.enviados > antes) avanzo = true;
-          vistosRef.current.set(envio.envioId, envio.enviados);
+      if (lectura.tipo !== "ok") {
+        // Solo se insiste si había uno en curso a la vista; un error de la ruta (4xx) no se reintenta.
+        const habiaEnCurso = enviosRef.current.some((envio) => envio.estado === "EN_CURSO");
+        fallosSeguidos += 1;
+        if (lectura.tipo === "red" && habiaEnCurso && fallosSeguidos <= REINTENTOS_DE_RED) {
+          const espera = Math.min(CADA_MS * 2 ** fallosSeguidos, ESPERA_MAXIMA_MS);
+          temporizador = window.setTimeout(() => void vuelta(), espera);
+        } else if (habiaEnCurso) {
+          setSinAvance(true);
         }
-        // Uno que estaba y ya no viene terminó bien: salió el último paso.
-        for (const envioId of [...vistosRef.current.keys()]) {
-          if (!leidos.some((envio) => envio.envioId === envioId)) {
-            vistosRef.current.delete(envioId);
-            avanzo = true;
-          }
-        }
-        setEnvios(leidos);
-        if (avanzo) {
-          try {
-            onAvanceRef.current?.({ conversationId });
-          } catch {
-            // El refresco es de respaldo: la bandeja igual trae los mensajes sola.
-          }
+        return;
+      }
+      fallosSeguidos = 0;
+      setSinAvance(false);
+      const leidos = lectura.envios;
+      let avanzo = false;
+      for (const envio of leidos) {
+        const antes = vistosRef.current.get(envio.envioId);
+        if (antes !== undefined && envio.enviados > antes) avanzo = true;
+        vistosRef.current.set(envio.envioId, envio.enviados);
+      }
+      // Uno que estaba y ya no viene terminó bien: salió el último paso.
+      for (const envioId of [...vistosRef.current.keys()]) {
+        if (!leidos.some((envio) => envio.envioId === envioId)) {
+          vistosRef.current.delete(envioId);
+          avanzo = true;
         }
       }
-      // Sigue mientras haya uno en curso; si la lectura falló, reintenta igual (la red se pudo cortar).
-      const sigue = leidos ? leidos.some((envio) => envio.estado === "EN_CURSO") : true;
-      if (sigue) temporizador = window.setTimeout(() => void vuelta(), CADA_MS);
+      enviosRef.current = leidos;
+      setEnvios(leidos);
+      if (avanzo) {
+        try {
+          onAvanceRef.current?.({ conversationId });
+        } catch {
+          // El refresco es de respaldo: la bandeja igual trae los mensajes sola.
+        }
+      }
+      // Sigue mientras haya uno en curso.
+      if (leidos.some((envio) => envio.estado === "EN_CURSO")) temporizador = window.setTimeout(() => void vuelta(), CADA_MS);
     };
     void vuelta();
 
@@ -134,11 +164,18 @@ export function FranjaEnvioDeFlujo({
     };
   }, [conversationId, pedido]);
 
-  const visibles = envios.filter((envio) => !cerrados.has(envio.envioId));
-  if (!conversationId || visibles.length === 0) return null;
+  // Sin poder leer, el «N de M» en curso quedaría congelado: se cambia por un aviso.
+  const visibles = envios.filter((envio) => !cerrados.has(envio.envioId) && !(sinAvance && envio.estado === "EN_CURSO"));
+  if (!conversationId || (visibles.length === 0 && !sinAvance)) return null;
 
   return (
     <div className="mb-1.5 flex flex-col gap-1.5">
+      {sinAvance ? (
+        <div className="flex min-w-0 items-center gap-2 rounded-xl bg-muted/70 px-3 py-1.5 text-[13px] text-muted-foreground" role="status">
+          <Workflow className="size-4 shrink-0 text-[var(--primary)]" />
+          <span className="min-w-0 flex-1 truncate">No se puede ver el avance del flujo. Revisa los mensajes del chat.</span>
+        </div>
+      ) : null}
       {visibles.map((envio) =>
         envio.estado === "EN_CURSO" ? (
           <div

@@ -122,6 +122,10 @@ prueba("la franja solo lee, pregunta mientras haya uno en curso y está arriba d
   assert.match(franja, /envio\.estado === "EN_CURSO"/);
   assert.match(franja, /CADA_MS = 1500/);
   assert.match(franja, /textoDeLaFranja\(envio\)/);
+  // Un error de la ruta (4xx) no se reintenta; la red se reintenta con tope y espera creciente.
+  assert.match(franja, /status >= 400 && respuesta\.status < 500\) return \{ tipo: "permanente" \}/);
+  assert.match(franja, /lectura\.tipo === "red" && habiaEnCurso && fallosSeguidos <= REINTENTOS_DE_RED/);
+  assert.match(franja, /No se puede ver el avance del flujo/);
   const panel = leer("src/components/chats/chat-conversation-panel.tsx");
   assert.match(panel, /<FranjaEnvioDeFlujo\s/);
   assert.ok(
