@@ -306,6 +306,9 @@ async function getAgentConversationList(input: {
       automationPaused: true,
       assignedToUserId: true,
       assignedTo: { select: { name: true, email: true } },
+      // El candado "No reasignar" (con crmStage del contacto alcanza para saber si sigue vigente).
+      noReasignarAt: true,
+      noReasignarPor: true,
       activeProductContext: true,
         contact: {
           select: {
@@ -530,6 +533,8 @@ async function getAgentConversationList(input: {
       crmStage: conversation.contact.crmStage ?? null,
       status: conversation.status ?? null,
       automationPaused: conversation.automationPaused,
+      noReasignarAt: conversation.noReasignarAt?.toISOString() ?? null,
+      noReasignarPor: conversation.noReasignarPor ?? null,
       tags,
       avatarUrl: conversation.contact.avatarUrl ?? null,
       incomingCount: agentIncomingCountById.get(conversation.id) ?? 0,

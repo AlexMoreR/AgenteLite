@@ -40,6 +40,13 @@ export type SharedInboxConversationItem = {
   /** El segundo asesor del chat (null = no tiene; undefined = la fila no lo trae). */
   segundoAsesorId?: string | null;
   segundoAsesorNombre?: string | null;
+  /**
+   * El candado "No reasignar" (ver features/chats/domain/candado-no-reasignar): cuando se prendio
+   * (ISO) y quien lo prendio. null = no esta prendido; undefined = la fila no lo trae (chats de la
+   * API oficial) y se conserva el de antes. Si sigue vigente lo dice `candadoVigente` con `crmStage`.
+   */
+  noReasignarAt?: string | null;
+  noReasignarPor?: string | null;
   automationPaused?: boolean | null;
   // Etapa del CRM del contacto, para mostrar el badge de etapa en la fila de la lista.
   crmStage?: string | null;
@@ -121,6 +128,9 @@ export type SharedInboxSelectedConversation = {
   /** El segundo asesor (ver chats-asignacion-compartida). undefined = no vino y se conserva el de antes. */
   segundoAsesorId?: string | null;
   segundoAsesorNombre?: string | null;
+  /** El candado "No reasignar" (ISO y quien). Igual que en la fila: undefined = no vino. */
+  noReasignarAt?: string | null;
+  noReasignarPor?: string | null;
   canImportHistory?: boolean;
   loadMoreHref?: string | null;
   loadMoreCursor?: string | null;

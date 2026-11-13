@@ -90,6 +90,9 @@ type UnifiedConversation = {
   assignedToUserId?: string | null;
   automationPaused?: boolean | null;
   status?: "OPEN" | "PENDING" | "CLOSED" | "ARCHIVED" | null;
+  /** El candado "No reasignar" (ISO y quien). Solo lo traen las filas del canal propio. */
+  noReasignarAt?: string | null;
+  noReasignarPor?: string | null;
   // El nombre de la linea (Ventas 1, Admin...). Lo traia solo la recarga de /list, asi que la
   // lista abria sin linea y "al rato aparecia" (Alex, 02-10-2026).
   channelName?: string | null;
@@ -592,6 +595,9 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     assignedTo: { select: { id: true, name: true, email: true } },
     segundoAsesorId: true,
     segundoAsesor: { select: { id: true, name: true } },
+    // El candado "No reasignar": con crmStage (abajo) alcanza para saber si sigue vigente.
+    noReasignarAt: true,
+    noReasignarPor: true,
     activeProductContext: true,
     contact: {
       select: {
@@ -673,6 +679,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
             assignedTo: { select: { id: true, name: true, email: true } },
             segundoAsesorId: true,
             segundoAsesor: { select: { id: true, name: true } },
+            noReasignarAt: true,
+            noReasignarPor: true,
             activeProductContext: true,
             contact: {
               // metadata: para saber si esta pospuesto, con la misma regla que la lista.
@@ -1053,6 +1061,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       assignedToUserId: conversation.assignedToUserId ?? null,
       automationPaused: conversation.automationPaused,
       status: conversation.status ?? null,
+      noReasignarAt: conversation.noReasignarAt?.toISOString() ?? null,
+      noReasignarPor: conversation.noReasignarPor ?? null,
       // El chat abierto se marca como leído (vía after()); su badge va a 0 de inmediato.
       incomingCount:
         conversation.id === selectedAgentConversationIdForRead
@@ -1308,6 +1318,9 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     isPreview?: boolean;
     /** El mensaje fijado del chat (solo CRM), igual que lo manda /live. */
     mensajeFijado?: MensajeFijado | null;
+    /** El candado "No reasignar" (ISO y quien), igual que lo manda /live. */
+    noReasignarAt?: string | null;
+    noReasignarPor?: string | null;
     messages: Array<{
         id: string;
         content: string | null;
@@ -1414,6 +1427,9 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       // Si trajimos mensajes reales NO es preview: el chat se muestra completo de una.
       isPreview: !hasRealMessages,
       mensajeFijado: detail?.mensajeFijado ?? null,
+      // Del detalle (recien leido) y, si no vino, de la fila: el chat abierto nace con su candado.
+      noReasignarAt: detail ? detail.noReasignarAt : selectedUnified.noReasignarAt ?? null,
+      noReasignarPor: detail ? detail.noReasignarPor : selectedUnified.noReasignarPor ?? null,
     };
   } else if (selectedUnified?.source === "official") {
     const detail = officialChatsData.selectedConversation;
@@ -1596,6 +1612,8 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
                 assignedToUserId: item.assignedToUserId ?? null,
                 automationPaused: item.automationPaused ?? false,
                 status: item.status ?? null,
+                noReasignarAt: item.noReasignarAt ?? null,
+                noReasignarPor: item.noReasignarPor ?? null,
               }
             : {}),
           channelName: item.channelName ?? null,

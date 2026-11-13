@@ -431,6 +431,10 @@ export function buildConversationItemFromSnapshot(
     segundoAsesorId: snapshot.segundoAsesorId !== undefined ? snapshot.segundoAsesorId : existing?.segundoAsesorId,
     segundoAsesorNombre:
       snapshot.segundoAsesorId !== undefined ? snapshot.segundoAsesorNombre ?? null : existing?.segundoAsesorNombre,
+    // El candado "No reasignar": fresco si el chat lo trae (null = apagado), y si no el de la fila.
+    noReasignarAt: snapshot.noReasignarAt !== undefined ? snapshot.noReasignarAt : existing?.noReasignarAt,
+    noReasignarPor:
+      snapshot.noReasignarAt !== undefined ? snapshot.noReasignarPor ?? null : existing?.noReasignarPor,
     automationPaused: snapshot.automationPaused ?? existing?.automationPaused,
     status: snapshot.status ?? existing?.status ?? null,
     // Esta funcion solo actualiza la conversacion abierta: el usuario la esta viendo,
@@ -496,6 +500,10 @@ export function buildConversationItemFromListSnapshot(
     segundoAsesorId: snapshot.segundoAsesorId !== undefined ? snapshot.segundoAsesorId : existing?.segundoAsesorId,
     segundoAsesorNombre:
       snapshot.segundoAsesorId !== undefined ? snapshot.segundoAsesorNombre ?? null : existing?.segundoAsesorNombre,
+    // El candado, igual: una actualizacion en vivo que no lo trae no lo borra; null si lo apaga.
+    noReasignarAt: snapshot.noReasignarAt !== undefined ? snapshot.noReasignarAt : existing?.noReasignarAt,
+    noReasignarPor:
+      snapshot.noReasignarAt !== undefined ? snapshot.noReasignarPor ?? null : existing?.noReasignarPor,
     automationPaused: snapshot.automationPaused ?? existing?.automationPaused,
     status: snapshot.status ?? existing?.status ?? null,
     incomingCount: snapshot.incomingCount ?? existing?.incomingCount ?? 0,
@@ -620,15 +628,21 @@ export function mergeConversationListItem(
   */
   const sinResponderDesde =
     next.sinResponderDesde !== undefined ? next.sinResponderDesde : existing.sinResponderDesde;
+  // El candado "No reasignar": si `next` no lo trae (undefined) se conserva; null = lo apagaron.
+  const candado =
+    next.noReasignarAt !== undefined
+      ? { noReasignarAt: next.noReasignarAt, noReasignarPor: next.noReasignarPor ?? null }
+      : { noReasignarAt: existing.noReasignarAt, noReasignarPor: existing.noReasignarPor };
 
   if (existingAt <= nextAt) {
-    return { ...next, crmStage, sinResponderDesde };
+    return { ...next, crmStage, sinResponderDesde, ...candado };
   }
 
   return {
     ...next,
     crmStage,
     sinResponderDesde,
+    ...candado,
     incomingCount: Math.max(existing.incomingCount ?? 0, next.incomingCount ?? 0),
     // Si ya tenemos una versión más reciente del preview en memoria, debemos
     // conservarla completa para no mezclar contenido viejo con timestamps nuevos.
@@ -681,6 +695,9 @@ export function areConversationListItemsEqual(
     (left.assignedToUserId ?? null) === (right.assignedToUserId ?? null) &&
     (left.segundoAsesorId ?? null) === (right.segundoAsesorId ?? null) &&
     (left.segundoAsesorNombre ?? null) === (right.segundoAsesorNombre ?? null) &&
+    // El candado "No reasignar": sin esto, prenderlo o apagarlo era "la misma fila" y no se veia.
+    (left.noReasignarAt ?? null) === (right.noReasignarAt ?? null) &&
+    (left.noReasignarPor ?? null) === (right.noReasignarPor ?? null) &&
     (left.automationPaused ?? null) === (right.automationPaused ?? null) &&
     // La linea y el estado tambien: si no, la fila que llegaba sin linea se quedaba asi aunque la
     // recarga la trajera, y la linea "aparecia al rato" o nunca (Alex, 02-10-2026).
@@ -775,6 +792,9 @@ export function areSelectedConversationsEqual(
     (left.assignedTo?.name ?? null) === (right.assignedTo?.name ?? null) &&
     (left.segundoAsesorId ?? null) === (right.segundoAsesorId ?? null) &&
     (left.segundoAsesorNombre ?? null) === (right.segundoAsesorNombre ?? null) &&
+    // El candado llega con /live: sin esto la respuesta fresca se descartaba por "igual".
+    (left.noReasignarAt ?? null) === (right.noReasignarAt ?? null) &&
+    (left.noReasignarPor ?? null) === (right.noReasignarPor ?? null) &&
     Boolean(left.canImportHistory) === Boolean(right.canImportHistory) &&
     // La ultima llamada llega con /live: sin esto, si los mensajes eran los mismos de la cache, la
     // respuesta se descartaba por "igual" y el aviso no aparecia.

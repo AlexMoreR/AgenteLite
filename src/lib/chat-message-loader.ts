@@ -34,6 +34,12 @@ export type LoadedAgentConversationDetail = {
   /** El segundo asesor del chat, si lo tiene (ver chats-asignacion-compartida.ts). */
   segundoAsesorId: string | null;
   segundoAsesorNombre: string | null;
+  /**
+   * El candado "No reasignar" (ver candado-no-reasignar.ts): cuando se prendio (ISO) y quien. Con
+   * `contact.crmStage` alcanza para saber si sigue vigente. null = no esta prendido.
+   */
+  noReasignarAt: string | null;
+  noReasignarPor: string | null;
   /** Abierto o resuelto: de aca sale si la cabecera dice "Resolver" o "Reabrir". */
   status: "OPEN" | "PENDING" | "CLOSED" | "ARCHIVED";
   contact: {
@@ -260,6 +266,9 @@ export async function loadAgentConversationDetail(input: {
         assignedTo: { select: { id: true, name: true, email: true } },
         segundoAsesorId: true,
         segundoAsesor: { select: { id: true, name: true } },
+        // El candado "No reasignar": viaja con el chat abierto para que el candadito se actualice solo.
+        noReasignarAt: true,
+        noReasignarPor: true,
         // El mensaje fijado (Fijar del menu del mensaje, solo CRM).
         mensajeFijadoId: true,
         contact: {
@@ -322,6 +331,9 @@ export async function loadAgentConversationDetail(input: {
     // El segundo asesor: la ficha muestra su nombre con la "x" para quitarlo.
     segundoAsesorId: conversation.segundoAsesorId ?? null,
     segundoAsesorNombre: conversation.segundoAsesor?.name?.trim() || null,
+    // En ISO: es lo que viaja al navegador (por /live y por la primera carga de la pagina).
+    noReasignarAt: conversation.noReasignarAt?.toISOString() ?? null,
+    noReasignarPor: conversation.noReasignarPor ?? null,
     // Lo mismo con el estado: se leia y no salia, y la cabecera caia en "OPEN" por defecto. Un
     // chat resuelto mostraba "Resolver" en vez de "Reabrir" (Alex, 02-10-2026).
     status: conversation.status,
