@@ -3,7 +3,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { usePresenciaDeChats } from "./usePresenciaDeChats";
 import Link from "next/link";
-import { BadgeCheck, Check, CheckCheck, Facebook, FileText, Image as ImageIcon, Instagram, LoaderCircle, Mic, Pin, Sticker, UserRound, Video } from "lucide-react";
+import { BadgeCheck, Check, CheckCheck, Facebook, FileText, Image as ImageIcon, Instagram, LoaderCircle, Lock, Mic, Pin, Sticker, UserRound, Video } from "lucide-react";
 import { WhatsAppGlyph } from "@/components/icons/whatsapp-glyph";
 import { Badge } from "@/components/ui/badge";
 import { CrmStageControl } from "./crm-stage-control";
@@ -26,6 +26,7 @@ import {
 import { MARGEN_AL_SOLTAR_MS, acomodarListaQuieta } from "./lista-quieta";
 import { iniciarMedicion, terminarMedicionAlPintar } from "@/lib/metricas-chats";
 import { CRM_STAGE_META } from "@/features/crm/domain/crm-config";
+import { candadoVigente } from "@/features/chats/domain/candado-no-reasignar";
 import type { CrmStage } from "@/features/crm/types";
 import { horaDeLista } from "@/lib/hora-de-lista";
 import type { SharedInboxConversationItem } from "./shared-inbox";
@@ -364,6 +365,13 @@ const ConversationListItem = memo(function ConversationListItem({
             >
               {conversation.assignedToName ?? "---"}
             </span>
+            {/* Candado "No reasignar": la asesora pidio conservar este chat (se apaga solo a las 24 h
+                o con Ganado/Perdido, ver candado-no-reasignar.ts). */}
+            {candadoVigente({ noReasignarAt: conversation.noReasignarAt, crmStage: conversation.crmStage }) ? (
+              <span title="No reasignar" className="inline-flex shrink-0">
+                <Lock className="h-3 w-3 text-muted-foreground" aria-label="No reasignar" />
+              </span>
+            ) : null}
           </span>
           {conversation.channelName ? (
             <span className="shrink-0 truncate text-muted-foreground/70" title={conversation.channelName}>

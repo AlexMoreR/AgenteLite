@@ -1,6 +1,10 @@
 "use client";
 
-import { ChevronRight } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ChevronRight, Lock, LockOpen } from "lucide-react";
+import { toast } from "sonner";
+import { fijarCandadoNoReasignarAction } from "@/app/actions/chats-actions";
+import { candadoVigente } from "@/features/chats/domain/candado-no-reasignar";
 import { InterruptorDeIA } from "./interruptor-ia";
 import { InterruptorDeSeguimientos } from "./interruptor-seguimientos";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -11,6 +15,7 @@ import type { CrmStage } from "@/features/crm/types";
 import { BotonLlamar } from "@/features/llamadas/components/BotonLlamar";
 import { AssignChatControl } from "./assign-chat-control";
 import { ALTO_DE_LA_BARRA } from "./boton-de-la-barra";
+import { CLASES_BOTON_DE_LA_BARRA, CLASES_ETIQUETA_DE_LA_BARRA, mostrarNombreAlMantener } from "./boton-de-la-barra";
 
 type ChatHeaderActionsProps = {
   contactId: string | null;
@@ -27,7 +32,164 @@ type ChatHeaderActionsProps = {
   returnTo?: string;
   toggleAutomationAction?: (formData: FormData) => void | Promise<void>;
   source?: "agent" | "official";
+} & DatosParaElCandado;
+
+/** Lo que necesita el boton del candado "No reasignar" (solo chats de WhatsApp normal). */
+export type CandadoCambiado = { noReasignarAt: string | null; noReasignarPor: string | null };
+
+type DatosParaElCandado = {
+  /** Undefined = la pantalla no trae el candado (p. ej. la pagina del servidor): no se dibuja. */
+  noReasignarAt?: string | null;
+  /** La asesora asignada del chat. Null = sin asesora (el candado sale deshabilitado). */
+  assignedToUserId?: string | null;
+  usuarioActualId?: string | null;
+  isManager?: boolean;
+  /** Para que la bandeja actualice la fila y el chat abierto sin recargar. */
+  onCandadoCambiado?: (conversationId: string, datos: CandadoCambiado) => void;
 };
+
+/*
+  El candado "No reasignar" recien tocado, compartido por los dos botones del mismo chat (la cabecera
+  ancha y la barra del celular se montan a la vez): los dos muestran lo mismo al tocar uno. Manda
+  sobre el dato de la bandeja hasta que ese dato llega igual, o 60 s como mucho.
+*/
+const VIDA_DEL_CANDADO_LOCAL_MS = 60_000;
+const candadoLocal = new Map<string, { valor: string | null; en: number }>();
+const candadoEnVuelo = new Set<string>();
+const oyentesDelCandado = new Set<() => void>();
+function avisarCandado() {
+  for (const oyente of oyentesDelCandado) oyente();
+}
+
+/**
+ * Boton del candado "No reasignar". Prendido (Lock) mientras candadoVigente da true: se apaga solo a
+ * las 24 h o cuando el contacto pasa a Ganado/Perdido. La asesora asignada lo prende y lo apaga; un
+ * jefe solo puede quitarlo. Sin asesora, deshabilitado. No manda nada por WhatsApp: solo deja la nota
+ * gris en el historial (la escribe la accion del servidor).
+ */
+function BotonDelCandado({
+  conversationId,
+  stage,
+  noReasignarAt,
+  assignedToUserId = null,
+  usuarioActualId = null,
+  isManager = false,
+  onCandadoCambiado,
+  compacto = false,
+}: DatosParaElCandado & { conversationId: string; stage: CrmStage | null; compacto?: boolean }) {
+  const id = conversationId.replace(/^agent:/, "");
+  const [, setVersion] = useState(0);
+
+  useEffect(() => {
+    const alCambiar = () => setVersion((valor) => valor + 1);
+    oyentesDelCandado.add(alCambiar);
+    return () => {
+      oyentesDelCandado.delete(alCambiar);
+    };
+  }, []);
+
+  const delDato = noReasignarAt ?? null;
+  // Cuando el dato de la bandeja ya llego igual, lo local sobra: desde ahi manda el dato (asi se ve
+  // si otra persona lo cambia despues).
+  useEffect(() => {
+    if (!candadoEnVuelo.has(id) && candadoLocal.get(id)?.valor === delDato) candadoLocal.delete(id);
+  }, [id, delDato]);
+
+  const local = candadoLocal.get(id);
+  const usaLocal = Boolean(local && local.valor !== delDato);
+  const valor = usaLocal && local ? local.valor : delDato;
+  const prendido = candadoVigente({ noReasignarAt: valor, crmStage: stage });
+  const guardando = candadoEnVuelo.has(id);
+  const esLaAsignada = Boolean(assignedToUserId && usuarioActualId && assignedToUserId === usuarioActualId);
+  const puede = Boolean(assignedToUserId) && (esLaAsignada || (isManager && prendido));
+
+  const nombre = prendido ? "Quitar el candado (se puede reasignar)" : "No reasignar: conservar este chat";
+  const titulo = !assignedToUserId
+    ? "No reasignar: el chat no tiene asesora"
+    : !puede
+      ? prendido
+        ? "No reasignar: candado prendido por la asesora"
+        : "No reasignar: solo la asesora asignada lo prende"
+      : nombre;
+
+  const cambiar = async () => {
+    if (candadoEnVuelo.has(id) || !puede) return;
+    const prender = !prendido;
+    const antes = candadoLocal.get(id);
+    candadoEnVuelo.add(id);
+    // Al momento: se ve el cambio antes de que conteste el servidor.
+    candadoLocal.set(id, { valor: prender ? new Date().toISOString() : null, en: Date.now() });
+    avisarCandado();
+    let respuesta: Awaited<ReturnType<typeof fijarCandadoNoReasignarAction>> | null = null;
+    try {
+      respuesta = await fijarCandadoNoReasignarAction({ conversationId: id, prender });
+    } catch {
+      respuesta = null;
+    }
+    candadoEnVuelo.delete(id);
+    if (respuesta?.ok) {
+      // Manda lo que quedo en el servidor; la bandeja actualiza la fila y el chat abierto.
+      const guardado = { valor: respuesta.noReasignarAt, en: Date.now() };
+      candadoLocal.set(id, guardado);
+      avisarCandado();
+      // Como mucho 60 s: despues manda siempre el dato de la bandeja.
+      window.setTimeout(() => {
+        if (candadoLocal.get(id) === guardado) {
+          candadoLocal.delete(id);
+          avisarCandado();
+        }
+      }, VIDA_DEL_CANDADO_LOCAL_MS);
+      onCandadoCambiado?.(id, { noReasignarAt: respuesta.noReasignarAt, noReasignarPor: respuesta.noReasignarPor });
+      toast.success(prender ? "Candado prendido: este chat no se reasigna" : "Candado quitado");
+      return;
+    }
+    if (antes) candadoLocal.set(id, antes);
+    else candadoLocal.delete(id);
+    avisarCandado();
+    toast.error(respuesta?.error ?? "No se pudo cambiar el candado. Intenta de nuevo.", { duration: 10000 });
+  };
+
+  const Icono = prendido ? Lock : LockOpen;
+  const colorDelIcono = prendido ? "text-amber-600" : "text-muted-foreground";
+
+  if (compacto) {
+    return (
+      <button
+        type="button"
+        onClick={() => void cambiar()}
+        disabled={!puede || guardando}
+        aria-pressed={prendido}
+        aria-label={nombre}
+        aria-busy={guardando}
+        title={titulo}
+        className={CLASES_BOTON_DE_LA_BARRA}
+        onContextMenu={mostrarNombreAlMantener(titulo)}
+      >
+        <Icono className={`size-4 ${colorDelIcono}`} />
+        <span className={CLASES_ETIQUETA_DE_LA_BARRA}>No reasignar</span>
+      </button>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => void cambiar()}
+      disabled={!puede || guardando}
+      aria-pressed={prendido}
+      aria-label={nombre}
+      aria-busy={guardando}
+      title={titulo}
+      className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border transition disabled:opacity-60 ${
+        prendido
+          ? "border-amber-500/20 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20"
+          : "border-border bg-card text-muted-foreground hover:bg-muted"
+      }`}
+    >
+      <Icono className="h-3.5 w-3.5 shrink-0" />
+    </button>
+  );
+}
 
 // Acciones de la cabecera del chat (Etapa CRM, pausar agente IA, resolver).
 // Se muestran EN LÍNEA cuando la cabecera tiene ancho; cuando es angosta (móvil O panel de
@@ -46,7 +208,13 @@ export function ChatHeaderActions({
   automationPaused,
   status,
   source = "agent",
+  noReasignarAt,
+  assignedToUserId,
+  usuarioActualId,
+  isManager,
+  onCandadoCambiado,
 }: ChatHeaderActionsProps) {
+  const conCandado = source === "agent" && noReasignarAt !== undefined;
   return (
     <>
       {/* Variante EN LÍNEA — solo visible cuando la cabecera es ancha (≥520px de contenedor). */}
@@ -58,6 +226,17 @@ export function ChatHeaderActions({
         ) : null}
         <InterruptorDeIA conversationId={conversationId} automationPaused={automationPaused} source={source} />
         {source === "agent" ? <InterruptorDeSeguimientos key={conversationId} conversationId={conversationId} /> : null}
+        {conCandado ? (
+          <BotonDelCandado
+            conversationId={conversationId}
+            stage={stage}
+            noReasignarAt={noReasignarAt}
+            assignedToUserId={assignedToUserId}
+            usuarioActualId={usuarioActualId}
+            isManager={isManager}
+            onCandadoCambiado={onCandadoCambiado}
+          />
+        ) : null}
         <ResolveChatControl conversationId={conversationId} status={status} source={source} />
         {/* Las dos salidas del chat: resolver es "esto se termino", posponer es "sigue, pero
             no hoy". Por eso van pegados. */}
@@ -106,6 +285,9 @@ function FlechitaHayMas() {
   );
 }
 
+/** La silueta del candado "No reasignar": mismo alto de la barra y el mismo ancho que su boton (min-w-8). */
+const SILUETA_DEL_CANDADO = `${ALTO_DE_LA_BARRA} w-8 rounded-lg`;
+
 export function BarraDeAccionesEnSilueta() {
   return (
     <div className="contents" aria-hidden="true">
@@ -113,6 +295,7 @@ export function BarraDeAccionesEnSilueta() {
       <Skeleton className="h-[1.15rem] w-8 rounded-full" />
       <span className="mx-0.5 h-5 w-px bg-border" />
       <Skeleton className={`${ALTO_DE_LA_BARRA} w-8 rounded-lg`} />
+      <Skeleton className={SILUETA_DEL_CANDADO} />
       <div className={CLASES_SALIDAS_FIJAS}>
         <FlechitaHayMas />
         <span className="mx-0.5 h-5 w-px bg-border" />
@@ -140,6 +323,10 @@ export function BarraDeAccionesDelChat({
   status,
   source = "agent",
   assignee,
+  noReasignarAt,
+  usuarioActualId,
+  isManager,
+  onCandadoCambiado,
 }: Pick<
   ChatHeaderActionsProps,
   | "contactId"
@@ -150,7 +337,8 @@ export function BarraDeAccionesDelChat({
   | "returnTo"
   | "toggleAutomationAction"
   | "source"
-> & {
+> &
+  Omit<DatosParaElCandado, "assignedToUserId"> & {
   assignee: { id: string; name: string | null; email: string } | null;
 }) {
   /*
@@ -174,6 +362,18 @@ export function BarraDeAccionesDelChat({
       {source === "agent" ? <InterruptorDeSeguimientos key={conversationId} conversationId={conversationId} conEtiqueta /> : null}
       <span aria-hidden="true" className="mx-0.5 h-5 w-px bg-border" />
       <AssignChatControl conversationId={conversationId} assignee={assignee} source={source} compacto />
+      {source === "agent" && noReasignarAt !== undefined ? (
+        <BotonDelCandado
+          conversationId={conversationId}
+          stage={stage}
+          noReasignarAt={noReasignarAt}
+          assignedToUserId={assignee?.id ?? null}
+          usuarioActualId={usuarioActualId}
+          isManager={isManager}
+          onCandadoCambiado={onCandadoCambiado}
+          compacto
+        />
+      ) : null}
       <div className={CLASES_SALIDAS_FIJAS}>
         <FlechitaHayMas />
         <span aria-hidden="true" className="mx-0.5 h-5 w-px bg-border" />

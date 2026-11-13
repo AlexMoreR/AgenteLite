@@ -115,7 +115,12 @@ import {
   leerLlaveDelHilo,
   type MotivoParaBajar,
 } from "./scroll-del-hilo";
-import { BarraDeAccionesDelChat, BarraDeAccionesEnSilueta, ChatHeaderActions } from "./chat-header-actions";
+import {
+  BarraDeAccionesDelChat,
+  BarraDeAccionesEnSilueta,
+  ChatHeaderActions,
+  type CandadoCambiado,
+} from "./chat-header-actions";
 import { MenuDelContacto } from "./menu-del-contacto";
 import { AssignChatControl } from "./assign-chat-control";
 import { inicializarFijados, useChatsFijados } from "./chats-fijados-store";
@@ -3676,6 +3681,33 @@ export function SharedInbox({
     [conversationItems, selectedConversationKey],
   );
 
+  /*
+    El candado "No reasignar" respondio: se actualizan la fila de la bandeja y el chat abierto, para
+    que el candadito aparezca o se vaya sin recargar. (Al pasar a Ganado/Perdido, CrmStageControl ya
+    trae otra vez el chat y su fila, y candadoVigente lo apaga por la etapa.)
+  */
+  const alCambiarCandado = useCallback((conversationId: string, datos: CandadoCambiado) => {
+    const chatKey = `agent:${conversationId}`;
+    setConversationItems((current) => {
+      let cambio = false;
+      const siguiente = current.map((item) => {
+        if (item.id !== chatKey) return item;
+        if ((item.noReasignarAt ?? null) === datos.noReasignarAt && (item.noReasignarPor ?? null) === datos.noReasignarPor) {
+          return item;
+        }
+        cambio = true;
+        return { ...item, noReasignarAt: datos.noReasignarAt, noReasignarPor: datos.noReasignarPor };
+      });
+      return cambio ? siguiente : current;
+    });
+    const parchar = (current: SharedInboxSelectedConversation | null) =>
+      current && conversationIdMatchesKey(chatKey, current.id)
+        ? { ...current, noReasignarAt: datos.noReasignarAt, noReasignarPor: datos.noReasignarPor }
+        : current;
+    setLiveConversation(parchar);
+    setOptimisticConversation(parchar);
+  }, []);
+
   const clientHeaderActions = useMemo(() => {
     const conversation = renderedConversation;
     if (!conversation || !selectedConversationKey.startsWith("agent:")) {
@@ -3717,9 +3749,18 @@ export function SharedInbox({
         status={estado}
         returnTo={typeof window === "undefined" ? "" : window.location.pathname + window.location.search}
         toggleAutomationAction={toggleConversationAutomationAction}
+        noReasignarAt={
+          conversation.noReasignarAt !== undefined ? conversation.noReasignarAt : filaDelChatAbierto?.noReasignarAt
+        }
+        assignedToUserId={
+          conversation.assignedTo !== undefined ? conversation.assignedTo?.id ?? null : filaDelChatAbierto?.assignedToUserId ?? null
+        }
+        usuarioActualId={usuarioActualId}
+        isManager={isManager}
+        onCandadoCambiado={alCambiarCandado}
       />
     );
-  }, [filaDelChatAbierto, renderedConversation, selectedConversationKey]);
+  }, [alCambiarCandado, filaDelChatAbierto, isManager, renderedConversation, selectedConversationKey, usuarioActualId]);
 
   // La barra de abajo de la cabecera angosta, con los mismos datos frescos que la cabecera.
   // Mientras llega /live se arma con la fila; si a la fila le falta algo, siluetas del mismo alto.
@@ -3747,6 +3788,10 @@ export function SharedInbox({
             returnTo={returnTo}
             toggleAutomationAction={toggleConversationAutomationAction}
             assignee={conversation.assignedTo ? { ...conversation.assignedTo, email: conversation.assignedTo.email ?? "" } : null}
+            noReasignarAt={conversation.noReasignarAt !== undefined ? conversation.noReasignarAt : filaDelChatAbierto?.noReasignarAt}
+            usuarioActualId={usuarioActualId}
+            isManager={isManager}
+            onCandadoCambiado={alCambiarCandado}
           />
         ),
       };
@@ -3783,12 +3828,16 @@ export function SharedInbox({
               ? { id: fila.assignedToUserId, name: fila.assignedToName ?? null, email: "" }
               : null
           }
+          noReasignarAt={fila.noReasignarAt}
+          usuarioActualId={usuarioActualId}
+          isManager={isManager}
+          onCandadoCambiado={alCambiarCandado}
         />
       ) : (
         <BarraDeAccionesEnSilueta />
       ),
     };
-  }, [filaDelChatAbierto, renderedConversation, selectedConversationKey]);
+  }, [alCambiarCandado, filaDelChatAbierto, isManager, renderedConversation, selectedConversationKey, usuarioActualId]);
 
   /*
     Botones de la ficha del contacto (copiar la conversacion, traer el historial) armados en el CLIENTE.
