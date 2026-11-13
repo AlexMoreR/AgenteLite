@@ -138,8 +138,19 @@ export async function getWaCallsSessionIdForChannel(channelId: string | null): P
 export async function getWaCallsSessionIdDelNegocio(
   workspaceId: string,
 ): Promise<string | null> {
+  const lineas = await getLineasDelNegocio(workspaceId);
+  return lineas[0] ?? null;
+}
+
+/**
+ * Todas las lineas de llamadas de UN negocio, en el orden en que se crearon sus canales.
+ *
+ * Es la unica fuente de lineas para elegir "otra del negocio": siempre filtra por `workspaceId`,
+ * asi que de aca no puede salir nunca la linea de otro negocio.
+ */
+export async function getLineasDelNegocio(workspaceId: string): Promise<string[]> {
   if (!workspaceId) {
-    return null;
+    return [];
   }
   const canales = await prisma.whatsAppChannel
     .findMany({
@@ -149,13 +160,29 @@ export async function getWaCallsSessionIdDelNegocio(
     })
     .catch(() => []);
 
+  const lineas: string[] = [];
   for (const canal of canales) {
     const sid = leerSesionDeLlamadas(canal.metadata);
-    if (sid) {
-      return sid;
+    if (sid && !lineas.includes(sid)) {
+      lineas.push(sid);
     }
   }
-  return null;
+  return lineas;
+}
+
+/**
+ * Otra linea del MISMO negocio que no sea la(s) dada(s): para la llamada de tres, donde la segunda
+ * llamada tiene que salir por una linea distinta de la que ya esta hablando con el cliente
+ * (WaCalls hace una llamada por linea). Sigue el mismo patron que getWaCallsSessionIdDelNegocio:
+ * solo mira los canales de ese negocio. Si no hay otra, devuelve null.
+ */
+export async function getOtraLineaDelNegocio(
+  workspaceId: string,
+  excluirSessionId: string | readonly string[],
+): Promise<string | null> {
+  const excluir = typeof excluirSessionId === "string" ? [excluirSessionId] : excluirSessionId;
+  const lineas = await getLineasDelNegocio(workspaceId);
+  return lineas.find((sid) => !excluir.includes(sid)) ?? null;
 }
 
 /** El estado de la linea de llamadas de un canal, para dibujarlo en su pantalla. */
