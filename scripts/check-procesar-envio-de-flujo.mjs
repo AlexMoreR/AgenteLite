@@ -370,6 +370,13 @@ await prueba("dos toques seguidos a Reintentar: el paso sale una sola vez", asyn
   assert.equal([a, b].filter((r) => r.ok).length, 1);
 });
 
+await prueba("reintentar: renueva el candado mientras manda, como el envío completo", () => {
+  const codigo = fs.readFileSync(path.resolve("src/lib/flujos/procesar-envio-de-flujo.ts"), "utf8");
+  const reintento = codigo.slice(codigo.indexOf("export async function reintentarPasoDeEnvio"));
+  assert.match(reintento, /renovar = setInterval\([\s\S]*?lockedBy: quien \}, data: \{ lockedAt: new Date\(\) \}[\s\S]*?RENOVAR_CANDADO_MS\)/);
+  assert.match(reintento, /finally \{\s*if \(renovar\) clearInterval\(renovar\);/);
+});
+
 console.info = infoOriginal;
 console.error = errorOriginal;
 console.log(`\n${pruebas} pruebas ok`);

@@ -370,6 +370,7 @@ export async function reintentarPasoDeEnvio(entrada: {
   const { envioId, indice, userId, workspaceId } = entrada;
   const quien = `${process.pid}:${randomUUID()}`;
   let mandando = false;
+  let renovar: ReturnType<typeof setInterval> | null = null;
 
   const soltar = () =>
     prisma.envioDeFlujo
@@ -392,6 +393,14 @@ export async function reintentarPasoDeEnvio(entrada: {
         error: existe && existe.workspaceId === workspaceId ? ERROR_TODAVIA_SE_ESTA_ENVIANDO : ERROR_ENVIO_NO_ENCONTRADO,
       };
     }
+
+    // Igual que procesarEnvioDeFlujo: el candado se renueva mientras se manda, así un archivo que
+    // tarda en el gateway no deja que otro toque (o el cron) lo tome y mande el paso dos veces.
+    renovar = setInterval(() => {
+      prisma.envioDeFlujo
+        .updateMany({ where: { id: envioId, lockedBy: quien }, data: { lockedAt: new Date() } })
+        .catch(() => undefined);
+    }, RENOVAR_CANDADO_MS);
 
     const envio = await prisma.envioDeFlujo.findUnique({ where: { id: envioId } });
     if (!envio || envio.workspaceId !== workspaceId) {
@@ -474,5 +483,7 @@ export async function reintentarPasoDeEnvio(entrada: {
     }
     await soltar();
     return { ok: false, error: "No se pudo reintentar. Intenta de nuevo en un momento." };
+  } finally {
+    if (renovar) clearInterval(renovar);
   }
 }
