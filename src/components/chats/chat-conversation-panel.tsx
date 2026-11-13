@@ -162,6 +162,7 @@ import { TIEMPO_LIMITE_SUBIDA_MS, clasificarSubida } from "@/lib/nota-de-voz-rei
 import { PlaybookPanelDialog } from "@/components/chats/playbook-panel-dialog";
 import { ForwardMessageDialog } from "@/components/chats/forward-message-dialog";
 import { SendFlowDialog, enviarFlujoAlChat } from "@/components/chats/send-flow-dialog";
+import { FranjaEnvioDeFlujo } from "@/components/chats/franja-envio-de-flujo";
 import { InternalNoteDialog } from "@/components/chats/internal-note-dialog";
 import { FollowUpDialog } from "@/components/chats/follow-up-dialog";
 import { MediaPreviewDialog } from "@/components/chats/media-preview-dialog";
@@ -2848,6 +2849,13 @@ export const ConversationPanel = memo(function ConversationPanel({
                       Generando sugerencia…
                     </div>
                   ) : null}
+
+                  {/* El flujo que manda el servidor: «Enviando «flujo»: N de M». La ven todas las que tienen este chat abierto. */}
+                  <FranjaEnvioDeFlujo
+                    conversationId={mediaConfig?.conversationId}
+                    senal={renderedMessages.length > 0 ? renderedMessages[renderedMessages.length - 1].id : 0}
+                    onAvance={avisarEnvioTerminado}
+                  />
 
                   <div className="flex w-full min-w-0 items-end gap-2 md:gap-3">
                     {isRecordingAudio ? (

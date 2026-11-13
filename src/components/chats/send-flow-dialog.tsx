@@ -8,6 +8,7 @@ import { listFlowsForChatAction, type FlowChoice } from "@/app/actions/flow-send
 import { enviarFlujoPorRuta } from "@/lib/chats/enviar-por-ruta";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { avisarEnvioDeFlujoEnCurso } from "@/components/chats/franja-envio-de-flujo";
 
 /**
  * Mandar un flujo entero (el catalogo) desde el chat, con un toque.
@@ -144,6 +145,25 @@ export function enviarFlujoAlChat(input: {
     .then((resultado) => {
       if (!resultado.ok) {
         toast.error(resultado.error, { id: aviso });
+        return;
+      }
+
+      /*
+        Desde la parte 2 lo manda el servidor: la respuesta trae envioId y total y todavia no salio
+        nada. No se dice «listo»: la franja de arriba de la caja de escribir cuenta «N de M» (y la ven
+        todas las que tienen este chat abierto). Sin envioId (un servidor viejo) sigue como antes.
+      */
+      if (resultado.envioId) {
+        avisarEnvioDeFlujoEnCurso({
+          conversationId: input.conversationId,
+          envioId: resultado.envioId,
+          total: resultado.total ?? 0,
+        });
+        if (resultado.omitidos > 0) {
+          toast.warning(`Enviando "${input.titulo}" · ${resultado.omitidos} sin enviar (audio)`, { id: aviso, duration: 6000 });
+        } else {
+          toast.dismiss(aviso);
+        }
         return;
       }
 
