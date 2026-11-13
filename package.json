@@ -21,7 +21,6 @@
     "test:nota-de-voz": "node scripts/check-nota-de-voz.mjs",
     "test:audio-de-llamada": "node scripts/check-audio-de-llamada.mjs",
     "test:llamada-global": "node scripts/check-llamada-global.mjs",
-    "test:llamada-de-tres": "node scripts/check-llamada-de-tres.mjs",
     "test:playback-processor": "node --test src/features/llamadas/components/playback-processor.test.mjs",
     "test:editar-mensaje": "node scripts/check-editar-mensaje.mjs",
     "test:reenviar": "node scripts/check-reenviar.mjs",

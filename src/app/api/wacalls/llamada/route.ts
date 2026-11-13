@@ -3,8 +3,6 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
 import {
-  getLineasDelNegocio,
-  getOtraLineaDelNegocio,
   getWaCallsSessionIdDelNegocio,
   getWaCallsSessionIdForChannel,
   waCallsRequest,
@@ -40,20 +38,7 @@ type Cuerpo = {
   /** Solo "diagnostico": los contadores de audio del navegador (audio-de-llamada.ts). */
   diagnostico?: Record<string, unknown>;
   segundosHablados?: number;
-  /**
-   * Solo "iniciar", para la llamada de tres: la linea que YA esta en la llamada con el cliente.
-   * La nueva llamada sale por otra linea del mismo negocio.
-   */
-  otraLineaDistintaDe?: string;
-  /**
-   * La linea por la que salio la llamada, tal como la devolvio "iniciar". Hace falta para colgar,
-   * consultar o conectar el sonido de la segunda llamada de una llamada de tres, que no sale por
-   * la linea del chat. Solo se acepta si es una linea de ESTE negocio.
-   */
-  sessionId?: string;
 };
-
-const SIN_OTRA_LINEA = "No hay otra línea libre para agregar a alguien";
 
 /** Los campos del diagnostico que se aceptan; todo lo demas se ignora. */
 const CAMPOS_DIAGNOSTICO = [
@@ -99,12 +84,7 @@ export async function POST(request: Request) {
    * el servidor de llamadas atiende a los tres, y antes la unica linea vinculada marcaba las
    * llamadas de todos.
    */
-  const sidPedido = limpiarSessionId(cuerpo.sessionId);
-  if (sidPedido && !(await getLineasDelNegocio(access.workspaceId)).includes(sidPedido)) {
-    return NextResponse.json({ error: "No autorizado" }, { status: 403 });
-  }
   const sid =
-    sidPedido ??
     (await getWaCallsSessionIdForChannel(cuerpo.channelId ?? null)) ??
     (await getWaCallsSessionIdDelNegocio(access.workspaceId));
   if (!sid) {
@@ -134,43 +114,12 @@ export async function POST(request: Request) {
 
         Son el 15% de la base -355 contactos-, que hasta hoy no se podian llamar de ninguna forma.
       */
-      const marcar = (linea: string) =>
-        waCallsRequest<{ call?: { callId?: string } }>({
-          path: `/api/sessions/${linea}/calls`,
-          method: "POST",
-          body: lid ? { lid } : { phone },
-          operadorId,
-        });
-
-      /*
-        Llamada de tres: la linea que ya esta hablando con el cliente no puede hacer otra llamada,
-        asi que la nueva sale por OTRA linea del mismo negocio. Primero se intenta la del chat (si
-        no es la que ya esta ocupada); si WaCalls dice que esta ocupada, o si era justo esa, se
-        busca otra. La busqueda filtra siempre por el negocio de quien llama.
-      */
-      const excluir = limpiarSessionId(cuerpo.otraLineaDistintaDe);
-      let linea: string | null = sid;
-      if (excluir && linea === excluir) {
-        linea = await getOtraLineaDelNegocio(access.workspaceId, excluir);
-        if (!linea) {
-          return NextResponse.json({ error: SIN_OTRA_LINEA }, { status: 409 });
-        }
-      }
-
-      let respuesta = await marcar(linea);
-      if (!respuesta.ok && estaOcupada(respuesta)) {
-        const otra = await getOtraLineaDelNegocio(
-          access.workspaceId,
-          excluir ? [linea, excluir] : [linea],
-        );
-        if (otra) {
-          linea = otra;
-          respuesta = await marcar(otra);
-        }
-        if (!respuesta.ok && excluir && (!otra || estaOcupada(respuesta))) {
-          return NextResponse.json({ error: SIN_OTRA_LINEA }, { status: 409 });
-        }
-      }
+      const respuesta = await waCallsRequest<{ call?: { callId?: string } }>({
+        path: `/api/sessions/${sid}/calls`,
+        method: "POST",
+        body: lid ? { lid } : { phone },
+        operadorId,
+      });
       if (!respuesta.ok) {
         return NextResponse.json({ error: traducir(respuesta.error) }, { status: respuesta.status });
       }
@@ -178,8 +127,7 @@ export async function POST(request: Request) {
       if (!callId) {
         return NextResponse.json({ error: "El servicio no devolvió la llamada." }, { status: 502 });
       }
-      // La linea usada vuelve al navegador para que la mande en colgar, estado y webrtc.
-      return NextResponse.json({ ok: true, callId, sessionId: linea });
+      return NextResponse.json({ ok: true, callId });
     }
 
     case "webrtc": {
@@ -302,24 +250,6 @@ export async function POST(request: Request) {
     default:
       return NextResponse.json({ error: "Acción desconocida" }, { status: 400 });
   }
-}
-
-/** Un id de linea que llega del navegador: texto corto o nada. Despues se compara con las del negocio. */
-function limpiarSessionId(valor: unknown): string | null {
-  if (typeof valor !== "string") {
-    return null;
-  }
-  const limpio = valor.trim();
-  return limpio && limpio.length <= 128 ? limpio : null;
-}
-
-/** WaCalls no pudo marcar porque la linea (o quien llama) ya esta en otra llamada. */
-function estaOcupada(respuesta: { status: number; error: string }): boolean {
-  return (
-    respuesta.status === 409 ||
-    respuesta.error === "operator already on a call" ||
-    /\bbusy\b/i.test(respuesta.error)
-  );
 }
 
 /**
