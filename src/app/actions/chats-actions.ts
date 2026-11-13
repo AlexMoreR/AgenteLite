@@ -4,7 +4,12 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { auth } from "@/auth";
-import { sendManualAgentReplyAction, type SendChatReplyResult } from "@/app/actions/agent-actions";
+import {
+  enviarTextoManualSinPermisos,
+  sendManualAgentReplyAction,
+  type SendChatReplyResult,
+} from "@/app/actions/agent-actions";
+import { esPermisoDeEnvioInterno, type PermisoDeEnvioInterno } from "@/lib/chats/permiso-de-envio-interno";
 import { generarSugerenciaDeRespuesta, registrarEnvioDeSugerencia, registrarFlujoDeSugerencia } from "@/lib/sugerencia-de-respuesta";
 import { cancelarAutomaticosPendientesDelContacto, createFollow, createFollowsFromRulesForSource } from "@/features/seguimientos/services/follows";
 import { anotarSeguimientosApagados } from "@/features/seguimientos/services/apagado";
@@ -698,6 +703,39 @@ async function prependUserChatSignature(message: string): Promise<string> {
 }
 
 export async function sendUnifiedChatReplyAction(formData: FormData): Promise<SendChatReplyResult> {
+  return enviarRespuestaUnificada(formData, null);
+}
+
+/**
+ * Un texto de un flujo que manda el servidor solo (en after() o en el cron, donde puede no haber
+ * sesión): el MISMO camino que sendUnifiedChatReplyAction, sin la firma de la asesora (contenido
+ * preparado, va tal cual). Recibe el permiso que creó procesarEnvioDeFlujo tras revisar UNA vez la
+ * sesión guardada, el permiso a Chats y el modo monitoreo; cualquier otro valor es "No autorizado".
+ * `alGuardarMensaje` recibe el id del mensaje que quedó en el chat (null si no se sabe).
+ */
+export async function enviarTextoAlChatSinPermisos(
+  permiso: unknown,
+  input: { source: "agent" | "official"; conversationId: string; message: string; agentId?: string | null },
+  alGuardarMensaje?: (mensajeId: string | null) => void,
+): Promise<SendChatReplyResult> {
+  if (!esPermisoDeEnvioInterno(permiso)) {
+    return { ok: false, error: "No autorizado" };
+  }
+  const datos = new FormData();
+  datos.set("source", input.source);
+  datos.set("conversationId", input.conversationId);
+  datos.set("message", input.message);
+  datos.set("skipSignature", "1");
+  if (input.agentId) {
+    datos.set("agentId", input.agentId);
+  }
+  return enviarRespuestaUnificada(datos, { permiso, alGuardarMensaje });
+}
+
+async function enviarRespuestaUnificada(
+  formData: FormData,
+  interno: { permiso: PermisoDeEnvioInterno; alGuardarMensaje?: (mensajeId: string | null) => void } | null,
+): Promise<SendChatReplyResult> {
   const parsed = sendUnifiedChatReplySchema.safeParse({
     source: formData.get("source"),
     conversationId: formData.get("conversationId"),
@@ -752,13 +790,22 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
       : await prependUserChatSignature(parsed.data.message);
 
   if (parsed.data.source === "official") {
-    const session = await auth();
-    if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
-      return { ok: false, error: "No autorizado" };
+    let userIdDelEnvioOficial: string;
+    if (interno) {
+      // El flujo que manda el servidor: la sesión guardada ya se revisó al crear el permiso.
+      userIdDelEnvioOficial = interno.permiso.userId;
+    } else {
+      const session = await auth();
+      if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
+        return { ok: false, error: "No autorizado" };
+      }
+      await requireClientWorkspaceAccess("chats");
+      userIdDelEnvioOficial = session.user.id;
     }
-    await requireClientWorkspaceAccess("chats");
 
-    const membership = await getPrimaryWorkspaceForUser(session.user.id);
+    const membership = interno
+      ? { workspace: { id: interno.permiso.workspaceId } }
+      : await getPrimaryWorkspaceForUser(userIdDelEnvioOficial);
     if (!membership?.workspace.id) {
       return { ok: false, error: "Workspace no encontrado" };
     }
@@ -815,7 +862,7 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
       to: conversation.contactWaId,
       message: messageWithSignature,
       source: "manual",
-      enviadoPorUserId: session.user.id,
+      enviadoPorUserId: userIdDelEnvioOficial,
       clientMessageId,
       limiteMs: LIMITE_GATEWAY_TEXTO_MS,
     });
@@ -823,12 +870,13 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
     if (!result.ok) {
       return { ok: false, error: result.error, ...(result.motivo ? { motivo: result.motivo } : {}) };
     }
+    interno?.alGuardarMensaje?.(null);
 
     // Meta lo acepto pero no se guardo: es "enviado" igual; se anota para medir.
     if (result.guardadoFallo) {
       const detalleDelGuardado = result.guardadoFallo;
       const workspaceIdDelFallo = membership.workspace.id;
-      const userIdDelFallo = session.user.id;
+      const userIdDelFallo = userIdDelEnvioOficial;
       after(() =>
         anotarErrorDeEnvio({
           workspaceId: workspaceIdDelFallo,
@@ -850,7 +898,7 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
       por el altavoz con el primer estado del mensaje ("sent") y la bandeja se refresca sola.
     */
     const workspaceIdDelEnvio = membership.workspace.id;
-    const userIdDelEnvio = session.user.id;
+    const userIdDelEnvio = userIdDelEnvioOficial;
     const crmContactIdDelEnvio = conversation.crmContactId;
     const conversationIdDelEnvio = parsed.data.conversationId;
     const sugerenciaIdDelEnvio = parsed.data.sugerenciaId;
@@ -880,6 +928,7 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
         source: "official",
         conversationId: conversationIdDelEnvio,
         workspaceId: workspaceIdDelEnvio,
+        userId: userIdDelEnvio,
       });
 
       // El panel de envio salio al cliente con el total: Caliente (nunca lanza).
@@ -929,7 +978,9 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
   if (clientMessageIdDelEnvio) {
     nextData.set("clientMessageId", clientMessageIdDelEnvio);
   }
-  const resultado = await sendManualAgentReplyAction(nextData);
+  const resultado = interno
+    ? await enviarTextoManualSinPermisos(interno.permiso, nextData, interno.alGuardarMensaje)
+    : await sendManualAgentReplyAction(nextData);
 
   // Quien contesta se queda con el lead si no tenia dueño (ver conversation-claim). Va DESPUES
   // del envio: si el mensaje no salio, la asesora no se quedo con nada. Y va en after(): el
@@ -940,9 +991,10 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
     const sugerenciaIdDelEnvio = parsed.data.sugerenciaId;
     const mensajeDelEnvio = parsed.data.message;
     const conTotalDePanelDelEnvio = parsed.data.conTotalDePanel === "1";
+    const userIdDelPermiso = interno?.permiso.userId ?? null;
     after(async () => {
       try {
-        const userId = (await auth())?.user?.id ?? "";
+        const userId = userIdDelPermiso ?? (await auth())?.user?.id ?? "";
         const membership = await getPrimaryWorkspaceForUser(userId);
         if (!membership?.workspace.id) {
           return;
@@ -951,6 +1003,7 @@ export async function sendUnifiedChatReplyAction(formData: FormData): Promise<Se
           source: "agent",
           conversationId: conversationIdDelEnvio,
           workspaceId: membership.workspace.id,
+          userId,
         });
         // El panel de envio salio al cliente con el total: Caliente (nunca lanza).
         if (conTotalDePanelDelEnvio) {

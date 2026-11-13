@@ -36,6 +36,7 @@ import { resolveAgentProductFlowReply, type FlowStep } from "@/lib/agent-product
 import { composeAgentWelcomeReply } from "@/lib/agent-reply-composer";
 import { normalizeInternalPath } from "@/lib/app-url";
 import { claimConversationIfUnassigned } from "@/lib/conversation-claim";
+import { esPermisoDeEnvioInterno, type PermisoDeEnvioInterno } from "@/lib/chats/permiso-de-envio-interno";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 import {
@@ -2570,6 +2571,27 @@ export type SendChatReplyResult =
   | { ok: false; error: string; motivo?: MotivoDeFallo };
 
 export async function sendManualAgentReplyAction(formData: FormData): Promise<SendChatReplyResult> {
+  return enviarRespuestaManual(formData, null);
+}
+
+/**
+ * El mismo envío de texto, para el flujo que manda el servidor solo (en after() o en el cron, donde
+ * puede no haber sesión). Recibe el permiso que creó procesarEnvioDeFlujo tras revisar UNA vez la
+ * sesión guardada, el permiso a Chats y el modo monitoreo; cualquier otro valor es "No autorizado".
+ * `alGuardarMensaje` recibe el id del mensaje que quedó en el chat (null si no se pudo guardar).
+ */
+export async function enviarTextoManualSinPermisos(
+  permiso: unknown,
+  formData: FormData,
+  alGuardarMensaje?: (mensajeId: string | null) => void,
+): Promise<SendChatReplyResult> {
+  if (!esPermisoDeEnvioInterno(permiso)) {
+    return { ok: false, error: "No autorizado" };
+  }
+  return enviarRespuestaManual(formData, { permiso, alGuardarMensaje });
+}
+
+async function enviarRespuestaManual(formData: FormData, interno: EnvioInterno | null): Promise<SendChatReplyResult> {
   // Medicion (fase 0 de "Chats instantaneo"): ms acumulados desde el inicio en cada paso.
   // Solo se loguea; no cambia nada del envio.
   const envioT0 = performance.now();
@@ -2587,11 +2609,20 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
     console.log(`[envio-timing] ${JSON.stringify({ resultado, pasos: envioPasos })}`);
   };
 
-  const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
-    redirect("/unauthorized");
+  let userId: string;
+  let workspaceDelPermiso: string | null = null;
+  if (interno) {
+    // El flujo que manda el servidor: la sesión guardada ya se revisó al crear el permiso.
+    userId = interno.permiso.userId;
+    workspaceDelPermiso = interno.permiso.workspaceId;
+  } else {
+    const session = await auth();
+    if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
+      redirect("/unauthorized");
+    }
+    await requireClientWorkspaceAccess("chats");
+    userId = session.user.id;
   }
-  await requireClientWorkspaceAccess("chats");
   envioMarca("sesion");
 
   const parsed = sendManualAgentReplySchema.safeParse({
@@ -2612,7 +2643,9 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
     return { ok: false, error: "No se pudo enviar el mensaje" };
   }
 
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  const membership = workspaceDelPermiso
+    ? { workspace: { id: workspaceDelPermiso } }
+    : await getPrimaryWorkspaceForUser(userId);
   if (!membership) {
     return { ok: false, error: "Debes configurar tu negocio primero" };
   }
@@ -2623,7 +2656,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
     Ocultar el cuadro de escribir alcanza para que no pase sin querer, pero no es una puerta con
     llave: la accion se puede llamar igual desde afuera. La regla vale donde de verdad se decide.
   */
-  if (await estaEnModoMonitoreo({ workspaceId: membership.workspace.id, userId: session.user.id })) {
+  if (await estaEnModoMonitoreo({ workspaceId: membership.workspace.id, userId })) {
     return { ok: false, error: AVISO_MODO_MONITOREO };
   }
   envioMarca("negocio");
@@ -2692,7 +2725,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
       direction: "OUTBOUND",
       content: parsed.data.message,
       createdAt: { gte: new Date(Date.now() - 15_000) },
-      rawPayload: { path: ["enviadoPorUserId"], equals: session.user.id },
+      rawPayload: { path: ["enviadoPorUserId"], equals: userId },
     },
     select: { id: true },
   });
@@ -2747,7 +2780,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
             sentAt: now,
             rawPayload: {
               source: "manual",
-              enviadoPorUserId: session.user.id,
+              enviadoPorUserId: userId,
               evolution: outbound.raw,
             } as never,
           },
@@ -2777,7 +2810,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
             sentAt: now,
             rawPayload: {
               source: "manual",
-              enviadoPorUserId: session.user.id,
+              enviadoPorUserId: userId,
               evolution: outbound.raw,
             } as never,
           },
@@ -2807,7 +2840,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
             sentAt: now,
             rawPayload: {
               source: "manual",
-              enviadoPorUserId: session.user.id,
+              enviadoPorUserId: userId,
               evolution: outbound.raw,
             } as never,
           },
@@ -2836,7 +2869,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
             sentAt: now,
             rawPayload: {
               source: "manual",
-              enviadoPorUserId: session.user.id,
+              enviadoPorUserId: userId,
               evolution: outbound.raw,
             } as never,
           },
@@ -2867,7 +2900,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
             sentAt: now,
             rawPayload: {
               source: "manual",
-              enviadoPorUserId: session.user.id,
+              enviadoPorUserId: userId,
               evolution: outbound.raw,
             } as never,
           },
@@ -3036,7 +3069,7 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
     completa despues con el aviso del gateway (el eco) o la sincronizacion.
   */
   try {
-    await prisma.message.create({
+    const mensajeGuardado = await prisma.message.create({
       data: {
         workspaceId: membership.workspace.id,
         conversationId: conversation.id,
@@ -3051,21 +3084,23 @@ export async function sendManualAgentReplyAction(formData: FormData): Promise<Se
         sentAt: new Date(),
         rawPayload: {
           source: "manual",
-          enviadoPorUserId: session.user.id,
+          enviadoPorUserId: userId,
           evolution: outbound.raw,
           ...(replyTo ? { replyTo } : {}),
           ...(clientMessageId ? { clientMessageId } : {}),
         } as never,
       },
     });
+    interno?.alGuardarMensaje?.(mensajeGuardado.id);
   } catch (error) {
+    interno?.alGuardarMensaje?.(null);
     const detalle = error instanceof Error ? error.message : String(error);
     console.error("[sendManualAgentReplyAction] WhatsApp acepto el mensaje pero no se pudo guardar", {
       conversationId: conversation.id,
       error: detalle,
     });
     const workspaceIdDelFallo = membership.workspace.id;
-    const userIdDelFallo = session.user.id;
+    const userIdDelFallo = userId;
     after(() =>
       anotarErrorDeEnvio({
         workspaceId: workspaceIdDelFallo,
@@ -3535,7 +3570,7 @@ export async function sendChatMediaReplyAction(input: {
     }
   }
 
-  const promesa = enviarArchivoDelChat(input, clave);
+  const promesa = enviarArchivoDelChat(input, clave, null);
   if (claveEnCurso) {
     ARCHIVOS_EN_CURSO.set(claveEnCurso, { promesa, at: Date.now() });
   }
@@ -3553,9 +3588,36 @@ export async function sendChatMediaReplyAction(input: {
   }
 }
 
+/**
+ * Lo mismo que sendChatMediaReplyAction, para el flujo que manda el servidor solo (en after() o en el
+ * cron, donde puede no haber sesión). El archivo ya está subido: se manda por su dirección.
+ *
+ * NO revisa la sesión del navegador: recibe el permiso que creó procesarEnvioDeFlujo después de
+ * revisar UNA vez la sesión guardada, el permiso a Chats y el modo monitoreo. Un permiso que no salió
+ * de ahí (por ejemplo, uno que llega del navegador a esta acción) se rechaza con "No autorizado".
+ * El chat y la línea se siguen leyendo con el negocio del permiso: nunca sale a un chat de otro negocio.
+ * `alGuardarMensaje` recibe el id del mensaje que quedó en el chat (null si no se pudo guardar).
+ */
+export async function enviarArchivoAlChatSinPermisos(
+  permiso: unknown,
+  input: Omit<Parameters<typeof sendChatMediaReplyAction>[0], "returnTo" | "clientMessageId">,
+  alGuardarMensaje?: (mensajeId: string | null) => void,
+): Promise<{ ok: true } | { error: string }> {
+  if (!esPermisoDeEnvioInterno(permiso)) {
+    return { error: "No autorizado" };
+  }
+  return enviarArchivoDelChat({ ...input, returnTo: "" }, null, { permiso, alGuardarMensaje });
+}
+
+type EnvioInterno = {
+  permiso: PermisoDeEnvioInterno;
+  alGuardarMensaje?: (mensajeId: string | null) => void;
+};
+
 async function enviarArchivoDelChat(
   input: Parameters<typeof sendChatMediaReplyAction>[0],
   clave: string | null,
+  interno: EnvioInterno | null,
 ): Promise<{ ok: true } | { error: string }> {
   const inicio = Date.now();
   /*
@@ -3570,14 +3632,23 @@ async function enviarArchivoDelChat(
     ultimaMarca = ahora;
   };
 
-  const session = await auth();
-  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
-    return { error: "No autorizado" };
+  let userId: string;
+  let workspaceId: string;
+  if (interno) {
+    // El flujo que manda el servidor: la sesión guardada ya se revisó al crear el permiso.
+    userId = interno.permiso.userId;
+    workspaceId = interno.permiso.workspaceId;
+  } else {
+    const session = await auth();
+    if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
+      return { error: "No autorizado" };
+    }
+    userId = session.user.id;
+    // El permiso ya trae el negocio: es la MISMA membresia que daba getPrimaryWorkspaceForUser (ver
+    // client-workspace-access.ts). Una consulta menos en cada archivo.
+    const access = await requireClientWorkspaceAccess("chats");
+    workspaceId = access.workspaceId;
   }
-  const userId = session.user.id;
-  // El permiso ya trae el negocio: es la MISMA membresia que daba getPrimaryWorkspaceForUser (ver
-  // client-workspace-access.ts). Una consulta menos en cada archivo.
-  const access = await requireClientWorkspaceAccess("chats");
   marca("sesion");
 
   const parsed = sendChatMediaReplySchema.safeParse(input);
@@ -3585,7 +3656,6 @@ async function enviarArchivoDelChat(
     return { error: "Datos invalidos" };
   }
 
-  const workspaceId = access.workspaceId;
   if (!workspaceId) {
     return { error: "Debes configurar tu negocio primero" };
   }
@@ -3644,10 +3714,12 @@ async function enviarArchivoDelChat(
 
     // Mandar el catalogo tambien es atender: quien lo hace se queda con el lead si no tenia dueño.
     if ("ok" in enviado && enviado.ok) {
+      interno?.alGuardarMensaje?.(null);
       await claimConversationIfUnassigned({
         source: "official",
         conversationId: parsed.data.conversationId,
         workspaceId,
+        userId,
       });
     }
 
@@ -3809,8 +3881,9 @@ async function enviarArchivoDelChat(
    * es lo que de verdad paso.
    */
   let guardado = false;
+  let mensajeGuardadoId: string | null = null;
   try {
-    await prisma.message.create({
+    const mensajeGuardado = await prisma.message.create({
       data: {
         workspaceId,
         conversationId: conversation.id,
@@ -3838,6 +3911,7 @@ async function enviarArchivoDelChat(
       },
     });
     guardado = true;
+    mensajeGuardadoId = mensajeGuardado.id;
     marca("guardado");
 
     /*
@@ -3882,7 +3956,7 @@ async function enviarArchivoDelChat(
       }
     }
     try {
-      await claimConversationIfUnassigned({ source: "agent", conversationId: conversationIdDelEnvio, workspaceId });
+      await claimConversationIfUnassigned({ source: "agent", conversationId: conversationIdDelEnvio, workspaceId, userId });
     } catch (error) {
       console.error("[chats] no se pudo asignar el chat tras enviar el archivo (archivo ya enviado)", error);
     }
@@ -3899,6 +3973,7 @@ async function enviarArchivoDelChat(
     guardarMs: Date.now() - inicioDelGuardado,
     totalMs: Date.now() - inicio,
   });
+  interno?.alGuardarMensaje?.(mensajeGuardadoId);
   return { ok: true };
 }
 

@@ -1,4 +1,4 @@
-// Pruebas de src/lib/flujos/envio-de-flujo.ts (parte 1 de «Flujos: que se envíen completos aunque la
+// Pruebas de src/lib/flujos/envio-de-flujo.ts (parte 1 y 2 de «Flujos: que se envíen completos aunque la
 // asesora cambie de chat»): el orden de los pasos, el avance «N de M», que un paso que quedó «enviando»
 // no se reenvíe al retomar, las pausas, el audio omitido y que el reintento sea de un solo paso.
 // Funciones puras: no hay red, ni base, ni sale ningún mensaje.
@@ -200,17 +200,56 @@ prueba("la línea [flujo] medicion trae los ms de cada paso y el total, sin cont
   });
 });
 
-prueba("el envío de hoy solo agrega la medición: mismas pausas, mismo orden y misma respuesta", () => {
+prueba("parte 2: la acción guarda el envío y contesta al instante; el servidor lo manda después", () => {
   const accion = leer("src/app/actions/flow-send-actions.ts");
-  assert.match(accion, /const PAUSA_ARCHIVO_MS = 3000;/);
-  assert.match(accion, /const PAUSA_TEXTO_MS = 700;/);
-  assert.match(accion, /for \(const \[indice, paso\] of flujo\.steps\.entries\(\)\)/);
-  assert.match(accion, /return \{ ok: true, enviados, fallidos, omitidos \};/);
-  assert.match(accion, /console\.info\(\s*"\[flujo\] medicion",\s*lineaDeMedicion\(/);
+  // Sin las pausas de 3000/700 ni el bucle de pasos dentro del pedido de la asesora.
+  assert.doesNotMatch(accion, /PAUSA_ARCHIVO_MS|PAUSA_TEXTO_MS|setTimeout/);
+  assert.doesNotMatch(accion, /flujo\.steps\.entries\(\)/);
+  assert.match(accion, /prisma\.envioDeFlujo\.create\(/);
+  assert.match(accion, /after\(\(\) => procesarEnvioDeFlujo\(envio\.id\)\)/);
+  assert.match(accion, /return \{ ok: true, enviados: 0, fallidos: 0, omitidos, envioId: envio\.id, total \};/);
+  // Los campos nuevos son opcionales: una pestaña vieja sigue leyendo { ok, enviados, fallidos, omitidos }.
+  assert.match(accion, /\| \{ ok: true; enviados: number; fallidos: number; omitidos: number; envioId\?: string; total\?: number \}/);
+  assert.match(leer("src/lib/chats/enviar-por-ruta.ts"), /envioId\?: string; total\?: number \}/);
+  // La medición ahora la escribe el que manda.
+  const procesar = leer("src/lib/flujos/procesar-envio-de-flujo.ts");
+  assert.match(procesar, /console\.info\(\s*"\[flujo\] medicion",\s*lineaDeMedicion\(/);
+  // El cron retoma los que quedaron a medias, protegido para no frenar el resto.
+  const cron = leer("src/app/api/cron/follows/route.ts");
+  assert.match(cron, /try \{\s*await retomarEnviosQuedados\(\);\s*\} catch/);
   // El módulo de reglas es puro: no importa Prisma, gateways ni acciones.
   const reglas = leer("src/lib/flujos/envio-de-flujo.ts");
   const importaciones = reglas.match(/^import .*$/gm) ?? [];
   assert.deepStrictEqual(importaciones, ['import type { FlowStep } from "@/lib/agent-product-flow";']);
+});
+
+prueba("las funciones de envío sin sesión exigen el permiso interno (no un objeto del navegador)", () => {
+  const P = cargar("src/lib/chats/permiso-de-envio-interno.ts");
+  const permiso = P.emitirPermisoDeEnvioInterno({ userId: "u1", workspaceId: "w1" });
+  assert.equal(P.esPermisoDeEnvioInterno(permiso), true);
+  assert.equal(Object.isFrozen(permiso), true);
+  // Lo que llega del navegador es un objeto copiado: nunca vale, aunque tenga los mismos datos.
+  assert.equal(P.esPermisoDeEnvioInterno({ userId: "u1", workspaceId: "w1" }), false);
+  assert.equal(P.esPermisoDeEnvioInterno(JSON.parse(JSON.stringify(permiso))), false);
+  assert.equal(P.esPermisoDeEnvioInterno(null), false);
+  assert.equal(P.esPermisoDeEnvioInterno("u1"), false);
+  assert.doesNotMatch(leer("src/lib/chats/permiso-de-envio-interno.ts"), /^"use server"/m);
+  const agente = leer("src/app/actions/agent-actions.ts");
+  for (const inicio of ["export async function enviarArchivoAlChatSinPermisos(", "export async function enviarTextoManualSinPermisos("]) {
+    const cuerpo = agente.slice(agente.indexOf(inicio), agente.indexOf(inicio) + 900);
+    assert.ok(agente.includes(inicio), `falta ${inicio}`);
+    assert.match(cuerpo, /if \(!esPermisoDeEnvioInterno\(permiso\)\) \{/, inicio);
+  }
+  const chats = leer("src/app/actions/chats-actions.ts");
+  const inicio = "export async function enviarTextoAlChatSinPermisos(";
+  assert.ok(chats.includes(inicio));
+  const cuerpo = chats.slice(chats.indexOf(inicio), chats.indexOf(inicio) + 900);
+  assert.match(cuerpo, /if \(!esPermisoDeEnvioInterno\(permiso\)\) \{/);
+  assert.match(cuerpo, /datos\.set\("skipSignature", "1"\);/);
+  // Las acciones de siempre siguen igual por fuera (sin permiso: con la sesión del navegador).
+  assert.match(agente, /export async function sendChatMediaReplyAction\(input: \{/);
+  assert.match(agente, /export async function sendManualAgentReplyAction\(formData: FormData\): Promise<SendChatReplyResult> \{\n  return enviarRespuestaManual\(formData, null\);/);
+  assert.match(chats, /export async function sendUnifiedChatReplyAction\(formData: FormData\): Promise<SendChatReplyResult> \{\n  return enviarRespuestaUnificada\(formData, null\);/);
 });
 
 prueba("la migración solo crea la tabla EnvioDeFlujo, sus índices y su llave a Workspace", () => {

@@ -22,10 +22,14 @@ export async function claimConversationIfUnassigned(input: {
   source: "agent" | "official";
   conversationId: string;
   workspaceId: string;
+  /**
+   * Quien mandó, cuando ya se sabe sin la sesión (el flujo que manda el servidor solo, que también
+   * corre en el cron sin cookie). Sin esto se usa la sesión del pedido, como siempre.
+   */
+  userId?: string;
 }): Promise<void> {
   try {
-    const session = await auth();
-    const userId = session?.user?.id;
+    const userId = input.userId || (await auth())?.user?.id;
     if (!userId) {
       return;
     }

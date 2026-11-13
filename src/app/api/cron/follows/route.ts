@@ -30,6 +30,7 @@ import { revisarAvisosAlEquipo } from "@/features/tableros-inteligentes/services
 import { archivarLasHechas, archivarLasTerminadas } from "@/features/tableros-inteligentes/services/archivadas";
 import { barrerEtapasDeTodos } from "@/features/crm/services/barrido-de-etapas";
 import { revisarMensajesIndescifrables } from "@/features/mensajes-indescifrables/servicios/revision";
+import { retomarEnviosQuedados } from "@/lib/flujos/procesar-envio-de-flujo";
 
 function resolveCronSecret() {
   return process.env.FOLLOW_CRON_SECRET?.trim() || process.env.EVOLUTION_WEBHOOK_SECRET?.trim() || "";
@@ -167,6 +168,19 @@ async function handleCron(request: Request) {
   } catch (error) {
     console.error("[cron/follows] reparto de madrugada error", error);
   }
+
+  /*
+    FLUJOS QUE QUEDARON A MEDIAS (ver src/lib/flujos/procesar-envio-de-flujo.ts): si el proceso que
+    mandaba un flujo se cayó, se retoma lo pendiente (lo que estaba «enviando» queda fallido: nunca se
+    reenvía solo). En segundo plano y best-effort: no frena el resto del cron.
+  */
+  after(async () => {
+    try {
+      await retomarEnviosQuedados();
+    } catch (error) {
+      console.error("[cron/follows] flujos a medias error", error);
+    }
+  });
 
   /*
     MENSAJES INDESCIFRABLES (ver src/features/mensajes-indescifrables): a los 2 minutos se mira si el

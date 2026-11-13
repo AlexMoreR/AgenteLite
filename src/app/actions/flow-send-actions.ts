@@ -1,13 +1,16 @@
 "use server";
 
+import type { Prisma } from "@prisma/client";
 import { auth } from "@/auth";
 import { getFlowReply } from "@/lib/agent-product-flow";
 import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
-import { sendChatMediaReplyAction } from "@/app/actions/agent-actions";
-import { sendUnifiedChatReplyAction } from "@/app/actions/chats-actions";
-import { lineaDeMedicion, type MedicionDePaso } from "@/lib/flujos/envio-de-flujo";
+import { after } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { AVISO_MODO_MONITOREO, estaEnModoMonitoreo } from "@/lib/modo-monitoreo";
+import { armarPasos, calcularAvance } from "@/lib/flujos/envio-de-flujo";
+import { procesarEnvioDeFlujo } from "@/lib/flujos/procesar-envio-de-flujo";
 
 /**
  * Mandar un flujo entero desde el chat, con un toque.
@@ -16,10 +19,15 @@ import { lineaDeMedicion, type MedicionDePaso } from "@/lib/flujos/envio-de-fluj
  * conversacion, aunque el flujo con ese mismo catalogo ya estuviera armado y el agente supiera
  * mandarlo solo. Esto le da el mismo boton que tiene el bot.
  *
- * Se manda paso por paso REUSANDO las acciones del compositor —las mismas que corren cuando ella
+ * Se manda paso por paso REUSANDO los caminos del compositor —los mismos que corren cuando ella
  * manda un archivo a mano— en vez de duplicar el motor del webhook. Asi queda registrado como un
  * envio suyo (cuenta en su tablero, toma el lead si no tenia dueño) y no se toca la pieza que
  * procesa todo lo que entra al negocio.
+ *
+ * Desde la parte 2 de «Flujos: que se envien completos…» lo manda el SERVIDOR: la accion guarda una
+ * fila EnvioDeFlujo y contesta al instante; procesarEnvioDeFlujo la manda despues de responder
+ * (after()) y el cron la retoma si el proceso se cayo. Si la asesora cambia de chat o cierra la
+ * pestaña, el flujo sale completo igual.
  */
 
 export type FlowChoice = { id: string; title: string };
@@ -47,66 +55,10 @@ export async function listFlowsForChatAction(): Promise<FlowChoice[]> {
 }
 
 export type SendFlowResult =
-  | { ok: true; enviados: number; fallidos: number; omitidos: number }
+  // envioId y total: solo desde la parte 2 (el flujo lo manda el servidor). Opcionales: una pestaña
+  // vieja los ignora y sigue mostrando «listo».
+  | { ok: true; enviados: number; fallidos: number; omitidos: number; envioId?: string; total?: number }
   | { ok: false; error: string };
-
-const PAUSA_ARCHIVO_MS = 3000;
-const PAUSA_TEXTO_MS = 700;
-
-function esperar(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/*
-  QUE ARCHIVO ES: el tipo real y su nombre, sacados de la direccion.
-
-  Esto mandaba `application/octet-stream` y un nombre inventado ("image.file") para toda foto y
-  todo video. WhatsApp recibia el mensaje -le daba su id y hasta lo marcaba como entregado-, pero
-  al llegar al telefono no lo podia dibujar: le habiamos dicho que era un archivo de tipo
-  desconocido. En el chat del cliente no aparecia nada (Alex, 28-09-2026).
-
-  El video se salvaba de casualidad: su ruta de WAHA lleva `convert: true`, asi que WAHA lo
-  re-codifica y le pone el tipo correcto por su cuenta. Las fotos no pasan por ahi, y por eso
-  llegaba el video y no las fotos, que es exactamente lo que se veia.
-
-  El camino automatico -el del agente- nunca tuvo el problema porque manda "image/jpeg" a mano.
-  Aca se saca de la extension, que ademas conserva el nombre de verdad del archivo.
-*/
-const MIME_POR_EXTENSION: Record<string, string> = {
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  png: "image/png",
-  webp: "image/webp",
-  gif: "image/gif",
-  mp4: "video/mp4",
-  mov: "video/quicktime",
-  webm: "video/webm",
-  pdf: "application/pdf",
-};
-
-/** Si la direccion no dice nada, se usa lo mismo que manda el agente para ese tipo. */
-const MIME_POR_DEFECTO: Record<string, string> = {
-  image: "image/jpeg",
-  video: "video/mp4",
-  document: "application/pdf",
-};
-
-function describirArchivo(
-  kind: string,
-  url: string,
-  nombreDelPaso?: string | null,
-): { mime: string; nombre: string } {
-  const ultimoTramo = decodeURIComponent(url.split("?")[0].split("/").pop() ?? "");
-  const extension = ultimoTramo.includes(".") ? (ultimoTramo.split(".").pop() ?? "").toLowerCase() : "";
-  const mime = MIME_POR_EXTENSION[extension] ?? MIME_POR_DEFECTO[kind] ?? "application/octet-stream";
-
-  const nombre =
-    nombreDelPaso?.trim() ||
-    ultimoTramo ||
-    (kind === "image" ? "foto.jpg" : kind === "video" ? "video.mp4" : "documento.pdf");
-
-  return { mime, nombre };
-}
 
 export async function sendFlowToChatAction(input: {
   source: "agent" | "official";
@@ -124,103 +76,60 @@ export async function sendFlowToChatAction(input: {
   if (!membership?.workspace.id) {
     return { ok: false, error: "Workspace no encontrado" };
   }
+  const workspaceId = membership.workspace.id;
+  const userId = session.user.id;
+  const source = input?.source === "official" ? "official" : "agent";
+  const conversationId = typeof input?.conversationId === "string" ? input.conversationId.trim() : "";
+  const flowId = typeof input?.flowId === "string" ? input.flowId.trim() : "";
+  const agentId = typeof input?.agentId === "string" && input.agentId.trim() ? input.agentId.trim() : null;
+  if (!conversationId || !flowId) {
+    return { ok: false, error: "Datos invalidos" };
+  }
 
-  const flujo = await getFlowReply({
-    workspaceId: membership.workspace.id,
-    flowId: input.flowId,
-    includeOfficialApi: true,
-  });
+  // Quien solo monitorea no envia: se le dice de una vez, en vez de que cada paso falle despues.
+  if (await estaEnModoMonitoreo({ workspaceId, userId })) {
+    return { ok: false, error: AVISO_MODO_MONITOREO };
+  }
+
+  const [flujo, chat] = await Promise.all([
+    getFlowReply({ workspaceId, flowId, includeOfficialApi: true }),
+    source === "official"
+      ? prisma.officialApiConversation.findFirst({
+          where: { id: conversationId, config: { workspaceId } },
+          select: { id: true },
+        })
+      : prisma.conversation.findFirst({ where: { id: conversationId, workspaceId }, select: { id: true } }),
+  ]);
 
   if (!flujo || flujo.steps.length === 0) {
     return { ok: false, error: "Ese flujo no tiene nada para enviar." };
   }
-
-  let enviados = 0;
-  let fallidos = 0;
-  let omitidos = 0;
-
-  // Medicion del «antes» (parte 1 de 4): cuanto tarda cada paso y el total. Solo se mide; el envio
-  // sigue igual (mismas pausas, mismo orden, misma respuesta).
-  const inicioTotal = Date.now();
-  const medicion: MedicionDePaso[] = [];
-
-  for (const [indice, paso] of flujo.steps.entries()) {
-    // Las pausas son las mismas que usa el agente: WhatsApp entrega mal varias cosas seguidas,
-    // y al cliente le llega mas natural que caiga de a poco.
-    if (indice > 0) {
-      await esperar(paso.kind === "text" ? PAUSA_TEXTO_MS : PAUSA_ARCHIVO_MS);
-    }
-
-    const inicioPaso = Date.now();
-    const antes = { enviados, fallidos };
-    try {
-      if (paso.kind === "text") {
-        const datos = new FormData();
-        datos.set("source", input.source);
-        datos.set("conversationId", input.conversationId);
-        datos.set("message", paso.content);
-        // Contenido preparado: va tal cual, sin la firma de la asesora encima.
-        datos.set("skipSignature", "1");
-        if (input.agentId) {
-          datos.set("agentId", input.agentId);
-        }
-        const resultado = await sendUnifiedChatReplyAction(datos);
-        if (resultado?.ok) enviados += 1;
-        else fallidos += 1;
-        continue;
-      }
-
-      if (paso.kind === "audio") {
-        // El compositor manda audio por otro camino (nota de voz). Se cuenta aparte para poder
-        // decirle a la asesora que ese paso quedo sin mandar, en vez de mentirle con un "listo".
-        omitidos += 1;
-        continue;
-      }
-
-      const tipo = paso.kind === "image" ? "IMAGE" : paso.kind === "video" ? "VIDEO" : "DOCUMENT";
-      // Solo el documento trae nombre propio; la foto y el video lo sacan de la direccion.
-      const archivo = describirArchivo(paso.kind, paso.url, paso.kind === "document" ? paso.fileName : null);
-
-      const resultado = await sendChatMediaReplyAction({
-        source: input.source,
-        conversationId: input.conversationId,
-        agentId: input.agentId,
-        mediaUrl: paso.url,
-        mediaType: tipo,
-        fileName: archivo.nombre,
-        mimeType: archivo.mime,
-        caption: paso.caption?.trim() || undefined,
-        returnTo: "",
-      });
-
-      if (resultado && "ok" in resultado && resultado.ok) enviados += 1;
-      else fallidos += 1;
-    } catch (error) {
-      fallidos += 1;
-      console.error("[chats] fallo un paso al enviar el flujo a mano", {
-        conversationId: input.conversationId,
-        flowId: input.flowId,
-        paso: paso.kind,
-        detalle: error instanceof Error ? error.message : String(error),
-      });
-    } finally {
-      medicion.push({
-        tipo: paso.kind,
-        resultado: enviados > antes.enviados ? "enviado" : fallidos > antes.fallidos ? "fallido" : "omitido",
-        ms: Date.now() - inicioPaso,
-      });
-    }
+  if (!chat) {
+    return { ok: false, error: "No se encontro el chat" };
   }
 
-  console.info(
-    "[flujo] medicion",
-    lineaDeMedicion({
-      conversationId: input.conversationId,
-      flowId: input.flowId,
-      pasos: medicion,
-      msTotal: Date.now() - inicioTotal,
-    }),
-  );
+  // Los pasos quedan como estaban al tocar «Enviar flujo»: si despues cambian el flujo, sale igual.
+  const pasos = armarPasos(flujo.steps);
+  const { total } = calcularAvance(pasos);
+  const omitidos = pasos.length - total;
 
-  return { ok: true, enviados, fallidos, omitidos };
+  const envio = await prisma.envioDeFlujo.create({
+    data: {
+      workspaceId,
+      conversationId,
+      source,
+      flowId,
+      agentId,
+      userId,
+      pasos: pasos as unknown as Prisma.InputJsonValue,
+      total,
+    },
+    select: { id: true },
+  });
+
+  // Se manda despues de responder. Si el proceso se cae a la mitad, el cron lo retoma
+  // (retomarEnviosQuedados en /api/cron/follows).
+  after(() => procesarEnvioDeFlujo(envio.id));
+
+  return { ok: true, enviados: 0, fallidos: 0, omitidos, envioId: envio.id, total };
 }

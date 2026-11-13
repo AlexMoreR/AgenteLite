@@ -701,6 +701,8 @@ async function automatizaciones(
     // Cron cada minuto: aviso "Listo para pagar" sin respuesta humana en 5 min (en horario) → líder de ventas.
     listo_para_pagar: v3.hayLineasConV3 ? sinInterruptor : "no aplica: ninguna linea usa el Agente V3",
     rescate_de_chats_huerfanos: sinInterruptor,
+    // Cron cada minuto: retoma los flujos mandados desde el chat que quedaron a medias (proceso caído).
+    retomar_envios_de_flujo: sinInterruptor,
     // Cron cada minuto: push a la asesora si su chat de ventas lleva 5 min sin respuesta humana (7:00 a 23:00).
     demora_de_asesora: await estadoDeLaDemoraDeAsesora(workspaceId).catch(() => "no se pudo leer"),
     // Corre en cada mensaje de la clienta (webhook), no en el reloj. Se gobierna desde Equipo

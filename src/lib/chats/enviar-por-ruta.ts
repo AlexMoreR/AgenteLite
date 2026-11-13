@@ -62,7 +62,8 @@ export type EntradaDeFlujo = {
 
 // El mismo SendFlowResult de flow-send-actions.ts (no se importa: este archivo no toca el servidor).
 export type ResultadoDeFlujo =
-  | { ok: true; enviados: number; fallidos: number; omitidos: number }
+  // envioId y total: el flujo lo manda el servidor despues de contestar (opcionales).
+  | { ok: true; enviados: number; fallidos: number; omitidos: number; envioId?: string; total?: number }
   | { ok: false; error: string };
 
 export type ResultadoDeReaccion = { ok: boolean; error?: string };
@@ -121,7 +122,6 @@ export function enviarUbicacionPorRuta(entrada: EntradaDeUbicacion) {
   return pedirALaRuta<ResultadoDeEnvio>("enviar-ubicacion", JSON.stringify(entrada), LIMITE_ESPERA_RUTA_MS);
 }
 
-// Sin limite de tiempo: el flujo hace pausas entre pasos, igual que con la accion.
 export function enviarFlujoPorRuta(entrada: EntradaDeFlujo) {
   return pedirALaRuta<ResultadoDeFlujo>("enviar-flujo", JSON.stringify(entrada), null);
 }
