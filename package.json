@@ -112,6 +112,7 @@
     "test:archivo-legible": "node scripts/check-archivo-legible.mjs",
     "test:contrato-envios": "node scripts/check-contrato-envios.mjs",
     "test:rutas-de-envio": "node scripts/check-rutas-de-envio.mjs",
+    "test:envio-de-flujo": "node scripts/check-envio-de-flujo.mjs",
     "test:mensaje-fijado": "npx tsx --test src/lib/chats/mensaje-fijado.test.ts",
     "test:franja-fijado": "npx tsx --test src/components/chats/franja-mensaje-fijado.test.ts",
     "test:apertura-chats": "node scripts/check-apertura-chats.mjs",

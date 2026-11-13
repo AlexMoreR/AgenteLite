@@ -7,6 +7,7 @@ import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { sendChatMediaReplyAction } from "@/app/actions/agent-actions";
 import { sendUnifiedChatReplyAction } from "@/app/actions/chats-actions";
+import { lineaDeMedicion, type MedicionDePaso } from "@/lib/flujos/envio-de-flujo";
 
 /**
  * Mandar un flujo entero desde el chat, con un toque.
@@ -138,6 +139,11 @@ export async function sendFlowToChatAction(input: {
   let fallidos = 0;
   let omitidos = 0;
 
+  // Medicion del «antes» (parte 1 de 4): cuanto tarda cada paso y el total. Solo se mide; el envio
+  // sigue igual (mismas pausas, mismo orden, misma respuesta).
+  const inicioTotal = Date.now();
+  const medicion: MedicionDePaso[] = [];
+
   for (const [indice, paso] of flujo.steps.entries()) {
     // Las pausas son las mismas que usa el agente: WhatsApp entrega mal varias cosas seguidas,
     // y al cliente le llega mas natural que caiga de a poco.
@@ -145,6 +151,8 @@ export async function sendFlowToChatAction(input: {
       await esperar(paso.kind === "text" ? PAUSA_TEXTO_MS : PAUSA_ARCHIVO_MS);
     }
 
+    const inicioPaso = Date.now();
+    const antes = { enviados, fallidos };
     try {
       if (paso.kind === "text") {
         const datos = new FormData();
@@ -195,8 +203,24 @@ export async function sendFlowToChatAction(input: {
         paso: paso.kind,
         detalle: error instanceof Error ? error.message : String(error),
       });
+    } finally {
+      medicion.push({
+        tipo: paso.kind,
+        resultado: enviados > antes.enviados ? "enviado" : fallidos > antes.fallidos ? "fallido" : "omitido",
+        ms: Date.now() - inicioPaso,
+      });
     }
   }
+
+  console.info(
+    "[flujo] medicion",
+    lineaDeMedicion({
+      conversationId: input.conversationId,
+      flowId: input.flowId,
+      pasos: medicion,
+      msTotal: Date.now() - inicioTotal,
+    }),
+  );
 
   return { ok: true, enviados, fallidos, omitidos };
 }

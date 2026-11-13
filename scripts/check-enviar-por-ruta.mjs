@@ -49,6 +49,13 @@ const AYUDANTE_DE_CADA_RUTA = {
   "enviar-ubicacion": E.enviarUbicacionPorRuta,
   "enviar-flujo": E.enviarFlujoPorRuta,
   reaccionar: E.reaccionarPorRuta,
+  // Fijar es solo del CRM (no sale nada por WhatsApp), pero tambien va por su ruta fija.
+  fijar: E.fijarPorRuta,
+};
+
+// Rutas que todavia no tienen un pedido en el archivo congelado: un cuerpo de ejemplo para la prueba de forma.
+const CUERPO_DE_EJEMPLO = {
+  fijar: { cuerpo: { conversationId: "c1", messageId: "m1" } },
 };
 
 /**
@@ -109,7 +116,8 @@ await prueba("los campos undefined (sin caption, sin agente) no viajan, igual qu
 await prueba("forma del pedido: POST JSON, same-origin, no-store; 60 s de limite salvo el flujo", async () => {
   for (const [ruta, ayudante] of Object.entries(AYUDANTE_DE_CADA_RUTA)) {
     const { pedidos } = servidorFalso();
-    const pedido = Object.values(congelados.pedidos).find((p) => p.ruta === ruta);
+    const pedido = Object.values(congelados.pedidos).find((p) => p.ruta === ruta) ?? CUERPO_DE_EJEMPLO[ruta];
+    assert.ok(pedido, `${ruta} sin pedido congelado ni de ejemplo`);
     await ayudante(pedido.cuerpo);
     const { init } = pedidos[0];
     assert.equal(init.method, "POST", ruta);
