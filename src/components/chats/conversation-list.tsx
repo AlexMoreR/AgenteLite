@@ -368,8 +368,8 @@ const ConversationListItem = memo(function ConversationListItem({
             {/* Candado "No reasignar": la asesora pidio conservar este chat (se apaga solo a las 24 h
                 o con Ganado/Perdido, ver candado-no-reasignar.ts). */}
             {candadoVigente({ noReasignarAt: conversation.noReasignarAt, crmStage: conversation.crmStage }) ? (
-              <span title="No reasignar" className="inline-flex shrink-0">
-                <Lock className="h-3 w-3 text-muted-foreground" aria-label="No reasignar" />
+              <span title="No reasignar" aria-label="No reasignar" role="img" className="inline-flex shrink-0">
+                <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
               </span>
             ) : null}
           </span>

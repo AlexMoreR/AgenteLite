@@ -180,13 +180,14 @@ function BotonDelCandado({
       aria-label={nombre}
       aria-busy={guardando}
       title={titulo}
-      className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border transition disabled:opacity-60 ${
+      className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-[12px] font-medium transition disabled:opacity-60 ${
         prendido
           ? "border-amber-500/20 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20"
           : "border-border bg-card text-muted-foreground hover:bg-muted"
       }`}
     >
       <Icono className="h-3.5 w-3.5 shrink-0" />
+      <span>No reasignar</span>
     </button>
   );
 }
