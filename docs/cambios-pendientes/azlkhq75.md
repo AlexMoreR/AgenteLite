@@ -1,2 +1,0 @@
-## Advertencias de operación
-- `chats_mensaje_fijado`: Fijar es solo del CRM (uno por chat; fijar otro reemplaza al anterior) y la clienta no lo ve: no sale nada por WhatsApp. Lo puede fijar o desfijar cualquiera que abre el chat (en modo monitoreo no). Se ve en la franja de arriba del chat; tocarla lleva al mensaje, y si es muy viejo y no está cargado sale el aviso de subir para verlo. Las demás asesoras lo ven cuando les llega el siguiente refresco del chat (/live). Si el mensaje fijado se elimina, la franja se va.

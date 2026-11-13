@@ -1,2 +1,0 @@
-## Entidades
-- `Conversation`: campo nuevo `mensajeFijadoId` (opcional): el mensaje fijado del chat (Fijar del menú del mensaje). Es solo del CRM: no se manda nada por WhatsApp y la clienta no lo ve. Uno por chat; fijar otro reemplaza al anterior y se quita con `messageId: null` en `POST /api/cliente/chats/fijar`. `/api/cliente/chats/live` lo devuelve como `mensajeFijado: { id, texto, tipo } | null` (null si se eliminó o ya no existe). El mismo campo está en `OfficialApiConversation` (canal oficial).
