@@ -338,6 +338,10 @@ model Conversation {
   /// clienta no lo ve. Uno por chat; id suelto, sin relacion. Ver src/lib/chats/mensaje-fijado.ts.
   mensajeFijadoId         String?
   seguimientosApagadosPor String?
+  /// Candado "No reasignar": cuándo se prendió y quién (id del usuario). Vale 24 h, o hasta que el
+  /// contacto pasa a Ganado o Perdido. Ver features/chats/domain/candado-no-reasignar.ts.
+  noReasignarAt           DateTime?
+  noReasignarPor          String?
   agent                   Agent?                   @relation(fields: [agentId], references: [id])
   channel                 WhatsAppChannel?         @relation(fields: [channelId], references: [id])
   contact                 Contact                  @relation(fields: [contactId], references: [id], onDelete: Cascade)

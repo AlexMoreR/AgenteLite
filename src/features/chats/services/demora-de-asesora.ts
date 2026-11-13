@@ -24,6 +24,7 @@ import {
   topeDeReasignacionAlcanzado,
   type ConfigDemora,
 } from "../domain/demora-de-asesora";
+import { filtrarSinCandado, whereSinCandadoVigente } from "../domain/candado-no-reasignar";
 import { cargarEsperaDelNegocio, esperaDelNegocio, type ChatEnEspera } from "./espera-de-chats";
 
 export * from "../domain/demora-de-asesora";
@@ -46,6 +47,8 @@ export * from "../domain/demora-de-asesora";
  *   las dos. Una sola vez por espera; sin activa, o con la reasignación ya usada, el chat se queda y
  *   se avisa a dueños y administradores (una vez por espera). Máximo MAXIMO_REASIGNACIONES_POR_VUELTA.
  *   No mueve la rueda del reparto normal ni cambia estado, etapa ni el bot.
+ * - Candado "No reasignar" (domain/candado-no-reasignar.ts): un chat con el candado vigente no se
+ *   reasigna; el aviso de los 5 min y el aviso a dueños y administradores siguen igual.
  * - Parte 3 (medición): desde las 23:00 guarda la foto del cierre (guardarFotoDeCierre), aunque la
  *   regla esté apagada. reasignacionesDeLaSemana y leerFotoDeCierre las lee numeros_de_ventas (MCP).
  * - Nunca le escribe nada al cliente.
@@ -225,14 +228,14 @@ function pushSinBloquear(userId: string, payload: Parameters<typeof sendPushToUs
 const urlDelChat = (conversationId: string) => `/cliente/chats?chatKey=agent:${conversationId}&assigned=all`;
 
 /**
- * Sin activa o con la reasignación ya usada: push a dueños y administradores activos, una vez por
+ * Sin activa, con la reasignación ya usada o con el candado "No reasignar": push a dueños y administradores activos, una vez por
  * espera (la marca guarda el `desde` de la espera). El chat no cambia. true = se avisó ahora.
  */
 async function avisarJefesDeLaDemora(input: {
   workspaceId: string;
   conversationId: string;
   desde: number;
-  motivo: "sin-activa" | "tope";
+  motivo: "sin-activa" | "tope" | "candado";
   cliente: string;
   asesora: string;
   minutos: number;
@@ -250,7 +253,9 @@ async function avisarJefesDeLaDemora(input: {
   const body =
     input.motivo === "tope"
       ? `${input.cliente} sigue sin respuesta: ya se reasignó una vez y ${input.asesora} tampoco contesta.`
-      : `${input.cliente} lleva ${input.minutos} min sin respuesta y no hay otra asesora activa. Sigue con ${input.asesora}.`;
+      : input.motivo === "candado"
+        ? `${input.cliente} lleva ${input.minutos} min sin respuesta. Tiene «No reasignar»: sigue con ${input.asesora}.`
+        : `${input.cliente} lleva ${input.minutos} min sin respuesta y no hay otra asesora activa. Sigue con ${input.asesora}.`;
   for (const jefe of jefes) {
     pushSinBloquear(jefe.userId, {
       title: "Un cliente sigue esperando",
@@ -275,6 +280,8 @@ export type ResultadoDeDemora = {
   sinActiva: number;
   /** Ya se usó la reasignación de esa espera: se avisó (o ya se había avisado) al dueño. */
   topeAlcanzado: number;
+  /** Con el candado "No reasignar" vigente: no se movió; se avisó (o ya se había avisado) al dueño. */
+  conCandado: number;
   /** Chats en los que algo falló (no frenan a los demás). */
   errores: number;
   /** Fotos del cierre guardadas en esta vuelta (solo desde las 23:00, una por negocio y día). */
@@ -293,6 +300,7 @@ export async function revisarDemorasDeAsesoras(ahora = new Date()): Promise<Resu
     reasignados: 0,
     sinActiva: 0,
     topeAlcanzado: 0,
+    conCandado: 0,
     errores: 0,
     fotosDeCierre: 0,
   };
@@ -451,14 +459,28 @@ async function reasignarDemorados(input: {
   const candidatasPorLinea = new Map<string, string[]>();
   // La carga se ajusta en la misma vuelta: si no, los 15 chats le caerían a la misma asesora.
   const carga = esperandoPorAsesora(input.espera);
+  // Candado "No reasignar": la lista de espera no trae las columnas, se leen aquí. Los que quedan
+  // fuera de filtrarSinCandado no buscan nueva asesora (el aviso al dueño sí sale).
+  const datosDelCandado = await prisma.conversation.findMany({
+    where: { id: { in: input.porReasignar.map((chat) => chat.id) } },
+    select: { id: true, noReasignarAt: true, contact: { select: { crmStage: true } } },
+  });
+  const conCandado = new Set(datosDelCandado.map((fila) => fila.id));
+  for (const libre of filtrarSinCandado(
+    datosDelCandado.map((fila) => ({ id: fila.id, noReasignarAt: fila.noReasignarAt, crmStage: fila.contact?.crmStage })),
+    ahora,
+  )) {
+    conCandado.delete(libre.id);
+  }
 
   for (const chat of input.porReasignar) {
     try {
       const tope = topeDeReasignacionAlcanzado(input.notas.reasignaciones.get(chat.id) ?? [], chat.desde);
-      if (!tope && resultado.reasignados >= MAXIMO_REASIGNACIONES_POR_VUELTA) continue;
+      const candado = conCandado.has(chat.id);
+      if (!tope && !candado && resultado.reasignados >= MAXIMO_REASIGNACIONES_POR_VUELTA) continue;
 
       let nueva: string | null = null;
-      if (!tope) {
+      if (!tope && !candado) {
         activas ??= await activasDelNegocio(workspaceId, config, ahora);
         let candidatas = candidatasPorLinea.get(chat.channelId);
         if (!candidatas) {
@@ -491,13 +513,14 @@ async function reasignarDemorados(input: {
 
       if (!nueva) {
         if (tope) resultado.topeAlcanzado += 1;
+        else if (candado) resultado.conCandado += 1;
         else resultado.sinActiva += 1;
         if (input.vuelta.avisosAJefes >= MAXIMO_AVISOS_POR_VUELTA) continue;
         const avisado = await avisarJefesDeLaDemora({
           workspaceId,
           conversationId: chat.id,
           desde: chat.desde,
-          motivo: tope ? "tope" : "sin-activa",
+          motivo: tope ? "tope" : candado ? "candado" : "sin-activa",
           cliente,
           asesora: nombre(chat.asesora),
           minutos: Math.floor((ahora.getTime() - chat.inicio) / 60_000),
@@ -508,8 +531,14 @@ async function reasignarDemorados(input: {
 
       // Solo si sigue siendo de la original y abierto: si contestó o alguien lo movió a mano, nada.
       // No mueve la rueda (lastAutoAssignedUserId) ni cambia estado, etapa ni automationPaused.
+      // El candado otra vez en el where: por si la asesora lo prendió en este mismo minuto.
       const movido = await prisma.conversation.updateMany({
-        where: { id: chat.id, assignedToUserId: chat.asesora, status: { in: ["OPEN", "PENDING"] } },
+        where: {
+          id: chat.id,
+          assignedToUserId: chat.asesora,
+          status: { in: ["OPEN", "PENDING"] },
+          ...whereSinCandadoVigente(ahora),
+        },
         data: { assignedToUserId: nueva },
       });
       if (movido.count === 0) continue;

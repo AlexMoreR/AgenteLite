@@ -1,0 +1,4 @@
+BEGIN;
+ALTER TABLE "Conversation" ADD COLUMN IF NOT EXISTS "noReasignarAt" TIMESTAMP(3);
+ALTER TABLE "Conversation" ADD COLUMN IF NOT EXISTS "noReasignarPor" TEXT;
+COMMIT;

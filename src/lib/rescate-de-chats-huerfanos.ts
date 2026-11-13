@@ -1,3 +1,4 @@
+import { whereSinCandadoVigente } from "@/features/chats/domain/candado-no-reasignar";
 import { leerMarcaExterior } from "@/features/seguimiento-inteligente/dominio/exterior";
 import { ventanaDeMadrugada } from "@/lib/en-linea-reglas";
 import { prisma } from "@/lib/prisma";
@@ -32,6 +33,8 @@ import { chatNecesitaAsesora } from "@/lib/reparto-cuando-lo-necesita";
  * las fotos ya mandadas, que el agente haya pedido asesora o que la clienta hable de precio, pago,
  * envío, contraentrega o ciudad. Corre cada minuto, así ve lo que pasó después del último mensaje de
  * la clienta (las fotos o la nota del agente llegan después de su mensaje).
+ *
+ * Los chats con el candado "No reasignar" vigente se saltan (domain/candado-no-reasignar.ts).
  *
  * No manda ningún mensaje al cliente: solo pone a alguien a cargo. Quien decide qué decirle es la
  * asesora que lo recibe.
@@ -82,6 +85,8 @@ async function chatsQueRespondieronLaBienvenida(ahora: Date) {
       channelId: { not: null },
       channel: { is: { purpose: "SALES" } },
       lastMessageAt: { gte: new Date(ahora.getTime() - VENTANA_BIENVENIDA_HORAS * 3_600_000) },
+      // Candado "No reasignar" vigente: no se reparte.
+      ...whereSinCandadoVigente(ahora),
     },
     select: SELECCION,
     orderBy: { lastMessageAt: "desc" },
@@ -153,6 +158,8 @@ export async function rescatarChatsHuerfanos(ahora = new Date()): Promise<{ repa
         lte: new Date(ahora.getTime() - ESPERA_MINUTOS * 60_000),
         gte: new Date(ahora.getTime() - VENTANA_MAXIMA_HORAS * 3_600_000),
       },
+      // Candado "No reasignar" vigente: no se reparte.
+      ...whereSinCandadoVigente(ahora),
     },
     select: SELECCION,
     orderBy: { lastMessageAt: "desc" },
