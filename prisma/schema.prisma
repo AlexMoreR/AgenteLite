@@ -118,6 +118,7 @@ model Workspace {
   funnelStates          ConversationFunnelState[]
   materialesDeColores   MaterialDeColores[]
   coloresDeCarta        ColorDeCarta[]
+  enviosDeFlujo         EnvioDeFlujo[]
 
   @@index([ownerId])
 }
@@ -2826,4 +2827,37 @@ model MetricaServidor {
   contenedores Json
 
   @@index([tomadaEn])
+}
+
+/// Un flujo que la asesora manda desde el chat, con el estado de cada paso. Sirve para que el envío siga
+/// aunque ella cambie de chat y para retomarlo tras una caída. Las reglas del avance están en
+/// src/lib/flujos/envio-de-flujo.ts (funciones puras). Un paso que quedó en "enviando" tras una caída
+/// NUNCA se reenvía solo: pasa a "fallido" y queda con Reintentar.
+model EnvioDeFlujo {
+  id             String    @id @default(cuid())
+  workspaceId    String
+  conversationId String
+  /// "agent" (WAHA) u "official" (API oficial): el mismo `source` del compositor.
+  source         String
+  flowId         String
+  agentId        String?
+  /// Quién lo mandó (la asesora).
+  userId         String
+  /// Lista de pasos con su estado (pendiente | enviando | enviado | fallido | omitido), su error y el id de su mensaje.
+  pasos          Json
+  total          Int
+  enviados       Int       @default(0)
+  /// EN_CURSO | TERMINADO | CON_FALLAS
+  estado         String    @default("EN_CURSO")
+  /// Candado para que un solo proceso mande los pasos a la vez.
+  lockedAt       DateTime?
+  lockedBy       String?
+  startedAt      DateTime  @default(now())
+  finishedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([estado])
+  @@index([conversationId])
 }

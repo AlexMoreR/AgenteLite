@@ -7,6 +7,7 @@ import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { sendChatMediaReplyAction } from "@/app/actions/agent-actions";
 import { sendUnifiedChatReplyAction } from "@/app/actions/chats-actions";
+import { lineaDeMedicion, type TiempoDePaso } from "@/lib/flujos/envio-de-flujo";
 
 /**
  * Mandar un flujo entero desde el chat, con un toque.
@@ -138,13 +139,23 @@ export async function sendFlowToChatAction(input: {
   let fallidos = 0;
   let omitidos = 0;
 
+  // Medicion del «antes»: cuanto tarda cada paso y el flujo entero con el envio de hoy. Solo mide y
+  // escribe en el log; no cambia pausas, orden ni respuesta.
+  const inicioTotal = Date.now();
+  const tiempos: TiempoDePaso[] = [];
+  let pausasMs = 0;
+
   for (const [indice, paso] of flujo.steps.entries()) {
     // Las pausas son las mismas que usa el agente: WhatsApp entrega mal varias cosas seguidas,
     // y al cliente le llega mas natural que caiga de a poco.
     if (indice > 0) {
+      const inicioPausa = Date.now();
       await esperar(paso.kind === "text" ? PAUSA_TEXTO_MS : PAUSA_ARCHIVO_MS);
+      pausasMs += Date.now() - inicioPausa;
     }
 
+    const inicioPaso = Date.now();
+    const cuentasAntes = { enviados, fallidos, omitidos };
     try {
       if (paso.kind === "text") {
         const datos = new FormData();
@@ -195,8 +206,26 @@ export async function sendFlowToChatAction(input: {
         paso: paso.kind,
         detalle: error instanceof Error ? error.message : String(error),
       });
+    } finally {
+      tiempos.push({
+        tipo: paso.kind,
+        ms: Date.now() - inicioPaso,
+        resultado:
+          enviados > cuentasAntes.enviados ? "enviado" : omitidos > cuentasAntes.omitidos ? "omitido" : "fallido",
+      });
     }
   }
+
+  console.info(
+    "[flujo] medicion",
+    lineaDeMedicion({
+      flowId: input.flowId,
+      conversationId: input.conversationId,
+      pasos: tiempos,
+      pausasMs,
+      totalMs: Date.now() - inicioTotal,
+    }),
+  );
 
   return { ok: true, enviados, fallidos, omitidos };
 }
