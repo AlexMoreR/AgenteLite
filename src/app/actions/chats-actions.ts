@@ -21,7 +21,8 @@ import {
 
 import { retomarConversacionV3 } from "@/features/agente-v3/servicios/retomar";
 import { getConversationAutomationPaused, setConversationAutomationPaused } from "@/lib/conversation-automation";
-import { recordConversationActivity, textoDeSegundoAsesor } from "@/lib/conversation-activity";
+import { recordConversationActivity, textoDelCandado, textoDeSegundoAsesor } from "@/lib/conversation-activity";
+import { decidirCambioDelCandado } from "@/features/chats/domain/candado-no-reasignar";
 import { notifyRealtimeUpdate } from "@/lib/realtime-notify";
 import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 import { persistAvatarUrl } from "@/lib/contact-avatar-refresh";
@@ -2246,12 +2247,19 @@ export async function assignChatAction(input: {
   // chat no puede tener a la misma persona en los dos puestos.
   const subeElSegundo = targetUserId !== null && conversation.segundoAsesorId === targetUserId;
 
+  /*
+    Candado "No reasignar": NO bloquea el pase manual. Si el chat cambia de asesora, el candado se
+    borra en la misma escritura, porque protegía a la asesora anterior y no a la nueva.
+  */
+  const cambiaDeAsesora = targetUserId !== conversation.assignedToUserId;
+
   await prisma.conversation.update({
     where: { id: conversation.id },
     data: {
       assignedToUserId: targetUserId,
       ...(reabrir ? { status: "OPEN" as const, closedAt: null } : {}),
       ...(subeElSegundo ? { segundoAsesorId: null } : {}),
+      ...(cambiaDeAsesora ? { noReasignarAt: null, noReasignarPor: null } : {}),
     },
   });
 
@@ -2418,6 +2426,85 @@ export async function asignarSegundoAsesorAction(input: {
     revalidatePath("/cliente/chats");
   }
   return { ok: true, segundoAsesor: targetUserId ? afectado : null };
+}
+
+/**
+ * Prende o apaga el candado "No reasignar" de un chat (WhatsApp normal). Mientras está vigente, ni
+ * la demora de la asesora ni el rescate de huérfanos le quitan el chat (ver candado-no-reasignar.ts).
+ *
+ * Permisos: prenderlo, solo la asesora asignada. Apagarlo, la asesora asignada o un jefe (dueña,
+ * administrador o supervisora, igual que en assignChatAction). Deja una nota gris en el historial.
+ * No manda nada por WhatsApp.
+ */
+export async function fijarCandadoNoReasignarAction({
+  conversationId,
+  prender,
+}: {
+  conversationId: string;
+  prender: boolean;
+}): Promise<
+  { ok: true; noReasignarAt: string | null; noReasignarPor: string | null } | { ok: false; error: string }
+> {
+  const session = await auth();
+  if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
+    return { ok: false, error: "No autorizado" };
+  }
+  await requireClientWorkspaceAccess("chats");
+
+  const id = typeof conversationId === "string" ? conversationId.trim() : "";
+  if (!id || typeof prender !== "boolean") return { ok: false, error: "Datos invalidos" };
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership) return { ok: false, error: "Workspace no encontrado" };
+
+  const conversation = await prisma.conversation.findFirst({
+    where: { id, workspaceId: membership.workspace.id },
+    select: { id: true, assignedToUserId: true, channelId: true, contactId: true, noReasignarAt: true },
+  });
+  if (!conversation) return { ok: false, error: "Conversacion no encontrada" };
+
+  const isManager =
+    membership.role === "OWNER" ||
+    membership.role === "ADMIN" ||
+    (await esSupervisora(membership.workspace.id, session.user.id));
+  const cambio = decidirCambioDelCandado({
+    prender,
+    userId: session.user.id,
+    assignedToUserId: conversation.assignedToUserId,
+    isManager,
+  });
+  if (!cambio) return { ok: false, error: "No autorizado" };
+
+  // Apagar un candado que ya está apagado: no se escribe ni se anota nada.
+  if (!prender && !conversation.noReasignarAt) {
+    return { ok: true, noReasignarAt: null, noReasignarPor: null };
+  }
+
+  const noReasignarAt = prender ? new Date() : null;
+  const noReasignarPor = prender ? session.user.id : null;
+  // El filtro repite la asesora leída: si el chat cambió de manos mientras tanto, no se escribe a
+  // ciegas (el permiso se decidió con la asesora anterior).
+  const actualizadas = await prisma.conversation.updateMany({
+    where: { id: conversation.id, workspaceId: membership.workspace.id, assignedToUserId: conversation.assignedToUserId },
+    data: { noReasignarAt, noReasignarPor },
+  });
+  if (actualizadas.count === 0) {
+    return { ok: false, error: "El chat cambio de asesor mientras tanto. Vuelve a intentarlo." };
+  }
+
+  await recordConversationActivity({
+    workspaceId: membership.workspace.id,
+    conversationId: conversation.id,
+    channelId: conversation.channelId,
+    contactId: conversation.contactId,
+    kind: cambio,
+    actorUserId: session.user.id,
+    dispositivo: leerDispositivo((await headers()).get("user-agent")),
+    text: textoDelCandado(cambio, session.user.name?.trim() || "Alguien"),
+  });
+
+  revalidatePath("/cliente/chats");
+  return { ok: true, noReasignarAt: noReasignarAt?.toISOString() ?? null, noReasignarPor };
 }
 
 export async function toggleContactTagAction(

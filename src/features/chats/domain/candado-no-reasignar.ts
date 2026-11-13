@@ -28,6 +28,27 @@ export function candadoVigente(chat: DatosDelCandado, ahora: Date = new Date()):
   return !(ETAPAS_QUE_LO_APAGAN as readonly string[]).includes(chat.crmStage ?? "");
 }
 
+/**
+ * Parte 2: quién puede prender o apagar el candado, y qué nota queda en el historial.
+ * - "candado_prendido": lo prende la asesora asignada (solo si el chat ya tiene asesora).
+ * - "candado_apagado": lo apaga la asesora asignada.
+ * - "candado_quitado": lo apaga un jefe (dueña, admin o supervisora) que no es la asignada.
+ * Devuelve null si esa persona no puede hacerlo (la acción responde "No autorizado").
+ */
+export type CambioDelCandado = "candado_prendido" | "candado_apagado" | "candado_quitado";
+
+export function decidirCambioDelCandado(input: {
+  prender: boolean;
+  userId: string;
+  assignedToUserId: string | null;
+  isManager: boolean;
+}): CambioDelCandado | null {
+  const esLaAsignada = input.assignedToUserId !== null && input.assignedToUserId === input.userId;
+  if (input.prender) return esLaAsignada ? "candado_prendido" : null;
+  if (esLaAsignada) return "candado_apagado";
+  return input.isManager ? "candado_quitado" : null;
+}
+
 /** Deja fuera los chats con candado vigente (los que no se pueden reasignar). */
 export function filtrarSinCandado<T extends DatosDelCandado>(chats: T[], ahora: Date = new Date()): T[] {
   return chats.filter((chat) => !candadoVigente(chat, ahora));

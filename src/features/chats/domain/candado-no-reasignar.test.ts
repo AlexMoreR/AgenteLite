@@ -2,7 +2,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { HORAS_DEL_CANDADO, candadoVigente, filtrarSinCandado, whereSinCandadoVigente } from "./candado-no-reasignar";
+import {
+  HORAS_DEL_CANDADO,
+  candadoVigente,
+  decidirCambioDelCandado,
+  filtrarSinCandado,
+  whereSinCandadoVigente,
+} from "./candado-no-reasignar";
 
 const ahora = new Date("2026-11-13T15:00:00.000Z");
 const haceHoras = (horas: number) => new Date(ahora.getTime() - horas * 3_600_000);
@@ -56,4 +62,30 @@ test("whereSinCandadoVigente: las tres ramas del OR", () => {
       { contact: { crmStage: { in: ["GANADO", "PERDIDO"] } } },
     ],
   });
+});
+
+// Parte 2: quién puede prender o apagar el candado.
+const decidir = (prender: boolean, userId: string, assignedToUserId: string | null, isManager: boolean) =>
+  decidirCambioDelCandado({ prender, userId, assignedToUserId, isManager });
+
+test("prender: solo la asesora asignada", () => {
+  assert.equal(decidir(true, "maria", "maria", false), "candado_prendido");
+  assert.equal(decidir(true, "maria", "maria", true), "candado_prendido");
+  // Otra asesora, o un jefe que no es la asignada, no lo prenden.
+  assert.equal(decidir(true, "genesis", "maria", false), null);
+  assert.equal(decidir(true, "jefa", "maria", true), null);
+});
+
+test("prender: un chat sin asesora no se puede", () => {
+  assert.equal(decidir(true, "maria", null, false), null);
+  assert.equal(decidir(true, "jefa", null, true), null);
+});
+
+test("apagar: la asignada lo apaga, un jefe lo quita, otra asesora no", () => {
+  assert.equal(decidir(false, "maria", "maria", false), "candado_apagado");
+  assert.equal(decidir(false, "maria", "maria", true), "candado_apagado");
+  assert.equal(decidir(false, "jefa", "maria", true), "candado_quitado");
+  assert.equal(decidir(false, "jefa", null, true), "candado_quitado");
+  assert.equal(decidir(false, "genesis", "maria", false), null);
+  assert.equal(decidir(false, "genesis", null, false), null);
 });

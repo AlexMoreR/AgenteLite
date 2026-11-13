@@ -1,4 +1,5 @@
 import { registrarDesdeActividad } from "@/features/embudo/servicios/eventos";
+import type { CambioDelCandado } from "@/features/chats/domain/candado-no-reasignar";
 import { prisma } from "@/lib/prisma";
 
 // Tipos de evento de actividad que se registran en la línea de tiempo del chat
@@ -14,6 +15,8 @@ export type ConversationActivityKind =
   // Segundo asesor del chat (ver chats-asignacion-compartida.ts).
   | "segundo_asesor_agregado"
   | "segundo_asesor_quitado"
+  // Candado "No reasignar" (ver features/chats/domain/candado-no-reasignar.ts).
+  | CambioDelCandado
   // Nota interna que escribe una asesora. No se envia al cliente: vive solo en el chat.
   | "note";
 
@@ -108,6 +111,16 @@ export function textoDeSegundoAsesor(
   return kind === "segundo_asesor_agregado"
     ? `${actorName} agregó a ${asesorName} al chat`
     : `${actorName} quitó a ${asesorName} del chat`;
+}
+
+/**
+ * Texto de la nota gris del candado "No reasignar". Es interna del chat: nunca se manda por WhatsApp.
+ * "Maria prendió el candado (no reasignar)" / "Maria apagó el candado" / "Magilus quitó el candado".
+ */
+export function textoDelCandado(kind: CambioDelCandado, actorName: string): string {
+  if (kind === "candado_prendido") return `${actorName} prendió el candado (no reasignar)`;
+  if (kind === "candado_apagado") return `${actorName} apagó el candado`;
+  return `${actorName} quitó el candado`;
 }
 
 // Detecta si un payload corresponde a una actividad (no a una llamada u otro SYSTEM).

@@ -174,6 +174,15 @@ export async function updateCrmStageAction(input: {
       contactId: contact.id,
       motivo: "etapa_cerrada",
     });
+    /*
+      Candado "No reasignar": un contacto ganado o perdido ya no lo necesita, se borra en sus chats.
+      Los otros caminos que cierran la etapa quedan cubiertos porque candadoVigente mira la etapa
+      al leer (ver candado-no-reasignar.ts).
+    */
+    await prisma.conversation.updateMany({
+      where: { contactId: contact.id, workspaceId: membership.workspace.id, noReasignarAt: { not: null } },
+      data: { noReasignarAt: null, noReasignarPor: null },
+    });
   }
 
   await createFollowsFromRulesForSource({
