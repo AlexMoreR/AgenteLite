@@ -34,6 +34,9 @@ export type LoadedAgentConversationDetail = {
   /** El segundo asesor del chat, si lo tiene (ver chats-asignacion-compartida.ts). */
   segundoAsesorId: string | null;
   segundoAsesorNombre: string | null;
+  /** Candado "No reasignar" (ISO): desde cuando y quien lo prendio. Null = sin candado. */
+  noReasignarAt: string | null;
+  noReasignarPor: string | null;
   /** Abierto o resuelto: de aca sale si la cabecera dice "Resolver" o "Reabrir". */
   status: "OPEN" | "PENDING" | "CLOSED" | "ARCHIVED";
   contact: {
@@ -260,6 +263,9 @@ export async function loadAgentConversationDetail(input: {
         assignedTo: { select: { id: true, name: true, email: true } },
         segundoAsesorId: true,
         segundoAsesor: { select: { id: true, name: true } },
+        // Candado "No reasignar": viaja para que el encabezado lo muestre sin recargar.
+        noReasignarAt: true,
+        noReasignarPor: true,
         // El mensaje fijado (Fijar del menu del mensaje, solo CRM).
         mensajeFijadoId: true,
         contact: {
@@ -322,6 +328,8 @@ export async function loadAgentConversationDetail(input: {
     // El segundo asesor: la ficha muestra su nombre con la "x" para quitarlo.
     segundoAsesorId: conversation.segundoAsesorId ?? null,
     segundoAsesorNombre: conversation.segundoAsesor?.name?.trim() || null,
+    noReasignarAt: conversation.noReasignarAt?.toISOString() ?? null,
+    noReasignarPor: conversation.noReasignarPor ?? null,
     // Lo mismo con el estado: se leia y no salia, y la cabecera caia en "OPEN" por defecto. Un
     // chat resuelto mostraba "Resolver" en vez de "Reabrir" (Alex, 02-10-2026).
     status: conversation.status,

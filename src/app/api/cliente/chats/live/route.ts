@@ -539,6 +539,9 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
       // El segundo asesor, para el boton "Agregar asesor" de la ficha.
       segundoAsesorId: conversation.segundoAsesorId ?? null,
       segundoAsesorNombre: conversation.segundoAsesorNombre ?? null,
+      // Candado "No reasignar" (ISO). Siempre viaja, null incluido: al apagarlo se va sin recargar.
+      noReasignarAt: conversation.noReasignarAt ?? null,
+      noReasignarPor: conversation.noReasignarPor ?? null,
       // El mensaje fijado (solo CRM). Siempre viaja, null incluido, para que la franja se vaya sola.
       mensajeFijado: conversation.mensajeFijado ?? null,
       // undefined = no se pidio (sin conLlamada=1): el JSON no la lleva y el navegador conserva la

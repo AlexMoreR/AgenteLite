@@ -65,6 +65,9 @@ type UnifiedConversation = {
   assignedToUserId?: string | null;
   assignedToName?: string | null;
   automationPaused?: boolean | null;
+  /** Candado "No reasignar" (ISO). Null = sin candado; quien lo prendio. */
+  noReasignarAt?: string | null;
+  noReasignarPor?: string | null;
   incomingCount?: number | null;
   lastMessage: string | null;
   // Solo tipos: la base ya podia devolver CONTACTS; ahora el tipo lo dice (igual que la pagina).
@@ -306,6 +309,9 @@ async function getAgentConversationList(input: {
       automationPaused: true,
       assignedToUserId: true,
       assignedTo: { select: { name: true, email: true } },
+      // Candado "No reasignar": la fila lo trae para que el candadito cambie sin recargar.
+      noReasignarAt: true,
+      noReasignarPor: true,
       activeProductContext: true,
         contact: {
           select: {
@@ -530,6 +536,8 @@ async function getAgentConversationList(input: {
       crmStage: conversation.contact.crmStage ?? null,
       status: conversation.status ?? null,
       automationPaused: conversation.automationPaused,
+      noReasignarAt: conversation.noReasignarAt?.toISOString() ?? null,
+      noReasignarPor: conversation.noReasignarPor ?? null,
       tags,
       avatarUrl: conversation.contact.avatarUrl ?? null,
       incomingCount: agentIncomingCountById.get(conversation.id) ?? 0,

@@ -517,7 +517,7 @@ await prueba("envios: el panel no hace router.refresh() tras enviar y avisa a la
   const fuente = fs.readFileSync(archivo, "utf8");
   for (const inicio of [
     "const handleSendLocation = useCallback(",
-    "const sendSingleMediaFile = useCallback(",
+    // sendSingleMediaFile ya no existe en main: cada archivo sale por enviarFoto (la cola de fotos).
     "const enviarFoto = useCallback(",
     "const reintentarFoto = useCallback(",
     "const uploadAndSendMediaFiles = useCallback(",
@@ -530,8 +530,14 @@ await prueba("envios: el panel no hace router.refresh() tras enviar y avisa a la
   const refrescos = sinComentarios(fuente).match(/composerRouter\.refresh\(\)/g) ?? [];
   assert.equal(refrescos.length, 1, `composerRouter.refresh() deberia quedar solo en la foto de perfil: ${refrescos.length}`);
   const avisos = sinComentarios(fuente).match(/avisarEnvioTerminado\(\{/g) ?? [];
-  // Ubicacion, archivo, foto, nota de voz, biblioteca y carta de colores (el flujo lo pasa como funcion).
-  assert.ok(avisos.length >= 6, `faltan avisos de envio terminado: ${avisos.length}`);
+  // Ubicacion, la cola de envio (foto, archivo y nota de voz salen todos por enviarFoto), biblioteca
+  // y carta de colores (el flujo lo pasa como funcion, abajo).
+  assert.ok(avisos.length >= 4, `faltan avisos de envio terminado: ${avisos.length}`);
+  assert.match(
+    sinComentarios(cuerpoDeFuncion(fuente, "const enviarFoto = useCallback(", archivo)),
+    /avisarEnvioTerminado\(\{/,
+    "enviarFoto (fotos, archivos y notas de voz) ya no avisa a la bandeja",
+  );
   assert.match(fuente, /alTerminar: avisarEnvioTerminado/);
   assert.match(fuente, /onEnviado=\{avisarEnvioTerminado\}/);
 });

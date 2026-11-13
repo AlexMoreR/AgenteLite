@@ -41,6 +41,12 @@ export type SharedInboxConversationItem = {
   segundoAsesorId?: string | null;
   segundoAsesorNombre?: string | null;
   automationPaused?: boolean | null;
+  /**
+   * Candado "No reasignar" (ISO): desde cuando lo tiene prendido y quien lo prendio. Null = sin
+   * candado; undefined = la fila no lo trae (chats oficiales). Si esta vigente lo dice candadoVigente.
+   */
+  noReasignarAt?: string | null;
+  noReasignarPor?: string | null;
   // Etapa del CRM del contacto, para mostrar el badge de etapa en la fila de la lista.
   crmStage?: string | null;
   // Abierta o resuelta: el menu de la fila necesita saberlo para ofrecer "Resolver" o "Reabrir".
@@ -121,6 +127,9 @@ export type SharedInboxSelectedConversation = {
   /** El segundo asesor (ver chats-asignacion-compartida). undefined = no vino y se conserva el de antes. */
   segundoAsesorId?: string | null;
   segundoAsesorNombre?: string | null;
+  /** Candado "No reasignar" (ISO). Null = sin candado; undefined = no vino y se conserva el de antes. */
+  noReasignarAt?: string | null;
+  noReasignarPor?: string | null;
   canImportHistory?: boolean;
   loadMoreHref?: string | null;
   loadMoreCursor?: string | null;
