@@ -11,6 +11,7 @@
 
   Cualquier error se traga: sin lista guardada se ven las siluetas de siempre.
 */
+import { filasVisibles } from "@/features/chats/domain/chat-abierto-fuera-de-la-vista";
 import type { SharedInboxConversationItem } from "../chat-inbox-types";
 import { alCambiarElDueno, duenoDelGuardado } from "./dueno";
 import {
@@ -131,8 +132,11 @@ export function leerListaDelCelular(ahora: number = Date.now()): { vistaKey: str
     if (!crudo) return null;
     const lista = JSON.parse(crudo) as Partial<ListaGuardadaEnElCelular> | null;
     if (!lista || !esGuardadoVigente(lista, ahora) || !Array.isArray(lista.filas)) return null;
-    const filas = lista.filas.filter(
-      (fila): fila is FilaGuardada => Boolean(fila) && typeof fila.id === "string" && typeof fila.label === "string",
+    // La fila del chat abierto fuera del filtro (marcada) sigue escondida al leer.
+    const filas = filasVisibles(
+      lista.filas.filter(
+        (fila): fila is FilaGuardada => Boolean(fila) && typeof fila.id === "string" && typeof fila.label === "string",
+      ),
     );
     return filas.length > 0 ? { vistaKey: typeof lista.vistaKey === "string" ? lista.vistaKey : "", filas } : null;
   } catch {

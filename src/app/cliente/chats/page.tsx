@@ -1624,7 +1624,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           sinResponderDesde: item.sinResponderDesde ?? null,
           lastMessageStatus: item.lastMessageStatus,
           lastMessageAt: item.lastMessageAt,
-          // Solo llega la marca: la bandeja todavia no esconde nada con ella (pastillas, parte 2).
+          // La marca: la bandeja esconde esa fila y el panel la sigue abriendo (pastillas, partes 2 y 3).
           ...(item.fueraDeLaVista !== undefined ? { fueraDeLaVista: item.fueraDeLaVista } : {}),
           href: `/cliente/chats?chatKey=${encodeURIComponent(item.key)}${selectedConnectionKey ? `&connection=${encodeURIComponent(selectedConnectionKey)}` : ""}${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ""}${assignedFilter !== "all" ? `&assigned=${assignedFilter}` : ""}${statusFilter !== "open" ? `&status=${statusFilter}` : ""}${paramsDeFiltros(filtros)
             .map(([clave, valor]) => `&${clave}=${encodeURIComponent(valor)}`)

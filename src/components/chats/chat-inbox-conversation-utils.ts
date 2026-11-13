@@ -576,21 +576,42 @@ export function insertConversationItemByTimestamp(
   ];
 }
 
+/**
+ * `fueraDeLaVistaSiFalta` (pastillas que coinciden, parte 3): el tiempo real del chat abierto mete
+ * su fila aunque no este en la lista. Sin saber si cumple el filtro, entra MARCADA
+ * (`fueraDeLaVista: true`): el panel la encuentra, pero la lista no la dibuja ni la cuenta. Si
+ * despues /list la trae, llega con `fueraDeLaVista: false` y aparece normal.
+ */
+type OpcionesDeActualizacion = OpcionesDeOrden & { fueraDeLaVistaSiFalta?: boolean };
+
 export function updateConversationItemInSortedList(
   current: SharedInboxConversationItem[],
   snapshotId: string,
-  nextItem: SharedInboxConversationItem,
-  opciones: OpcionesDeOrden = {},
+  nextItemRecibido: SharedInboxConversationItem,
+  opciones: OpcionesDeActualizacion = {},
 ) {
   const currentIndex = current.findIndex((item) => conversationIdMatchesKey(item.id, snapshotId));
   if (currentIndex === -1) {
-    const nextItems = insertConversationItemByTimestamp(current, nextItem, opciones);
+    const aMeter =
+      opciones.fueraDeLaVistaSiFalta && nextItemRecibido.fueraDeLaVista === undefined
+        ? { ...nextItemRecibido, fueraDeLaVista: true }
+        : nextItemRecibido;
+    const nextItems = insertConversationItemByTimestamp(current, aMeter, opciones);
     return nextItems.length === current.length && current.every((item, index) => areConversationListItemsEqual(item, nextItems[index]!))
       ? current
       : nextItems;
   }
 
   const currentItem = current[currentIndex];
+  /*
+    La fila que ya estaba no pierde ni gana la marca, salvo que el item nuevo la traiga explicita
+    (las filas de /list llegan con `fueraDeLaVista: false`): los avisos en tiempo real arman la fila
+    de nuevo y sin esto la marca se perdia y el chat volvia a salir en la lista.
+  */
+  const nextItem =
+    nextItemRecibido.fueraDeLaVista === undefined && currentItem.fueraDeLaVista !== undefined
+      ? { ...nextItemRecibido, fueraDeLaVista: currentItem.fueraDeLaVista }
+      : nextItemRecibido;
   if (areConversationListItemsEqual(currentItem, nextItem)) {
     return current;
   }
@@ -634,13 +655,21 @@ export function mergeConversationListItem(
   */
   const sinResponderDesde =
     next.sinResponderDesde !== undefined ? next.sinResponderDesde : existing.sinResponderDesde;
+  // La marca del chat abierto fuera del filtro, igual: solo la cambia quien la trae explicita (/list).
+  const marcaDeVista =
+    next.fueraDeLaVista !== undefined
+      ? { fueraDeLaVista: next.fueraDeLaVista }
+      : existing.fueraDeLaVista !== undefined
+        ? { fueraDeLaVista: existing.fueraDeLaVista }
+        : {};
 
   if (existingAt <= nextAt) {
-    return { ...next, crmStage, sinResponderDesde };
+    return { ...next, crmStage, sinResponderDesde, ...marcaDeVista };
   }
 
   return {
     ...next,
+    ...marcaDeVista,
     crmStage,
     sinResponderDesde,
     incomingCount: Math.max(existing.incomingCount ?? 0, next.incomingCount ?? 0),
@@ -706,6 +735,9 @@ export function areConversationListItemsEqual(
     // Sin esto, un cambio de etapa que no toca el ultimo mensaje se considera "igual" y el badge
     // no se refresca hasta recargar.
     (left.crmStage ?? null) === (right.crmStage ?? null) &&
+    // La marca del chat abierto fuera del filtro: sin esto, la fila de /list que la quita se
+    // consideraba "la misma" y el chat seguia escondido aunque ya cumpliera el filtro.
+    (left.fueraDeLaVista === true) === (right.fueraDeLaVista === true) &&
     left.lastMessage === right.lastMessage &&
     left.lastMessageType === right.lastMessageType &&
     left.lastMessageDirection === right.lastMessageDirection &&
