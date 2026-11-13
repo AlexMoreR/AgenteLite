@@ -33,6 +33,7 @@ const CAMPOS_CONGELADOS = {
   "enviar-ubicacion": ["conversationId", "agentId", "returnTo"],
   "enviar-flujo": ["source", "conversationId", "flowId", "agentId"],
   reaccionar: ["messageId", "emoji"],
+  "reintentar-paso-de-flujo": ["envioId", "indice"],
 };
 const PEDIDOS_CONGELADOS = [
   "enviar-archivo/un-archivo",
@@ -49,6 +50,7 @@ const PEDIDOS_CONGELADOS = [
   "enviar-flujo/sin-agente",
   "reaccionar/poner",
   "reaccionar/quitar",
+  "reintentar-paso-de-flujo/un-paso",
 ];
 const RESPUESTAS_CONGELADAS = [
   "enviar-archivo/ok",
@@ -61,6 +63,8 @@ const RESPUESTAS_CONGELADAS = [
   "enviar-flujo/error",
   "reaccionar/ok",
   "reaccionar/error",
+  "reintentar-paso-de-flujo/ok",
+  "reintentar-paso-de-flujo/error",
 ];
 
 let pruebas = 0;

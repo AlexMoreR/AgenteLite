@@ -1,0 +1,2 @@
+## Advertencias de operación
+- `reintentar_paso_de_flujo`: en la franja del flujo, cada paso que no salió trae «No salió · Reintentar», que manda SOLO ese paso (POST /api/cliente/chats/reintentar-paso-de-flujo) con el permiso de quien lo toca. Solo se puede mientras el envío no se está mandando (si tiene el candado vigente contesta «El flujo todavía se está enviando»). El paso reintentado puede llegarle a la clienta después de los siguientes: sale fuera de orden.

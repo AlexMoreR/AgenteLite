@@ -5,12 +5,21 @@ import { auth } from "@/auth";
 import { getFlowReply } from "@/lib/agent-product-flow";
 import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
+import { getVisibleChannelIds } from "@/lib/channel-visibility";
+import { esJefeDelNegocio } from "@/lib/permisos-del-crm";
+import { esSupervisora } from "@/lib/permisos-del-equipo";
+import { puedeAbrirChatPorClave } from "@/lib/chats-acceso-por-enlace";
 import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { after } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { AVISO_MODO_MONITOREO, estaEnModoMonitoreo } from "@/lib/modo-monitoreo";
+import { AVISO_MODO_MONITOREO, canalesQueMonitorea, estaEnModoMonitoreo } from "@/lib/modo-monitoreo";
 import { armarPasos, calcularAvance } from "@/lib/flujos/envio-de-flujo";
-import { procesarEnvioDeFlujo } from "@/lib/flujos/procesar-envio-de-flujo";
+import {
+  ERROR_ENVIO_NO_ENCONTRADO,
+  procesarEnvioDeFlujo,
+  reintentarPasoDeEnvio,
+  type ResultadoDeReintento,
+} from "@/lib/flujos/procesar-envio-de-flujo";
 
 /**
  * Mandar un flujo entero desde el chat, con un toque.
@@ -132,4 +141,71 @@ export async function sendFlowToChatAction(input: {
   after(() => procesarEnvioDeFlujo(envio.id));
 
   return { ok: true, enviados: 0, fallidos: 0, omitidos, envioId: envio.id, total };
+}
+
+export type ResultadoDeReintentarPaso = ResultadoDeReintento;
+
+/** El indice mas alto que se acepta: un flujo nunca trae tantos pasos. */
+const INDICE_MAXIMO = 1000;
+
+/**
+ * «No salió · Reintentar» de UN paso del flujo (parte 4 de «Flujos: que se envien completos…»).
+ * Manda solo ese paso, si esta fallido; los demas no se tocan. Si el envio todavia se esta mandando
+ * (candado vigente) contesta error sin mandar. Lo manda quien toca Reintentar, con su permiso.
+ */
+export async function reintentarPasoDeFlujoAction(input: {
+  envioId: string;
+  indice: number;
+}): Promise<ResultadoDeReintentarPaso> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { ok: false, error: "No autorizado" };
+  }
+  const access = await requireClientWorkspaceAccess("chats");
+
+  const membership = await getPrimaryWorkspaceForUser(session.user.id);
+  if (!membership?.workspace.id || membership.workspace.id !== access.workspaceId) {
+    return { ok: false, error: "Workspace no encontrado" };
+  }
+  const workspaceId = membership.workspace.id;
+  const userId = session.user.id;
+  const envioId = typeof input?.envioId === "string" ? input.envioId.trim() : "";
+  const indice = input?.indice;
+  if (!envioId || envioId.length > 100 || typeof indice !== "number" || !Number.isInteger(indice) || indice < 0 || indice > INDICE_MAXIMO) {
+    return { ok: false, error: "Datos invalidos" };
+  }
+
+  // Quien solo monitorea no envia: se le dice de una vez.
+  if (await estaEnModoMonitoreo({ workspaceId, userId })) {
+    return { ok: false, error: AVISO_MODO_MONITOREO };
+  }
+
+  const envio = await prisma.envioDeFlujo.findFirst({
+    where: { id: envioId, workspaceId },
+    select: { conversationId: true, source: true },
+  });
+  if (!envio) {
+    return { ok: false, error: ERROR_ENVIO_NO_ENCONTRADO };
+  }
+
+  // Quien reintenta tiene que poder abrir ese chat (las mismas reglas que la franja y /live).
+  const [canalesMonitoreados, esJefe, canalesVisibles] = await Promise.all([
+    canalesQueMonitorea({ workspaceId, userId }),
+    esJefeDelNegocio(access) ? Promise.resolve(true) : esSupervisora(workspaceId, userId),
+    getVisibleChannelIds({ workspaceId, userId, esJefe: access.isOwner || access.role === "ADMIN" }),
+  ]);
+  const permitido = await puedeAbrirChatPorClave({
+    workspaceId,
+    userId,
+    fuente: envio.source === "official" ? "official" : "agent",
+    conversationId: envio.conversationId,
+    esJefe,
+    canalesVisibles,
+    canalesMonitoreados,
+  });
+  if (!permitido) {
+    return { ok: false, error: ERROR_ENVIO_NO_ENCONTRADO };
+  }
+
+  return reintentarPasoDeEnvio({ envioId, indice, userId, workspaceId });
 }

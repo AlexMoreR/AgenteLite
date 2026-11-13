@@ -157,6 +157,14 @@
         "messageId": "msg-1",
         "emoji": ""
       }
+    },
+    "reintentar-paso-de-flujo/un-paso": {
+      "ruta": "reintentar-paso-de-flujo",
+      "origen": "franja-envio-de-flujo.tsx (No salió · Reintentar)",
+      "cuerpo": {
+        "envioId": "envio-1",
+        "indice": 2
+      }
     }
   },
   "respuestas": {
@@ -169,6 +177,8 @@
     "enviar-flujo/ok": { "ruta": "enviar-flujo", "cuerpo": { "ok": true, "enviados": 3, "fallidos": 0, "omitidos": 1 } },
     "enviar-flujo/error": { "ruta": "enviar-flujo", "cuerpo": { "ok": false, "error": "Flujo no encontrado" } },
     "reaccionar/ok": { "ruta": "reaccionar", "cuerpo": { "ok": true } },
-    "reaccionar/error": { "ruta": "reaccionar", "cuerpo": { "ok": false, "error": "Mensaje no encontrado" } }
+    "reaccionar/error": { "ruta": "reaccionar", "cuerpo": { "ok": false, "error": "Mensaje no encontrado" } },
+    "reintentar-paso-de-flujo/ok": { "ruta": "reintentar-paso-de-flujo", "cuerpo": { "ok": true, "enviados": 4, "total": 4, "estado": "TERMINADO" } },
+    "reintentar-paso-de-flujo/error": { "ruta": "reintentar-paso-de-flujo", "cuerpo": { "ok": false, "error": "El flujo todavía se está enviando. Espera a que termine." } }
   }
 }

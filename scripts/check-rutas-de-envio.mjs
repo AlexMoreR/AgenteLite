@@ -106,6 +106,7 @@ await prueba("mismos errores: lo que contesta la accion sale con 200 y el mismo 
     ["enviar-ubicacion", { error: "Primero cargá la ubicación del local" }],
     ["enviar-flujo", { ok: false, error: AVISO_MODO_MONITOREO }],
     ["reaccionar", { ok: false, error: "Mensaje no encontrado" }],
+    ["reintentar-paso-de-flujo", { ok: false, error: "El flujo todavía se está enviando. Espera a que termine." }],
   ];
   for (const [ruta, error] of casos) {
     const { accion } = accionFalsa(async () => error);
@@ -224,6 +225,17 @@ await prueba("cuerpo de mas de 32 KB: 413 (por Content-Length y por el largo rea
   assert.equal(llamadas.length, 1);
 });
 
+await prueba("reintentar-paso-de-flujo: la accion recibe { envioId, indice } tal cual (el numero no se convierte)", async () => {
+  const { accion, llamadas } = accionFalsa(async () => ({ ok: true, enviados: 4, total: 4, estado: "TERMINADO" }));
+  const respuesta = await pedir("reintentar-paso-de-flujo", { envioId: "envio-1", indice: 0, conversationId: "c1", pasos: [] }, accion);
+  assert.equal(respuesta.status, 200);
+  assert.deepStrictEqual(llamadas[0], { envioId: "envio-1", indice: 0 }, "solo viajan envioId e indice");
+  const raro = accionFalsa();
+  await pedir("reintentar-paso-de-flujo", { envioId: "envio-1", indice: "2" }, raro.accion);
+  assert.deepStrictEqual(raro.llamadas[0], { envioId: "envio-1", indice: "2" }, "valida la accion, no la ruta");
+  assert.deepStrictEqual(RUTAS_DE_ENVIO["reintentar-paso-de-flujo"], ["envioId", "indice"]);
+});
+
 // --- Candados ---
 
 const ACCION_DE_CADA_RUTA = {
@@ -233,6 +245,7 @@ const ACCION_DE_CADA_RUTA = {
   "enviar-flujo": ["sendFlowToChatAction", "@/app/actions/flow-send-actions"],
   reaccionar: ["reaccionarAlMensajeAction", "@/app/actions/chats-actions"],
   fijar: ["fijarMensajeAction", "@/app/actions/mensaje-fijado-actions"],
+  "reintentar-paso-de-flujo": ["reintentarPasoDeFlujoAction", "@/app/actions/flow-send-actions"],
 };
 const PROHIBIDO = /prisma|evolution|waha|official-api|gateway/i;
 

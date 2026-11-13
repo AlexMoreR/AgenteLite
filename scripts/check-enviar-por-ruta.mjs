@@ -51,6 +51,8 @@ const AYUDANTE_DE_CADA_RUTA = {
   reaccionar: E.reaccionarPorRuta,
   // Fijar es solo del CRM (no sale nada por WhatsApp), pero tambien va por su ruta fija.
   fijar: E.fijarPorRuta,
+  // «No salió · Reintentar» de un paso del flujo: manda solo ese paso.
+  "reintentar-paso-de-flujo": E.reintentarPasoDeFlujoPorRuta,
 };
 
 // Rutas que todavia no tienen un pedido en el archivo congelado: un cuerpo de ejemplo para la prueba de forma.
@@ -256,6 +258,28 @@ await prueba("reenviar texto: el mismo FormData va a la ruta que ya existe (/env
   assert.equal(resultado.error, "Fuera de la ventana de 24 h");
   fetchQueContesta(401, JSON.stringify({ ok: false, error: "Tu sesión se cerró. Vuelve a entrar para enviar." }));
   assert.equal((await E.enviarTextoSimplePorRuta(datos)).error, "Tu sesión se cerró. Vuelve a entrar para enviar.");
+});
+
+await prueba("reintentar un paso: va a su ruta con { envioId, indice }, 60 s de limite, y devuelve lo que contesta", async () => {
+  const contesta = { ok: false, error: "Ese paso ya no se puede reintentar" };
+  const { llamadas, pedidos } = servidorFalso({ contestar: async () => contesta });
+  const resultado = await E.reintentarPasoDeFlujoPorRuta({ envioId: "envio-1", indice: 3 });
+  assert.equal(pedidos[0].url, "/api/cliente/chats/reintentar-paso-de-flujo");
+  assert.equal(pedidos[0].init.body, JSON.stringify({ envioId: "envio-1", indice: 3 }));
+  assert.ok(pedidos[0].init.signal instanceof AbortSignal);
+  assert.deepStrictEqual(llamadas, [{ envioId: "envio-1", indice: 3 }]);
+  assert.deepStrictEqual(resultado, contesta);
+  fetchQueContesta(500, '{"error":"No se pudo enviar","lanzo":true}');
+  await assert.rejects(E.reintentarPasoDeFlujoPorRuta({ envioId: "envio-1", indice: 3 }), E.EnvioSinRespuesta);
+});
+
+await prueba("la franja reintenta por la ruta y solo los pasos fallidos tienen «Reintentar»", () => {
+  const franja = leer("src/components/chats/franja-envio-de-flujo.tsx");
+  assert.match(franja, /import \{[^}]*\breintentarPasoDeFlujoPorRuta\b[^}]*\} from "@\/lib\/chats\/enviar-por-ruta"/);
+  assert.doesNotMatch(franja, /reintentarPasoDeFlujoAction/, "la franja no llama a la Server Action");
+  assert.match(franja, /paso\.estado === "fallido"/);
+  assert.match(franja, /No salió/);
+  assert.match(franja, /Reintentar/);
 });
 
 // --- Candados sobre la pantalla ---

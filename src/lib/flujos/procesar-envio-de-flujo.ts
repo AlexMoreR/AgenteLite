@@ -34,8 +34,11 @@ import {
   marcarEnviando,
   marcarFallido,
   pausaTras,
+  puedeReintentar,
+  reintentarPaso,
   retomar,
   siguientePaso,
+  type EstadoDeEnvio,
   type EstadoDePaso,
   type MedicionDePaso,
   type PasoDeEnvio,
@@ -336,4 +339,140 @@ export async function retomarEnviosQuedados(): Promise<{ retomados: number }> {
     await procesarEnvioDeFlujo(id);
   }
   return { retomados: quedados.length };
+}
+
+export const ERROR_ENVIO_NO_ENCONTRADO = "No se encontró ese envío";
+export const ERROR_TODAVIA_SE_ESTA_ENVIANDO = "El flujo todavía se está enviando. Espera a que termine.";
+export const ERROR_PASO_NO_REINTENTABLE = "Ese paso ya no se puede reintentar";
+export const ERROR_NO_SE_SABE_SI_SALIO_EL_REINTENTO = "No se sabe si salió. Revisa el chat antes de reintentar.";
+
+export type ResultadoDeReintento =
+  | { ok: true; enviados: number; total: number; estado: EstadoDeEnvio }
+  | { ok: false; error: string };
+
+/**
+ * «No salió · Reintentar» (parte 4): manda SOLO el paso `indice` del envío, si está fallido. Los demás
+ * pasos no se tocan ni se reenvían. Toma el mismo candado que procesarEnvioDeFlujo: si el envío
+ * todavía se está mandando (candado vigente), o si la asesora toca dos veces, contesta error sin
+ * mandar. El paso se marca «enviando» y se guarda ANTES de mandarlo, y «enviado» o «fallido» cuando
+ * el gateway contesta; después se recalculan `enviados` y `estado`.
+ *
+ * El acceso de quien lo pide (la sesión, el negocio, el permiso y el chat) lo revisa la acción
+ * antes de llamar aquí; aquí se revisa otra vez su rol, el negocio, Chats y el modo monitoreo con
+ * revisarPermiso, igual que al empezar un envío. Nunca lanza.
+ */
+export async function reintentarPasoDeEnvio(entrada: {
+  envioId: string;
+  indice: number;
+  userId: string;
+  workspaceId: string;
+}): Promise<ResultadoDeReintento> {
+  const { envioId, indice, userId, workspaceId } = entrada;
+  const quien = `${process.pid}:${randomUUID()}`;
+  let mandando = false;
+
+  const soltar = () =>
+    prisma.envioDeFlujo
+      .updateMany({ where: { id: envioId, lockedBy: quien }, data: { lockedAt: null, lockedBy: null } })
+      .catch(() => undefined);
+
+  try {
+    const tomado = await prisma.envioDeFlujo.updateMany({
+      where: {
+        id: envioId,
+        workspaceId,
+        OR: [{ lockedAt: null }, { lockedAt: { lt: new Date(Date.now() - VENCIMIENTO_DEL_CANDADO_MS) } }],
+      },
+      data: { lockedAt: new Date(), lockedBy: quien },
+    });
+    if (tomado.count === 0) {
+      const existe = await prisma.envioDeFlujo.findUnique({ where: { id: envioId }, select: { workspaceId: true } });
+      return {
+        ok: false,
+        error: existe && existe.workspaceId === workspaceId ? ERROR_TODAVIA_SE_ESTA_ENVIANDO : ERROR_ENVIO_NO_ENCONTRADO,
+      };
+    }
+
+    const envio = await prisma.envioDeFlujo.findUnique({ where: { id: envioId } });
+    if (!envio || envio.workspaceId !== workspaceId) {
+      await soltar();
+      return { ok: false, error: ERROR_ENVIO_NO_ENCONTRADO };
+    }
+
+    const leidos = leerPasosGuardados(envio.pasos);
+    // Lo que quedó «enviando» de un proceso caído pasa a fallido: tampoco se reenvía solo.
+    let pasos = leidos ? retomar(leidos) : null;
+    const paso = pasos?.find((candidato) => candidato.indice === indice) ?? null;
+    if (!pasos || !paso || !puedeReintentar(paso)) {
+      await soltar();
+      return { ok: false, error: ERROR_PASO_NO_REINTENTABLE };
+    }
+
+    const revision = await revisarPermiso({
+      userId,
+      workspaceId: envio.workspaceId,
+      source: envio.source,
+      conversationId: envio.conversationId,
+    });
+    if (!revision.ok) {
+      await soltar();
+      return { ok: false, error: revision.error };
+    }
+
+    const comoJson = (lista: PasoDeEnvio[]) => lista as unknown as Prisma.InputJsonValue;
+    pasos = marcarEnviando(reintentarPaso(pasos, indice), indice);
+    const marcado = await prisma.envioDeFlujo.updateMany({
+      where: { id: envioId, lockedBy: quien },
+      data: { pasos: comoJson(pasos), lockedAt: new Date() },
+    });
+    if (marcado.count !== 1) {
+      return { ok: false, error: ERROR_TODAVIA_SE_ESTA_ENVIANDO };
+    }
+
+    mandando = true;
+    const inicio = Date.now();
+    const resultado = await mandarPaso(paso, envio, revision.permiso);
+    pasos = resultado.ok
+      ? marcarEnviado(pasos, indice, resultado.mensajeId)
+      : marcarFallido(pasos, indice, resultado.error);
+
+    const { enviados, total } = calcularAvance(pasos);
+    const estado = estadoFinal(pasos);
+    await prisma.envioDeFlujo.updateMany({
+      where: { id: envioId, lockedBy: quien },
+      data: {
+        pasos: comoJson(pasos),
+        enviados,
+        estado,
+        // Se cuenta desde ahora: la franja lo sigue mostrando unos minutos si volvió a fallar.
+        ...(estado === "EN_CURSO" ? {} : { finishedAt: new Date() }),
+        lockedAt: null,
+        lockedBy: null,
+      },
+    });
+    mandando = false;
+
+    console.info("[flujo] reintento", {
+      envioId,
+      paso: indice,
+      tipo: paso.tipo,
+      resultado: resultado.ok ? "enviado" : "fallido",
+      ms: Date.now() - inicio,
+    });
+
+    return resultado.ok ? { ok: true, enviados, total, estado } : { ok: false, error: resultado.error };
+  } catch (error) {
+    console.error("[flujo] el reintento se corto", {
+      envioId,
+      paso: indice,
+      detalle: error instanceof Error ? error.message : String(error),
+    });
+    if (mandando) {
+      // Ya se estaba mandando: el candado se vence solo y el paso queda «enviando» hasta que
+      // `retomar` lo deje fallido. Nunca se reenvía solo.
+      return { ok: false, error: ERROR_NO_SE_SABE_SI_SALIO_EL_REINTENTO };
+    }
+    await soltar();
+    return { ok: false, error: "No se pudo reintentar. Intenta de nuevo en un momento." };
+  }
 }

@@ -137,6 +137,23 @@ export function fijarPorRuta(entrada: { conversationId: string; messageId: strin
   return pedirALaRuta<ResultadoDeFijar>("fijar", JSON.stringify(entrada), LIMITE_ESPERA_RUTA_MS);
 }
 
+export type EntradaDeReintentarPaso = {
+  /** El id del EnvioDeFlujo (el que devuelve «Enviar flujo» y lee la franja). */
+  envioId: string;
+  /** La posición del paso en el flujo (empieza en 0). */
+  indice: number;
+};
+
+// El mismo ResultadoDeReintento de procesar-envio-de-flujo.ts (no se importa: este archivo no toca el servidor).
+export type ResultadoDeReintentarPaso =
+  | { ok: true; enviados: number; total: number; estado: "EN_CURSO" | "TERMINADO" | "CON_FALLAS" }
+  | { ok: false; error: string };
+
+/** «No salió · Reintentar»: manda SOLO ese paso del flujo, si no salió. Los demás no se reenvían. */
+export function reintentarPasoDeFlujoPorRuta(entrada: EntradaDeReintentarPaso) {
+  return pedirALaRuta<ResultadoDeReintentarPaso>("reintentar-paso-de-flujo", JSON.stringify(entrada), LIMITE_ESPERA_RUTA_MS);
+}
+
 /** Texto suelto (reenviar) por la ruta que ya existe, /api/cliente/chats/enviar, con el mismo FormData. */
 export function enviarTextoSimplePorRuta(datos: FormData) {
   return pedirALaRuta<ResultadoDeTexto>("enviar", datos, LIMITE_ESPERA_RUTA_MS);

@@ -168,7 +168,8 @@ async function prueba(nombre, fn) {
 const lineas = [];
 const infoOriginal = console.info;
 const errorOriginal = console.error;
-console.info = (...args) => (args[0] === "[flujo] medicion" ? lineas.push(args[1]) : infoOriginal(...args));
+console.info = (...args) =>
+  args[0] === "[flujo] medicion" ? lineas.push(args[1]) : args[0] === "[flujo] reintento" ? undefined : infoOriginal(...args);
 console.error = () => {};
 
 await prueba("manda los pasos en orden, tal cual, y cada uno queda «enviando» en la base antes de salir", async () => {
@@ -275,6 +276,98 @@ await prueba("pasos guardados con forma rara: no se manda nada", async () => {
   await M.procesarEnvioDeFlujo("e1");
   assert.equal(mandados.length, 0);
   assert.equal(base.tabla.get("e1").estado, "CON_FALLAS");
+});
+
+// --- «No salió · Reintentar» de un solo paso (parte 4) ---
+
+/** Un envío que ya terminó CON_FALLAS: el documento (paso 1) no salió. */
+async function envioConUnPasoFallido(extra = {}) {
+  const preparado = preparar({ filas: [filaNueva()], fallaElPaso: 1, ...extra });
+  await preparado.M.procesarEnvioDeFlujo("e1");
+  assert.equal(preparado.base.tabla.get("e1").estado, "CON_FALLAS");
+  preparado.mandados.length = 0;
+  preparado.base.fotos.length = 0;
+  return preparado;
+}
+
+await prueba("reintentar: manda SOLO ese paso, sin repetir ningún otro, y recalcula enviados y estado", async () => {
+  const { M, base, mandados } = await envioConUnPasoFallido({ fallaElPaso: 1 });
+  const resultado = await M.reintentarPasoDeEnvio({ envioId: "e1", indice: 1, userId: "u2", workspaceId: "w1" });
+  assert.deepStrictEqual(resultado, { ok: true, enviados: 3, total: 3, estado: "TERMINADO" });
+  assert.deepStrictEqual(mandados.map((m) => m.tipo), ["DOCUMENT"], "solo sale el paso que no salió");
+  assert.equal(mandados[0].nombre, "Catálogo.pdf");
+  assert.equal(mandados[0].estadoEnLaBase, 1, "queda «enviando» en la base antes de salir");
+  assert.deepStrictEqual(base.fotos, ["enviado,enviando,omitido,enviado", "enviado,enviado,omitido,enviado"]);
+  const fila = base.tabla.get("e1");
+  assert.equal(fila.estado, "TERMINADO");
+  assert.equal(fila.enviados, 3);
+  assert.equal(fila.lockedBy, null, "suelta el candado");
+  assert.ok(fila.finishedAt instanceof Date);
+  assert.equal(fila.pasos[1].mensajeId, "m0");
+});
+
+await prueba("reintentar y vuelve a fallar: queda fallido con su error, CON_FALLAS, y no sale otro paso", async () => {
+  const { base, mandados } = await envioConUnPasoFallido({ fallaElPaso: 1 });
+  // El falso cuenta los mandados desde 0 otra vez: el reintento es el 0 y debe fallar.
+  const segunda = preparar({ filas: [base.tabla.get("e1")], fallaElPaso: 0 });
+  const resultado = await segunda.M.reintentarPasoDeEnvio({ envioId: "e1", indice: 1, userId: "u1", workspaceId: "w1" });
+  assert.deepStrictEqual(resultado, { ok: false, error: "No se pudo enviar el archivo: 500" });
+  assert.equal(mandados.length, 0);
+  assert.deepStrictEqual(segunda.mandados.map((m) => m.tipo), ["DOCUMENT"]);
+  const fila = segunda.base.tabla.get("e1");
+  assert.equal(fila.estado, "CON_FALLAS");
+  assert.equal(fila.enviados, 2);
+  assert.equal(fila.pasos[1].estado, "fallido");
+  assert.equal(fila.lockedBy, null);
+});
+
+await prueba("reintentar un paso enviado, omitido o que no existe: error y no sale nada", async () => {
+  const { M, mandados } = await envioConUnPasoFallido({ fallaElPaso: 1 });
+  for (const indice of [0, 2, 3, 9]) {
+    const resultado = await M.reintentarPasoDeEnvio({ envioId: "e1", indice, userId: "u1", workspaceId: "w1" });
+    assert.deepStrictEqual(resultado, { ok: false, error: M.ERROR_PASO_NO_REINTENTABLE }, String(indice));
+  }
+  assert.equal(mandados.length, 0);
+});
+
+await prueba("reintentar con el envío todavía EN_CURSO y candado vigente: error y no sale nada", async () => {
+  const pasos = REGLAS.marcarFallido(REGLAS.armarPasos(PASOS), 0, "x");
+  const { M, base, mandados } = preparar({ filas: [filaNueva({ pasos, lockedAt: new Date(), lockedBy: "vivo" })] });
+  const resultado = await M.reintentarPasoDeEnvio({ envioId: "e1", indice: 0, userId: "u1", workspaceId: "w1" });
+  assert.deepStrictEqual(resultado, { ok: false, error: M.ERROR_TODAVIA_SE_ESTA_ENVIANDO });
+  assert.equal(mandados.length, 0);
+  assert.equal(base.tabla.get("e1").lockedBy, "vivo", "no le quita el candado al que está mandando");
+});
+
+await prueba("reintentar un envío de otro negocio, o sin permiso: error y no sale nada", async () => {
+  const { M, base, mandados } = await envioConUnPasoFallido({ fallaElPaso: 1 });
+  assert.deepStrictEqual(await M.reintentarPasoDeEnvio({ envioId: "e1", indice: 1, userId: "u1", workspaceId: "otro" }), {
+    ok: false,
+    error: M.ERROR_ENVIO_NO_ENCONTRADO,
+  });
+  assert.deepStrictEqual(await M.reintentarPasoDeEnvio({ envioId: "nada", indice: 1, userId: "u1", workspaceId: "w1" }), {
+    ok: false,
+    error: M.ERROR_ENVIO_NO_ENCONTRADO,
+  });
+  for (const caso of [{ acceso: null }, { monitoreo: true }]) {
+    const otro = preparar({ filas: [base.tabla.get("e1")], ...caso });
+    const resultado = await otro.M.reintentarPasoDeEnvio({ envioId: "e1", indice: 1, userId: "u1", workspaceId: "w1" });
+    assert.equal(resultado.ok, false);
+    assert.equal(otro.mandados.length, 0);
+    assert.equal(otro.base.tabla.get("e1").lockedBy, null, "suelta el candado");
+    assert.equal(otro.base.tabla.get("e1").pasos[1].estado, "fallido");
+  }
+  assert.equal(mandados.length, 0);
+});
+
+await prueba("dos toques seguidos a Reintentar: el paso sale una sola vez", async () => {
+  const { M, mandados } = await envioConUnPasoFallido({ fallaElPaso: 1 });
+  const [a, b] = await Promise.all([
+    M.reintentarPasoDeEnvio({ envioId: "e1", indice: 1, userId: "u1", workspaceId: "w1" }),
+    M.reintentarPasoDeEnvio({ envioId: "e1", indice: 1, userId: "u1", workspaceId: "w1" }),
+  ]);
+  assert.equal(mandados.length, 1, "salió dos veces");
+  assert.equal([a, b].filter((r) => r.ok).length, 1);
 });
 
 console.info = infoOriginal;
