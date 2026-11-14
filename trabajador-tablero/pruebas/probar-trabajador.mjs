@@ -409,6 +409,7 @@ await prueba("agentes: la configuración inválida del agente da error, la váli
   const completa = completarConfig(ejemplo);
   // 10-11-2026: la espera de la versión nueva no baja de 15 min (el servidor nuevo tarda ~10 en tomarla).
   assert.equal(completa.repos.aizencrm.subida.versionMinutos, 15);
+  assert.equal(completa.repos.aizencrm.subida.arranqueMinutos, 3, "sin la línea, /login se reintenta 3 min");
   const conOcho = completarConfig({ ...ejemplo, repos: { ...ejemplo.repos, aizencrm: { ...ejemplo.repos.aizencrm, subida: { ...ejemplo.repos.aizencrm.subida, versionMinutos: 8 } } } });
   assert.equal(conOcho.repos.aizencrm.subida.versionMinutos, 15, "un config.local.json con 8 no baja el piso");
   assert.ok(!("marketing" in completa.repos));
@@ -2754,12 +2755,29 @@ const anotarIntento = (t, datos, accion, cuentaComoIntento) => {
   t.intentosLista = [...(t.intentosLista ?? []), { numero: (t.intentosLista?.length ?? 0) + 1, etapa: datos.etapa, categoria: datos.categoria, causa: datos.causa, error: datos.error ?? null, accion, cuentaComoIntento }];
 };
 
+/**
+ * El /login del CRM falso (subida.urlArranque, 13-nov-2026). null = no existe (404). Con { respuestas, pedidas } cada pedido
+ * toma la respuesta siguiente (la última se repite): un número es el estado HTTP y "corte" cierra la conexión sin contestar.
+ * Con `versionCaida`, después del primer /login /api/version contesta 502 (todo el servidor caído).
+ */
+let arranqueFalso = null;
+
 const servidor = http.createServer(async (pedido, respuesta) => {
   const contestar = (codigo, datos) => {
     respuesta.writeHead(codigo, { "Content-Type": "application/json" });
     respuesta.end(JSON.stringify(datos));
   };
-  if (pedido.method === "GET" && pedido.url === "/api/version") return contestar(200, { version: shaDe("main") });
+  if (pedido.method === "GET" && pedido.url === "/api/version") {
+    if (arranqueFalso?.versionCaida && arranqueFalso.pedidas > 0) return contestar(502, { ok: false });
+    return contestar(200, { version: shaDe("main") });
+  }
+  if (pedido.method === "GET" && pedido.url === "/login" && arranqueFalso) {
+    const { respuestas } = arranqueFalso;
+    const toca = respuestas[Math.min(arranqueFalso.pedidas, respuestas.length - 1)];
+    arranqueFalso.pedidas += 1;
+    if (toca === "corte") return pedido.socket.destroy();
+    return contestar(toca, {});
+  }
   if (pedido.headers.authorization !== `Bearer ${CLAVE}`) return contestar(401, { ok: false, error: "Clave inválida" });
   let texto = "";
   for await (const pedazo of pedido) texto += pedazo;
@@ -3133,6 +3151,67 @@ try {
       { accion: "buscar", valor: shaDe("main") },
       { accion: "esperar", valor: "4242" },
     ]);
+    sinRestos();
+  });
+
+  // ── /login mientras el servidor cambia de contenedor (13-nov-2026): se reintenta antes de deshacer ──
+  // 3 s de plazo con 50 ms entre intentos (TRABAJADOR_ARRANQUE_ESPERA_MS): la prueba no espera los 3 min de verdad.
+  const configConArranque = () =>
+    crearConfig({}, { subida: { ...config.repos.aizencrm.subida, urlArranque: `http://127.0.0.1:${PUERTO}/login`, arranqueMinutos: 0.05 } });
+  const subirConLogin = async (titulo, falsoDelLogin) => {
+    const id = nueva(titulo, "PLAN_APROBADO", { plan: "El plan" });
+    assert.equal((await vuelta()).ok, true);
+    assert.equal(tarjetas.get(id).estado, "SUBIENDO");
+    const antes = shaDe("main");
+    arranqueFalso = { pedidas: 0, ...falsoDelLogin };
+    process.env.TRABAJADOR_ARRANQUE_ESPERA_MS = "50";
+    try {
+      const resultado = await vuelta(configConArranque());
+      g(REPO, "fetch", "origin");
+      return { id, antes, resultado, t: tarjetas.get(id), pedidas: arranqueFalso.pedidas, log: g(REPO, "log", "--format=%s", "-1", "origin/main") };
+    } finally {
+      arranqueFalso = null;
+      delete process.env.TRABAJADOR_ARRANQUE_ESPERA_MS;
+    }
+  };
+
+  await prueba("arranque (13-nov): /login corta la conexión o da 502 en los 3 primeros intentos y luego 200: la subida NO se deshace", async () => {
+    const { resultado, t, pedidas, log } = await subirConLogin("Cambio con /login que tarda", { respuestas: ["corte", 502, "corte", 200] });
+    assert.equal(resultado.ok, true, resultado.motivo);
+    assert.equal(t.estado, "HECHO");
+    assert.equal(pedidas, 4, "3 fallas y pasa al 4º intento");
+    assert.ok(!/^revert: /m.test(log), `no hay revert en main:\n${log}`);
+    sinRestos();
+  });
+
+  await prueba("arranque (13-nov): /login contesta 404: la app responde, pasa al primer intento", async () => {
+    const { resultado, t, pedidas, log } = await subirConLogin("Cambio con /login 404", { respuestas: [404] });
+    assert.equal(resultado.ok, true, resultado.motivo);
+    assert.equal(t.estado, "HECHO");
+    assert.equal(pedidas, 1);
+    assert.ok(!/^revert: /m.test(log));
+    sinRestos();
+  });
+
+  await prueba("arranque (13-nov): /login siempre 502 o nada y /api/version se cae: se deshace con cuántos intentos y los estados", async () => {
+    const { resultado, t, pedidas, antes, log } = await subirConLogin("Cambio con /login caído", { respuestas: [502, "corte"], versionCaida: true });
+    assert.equal(resultado.ok, false);
+    assert.equal(t.estado, "ERROR");
+    assert.ok(pedidas >= 3, `reintentó (${pedidas} intentos)`);
+    assert.match(t.resultado.error.motivo, /se deshizo/);
+    assert.match(t.resultado.error.motivo, new RegExp(`/login contestó (502 / nada|nada / 502|nada|502) durante \\d+ s \\(${pedidas} intentos\\)`));
+    assert.match(t.resultado.error.motivo, /\/api\/version ya no dice/);
+    assert.match(log, /^revert: deshacer [0-9a-f]{10} \(el despliegue falló\)/m);
+    assert.notEqual(shaDe("main"), antes, "main avanzó con el revert");
+    sinRestos();
+  });
+
+  await prueba("arranque (13-nov): /login siempre 502 pero /api/version sigue diciendo el commit nuevo: no se deshace (queda el aviso)", async () => {
+    const { resultado, t, pedidas, log } = await subirConLogin("Cambio con /login roto y versión bien", { respuestas: [502] });
+    assert.equal(resultado.ok, true, resultado.motivo);
+    assert.equal(t.estado, "HECHO");
+    assert.ok(pedidas >= 3, `reintentó (${pedidas} intentos)`);
+    assert.ok(!/^revert: /m.test(log));
     sinRestos();
   });
 

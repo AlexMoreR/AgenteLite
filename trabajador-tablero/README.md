@@ -105,6 +105,22 @@ minuto y antes que cualquier otra tarjeta.
   carpetas de migración nuevas se conservan (la migración es aditiva y pudo haber corrido; la base no se
   deshace). Si no logra deshacerlo, el motivo empieza con **"URGENTE: no se pudo deshacer, revisar a mano"**.
   El aviso al dueño por WhatsApp va en 3 líneas y máximo 500 caracteres (el CRM rechaza los más largos); el detalle queda en el tablero.
+- **`/login` (`subida.urlArranque`) se reintenta antes de deshacer** (13-nov-2026). Cuando `/api/version` ya dice el commit
+  nuevo, el servidor todavía está cambiando de contenedor (`/opt/crm/actualizar.sh`: declara sana la app nueva, `docker rm -f`
+  de la vieja, recrea `aizenbot_realtime`) y Traefik tarda unos segundos en dejar de mandar a la vieja. Antes se preguntaba una
+  sola vez y un "nada" o un 502 de ese momento deshacía subidas buenas (5 casos entre el 10 y el 13-nov: el servidor había
+  registrado "listo: version …" 0-10 s antes). La regla ahora:
+  - se pregunta cada 10 s (15 s de timeout por intento) durante `subida.arranqueMinutos` (3 si no está la línea);
+  - **pasa** con la primera respuesta por debajo de 500: 2xx, 3xx y también 4xx (la app contesta);
+  - solo si **todos** los intentos dan nada o 5xx se vuelve a leer `/api/version` una última vez: si sigue diciendo el commit
+    nuevo (o uno que lo incluye) **no se deshace** (queda un AVISO en el registro); si ya no, se deshace con el motivo
+    "…/login contestó nada / 502 durante 3 min (N intentos), y …/api/version ya no dice …";
+  - el plazo nunca pasa de lo que le queda al reloj de la etapa; con el reloj gastado (o la tarjeta vencida en el CRM) se hace un
+    intento y se decide con `/api/version`, sin reintentar.
+- **El plazo real de `/api/version` es min(`versionMinutos`, lo que le queda a la etapa subir)**, no `versionMinutos` solo.
+  El reloj es el de `tiempos.subirMinutos` (44 por defecto) y cuenta desde que se tomó la tarjeta: la verificación (instalar,
+  build, pruebas) y la espera del CI ya gastaron parte antes de empezar a mirar la versión. 10-nov-2026 (2 casos): el servidor
+  bajó la imagen ~12 min después de terminar el CI y el Coordinador ya se había rendido y deshecho, con `versionMinutos` en 45.
 - **Qué CI cuenta como "el despliegue"**: solo el workflow de `subida.workflowDespliegue` (p. ej. `"docker-image.yml"`, el que
   publica la imagen) más la comprobación de `/api/version`. Se le agrega `--workflow <archivo>` al `gh run list` de `ciBuscar`
   (o se usa `{workflow}` en el comando). Un workflow de revisión (p. ej. «CI tablero») que falle en el mismo commit no deshace

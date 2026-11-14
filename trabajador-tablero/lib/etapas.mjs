@@ -2035,9 +2035,68 @@ async function versionIncluye(repo, version, commit) {
   return ancestro.codigo === 0;
 }
 
-/** Espera que la URL de versión diga el commit nuevo, o uno posterior que lo incluya (= arrancó la versión nueva). */
+/** Lo que dice la URL de versión (el campo `campoVersion`), o null si no contesta o no es JSON. */
+async function leerVersion(urlVersion, campoVersion) {
+  try {
+    const respuesta = await fetch(urlVersion, { headers: { "Cache-Control": "no-cache" }, signal: AbortSignal.timeout(15_000) });
+    const datos = await respuesta.json();
+    return String(datos?.[campoVersion] ?? "");
+  } catch {
+    return null;
+  }
+}
+
+// 13-nov-2026: la comprobación de urlArranque (/login) se reintenta. Justo cuando /api/version ya dice el commit nuevo,
+// el servidor está cambiando de contenedor (/opt/crm/actualizar.sh: declara sana la app nueva, `docker rm -f` de la vieja,
+// recrea aizenbot_realtime) y Traefik tarda unos segundos en dejar de mandar a la vieja: una sola pregunta daba "nada" o
+// 502 y se deshacían subidas buenas (b3f6969b33, 12ff4fbfae, cc6fde97a7, 891d57f8d5, c186ba5943: el servidor registró
+// "listo: version …" 0-10 s antes del "contesta nada"). El plazo sale de subida.arranqueMinutos (3 por defecto); la
+// espera entre intentos se puede acortar con TRABAJADOR_ARRANQUE_ESPERA_MS (solo las pruebas lo usan).
+const ARRANQUE_TIMEOUT_POR_INTENTO_MS = 15_000;
+const ARRANQUE_ESPERA_ENTRE_INTENTOS_MS = 10_000;
+const esperaEntreIntentosDeArranque = () => {
+  const ms = Number(process.env.TRABAJADOR_ARRANQUE_ESPERA_MS);
+  return Number.isFinite(ms) && ms >= 0 ? ms : ARRANQUE_ESPERA_ENTRE_INTENTOS_MS;
+};
+const duracion = (ms) => (ms >= MINUTO ? `${Math.round(ms / MINUTO)} min` : `${Math.round(ms / 1000)} s`);
+
+/**
+ * Pregunta a urlArranque hasta que conteste algo que no sea 5xx (2xx, 3xx y 4xx cuentan: la app responde) o se acabe el
+ * plazo. Devuelve { ok, intentos, estados, ms }: `estados` son los últimos que contestó ("nada" = sin respuesta).
+ * Con el reloj de la etapa ya gastado o la tarjeta vencida en el CRM se hace al menos un intento y no se reintenta: no
+ * lanza, para que quien llama decida con /api/version si deshacer.
+ */
+async function comprobarArranque(contexto, urlArranque, plazoMs, reloj) {
+  const inicio = Date.now();
+  let queda;
+  try {
+    queda = reloj.resta();
+  } catch {
+    queda = 0;
+  }
+  const limite = inicio + Math.min(plazoMs, queda);
+  const estados = [];
+  for (let intento = 1; ; intento += 1) {
+    const porTiempo = AbortSignal.timeout(ARRANQUE_TIMEOUT_POR_INTENTO_MS);
+    const senal = contexto.senal && typeof AbortSignal.any === "function" ? AbortSignal.any([porTiempo, contexto.senal]) : porTiempo;
+    const respuesta = await fetch(urlArranque, { headers: { "Cache-Control": "no-cache" }, signal: senal }).catch(() => null);
+    if (respuesta && respuesta.status < 500) return { ok: true, intentos: intento, estados, ms: Date.now() - inicio };
+    estados.push(respuesta ? String(respuesta.status) : "nada");
+    if (contexto.senal?.aborted || Date.now() >= limite) return { ok: false, intentos: intento, estados: estados.slice(-5), ms: Date.now() - inicio };
+    await dormir(Math.min(esperaEntreIntentosDeArranque(), Math.max(0, limite - Date.now())));
+  }
+}
+
+/**
+ * Espera que la URL de versión diga el commit nuevo, o uno posterior que lo incluya (= arrancó la versión nueva).
+ *
+ * El plazo real NO es versionMinutos: es min(versionMinutos, reloj.resta()). El reloj es el de la etapa subir
+ * (tiempos.subirMinutos, 44 por defecto), que ya gastó la verificación y el CI antes de llegar acá. 10-nov-2026 (2 casos):
+ * el servidor bajó la imagen ~12 min después de terminar el CI y el Coordinador ya se había rendido aunque versionMinutos
+ * era 45. Ver README, "Si el despliegue falla después de subir".
+ */
 async function esperarVersion(contexto, repo, commit, reloj, { sinCi = false } = {}) {
-  const { urlVersion, campoVersion, versionMinutos, urlArranque, ciMinutos } = repo.subida;
+  const { urlVersion, campoVersion, versionMinutos, urlArranque, arranqueMinutos, ciMinutos } = repo.subida;
   if (!urlVersion) return { version: null, texto: "versión: no configurada" };
   // Si no se encontró la corrida del CI, el despliegue puede venir atrasado: se le da también el tiempo del CI
   // antes de decir "no arrancó" y deshacer (25-oct-2026).
@@ -2045,13 +2104,11 @@ async function esperarVersion(contexto, repo, commit, reloj, { sinCi = false } =
   const limite = Date.now() + Math.min(minutos * MINUTO, reloj.resta());
   let ultima = "";
   for (;;) {
-    try {
-      const respuesta = await fetch(urlVersion, { headers: { "Cache-Control": "no-cache" }, signal: AbortSignal.timeout(15_000) });
-      const datos = await respuesta.json();
-      ultima = String(datos?.[campoVersion] ?? "");
+    // El servidor puede estar reiniciando (null): se vuelve a preguntar.
+    const leida = await leerVersion(urlVersion, campoVersion);
+    if (leida !== null) {
+      ultima = leida;
       if (await versionIncluye(repo, ultima, commit)) break;
-    } catch {
-      // El servidor puede estar reiniciando: se vuelve a preguntar.
     }
     if (Date.now() > limite) {
       throw new ErrorDeEtapa(
@@ -2061,9 +2118,19 @@ async function esperarVersion(contexto, repo, commit, reloj, { sinCi = false } =
     await dormir(10_000);
   }
   if (urlArranque) {
-    const respuesta = await fetch(urlArranque, { signal: AbortSignal.timeout(15_000) }).catch(() => null);
-    if (!respuesta || respuesta.status >= 500) {
-      throw new ErrorDeEtapa(`La versión nueva arrancó pero ${urlArranque} contesta ${respuesta?.status ?? "nada"}.`);
+    const arranque = await comprobarArranque(contexto, urlArranque, (arranqueMinutos ?? 3) * MINUTO, reloj);
+    if (!arranque.ok) {
+      const contesto = `contestó ${[...new Set(arranque.estados)].join(" / ")} durante ${duracion(arranque.ms)} (${arranque.intentos} intento${arranque.intentos === 1 ? "" : "s"})`;
+      // Última pregunta a /api/version antes de deshacer: si sigue diciendo el commit nuevo (o uno que lo incluye), la
+      // app sigue sirviendo y no se deshace; queda el aviso en el registro.
+      const ahora = await leerVersion(urlVersion, campoVersion);
+      if (ahora !== null && (await versionIncluye(repo, ahora, commit))) {
+        contexto.registro?.aviso?.(`${urlArranque} ${contesto}, pero ${urlVersion} sigue diciendo ${ahora.slice(0, 10)}: no se deshace`);
+        return { version: ahora, texto: `versión ${ahora.slice(0, 10)}: ok (${urlArranque} ${contesto}; no se deshace)` };
+      }
+      throw new ErrorDeEtapa(
+        `La versión nueva arrancó pero ${urlArranque} ${contesto}, y ${urlVersion} ya no dice ${commit.slice(0, 10)} (dice "${ahora ?? "nada"}").`,
+      );
     }
   }
   return { version: ultima, texto: `versión ${ultima.slice(0, 10)}: ok` };

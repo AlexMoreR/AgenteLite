@@ -84,6 +84,8 @@ const MOTORES_POR_DEFECTO = { planear: "claude", construir: "claude", revisar: "
 const MAXIMO_EN_PARALELO = 5;
 /** Lo mínimo que se espera a que /api/version diga el commit nuevo antes de decir "no arrancó" y deshacer. */
 export const PISO_VERSION_MINUTOS = 15;
+/** Cuánto se reintenta subida.urlArranque (/login) después de que /api/version diga el commit nuevo, antes de deshacer. */
+export const ARRANQUE_MINUTOS_POR_DEFECTO = 3;
 
 /**
  * Tareas grandes y de desborde a la nube con `claude --cloud` (25-oct-2026, decisión del dueño). Reglas fijas, sin IA:
@@ -382,6 +384,8 @@ export function completarConfig(datos, base = process.cwd()) {
           // del CI. Con 8 el Coordinador se rendía antes y deshacía cambios que sí arrancaban.
           versionMinutos: Math.max(Number(repo.subida?.versionMinutos) || PISO_VERSION_MINUTOS, PISO_VERSION_MINUTOS),
           urlArranque: typeof repo.subida?.urlArranque === "string" ? repo.subida.urlArranque : null,
+          // Cuánto se reintenta urlArranque mientras el servidor cambia de contenedor (13-11-2026). Sin la línea, 3.
+          arranqueMinutos: Number(repo.subida?.arranqueMinutos) > 0 ? Number(repo.subida.arranqueMinutos) : ARRANQUE_MINUTOS_POR_DEFECTO,
         },
       };
     } catch (error) {
