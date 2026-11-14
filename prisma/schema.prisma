@@ -2640,6 +2640,30 @@ model VentaDePauta {
   @@index([workspaceId, pagadaEn])
 }
 
+/// Un aviso a la API de Conversiones de Meta ("Purchase") por una VentaDePauta de un chat de anuncio.
+/// Una sola fila por venta, evento y modo: así no se avisa dos veces. Sin llaves foráneas, como VentaDePauta.
+model EventoDeConversion {
+  id             String    @id @default(cuid())
+  workspaceId    String
+  ventaDePautaId String
+  /// Por ahora solo "Purchase".
+  evento         String
+  /// PRUEBA | ACTIVO
+  modo           String
+  /// ENVIADO | ERROR | SIN_MONTO
+  estado         String
+  valor          Float?
+  intentos       Int       @default(0)
+  /// El error o una respuesta corta de Meta; nunca la llave.
+  respuesta      String?
+  enviadoEn      DateTime?
+  creadoEn       DateTime  @default(now())
+  actualizadoEn  DateTime  @default(now()) @updatedAt
+
+  @@unique([workspaceId, ventaDePautaId, evento, modo])
+  @@index([workspaceId, estado])
+}
+
 /// Alertas internas (página /cliente/alertas): TODA alerta se guarda aquí; por WhatsApp solo salen las URGENTES.
 /// `clave` identifica el problema: mientras siga abierto (NUEVA o VISTA) no se duplica, se refresca y sube `veces`.
 model AlertaInterna {

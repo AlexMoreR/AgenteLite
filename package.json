@@ -70,6 +70,8 @@
     "test:mapa-colombia": "node scripts/check-mapa-colombia.mjs",
     "test:mejoras-vs-ventas": "node scripts/check-mejoras-vs-ventas.mjs",
     "test:pauta-migracion": "node scripts/check-pauta-migracion.mjs",
+    "test:conversiones-meta": "node scripts/check-conversiones-meta.mjs",
+    "test:conversiones-meta-migracion": "node scripts/check-conversiones-meta-migracion.mjs",
     "test:mcp-ventas-por-campana": "node scripts/check-mcp-ventas-por-campana.mjs",
     "test:anti-bloqueo": "node scripts/check-anti-bloqueo.mjs",
     "test:equipo-nombre": "node scripts/check-equipo-nombre.mjs",
