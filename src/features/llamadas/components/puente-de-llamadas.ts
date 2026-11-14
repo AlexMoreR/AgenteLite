@@ -15,10 +15,8 @@
  * 16 kHz, un canal, en paquetes de 20 ms (320 muestras) por el canal de datos "pcm". Aca se trabaja
  * con Int16Array, que es lo que viaja por ese canal (little-endian, igual que en el navegador).
  *
- * Solo funciones puras y una cola en memoria: no tocan React, el navegador ni la red.
+ * Solo funciones puras: no tocan React, el navegador ni la red.
  */
-
-import { hayQueDescartar } from "./audio-de-llamada";
 
 const MAXIMO = 32767;
 const MINIMO = -32768;
@@ -58,48 +56,4 @@ export function mezclaParaLlamada(input: {
 /** Lo que suena en el parlante de Alexander: las dos llamadas juntas. */
 export function mezclaParaParlante(a: Int16Array, b: Int16Array): Int16Array {
   return sumarPcm(a, b);
-}
-
-/**
- * Lo que llego de UNA llamada y todavia no se mezclo. Durante el puente, cada paquete del
- * microfono (cada 20 ms) saca uno de cada cola: asi las dos llamadas avanzan al mismo paso.
- *
- * Si la red entrega de golpe, la cola crece y ese sonido ya llega tarde: pasado el mismo limite
- * que se usa para el microfono (`hayQueDescartar`, medio segundo), se bota lo MAS VIEJO. Es mejor
- * perder un pedacito que escuchar a la otra persona cada vez mas atrasada.
- */
-export class ColaDeSonido {
-  private paquetes: Int16Array[] = [];
-  private bytes = 0;
-  /** Paquetes botados por atrasados (va al diagnostico de la llamada). */
-  descartados = 0;
-
-  meter(paquete: Int16Array) {
-    this.paquetes.push(paquete);
-    this.bytes += paquete.byteLength;
-    while (this.paquetes.length > 1 && hayQueDescartar(this.bytes)) {
-      const viejo = this.paquetes.shift();
-      this.bytes -= viejo ? viejo.byteLength : 0;
-      this.descartados += 1;
-    }
-  }
-
-  /** El paquete mas viejo; si no hay nada, un paquete vacio (cuenta como silencio al sumar). */
-  sacar(): Int16Array {
-    const paquete = this.paquetes.shift();
-    if (!paquete) {
-      return new Int16Array(0);
-    }
-    this.bytes -= paquete.byteLength;
-    return paquete;
-  }
-
-  vaciar() {
-    this.paquetes = [];
-    this.bytes = 0;
-  }
-
-  get tamanoEnBytes() {
-    return this.bytes;
-  }
 }

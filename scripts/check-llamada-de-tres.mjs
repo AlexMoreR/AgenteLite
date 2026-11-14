@@ -1,7 +1,6 @@
 // Pruebas de la llamada de tres, parte 1: la mezcla de sonido
 // (src/features/llamadas/components/puente-de-llamadas.ts) y el servidor que marca por otra linea
 // (src/app/api/wacalls/llamada/route.ts y src/lib/wacalls.ts).
-// Parte 2: el hook useLlamada.ts con dos llamadas a la vez y el puente entre ellas.
 // Correr: npm run test:llamada-de-tres
 import fs from "node:fs";
 import path from "node:path";
@@ -10,42 +9,23 @@ import { createRequire } from "node:module";
 import ts from "typescript";
 
 const require = createRequire(import.meta.url);
-// Carga un .ts transpilado; sus imports relativos ("./audio-de-llamada") se cargan igual.
-function cargarTs(sourcePath) {
-  const transpiled = ts.transpileModule(fs.readFileSync(sourcePath, "utf8"), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-    fileName: sourcePath,
-  });
-  const mod = { exports: {} };
-  const requerir = (spec) =>
-    spec.startsWith("./") ? cargarTs(path.resolve(path.dirname(sourcePath), `${spec}.ts`)) : require(spec);
-  new Function("exports", "require", "module", "__filename", "__dirname", transpiled.outputText)(
-    mod.exports,
-    requerir,
-    mod,
-    sourcePath,
-    path.dirname(sourcePath),
-  );
-  return mod.exports;
-}
-const { sumarPcm, mezclaParaLlamada, mezclaParaParlante, ColaDeSonido } = cargarTs(
-  path.resolve("src/features/llamadas/components/puente-de-llamadas.ts"),
+const sourcePath = path.resolve("src/features/llamadas/components/puente-de-llamadas.ts");
+const transpiled = ts.transpileModule(fs.readFileSync(sourcePath, "utf8"), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  fileName: sourcePath,
+});
+const mod = { exports: {} };
+new Function("exports", "require", "module", "__filename", "__dirname", transpiled.outputText)(
+  mod.exports,
+  require,
+  mod,
+  sourcePath,
+  path.dirname(sourcePath),
 );
-const { LIMITE_COLA_BYTES } = cargarTs(path.resolve("src/features/llamadas/components/audio-de-llamada.ts"));
+const { sumarPcm, mezclaParaLlamada, mezclaParaParlante } = mod.exports;
 
 const ruta = fs.readFileSync(path.resolve("src/app/api/wacalls/llamada/route.ts"), "utf8");
 const wacalls = fs.readFileSync(path.resolve("src/lib/wacalls.ts"), "utf8");
-const hook = fs.readFileSync(path.resolve("src/features/llamadas/components/useLlamada.ts"), "utf8");
-const puente = fs.readFileSync(path.resolve("src/features/llamadas/components/puente-de-llamadas.ts"), "utf8");
-
-/** El cuerpo de `const <nombre> = ...` dentro del hook, hasta la siguiente declaracion del hook. */
-function cuerpoDe(nombre) {
-  const inicio = hook.indexOf(`const ${nombre} = `);
-  assert.ok(inicio > 0, `no se encontro ${nombre} en useLlamada.ts`);
-  const resto = hook.slice(inicio + 1);
-  const fin = resto.search(/\n  (const |useEffect\(|return \{)/);
-  return fin < 0 ? resto : resto.slice(0, fin);
-}
 
 let pruebas = 0;
 function prueba(nombre, fn) {
@@ -143,90 +123,6 @@ prueba("wacalls.ts: las lineas del negocio salen solo de canales de ese workspac
   const otra = wacalls.indexOf("export async function getOtraLineaDelNegocio(");
   assert.ok(otra > 0);
   assert.match(wacalls.slice(otra, wacalls.indexOf("\n}\n", otra)), /getLineasDelNegocio\(workspaceId\)/);
-});
-
-// --- Parte 2: la cola de cada llamada en el puente ---
-
-prueba("la cola entrega los paquetes en orden y, vacia, da silencio", () => {
-  const cola = new ColaDeSonido();
-  assert.equal(cola.sacar().length, 0, "vacia da un paquete vacio");
-  cola.meter(pcm(1, 2));
-  cola.meter(pcm(3));
-  assert.deepEqual(lista(cola.sacar()), [1, 2]);
-  assert.deepEqual(lista(cola.sacar()), [3]);
-  assert.equal(cola.tamanoEnBytes, 0);
-  // Un paquete vacio suma como silencio: el microfono pasa igual.
-  assert.deepEqual(lista(mezclaParaLlamada({ microfono, otraLlamada: cola.sacar(), silenciado: false })), [100, 200, 300]);
-});
-
-prueba("la cola bota el sonido atrasado (lo mas viejo) pasado el limite de hayQueDescartar", () => {
-  const cola = new ColaDeSonido();
-  const paquete = (n) => new Int16Array(320).fill(n);
-  for (let i = 0; i < 40; i += 1) cola.meter(paquete(i));
-  assert.ok(cola.tamanoEnBytes <= LIMITE_COLA_BYTES, "la cola paso el limite");
-  assert.ok(cola.descartados > 0, "no boto nada");
-  // Lo que queda es lo mas nuevo: el ultimo que entro sigue ahi y el primero ya no.
-  const primero = cola.sacar();
-  assert.ok(primero[0] > 0, "quedo el paquete mas viejo");
-  let ultimo = primero;
-  for (let s = cola.sacar(); s.length > 0; s = cola.sacar()) ultimo = s;
-  assert.equal(ultimo[0], 39);
-  assert.ok(/hayQueDescartar\(this\.bytes\)/.test(puente), "la cola no usa hayQueDescartar");
-});
-
-// --- Parte 2: useLlamada.ts ---
-
-prueba("useLlamada.ts usa las funciones de puente-de-llamadas.ts", () => {
-  assert.match(hook, /import \{ ColaDeSonido, mezclaParaLlamada, mezclaParaParlante \} from "\.\/puente-de-llamadas";/);
-  assert.match(hook, /mezclaParaLlamada\(\{ microfono, otraLlamada: deB, silenciado: silencio \}\)/, "A no recibe microfono + B");
-  assert.match(hook, /mezclaParaLlamada\(\{ microfono, otraLlamada: deA, silenciado: silencio \}\)/, "B no recibe microfono + A");
-  assert.match(hook, /mezclaParaParlante\(deA, deB\)/, "el parlante no suena A + B");
-  assert.match(hook, /const silencio = silenciadoRef\.current;/, "el silencio no sale del ref");
-  // Lo que llega de cada llamada pasa por su cola mientras hay puente.
-  assert.match(hook, /colaPrincipalRef\.current\.meter\(aInt16\(evento\.data\)\)/);
-  assert.match(hook, /s\.cola\.meter\(aInt16\(evento\.data\)\)/);
-});
-
-prueba("colgar la principal pasa por las dos llamadas", () => {
-  const colgar = cuerpoDe("colgar");
-  assert.match(colgar, /soltarSegunda\("colgo", null, false\)/, "colgar no suelta a la persona agregada");
-  assert.match(colgar, /colgarEnServidor\(\{ callId, channelId: canalRef\.current \}\)/, "colgar no cuelga la principal");
-  // Y limpiar (lo que corre cuando la principal termina sola) tambien la suelta.
-  assert.match(cuerpoDe("limpiar"), /soltarSegunda\(/);
-  // Soltar la segunda la cuelga en WaCalls por SU linea.
-  assert.match(cuerpoDe("soltarSegunda"), /colgarSegundaSinEsperar\(s\)/);
-  assert.match(hook, /colgarSinEsperar\(s\.callId, undefined, s\.linea\)/);
-});
-
-prueba("pagehide cuelga las dos llamadas", () => {
-  const efecto = hook.slice(hook.indexOf("const alCerrarPantalla = () => {"), hook.indexOf('addEventListener("pagehide"'));
-  assert.match(efecto, /colgarAlSalir\(\)/, "pagehide no pasa por colgarAlSalir");
-  const alSalir = cuerpoDe("colgarAlSalir");
-  assert.match(alSalir, /colgarSinEsperar\(callId, canalRef\.current\)/, "no cuelga la principal");
-  assert.match(alSalir, /segundaRef\.current[\s\S]*colgarSegundaSinEsperar\(s\)/, "no cuelga a la persona agregada");
-});
-
-prueba("agregarPersona marca por otra linea y no toca la principal si falla", () => {
-  const agregar = cuerpoDe("agregarPersona");
-  assert.match(agregar, /otraLineaDistintaDe: lineaPrincipal/);
-  assert.match(agregar, /s\.linea = iniciada\.sessionId/, "no guarda la linea que devuelve la ruta");
-  assert.match(hook, /lineaPrincipalRef\.current = iniciada\.sessionId/);
-  assert.match(agregar, /if \(segundaRef\.current\) \{\s*onError/, "permite mas de una persona extra");
-  assert.match(agregar, /negociarAudio\(pc, \{ callId: s\.callId, sessionId: s\.linea \}\)/);
-  // Si falla, muestra el error y suelta solo la segunda.
-  const captura = agregar.slice(agregar.indexOf("} catch (error) {"));
-  assert.match(captura, /onError\?\.\(mensaje\)/);
-  assert.match(captura, /soltarSegunda\("error", mensaje, true\)/);
-  assert.ok(!/colgar\(\)|limpiar\(\)|cambiarEstado\(/.test(agregar), "agregarPersona toca la llamada principal");
-});
-
-prueba("quitarPersona cuelga solo la segunda; silenciar con puente es solo local", () => {
-  const quitar = cuerpoDe("quitarPersona");
-  assert.match(quitar, /soltarSegunda\("colgo", null, true\)/);
-  assert.ok(!/colgar\(|limpiar\(/.test(quitar));
-  const silenciar = cuerpoDe("alternarSilencio");
-  assert.match(silenciar, /silenciadoRef\.current = siguiente;[\s\S]*if \(segundaRef\.current\) \{\s*return;\s*\}[\s\S]*accion: "silenciar"/);
-  assert.match(hook, /return \{[\s\S]*segunda,\s*agregarPersona,\s*quitarPersona,\s*\};/);
 });
 
 console.log(`\n${pruebas} pruebas ok`);

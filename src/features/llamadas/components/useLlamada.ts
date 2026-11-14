@@ -10,7 +10,6 @@ import {
   OPCIONES_CANAL_PCM,
   type DiagnosticoDeLlamada,
 } from "./audio-de-llamada";
-import { ColaDeSonido, mezclaParaLlamada, mezclaParaParlante } from "./puente-de-llamadas";
 import { empezarTimbrado, pitidoDeContestada, pitidoDeFin, vibrar } from "./sonidos-de-llamada";
 
 /**
@@ -35,20 +34,6 @@ import { empezarTimbrado, pitidoDeContestada, pitidoDeFin, vibrar } from "./soni
  * "terminada" es el rato en que el panel dice como termino antes de cerrarse.
  */
 export type EstadoLlamada = "libre" | "marcando" | "sonando" | "hablando" | "terminada" | "cortando";
-
-/**
- * La persona agregada a la llamada (llamada de tres): "sonando" hasta que contesta, "hablando"
- * mientras esta en el puente, y como termino: "colgo" (ella, Alexander o la llamada principal) o
- * "error" (no se pudo marcar; `mensaje` dice por que, por ejemplo que no hay otra linea libre).
- */
-export type EstadoSegunda = "sonando" | "hablando" | "colgo" | "error";
-
-export type SegundaLlamada = {
-  numero: string;
-  estado: EstadoSegunda;
-  /** Por que termino o fallo, en palabras de la asesora. */
-  mensaje: string | null;
-};
 
 /** Cada cuanto se le pregunta a WaCalls en que va la llamada. */
 const SONDEO_MS = 1000;
@@ -117,9 +102,8 @@ type OpcionesDeMarcado = {
  * cerrando; si el navegador no lo tiene, `fetch` con `keepalive` hace lo mismo. Va el mismo cuerpo
  * que usa colgar(), a la misma ruta.
  */
-function colgarSinEsperar(callId: string, channelId: string | undefined, sessionId?: string) {
-  // `sessionId` solo lo lleva la persona agregada: su llamada va por otra linea, no la del chat.
-  const cuerpo = JSON.stringify({ accion: "colgar", callId, channelId, ...(sessionId ? { sessionId } : {}) });
+function colgarSinEsperar(callId: string, channelId: string | undefined) {
+  const cuerpo = JSON.stringify({ accion: "colgar", callId, channelId });
   try {
     if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
       if (navigator.sendBeacon("/api/wacalls/llamada", cuerpo)) {
@@ -162,11 +146,6 @@ function aEnteros(pcm: Float32Array): ArrayBuffer {
     view.setInt16(i * 2, s < 0 ? Math.round(s * 32768) : Math.round(s * 32767), true);
   }
   return view.buffer;
-}
-
-/** Lo que llega por el canal "pcm", como enteros de 16 bits (para mezclar en el puente). */
-function aInt16(buf: ArrayBuffer): Int16Array {
-  return new Int16Array(buf, 0, Math.floor(buf.byteLength / 2));
 }
 
 function aFlotantes(buf: ArrayBuffer): Float32Array {
@@ -214,7 +193,6 @@ function enviarDiagnostico(
   channelId: string | undefined,
   diagnostico: DiagnosticoDeLlamada,
   segundosHablados: number,
-  sessionId?: string,
 ) {
   try {
     void fetch("/api/wacalls/llamada", {
@@ -222,137 +200,10 @@ function enviarDiagnostico(
       headers: { "Content-Type": "application/json" },
       credentials: "same-origin",
       keepalive: true,
-      body: JSON.stringify({
-        accion: "diagnostico",
-        callId,
-        channelId,
-        ...(sessionId ? { sessionId } : {}),
-        segundosHablados,
-        diagnostico,
-      }),
+      body: JSON.stringify({ accion: "diagnostico", callId, channelId, segundosHablados, diagnostico }),
     }).catch(() => {});
   } catch {
     // El diagnostico nunca puede romper el colgar.
-  }
-}
-
-/*
-  Lo que es de UNA llamada, sea la principal (el cliente) o la de la persona agregada.
-
-  Las dos comparten el microfono y el AudioContext de la principal; cada una tiene su callId, su
-  linea, su conexion con WaCalls y su canal de sonido "pcm".
-*/
-
-/** Con que se identifica una llamada ante la ruta: su callId y por que linea va. */
-type IdentidadDeLlamada = {
-  callId: string;
-  /** El canal del chat: la principal va por la linea de su canal, como siempre. */
-  channelId?: string;
-  /** La linea exacta que devolvio "iniciar": la persona agregada sale por OTRA linea. */
-  sessionId?: string;
-};
-
-/** La conexion con WaCalls y su canal de sonido. El canal se crea ANTES de la oferta (ver llamar). */
-function crearConexion() {
-  const pc = new RTCPeerConnection({
-    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-  });
-  // Sin orden y sin reenvios: ver audio-de-llamada.ts, es LA causa de que a veces el cliente no
-  // escuchara a la asesora.
-  const canal = pc.createDataChannel(CANAL_PCM, OPCIONES_CANAL_PCM);
-  canal.binaryType = "arraybuffer";
-  return { pc, canal };
-}
-
-/** El saludo de audio con WaCalls: oferta, rutas de red y la respuesta del servicio. */
-async function negociarAudio(pc: RTCPeerConnection, identidad: IdentidadDeLlamada) {
-  const oferta = await pc.createOffer();
-  await pc.setLocalDescription(oferta);
-  await esperarRutas(pc);
-
-  const respuesta = (await pedir({
-    accion: "webrtc",
-    ...identidad,
-    sdpOffer: pc.localDescription?.sdp ?? oferta.sdp,
-  })) as { sdpAnswer?: string };
-
-  if (!respuesta.sdpAnswer) {
-    throw new Error("El servicio no devolvió el audio.");
-  }
-  await pc.setRemoteDescription({ type: "answer", sdp: respuesta.sdpAnswer });
-}
-
-type RespuestaDeEstado = { status?: string; endReason?: string | null; enHistorial?: boolean };
-
-/** En que va una llamada, segun WaCalls (ver revisarEstado). */
-async function consultarEstado(identidad: IdentidadDeLlamada) {
-  return (await pedir({ accion: "estado", ...identidad })) as RespuestaDeEstado;
-}
-
-/** Cuelga una llamada en WaCalls y espera la respuesta. */
-async function colgarEnServidor(identidad: IdentidadDeLlamada) {
-  await pedir({ accion: "colgar", ...identidad });
-}
-
-/**
- * Manda un paquete por el canal de una llamada. Con la red ahogada se tira audio NUEVO en vez de
- * apilarlo: apilado llega tarde y WaCalls lo descarta igual, despues de varios segundos de
- * silencio para el otro lado. Devuelve si salio.
- */
-function mandarPaquete(canal: RTCDataChannel, datos: ArrayBuffer, diagnostico: DiagnosticoDeLlamada): boolean {
-  const cola = canal.bufferedAmount;
-  if (cola > diagnostico.colaMaxima) diagnostico.colaMaxima = cola;
-  if (hayQueDescartar(cola)) {
-    diagnostico.descartados += 1;
-    return false;
-  }
-  try {
-    canal.send(datos);
-  } catch {
-    diagnostico.descartados += 1;
-    return false;
-  }
-  diagnostico.enviados += 1;
-  return true;
-}
-
-/** La llamada de la persona agregada, con todo lo suyo. Vive en un ref: la leen los procesadores de audio. */
-type SegundaInterna = {
-  numero: string;
-  estado: EstadoSegunda;
-  callId: string | null;
-  /** La linea por la que salio (la devuelve "iniciar"); va en colgar, estado, webrtc y diagnostico. */
-  linea: string | undefined;
-  pc: RTCPeerConnection | null;
-  canal: RTCDataChannel | null;
-  /** Lo que llego de ella y todavia no se mezclo. */
-  cola: ColaDeSonido;
-  diagnostico: DiagnosticoDeLlamada;
-  sondeo: number | null;
-  busquedasEnHistorial: number;
-  hablandoDesde: number | null;
-  /** Ya se le dijo a WaCalls que se cuelga (o ya termino alla): no se repite. */
-  colgadaEnServidor: boolean;
-  diagnosticoEnviado: boolean;
-};
-
-function identidadDeSegunda(s: SegundaInterna): IdentidadDeLlamada | null {
-  return s.callId ? { callId: s.callId, sessionId: s.linea } : null;
-}
-
-/** Le avisa a WaCalls que la segunda se cuelga (sin esperar) y deja su diagnostico, una sola vez. */
-function colgarSegundaSinEsperar(s: SegundaInterna) {
-  if (!s.callId) {
-    return;
-  }
-  if (!s.colgadaEnServidor) {
-    s.colgadaEnServidor = true;
-    colgarSinEsperar(s.callId, undefined, s.linea);
-  }
-  if (!s.diagnosticoEnviado) {
-    s.diagnosticoEnviado = true;
-    const segundos = s.hablandoDesde === null ? 0 : Math.round((performance.now() - s.hablandoDesde) / 1000);
-    enviarDiagnostico(s.callId, undefined, s.diagnostico, segundos, s.linea);
   }
 }
 
@@ -393,15 +244,6 @@ export function useLlamada({ onError, onTerminada }: Opciones = {}) {
   /** La ultima llamada cuyo diagnostico ya salio: cada llamada manda uno solo. */
   const diagnosticoEnviadoDeRef = useRef<string | null>(null);
   const revisionRef = useRef<number | null>(null);
-  /** La linea por la que salio la principal, como la devolvio "iniciar": la segunda sale por OTRA. */
-  const lineaPrincipalRef = useRef<string | undefined>(undefined);
-  /** Lo que llego del cliente y todavia no se mezclo; solo se usa mientras hay puente. */
-  const colaPrincipalRef = useRef(new ColaDeSonido());
-  /** El silencio leido desde el procesador del microfono, que no ve el estado de React. */
-  const silenciadoRef = useRef(false);
-  /** La persona agregada (llamada de tres). Una sola: mientras existe no se puede agregar otra. */
-  const segundaRef = useRef<SegundaInterna | null>(null);
-  const [segunda, setSegunda] = useState<SegundaLlamada | null>(null);
 
   const cambiarEstado = useCallback((siguiente: EstadoLlamada) => {
     estadoRef.current = siguiente;
@@ -422,42 +264,8 @@ export function useLlamada({ onError, onTerminada }: Opciones = {}) {
     enviarDiagnostico(callId, canalRef.current, diagnosticoRef.current, segundosRef.current);
   }, []);
 
-  /**
-   * Cuelga y suelta a la persona agregada: su conexion, su sondeo y su cola. La llamada principal
-   * sigue igual. Con `principalSigue` y Alexander silenciado, se lo vuelve a silenciar en WaCalls:
-   * durante el puente ese silencio era solo local (ver alternarSilencio).
-   */
-  const soltarSegunda = useCallback(
-    (final: "colgo" | "error", mensaje: string | null, principalSigue: boolean) => {
-      const s = segundaRef.current;
-      if (!s) {
-        return;
-      }
-      segundaRef.current = null;
-      if (s.sondeo !== null) {
-        window.clearInterval(s.sondeo);
-        s.sondeo = null;
-      }
-      colgarSegundaSinEsperar(s);
-      s.pc?.close();
-      s.pc = null;
-      s.canal = null;
-      s.cola.vaciar();
-      colaPrincipalRef.current.vaciar();
-      setSegunda({ numero: s.numero, estado: final, mensaje });
-      const callIdPrincipal = callIdRef.current;
-      if (principalSigue && silenciadoRef.current && callIdPrincipal) {
-        void pedir({ accion: "silenciar", callId: callIdPrincipal, muted: true, channelId: canalRef.current }).catch(() => {});
-      }
-    },
-    [],
-  );
-
   /** Suelta micrófono, audio y conexión. Se llama al colgar y al desmontar. */
   const limpiar = useCallback(() => {
-    // Sin la principal no hay microfono ni audio: la persona agregada se cuelga tambien.
-    soltarSegunda("colgo", null, false);
-    setSegunda(null);
     apagarTimbradoRef.current?.();
     apagarTimbradoRef.current = null;
     if (sondeoRef.current !== null) {
@@ -482,25 +290,18 @@ export function useLlamada({ onError, onTerminada }: Opciones = {}) {
       audioRef.current.srcObject = null;
     }
     callIdRef.current = null;
-    lineaPrincipalRef.current = undefined;
-    colaPrincipalRef.current.vaciar();
     busquedasEnHistorialRef.current = 0;
-    silenciadoRef.current = false;
     setSilenciado(false);
     setSegundos(0);
     segundosRef.current = 0;
     setRecienContesto(false);
-  }, [reportarDiagnostico, soltarSegunda]);
+  }, [reportarDiagnostico]);
 
-  /** Si hay llamadas activas, le avisa a WaCalls que se cuelgan las DOS (la pantalla se va). */
+  /** Si hay una llamada activa, le avisa a WaCalls que se cuelga (la pantalla se va). */
   const colgarAlSalir = useCallback(() => {
     const callId = callIdRef.current;
     if (callId) {
       colgarSinEsperar(callId, canalRef.current);
-    }
-    const s = segundaRef.current;
-    if (s) {
-      colgarSegundaSinEsperar(s);
     }
   }, []);
 
@@ -571,9 +372,9 @@ export function useLlamada({ onError, onTerminada }: Opciones = {}) {
     if (!callId) {
       return;
     }
-    let respuesta: RespuestaDeEstado;
+    let respuesta: { status?: string; endReason?: string | null; enHistorial?: boolean };
     try {
-      respuesta = await consultarEstado({ callId, channelId: canalRef.current });
+      respuesta = (await pedir({ accion: "estado", callId, channelId: canalRef.current })) as typeof respuesta;
     } catch {
       // Un sondeo que falla no corta nada: se vuelve a preguntar en un segundo.
       return;
@@ -623,11 +424,9 @@ export function useLlamada({ onError, onTerminada }: Opciones = {}) {
     }
     const callId = callIdRef.current;
     cambiarEstado("cortando");
-    // Colgar la principal cuelga tambien a la persona agregada.
-    soltarSegunda("colgo", null, false);
     try {
       if (callId) {
-        await colgarEnServidor({ callId, channelId: canalRef.current });
+        await pedir({ accion: "colgar", callId, channelId: canalRef.current });
       }
     } catch {
       // Si el servicio no contesta igual se corta de este lado: lo que no puede pasar es que la
@@ -637,7 +436,7 @@ export function useLlamada({ onError, onTerminada }: Opciones = {}) {
       cambiarEstado("libre");
       onTerminada?.();
     }
-  }, [cambiarEstado, limpiar, onTerminada, soltarSegunda]);
+  }, [cambiarEstado, limpiar, onTerminada]);
 
   const llamar = useCallback(
     async (telefono: string, { esOculto = false, channelId }: OpcionesDeMarcado = {}) => {
@@ -660,20 +459,24 @@ export function useLlamada({ onError, onTerminada }: Opciones = {}) {
           accion: "iniciar",
           ...(esOculto ? { lid: telefono } : { phone: telefono }),
           channelId: canalRef.current,
-        })) as { callId?: string; sessionId?: string };
+        })) as { callId?: string };
         const callId = iniciada.callId;
         if (!callId) {
           throw new Error("El servicio no devolvió la llamada.");
         }
         callIdRef.current = callId;
-        // Solo se guarda para agregar a alguien: la principal sigue mandando el canal del chat.
-        lineaPrincipalRef.current = iniciada.sessionId;
         cambiarEstado("sonando");
 
-        // El canal se crea ANTES de la oferta: si no, no aparece en el saludo y del otro lado
-        // nunca llega el audio.
-        const { pc, canal } = crearConexion();
+        const pc = new RTCPeerConnection({
+          iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+        });
         pcRef.current = pc;
+
+        // El canal se crea ANTES de la oferta: si no, no aparece en el saludo y del otro lado
+        // nunca llega el audio. Sin orden y sin reenvios: ver audio-de-llamada.ts, es LA causa de
+        // que a veces el cliente no escuchara a la asesora.
+        const canal = pc.createDataChannel(CANAL_PCM, OPCIONES_CANAL_PCM);
+        canal.binaryType = "arraybuffer";
 
         const ctx = new AudioContext({ sampleRate: FRECUENCIA });
         ctxRef.current = ctx;
@@ -704,44 +507,27 @@ export function useLlamada({ onError, onTerminada }: Opciones = {}) {
             return;
           }
           for (const paquete of empaquetador.agregar(evento.data)) {
-            const enteros = aEnteros(paquete);
-            const s = segundaRef.current;
-            if (s && s.estado === "hablando" && s.canal) {
-              // Llamada de tres: cada paquete del microfono marca el paso del puente (20 ms).
-              // A recibe microfono + B, B recibe microfono + A y el parlante suena A + B.
-              // Silenciado, se quita solo el microfono: el cliente y la persona agregada se
-              // siguen escuchando entre ellos.
-              const microfono = new Int16Array(enteros);
-              const deA = colaPrincipalRef.current.sacar();
-              const deB = s.cola.sacar();
-              const silencio = silenciadoRef.current;
-              enviarALaPrincipal(mezclaParaLlamada({ microfono, otraLlamada: deB, silenciado: silencio }).buffer as ArrayBuffer);
-              if (s.canal.readyState === "open") {
-                mandarPaquete(
-                  s.canal,
-                  mezclaParaLlamada({ microfono, otraLlamada: deA, silenciado: silencio }).buffer as ArrayBuffer,
-                  s.diagnostico,
-                );
-              }
-              const parlante = mezclaParaParlante(deA, deB);
-              if (parlante.length > 0) {
-                reproduccion.port.postMessage(aFlotantes(parlante.buffer as ArrayBuffer));
-              }
+            const cola = canal.bufferedAmount;
+            if (cola > diagnostico.colaMaxima) diagnostico.colaMaxima = cola;
+            // Con la red ahogada se tira audio NUEVO en vez de apilarlo: apilado llega tarde y
+            // WaCalls lo descarta igual, despues de varios segundos de silencio para el cliente.
+            if (hayQueDescartar(cola)) {
+              diagnostico.descartados += 1;
               continue;
             }
-            enviarALaPrincipal(enteros);
+            try {
+              canal.send(aEnteros(paquete));
+            } catch {
+              diagnostico.descartados += 1;
+              continue;
+            }
+            const ahora = performance.now();
+            if (ultimoEnvio && estadoRef.current === "hablando") {
+              diagnostico.huecoMaximoEnviadoMs = Math.max(diagnostico.huecoMaximoEnviadoMs, Math.round(ahora - ultimoEnvio));
+            }
+            ultimoEnvio = ahora;
+            diagnostico.enviados += 1;
           }
-        };
-        /** Un paquete al cliente, con lo que se cuenta para el diagnostico. */
-        const enviarALaPrincipal = (datos: ArrayBuffer) => {
-          if (!mandarPaquete(canal, datos, diagnostico)) {
-            return;
-          }
-          const ahora = performance.now();
-          if (ultimoEnvio && estadoRef.current === "hablando") {
-            diagnostico.huecoMaximoEnviadoMs = Math.max(diagnostico.huecoMaximoEnviadoMs, Math.round(ahora - ultimoEnvio));
-          }
-          ultimoEnvio = ahora;
         };
         let fuenteMic = ctx.createMediaStreamSource(mic);
         fuenteMic.connect(captura);
@@ -807,11 +593,6 @@ export function useLlamada({ onError, onTerminada }: Opciones = {}) {
           ultimoRecibido = ahora;
           diagnostico.recibidos += 1;
           diagnostico.bytesRecibidos += evento.data.byteLength;
-          // Con la persona agregada en el puente, lo del cliente se mezcla (ver la captura).
-          if (segundaRef.current?.estado === "hablando") {
-            colaPrincipalRef.current.meter(aInt16(evento.data));
-            return;
-          }
           reproduccion.port.postMessage(aFlotantes(evento.data));
         };
 
@@ -857,7 +638,21 @@ export function useLlamada({ onError, onTerminada }: Opciones = {}) {
           }
         };
 
-        await negociarAudio(pc, { callId, channelId: canalRef.current });
+        const oferta = await pc.createOffer();
+        await pc.setLocalDescription(oferta);
+        await esperarRutas(pc);
+
+        const respuesta = (await pedir({
+          accion: "webrtc",
+          callId,
+          channelId: canalRef.current,
+          sdpOffer: pc.localDescription?.sdp ?? oferta.sdp,
+        })) as { sdpAnswer?: string };
+
+        if (!respuesta.sdpAnswer) {
+          throw new Error("El servicio no devolvió el audio.");
+        }
+        await pc.setRemoteDescription({ type: "answer", sdp: respuesta.sdpAnswer });
       } catch (error) {
         const mensaje =
           error instanceof DOMException && error.name === "NotAllowedError"
@@ -878,165 +673,6 @@ export function useLlamada({ onError, onTerminada }: Opciones = {}) {
     [colgar, limpiar, onError, cambiarEstado, revisarEstado],
   );
 
-  /**
-   * En que va la llamada de la persona agregada, como revisarEstado para la principal. Cuando
-   * contesta entra al puente; si termina, se suelta y la principal sigue igual.
-   */
-  const revisarSegunda = useCallback(
-    async (s: SegundaInterna) => {
-      const identidad = identidadDeSegunda(s);
-      if (segundaRef.current !== s || !identidad) {
-        return;
-      }
-      let respuesta: RespuestaDeEstado;
-      try {
-        respuesta = await consultarEstado(identidad);
-      } catch {
-        return;
-      }
-      if (segundaRef.current !== s) {
-        return;
-      }
-      if (respuesta.status === "connected" && s.estado === "sonando") {
-        s.estado = "hablando";
-        s.hablandoDesde = performance.now();
-        // El puente arranca de cero: lo que se junto antes ya llega tarde.
-        s.cola.vaciar();
-        colaPrincipalRef.current.vaciar();
-        if (ctxRef.current) {
-          pitidoDeContestada(ctxRef.current);
-        }
-        setSegunda({ numero: s.numero, estado: "hablando", mensaje: null });
-        return;
-      }
-      if (respuesta.status === "ended") {
-        if (!respuesta.enHistorial && s.busquedasEnHistorial < 3) {
-          s.busquedasEnHistorial += 1;
-          return;
-        }
-        // Ya termino en WaCalls: no hace falta colgarla alla.
-        s.colgadaEnServidor = true;
-        soltarSegunda("colgo", s.estado === "hablando" ? null : motivoSinHablar(respuesta.endReason ?? null), true);
-      }
-    },
-    [soltarSegunda],
-  );
-
-  /**
-   * Llamada de tres: suma a otra persona (por ejemplo el transportador) a la llamada en curso.
-   *
-   * WaCalls solo hace llamadas de a dos, asi que se abre una SEGUNDA llamada por OTRA linea del
-   * negocio y el CRM hace de puente (ver la captura en llamar y puente-de-llamadas.ts). Usa el
-   * mismo microfono y el mismo AudioContext. Si algo falla, la llamada con el cliente no se toca.
-   */
-  const agregarPersona = useCallback(
-    async (numero: string) => {
-      if (segundaRef.current) {
-        onError?.("Ya hay una persona agregada. Solo se puede sumar una.");
-        return;
-      }
-      const callIdPrincipal = callIdRef.current;
-      const ctx = ctxRef.current;
-      if (!callIdPrincipal || !ctx || estadoRef.current !== "hablando") {
-        onError?.("Para agregar a alguien, el cliente tiene que haber contestado.");
-        return;
-      }
-      const lineaPrincipal = lineaPrincipalRef.current;
-      if (!lineaPrincipal) {
-        onError?.("No se sabe por qué línea va la llamada: no se puede agregar a nadie.");
-        return;
-      }
-      const telefono = numero.replace(/[^0-9+]/g, "");
-      if (!telefono) {
-        onError?.("Escribe el número de la persona que quieres agregar.");
-        return;
-      }
-
-      const s: SegundaInterna = {
-        numero: telefono,
-        estado: "sonando",
-        callId: null,
-        linea: undefined,
-        pc: null,
-        canal: null,
-        cola: new ColaDeSonido(),
-        diagnostico: diagnosticoVacio(),
-        sondeo: null,
-        busquedasEnHistorial: 0,
-        hablandoDesde: null,
-        colgadaEnServidor: false,
-        diagnosticoEnviado: false,
-      };
-      segundaRef.current = s;
-      setSegunda({ numero: telefono, estado: "sonando", mensaje: null });
-      // Mientras haya puente el silencio es solo local (ver alternarSilencio).
-      if (silenciadoRef.current) {
-        void pedir({ accion: "silenciar", callId: callIdPrincipal, muted: false, channelId: canalRef.current }).catch(() => {});
-      }
-
-      try {
-        const iniciada = (await pedir({
-          accion: "iniciar",
-          phone: telefono,
-          channelId: canalRef.current,
-          otraLineaDistintaDe: lineaPrincipal,
-        })) as { callId?: string; sessionId?: string };
-        if (!iniciada.callId) {
-          throw new Error("El servicio no devolvió la llamada.");
-        }
-        s.callId = iniciada.callId;
-        s.linea = iniciada.sessionId;
-        // La quitaron (o colgaron la principal) mientras se marcaba: se cuelga y no se sigue.
-        if (segundaRef.current !== s) {
-          colgarSegundaSinEsperar(s);
-          return;
-        }
-        if (!s.linea) {
-          throw new Error("El servicio no dijo por qué línea salió la llamada.");
-        }
-
-        const { pc, canal } = crearConexion();
-        s.pc = pc;
-        s.canal = canal;
-        canal.onmessage = (evento: MessageEvent<ArrayBuffer>) => {
-          s.diagnostico.recibidos += 1;
-          s.diagnostico.bytesRecibidos += evento.data.byteLength;
-          if (s.estado === "hablando") {
-            s.cola.meter(aInt16(evento.data));
-          }
-        };
-        pc.onconnectionstatechange = () => {
-          if (pc.connectionState === "failed" || pc.connectionState === "closed") {
-            void revisarSegunda(s);
-            const id = window.setTimeout(() => {
-              if (segundaRef.current === s) {
-                soltarSegunda("colgo", "Se cortó la llamada con la persona agregada.", true);
-              }
-            }, 4000);
-            temporizadoresRef.current.push(id);
-          }
-        };
-        s.sondeo = window.setInterval(() => void revisarSegunda(s), SONDEO_MS);
-
-        await negociarAudio(pc, { callId: s.callId, sessionId: s.linea });
-      } catch (error) {
-        if (segundaRef.current !== s) {
-          return;
-        }
-        // Por ejemplo "No hay otra línea libre para agregar a alguien": se muestra tal cual.
-        const mensaje = error instanceof Error ? error.message : "No se pudo agregar a la persona.";
-        onError?.(mensaje);
-        soltarSegunda("error", mensaje, true);
-      }
-    },
-    [onError, revisarSegunda, soltarSegunda],
-  );
-
-  /** Cuelga solo a la persona agregada: la llamada con el cliente sigue. */
-  const quitarPersona = useCallback(() => {
-    soltarSegunda("colgo", null, true);
-  }, [soltarSegunda]);
-
   const alternarSilencio = useCallback(async () => {
     const callId = callIdRef.current;
     if (!callId) {
@@ -1048,13 +684,7 @@ export function useLlamada({ onError, onTerminada }: Opciones = {}) {
     micRef.current?.getAudioTracks().forEach((track) => {
       track.enabled = !siguiente;
     });
-    silenciadoRef.current = siguiente;
     setSilenciado(siguiente);
-    // Con una persona agregada el silencio es solo de este lado: silenciada en WaCalls, la llamada
-    // del cliente tampoco dejaria pasar la voz de la persona agregada. Al soltarla se ajusta.
-    if (segundaRef.current) {
-      return;
-    }
     try {
       await pedir({ accion: "silenciar", callId, muted: siguiente, channelId: canalRef.current });
     } catch {
@@ -1062,18 +692,5 @@ export function useLlamada({ onError, onTerminada }: Opciones = {}) {
     }
   }, [silenciado]);
 
-  return {
-    estado,
-    silenciado,
-    segundos,
-    motivoFin,
-    recienContesto,
-    llamar,
-    colgar,
-    alternarSilencio,
-    audioRef,
-    segunda,
-    agregarPersona,
-    quitarPersona,
-  };
+  return { estado, silenciado, segundos, motivoFin, recienContesto, llamar, colgar, alternarSilencio, audioRef };
 }
