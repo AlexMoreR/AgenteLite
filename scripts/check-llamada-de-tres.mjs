@@ -1,6 +1,7 @@
 // Pruebas de la llamada de tres, parte 1: la mezcla de sonido
 // (src/features/llamadas/components/puente-de-llamadas.ts) y el servidor que marca por otra linea
 // (src/app/api/wacalls/llamada/route.ts y src/lib/wacalls.ts).
+// Parte 2: el hook (src/features/llamadas/components/useLlamada.ts) maneja dos llamadas y las une.
 // Correr: npm run test:llamada-de-tres
 import fs from "node:fs";
 import path from "node:path";
@@ -26,6 +27,23 @@ const { sumarPcm, mezclaParaLlamada, mezclaParaParlante } = mod.exports;
 
 const ruta = fs.readFileSync(path.resolve("src/app/api/wacalls/llamada/route.ts"), "utf8");
 const wacalls = fs.readFileSync(path.resolve("src/lib/wacalls.ts"), "utf8");
+const hook = fs.readFileSync(path.resolve("src/features/llamadas/components/useLlamada.ts"), "utf8");
+
+/** El cuerpo de `const <nombre> = useCallback(` hasta el cierre de esa llamada (por llaves). */
+function cuerpoDe(fuente, inicio) {
+  const desde = fuente.indexOf(inicio);
+  assert.ok(desde >= 0, `no se encontro "${inicio}"`);
+  const abre = fuente.indexOf("{", desde);
+  let nivel = 0;
+  for (let i = abre; i < fuente.length; i += 1) {
+    if (fuente[i] === "{") nivel += 1;
+    else if (fuente[i] === "}") {
+      nivel -= 1;
+      if (nivel === 0) return fuente.slice(desde, i + 1);
+    }
+  }
+  throw new Error(`no se cerro "${inicio}"`);
+}
 
 let pruebas = 0;
 function prueba(nombre, fn) {
@@ -123,6 +141,72 @@ prueba("wacalls.ts: las lineas del negocio salen solo de canales de ese workspac
   const otra = wacalls.indexOf("export async function getOtraLineaDelNegocio(");
   assert.ok(otra > 0);
   assert.match(wacalls.slice(otra, wacalls.indexOf("\n}\n", otra)), /getLineasDelNegocio\(workspaceId\)/);
+});
+
+// --- Parte 2: el hook con dos llamadas ---
+
+prueba("useLlamada.ts: usa las mezclas de puente-de-llamadas.ts", () => {
+  assert.match(hook, /import \{[^}]*mezclaParaLlamada[^}]*mezclaParaParlante[^}]*\} from "\.\/puente-de-llamadas"/);
+  const puente = cuerpoDe(hook, "const puentear = useCallback(");
+  // A recibe microfono + B; B recibe microfono + A; el parlante, A + B.
+  assert.match(puente, /enviarPcm\(principal, mezclaParaLlamada\(\{ microfono, otraLlamada: deB, silenciado \}\)/);
+  assert.match(puente, /enviarPcm\(segundaLlamada, mezclaParaLlamada\(\{ microfono, otraLlamada: deA, silenciado \}\)/);
+  assert.match(puente, /mezclaParaParlante\(deA, deB\)/);
+});
+
+prueba("useLlamada.ts: el sonido atrasado de cada llamada se bota con hayQueDescartar", () => {
+  assert.match(cuerpoDe(hook, "function enviarPcm("), /hayQueDescartar\(cola\)/);
+  assert.match(cuerpoDe(hook, "function guardarParaElPuente("), /hayQueDescartar\(enCola\)/);
+});
+
+prueba("useLlamada.ts: colgar la principal cuelga tambien la segunda", () => {
+  const colgar = cuerpoDe(hook, "const colgar = useCallback(");
+  assert.match(colgar, /soltarSegunda\(/, "colgar no pasa por la segunda llamada");
+  assert.match(colgar, /accion: "colgar", callId/, "colgar no cuelga la principal");
+  const soltar = cuerpoDe(hook, "const soltarSegunda = useCallback(");
+  assert.match(soltar, /accion: "colgar", callId/, "soltarSegunda no cuelga en WaCalls");
+  // Y al limpiar (el cliente colgo solo) tambien se va la segunda.
+  assert.match(cuerpoDe(hook, "const limpiar = useCallback("), /soltarSegunda\(/);
+});
+
+prueba("useLlamada.ts: al cerrar la pestana (pagehide) se cuelgan las dos llamadas", () => {
+  const efecto = hook.slice(hook.indexOf("const alCerrarPantalla = () => {"), hook.indexOf('removeEventListener("pagehide"'));
+  assert.match(efecto, /colgarAlSalir\(\)/);
+  assert.match(efecto, /reportarDiagnostico\(\)/);
+  assert.match(cuerpoDe(hook, "const colgarAlSalir = useCallback("), /\[principalRef\.current, segundaRef\.current\]/);
+  const diagnostico = cuerpoDe(hook, "const reportarDiagnostico = useCallback(");
+  assert.match(diagnostico, /principalRef\.current/);
+  assert.match(diagnostico, /segundaRef\.current/);
+});
+
+prueba("useLlamada.ts: agregarPersona marca por otra linea, una sola persona extra", () => {
+  const agregar = cuerpoDe(hook, "const agregarPersona = useCallback(");
+  assert.match(agregar, /accion: "iniciar"/);
+  assert.match(agregar, /otraLineaDistintaDe: principal\.linea/);
+  assert.match(agregar, /llamada\.linea = iniciada\.sessionId/, "no guarda la linea que devuelve la ruta");
+  assert.match(agregar, /estadoSegundaRef\.current === "sonando" \|\| estadoSegundaRef\.current === "hablando"/);
+  // Si falla, solo se toca la segunda: nada de colgar ni limpiar la principal.
+  const atrapa = agregar.slice(agregar.indexOf("} catch (error) {"));
+  assert.ok(!/limpiar\(|colgar\(\)|principal\.callId/.test(atrapa), "un error al agregar toca la llamada principal");
+  // La segunda va a SU linea (sessionId), la principal sigue con el canal del chat.
+  assert.match(hook, /porSuLinea \? \{ sessionId: llamada\.linea \?\? undefined \} : \{ channelId: llamada\.canalRef\.current \}/);
+  assert.match(hook, /principalRef = useRef<Llamada>\(nuevaLlamada\(false\)\)/);
+});
+
+prueba("useLlamada.ts: quitarPersona cuelga solo la segunda; el hook expone segunda", () => {
+  const quitar = cuerpoDe(hook, "const quitarPersona = useCallback(");
+  assert.match(quitar, /soltarSegunda\(\)/);
+  assert.ok(!/limpiar\(|cambiarEstado\(/.test(quitar), "quitarPersona toca la llamada principal");
+  const devuelve = hook.slice(hook.lastIndexOf("return {"));
+  for (const nombre of ["segunda", "agregarPersona", "quitarPersona"]) {
+    assert.ok(devuelve.includes(nombre), `el hook no devuelve ${nombre}`);
+  }
+});
+
+prueba("useLlamada.ts: con el puente andando, silenciar quita solo el microfono", () => {
+  const silencio = cuerpoDe(hook, "const alternarSilencio = useCallback(");
+  assert.ok(silencio.indexOf("silenciadoRef.current = siguiente") < silencio.indexOf("if (puenteRef.current)"));
+  assert.ok(silencio.indexOf("if (puenteRef.current)") < silencio.indexOf('accion: "silenciar"'));
 });
 
 console.log(`\n${pruebas} pruebas ok`);
