@@ -80,8 +80,11 @@ export function ForwardMessageDialog({
 
           Y `status=all` porque un chat resuelto sigue siendo un destino valido: reenviarle la
           remision a alguien a quien ya se le cerro la conversacion es de lo mas normal.
+
+          Y `grupo=todos`: reenviar a alguien del equipo o a un proveedor tambien vale, aunque la
+          bandeja este mirando solo los clientes.
         */
-        const params = new URLSearchParams({ limit: "40", assigned: "all", status: "all" });
+        const params = new URLSearchParams({ limit: "40", assigned: "all", status: "all", grupo: "todos" });
         if (busqueda.trim()) {
           params.set("q", busqueda.trim());
         }

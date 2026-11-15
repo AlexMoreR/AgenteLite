@@ -132,7 +132,8 @@ export function ChatNotificationBell({ className }: { className?: string }) {
           No destapa nada: la ruta le impone "mias" a quien no es jefe y filtra por los canales
           visibles de cada quien. Pedir "todas" no cambia ninguna de las dos cosas.
         */
-        const response = await fetch("/api/cliente/chats/list?limit=40&assigned=all", {
+        // `grupo=todos`: los avisos del equipo y de los proveedores tambien suenan, mire lo que mire la bandeja.
+        const response = await fetch("/api/cliente/chats/list?limit=40&assigned=all&grupo=todos", {
           cache: "no-store",
         });
 

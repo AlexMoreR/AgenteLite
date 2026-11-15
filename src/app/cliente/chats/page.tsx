@@ -39,11 +39,14 @@ import { canalesQueMonitorea, enmascararSiEsTelefono, enmascararTelefono } from 
 import { esSupervisora } from "@/lib/permisos-del-equipo";
 import { chatKeyPorConversacion, puedeAbrirChatPorClave } from "@/lib/chats-acceso-por-enlace";
 import {
+  grupoQueAplica,
   idsParaLosFiltros,
   leerFiltrosDeBandeja,
   paramsDeFiltros,
   whereDeFiltros,
+  whereDeGrupo,
 } from "@/features/chats/services/filtros-de-bandeja";
+import { contactosInternos } from "@/features/chats/services/contactos-internos";
 import { DIAS_DE_SIN_RESPONDER, SIN_FILTROS, leerEspera } from "@/features/chats/domain/filtros-de-bandeja";
 import {
   listaDeEsperaDeLaBandeja,
@@ -539,13 +542,22 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
    * Se piden una vez y entran como listas de ids: es lo mismo que mira el contador y lo que
    * devuelve el scroll infinito, asi que los tres coinciden.
    */
-  const idsDeLosFiltros = await idsParaLosFiltros(filtrosDeLaLista, {
-    workspaceId: membership.workspace.id,
-    visibleChannelIds: canalesVisibles,
-    channelId: conexionElegida.startsWith("channel:")
-      ? conexionElegida.slice("channel:".length)
-      : null,
-  });
+  /*
+    El grupo (clientes / equipo / proveedores), con la misma regla que /list: `assignedFilter` ya
+    viene forzada a "mine" para las asesoras y con texto en el buscador no filtra. Con "todos" no
+    se leen los contactos internos; si hace falta, van a la vez que los ids.
+  */
+  const grupo = grupoQueAplica(filtrosDeLaLista, searchQuery);
+  const [idsDeLosFiltros, internos] = await Promise.all([
+    idsParaLosFiltros(filtrosDeLaLista, {
+      workspaceId: membership.workspace.id,
+      visibleChannelIds: canalesVisibles,
+      channelId: conexionElegida.startsWith("channel:")
+        ? conexionElegida.slice("channel:".length)
+        : null,
+    }),
+    grupo === "todos" ? null : contactosInternos(membership.workspace.id),
+  ]);
 
   const conversationWhere: Prisma.ConversationWhereInput = paginaDeEsperando
     ? {
@@ -567,6 +579,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
         AND: [
           // Las condiciones del filtro (todas: Y). Ver features/chats/services/filtros-de-bandeja.
           whereDeFiltros(filtros, idsDeLosFiltros),
+          whereDeGrupo({ grupo, internos, asignacion: assignedFilter, filtros }),
           // Los contactos bloqueados no aparecen en la bandeja (ver lib/bloqueo-de-contactos).
           { contact: { bloqueadoEn: null } },
           canalesVisibles ? { channelId: { in: canalesVisibles } } : {},

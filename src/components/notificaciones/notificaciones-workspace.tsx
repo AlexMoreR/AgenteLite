@@ -128,7 +128,8 @@ export function NotificacionesWorkspace() {
           La ruta le impone "mias" a quien no es jefe y filtra por los canales visibles de cada
           quien, asi que pedir "todas" no destapa nada: a una asesora le sigue mostrando lo suyo.
         */
-        const respuesta = await fetch("/api/cliente/chats/list?limit=40&assigned=all", {
+        // `grupo=todos`: los avisos del equipo y de los proveedores tambien suenan, mire lo que mire la bandeja.
+        const respuesta = await fetch("/api/cliente/chats/list?limit=40&assigned=all&grupo=todos", {
           cache: "no-store",
         });
         if (!respuesta.ok) {

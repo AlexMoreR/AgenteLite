@@ -8,14 +8,18 @@ import { canalesQueMonitorea } from "@/lib/modo-monitoreo";
 import { esSupervisora } from "@/lib/permisos-del-equipo";
 import { fragmentosDeFiltrosOficiales } from "@/features/official-api/services/getOfficialApiChatsData";
 import {
+  grupoQueAplica,
   idsParaLosFiltros,
   leerFiltrosDeBandeja,
   hayFiltrosPuestos,
   whereDeFiltros,
+  whereDeGrupo,
   type CondicionDeBandeja,
   type FiltrosDeBandeja,
   type IdsDeLosFiltros,
 } from "@/features/chats/services/filtros-de-bandeja";
+import { GRUPO_POR_DEFECTO, type GrupoDeBandeja } from "@/features/chats/domain/filtros-de-bandeja";
+import { contactosInternos, type ContactosInternos } from "@/features/chats/services/contactos-internos";
 import { conServerTiming, type MedidorServerTiming } from "@/lib/server-timing";
 import {
   estadoQueAplica,
@@ -148,8 +152,17 @@ async function countOfficialConversations(input: {
     ? input.assignedTo.slice("user:".length).split(",")
     : [];
 
-  if (hayFiltrosPuestos(input.filtros)) {
-    const { etapa, sinResponder } = await fragmentosDeFiltrosOficiales(input.filtros, input.workspaceId);
+  /*
+    El grupo (clientes / equipo / proveedores) tambien va por SQL: la regla vive en los mismos
+    fragmentos que la lista. Este camino no aplica el buscador, pero con texto el grupo no filtra
+    (grupoQueAplica da "todos") y se sigue por el de Prisma de abajo.
+  */
+  const aplicaElGrupo = grupoQueAplica(input.filtros, normalizedSearchQuery) !== "todos";
+  if (hayFiltrosPuestos(input.filtros) || aplicaElGrupo) {
+    const { etapa, sinResponder } = await fragmentosDeFiltrosOficiales(input.filtros, input.workspaceId, undefined, {
+      asignacion: input.assignedTo,
+      q: normalizedSearchQuery,
+    });
     const estado =
       estadoAplicado === "resolved"
         ? Prisma.sql`AND c."status"::text IN ('CLOSED', 'ARCHIVED')`
@@ -313,6 +326,7 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     isManager ? { tipo: "jefe" } : monitoreados.length > 0 ? { tipo: "monitora", lineas: monitoreados } : { tipo: "asesora" },
   );
   const alcanceDePastillas = whereDelAlcance(alcance, session.user.id);
+  const asignacionDeLasPastillas: string = alcance.asignacion;
 
   /**
    * El contador tiene que contar lo mismo que muestra la lista, incluida la conexion elegida: si
@@ -324,7 +338,17 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     visibleChannelIds,
   });
 
-  const filtros = leerFiltrosDeBandeja((clave) => requestUrl.searchParams.get(clave));
+  /*
+    Las pastillas son fijas: no cambian segun el grupo que se este mirando. Por eso el `grupo` de
+    la direccion se ignora y Todas, Mias y Sin asignar cuentan con GRUPO_POR_DEFECTO. Equipo y
+    Proveedores tienen sus propios numeros (mas abajo).
+  */
+  const leidos = leerFiltrosDeBandeja((clave) => requestUrl.searchParams.get(clave));
+  const filtros: FiltrosDeBandeja = { condiciones: leidos.condiciones, grupo: GRUPO_POR_DEFECTO };
+  const conGrupo = (grupo: GrupoDeBandeja): FiltrosDeBandeja => ({ ...filtros, grupo });
+  // Con texto en el buscador ningun grupo filtra: Equipo y Proveedores valen 0 sin consultar.
+  const grupoDeLasPastillas = grupoQueAplica(filtros, searchQuery);
+  const cuentaLosGrupos = !hayBusqueda(searchQuery);
   const quienPideIds = {
     workspaceId: membership.workspace.id,
     visibleChannelIds,
@@ -399,6 +423,15 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     dependen uno de otro: van a la vez (antes eran cinco esperas seguidas). Los ids que se piden
     dos veces (por ejemplo Sin responder puesto y su pastilla) los comparte la memoria corta.
   */
+  // Los contactos internos (memoria de un minuto), solo si algun numero los necesita. Arrancan ya,
+  // a la vez que lo de abajo; si fallan, Equipo y Proveedores van sin numero y el resto responde igual.
+  const internosPendientes: Promise<ContactosInternos | null> =
+    cuentaLosGrupos || grupoDeLasPastillas !== "todos"
+      ? contactosInternos(membership.workspace.id).catch((error) => {
+          console.error("[chats/counts] no se pudieron leer los contactos internos", error);
+          return null;
+        })
+      : Promise.resolve(null);
   const [idsDeLosFiltros, officialMine, officialUnassigned, officialAll, espera, conSinResponder, conNoLeido] = await Promise.all([
     idsParaLosFiltros(filtros, quienPideIds),
     countOfficialConversations({
@@ -433,6 +466,7 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     conLaCondicion({ campo: "no_leido", operador: "si" }, "los no leidos"),
   ]);
   t.marca("filtros_oficial_espera");
+  const internos = await internosPendientes;
 
   const baseWhere = buildBaseWhere({
     workspaceId: membership.workspace.id,
@@ -445,19 +479,64 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     ids: idsDeLosFiltros,
   });
 
+  /** El grupo por defecto con su asignacion (sin efecto mientras GRUPO_POR_DEFECTO sea "todos"). */
+  const delGrupo = (asignacion: string): Prisma.ConversationWhereInput =>
+    whereDeGrupo({ grupo: grupoDeLasPastillas, internos, asignacion, filtros });
+
+  /**
+   * Los numeros de Equipo y Proveedores: lo mismo que trae la lista con `grupo=equipo` o
+   * `grupo=proveedores`, en las DOS fuentes, dentro de `dentro` (lo que ve esta persona). Con texto
+   * en el buscador, o sin nadie que pueda entrar en el grupo, valen 0 sin consultar.
+   */
+  const contarGrupo = async (
+    grupo: "equipo" | "proveedores",
+    dentro: Prisma.ConversationWhereInput,
+    asignacionOficial: "mine" | "all",
+  ): Promise<number | undefined> => {
+    if (!cuentaLosGrupos) return 0;
+    if (!internos) return undefined;
+    const ids = grupo === "equipo" ? internos.equipoIds : internos.proveedorIds;
+    // La linea oficial reconoce al equipo tambien por el numero (ver sqlDelGrupoOficial).
+    const telefonos = grupo === "equipo" ? internos.variantesDeTelefono : [];
+    if (!ids.length && !telefonos.length) return 0;
+    const filtrosDelGrupo = conGrupo(grupo);
+    const [viejo, oficial] = await Promise.all([
+      ids.length
+        ? prisma.conversation.count({
+            where: { AND: [dentro, whereDeGrupo({ grupo, internos, asignacion: asignacionOficial, filtros: filtrosDelGrupo })] },
+          })
+        : 0,
+      countOfficialConversations({
+        workspaceId: membership.workspace.id,
+        searchQuery,
+        selectedConnectionKey: conexionElegida,
+        userId: session.user.id,
+        assignedTo: asignacionOficial,
+        statusFilter,
+        filtros: filtrosDelGrupo,
+      }),
+    ]);
+    return viejo + oficial;
+  };
+
   /** El numero de una de esas pastillas dentro de lo que ve esta persona (`alcance`). */
   const contarPastilla = async (
     cuenta: { where: Prisma.ConversationWhereInput; oficial: number } | null,
     alcance: Prisma.ConversationWhereInput,
   ): Promise<number | undefined> =>
-    cuenta ? (await prisma.conversation.count({ where: { AND: [cuenta.where, alcance] } })) + cuenta.oficial : undefined;
+    cuenta
+      ? (await prisma.conversation.count({ where: { AND: [cuenta.where, alcance, delGrupo(asignacionDeLasPastillas)] } })) +
+        cuenta.oficial
+      : undefined;
 
   if (monitoreados.length > 0) {
     const deSusLineas: Prisma.ConversationWhereInput = { AND: [baseWhere, { channelId: { in: monitoreados } }] };
-    const [mine, unassigned, all] = await Promise.all([
-      prisma.conversation.count({ where: { AND: [deSusLineas, whereEsMio(session.user.id)] } }),
-      prisma.conversation.count({ where: { AND: [deSusLineas, { assignedToUserId: null }] } }),
-      prisma.conversation.count({ where: deSusLineas }),
+    const [mine, unassigned, all, equipo, proveedores] = await Promise.all([
+      prisma.conversation.count({ where: { AND: [deSusLineas, whereEsMio(session.user.id), delGrupo("mine")] } }),
+      prisma.conversation.count({ where: { AND: [deSusLineas, { assignedToUserId: null }, delGrupo("unassigned")] } }),
+      prisma.conversation.count({ where: { AND: [deSusLineas, delGrupo("all")] } }),
+      contarGrupo("equipo", deSusLineas, "all"),
+      contarGrupo("proveedores", deSusLineas, "all"),
     ]);
     const [sinResponder, noLeido] = await Promise.all([
       // Siempre dentro de sus lineas (alcance.lineas), con la asignacion puesta.
@@ -473,6 +552,8 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
         all: all + officialAll,
         sinResponder,
         noLeido,
+        equipo,
+        proveedores,
       },
       espera,
     });
@@ -480,9 +561,13 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
 
   // Los empleados solo cuentan sus chats asignados.
   if (!isManager) {
-    const mine = await prisma.conversation.count({
-      where: { AND: [baseWhere, whereEsMio(session.user.id)] },
-    });
+    const soloLosSuyos: Prisma.ConversationWhereInput = { AND: [baseWhere, whereEsMio(session.user.id)] };
+    const [mine, equipo, proveedores] = await Promise.all([
+      prisma.conversation.count({ where: { AND: [soloLosSuyos, delGrupo("mine")] } }),
+      // La asesora solo cuenta lo suyo, tambien en Equipo y Proveedores.
+      contarGrupo("equipo", soloLosSuyos, "mine"),
+      contarGrupo("proveedores", soloLosSuyos, "mine"),
+    ]);
 
     const [sinResponder, noLeido] = await Promise.all([
       // A la asesora el alcance siempre le da los suyos (whereEsMio).
@@ -492,15 +577,25 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     return NextResponse.json({
       ok: true,
       isManager,
-      counts: { mine: mine + officialMine, unassigned: 0, all: mine + officialAll, sinResponder, noLeido },
+      counts: {
+        mine: mine + officialMine,
+        unassigned: 0,
+        all: mine + officialAll,
+        sinResponder,
+        noLeido,
+        equipo,
+        proveedores,
+      },
       espera,
     });
   }
 
-  const [mine, unassigned, all] = await Promise.all([
-    prisma.conversation.count({ where: { AND: [baseWhere, whereEsMio(session.user.id)] } }),
-    prisma.conversation.count({ where: { AND: [baseWhere, { assignedToUserId: null }] } }),
-    prisma.conversation.count({ where: baseWhere }),
+  const [mine, unassigned, all, equipo, proveedores] = await Promise.all([
+    prisma.conversation.count({ where: { AND: [baseWhere, whereEsMio(session.user.id), delGrupo("mine")] } }),
+    prisma.conversation.count({ where: { AND: [baseWhere, { assignedToUserId: null }, delGrupo("unassigned")] } }),
+    prisma.conversation.count({ where: { AND: [baseWhere, delGrupo("all")] } }),
+    contarGrupo("equipo", baseWhere, "all"),
+    contarGrupo("proveedores", baseWhere, "all"),
   ]);
 
   const [sinResponder, noLeido] = await Promise.all([
@@ -516,6 +611,8 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
       all: all + officialAll,
       sinResponder,
       noLeido,
+      equipo,
+      proveedores,
     },
     espera,
   });

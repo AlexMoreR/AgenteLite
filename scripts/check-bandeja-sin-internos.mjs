@@ -1,5 +1,6 @@
 // Pruebas del GRUPO de la bandeja (clientes / equipo / proveedores / todos), parte 2 de "sacar los
 // avisos internos de la lista de clientes": la regla en /api/cliente/chats/list y en la linea oficial.
+// Parte 3: la pantalla, los numeros de /counts (Equipo y Proveedores) y las pantallas que piden todo.
 //
 // No necesita base: usa el Prisma REAL con el pool de pg falso de check-velocidad-bandeja.mjs (mismo
 // cargador de src), pero la consulta de los contactos internos y los fragmentos de la linea oficial
@@ -81,7 +82,10 @@ await db.exec(`
   CREATE TABLE "OfficialApiContact" (
     "id" text PRIMARY KEY, "waId" text NOT NULL, "name" text, "phoneNumber" text, "crmContactId" text
   );
-  CREATE TABLE "OfficialApiConversation" ("id" text PRIMARY KEY, "contactId" text NOT NULL, "assignedToUserId" text);
+  CREATE TABLE "OfficialApiConversation" (
+    "id" text PRIMARY KEY, "contactId" text NOT NULL, "assignedToUserId" text,
+    "configId" text NOT NULL DEFAULT 'x1', "status" text NOT NULL DEFAULT 'OPEN'
+  );
 `);
 for (const c of CONTACTOS) {
   await db.query(`INSERT INTO "Contact" VALUES ($1, $2, $3, $4)`, [c.id, WS, c.name, c.phone]);
@@ -165,6 +169,8 @@ function valor(tabla, col, valores) {
 }
 
 const esConsultaDeInternos = (texto) => texto.includes(`'telefono' AS "tipo"`);
+// El conteo por SQL de la linea oficial en /counts (countOfficialConversations): corre en PGlite.
+const esConteoOficial = (texto) => texto.includes('FROM "OfficialApiConversation" c') && texto.includes("COUNT(*)");
 
 class PoolFalso extends pg.Pool {
   async query(q) {
@@ -174,6 +180,18 @@ class PoolFalso extends pg.Pool {
     if (esConsultaDeInternos(text)) {
       const r = await db.query(text, valores, { rowMode: "array" });
       return { fields: r.fields.map((f) => ({ name: f.name, dataTypeID: 25 })), rows: r.rows, rowCount: r.rows.length };
+    }
+    if (esConteoOficial(text) && text.includes('"OfficialApiMessage"')) {
+      // Las pastillas Sin responder / No leido de la linea oficial: aca no hay mensajes, valen 0.
+      return { fields: [{ name: "total", dataTypeID: 20 }], rows: [["0"]], rowCount: 1 };
+    }
+    if (esConteoOficial(text)) {
+      const r = await db.query(text, valores, { rowMode: "array" });
+      return {
+        fields: r.fields.map((f) => ({ name: f.name, dataTypeID: 20 })),
+        rows: r.rows.map((fila) => fila.map(String)),
+        rowCount: r.rows.length,
+      };
     }
     const info = columnas(text);
     if (!info) return { fields: [], rows: [], rowCount: 1 };
@@ -254,6 +272,7 @@ const servicio = cargar("@/features/chats/services/filtros-de-bandeja");
 const internosMod = cargar("@/features/chats/services/contactos-internos");
 const permisos = cargar("@/lib/cache-de-permisos");
 const { GET } = cargar("@/app/api/cliente/chats/list/route");
+const { GET: GET_COUNTS } = cargar("@/app/api/cliente/chats/counts/route");
 const oficial = cargar("@/features/official-api/services/getOfficialApiChatsData");
 const { prisma } = cargar("@/lib/prisma");
 
@@ -261,15 +280,39 @@ const { prisma } = cargar("@/lib/prisma");
    Se anota el WHERE de cada conversation.findMany (y la consulta sigue al pool falso).
 ------------------------------------------------------------------------------------------------ */
 const wheres = [];
+const conteos = [];
 void prisma.conversation; // crea el cliente real
 const real = globalThis.prisma;
+// La linea oficial para el conteo por Prisma de /counts (sin grupo): las mismas filas que PGlite.
+const FILAS_OFICIALES = OFICIALES.map((o) => ({
+  configId: "x1",
+  status: "OPEN",
+  assignedToUserId: ASESORA,
+  contact: { name: null, waId: o.waId },
+}));
 globalThis.prisma = new Proxy(real, {
   get(objetivo, prop) {
     const valorReal = Reflect.get(objetivo, prop, objetivo);
+    if (prop === "officialApiConversation") {
+      return new Proxy(valorReal, {
+        get(delegado, metodo) {
+          const original = Reflect.get(delegado, metodo, delegado);
+          if (metodo === "count") return async (args) => FILAS_OFICIALES.filter((fila) => cumple(fila, args?.where)).length;
+          return typeof original === "function" ? original.bind(delegado) : original;
+        },
+      });
+    }
     if (prop !== "conversation") return typeof valorReal === "function" ? valorReal.bind(objetivo) : valorReal;
     return new Proxy(valorReal, {
       get(delegado, metodo) {
         const original = Reflect.get(delegado, metodo, delegado);
+        if (metodo === "count") {
+          // /counts: el numero sale de evaluar el WHERE sobre los mismos chats de la prueba.
+          return async (args) => {
+            conteos.push(args?.where);
+            return CHATS.filter((chat) => cumple(chat, args?.where)).length;
+          };
+        }
         if (metodo !== "findMany") return typeof original === "function" ? original.bind(delegado) : original;
         return (args) => {
           wheres.push(args?.where);
@@ -549,6 +592,132 @@ await prueba("oficial: con listas vacias no usa Prisma.join (equipo/proveedores 
     asignacion: "mine",
   });
   assert.equal(clientes.etapa.text ?? "", "");
+});
+
+/* ------------------------------------------------------------------------------------------------
+   5. /api/cliente/chats/counts: Equipo y Proveedores, y las pastillas fijas
+------------------------------------------------------------------------------------------------ */
+function comoRol(rol) {
+  if (rol === "asesora") {
+    escenario.userRole = "EMPLEADO";
+    escenario.memberRole = "AGENT";
+    sesion.actual = { user: { id: ASESORA, role: "EMPLEADO" } };
+  } else {
+    escenario.userRole = "CLIENTE";
+    escenario.memberRole = "OWNER";
+    sesion.actual = { user: { id: ASESORA, role: "CLIENTE" } };
+  }
+}
+
+async function contar(query, { rol = "asesora" } = {}) {
+  comoRol(rol);
+  permisos.vaciarCachesDePermisos();
+  internosMod.vaciarCacheDeContactosInternos();
+  sqls.length = 0;
+  conteos.length = 0;
+  const logs = [console.log, console.error, console.warn];
+  console.log = console.error = console.warn = () => {};
+  try {
+    const res = await GET_COUNTS(new Request(`http://x/api/cliente/chats/counts?${query}`));
+    const cuerpo = await res.json();
+    assert.equal(cuerpo.ok, true, JSON.stringify(cuerpo));
+    const delGrupo = conteos.filter((where) => /"contactId":\{"(in|notIn)"/.test(JSON.stringify(where ?? {}))).length;
+    return { ...cuerpo, sqls: [...sqls], leyoInternos: sqls.some(esConsultaDeInternos), conteosDeGrupo: delGrupo };
+  } finally {
+    [console.log, console.error, console.warn] = logs;
+  }
+}
+
+/** Lo que trae la lista con ese grupo: los chats del canal viejo mas las filas de la linea oficial. */
+async function delaLista(grupo, rol) {
+  const lista = await pedir(`grupo=${grupo}&assigned=all`, { rol });
+  const linea = await oficiales(`grupo=${grupo}`, { asignacion: rol === "asesora" ? "mine" : "all" });
+  return lista.contactos.length + linea.ids.length;
+}
+
+await prueba("counts: equipo y proveedores coinciden con la lista del mismo grupo (con la linea oficial)", async () => {
+  for (const rol of ["asesora", "admin"]) {
+    const r = await contar("", { rol });
+    assert.equal(r.leyoInternos, true, rol);
+    assert.equal(r.counts.equipo, await delaLista("equipo", rol), `equipo de ${rol}`);
+    assert.equal(r.counts.proveedores, await delaLista("proveedores", rol), `proveedores de ${rol}`);
+  }
+  // Los numeros a mano: canal viejo + linea oficial.
+  const asesora = await contar("");
+  assert.equal(asesora.counts.equipo, 4 + 2);
+  assert.equal(asesora.counts.proveedores, 1 + 1);
+  const jefe = await contar("", { rol: "admin" });
+  assert.equal(jefe.counts.equipo, INTERNOS.length + 2);
+  assert.equal(jefe.counts.proveedores, PROVEEDORES.length + 1);
+});
+
+await prueba("counts: la asesora solo cuenta lo asignado, aunque pida assigned=all", async () => {
+  const r = await contar("assigned=all&grupo=equipo");
+  assert.equal(r.counts.unassigned, 0);
+  // k_equipo_otra y k_prov_otra son de otra asesora: no entran.
+  assert.equal(r.counts.equipo, ["k_ambos", "k_aviso", "k_equipo", "k_linea"].length + 2);
+  assert.equal(r.counts.proveedores, ["k_prov"].length + 1);
+});
+
+await prueba("counts: el grupo de la direccion no cambia Todas / Mias / Sin asignar", async () => {
+  for (const rol of ["asesora", "admin"]) {
+    const sinGrupo = await contar("assigned=all", { rol });
+    for (const grupo of ["clientes", "equipo", "proveedores", "todos"]) {
+      const conGrupo = await contar(`assigned=all&grupo=${grupo}`, { rol });
+      for (const clave of ["mine", "unassigned", "all", "equipo", "proveedores"]) {
+        assert.equal(conGrupo.counts[clave], sinGrupo.counts[clave], `${rol} ${grupo} ${clave}`);
+      }
+    }
+  }
+});
+
+await prueba("counts: con texto en el buscador equipo y proveedores valen 0 sin consultar", async () => {
+  const r = await contar("q=Jair&grupo=equipo", { rol: "admin" });
+  assert.equal(r.counts.equipo, 0);
+  assert.equal(r.counts.proveedores, 0);
+  assert.equal(r.leyoInternos, false, "con texto no se leen los internos");
+  // Los unicos conteos oficiales por SQL son los de las pastillas Sin responder / No leido (de antes).
+  assert.equal(
+    r.sqls.some((texto) => esConteoOficial(texto) && !texto.includes('"OfficialApiMessage"')),
+    false,
+    "con texto no hay conteo oficial de Equipo ni Proveedores",
+  );
+  // Ningun conteo del canal viejo pregunta por los contactos del equipo o los proveedores.
+  assert.equal(r.conteosDeGrupo, 0);
+});
+
+await prueba("counts: un negocio sin nadie interno no hace conteos de mas", async () => {
+  const vacios = { equipoIds: [], proveedorIds: [], variantesDeTelefono: [], etiquetasEquipoIds: [], etiquetasProveedorIds: [] };
+  assert.equal(servicio.grupoQueAplica({ condiciones: [], grupo: dominio.GRUPO_POR_DEFECTO }, ""), "todos");
+  // Con todo vacio, el grupo por defecto no agrega nada al WHERE de las pastillas.
+  assert.deepEqual(
+    servicio.whereDeGrupo({ grupo: dominio.GRUPO_POR_DEFECTO, internos: vacios, asignacion: "mine", filtros: leer("") }),
+    {},
+  );
+  const fuente = fs.readFileSync(path.join(raiz, "app/api/cliente/chats/counts/route.ts"), "utf8");
+  assert.match(fuente, /if \(!ids\.length && !telefonos\.length\) return 0;/);
+});
+
+/* ------------------------------------------------------------------------------------------------
+   6. La pantalla y las pantallas que deben verlo todo
+------------------------------------------------------------------------------------------------ */
+await prueba("page.tsx aplica whereDeGrupo y lee los internos solo si el grupo no es todos", async () => {
+  const fuente = fs.readFileSync(path.join(raiz, "app/cliente/chats/page.tsx"), "utf8");
+  assert.match(fuente, /whereDeGrupo\(\{ grupo, internos, asignacion: assignedFilter, filtros \}\)/);
+  assert.match(fuente, /const grupo = grupoQueAplica\(filtrosDeLaLista, searchQuery\);/);
+  assert.match(fuente, /grupo === "todos" \? null : contactosInternos\(membership\.workspace\.id\)/);
+  assert.match(fuente, /filtros: filtrosDeLaLista,/, "getOfficialApiChatsData recibe los filtros (con el grupo)");
+});
+
+await prueba("Reenviar, la campanita y Notificaciones piden grupo=todos", async () => {
+  const leerFuente = (archivo) => fs.readFileSync(path.join(raiz, archivo), "utf8");
+  assert.match(
+    leerFuente("components/chats/forward-message-dialog.tsx"),
+    /new URLSearchParams\(\{[^}]*grupo: "todos"[^}]*\}\)/,
+  );
+  for (const archivo of ["components/ui/chat-notification-bell.tsx", "components/notificaciones/notificaciones-workspace.tsx"]) {
+    assert.match(leerFuente(archivo), /\/api\/cliente\/chats\/list\?[^"]*grupo=todos/, archivo);
+  }
 });
 
 console.log(`\n${pruebas} pruebas ok`);
