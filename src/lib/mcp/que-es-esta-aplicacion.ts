@@ -20,6 +20,8 @@ import { estadoDeEtapaPorLectura, type EstadoDeEtapaPorLectura } from "@/feature
 import { claveModoDelRecibo, claveTelefonoDePrueba, modoDelRecibo, prefijoReciboEnviado, resumenDeEnvios, telefonoParaWhatsApp } from "@/lib/recibo-de-caja";
 import { claveDeReglas, leerReglasDeTexto } from "@/lib/reparto-por-anuncio";
 import { PREFIJO_CONFIG_DEMORA, leerConfigDemoraDeTexto } from "@/features/chats/domain/demora-de-asesora";
+import { faltanLlaves, leerModo } from "@/features/pauta/dominio/evento-de-conversion";
+import { claveModoConversiones } from "@/features/pauta/servicios/conversiones-meta";
 
 /**
  * "¿QUE ES ESTA APLICACION?" PARA UN ASESOR DE IA.
@@ -607,6 +609,42 @@ async function estadoDeLaPauta(workspaceId: string) {
   return `activa: una vez al día (4 a. m.) guarda el origen de ${origenes} chat(s) de anuncio y de ${ventas} venta(s); ${meta ? "Meta Ads conectado en solo lectura" : "SIN llave de Meta Ads (META_ADS_ACCESS_TOKEN y META_ADS_ACCOUNT_ID): el gasto sale no disponible y no hay nombre de campaña"}`;
 }
 
+/**
+ * Avisos a Meta por la API de Conversiones (corre en la corrida diaria de pauta): el modo guardado en
+ * `meta-conversiones:modo:<negocio>`, si están las tres llaves (solo los NOMBRES de las que faltan, nunca
+ * sus valores) y cuántos `EventoDeConversion` hay en cada estado.
+ */
+async function estadoDeConversionesMeta(workspaceId: string) {
+  const [modoGuardado, enviados, conError, sinMonto, ultimoEnviado, ultimoError] = await Promise.all([
+    bandera(claveModoConversiones(workspaceId)),
+    prisma.eventoDeConversion.count({ where: { workspaceId, estado: "ENVIADO" } }),
+    prisma.eventoDeConversion.count({ where: { workspaceId, estado: "ERROR" } }),
+    prisma.eventoDeConversion.count({ where: { workspaceId, estado: "SIN_MONTO" } }),
+    prisma.eventoDeConversion.findFirst({
+      where: { workspaceId, enviadoEn: { not: null } },
+      orderBy: { enviadoEn: "desc" },
+      select: { enviadoEn: true },
+    }),
+    prisma.eventoDeConversion.findFirst({
+      where: { workspaceId, estado: "ERROR" },
+      orderBy: { actualizadoEn: "desc" },
+      select: { respuesta: true },
+    }),
+  ]);
+  const faltan = faltanLlaves(process.env);
+  const respuesta = ultimoError?.respuesta?.trim();
+  return {
+    modo: leerModo(modoGuardado),
+    llaves_completas: faltan.length === 0,
+    ...(faltan.length > 0 ? { llaves_que_faltan: faltan } : {}),
+    enviados,
+    con_error: conError,
+    sin_monto: sinMonto,
+    ultimo_envio: ultimoEnviado?.enviadoEn ? ultimoEnviado.enviadoEn.toISOString() : null,
+    ultimo_error: respuesta ? (respuesta.length > 200 ? `${respuesta.slice(0, 200)}…` : respuesta) : null,
+  };
+}
+
 /** El barrido de etapas (cada 10 minutos): prendido o no, el interruptor del Ganado y lo que hizo hoy. */
 function estadoDelBarrido(etapaAuto: string | null, lectura: EstadoDeEtapaPorLectura | null): string {
   if (etapaAuto === "off") return "apagada (crm:etapa-automatica:<negocio> = off)";
@@ -687,7 +725,10 @@ async function automatizaciones(
 
   const lectura = await estadoDeEtapaPorLectura(workspaceId).catch(() => null);
   const sinInterruptor = "activa (no tiene interruptor: corre siempre)";
-  const estados: Record<string, string | EstadoDeEtapaPorLectura> = {
+  const estados: Record<
+    string,
+    string | EstadoDeEtapaPorLectura | Awaited<ReturnType<typeof estadoDeConversionesMeta>> | { no_se_pudo_leer: string }
+  > = {
     seguimientos_programados: reglasProgramadas > 0 ? `activa: ${reglasProgramadas} reglas prendidas` : "sin reglas prendidas",
     seguimientos_v3:
       v3.hayLineasConV3 && v3.reglasSinRespuesta > 0
@@ -760,6 +801,8 @@ async function automatizaciones(
     archivar_terminadas_tablero: await estadoDelArchivado().catch(() => "no se pudo leer"),
     cerebro_sincronizacion: await estadoDelCerebro(workspaceId).catch(() => "no se pudo leer"),
     origen_de_pauta: await estadoDeLaPauta(workspaceId).catch(() => "no se pudo leer"),
+    // Corre en la misma corrida diaria de pauta (4 a. m.): un Purchase a Meta por cada venta de pauta con ctwa_clid y monto.
+    conversiones_meta: await seguro("conversiones_meta", () => estadoDeConversionesMeta(workspaceId)),
     agente_de_ventas: await estadoDelAgenteDeVentas(workspaceId).catch(() => "no se pudo leer"),
     agente_de_marketing: await estadoDelAgenteDeMarketing(workspaceId).catch(() => "no se pudo leer"),
     agente_de_sistemas: await estadoDelAgenteDeSistemas(workspaceId).catch(() => "no se pudo leer"),
