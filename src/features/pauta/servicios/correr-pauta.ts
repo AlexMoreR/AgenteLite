@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 
+import { mandarConversionesDePauta } from "./conversiones-meta";
 import { sincronizarOrigenesDelChat } from "./origen-del-chat";
 import { sincronizarVentasDePauta } from "./ventas-de-gestion";
 
@@ -18,7 +19,16 @@ export async function correrPautaDeTodos(ahora = new Date()) {
     try {
       const origenes = await sincronizarOrigenesDelChat(workspaceId, ahora);
       const ventas = await sincronizarVentasDePauta(workspaceId, desde, hasta);
-      resultados[workspaceId] = { origenes, ventas };
+      // El aviso a Meta tiene su propio try/catch: si falla, la corrida de pauta sigue igual.
+      let conversionesMeta: unknown;
+      try {
+        conversionesMeta = await mandarConversionesDePauta(workspaceId, ahora);
+      } catch (error) {
+        const mensaje = error instanceof Error ? error.message : String(error);
+        console.error("[cron/pauta] conversiones Meta", { workspaceId, error: mensaje });
+        conversionesMeta = { error: mensaje };
+      }
+      resultados[workspaceId] = { origenes, ventas, conversionesMeta };
     } catch (error) {
       console.error("[cron/pauta] error", { workspaceId, error: error instanceof Error ? error.message : String(error) });
       resultados[workspaceId] = { error: error instanceof Error ? error.message : String(error) };
