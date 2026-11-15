@@ -17,9 +17,12 @@ import {
   SIN_ASIGNAR,
   SIN_FILTROS,
   condicionCompleta,
+  grupoQueAplica,
   limitesDeLaFecha,
+  reglaDeGrupo,
   type FiltrosDeBandeja,
 } from "@/features/chats/services/filtros-de-bandeja";
+import { contactosInternos } from "@/features/chats/services/contactos-internos";
 
 function normalizeSearch(value: string | undefined) {
   return typeof value === "string" ? value.trim() : "";
@@ -128,6 +131,11 @@ export async function fragmentosDeFiltrosOficiales(
   filtros: FiltrosDeBandeja,
   workspaceId: string,
   ahora = new Date(),
+  /**
+   * Para aplicar el grupo (clientes / equipo / proveedores) con la misma regla que WhatsApp
+   * (reglaDeGrupo). Sin esto el grupo no se aplica: asi queda el contador por ahora.
+   */
+  grupo?: { asignacion: string; q: string | null | undefined },
 ): Promise<{
   etapa: Prisma.Sql;
   sinResponder: Prisma.Sql;
@@ -215,6 +223,41 @@ export async function fragmentosDeFiltrosOficiales(
         // El globo verde de la fila (incomingCount): entrantes sin abrir despues de la ultima saliente.
         partes.push(Prisma.sql`AND ${sqlOficialNoLeido(DIAS_DE_NO_LEIDO)}`);
         break;
+    }
+  }
+
+  /*
+    El grupo, sobre la ficha del contacto oficial: su ficha del CRM esta entre los internos, o (solo
+    el equipo) su telefono o waId es uno de los numeros del equipo, con o sin el 57. Con "todos" no
+    se lee nada. Con listas vacias no se arma un IN () (Prisma.join falla): "solo" da AND false y
+    "excluir" no agrega nada.
+  */
+  const grupoAplicado = grupo ? grupoQueAplica(filtros, grupo.q) : "todos";
+  if (grupo && grupoAplicado !== "todos") {
+    const internos = await contactosInternos(workspaceId);
+    const regla = reglaDeGrupo({ grupo: grupoAplicado, internos, asignacion: grupo.asignacion, filtros });
+    const deLaFicha = (ids: string[], variantes: string[]): Prisma.Sql | null => {
+      const opciones: Prisma.Sql[] = [];
+      if (ids.length) opciones.push(Prisma.sql`ficha."crmContactId" IN (${Prisma.join(ids)})`);
+      if (variantes.length) {
+        opciones.push(Prisma.sql`ficha."phoneNumber" IN (${Prisma.join(variantes)})`);
+        opciones.push(Prisma.sql`ficha."waId" IN (${Prisma.join(variantes)})`);
+      }
+      if (!opciones.length) return null;
+      return Prisma.sql`EXISTS (
+        SELECT 1
+        FROM "OfficialApiContact" ficha
+        WHERE ficha."id" = c."contactId" AND (${Prisma.join(opciones, " OR ")})
+      )`;
+    };
+    const delEquipo = () => deLaFicha(internos.equipoIds, internos.variantesDeTelefono);
+    const deProveedores = () => deLaFicha(internos.proveedorIds, []);
+    if (regla.modo === "solo") {
+      const dentro = regla.tipo === "equipo" ? delEquipo() : deProveedores();
+      partes.push(dentro ? Prisma.sql`AND ${dentro}` : Prisma.sql`AND false`);
+    } else if (regla.modo === "excluir") {
+      const fuera = [regla.equipo ? delEquipo() : null, regla.proveedor ? deProveedores() : null];
+      for (const sql of fuera) if (sql) partes.push(Prisma.sql`AND NOT ${sql}`);
     }
   }
 
@@ -415,7 +458,10 @@ async function loadOfficialApiChatsData(input: {
 
   const filtros = input.filtros ?? SIN_FILTROS;
   const { etapa: officialStageFilter, sinResponder: officialPendingFilter } =
-    await fragmentosDeFiltrosOficiales(filtros, input.workspaceId);
+    await fragmentosDeFiltrosOficiales(filtros, input.workspaceId, new Date(), {
+      asignacion: input.assignedFilter ?? "all",
+      q: searchQuery,
+    });
 
   type OfficialConversationDetailRow = {
     conversationId: string;

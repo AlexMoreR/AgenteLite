@@ -138,9 +138,39 @@ export function condicionVaciaDeBandeja(campo: CampoDeBandeja): CondicionDeBande
   }
 }
 
+/* ------------------------------------------------------------------------------------------------
+   EL GRUPO: CLIENTES, EQUIPO O PROVEEDORES (15-11-2026)
+
+   La bandeja mezclaba los chats de clientes con los avisos internos (el "Necesita atencion" que el
+   agente le manda al equipo, el Supervisor) y con los proveedores. El grupo los separa:
+
+   - `clientes`: sin los del equipo (etiqueta EQUIPO, numeros de avisos y los de las lineas del
+     negocio) y, en "Mias", tampoco los proveedores.
+   - `equipo` / `proveedores`: solo esos.
+   - `todos`: sin separar, como siempre.
+
+   Viaja aparte de las condiciones (`grupo=`), como `status=`: no es una chapita ni cuenta como
+   "filtro puesto". Con texto en el buscador no filtra (el chat buscado sale siempre). La regla con
+   la base vive en ../services/filtros-de-bandeja (`whereDeGrupo`).
+------------------------------------------------------------------------------------------------ */
+
+export const GRUPOS_DE_BANDEJA = ["clientes", "equipo", "proveedores", "todos"] as const;
+
+export type GrupoDeBandeja = (typeof GRUPOS_DE_BANDEJA)[number];
+
+/** Sin `grupo` en la direccion: por ahora todos, como siempre (cambia en la ultima parte). */
+export const GRUPO_POR_DEFECTO: GrupoDeBandeja = "todos";
+
+export function leerGrupoDeBandeja(crudo: string | null | undefined): GrupoDeBandeja | null {
+  const texto = (crudo ?? "").trim();
+  return (GRUPOS_DE_BANDEJA as readonly string[]).includes(texto) ? (texto as GrupoDeBandeja) : null;
+}
+
 export type FiltrosDeBandeja = {
   /** Se cumplen TODAS. Vacio = sin filtro. Solo las completas (ver `condicionCompleta`). */
   condiciones: CondicionDeBandeja[];
+  /** El grupo pedido en la direccion. Sin el, GRUPO_POR_DEFECTO. No cuenta como filtro puesto. */
+  grupo?: GrupoDeBandeja;
 };
 
 export const SIN_FILTROS: FiltrosDeBandeja = { condiciones: [] };
@@ -492,7 +522,9 @@ export function leerFiltrosDeBandeja(
   for (const texto of (leer("c") ?? "").split(";")) {
     if (texto.trim()) agregar(leerCondicion(texto));
   }
-  return { condiciones };
+  // Un valor desconocido se ignora (queda el de por defecto). Sin `grupo`, el objeto queda igual que antes.
+  const grupo = leerGrupoDeBandeja(leer("grupo"));
+  return grupo ? { condiciones, grupo } : { condiciones };
 }
 
 /**
@@ -507,7 +539,10 @@ export function leerEspera(leer: (clave: string) => string | null | undefined): 
 /** Los filtros como pares para armar una direccion. Lo que esta vacio no viaja. */
 export function paramsDeFiltros(filtros: FiltrosDeBandeja): Array<[string, string]> {
   const textos = filtros.condiciones.filter(condicionCompleta).map(textoDeCondicionEnUrl);
-  return textos.length ? [["c", textos.join(";")]] : [];
+  const pares: Array<[string, string]> = textos.length ? [["c", textos.join(";")]] : [];
+  // El grupo viaja solo si vino puesto: asi pasa a los links de cada chat, al scroll y a la cache.
+  if (filtros.grupo) pares.push(["grupo", filtros.grupo]);
+  return pares;
 }
 
 /* ------------------------------------------------------------------------------------------------

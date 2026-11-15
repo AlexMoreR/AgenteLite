@@ -23,11 +23,14 @@ import {
   type PosicionEnBandeja,
 } from "@/lib/cursor-de-bandeja";
 import {
+  grupoQueAplica,
   idsParaLosFiltros,
   leerFiltrosDeBandeja,
   whereDeFiltros,
+  whereDeGrupo,
   type FiltrosDeBandeja,
 } from "@/features/chats/services/filtros-de-bandeja";
+import { contactosInternos } from "@/features/chats/services/contactos-internos";
 import { DIAS_DE_SIN_RESPONDER, SIN_FILTROS, leerEspera } from "@/features/chats/domain/filtros-de-bandeja";
 import {
   listaDeEsperaDeLaBandeja,
@@ -246,18 +249,28 @@ async function getAgentConversationList(input: {
    * instante y a los segundos volveria a llenarse de todo. Ya paso con el estado: resolver un chat
    * no servia de nada porque esta ruta lo devolvia de nuevo.
    */
-  const idsDeLosFiltros = await idsParaLosFiltros(input.filtros, {
-    workspaceId: input.workspaceId,
-    visibleChannelIds: input.visibleChannelIds,
-    channelId: input.selectedConnectionKey.startsWith("channel:")
-      ? input.selectedConnectionKey.slice("channel:".length)
-      : null,
-  });
+  /*
+    El grupo (clientes / equipo / proveedores). Con "todos" (o texto en el buscador) no se lee nada.
+    `assignedFilter` ya viene forzada a "mine" para las asesoras: una asesora con
+    `grupo=equipo&assigned=all` recibe solo lo suyo.
+  */
+  const grupo = grupoQueAplica(input.filtros, normalizedSearchQuery);
+  const [idsDeLosFiltros, internos] = await Promise.all([
+    idsParaLosFiltros(input.filtros, {
+      workspaceId: input.workspaceId,
+      visibleChannelIds: input.visibleChannelIds,
+      channelId: input.selectedConnectionKey.startsWith("channel:")
+        ? input.selectedConnectionKey.slice("channel:".length)
+        : null,
+    }),
+    grupo === "todos" ? null : contactosInternos(input.workspaceId),
+  ]);
 
   const conversationWhere: Prisma.ConversationWhereInput = {
     workspaceId: input.workspaceId,
     AND: [
       whereDeFiltros(input.filtros, idsDeLosFiltros),
+      whereDeGrupo({ grupo, internos, asignacion: input.assignedFilter, filtros: input.filtros }),
       // Los contactos bloqueados no aparecen en la bandeja (ver lib/bloqueo-de-contactos).
       { contact: { bloqueadoEn: null } },
       // Con los mismos filtros que el resto: un fijado que no cumple el filtro puesto no aparece.

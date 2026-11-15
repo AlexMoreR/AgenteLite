@@ -1,18 +1,22 @@
 import { Prisma } from "@prisma/client";
 
+import { hayBusqueda } from "@/lib/busqueda-de-chats";
 import { prisma } from "@/lib/prisma";
 import { sqlIdsNoLeidos, sqlIdsSinResponder } from "@/lib/ultimo-mensaje-de-chats";
 
 import {
   DIAS_DE_NO_LEIDO,
   DIAS_DE_SIN_RESPONDER,
+  GRUPO_POR_DEFECTO,
   SIN_ASIGNAR,
   condicionCompleta,
   limitesDeLaFecha,
   type CondicionDeBandeja,
   type FiltrosDeBandeja,
+  type GrupoDeBandeja,
 } from "../domain/filtros-de-bandeja";
 import { leerConMemoria, type GuardadoEnMemoria } from "../domain/memoria-corta";
+import type { ContactosInternos } from "./contactos-internos";
 
 /**
  * Las consultas de los filtros de la bandeja.
@@ -123,6 +127,76 @@ export function whereDeFiltros(
   const todos: IdsDeLosFiltros = Array.isArray(ids) || ids === null ? { sinResponder: ids, noLeidos: null } : ids;
   const partes = filtros.condiciones.filter(condicionCompleta).map((c) => unaCondicion(c, todos, ahora));
   return partes.length ? { AND: partes } : {};
+}
+
+/* ------------------------------------------------------------------------------------------------
+   EL GRUPO (clientes / equipo / proveedores / todos). Ver GrupoDeBandeja en ../domain.
+------------------------------------------------------------------------------------------------ */
+
+/** El grupo que de verdad se aplica: con texto en el buscador no filtra (el chat buscado sale). */
+export function grupoQueAplica(filtros: FiltrosDeBandeja, q: string | null | undefined): GrupoDeBandeja {
+  if (hayBusqueda(q)) return "todos";
+  return filtros.grupo ?? GRUPO_POR_DEFECTO;
+}
+
+/**
+ * Lo que hace un grupo, sin la base: la usan la lista de WhatsApp (whereDeGrupo) y la de la API
+ * oficial (fragmentosDeFiltrosOficiales), para que no se separen con el tiempo.
+ *
+ * - `solo`: equipo o proveedores.
+ * - `excluir` (clientes): siempre el equipo; los proveedores solo en "Mias" (`asignacion` ya
+ *   forzada a "mine" para las asesoras). Una condicion "etiquetas tiene EQUIPO" (o PROVEEDOR) apaga
+ *   la exclusion de ese tipo: asi las listas guardadas con esa etiqueta siguen trayendo lo suyo.
+ */
+export type ReglaDeGrupo =
+  | { modo: "ninguna" }
+  | { modo: "solo"; tipo: "equipo" | "proveedor" }
+  | { modo: "excluir"; equipo: boolean; proveedor: boolean };
+
+function pideLaEtiqueta(filtros: FiltrosDeBandeja, etiquetaIds: readonly string[]): boolean {
+  if (!etiquetaIds.length) return false;
+  return filtros.condiciones.some(
+    (c) => c.campo === "etiquetas" && c.operador === "tiene" && c.valores.some((v) => etiquetaIds.includes(v)),
+  );
+}
+
+export function reglaDeGrupo(input: {
+  grupo: GrupoDeBandeja;
+  internos: ContactosInternos | null;
+  asignacion: string;
+  filtros: FiltrosDeBandeja;
+}): ReglaDeGrupo {
+  const { grupo, internos, asignacion, filtros } = input;
+  if (grupo === "todos" || !internos) return { modo: "ninguna" };
+  if (grupo === "equipo") return { modo: "solo", tipo: "equipo" };
+  if (grupo === "proveedores") return { modo: "solo", tipo: "proveedor" };
+  const equipo = !pideLaEtiqueta(filtros, internos.etiquetasEquipoIds);
+  const proveedor = asignacion === "mine" && !pideLaEtiqueta(filtros, internos.etiquetasProveedorIds);
+  return equipo || proveedor ? { modo: "excluir", equipo, proveedor } : { modo: "ninguna" };
+}
+
+/**
+ * El grupo como WHERE de Prisma. `grupo` es el que aplica (grupoQueAplica) e `internos`, lo de
+ * contactosInternos: con "todos" no hace falta leerlo (null) y no se agrega nada.
+ */
+export function whereDeGrupo(input: {
+  grupo: GrupoDeBandeja;
+  internos: ContactosInternos | null;
+  asignacion: string;
+  filtros: FiltrosDeBandeja;
+}): Prisma.ConversationWhereInput {
+  const regla = reglaDeGrupo(input);
+  const internos = input.internos;
+  if (regla.modo === "ninguna" || !internos) return {};
+  if (regla.modo === "solo") {
+    // Una lista vacia no trae ninguno, nunca todos.
+    return { contactId: { in: regla.tipo === "equipo" ? internos.equipoIds : internos.proveedorIds } };
+  }
+  const fuera = [
+    ...(regla.equipo ? internos.equipoIds : []),
+    ...(regla.proveedor ? internos.proveedorIds : []),
+  ];
+  return fuera.length ? { contactId: { notIn: fuera } } : {};
 }
 
 type QuienPideIds = {
