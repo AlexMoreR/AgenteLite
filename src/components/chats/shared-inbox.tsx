@@ -592,6 +592,13 @@ export function SharedInbox({
     () => paramsDeFiltros(leerFiltrosDeBandeja((clave) => parametrosDeLaUrl.get(clave))),
     [parametrosDeLaUrl],
   );
+  /*
+    Los links de las filas que manda el servidor llevan tambien los filtros (con el `grupo`): abrir
+    un chat desde la pastilla Equipo o Proveedores no devuelve a la vista por defecto. Va en un ref
+    para no rearmar la lista del servidor cada vez que cambia un filtro en el navegador.
+  */
+  const paresDeFiltrosRef = useRef(paresDeFiltros);
+  paresDeFiltrosRef.current = paresDeFiltros;
   const vistaKey = claveDeVista(
     searchQuery,
     selectedConnectionKey,
@@ -640,7 +647,7 @@ export function SharedInbox({
     return () => window.clearTimeout(temporizador);
   }, [vistaEnCurso]);
 
-  const [assignedCounts, setAssignedCounts] = useState<{ mine: number; unassigned: number; all: number; sinResponder?: number; noLeido?: number } | null>(null);
+  const [assignedCounts, setAssignedCounts] = useState<{ mine: number; unassigned: number; all: number; sinResponder?: number; noLeido?: number; equipo?: number; proveedores?: number } | null>(null);
   // El `espera` del ultimo /counts: la marca de cada fila, el numero de "Esperando" y su lista.
   const [esperaDelConteo, setEsperaDelConteo] = useState<EsperaDeChats | null>(null);
   /*
@@ -995,7 +1002,7 @@ export function SharedInbox({
         const payload = (await response.json().catch(() => null)) as
           | {
               ok?: boolean;
-              counts?: { mine: number; unassigned: number; all: number; sinResponder?: number; noLeido?: number };
+              counts?: { mine: number; unassigned: number; all: number; sinResponder?: number; noLeido?: number; equipo?: number; proveedores?: number };
               espera?: EsperaDeChats | null;
             }
           | null;
@@ -2130,7 +2137,7 @@ export function SharedInbox({
       setHasMoreConversationItems(initialHasMoreConversations ?? conversations.length >= initialConversationBatchSize);
       setConversationItems(
         normalizeConversationItems(conversations, (item) =>
-          buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item, assignedFilter, statusFilter, [], esperaDelServidor),
+          buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item, assignedFilter, statusFilter, paresDeFiltrosRef.current, esperaDelServidor),
         ),
       );
       return;
@@ -2142,7 +2149,7 @@ export function SharedInbox({
       if (current.length === 0) {
         return sortConversationItems(
           normalizeConversationItems(conversations, (item) =>
-            buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item, assignedFilter, statusFilter, [], esperaDelServidor),
+            buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item, assignedFilter, statusFilter, paresDeFiltrosRef.current, esperaDelServidor),
           ),
           orden,
         );
@@ -2150,7 +2157,7 @@ export function SharedInbox({
 
       const currentById = new Map(current.map((item) => [item.id, item]));
       const frescos = normalizeConversationItems(conversations, (item) =>
-        buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item, assignedFilter, statusFilter, [], esperaDelServidor),
+        buildConversationItemHrefFromParams(searchAction, selectedConnectionKey, searchQuery, item, assignedFilter, statusFilter, paresDeFiltrosRef.current, esperaDelServidor),
       ).map((conversation) =>
         mergeConversationListItem(conversation, currentById.get(conversation.id) ?? null),
       );

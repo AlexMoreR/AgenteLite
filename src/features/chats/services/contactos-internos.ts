@@ -21,8 +21,11 @@ import { prisma } from "@/lib/prisma";
  * Los telefonos se comparan con y sin el 57 (Colombia): un contacto guardado "3001234567" y un
  * aviso a "573001234567" son la misma persona.
  *
- * En frio son DOS consultas (la config de avisos y una sola SQL para etiquetas y telefonos), y por
- * un minuto ninguna: la bandeja pide la lista cada pocos segundos y esto cambia muy de vez en cuando.
+ * En frio es UNA consulta (la config de avisos se lee dentro de la misma SQL que etiquetas y
+ * telefonos), y por un minuto ninguna: la bandeja pide la lista cada pocos segundos y esto cambia
+ * muy de vez en cuando. Desde la parte 4 la vista por defecto (clientes) la usa en cada pedido, y el
+ * tope de consultas de /list no se sube. Si esa SQL falla (una base sin pg_input_is_valid, por
+ * ejemplo), se cae al camino de antes: la config por Prisma y la SQL con los numeros ya leidos.
  */
 
 export type ContactosInternos = {
@@ -36,6 +39,9 @@ export type ContactosInternos = {
   etiquetasEquipoIds: string[];
   etiquetasProveedorIds: string[];
 };
+
+/** La clave de la config de avisos (la misma de agente-v3/servicios/avisos). */
+const CLAVE_DE_AVISOS = "agente-v3:avisos:";
 
 const NOMBRES_EQUIPO = ["equipo"];
 const NOMBRES_PROVEEDOR = ["proveedor", "proveedores"];
@@ -61,18 +67,37 @@ export function tipoDeEtiquetaInterna(etiqueta: { name?: string | null; slug?: s
  * - "telefono": cada variante de un numero interno y, si hay, el contacto que tiene ese numero.
  * - "etiqueta": cada etiqueta candidata (el nombre o el slug contienen equipo/proveedor) y cada
  *   contacto que la tiene. La decision final (nombre exacto) la toma `tipoDeEtiquetaInterna`.
+ *
+ * `numerosDeAvisos` null: los numeros de avisos se leen de la config guardada (`AppSetting`) en la
+ * misma consulta, con las reglas de `leerConfigDeAvisos`: JSON valido, con `canalId` y `destinos`.
+ * Con una lista, se usa esa (el camino de respaldo).
  */
-export function sqlContactosInternos(workspaceId: string, numerosDeAvisos: string[]): Prisma.Sql {
+export function sqlContactosInternos(workspaceId: string, numerosDeAvisos: string[] | null): Prisma.Sql {
   const sinTildes = (columna: Prisma.Sql) => Prisma.sql`translate(lower(${columna}), 'áéíóúü', 'aeiouu')`;
   const nombre = sinTildes(Prisma.sql`t."name"`);
   const slug = sinTildes(Prisma.sql`t."slug"`);
+  const deLosAvisos =
+    numerosDeAvisos === null
+      ? Prisma.sql`
+      SELECT regexp_replace(d->>'numero', '[^0-9]', '', 'g')
+      FROM (
+        SELECT s."value"::jsonb AS v
+        FROM "AppSetting" s
+        WHERE s."key" = ${`${CLAVE_DE_AVISOS}${workspaceId}`} AND pg_input_is_valid(s."value", 'jsonb')
+      ) cfg
+      CROSS JOIN LATERAL jsonb_array_elements(
+        CASE WHEN jsonb_typeof(cfg.v -> 'destinos') = 'array' THEN cfg.v -> 'destinos' ELSE '[]'::jsonb END
+      ) AS d
+      WHERE coalesce(cfg.v ->> 'canalId', '') <> '' AND jsonb_typeof(d -> 'numero') = 'string'`
+      : Prisma.sql`
+      SELECT regexp_replace(a.n, '[^0-9]', '', 'g') FROM unnest(${numerosDeAvisos}::text[]) AS a(n)`;
   return Prisma.sql`
     WITH numeros AS (
       SELECT regexp_replace(ch."phoneNumber", '[^0-9]', '', 'g') AS n
       FROM "WhatsAppChannel" ch
       WHERE ch."workspaceId" = ${workspaceId} AND ch."phoneNumber" IS NOT NULL
       UNION
-      SELECT regexp_replace(a.n, '[^0-9]', '', 'g') FROM unnest(${numerosDeAvisos}::text[]) AS a(n)
+      ${deLosAvisos}
     ),
     variantes AS (
       SELECT n FROM numeros WHERE length(n) >= 10
@@ -140,9 +165,15 @@ export function armarContactosInternos(filas: readonly FilaDeInternos[]): Contac
 
 export async function contactosInternos(workspaceId: string): Promise<ContactosInternos> {
   return cacheDeInternos.obtener(workspaceId, async () => {
-    const config = await leerConfigDeAvisos(workspaceId);
-    const numeros = Array.from(new Set((config?.destinos ?? []).map((destino) => destino.numero).filter(Boolean)));
-    const filas = await prisma.$queryRaw<FilaDeInternos[]>(sqlContactosInternos(workspaceId, numeros));
-    return armarContactosInternos(filas);
+    try {
+      const filas = await prisma.$queryRaw<FilaDeInternos[]>(sqlContactosInternos(workspaceId, null));
+      return armarContactosInternos(filas);
+    } catch (error) {
+      console.warn("[contactos-internos] la consulta unica fallo; se leen los avisos aparte", error);
+      const config = await leerConfigDeAvisos(workspaceId);
+      const numeros = Array.from(new Set((config?.destinos ?? []).map((destino) => destino.numero).filter(Boolean)));
+      const filas = await prisma.$queryRaw<FilaDeInternos[]>(sqlContactosInternos(workspaceId, numeros));
+      return armarContactosInternos(filas);
+    }
   });
 }

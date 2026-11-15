@@ -1,6 +1,7 @@
 // Pruebas del GRUPO de la bandeja (clientes / equipo / proveedores / todos), parte 2 de "sacar los
 // avisos internos de la lista de clientes": la regla en /api/cliente/chats/list y en la linea oficial.
 // Parte 3: la pantalla, los numeros de /counts (Equipo y Proveedores) y las pantallas que piden todo.
+// Parte 4: sin `grupo` la bandeja es la de los clientes (GRUPO_POR_DEFECTO = "clientes").
 //
 // No necesita base: usa el Prisma REAL con el pool de pg falso de check-velocidad-bandeja.mjs (mismo
 // cargador de src), pero la consulta de los contactos internos y los fragmentos de la linea oficial
@@ -79,6 +80,7 @@ await db.exec(`
   CREATE TABLE "Tag" ("id" text PRIMARY KEY, "workspaceId" text NOT NULL, "name" text NOT NULL, "slug" text NOT NULL);
   CREATE TABLE "ContactTag" ("contactId" text NOT NULL, "tagId" text NOT NULL, "workspaceId" text NOT NULL);
   CREATE TABLE "WhatsAppChannel" ("id" text PRIMARY KEY, "workspaceId" text NOT NULL, "phoneNumber" text);
+  CREATE TABLE "AppSetting" ("key" text PRIMARY KEY, "value" text NOT NULL);
   CREATE TABLE "OfficialApiContact" (
     "id" text PRIMARY KEY, "waId" text NOT NULL, "name" text, "phoneNumber" text, "crmContactId" text
   );
@@ -125,6 +127,8 @@ const CONFIG_DE_AVISOS = JSON.stringify({
   activo: true,
   destinos: [{ numero: NUMERO_DE_AVISOS, soloDe: null, nombre: "Alex" }],
 });
+// La misma config en PGlite: la consulta unica de los internos la lee de ahi.
+await db.query(`INSERT INTO "AppSetting" VALUES ($1, $2)`, [`agente-v3:avisos:${WS}`, CONFIG_DE_AVISOS]);
 
 function columnas(sql) {
   const m = /^SELECT (.*?) FROM "public"\."(\w+)"/s.exec(sql);
@@ -430,7 +434,7 @@ const menos = (lista, fuera) => ordenar(lista.filter((id) => !fuera.includes(id)
 const leer = (query) => dominio.leerFiltrosDeBandeja((clave) => new URLSearchParams(query).get(clave));
 
 await prueba("direccion: grupo se lee, lo desconocido se ignora y viaja solo si vino", async () => {
-  assert.equal(dominio.GRUPO_POR_DEFECTO, "todos");
+  assert.equal(dominio.GRUPO_POR_DEFECTO, "clientes");
   assert.equal(leer("grupo=equipo").grupo, "equipo");
   assert.equal(leer("grupo=CLIENTES").grupo, "clientes");
   assert.equal("grupo" in leer("grupo=jefes"), false);
@@ -449,7 +453,10 @@ await prueba("direccion: grupo se lee, lo desconocido se ignora y viaja solo si 
 await prueba("regla: con texto en el buscador el grupo no filtra", async () => {
   assert.equal(servicio.grupoQueAplica(leer("grupo=equipo"), "Jair"), "todos");
   assert.equal(servicio.grupoQueAplica(leer("grupo=equipo"), "  "), "equipo");
-  assert.equal(servicio.grupoQueAplica(leer(""), ""), "todos");
+  // Sin grupo, la vista por defecto: los clientes.
+  assert.equal(servicio.grupoQueAplica(leer(""), ""), "clientes");
+  assert.equal(servicio.grupoQueAplica(leer("grupo=todos"), ""), "todos");
+  assert.equal(servicio.grupoQueAplica(leer(""), "Jair"), "todos");
 });
 
 /* ------------------------------------------------------------------------------------------------
@@ -467,8 +474,8 @@ await prueba("internos: etiquetas, numeros de avisos y lineas, con y sin 57; EQU
     assert.ok(internos.variantesDeTelefono.includes(n), `falta la variante ${n}`);
   }
   assert.ok(!internos.variantesDeTelefono.includes("573199999999"), "una linea de otro negocio no cuenta");
-  // En frio: la config de avisos y UNA consulta para etiquetas y telefonos. En caliente, ninguna.
-  assert.equal(sqls.length, 2, sqls.join("\n---\n"));
+  // En frio: UNA consulta (la config de avisos va dentro). En caliente, ninguna.
+  assert.equal(sqls.length, 1, sqls.join("\n---\n"));
   sqls.length = 0;
   await internosMod.contactosInternos(WS);
   assert.equal(sqls.length, 0);
@@ -477,17 +484,36 @@ await prueba("internos: etiquetas, numeros de avisos y lineas, con y sin 57; EQU
 /* ------------------------------------------------------------------------------------------------
    3. /api/cliente/chats/list con grupo explicito
 ------------------------------------------------------------------------------------------------ */
-await prueba("sin grupo: lo de hoy (mismo WHERE que grupo=todos y no se leen los internos)", async () => {
-  const sinGrupo = await pedir("assigned=mine");
-  const todos = await pedir("assigned=mine&grupo=todos");
-  assert.equal(sinGrupo.leyoInternos, false);
-  assert.equal(todos.leyoInternos, false);
-  assert.deepEqual(JSON.stringify(sinGrupo.where), JSON.stringify(todos.where));
-  assert.deepEqual(sinGrupo.sqls, todos.sqls);
-  assert.deepEqual(sinGrupo.contactos, ordenar(DE_LA_ASESORA));
+await prueba("sin grupo (parte 4): la asesora no recibe EQUIPO, numeros internos ni PROVEEDOR", async () => {
+  for (const query of ["", "assigned=mine", "assigned=all"]) {
+    const r = await pedir(query);
+    assert.equal(r.leyoInternos, true, query);
+    assert.deepEqual(r.contactos, ["k_cliente", "k_vip"], query);
+    for (const fuera of [...INTERNOS, ...PROVEEDORES]) assert.ok(!r.contactos.includes(fuera), `${query}: ${fuera}`);
+    // Lo mismo que pedir grupo=clientes.
+    const clientes = await pedir(`${query}&grupo=clientes`);
+    assert.deepEqual(JSON.stringify(r.where), JSON.stringify(clientes.where), query);
+  }
+});
+
+await prueba("sin grupo (parte 4): assigned=all de admin no trae EQUIPO y si PROVEEDOR", async () => {
   const jefe = await pedir("assigned=all", { rol: "admin" });
-  assert.equal(jefe.leyoInternos, false);
-  assert.deepEqual(jefe.contactos, ordenar(CONTACTOS.map((c) => c.id)));
+  assert.deepEqual(jefe.contactos, menos(CONTACTOS.map((c) => c.id), INTERNOS));
+  assert.ok(jefe.contactos.includes("k_prov") && jefe.contactos.includes("k_prov_otra"));
+  // grupo=todos (Reenviar, la campanita, Notificaciones) sigue trayendo todo, sin leer los internos.
+  const todos = await pedir("assigned=all&grupo=todos", { rol: "admin" });
+  assert.equal(todos.leyoInternos, false);
+  assert.deepEqual(todos.contactos, ordenar(CONTACTOS.map((c) => c.id)));
+});
+
+await prueba("sin grupo (parte 4): siguen las excepciones de q y de la lista con esa etiqueta", async () => {
+  const buscado = await pedir("q=Jair");
+  assert.equal(buscado.leyoInternos, false, "con texto no se leen los internos");
+  assert.deepEqual(buscado.contactos, ["k_equipo"]);
+  const lista = await pedir("c=etiquetas:tiene:t_equipo");
+  assert.deepEqual(lista.contactos, ["k_ambos", "k_equipo"]);
+  const proveedor = await pedir("c=etiquetas:tiene:t_prov");
+  assert.deepEqual(proveedor.contactos, ["k_prov"]);
 });
 
 await prueba("clientes de asesora: sin EQUIPO, sin numeros internos y sin PROVEEDOR", async () => {
@@ -539,10 +565,14 @@ async function oficiales(query, contexto) {
   return { ids: r.rows.map((fila) => fila.id), texto: etapa.text ?? "" };
 }
 
-await prueba("oficial: sin grupo o sin el argumento nuevo, el fragmento es el de hoy", async () => {
+await prueba("oficial: con grupo=todos o sin el argumento nuevo, el fragmento es el de antes", async () => {
   const hoy = await oficiales("c=etiquetas:tiene:t_vip");
-  const conContexto = await oficiales("c=etiquetas:tiene:t_vip", { asignacion: "mine" });
+  const conContexto = await oficiales("c=etiquetas:tiene:t_vip&grupo=todos", { asignacion: "mine" });
   assert.equal(conContexto.texto, hoy.texto);
+  // Sin grupo (parte 4) es la vista de los clientes: lo mismo que grupo=clientes.
+  const sinGrupo = await oficiales("", { asignacion: "mine" });
+  assert.deepEqual(sinGrupo.ids, (await oficiales("grupo=clientes", { asignacion: "mine" })).ids);
+  assert.deepEqual(sinGrupo.ids, ["o_cliente", "o_suelto"]);
   const vacio = await oficiales("grupo=todos", { asignacion: "mine" });
   assert.equal(vacio.texto, "");
   // Sin el argumento nuevo el grupo no se aplica (las llamadas de antes no cambian).
@@ -686,9 +716,23 @@ await prueba("counts: con texto en el buscador equipo y proveedores valen 0 sin 
   assert.equal(r.conteosDeGrupo, 0);
 });
 
+await prueba("counts (parte 4): Mias, Sin asignar y Todas ya no cuentan internos", async () => {
+  // Admin: canal viejo (sin EQUIPO, con PROVEEDOR) + linea oficial (o_cliente, o_prov, o_suelto).
+  const jefe = await contar("", { rol: "admin" });
+  const delAdmin = menos(CONTACTOS.map((c) => c.id), INTERNOS);
+  assert.equal(jefe.counts.all, delAdmin.length + 3);
+  assert.equal(jefe.counts.unassigned, delAdmin.filter((id) => !CONTACTOS.find((c) => c.id === id).asesora).length);
+  // Mias saca tambien a los proveedores (canal viejo: k_cliente y k_vip; oficial: o_cliente y o_suelto).
+  assert.equal(jefe.counts.mine, 2 + 2);
+  // La asesora: lo suyo, sin internos ni proveedores.
+  const asesora = await contar("");
+  assert.equal(asesora.counts.mine, 2 + 2);
+  assert.equal(asesora.counts.unassigned, 0);
+});
+
 await prueba("counts: un negocio sin nadie interno no hace conteos de mas", async () => {
   const vacios = { equipoIds: [], proveedorIds: [], variantesDeTelefono: [], etiquetasEquipoIds: [], etiquetasProveedorIds: [] };
-  assert.equal(servicio.grupoQueAplica({ condiciones: [], grupo: dominio.GRUPO_POR_DEFECTO }, ""), "todos");
+  assert.equal(servicio.grupoQueAplica({ condiciones: [], grupo: dominio.GRUPO_POR_DEFECTO }, ""), "clientes");
   // Con todo vacio, el grupo por defecto no agrega nada al WHERE de las pastillas.
   assert.deepEqual(
     servicio.whereDeGrupo({ grupo: dominio.GRUPO_POR_DEFECTO, internos: vacios, asignacion: "mine", filtros: leer("") }),
@@ -718,6 +762,48 @@ await prueba("Reenviar, la campanita y Notificaciones piden grupo=todos", async 
   for (const archivo of ["components/ui/chat-notification-bell.tsx", "components/notificaciones/notificaciones-workspace.tsx"]) {
     assert.match(leerFuente(archivo), /\/api\/cliente\/chats\/list\?[^"]*grupo=todos/, archivo);
   }
+});
+
+await prueba("internos: si la consulta unica falla, se cae al camino de antes (config aparte)", async () => {
+  await db.exec(`ALTER TABLE "AppSetting" RENAME TO "AppSettingGuardado"`);
+  const avisos = console.warn;
+  console.warn = () => {};
+  try {
+    internosMod.vaciarCacheDeContactosInternos();
+    sqls.length = 0;
+    const internos = await internosMod.contactosInternos(WS);
+    assert.deepEqual(internos.equipoIds, ordenar(INTERNOS));
+    assert.ok(internos.variantesDeTelefono.includes(NUMERO_DE_AVISOS));
+    // La que fallo, la config por Prisma y la SQL con los numeros ya leidos.
+    assert.equal(sqls.length, 3, sqls.join("\n---\n"));
+  } finally {
+    console.warn = avisos;
+    await db.exec(`ALTER TABLE "AppSettingGuardado" RENAME TO "AppSetting"`);
+    internosMod.vaciarCacheDeContactosInternos();
+  }
+});
+
+await prueba("un link /c/<n> abre el chat sin pasar por el grupo de la bandeja", async () => {
+  const leerFuente = (archivo) => fs.readFileSync(path.join(raiz, archivo), "utf8");
+  const linkCorto = leerFuente("app/c/[numero]/page.tsx");
+  assert.match(linkCorto, /redirect\(`\/cliente\/chats\?chatKey=/);
+  assert.doesNotMatch(linkCorto, /grupo|whereDeGrupo|contactosInternos/);
+  // El chat pedido se valida por su clave (puedeAbrirChatPorClave), que no mira el grupo.
+  assert.doesNotMatch(leerFuente("lib/chats-acceso-por-enlace.ts"), /grupo|whereDeGrupo|contactosInternos/);
+  assert.match(leerFuente("app/cliente/chats/page.tsx"), /puedeAbrirChatPorClave\(\{/);
+});
+
+await prueba("la bandeja: pastillas Equipo y Proveedores, y los links de las filas con el grupo", async () => {
+  const leerFuente = (archivo) => fs.readFileSync(path.join(raiz, archivo), "utf8");
+  const barra = leerFuente("components/chats/appsidebar.tsx");
+  assert.match(barra, /\{pastillaDeGrupo\("equipo"\)\}/);
+  assert.match(barra, /\{pastillaDeGrupo\("proveedores"\)\}/);
+  assert.match(barra, /aplicarFiltros\("all", statusFilter, \{ \.\.\.filtros, grupo: activa \? undefined : grupo \}\)/);
+  assert.match(barra, /const activa = !listaActiva && !grupoPuesto && filtroMostrado === valor;/);
+  assert.match(barra, /alAplicar=\{aplicarDesdeElModal\}/);
+  const bandeja = leerFuente("components/chats/shared-inbox.tsx");
+  assert.doesNotMatch(bandeja, /statusFilter, \[\], esperaDelServidor\)/, "las filas del servidor llevan los filtros");
+  assert.match(bandeja, /equipo\?: number; proveedores\?: number/);
 });
 
 console.log(`\n${pruebas} pruebas ok`);
