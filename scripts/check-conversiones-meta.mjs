@@ -313,4 +313,36 @@ prueba("(e) el código solo hace un POST a .../events: nada de campañas, conjun
   assert.ok(!/console\.[a-z]+\([^)]*llave/.test(texto), "la llave no va al log");
 });
 
+prueba("el MCP (que_es_esta_aplicacion) muestra la automatización conversiones_meta", () => {
+  const texto = fs.readFileSync(`${RAIZ}/src/lib/mcp/que-es-esta-aplicacion.ts`, "utf8");
+  assert.ok(/\bconversiones_meta:/.test(texto), "aparece la clave conversiones_meta en automatizaciones()");
+  for (const campo of ["modo:", "llaves_completas:", "enviados", "con_error:", "sin_monto:", "ultimo_envio:", "ultimo_error:"]) {
+    assert.ok(texto.includes(campo), `muestra ${campo}`);
+  }
+  assert.ok(texto.includes("faltanLlaves(process.env)"), "las llaves se miran con faltanLlaves, sin sus valores");
+  assert.ok(texto.includes('seguro("conversiones_meta"'), "si la base no responde sale no_se_pudo_leer");
+});
+
+prueba("la nota del manual tiene conversiones_meta y EventoDeConversion bajo títulos que existen", () => {
+  const manual = fs.readFileSync(`${RAIZ}/docs/que-es-esta-aplicacion.md`, "utf8");
+  const nota = fs.readFileSync(`${RAIZ}/docs/cambios-pendientes/26bf4l8g.md`, "utf8");
+  const titulosDelManual = new Set(manual.split(/\r?\n/).filter((l) => l.startsWith("## ")).map((l) => l.trim()));
+  let titulo = null;
+  const claves = new Map();
+  for (const linea of nota.split(/\r?\n/)) {
+    if (linea.startsWith("## ")) {
+      titulo = linea.trim();
+      assert.ok(titulosDelManual.has(titulo), `el título "${titulo}" existe en el manual`);
+      continue;
+    }
+    const m = linea.match(/^- `([^`]+)`: \S/);
+    if (m) {
+      assert.ok(titulo, `la línea ${m[1]} va bajo un título`);
+      claves.set(m[1], titulo);
+    }
+  }
+  assert.equal(claves.get("conversiones_meta"), "## Automatizaciones");
+  assert.equal(claves.get("EventoDeConversion"), "## Entidades");
+});
+
 console.log(`\n${pruebas} pruebas pasaron`);

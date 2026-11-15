@@ -119,6 +119,16 @@ export const COLUMNAS = [
 export type ClaveDeColumna = (typeof COLUMNAS)[number]["clave"];
 export const NOMBRE_DE_LA_COLUMNA = Object.fromEntries(COLUMNAS.map((c) => [c.clave, c.nombre])) as Record<ClaveDeColumna, string>;
 
+/**
+ * Las columnas que se DIBUJAN en la vista Tabla (15-nov-2026, pedido de Alexander): todas menos Tipo.
+ * La lista completa `COLUMNAS` sigue igual porque los filtros, el orden, el agrupado y las vistas
+ * guardadas la usan (y con ella el nombre "Tipo"); solo la tabla deja de mostrar la columna.
+ */
+export const COLUMNAS_DE_LA_TABLA = COLUMNAS.filter(
+  (columna): columna is Exclude<(typeof COLUMNAS)[number], { clave: "tipo" }> => columna.clave !== "tipo",
+);
+export type ClaveDeColumnaDeLaTabla = (typeof COLUMNAS_DE_LA_TABLA)[number]["clave"];
+
 /** Por las que se filtra con opciones y se agrupa (Código y Título se buscan con el buscador). */
 export const COLUMNAS_CON_OPCIONES = ["tipo", "area", "estado", "prioridad", "responsable", "fecha"] as const satisfies readonly ClaveDeColumna[];
 export type ColumnaConOpciones = (typeof COLUMNAS_CON_OPCIONES)[number];
