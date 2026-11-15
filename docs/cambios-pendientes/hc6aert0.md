@@ -1,0 +1,2 @@
+## Advertencias de operación
+- `demora_de_asesora_con_mensaje_de_la_anterior`: `numeros_de_ventas` trae en `demora_de_asesoras.reasignaciones_7_dias` el campo `con_mensaje_de_la_anterior`: de las reasignaciones por demora de los últimos 7 días, cuántas fueron a un chat donde la asesora anterior (`reasignadoDeUserId`) ya le había escrito a la clienta desde el CRM (saliente, `source` manual, no fallido) antes de la nota. Solo mide: la regla sigue reasignando igual. Los mensajes mandados desde el celular no guardan autor y no cuentan.

@@ -51,6 +51,8 @@ export * from "../domain/demora-de-asesora";
  *   reasigna; el aviso de los 5 min y el aviso a dueños y administradores siguen igual.
  * - Parte 3 (medición): desde las 23:00 guarda la foto del cierre (guardarFotoDeCierre), aunque la
  *   regla esté apagada. reasignacionesDeLaSemana y leerFotoDeCierre las lee numeros_de_ventas (MCP).
+ *   reasignacionesDeLaSemana también cuenta (conMensajeDeLaAnterior) las que fueron a un chat donde
+ *   la asesora anterior ya le había escrito a la clienta desde el CRM antes de la nota.
  * - Nunca le escribe nada al cliente.
  */
 
@@ -655,7 +657,42 @@ export type ReasignacionesDeLaSemana = {
   total: number;
   porQuienSeDemoro: CuentaPorAsesora[];
   porQuienRecibio: CuentaPorAsesora[];
+  /** De `total`, cuántas fueron a un chat donde la asesora anterior ya le había escrito a la clienta. */
+  conMensajeDeLaAnterior: number;
 };
+
+/**
+ * Cuántas reasignaciones de la regla (notas SYSTEM con origen ORIGEN_REASIGNACION_POR_DEMORA entre
+ * `desde` y `hasta`) fueron a un chat donde la asesora anterior (`reasignadoDeUserId`) ya le había
+ * mandado a la clienta, antes de la nota, al menos un mensaje desde el CRM. El mensaje se reconoce
+ * igual que en sqlActivasDelNegocio (saliente, no fallido, source = manual) y el EXISTS usa el índice
+ * de Message (workspaceId, conversationId, direction, createdAt).
+ */
+export function sqlReasignacionesConMensajeDeLaAnterior(input: { workspaceId: string; desde: Date; hasta: Date }): Prisma.Sql {
+  return Prisma.sql`
+    SELECT count(*)::int AS "cuenta"
+      FROM "Message" n
+     WHERE n."workspaceId" = ${input.workspaceId}
+       AND n."type"::text = 'SYSTEM'
+       AND n."createdAt" >= ${input.desde}
+       AND n."createdAt" <= ${input.hasta}
+       AND n."rawPayload"->>'origen' = ${ORIGEN_REASIGNACION_POR_DEMORA}
+       AND EXISTS (
+         SELECT 1
+           FROM "Message" m
+          WHERE m."workspaceId" = n."workspaceId"
+            AND m."conversationId" = n."conversationId"
+            AND m."direction"::text = 'OUTBOUND'
+            AND m."createdAt" < n."createdAt"
+            AND m."type"::text <> 'SYSTEM'
+            AND m."status"::text <> 'FAILED'
+            AND m."failedAt" IS NULL
+            AND m."isStatusBroadcast" = false
+            AND m."rawPayload"->>'source' = 'manual'
+            AND m."rawPayload"->>'enviadoPorUserId' = n."rawPayload"->>'reasignadoDeUserId'
+       )
+  `;
+}
 
 /**
  * MEDIDA 2: las reasignaciones de esta regla en los últimos 7 días (hasta `ahora`). Las notas SYSTEM
@@ -672,6 +709,9 @@ export async function reasignacionesDeLaSemana(workspaceId: string, ahora = new 
     },
     select: { rawPayload: true },
   });
+  const [conMensaje] = await prisma.$queryRaw<Array<{ cuenta: number | bigint }>>(
+    sqlReasignacionesConMensajeDeLaAnterior({ workspaceId, desde, hasta: ahora }),
+  );
   const grupos = agruparReasignaciones(
     notas.map((nota) => nota.rawPayload as { reasignadoDeUserId?: unknown; assigneeUserId?: unknown } | null),
   );
@@ -684,5 +724,6 @@ export async function reasignacionesDeLaSemana(workspaceId: string, ahora = new 
     total: grupos.total,
     porQuienSeDemoro: listaPorAsesora(grupos.porQuienSeDemoro, nombre),
     porQuienRecibio: listaPorAsesora(grupos.porQuienRecibio, nombre),
+    conMensajeDeLaAnterior: Number(conMensaje?.cuenta ?? 0),
   };
 }

@@ -10,7 +10,7 @@ const ALEX = "573001112233";
 const MARIA = "573104445566";
 const CLIENTE = "573205557788";
 
-const SEMANA_VACIA = { desde: "2026-11-03T12:00:00.000Z", hasta: "2026-11-10T12:00:00.000Z", total: 0, porQuienSeDemoro: [], porQuienRecibio: [] };
+const SEMANA_VACIA = { desde: "2026-11-03T12:00:00.000Z", hasta: "2026-11-10T12:00:00.000Z", total: 0, porQuienSeDemoro: [], porQuienRecibio: [], conMensajeDeLaAnterior: 0 };
 const demora = { falla: false, fotos: new Map(), pedidas: [], semana: SEMANA_VACIA };
 
 const db = {
@@ -538,6 +538,7 @@ const semanaDeEjemplo = {
   total: 3,
   porQuienSeDemoro: [{ asesora: "María Bautista", cuenta: 2 }, { asesora: "Yair Silvera", cuenta: 1 }],
   porQuienRecibio: [{ asesora: "Ingrid Sánchez", cuenta: 3 }],
+  conMensajeDeLaAnterior: 1,
 };
 function reiniciarDemora() {
   demora.falla = false;
@@ -564,6 +565,7 @@ await prueba("demora: numeros_de_ventas trae cierre_del_dia de la fecha pedida y
     total: 3,
     por_quien_se_demoro: [{ asesora: "María Bautista", veces: 2 }, { asesora: "Yair Silvera", veces: 1 }],
     por_quien_recibio: [{ asesora: "Ingrid Sánchez", veces: 3 }],
+    con_mensaje_de_la_anterior: 1,
   });
   assert.equal(db.enviados.length, 0);
 });
@@ -597,7 +599,7 @@ await prueba("demora: la descripción de numeros_de_ventas explica demora_de_ase
 });
 
 // ---- Demora de las asesoras (parte 3): el servicio real, con una base de mentira propia ----
-const baseDemora = { settings: new Map(), lineas: [], espera: new Map(), esperaFalla: new Set(), notas: [], consultasDeNotas: [] };
+const baseDemora = { settings: new Map(), lineas: [], espera: new Map(), esperaFalla: new Set(), notas: [], consultasDeNotas: [], mensajes: [], consultasCrudas: [] };
 const USUARIOS_DEMORA = [
   { id: "maria", name: "María Bautista", email: null },
   { id: "yair", name: "  ", email: "yair@x.test" },
@@ -633,6 +635,30 @@ const prismaDemora = {
     },
   },
   user: { findMany: async ({ where }) => USUARIOS_DEMORA.filter((u) => where.id.in.includes(u.id)) },
+  // La consulta de conMensajeDeLaAnterior: Prisma.sql de mentira da [textos, workspaceId, desde, hasta, origen];
+  // se responde aplicando a mano la misma regla sobre baseDemora.notas y baseDemora.mensajes.
+  $queryRaw: async (consulta) => {
+    baseDemora.consultasCrudas.push(consulta);
+    const [, workspaceId, desde, hasta, origen] = consulta;
+    const escribioAntes = (n) =>
+      baseDemora.mensajes.some(
+        (m) =>
+          m.workspaceId === n.workspaceId &&
+          m.conversationId === n.conversationId &&
+          m.direction === "OUTBOUND" &&
+          m.createdAt < n.createdAt &&
+          m.type !== "SYSTEM" &&
+          m.status !== "FAILED" &&
+          m.failedAt == null &&
+          m.isStatusBroadcast === false &&
+          m.rawPayload?.source === "manual" &&
+          m.rawPayload?.enviadoPorUserId === n.rawPayload?.reasignadoDeUserId,
+      );
+    const cuenta = baseDemora.notas.filter(
+      (n) => n.workspaceId === workspaceId && n.type === "SYSTEM" && n.createdAt >= desde && n.createdAt <= hasta && n.rawPayload?.origen === origen && escribioAntes(n),
+    ).length;
+    return [{ cuenta }];
+  },
 };
 const servicioDemora = cargar("src/features/chats/services/demora-de-asesora.ts", {
   ...mocks,
@@ -658,6 +684,8 @@ function reiniciarBaseDemora() {
   baseDemora.esperaFalla.clear();
   baseDemora.notas = [];
   baseDemora.consultasDeNotas.length = 0;
+  baseDemora.mensajes = [];
+  baseDemora.consultasCrudas.length = 0;
   baseDemora.espera.set("ws1", [
     { key: "agent:c1", desde: enBogota("2026-11-08T22:00:00").getTime(), assignedToUserId: "maria", segundoAsesorId: null, channelId: "v1", oficial: false },
     { key: "agent:c2", desde: enBogota("2026-11-08T22:50:00").getTime(), assignedToUserId: "maria", segundoAsesorId: null, channelId: "v1", oficial: false },
@@ -749,14 +777,39 @@ await prueba("reasignacionesDeLaSemana: últimos 7 días, solo origen reasignaci
   reiniciarBaseDemora();
   const ahora = new Date("2026-11-10T12:00:00.000Z");
   const hace = (dias) => new Date(ahora.getTime() - dias * 24 * 60 * 60_000);
-  const nota = (dias, payload, extra = {}) => ({ workspaceId: "ws1", type: "SYSTEM", createdAt: hace(dias), rawPayload: { kind: "assigned", ...payload }, ...extra });
+  const nota = (dias, conversationId, payload, extra = {}) => ({ workspaceId: "ws1", conversationId, type: "SYSTEM", createdAt: hace(dias), rawPayload: { kind: "assigned", ...payload }, ...extra });
   baseDemora.notas = [
-    nota(1, { origen: "reasignacion-por-demora", reasignadoDeUserId: "maria", assigneeUserId: "ingrid" }),
-    nota(3, { origen: "reasignacion-por-demora", reasignadoDeUserId: "maria", assigneeUserId: "yair" }),
-    nota(6.9, { origen: "reasignacion-por-demora", reasignadoDeUserId: "yair", assigneeUserId: "ingrid" }),
-    nota(8, { origen: "reasignacion-por-demora", reasignadoDeUserId: "yair", assigneeUserId: "maria" }), // más de 7 días
-    nota(1, { origen: "manual", assigneeUserId: "maria" }), // otra asignación
-    nota(1, { origen: "reasignacion-por-demora", reasignadoDeUserId: "maria", assigneeUserId: "yair" }, { workspaceId: "ws2" }), // otro negocio
+    nota(1, "c1", { origen: "reasignacion-por-demora", reasignadoDeUserId: "maria", assigneeUserId: "ingrid" }),
+    nota(3, "c2", { origen: "reasignacion-por-demora", reasignadoDeUserId: "maria", assigneeUserId: "yair" }),
+    nota(6.9, "c3", { origen: "reasignacion-por-demora", reasignadoDeUserId: "yair", assigneeUserId: "ingrid" }),
+    nota(8, "c4", { origen: "reasignacion-por-demora", reasignadoDeUserId: "yair", assigneeUserId: "maria" }), // más de 7 días
+    nota(1, "c5", { origen: "manual", assigneeUserId: "maria" }), // otra asignación
+    nota(1, "c6", { origen: "reasignacion-por-demora", reasignadoDeUserId: "maria", assigneeUserId: "yair" }, { workspaceId: "ws2" }), // otro negocio
+  ];
+  const mensaje = (dias, conversationId, payload, extra = {}) => ({
+    workspaceId: "ws1",
+    conversationId,
+    direction: "OUTBOUND",
+    type: "TEXT",
+    status: "SENT",
+    failedAt: null,
+    isStatusBroadcast: false,
+    createdAt: hace(dias),
+    rawPayload: payload,
+    ...extra,
+  });
+  baseDemora.mensajes = [
+    // c1: María le escribió desde el CRM antes de la nota -> cuenta.
+    mensaje(1.5, "c1", { source: "manual", enviadoPorUserId: "maria" }),
+    // c2: de María solo hay un mensaje api, uno de seguimiento y uno manual DESPUÉS de la nota -> no cuenta.
+    mensaje(3.5, "c2", { source: "api", enviadoPorUserId: "maria" }),
+    mensaje(3.4, "c2", { source: "follow", enviadoPorUserId: "maria" }),
+    mensaje(2, "c2", { source: "manual", enviadoPorUserId: "maria" }),
+    // c3: el manual es de otra asesora y el de Yair falló -> no cuenta.
+    mensaje(7, "c3", { source: "manual", enviadoPorUserId: "maria" }),
+    mensaje(6.95, "c3", { source: "manual", enviadoPorUserId: "yair" }, { status: "FAILED", failedAt: hace(6.95) }),
+    // c6 es de otro negocio -> no cuenta aunque María sí escribió.
+    mensaje(1.5, "c6", { source: "manual", enviadoPorUserId: "maria" }, { workspaceId: "ws2" }),
   ];
   const r = await servicioDemora.reasignacionesDeLaSemana("ws1", ahora);
   assert.deepEqual(r, {
@@ -765,11 +818,30 @@ await prueba("reasignacionesDeLaSemana: últimos 7 días, solo origen reasignaci
     total: 3,
     porQuienSeDemoro: [{ asesora: "María Bautista", cuenta: 2 }, { asesora: "yair@x.test", cuenta: 1 }],
     porQuienRecibio: [{ asesora: "Ingrid Sánchez", cuenta: 2 }, { asesora: "yair@x.test", cuenta: 1 }],
+    conMensajeDeLaAnterior: 1,
   });
   const consulta = baseDemora.consultasDeNotas.at(-1);
   assert.equal(consulta.workspaceId, "ws1");
   assert.equal(consulta.type, "SYSTEM");
   assert.deepEqual(consulta.rawPayload, { path: ["origen"], equals: "reasignacion-por-demora" });
+  // Una sola consulta cruda, con las mismas condiciones de sqlActivasDelNegocio y el EXISTS por chat.
+  assert.equal(baseDemora.consultasCrudas.length, 1);
+  const [textos, ...valores] = baseDemora.consultasCrudas[0];
+  assert.deepEqual(valores, ["ws1", new Date("2026-11-03T12:00:00.000Z"), ahora, "reasignacion-por-demora"]);
+  const sql = textos.join("?").replace(/\s+/g, " ");
+  for (const parte of [
+    `m."workspaceId" = n."workspaceId"`,
+    `m."conversationId" = n."conversationId"`,
+    `m."direction"::text = 'OUTBOUND'`,
+    `m."createdAt" < n."createdAt"`,
+    `m."status"::text <> 'FAILED'`,
+    `m."failedAt" IS NULL`,
+    `m."rawPayload"->>'source' = 'manual'`,
+    `m."rawPayload"->>'enviadoPorUserId' = n."rawPayload"->>'reasignadoDeUserId'`,
+  ]) {
+    assert.ok(sql.includes(parte), `falta en la consulta: ${parte}`);
+  }
+  assert.ok(sql.includes("EXISTS ("));
 });
 
 console.log(`\n${pruebas} pruebas ok, ${fallas.length} con falla`);
