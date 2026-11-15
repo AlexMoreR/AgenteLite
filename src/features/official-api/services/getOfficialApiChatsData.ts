@@ -17,9 +17,12 @@ import {
   SIN_ASIGNAR,
   SIN_FILTROS,
   condicionCompleta,
+  grupoQueAplica,
   limitesDeLaFecha,
+  reglaDelGrupo,
   type FiltrosDeBandeja,
 } from "@/features/chats/services/filtros-de-bandeja";
+import { contactosInternos, type ContactosInternos } from "@/features/chats/services/contactos-internos";
 
 function normalizeSearch(value: string | undefined) {
   return typeof value === "string" ? value.trim() : "";
@@ -128,6 +131,11 @@ export async function fragmentosDeFiltrosOficiales(
   filtros: FiltrosDeBandeja,
   workspaceId: string,
   ahora = new Date(),
+  /**
+   * Para el grupo (clientes / equipo / proveedores): la asignacion ya forzada para asesoras y el
+   * texto del buscador (con texto el grupo no filtra). Sin esto, el grupo no se aplica.
+   */
+  contexto?: { asignacion?: string; q?: string },
 ): Promise<{
   etapa: Prisma.Sql;
   sinResponder: Prisma.Sql;
@@ -218,11 +226,57 @@ export async function fragmentosDeFiltrosOficiales(
     }
   }
 
+  if (contexto) {
+    const grupo = grupoQueAplica(filtros, contexto.q);
+    if (grupo !== "todos") {
+      const internos = await contactosInternos(workspaceId);
+      const regla = reglaDelGrupo({ grupo, internos, asignacion: contexto.asignacion ?? "all", filtros });
+      const parte = sqlDelGrupoOficial(regla, internos);
+      if (parte) partes.push(parte);
+    }
+  }
+
   return {
     // "etapa" por historia: son TODAS las condiciones menos "Sin responder", que va aparte.
     etapa: partes.length ? Prisma.join(partes, " ") : Prisma.empty,
     sinResponder,
   };
+}
+
+/**
+ * La regla del grupo (ver whereDeGrupo) para la linea oficial: sobre la ficha del contacto
+ * oficial, por su contacto del CRM o por su numero. Con listas vacias no se usa Prisma.join (falla
+ * vacio): "solo equipo/proveedores" no trae nada y "sin ..." no saca nada.
+ */
+function sqlDelGrupoOficial(
+  regla: ReturnType<typeof reglaDelGrupo>,
+  internos: ContactosInternos,
+): Prisma.Sql | null {
+  const enLaFicha = (ids: string[], telefonos: string[]): Prisma.Sql | null => {
+    const opciones: Prisma.Sql[] = [];
+    if (ids.length) opciones.push(Prisma.sql`ficha."crmContactId" IN (${Prisma.join(ids)})`);
+    if (telefonos.length) {
+      opciones.push(Prisma.sql`ficha."phoneNumber" IN (${Prisma.join(telefonos)})`);
+      opciones.push(Prisma.sql`ficha."waId" IN (${Prisma.join(telefonos)})`);
+    }
+    if (!opciones.length) return null;
+    return Prisma.sql`EXISTS (
+      SELECT 1 FROM "OfficialApiContact" ficha
+      WHERE ficha."id" = c."contactId" AND (${Prisma.join(opciones, " OR ")})
+    )`;
+  };
+  const delEquipo = () => enLaFicha(internos.equipoIds, internos.variantesDeTelefono);
+  const proveedores = () => enLaFicha(internos.proveedorIds, []);
+
+  if (regla.tipo === "nada") return null;
+  if (regla.tipo === "solo") {
+    const dentro = regla.de === "equipo" ? delEquipo() : proveedores();
+    return dentro ? Prisma.sql`AND ${dentro}` : Prisma.sql`AND false`;
+  }
+  const fuera = [regla.equipo ? delEquipo() : null, regla.proveedores ? proveedores() : null].filter(
+    (parte): parte is Prisma.Sql => parte !== null,
+  );
+  return fuera.length ? Prisma.join(fuera.map((parte) => Prisma.sql`AND NOT ${parte}`), " ") : null;
 }
 
 function buildOfficialChatsCacheKey(input: {
@@ -415,7 +469,10 @@ async function loadOfficialApiChatsData(input: {
 
   const filtros = input.filtros ?? SIN_FILTROS;
   const { etapa: officialStageFilter, sinResponder: officialPendingFilter } =
-    await fragmentosDeFiltrosOficiales(filtros, input.workspaceId);
+    await fragmentosDeFiltrosOficiales(filtros, input.workspaceId, undefined, {
+      asignacion: input.assignedFilter ?? "all",
+      q: input.q,
+    });
 
   type OfficialConversationDetailRow = {
     conversationId: string;
