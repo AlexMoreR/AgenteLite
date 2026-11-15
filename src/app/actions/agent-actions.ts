@@ -80,6 +80,7 @@ import {
 } from "@/lib/workspace";
 import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
 import { resolveEvolutionQuickResponseFlow } from "@/features/flows/services/resolveEvolutionQuickResponseFlow";
+import { registrarEnvioDeMedio, registrarFalloDeEnvioDeMedio } from "@/lib/registro-de-envio-de-medio";
 
 /*
   Hasta aca se guarda el respaldo en base64 de un archivo que se manda por chat.
@@ -3360,16 +3361,16 @@ async function enviarNotaDeVoz(
     });
   } catch (audioSendError) {
     const detail = audioSendError instanceof Error ? audioSendError.message : "";
-    registrarEnvioDeMedio(
+    // Un corte de red o de tiempo va como linea informativa con la causa corta (registro-de-envio-de-medio.ts).
+    registrarFalloDeEnvioDeMedio(
       {
         resultado: "fallo",
         canal: "evolution",
         tipo: "AUDIO",
         conversationId: conversation.id,
         gatewayMs: Date.now() - inicioDelGateway,
-        error: detail || "sin detalle",
       },
-      true,
+      audioSendError,
     );
     return { error: detail ? `No se pudo enviar la nota de voz: ${detail}` : "No se pudo enviar la nota de voz" };
   }
@@ -3455,16 +3456,6 @@ const sendChatMediaReplySchema = z.object({
 */
 const ARCHIVOS_EN_CURSO = new Map<string, { promesa: Promise<{ ok: true } | { error: string }>; at: number }>();
 const VIDA_ARCHIVO_EN_CURSO_MS = 10 * 60_000;
-
-/** Una linea por envio con prefijo [envio-medio]: cuanto tardo cada tramo. Sin telefonos ni contenido. */
-function registrarEnvioDeMedio(datos: Record<string, unknown>, fallo = false) {
-  const linea = `[envio-medio] ${JSON.stringify({ paso: "servidor", ...datos })}`;
-  if (fallo) {
-    console.error(linea);
-  } else {
-    console.info(linea);
-  }
-}
 
 /**
  * Envia un archivo (o un audio) por el canal de API OFICIAL.
@@ -3699,18 +3690,20 @@ async function enviarArchivoDelChat(
       fileName: parsed.data.fileName,
       caption: parsed.data.caption,
     });
-    registrarEnvioDeMedio(
-      {
-        resultado: "ok" in enviado ? "ok" : "fallo",
-        canal: "official",
-        tipo: parsed.data.mediaType,
-        conversationId: parsed.data.conversationId,
-        gatewayMs: Date.now() - inicioDelGateway,
-        totalMs: Date.now() - inicio,
-        ...("error" in enviado ? { error: enviado.error } : {}),
-      },
-      "error" in enviado,
-    );
+    const datosDelEnvioOficial = {
+      resultado: "ok" in enviado ? "ok" : "fallo",
+      canal: "official",
+      tipo: parsed.data.mediaType,
+      conversationId: parsed.data.conversationId,
+      gatewayMs: Date.now() - inicioDelGateway,
+      totalMs: Date.now() - inicio,
+    };
+    if ("error" in enviado) {
+      // Un corte de red o de tiempo va como linea informativa con la causa corta (registro-de-envio-de-medio.ts).
+      registrarFalloDeEnvioDeMedio(datosDelEnvioOficial, new Error(enviado.error));
+    } else {
+      registrarEnvioDeMedio(datosDelEnvioOficial);
+    }
 
     // Mandar el catalogo tambien es atender: quien lo hace se queda con el lead si no tenia dueño.
     if ("ok" in enviado && enviado.ok) {
@@ -3839,7 +3832,13 @@ async function enviarArchivoDelChat(
   } catch (mediaError) {
     marca("whatsapp");
     const detail = mediaError instanceof Error ? mediaError.message : "";
-    registrarEnvioDeMedio(
+    /*
+      Un corte de red o de tiempo (fetch failed, conexion caida, se acabo la espera) queda en UNA linea
+      informativa con la causa corta: antes salia como error, dos veces y en varias lineas, y la
+      vigilancia de 30 min deshizo una subida que no tenia nada que ver (15-nov-2026). Las demas
+      fallas siguen como error, con el detalle de abajo.
+    */
+    const esError = registrarFalloDeEnvioDeMedio(
       {
         resultado: "fallo",
         canal: "evolution",
@@ -3849,21 +3848,22 @@ async function enviarArchivoDelChat(
         controlesMs,
         gatewayMs: Date.now() - inicioDelGateway,
         totalMs: Date.now() - inicio,
-        error: detail || "sin detalle",
       },
-      true,
+      mediaError,
     );
     // Sin esto el fallo era mudo por los dos lados: la asesora veia "No se pudo enviar X.pdf"
     // sin motivo, y en el servidor no quedaba rastro. Se registra el POR QUE, con el peso y la
     // instancia, que es lo primero que se necesita cuando dicen "no puedo mandar catalogos".
-    console.error("[chats] no se pudo enviar el archivo por Evolution", {
-      instancia: conversation.channel.evolutionInstanceName,
-      archivo: parsed.data.fileName,
-      tipo: mediatype,
-      pesoKb: Math.round(fileSize / 1024),
-      url: publicMediaUrl,
-      detalle: detail,
-    });
+    if (esError) {
+      console.error("[chats] no se pudo enviar el archivo por Evolution", {
+        instancia: conversation.channel.evolutionInstanceName,
+        archivo: parsed.data.fileName,
+        tipo: mediatype,
+        pesoKb: Math.round(fileSize / 1024),
+        url: publicMediaUrl,
+        detalle: detail,
+      });
+    }
     return { error: detail ? `No se pudo enviar el archivo: ${detail}` : "No se pudo enviar el archivo" };
   }
 
