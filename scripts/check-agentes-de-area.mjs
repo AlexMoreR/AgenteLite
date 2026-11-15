@@ -599,7 +599,20 @@ await prueba("demora: la descripción de numeros_de_ventas explica demora_de_ase
 });
 
 // ---- Demora de las asesoras (parte 3): el servicio real, con una base de mentira propia ----
-const baseDemora = { settings: new Map(), lineas: [], espera: new Map(), esperaFalla: new Set(), notas: [], consultasDeNotas: [], mensajes: [], consultasCrudas: [] };
+const baseDemora = {
+  settings: new Map(),
+  lineas: [],
+  espera: new Map(),
+  esperaFalla: new Set(),
+  notas: [],
+  consultasDeNotas: [],
+  mensajes: [],
+  consultasCrudas: [],
+  activas: [],
+  asignaciones: [],
+  notasCreadas: [],
+  pushes: [],
+};
 const USUARIOS_DEMORA = [
   { id: "maria", name: "María Bautista", email: null },
   { id: "yair", name: "  ", email: "yair@x.test" },
@@ -635,10 +648,44 @@ const prismaDemora = {
     },
   },
   user: { findMany: async ({ where }) => USUARIOS_DEMORA.filter((u) => where.id.in.includes(u.id)) },
-  // La consulta de conMensajeDeLaAnterior: Prisma.sql de mentira da [textos, workspaceId, desde, hasta, origen];
-  // se responde aplicando a mano la misma regla sobre baseDemora.notas y baseDemora.mensajes.
+  // Lo que usa la reasignación de revisarDemorasDeAsesoras (pruebas "reloj: ... 12 min").
+  workspaceMember: {
+    findMany: async ({ where }) => (where.role ? [{ userId: "alex" }] : where.userId.in.map((userId) => ({ userId }))),
+  },
+  conversation: {
+    findMany: async ({ where }) => where.id.in.map((id) => ({ id, noReasignarAt: null, contact: { crmStage: null } })),
+    findUnique: async ({ where }) => ({ channelId: "v1", contactId: `k-${where.id}`, contact: { name: "Clienta Uno", phoneNumber: "573000000001" } }),
+    updateMany: async ({ where, data }) => {
+      baseDemora.asignaciones.push({ id: where.id, de: where.assignedToUserId, a: data.assignedToUserId });
+      return { count: 1 };
+    },
+  },
+  // Prisma.sql de mentira da [textos, ...valores]; cada consulta cruda se responde aplicando a mano su regla.
   $queryRaw: async (consulta) => {
     baseDemora.consultasCrudas.push(consulta);
+    const texto = consulta[0].join("");
+    // sqlRemitentesManualesDeLosChats: [textos, workspaceId, chatIds].
+    if (texto.includes("SELECT DISTINCT")) {
+      const [, workspaceId, chatIds] = consulta;
+      const pares = baseDemora.mensajes
+        .filter(
+          (m) =>
+            m.workspaceId === workspaceId &&
+            chatIds.includes(m.conversationId) &&
+            m.direction === "OUTBOUND" &&
+            m.type !== "SYSTEM" &&
+            m.status !== "FAILED" &&
+            m.failedAt == null &&
+            m.isStatusBroadcast === false &&
+            m.rawPayload?.source === "manual" &&
+            m.rawPayload?.enviadoPorUserId != null,
+        )
+        .map((m) => `${m.conversationId}|${m.rawPayload.enviadoPorUserId}`);
+      return [...new Set(pares)].map((par) => ({ conversationId: par.split("|")[0], enviadoPorUserId: par.split("|")[1] }));
+    }
+    // sqlActivasDelNegocio: las activas de la prueba.
+    if (texto.includes("GROUP BY")) return baseDemora.activas;
+    // sqlReasignacionesConMensajeDeLaAnterior: [textos, workspaceId, desde, hasta, origen].
     const [, workspaceId, desde, hasta, origen] = consulta;
     const escribioAntes = (n) =>
       baseDemora.mensajes.some(
@@ -663,6 +710,24 @@ const prismaDemora = {
 const servicioDemora = cargar("src/features/chats/services/demora-de-asesora.ts", {
   ...mocks,
   "@/lib/prisma": { prisma: prismaDemora },
+  "@/lib/web-push": {
+    sendPushToUser: async ({ userId, payload }) => {
+      baseDemora.pushes.push({ userId, ...payload });
+      return 1;
+    },
+  },
+  "@/lib/channel-collaborators": { calcularReparto: (metadata) => metadata?.reparto ?? [] },
+  "@/lib/conversation-activity": {
+    recordConversationActivity: async (nota) => {
+      baseDemora.notasCreadas.push(nota);
+    },
+  },
+  "@/lib/en-linea": { filtrarSinPausaManual: async (_workspaceId, ids) => new Set(ids) },
+  "@/lib/horario-de-reparto": {
+    filtrarPorHorario: async (_workspaceId, ids) => ids,
+    leerHorariosDeReparto: async () => ({}),
+    recibeEnEsteMomento: () => true,
+  },
   "./espera-de-chats": {
     cargarEsperaDelNegocio: async (workspaceId) => {
       if (baseDemora.esperaFalla.has(workspaceId)) throw new Error("consulta caída");
@@ -686,6 +751,10 @@ function reiniciarBaseDemora() {
   baseDemora.consultasDeNotas.length = 0;
   baseDemora.mensajes = [];
   baseDemora.consultasCrudas.length = 0;
+  baseDemora.activas = [];
+  baseDemora.asignaciones.length = 0;
+  baseDemora.notasCreadas.length = 0;
+  baseDemora.pushes.length = 0;
   baseDemora.espera.set("ws1", [
     { key: "agent:c1", desde: enBogota("2026-11-08T22:00:00").getTime(), assignedToUserId: "maria", segundoAsesorId: null, channelId: "v1", oficial: false },
     { key: "agent:c2", desde: enBogota("2026-11-08T22:50:00").getTime(), assignedToUserId: "maria", segundoAsesorId: null, channelId: "v1", oficial: false },
@@ -742,6 +811,7 @@ await prueba("reloj: revisarDemorasDeAsesoras guarda la foto a las 23:00 y un fa
   const r = await servicioDemora.revisarDemorasDeAsesoras(enBogota("2026-11-08T23:00:00"));
   assert.equal(r.fotosDeCierre, 2);
   assert.equal(r.negocios, 0);
+  assert.equal(r.yaAtendidos, 0);
   reiniciarBaseDemora();
   const original = prismaDemora.whatsAppChannel.findMany;
   prismaDemora.whatsAppChannel.findMany = async () => {
@@ -757,6 +827,65 @@ await prueba("reloj: revisarDemorasDeAsesoras guarda la foto a las 23:00 y un fa
     console.error = errorReal;
     prismaDemora.whatsAppChannel.findMany = original;
   }
+});
+
+// Un chat de María con 12 min de espera a las 10:00 (regla prendida a las 9:00, Ingrid activa).
+function prepararChatDeDoceMinutos(mensajes) {
+  reiniciarBaseDemora();
+  baseDemora.settings.set("chats:demora-asesora:config:ws1", JSON.stringify({ activo: true }));
+  baseDemora.settings.set("chats:demora-asesora:arranque:ws1", enBogota("2026-11-09T09:00:00").toISOString());
+  baseDemora.lineas = [{ id: "v1", workspaceId: "ws1", purpose: "SALES", metadata: { reparto: ["maria", "ingrid"] } }];
+  baseDemora.espera.set("ws1", [
+    { key: "agent:c1", desde: enBogota("2026-11-09T09:48:00").getTime(), assignedToUserId: "maria", segundoAsesorId: null, channelId: "v1", oficial: false },
+  ]);
+  baseDemora.activas = [{ userId: "ingrid", ultimo: enBogota("2026-11-09T09:58:00") }];
+  const mensaje = (minuto, rawPayload, extra = {}) => ({
+    workspaceId: "ws1",
+    conversationId: "c1",
+    direction: "OUTBOUND",
+    type: "TEXT",
+    status: "SENT",
+    failedAt: null,
+    isStatusBroadcast: false,
+    createdAt: enBogota(`2026-11-09T09:${minuto}:00`),
+    rawPayload,
+    ...extra,
+  });
+  baseDemora.mensajes = mensajes(mensaje);
+}
+const RESULTADO_BASE = { negocios: 1, revisados: 1, avisados: 0, fueraDeHorario: 0, paraReasignar: 1, sinActiva: 0, topeAlcanzado: 0, conCandado: 0, errores: 0, fotosDeCierre: 0 };
+
+await prueba("reloj: 12 min de espera con un mensaje manual de su asesora actual no se reasigna (yaAtendidos)", async () => {
+  prepararChatDeDoceMinutos((mensaje) => [
+    mensaje("20", { source: "manual", enviadoPorUserId: "maria" }),
+    mensaje("30", { source: "api" }),
+  ]);
+  const r = await servicioDemora.revisarDemorasDeAsesoras(enBogota("2026-11-09T10:00:00"));
+  assert.deepEqual(r, { ...RESULTADO_BASE, reasignados: 0, yaAtendidos: 1 });
+  assert.deepEqual(baseDemora.asignaciones, [], "no se escribió la asignación");
+  assert.deepEqual(baseDemora.notasCreadas, [], "no se creó la nota");
+  assert.deepEqual(baseDemora.pushes, [], "no se avisó a nadie (ni a los jefes)");
+  assert.equal(baseDemora.settings.has("chats:demora-asesora:sin-activa:c1"), false);
+  // Una sola consulta de remitentes, solo con el chat que pasó los 10 min.
+  const remitentes = baseDemora.consultasCrudas.filter((c) => c[0].join("").includes("SELECT DISTINCT"));
+  assert.equal(remitentes.length, 1);
+  assert.deepEqual(remitentes[0].slice(1), ["ws1", ["c1"]]);
+});
+
+await prueba("reloj: el mismo chat sin mensaje manual de ella (solo bot o seguimiento) se reasigna como hoy", async () => {
+  prepararChatDeDoceMinutos((mensaje) => [
+    mensaje("20", { source: "api" }),
+    mensaje("25", { source: "follow" }),
+    mensaje("30", { source: "agente-v3-seguimiento" }),
+    // Manual de María pero fallido: no cuenta.
+    mensaje("35", { source: "manual", enviadoPorUserId: "maria" }, { status: "FAILED" }),
+  ]);
+  const r = await servicioDemora.revisarDemorasDeAsesoras(enBogota("2026-11-09T10:00:00"));
+  assert.deepEqual(r, { ...RESULTADO_BASE, reasignados: 1, yaAtendidos: 0 });
+  assert.deepEqual(baseDemora.asignaciones, [{ id: "c1", de: "maria", a: "ingrid" }]);
+  assert.equal(baseDemora.notasCreadas.length, 1);
+  assert.equal(baseDemora.notasCreadas[0].origen, "reasignacion-por-demora");
+  assert.deepEqual(baseDemora.pushes.map((p) => p.userId).sort(), ["ingrid", "maria"]);
 });
 
 await prueba("leerFotoDeCierre: pone los nombres; sin foto ese día = null", async () => {

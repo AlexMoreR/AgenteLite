@@ -22,7 +22,9 @@ import {
   leerConfigDemoraDeTexto,
   leerFotoDeCierreDeTexto,
   topeDeReasignacionAlcanzado,
+  yaLaAtendio,
   type ConfigDemora,
+  type RemitenteManual,
 } from "../domain/demora-de-asesora";
 import { filtrarSinCandado, whereSinCandadoVigente } from "../domain/candado-no-reasignar";
 import { cargarEsperaDelNegocio, esperaDelNegocio, type ChatEnEspera } from "./espera-de-chats";
@@ -49,6 +51,9 @@ export * from "../domain/demora-de-asesora";
  *   No mueve la rueda del reparto normal ni cambia estado, etapa ni el bot.
  * - Candado "No reasignar" (domain/candado-no-reasignar.ts): un chat con el candado vigente no se
  *   reasigna; el aviso de los 5 min y el aviso a dueños y administradores siguen igual.
+ * - Ya atendido (domain yaLaAtendio): si la asesora ACTUAL ya le escribió a mano desde el CRM en ese
+ *   chat, no se reasigna ni se avisa al dueño ni a los jefes (cuenta en `yaAtendidos`). El push de
+ *   los 5 min sigue igual.
  * - Parte 3 (medición): desde las 23:00 guarda la foto del cierre (guardarFotoDeCierre), aunque la
  *   regla esté apagada. reasignacionesDeLaSemana y leerFotoDeCierre las lee numeros_de_ventas (MCP).
  *   reasignacionesDeLaSemana también cuenta (conMensajeDeLaAnterior) las que fueron a un chat donde
@@ -140,6 +145,40 @@ export function sqlActivasDelNegocio(input: { workspaceId: string; desde: Date }
        AND m."rawPayload"->>'enviadoPorUserId' IS NOT NULL
      GROUP BY 1
   `;
+}
+
+/**
+ * Quién firmó mensajes manuales del CRM en esos chats (para yaLaAtendio): los pares distintos
+ * (conversationId, enviadoPorUserId) de los salientes con source = manual, no fallidos y con autor.
+ * Usa el índice de Message (workspaceId, conversationId, direction, createdAt): `direction` sin cast.
+ * Los del celular (source=instance), el bot, los seguimientos y las notas SYSTEM no cuentan.
+ */
+export function sqlRemitentesManualesDeLosChats(input: { workspaceId: string; chatIds: string[] }): Prisma.Sql {
+  return Prisma.sql`
+    SELECT DISTINCT m."conversationId" AS "conversationId", m."rawPayload"->>'enviadoPorUserId' AS "enviadoPorUserId"
+      FROM "Message" m
+     WHERE m."workspaceId" = ${input.workspaceId}
+       AND m."conversationId" IN (${Prisma.join(input.chatIds)})
+       AND m."direction" = 'OUTBOUND'
+       AND m."type"::text <> 'SYSTEM'
+       AND m."status"::text <> 'FAILED'
+       AND m."failedAt" IS NULL
+       AND m."isStatusBroadcast" = false
+       AND m."rawPayload"->>'source' = 'manual'
+       AND m."rawPayload"->>'enviadoPorUserId' IS NOT NULL
+  `;
+}
+
+async function remitentesManualesDeLosChats(workspaceId: string, chatIds: string[]): Promise<RemitenteManual[]> {
+  if (!chatIds.length) return [];
+  const filas = await prisma.$queryRaw<Array<{ conversationId: string | null; enviadoPorUserId: string | null }>>(
+    sqlRemitentesManualesDeLosChats({ workspaceId, chatIds }),
+  );
+  return filas.flatMap((fila) =>
+    fila.conversationId && fila.enviadoPorUserId
+      ? [{ conversationId: fila.conversationId, enviadoPorUserId: fila.enviadoPorUserId }]
+      : [],
+  );
 }
 
 async function activasDelNegocio(workspaceId: string, config: ConfigDemora, ahora: Date): Promise<Map<string, number>> {
@@ -284,6 +323,8 @@ export type ResultadoDeDemora = {
   topeAlcanzado: number;
   /** Con el candado "No reasignar" vigente: no se movió; se avisó (o ya se había avisado) al dueño. */
   conCandado: number;
+  /** La asesora actual ya le escribió a mano desde el CRM (yaLaAtendio): no se movió ni se avisó a nadie. */
+  yaAtendidos: number;
   /** Chats en los que algo falló (no frenan a los demás). */
   errores: number;
   /** Fotos del cierre guardadas en esta vuelta (solo desde las 23:00, una por negocio y día). */
@@ -303,6 +344,7 @@ export async function revisarDemorasDeAsesoras(ahora = new Date()): Promise<Resu
     sinActiva: 0,
     topeAlcanzado: 0,
     conCandado: 0,
+    yaAtendidos: 0,
     errores: 0,
     fotosDeCierre: 0,
   };
@@ -474,9 +516,19 @@ async function reasignarDemorados(input: {
   )) {
     conCandado.delete(libre.id);
   }
+  // Una sola consulta por vuelta y negocio, solo con los chats que ya pasaron los minutos de reasignar.
+  const remitentes = await remitentesManualesDeLosChats(
+    workspaceId,
+    input.porReasignar.map((chat) => chat.id),
+  );
 
   for (const chat of input.porReasignar) {
     try {
+      // La asesora actual ya le escribió a mano desde el CRM: el chat queda con ella, sin nota ni avisos.
+      if (yaLaAtendio(remitentes, chat.id, chat.asesora)) {
+        resultado.yaAtendidos += 1;
+        continue;
+      }
       const tope = topeDeReasignacionAlcanzado(input.notas.reasignaciones.get(chat.id) ?? [], chat.desde);
       const candado = conCandado.has(chat.id);
       if (!tope && !candado && resultado.reasignados >= MAXIMO_REASIGNACIONES_POR_VUELTA) continue;
