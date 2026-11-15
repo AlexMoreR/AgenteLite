@@ -73,6 +73,7 @@ import {
 import { anotarErrorDeEnvio } from "@/lib/chat-errores-de-envio";
 import { prisma } from "@/lib/prisma";
 import { canAccessOfficialApiModule } from "@/lib/admin-module-access";
+import { registrarEnvioDeMedio } from "@/lib/registro-de-envio-de-medio";
 import {
   generateUniqueWorkspaceSlug,
   getPrimaryWorkspaceForUser,
@@ -3360,6 +3361,7 @@ async function enviarNotaDeVoz(
     });
   } catch (audioSendError) {
     const detail = audioSendError instanceof Error ? audioSendError.message : "";
+    // Un corte de red o de tiempo con la pasarela queda como linea informativa (registro-de-envio-de-medio.ts).
     registrarEnvioDeMedio(
       {
         resultado: "fallo",
@@ -3367,9 +3369,8 @@ async function enviarNotaDeVoz(
         tipo: "AUDIO",
         conversationId: conversation.id,
         gatewayMs: Date.now() - inicioDelGateway,
-        error: detail || "sin detalle",
       },
-      true,
+      { falla: audioSendError },
     );
     return { error: detail ? `No se pudo enviar la nota de voz: ${detail}` : "No se pudo enviar la nota de voz" };
   }
@@ -3455,16 +3456,6 @@ const sendChatMediaReplySchema = z.object({
 */
 const ARCHIVOS_EN_CURSO = new Map<string, { promesa: Promise<{ ok: true } | { error: string }>; at: number }>();
 const VIDA_ARCHIVO_EN_CURSO_MS = 10 * 60_000;
-
-/** Una linea por envio con prefijo [envio-medio]: cuanto tardo cada tramo. Sin telefonos ni contenido. */
-function registrarEnvioDeMedio(datos: Record<string, unknown>, fallo = false) {
-  const linea = `[envio-medio] ${JSON.stringify({ paso: "servidor", ...datos })}`;
-  if (fallo) {
-    console.error(linea);
-  } else {
-    console.info(linea);
-  }
-}
 
 /**
  * Envia un archivo (o un audio) por el canal de API OFICIAL.
@@ -3707,9 +3698,8 @@ async function enviarArchivoDelChat(
         conversationId: parsed.data.conversationId,
         gatewayMs: Date.now() - inicioDelGateway,
         totalMs: Date.now() - inicio,
-        ...("error" in enviado ? { error: enviado.error } : {}),
       },
-      "error" in enviado,
+      "error" in enviado ? { falla: enviado.error } : undefined,
     );
 
     // Mandar el catalogo tambien es atender: quien lo hace se queda con el lead si no tenia dueño.
@@ -3839,7 +3829,13 @@ async function enviarArchivoDelChat(
   } catch (mediaError) {
     marca("whatsapp");
     const detail = mediaError instanceof Error ? mediaError.message : "";
-    registrarEnvioDeMedio(
+    /*
+      Un corte de red o de tiempo con la pasarela (fetch failed, conexion caida) deja UNA sola linea
+      informativa con la causa corta, el peso y los tiempos: anotarlo como error hacia que la
+      vigilancia de 30 min deshiciera subidas sin relacion (15-nov-2026, PDF de 14 MB). Las demas
+      fallas siguen como error, con el detalle (registro-de-envio-de-medio.ts).
+    */
+    const { pasajera } = registrarEnvioDeMedio(
       {
         resultado: "fallo",
         canal: "evolution",
@@ -3849,21 +3845,22 @@ async function enviarArchivoDelChat(
         controlesMs,
         gatewayMs: Date.now() - inicioDelGateway,
         totalMs: Date.now() - inicio,
-        error: detail || "sin detalle",
       },
-      true,
+      { falla: mediaError },
     );
-    // Sin esto el fallo era mudo por los dos lados: la asesora veia "No se pudo enviar X.pdf"
-    // sin motivo, y en el servidor no quedaba rastro. Se registra el POR QUE, con el peso y la
-    // instancia, que es lo primero que se necesita cuando dicen "no puedo mandar catalogos".
-    console.error("[chats] no se pudo enviar el archivo por Evolution", {
-      instancia: conversation.channel.evolutionInstanceName,
-      archivo: parsed.data.fileName,
-      tipo: mediatype,
-      pesoKb: Math.round(fileSize / 1024),
-      url: publicMediaUrl,
-      detalle: detail,
-    });
+    if (!pasajera) {
+      // Sin esto el fallo era mudo por los dos lados: la asesora veia "No se pudo enviar X.pdf"
+      // sin motivo, y en el servidor no quedaba rastro. Se registra el POR QUE, con el peso y la
+      // instancia, que es lo primero que se necesita cuando dicen "no puedo mandar catalogos".
+      console.error("[chats] no se pudo enviar el archivo por Evolution", {
+        instancia: conversation.channel.evolutionInstanceName,
+        archivo: parsed.data.fileName,
+        tipo: mediatype,
+        pesoKb: Math.round(fileSize / 1024),
+        url: publicMediaUrl,
+        detalle: detail,
+      });
+    }
     return { error: detail ? `No se pudo enviar el archivo: ${detail}` : "No se pudo enviar el archivo" };
   }
 
