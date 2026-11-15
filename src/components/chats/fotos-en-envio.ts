@@ -157,33 +157,54 @@ export function fotosDelChat<T extends { conversationId: string }>(
   return fotos.filter((foto) => foto.conversationId === conversationId);
 }
 
+/** El numero unico (clientMessageId) que el servidor guardo en el mensaje real, o null. */
+function claveDelMensaje(rawPayload: unknown): string | null {
+  if (!rawPayload || typeof rawPayload !== "object") {
+    return null;
+  }
+  const clave = (rawPayload as { clientMessageId?: unknown }).clientMessageId;
+  return typeof clave === "string" && clave.trim() ? clave : null;
+}
+
 /*
   Los envios cuyo mensaje real ya llego al chat: hay que retirarlos.
 
-  Se compara contra la direccion del SERVIDOR, que es la que se guarda en el mensaje real; la vista
-  previa local (`blob:`) nunca coincidiria. Uno que todavia no termino de subir no tiene esa
-  direccion y no se retira. Los mensajes son del chat `conversationId`: una coincidencia ahi no
-  retira uno de otro chat.
+  Se cruzan de dos formas, y basta una:
+  - por la direccion del SERVIDOR, que es la que se guarda en el mensaje real; la vista previa
+    local (`blob:`) nunca coincidiria. Uno que todavia no termino de subir no tiene esa direccion.
+  - por el numero unico del envio (`clave` = `rawPayload.clientMessageId`), porque el servidor
+    puede guardar otra direccion (otro tamaño, la del gateway, el eco del webhook) y entonces la
+    burbuja se quedaba encima de la real hasta VIDA_DE_FOTO_ENVIADA_MS. Una clave vacia no cuenta.
+  Los mensajes son del chat `conversationId`: una coincidencia ahi no retira uno de otro chat.
 */
 export function fotosQueYaLlegaron(
-  fotos: readonly Pick<FotoEnEnvio, "id" | "conversationId" | "subida">[],
+  fotos: readonly Pick<FotoEnEnvio, "id" | "conversationId" | "subida" | "clave">[],
   conversationId: string | null | undefined,
-  mensajesReales: readonly Pick<SharedInboxMessageItem, "mediaUrl">[],
+  mensajesReales: readonly Pick<SharedInboxMessageItem, "mediaUrl" | "rawPayload">[],
 ): string[] {
   if (!conversationId || fotos.length === 0 || mensajesReales.length === 0) {
     return [];
   }
   const direcciones = new Set<string>();
+  const claves = new Set<string>();
   for (const mensaje of mensajesReales) {
     if (mensaje.mediaUrl) {
       direcciones.add(mensaje.mediaUrl);
     }
+    const clave = claveDelMensaje(mensaje.rawPayload);
+    if (clave) {
+      claves.add(clave);
+    }
   }
   return fotos
-    .filter(
-      (foto) =>
-        foto.conversationId === conversationId && Boolean(foto.subida?.url) && direcciones.has(foto.subida!.url),
-    )
+    .filter((foto) => {
+      if (foto.conversationId !== conversationId) {
+        return false;
+      }
+      const porDireccion = Boolean(foto.subida?.url) && direcciones.has(foto.subida!.url);
+      const porClave = Boolean(foto.clave?.trim()) && claves.has(foto.clave);
+      return porDireccion || porClave;
+    })
     .map((foto) => foto.id);
 }
 

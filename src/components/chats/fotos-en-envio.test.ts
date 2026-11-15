@@ -90,6 +90,46 @@ describe("qué burbuja se retira al llegar el mensaje real", () => {
     const fallida = foto({ conversationId: "chat-a", subida: subida("/uploads/a.jpg"), estado: "fallida" });
     assert.deepEqual(fotosQueYaLlegaron([fallida], "chat-a", [{ mediaUrl: "/uploads/a.jpg" }]), [fallida.id]);
   });
+
+  it("se retira por clave aunque la URL sea distinta", () => {
+    const enviada = foto({ conversationId: "chat-a", clave: "k1", subida: subida("/uploads/a.jpg"), estado: "enviada" });
+    assert.deepEqual(
+      fotosQueYaLlegaron([enviada], "chat-a", [
+        { mediaUrl: "/uploads/a-grande.jpg", rawPayload: { clientMessageId: "k1" } },
+      ]),
+      [enviada.id],
+    );
+  });
+
+  it("se retira por clave aunque todavía no tenga la dirección del servidor", () => {
+    const enviando = foto({ conversationId: "chat-a", clave: "k1", estado: "enviando" });
+    assert.deepEqual(
+      fotosQueYaLlegaron([enviando], "chat-a", [{ mediaUrl: "https://gateway/x.jpg", rawPayload: { clientMessageId: "k1" } }]),
+      [enviando.id],
+    );
+  });
+
+  it("la misma clave en otro chat no la retira", () => {
+    const deA = foto({ conversationId: "chat-a", clave: "k1", subida: subida("/uploads/a.jpg"), estado: "enviada" });
+    assert.deepEqual(
+      fotosQueYaLlegaron([deA], "chat-b", [{ mediaUrl: "/uploads/a-grande.jpg", rawPayload: { clientMessageId: "k1" } }]),
+      [],
+    );
+  });
+
+  it("no retira una sin clave coincidente ni con clave vacía", () => {
+    const distinta = foto({ conversationId: "chat-a", clave: "k1", subida: subida("/uploads/a.jpg"), estado: "enviada" });
+    const vacia = foto({ conversationId: "chat-a", clave: "", subida: subida("/uploads/b.jpg"), estado: "enviada" });
+    assert.deepEqual(
+      fotosQueYaLlegaron([distinta, vacia], "chat-a", [
+        { mediaUrl: "/uploads/a-grande.jpg", rawPayload: { clientMessageId: "k2" } },
+        { mediaUrl: "/uploads/b-grande.jpg", rawPayload: { clientMessageId: "" } },
+        { mediaUrl: "/uploads/c.jpg", rawPayload: {} },
+        { mediaUrl: "/uploads/d.jpg", rawPayload: null },
+      ]),
+      [],
+    );
+  });
 });
 
 describe("cada chat ve solo sus burbujas", () => {
