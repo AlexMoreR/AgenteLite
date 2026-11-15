@@ -414,6 +414,11 @@ await prueba("consultas: dueño, cache fria <= 11 y caliente <= 7 (antes eran 14
   assert.ok(caliente.consultas <= 7, `caliente: ${caliente.consultas}`);
   // Ya no se cuentan todas las conversaciones del negocio en cada pedido.
   assert.ok(!fria.sqls.some((s) => s.includes("_aggr_count_conversations")));
+  // La vista por defecto es "clientes": en frio lee los contactos internos en UNA consulta (con la
+  // config de avisos adentro) y en caliente salen de la memoria.
+  const deInternos = (r) => r.sqls.filter((s) => s.includes(`'telefono' AS "tipo"`)).length;
+  assert.equal(deInternos(fria), 1, "fria: los internos van en una sola consulta");
+  assert.equal(deInternos(caliente), 0, "caliente: los internos salen de la memoria");
 });
 
 await prueba("consultas: asesora con linea elegida y scroll, caliente <= 7 (antes eran 17)", async () => {

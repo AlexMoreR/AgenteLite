@@ -154,8 +154,11 @@ export const GRUPOS_DE_BANDEJA = ["clientes", "equipo", "proveedores", "todos"] 
 
 export type GrupoDeBandeja = (typeof GRUPOS_DE_BANDEJA)[number];
 
-/** Sin `grupo` en la direccion. Hoy "todos": nada cambia hasta que se elija otro por defecto. */
-export const GRUPO_POR_DEFECTO: GrupoDeBandeja = "todos";
+/**
+ * Sin `grupo` en la direccion: "clientes". La bandeja ya no mezcla a los del equipo con los clientes;
+ * Equipo y Proveedores tienen sus propias pastillas (`grupo=equipo` / `grupo=proveedores`).
+ */
+export const GRUPO_POR_DEFECTO: GrupoDeBandeja = "clientes";
 
 /** El grupo de la direccion, o null si no viene o no se entiende. */
 export function leerGrupoDeBandeja(crudo: string | null | undefined): GrupoDeBandeja | null {

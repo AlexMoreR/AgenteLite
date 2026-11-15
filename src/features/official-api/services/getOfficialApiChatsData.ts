@@ -22,7 +22,7 @@ import {
   reglaDelGrupo,
   type FiltrosDeBandeja,
 } from "@/features/chats/services/filtros-de-bandeja";
-import { contactosInternos, type ContactosInternos } from "@/features/chats/services/contactos-internos";
+import { contactosInternosSiSePuede, type ContactosInternos } from "@/features/chats/services/contactos-internos";
 
 function normalizeSearch(value: string | undefined) {
   return typeof value === "string" ? value.trim() : "";
@@ -229,10 +229,13 @@ export async function fragmentosDeFiltrosOficiales(
   if (contexto) {
     const grupo = grupoQueAplica(filtros, contexto.q);
     if (grupo !== "todos") {
-      const internos = await contactosInternos(workspaceId);
-      const regla = reglaDelGrupo({ grupo, internos, asignacion: contexto.asignacion ?? "all", filtros });
-      const parte = sqlDelGrupoOficial(regla, internos);
-      if (parte) partes.push(parte);
+      // Si no se pueden leer, el grupo no filtra (igual que en el canal viejo): la lista sale igual.
+      const internos = await contactosInternosSiSePuede(workspaceId, "chats/oficial");
+      if (internos) {
+        const regla = reglaDelGrupo({ grupo, internos, asignacion: contexto.asignacion ?? "all", filtros });
+        const parte = sqlDelGrupoOficial(regla, internos);
+        if (parte) partes.push(parte);
+      }
     }
   }
 

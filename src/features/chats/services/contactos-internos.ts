@@ -1,6 +1,5 @@
 import { Prisma } from "@prisma/client";
 
-import { leerConfigDeAvisos } from "@/features/agente-v3/servicios/avisos";
 import { CacheConTtl } from "@/lib/cache-en-memoria";
 import { normalizarEtiqueta } from "@/lib/llamada-pide-resultado";
 import { prisma } from "@/lib/prisma";
@@ -21,8 +20,10 @@ import { prisma } from "@/lib/prisma";
  * Los telefonos se comparan con y sin el 57 (Colombia): un contacto guardado "3001234567" y un
  * aviso a "573001234567" son la misma persona.
  *
- * En frio son DOS consultas (la config de avisos y una sola SQL para etiquetas y telefonos), y por
- * un minuto ninguna: la bandeja pide la lista cada pocos segundos y esto cambia muy de vez en cuando.
+ * En frio es UNA sola SQL (la config de avisos, las etiquetas y los telefonos), y por un minuto
+ * ninguna: la bandeja pide la lista cada pocos segundos y esto cambia muy de vez en cuando. Desde que
+ * la vista por defecto es "clientes" (parte 4) esto corre en cada bandeja en frio: la config de
+ * avisos va dentro de la misma SQL para no sumar una consulta (tope de check-velocidad-bandeja).
  */
 
 export type ContactosInternos = {
@@ -48,6 +49,20 @@ export function vaciarCacheDeContactosInternos() {
   cacheDeInternos.vaciar();
 }
 
+/**
+ * La clave de la config de avisos en AppSetting: la MISMA que usa leerConfigDeAvisos
+ * (features/agente-v3/servicios/avisos, `CLAVE`). check-bandeja-sin-internos comprueba que coincidan.
+ */
+export const PREFIJO_CONFIG_DE_AVISOS = "agente-v3:avisos:";
+
+/*
+  Los numeros de `destinos[].numero` se sacan del texto guardado con una expresion regular y no con
+  un cast a jsonb: un valor roto no tumba la bandeja (leerConfigDeAvisos tambien lo ignora). Como
+  ahi, la config cuenta solo si tiene `canalId`. Van como parametros, sin barras invertidas en la SQL.
+*/
+const PATRON_CANAL_ID = '"canalId"[[:space:]]*:[[:space:]]*"[^"]+"';
+const PATRON_NUMERO = '"numero"[[:space:]]*:[[:space:]]*"([^"]*)"';
+
 /** ¿Que es esta etiqueta? Por nombre o slug, sin tildes ni mayusculas. */
 export function tipoDeEtiquetaInterna(etiqueta: { name?: string | null; slug?: string | null }): "equipo" | "proveedor" | null {
   const textos = [normalizarEtiqueta(etiqueta.name), normalizarEtiqueta(etiqueta.slug)];
@@ -57,22 +72,29 @@ export function tipoDeEtiquetaInterna(etiqueta: { name?: string | null; slug?: s
 }
 
 /**
- * La consulta unica. Devuelve dos tipos de fila:
+ * La consulta unica (los numeros internos: las lineas del negocio y los `destinos` de la config de
+ * avisos). Devuelve dos tipos de fila:
  * - "telefono": cada variante de un numero interno y, si hay, el contacto que tiene ese numero.
  * - "etiqueta": cada etiqueta candidata (el nombre o el slug contienen equipo/proveedor) y cada
  *   contacto que la tiene. La decision final (nombre exacto) la toma `tipoDeEtiquetaInterna`.
  */
-export function sqlContactosInternos(workspaceId: string, numerosDeAvisos: string[]): Prisma.Sql {
+export function sqlContactosInternos(workspaceId: string): Prisma.Sql {
   const sinTildes = (columna: Prisma.Sql) => Prisma.sql`translate(lower(${columna}), 'áéíóúü', 'aeiouu')`;
   const nombre = sinTildes(Prisma.sql`t."name"`);
   const slug = sinTildes(Prisma.sql`t."slug"`);
   return Prisma.sql`
-    WITH numeros AS (
+    WITH config AS (
+      SELECT s."value" AS v
+      FROM "AppSetting" s
+      WHERE s."key" = ${PREFIJO_CONFIG_DE_AVISOS + workspaceId} AND s."value" ~ ${PATRON_CANAL_ID}
+    ),
+    numeros AS (
       SELECT regexp_replace(ch."phoneNumber", '[^0-9]', '', 'g') AS n
       FROM "WhatsAppChannel" ch
       WHERE ch."workspaceId" = ${workspaceId} AND ch."phoneNumber" IS NOT NULL
       UNION
-      SELECT regexp_replace(a.n, '[^0-9]', '', 'g') FROM unnest(${numerosDeAvisos}::text[]) AS a(n)
+      SELECT regexp_replace(r.m[1], '[^0-9]', '', 'g')
+      FROM config, regexp_matches(config.v, ${PATRON_NUMERO}, 'g') AS r(m)
     ),
     variantes AS (
       SELECT n FROM numeros WHERE length(n) >= 10
@@ -138,11 +160,23 @@ export function armarContactosInternos(filas: readonly FilaDeInternos[]): Contac
   };
 }
 
+/**
+ * Lo mismo, pero si la consulta falla devuelve null y lo anota (`donde`): sin los internos el grupo
+ * no filtra y la bandeja sale con todo, en vez de caerse. Desde que la vista por defecto es
+ * "clientes" esto corre en cada bandeja (lista, pantalla y linea oficial), no solo en las pastillas.
+ */
+export async function contactosInternosSiSePuede(workspaceId: string, donde: string): Promise<ContactosInternos | null> {
+  try {
+    return await contactosInternos(workspaceId);
+  } catch (error) {
+    console.error(`[${donde}] no se pudieron leer los contactos internos`, error);
+    return null;
+  }
+}
+
 export async function contactosInternos(workspaceId: string): Promise<ContactosInternos> {
   return cacheDeInternos.obtener(workspaceId, async () => {
-    const config = await leerConfigDeAvisos(workspaceId);
-    const numeros = Array.from(new Set((config?.destinos ?? []).map((destino) => destino.numero).filter(Boolean)));
-    const filas = await prisma.$queryRaw<FilaDeInternos[]>(sqlContactosInternos(workspaceId, numeros));
+    const filas = await prisma.$queryRaw<FilaDeInternos[]>(sqlContactosInternos(workspaceId));
     return armarContactosInternos(filas);
   });
 }

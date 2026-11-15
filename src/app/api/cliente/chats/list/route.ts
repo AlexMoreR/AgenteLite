@@ -30,7 +30,7 @@ import {
   whereDeGrupo,
   type FiltrosDeBandeja,
 } from "@/features/chats/services/filtros-de-bandeja";
-import { contactosInternos } from "@/features/chats/services/contactos-internos";
+import { contactosInternosSiSePuede } from "@/features/chats/services/contactos-internos";
 import { DIAS_DE_SIN_RESPONDER, SIN_FILTROS, leerEspera } from "@/features/chats/domain/filtros-de-bandeja";
 import {
   listaDeEsperaDeLaBandeja,
@@ -263,7 +263,7 @@ async function getAgentConversationList(input: {
         ? input.selectedConnectionKey.slice("channel:".length)
         : null,
     }),
-    grupo === "todos" ? null : contactosInternos(input.workspaceId),
+    grupo === "todos" ? null : contactosInternosSiSePuede(input.workspaceId, "chats/list"),
   ]);
 
   const conversationWhere: Prisma.ConversationWhereInput = {
