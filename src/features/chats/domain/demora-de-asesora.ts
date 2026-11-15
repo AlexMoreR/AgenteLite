@@ -141,6 +141,27 @@ export function topeDeReasignacionAlcanzado(reasignaciones: readonly number[], d
   return reasignaciones.filter((en) => en >= desde).length >= MAXIMO_REASIGNACIONES_POR_ESPERA;
 }
 
+/** Un par (chat, asesora que firmó) de los mensajes manuales del CRM de ese chat. */
+export type RemitenteManual = { conversationId: string; enviadoPorUserId: string };
+
+/**
+ * ¿La asesora ACTUAL ya le escribió a la clienta en este chat? Si sí, el chat no se reasigna a los
+ * `minutosReasignar` (queda fijo con ella): no se mueve, no hay nota ni aviso al dueño y a los jefes.
+ * El push de los `minutosAviso` sigue igual.
+ *
+ * `remitentes` salen de sqlRemitentesManualesDeLosChats. Cuentan solo los mensajes salientes del CRM
+ * con `source = 'manual'`, `enviadoPorUserId` = la asesora y que no fallaron: texto, nota de voz,
+ * archivo, ubicación, cotización y el flujo enviado a mano. NO cuentan el bot (`api` o sin origen),
+ * los seguimientos (`follow`, `agente-v3-seguimiento*`, `automation_reactivation`), las notas internas
+ * (`SYSTEM`) ni lo que se escribe desde el celular (`instance`, no guarda autor).
+ *
+ * Se mira solo a la asesora actual: si el dueño pasó el chat a otra asesora que todavía no le ha
+ * escrito, a ella sí le aplican los minutos de reasignar.
+ */
+export function yaLaAtendio(remitentes: readonly RemitenteManual[], chatId: string, asesoraId: string): boolean {
+  return remitentes.some((fila) => fila.conversationId === chatId && fila.enviadoPorUserId === asesoraId);
+}
+
 export type EntradaDeEleccion = {
   /** Las que pueden recibir en esta línea ahora (reparto, miembro activo, horario, sin pausa), en el orden de la rueda. */
   candidatas: readonly string[];

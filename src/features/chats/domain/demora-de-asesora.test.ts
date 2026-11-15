@@ -16,6 +16,7 @@ import {
   leerConfigDemoraDeTexto,
   leerFotoDeCierreDeTexto,
   topeDeReasignacionAlcanzado,
+  yaLaAtendio,
 } from "./demora-de-asesora";
 
 const prendida = leerConfigDemoraDeTexto(JSON.stringify({ activo: true }));
@@ -246,4 +247,22 @@ test("agrupar reasignaciones por quién se demoró y por quién recibió", () =>
     porQuienRecibio: { yair: 2, ingrid: 2 },
   });
   assert.deepEqual(agruparReasignaciones([]), { total: 0, porQuienSeDemoro: {}, porQuienRecibio: {} });
+});
+
+// Los pares (chat, asesora) salen solo de los mensajes manuales del CRM: el bot, los seguimientos,
+// las notas internas y el celular no llegan a esta lista (los filtra sqlRemitentesManualesDeLosChats).
+test("yaLaAtendio: un mensaje manual propio en el chat da verdadero", () => {
+  assert.equal(yaLaAtendio([{ conversationId: "c1", enviadoPorUserId: "maria" }], "c1", "maria"), true);
+});
+
+test("yaLaAtendio: solo bot o seguimiento (sin pares manuales) da falso", () => {
+  assert.equal(yaLaAtendio([], "c1", "maria"), false);
+});
+
+test("yaLaAtendio: un mensaje manual de otra asesora da falso para la actual", () => {
+  assert.equal(yaLaAtendio([{ conversationId: "c1", enviadoPorUserId: "yair" }], "c1", "maria"), false);
+});
+
+test("yaLaAtendio: un mensaje manual suyo en otro chat da falso", () => {
+  assert.equal(yaLaAtendio([{ conversationId: "c2", enviadoPorUserId: "maria" }], "c1", "maria"), false);
 });
