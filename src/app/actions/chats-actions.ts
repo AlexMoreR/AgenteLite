@@ -992,9 +992,11 @@ async function enviarRespuestaUnificada(
     const mensajeDelEnvio = parsed.data.message;
     const conTotalDePanelDelEnvio = parsed.data.conTotalDePanel === "1";
     const userIdDelPermiso = interno?.permiso.userId ?? null;
+    // La sesion se lee ACA, todavia dentro del pedido: dentro de after() auth() lee headers() y
+    // Next lo corta con "used headers() inside after()", y la asesora no se quedaba con el chat.
+    const userId = userIdDelPermiso ?? (await auth())?.user?.id ?? "";
     after(async () => {
       try {
-        const userId = userIdDelPermiso ?? (await auth())?.user?.id ?? "";
         const membership = await getPrimaryWorkspaceForUser(userId);
         if (!membership?.workspace.id) {
           return;
