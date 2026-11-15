@@ -20,7 +20,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { getTagBadgeColors } from "@/lib/tag-badge";
 import {
   firmaDeLaVista,
-  GRUPO_POR_DEFECTO,
   hayFiltrosPuestos,
   listaQueSeEstaMirando,
   paramsDeFiltros,
@@ -60,7 +59,7 @@ type AppSidebarProps = {
   searchQuery?: string;
   assignedFilter?: AssignedFilter;
   statusFilter?: StatusFilter;
-  assignedCounts?: { mine: number; unassigned: number; all: number; sinResponder?: number; noLeido?: number; equipo?: number; proveedores?: number } | null;
+  assignedCounts?: { mine: number; unassigned: number; all: number; sinResponder?: number; noLeido?: number } | null;
   /** La vista "Esperando" (`espera=1`) esta puesta. */
   enEspera?: boolean;
   /** `espera.mine` y `espera.all` del ultimo /counts. null = sin dato: la pastilla va sin numero. */
@@ -599,13 +598,6 @@ export const AppSidebar = React.memo(function AppSidebar({
     [assignedFilter, irA, searchAction, selectedConnectionKey, searchQuery, filtros],
   );
 
-  // El modal no conoce el `grupo`: aplicarlo (o limpiarlo) no saca de Equipo ni de Proveedores.
-  const aplicarDesdeElModal = React.useCallback(
-    (asignacion: AssignedFilter, estado: StatusFilter, nuevos: FiltrosDeBandeja) =>
-      aplicarFiltros(asignacion, estado, filtros.grupo ? { ...nuevos, grupo: filtros.grupo } : nuevos),
-    [aplicarFiltros, filtros.grupo],
-  );
-
   /**
    * Volver a un filtro guardado.
    *
@@ -787,9 +779,6 @@ export const AppSidebar = React.memo(function AppSidebar({
     },
   });
 
-  // Equipo o Proveedores puesto: Todas / Mias / Sin asignar no van pintadas ("clientes" es el de siempre).
-  const grupoPuesto = Boolean(filtros.grupo && filtros.grupo !== GRUPO_POR_DEFECTO);
-
   // La pastilla "Sin responder" va encendida si esta puesta la condicion `sin_responder:si`.
   const sinResponderPuesto = filtroSinResponderPuesto(filtros.condiciones);
   // Y "No leido", si esta puesta `no_leido:si`.
@@ -802,7 +791,6 @@ export const AppSidebar = React.memo(function AppSidebar({
    */
   const alternarCondicion = (campo: "sin_responder" | "no_leido", puesta: boolean) =>
     aplicarFiltros(assignedFilter, statusFilter, {
-      ...filtros,
       condiciones: puesta
         ? filtros.condiciones.filter((condicion) => !(condicion.campo === campo && condicion.operador === "si"))
         : [
@@ -875,26 +863,21 @@ export const AppSidebar = React.memo(function AppSidebar({
       );
     }
 
-    /*
-      Todas, Mias y Sin asignar: la asignacion. Con una lista abierta, tocarla la cierra. Con la
-      pastilla Equipo o Proveedores puesta ninguna va pintada (la asesora tampoco en Mias), y
-      tocarla quita el `grupo`: vuelve a los clientes.
-    */
+    // Todas, Mias y Sin asignar: la asignacion. Con una lista abierta, tocarla la cierra.
     const valor = clave === "todas" ? "all" : clave === "mias" ? "mine" : "unassigned";
-    const activa = !listaActiva && !grupoPuesto && filtroMostrado === valor;
-    const sinGrupo: FiltrosDeBandeja = { ...filtros, grupo: undefined };
+    const activa = !listaActiva && filtroMostrado === valor;
     // En "Esperando" la pintada llena es Esperando; el grupo va con borde de la marca.
     const grupoDeEsperando = enEspera && activa;
     const alTocar =
       valor === "unassigned"
         ? // "Esperando" es solo de Todas o Mias: Sin asignar sale de ahi.
-          () => (listaActiva ? aplicarFiltros(valor, "open", SIN_FILTROS) : aplicarFiltros(valor, statusFilter, sinGrupo))
+          () => (listaActiva ? aplicarFiltros(valor, "open", SIN_FILTROS) : aplicarFiltros(valor, statusFilter))
         : () =>
             enEspera
               ? irAEsperando(valor, filtroMostrado !== valor)
               : listaActiva
                 ? aplicarFiltros(valor, "open", SIN_FILTROS)
-                : aplicarFiltros(valor, statusFilter, sinGrupo);
+                : aplicarFiltros(valor, statusFilter);
     return (
       <button
         key={clave}
@@ -906,37 +889,6 @@ export const AppSidebar = React.memo(function AppSidebar({
       >
         {etiqueta}
         {assignedCounts && !listaActiva ? numeroDePastilla(assignedCounts[valor]) : null}
-      </button>
-    );
-  };
-
-  /*
-    EQUIPO Y PROVEEDORES (parte 4 de "sacar los avisos internos"): la vista por defecto ya no trae
-    los chats internos ni, en Mias, los de proveedores. Estas dos pastillas los muestran aparte, con
-    su numero de /counts. Cada una sale solo si tiene chats o si esta puesta, y la ven tambien las
-    asesoras: el servidor les cuenta y les muestra solo lo suyo (les impone Mias).
-    Tocarla pone `grupo` sobre Todas; tocarla de nuevo lo quita. Con una lista abierta, la suelta.
-  */
-  const pastillaDeGrupo = (grupo: "equipo" | "proveedores") => {
-    const activa = !listaActiva && filtros.grupo === grupo;
-    const numero = assignedCounts?.[grupo];
-    if (!activa && !(typeof numero === "number" && numero > 0)) return null;
-    const etiqueta = grupo === "equipo" ? "Equipo" : "Proveedores";
-    const alTocar = () =>
-      listaActiva
-        ? aplicarFiltros("all", "open", { ...SIN_FILTROS, grupo })
-        : aplicarFiltros("all", statusFilter, { ...filtros, grupo: activa ? undefined : grupo });
-    return (
-      <button
-        key={`grupo:${grupo}`}
-        type="button"
-        aria-pressed={activa}
-        title={activa ? `Quitar ${etiqueta} y volver a los clientes` : `Ver solo los chats de ${etiqueta.toLowerCase()}`}
-        onClick={alTocar}
-        className={clasesDePastilla(activa)}
-      >
-        {etiqueta}
-        {!listaActiva ? numeroDePastilla(numero) : null}
       </button>
     );
   };
@@ -1053,9 +1005,6 @@ export const AppSidebar = React.memo(function AppSidebar({
                 return pastillaFija(clave);
               })}
 
-              {pastillaDeGrupo("equipo")}
-              {pastillaDeGrupo("proveedores")}
-
               <button
                 type="button"
                 onClick={() => abrirFiltro({ tipo: "nueva" })}
@@ -1139,7 +1088,6 @@ export const AppSidebar = React.memo(function AppSidebar({
                     alAbrir={() => abrirFiltro()}
                     alQuitar={() =>
                       aplicarFiltros(assignedFilter, statusFilter, {
-                        ...filtros,
                         condiciones: filtros.condiciones.filter((_, j) => j !== indice),
                       })
                     }
@@ -1257,7 +1205,7 @@ export const AppSidebar = React.memo(function AppSidebar({
         statusFilter={statusFilter}
         filtros={filtros}
         assignedCounts={assignedCounts}
-        alAplicar={aplicarDesdeElModal}
+        alAplicar={aplicarFiltros}
         alGuardarLista={guardarLista}
       />
 

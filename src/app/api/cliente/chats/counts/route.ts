@@ -479,7 +479,7 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     ids: idsDeLosFiltros,
   });
 
-  /** El grupo por defecto (clientes) con su asignacion: Todas, Mias y Sin asignar no cuentan internos. */
+  /** El grupo por defecto con su asignacion (sin efecto mientras GRUPO_POR_DEFECTO sea "todos"). */
   const delGrupo = (asignacion: string): Prisma.ConversationWhereInput =>
     whereDeGrupo({ grupo: grupoDeLasPastillas, internos, asignacion, filtros });
 
