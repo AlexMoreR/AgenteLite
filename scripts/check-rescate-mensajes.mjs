@@ -147,7 +147,7 @@ const reemplazos = new Map([
     },
   ],
   [ruta("features/agente-v3/servicios/avisos.ts"), { avisarAsesorPorWhatsApp: async () => {} }],
-  [ruta("features/agente-v3/servicios/redactor.ts"), { responderConElRedactor: async () => "sin redactor en la prueba" }],
+  [ruta("features/agente-v3/servicios/redactor.ts"), { responderConElRedactor: async () => ({ porque: "sin redactor en la prueba", respondio: false, causa: null }) }],
   [ruta("features/crm/services/stage-follow-up.ts"), { agendarSeguimientoDeEtapa: async () => {} }],
   [ruta("features/embudo/servicios/eventos.ts"), { registrarTurnoV3: async () => {} }],
 ]);

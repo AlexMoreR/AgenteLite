@@ -189,7 +189,7 @@ export async function retomarConversacionV3(input: {
       pausarIa,
       // El redactor de la estrella, con sus candados: igual que en el webhook.
       responderConIa: async (guia) => {
-        const porque = await responderConElRedactor({
+        const { porque, causa } = await responderConElRedactor({
           workspaceId: channel.workspaceId,
           conversationId: conversation.id,
           guia,
@@ -198,7 +198,7 @@ export async function retomarConversacionV3(input: {
           yaLoDijimos: yaLoDijimos,
           pausarIa,
         });
-        console.log("[retomar] v3_responder_con_ia", { conversationId: conversation.id, porque });
+        console.log("[retomar] v3_responder_con_ia", { conversationId: conversation.id, porque, causa });
       },
       responderSinRegla: async ({ foto }) =>
         responderConElRedactor({
@@ -209,7 +209,7 @@ export async function retomarConversacionV3(input: {
           avisarAsesor: avisarAsesor,
           yaLoDijimos: yaLoDijimos,
           pausarIa,
-        }),
+        }).then((resultado) => resultado.porque),
       alEntrarAlPaso: async (productoId, paso) => {
         if (channel.purpose === "ADMIN") return;
         await agendarSeguimientoDeEtapa({

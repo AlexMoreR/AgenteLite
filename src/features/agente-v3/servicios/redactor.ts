@@ -14,7 +14,18 @@ import { generarSugerenciaDeRespuesta } from "@/lib/sugerencia-de-respuesta";
  * Y nunca repite un mensaje que ya salio en el chat.
  *
  * Tambien es la accion "responder con IA" del libro: la regla le pasa su guia.
+ *
+ * Devuelve el porque (para el log y el motor), si la clienta recibio una respuesta (`respondio`) y,
+ * cuando la IA no logro redactar, la causa ("tiempo de espera", "la IA respondió 429"...).
  */
+export type ResultadoDelRedactor = {
+  porque: string;
+  /** false: la IA fallo, el filtro freno el texto, iba a repetir un mensaje o el envio no salio. */
+  respondio: boolean;
+  /** Por que no hubo texto de la IA; null si la IA si redacto. */
+  causa: string | null;
+};
+
 export async function responderConElRedactor(input: {
   workspaceId: string;
   conversationId: string;
@@ -31,7 +42,7 @@ export async function responderConElRedactor(input: {
    * contestó él solo el precio equivocado). Se despausa como siempre: a mano desde el chat.
    */
   pausarIa?: () => Promise<void>;
-}): Promise<string> {
+}): Promise<ResultadoDelRedactor> {
   const pasarAUnaAsesora = async (motivo: string) => {
     await input.avisarAsesor(motivo);
     await input.pausarIa?.().catch(() => {});
@@ -45,33 +56,48 @@ export async function responderConElRedactor(input: {
     foto: input.foto ?? null,
     // El agente no manda flujos por su cuenta desde aca: eso lo deciden las reglas del libro.
     conFlujos: false,
-  }).catch((error) => ({ error: error instanceof Error ? error.message : String(error) }));
+  }).catch((error) => ({
+    error: error instanceof Error ? error.message : String(error),
+    // El detalle de un error de la base no va en la nota que leen las asesoras.
+    causa: "error interno",
+  }));
 
   if ("error" in resultado) {
-    await input.avisarAsesor("El agente no pudo redactar una respuesta: que conteste una persona");
-    return `El redactor no pudo responder (${resultado.error}): se avisó a una asesora.`;
+    const causa = resultado.causa ?? resultado.error;
+    console.log("[agente-v3] el redactor no pudo redactar", { conversationId: input.conversationId, causa, error: resultado.error });
+    // avisarAsesor le antepone "El agente pide un asesor: " (lo busca el reparto).
+    await input.avisarAsesor(`El agente no pudo redactar una respuesta (${causa}): que conteste una persona`);
+    return { porque: `El redactor no pudo responder (${resultado.error}): se avisó a una asesora.`, respondio: false, causa };
   }
 
   if (resultado.problemas.length > 0) {
     await pasarAUnaAsesora("El agente no pudo responder sin inventar un dato: que conteste una persona");
     console.warn("[agente-v3] redactor sin enviar", { conversationId: input.conversationId, problemas: resultado.problemas });
-    return `El redactor no envió nada porque su texto no cumplía: ${resultado.problemas.join("; ")}. Se avisó a una asesora y se pausó la IA.`;
+    return {
+      porque: `El redactor no envió nada porque su texto no cumplía: ${resultado.problemas.join("; ")}. Se avisó a una asesora y se pausó la IA.`,
+      respondio: false,
+      causa: null,
+    };
   }
 
   if (await input.yaLoDijimos(resultado.texto)) {
     await input.avisarAsesor("El agente iba a repetir un mensaje que ya envió: que conteste una persona");
-    return "El redactor iba a repetir un mensaje ya enviado: se avisó a una asesora.";
+    return { porque: "El redactor iba a repetir un mensaje ya enviado: se avisó a una asesora.", respondio: false, causa: null };
   }
 
   const salio = await input.enviarTexto(resultado.texto);
   if (!salio) {
     await input.avisarAsesor("El agente no pudo enviar su respuesta: que conteste una persona");
-    return "El mensaje del redactor no salió: se avisó a una asesora.";
+    return { porque: "El mensaje del redactor no salió: se avisó a una asesora.", respondio: false, causa: null };
   }
 
   if (resultado.faltaDato) {
     await pasarAUnaAsesora("La clienta preguntó un dato que no está en el libro y el agente le dijo que se lo confirmamos");
-    return "Respondió el redactor y, como faltaba un dato, avisó a una asesora para confirmarlo y pausó la IA.";
+    return {
+      porque: "Respondió el redactor y, como faltaba un dato, avisó a una asesora para confirmarlo y pausó la IA.",
+      respondio: true,
+      causa: null,
+    };
   }
-  return "Respondió el redactor: ninguna regla del libro aplicaba.";
+  return { porque: "Respondió el redactor: ninguna regla del libro aplicaba.", respondio: true, causa: null };
 }

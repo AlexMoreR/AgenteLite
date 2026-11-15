@@ -77,7 +77,15 @@ export type SugerenciaGenerada =
       /** Reglas que siguieron sin cumplirse despues de las correcciones (vacio = todo bien). */
       problemas: string[];
     }
-  | { error: string };
+  /**
+   * `causa` es solo para adentro (el redactor del V3 y los logs): por que no salio texto de la IA
+   * ("tiempo de espera", "la IA respondió 429", "fallo de conexión", "respuesta vacía"). Lo que ven
+   * las asesoras en la estrella es `error`, que no cambia.
+   */
+  | { error: string; causa?: CausaDelFallo };
+
+/** Por que la IA no devolvio un texto usable. */
+export type CausaDelFallo = "tiempo de espera" | `la IA respondió ${number}` | "fallo de conexión" | "respuesta vacía";
 
 export async function generarSugerenciaDeRespuesta(input: {
   workspaceId: string;
@@ -117,7 +125,7 @@ export async function generarSugerenciaDeRespuesta(input: {
     input.fuente === "official" ? flujo.origen.startsWith(origenDelChat) : flujo.origen === origenDelChat,
   );
 
-  const resultado = await redactarSugerencia({
+  const resultado = await redactarConCausa({
     apiKey,
     comoHablamos: libro?.comoHablamos?.trim() || "",
     producto,
@@ -129,8 +137,8 @@ export async function generarSugerenciaDeRespuesta(input: {
     guia: input.guia ?? null,
     foto: input.foto ?? null,
   });
-  if (!resultado) {
-    return { error: "No se pudo generar la sugerencia. Inténtalo de nuevo." };
+  if ("causa" in resultado) {
+    return { error: "No se pudo generar la sugerencia. Inténtalo de nuevo.", causa: resultado.causa };
   }
   return {
     texto: resultado.texto,
@@ -184,8 +192,7 @@ export type LoEnviado = {
   flujosEnviados: Set<string>;
 };
 
-/** La redaccion pura, sin base: prompt, comprobacion de reglas, hasta dos correcciones y arreglos finales. */
-export async function redactarSugerencia(input: {
+type EntradaDeLaRedaccion = {
   apiKey: string;
   comoHablamos: string;
   producto: ProductoParaSugerir | null;
@@ -197,7 +204,18 @@ export async function redactarSugerencia(input: {
   ahora: Date;
   guia?: string | null;
   foto?: string | null;
-}): Promise<{ texto: string; flujo: FlujoSugerido | null; faltaDato: boolean; problemas: string[] } | null> {
+};
+
+type Redaccion = { texto: string; flujo: FlujoSugerido | null; faltaDato: boolean; problemas: string[] };
+
+/** La redaccion pura, sin base: prompt, comprobacion de reglas, hasta dos correcciones y arreglos finales. */
+export async function redactarSugerencia(input: EntradaDeLaRedaccion): Promise<Redaccion | null> {
+  const resultado = await redactarConCausa(input);
+  return "causa" in resultado ? null : resultado;
+}
+
+/** Igual que `redactarSugerencia`, pero si no sale texto dice por que (la causa). */
+export async function redactarConCausa(input: EntradaDeLaRedaccion): Promise<Redaccion | { causa: CausaDelFallo }> {
   const { apiKey, comoHablamos, producto, lineas, enviado } = input;
   const flujosDisponibles = input.flujos.filter((flujo) => !enviado.flujosEnviados.has(flujo.id));
   const catalogo = input.catalogo ?? [];
@@ -244,10 +262,11 @@ export async function redactarSugerencia(input: {
     .filter(Boolean)
     .join("\n\n");
 
-  let respuesta = await pedirAlModelo(apiKey, sistema, [{ role: "user", content: pedido }]);
-  if (!respuesta) {
-    return null;
+  const primera = await pedirAlModelo(apiKey, sistema, [{ role: "user", content: pedido }]);
+  if ("causa" in primera) {
+    return { causa: primera.causa };
   }
+  let respuesta = primera.contenido;
   let borrador = leerRespuesta(respuesta, flujosDisponibles);
 
   /*
@@ -284,9 +303,10 @@ export async function redactarSugerencia(input: {
         content: `Ese mensaje no cumple estas reglas:\n${problemas.map((p) => `- ${p}`).join("\n")}\n\nReescríbelo cumpliéndolas todas. ${FORMATO}`,
       },
     ]);
-    if (!corregida) break;
-    respuesta = corregida;
-    const nuevo = leerRespuesta(corregida, flujosDisponibles);
+    // Si falla una correccion, se queda el borrador anterior (que se vuelve a revisar al final).
+    if ("causa" in corregida) break;
+    respuesta = corregida.contenido;
+    const nuevo = leerRespuesta(corregida.contenido, flujosDisponibles);
     borrador = {
       texto: nuevo.texto || borrador.texto,
       flujo: nuevo.flujo ?? borrador.flujo,
@@ -295,7 +315,10 @@ export async function redactarSugerencia(input: {
   }
 
   const texto = ultimosArreglos(borrador.texto);
-  if (!texto) return null;
+  if (!texto) {
+    console.log("[sugerencia] la IA no redactó", { causa: "respuesta vacía", detalle: "el texto quedó vacío después de los arreglos" });
+    return { causa: "respuesta vacía" };
+  }
   // Se vuelve a revisar el texto final: quien lo va a ENVIAR solo (el agente) no manda si quedo algo.
   return { texto, flujo: borrador.flujo, faltaDato: borrador.faltaDato, problemas: revisar(texto) };
 }
@@ -470,7 +493,20 @@ async function leerProducto(workspaceId: string, productoId: string | null): Pro
 
 type MensajeDelModelo = { role: "user" | "assistant"; content: string };
 
-async function pedirAlModelo(apiKey: string, sistema: string, mensajes: MensajeDelModelo[]) {
+/**
+ * Una llamada a la IA. Devuelve el contenido o la causa de que no haya contenido: el tiempo de
+ * espera de 25 s, el codigo con que respondio la IA (429, 500...), un fallo de conexion o una
+ * respuesta vacia. Sin reintentos.
+ */
+async function pedirAlModelo(
+  apiKey: string,
+  sistema: string,
+  mensajes: MensajeDelModelo[],
+): Promise<{ contenido: string } | { causa: CausaDelFallo }> {
+  const fallo = (causa: CausaDelFallo, detalle?: string) => {
+    console.log("[sugerencia] la IA no redactó", detalle ? { causa, detalle } : { causa });
+    return { causa };
+  };
   try {
     const respuesta = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -484,14 +520,15 @@ async function pedirAlModelo(apiKey: string, sistema: string, mensajes: MensajeD
       }),
     });
     if (!respuesta.ok) {
-      console.warn("[sugerencia] el modelo respondio", respuesta.status);
-      return null;
+      return fallo(`la IA respondió ${respuesta.status}`);
     }
     const datos = (await respuesta.json()) as { choices?: Array<{ message?: { content?: string } }> };
-    return datos.choices?.[0]?.message?.content?.trim() || null;
+    const contenido = datos.choices?.[0]?.message?.content?.trim();
+    return contenido ? { contenido } : fallo("respuesta vacía");
   } catch (error) {
-    console.warn("[sugerencia] fallo la llamada", error instanceof Error ? error.message : String(error));
-    return null;
+    // AbortSignal.timeout corta con un error de nombre "TimeoutError" (tambien si vence leyendo el cuerpo).
+    if (error instanceof Error && error.name === "TimeoutError") return fallo("tiempo de espera");
+    return fallo("fallo de conexión", error instanceof Error ? error.message : String(error));
   }
 }
 
