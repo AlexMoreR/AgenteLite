@@ -200,6 +200,34 @@ export function reducirVentas(filas: Record<string, unknown>[], origenes: Map<st
   return origenes;
 }
 
+const numeroDe = (valor: unknown): number | null => {
+  const n = typeof valor === "number" ? valor : typeof valor === "string" && valor.trim() ? Number(valor.trim()) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
+
+function cotizacionDeLaFila(fila: Record<string, unknown>): string | null {
+  const directo = texto(fila.cotizacion_numero) ?? texto(fila.numero_cotizacion) ?? texto(fila.cotizacionNumero);
+  if (directo) return directo;
+  if (typeof fila.cotizacion === "string" || typeof fila.cotizacion === "number") return texto(fila.cotizacion);
+  const cotizacion = comoObjeto(fila.cotizacion);
+  return cotizacion ? (texto(cotizacion.numero) ?? texto(cotizacion.codigo) ?? texto(cotizacion.id)) : null;
+}
+
+/**
+ * El total de la venta de `listar_ventas` que tiene esa cotización (campos `total`, `valorTotal` o `valor_total`).
+ * null si no hay una fila con esa cotización o su total no es un número mayor que 0: nunca se inventa un monto.
+ */
+export function montoDeVentaPorCotizacion(filas: Record<string, unknown>[], cotizacion: string | null | undefined): number | null {
+  const buscada = texto(cotizacion)?.toUpperCase();
+  if (!buscada) return null;
+  for (const fila of filas) {
+    if (cotizacionDeLaFila(fila)?.toUpperCase() !== buscada) continue;
+    const total = numeroDe(fila.total) ?? numeroDe(fila.valorTotal) ?? numeroDe(fila.valor_total);
+    if (total !== null) return total;
+  }
+  return null;
+}
+
 /* ------------------------------------------------------------------------------------------------
    LO DE GESTIÓN EN LA VENTANA
 ------------------------------------------------------------------------------------------------ */
