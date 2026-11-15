@@ -138,9 +138,36 @@ export function condicionVaciaDeBandeja(campo: CampoDeBandeja): CondicionDeBande
   }
 }
 
+/**
+ * EL GRUPO DE LA BANDEJA: que chats se ven segun QUIEN es el contacto.
+ *
+ * - "clientes": sin los chats del equipo (etiqueta EQUIPO, los numeros que reciben los avisos y
+ *   las propias lineas del negocio) y, en "Mias", tampoco los proveedores.
+ * - "equipo": solo esos chats internos. "proveedores": solo los de etiqueta PROVEEDOR.
+ * - "todos": lo de siempre, sin filtrar.
+ *
+ * Viaja como `grupo=` junto a las condiciones, pero NO es una condicion: no prende las chapitas ni
+ * cuenta en `hayFiltrosPuestos`. Con texto en el buscador no filtra. La regla vive en
+ * ../services/filtros-de-bandeja (`whereDeGrupo`).
+ */
+export const GRUPOS_DE_BANDEJA = ["clientes", "equipo", "proveedores", "todos"] as const;
+
+export type GrupoDeBandeja = (typeof GRUPOS_DE_BANDEJA)[number];
+
+/** Sin `grupo` en la direccion. Hoy "todos": nada cambia hasta que se elija otro por defecto. */
+export const GRUPO_POR_DEFECTO: GrupoDeBandeja = "todos";
+
+/** El grupo de la direccion, o null si no viene o no se entiende. */
+export function leerGrupoDeBandeja(crudo: string | null | undefined): GrupoDeBandeja | null {
+  const texto = (crudo ?? "").trim().toLowerCase();
+  return (GRUPOS_DE_BANDEJA as readonly string[]).includes(texto) ? (texto as GrupoDeBandeja) : null;
+}
+
 export type FiltrosDeBandeja = {
   /** Se cumplen TODAS. Vacio = sin filtro. Solo las completas (ver `condicionCompleta`). */
   condiciones: CondicionDeBandeja[];
+  /** Solo si vino en la direccion. Sin el = GRUPO_POR_DEFECTO. */
+  grupo?: GrupoDeBandeja;
 };
 
 export const SIN_FILTROS: FiltrosDeBandeja = { condiciones: [] };
@@ -492,7 +519,9 @@ export function leerFiltrosDeBandeja(
   for (const texto of (leer("c") ?? "").split(";")) {
     if (texto.trim()) agregar(leerCondicion(texto));
   }
-  return { condiciones };
+  // Un valor desconocido se ignora (queda el de por defecto), igual que una condicion rota.
+  const grupo = leerGrupoDeBandeja(leer("grupo"));
+  return grupo ? { condiciones, grupo } : { condiciones };
 }
 
 /**
@@ -507,7 +536,10 @@ export function leerEspera(leer: (clave: string) => string | null | undefined): 
 /** Los filtros como pares para armar una direccion. Lo que esta vacio no viaja. */
 export function paramsDeFiltros(filtros: FiltrosDeBandeja): Array<[string, string]> {
   const textos = filtros.condiciones.filter(condicionCompleta).map(textoDeCondicionEnUrl);
-  return textos.length ? [["c", textos.join(";")]] : [];
+  const pares: Array<[string, string]> = textos.length ? [["c", textos.join(";")]] : [];
+  // El grupo viaja solo si vino puesto: sin el, la direccion queda igual que antes.
+  if (filtros.grupo) pares.push(["grupo", filtros.grupo]);
+  return pares;
 }
 
 /* ------------------------------------------------------------------------------------------------
