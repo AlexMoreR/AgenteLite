@@ -20,6 +20,8 @@ import { estadoDeEtapaPorLectura, type EstadoDeEtapaPorLectura } from "@/feature
 import { claveModoDelRecibo, claveTelefonoDePrueba, modoDelRecibo, prefijoReciboEnviado, resumenDeEnvios, telefonoParaWhatsApp } from "@/lib/recibo-de-caja";
 import { claveDeReglas, leerReglasDeTexto } from "@/lib/reparto-por-anuncio";
 import { PREFIJO_CONFIG_DEMORA, leerConfigDemoraDeTexto } from "@/features/chats/domain/demora-de-asesora";
+import { faltanLlaves, leerModo } from "@/features/pauta/dominio/evento-de-conversion";
+import { claveModoConversiones } from "@/features/pauta/servicios/conversiones-meta";
 
 /**
  * "¿QUE ES ESTA APLICACION?" PARA UN ASESOR DE IA.
@@ -607,6 +609,46 @@ async function estadoDeLaPauta(workspaceId: string) {
   return `activa: una vez al día (4 a. m.) guarda el origen de ${origenes} chat(s) de anuncio y de ${ventas} venta(s); ${meta ? "Meta Ads conectado en solo lectura" : "SIN llave de Meta Ads (META_ADS_ACCESS_TOKEN y META_ADS_ACCOUNT_ID): el gasto sale no disponible y no hay nombre de campaña"}`;
 }
 
+/** Lo más largo que se muestra de la respuesta de Meta en el último ERROR. */
+const LARGO_ULTIMO_ERROR = 300;
+
+/**
+ * El aviso a Meta (API de Conversiones) de las ventas de pauta: el modo, si están las 3 llaves (solo los
+ * nombres de las que faltan, nunca sus valores), cuántos `EventoDeConversion` hay por estado, el último envío
+ * y la respuesta recortada del último ERROR.
+ */
+async function estadoDeConversionesMeta(workspaceId: string) {
+  const [modo, porEstado, ultimoEnvio, ultimoError] = await Promise.all([
+    bandera(claveModoConversiones(workspaceId)),
+    prisma.eventoDeConversion.groupBy({ by: ["estado"], where: { workspaceId }, _count: { _all: true } }),
+    prisma.eventoDeConversion.findFirst({
+      where: { workspaceId, enviadoEn: { not: null } },
+      orderBy: { enviadoEn: "desc" },
+      select: { enviadoEn: true },
+    }),
+    prisma.eventoDeConversion.findFirst({
+      where: { workspaceId, estado: "ERROR" },
+      orderBy: { actualizadoEn: "desc" },
+      select: { respuesta: true },
+    }),
+  ]);
+  const cuantos = (estado: string) => porEstado.find((fila) => fila.estado === estado)?._count._all ?? 0;
+  const faltan = faltanLlaves(process.env);
+  const error = ultimoError ? (ultimoError.respuesta ?? "").trim() || "(sin respuesta guardada)" : null;
+  return {
+    modo: leerModo(modo),
+    llaves_completas: faltan.length === 0,
+    ...(faltan.length > 0 ? { llaves_que_faltan: faltan } : {}),
+    enviados: cuantos("ENVIADO"),
+    con_error: cuantos("ERROR"),
+    sin_monto: cuantos("SIN_MONTO"),
+    ultimo_envio: ultimoEnvio?.enviadoEn?.toISOString() ?? null,
+    ultimo_error: error && error.length > LARGO_ULTIMO_ERROR ? `${error.slice(0, LARGO_ULTIMO_ERROR)}…` : error,
+  };
+}
+
+type EstadoConversionesMeta = Awaited<ReturnType<typeof estadoDeConversionesMeta>>;
+
 /** El barrido de etapas (cada 10 minutos): prendido o no, el interruptor del Ganado y lo que hizo hoy. */
 function estadoDelBarrido(etapaAuto: string | null, lectura: EstadoDeEtapaPorLectura | null): string {
   if (etapaAuto === "off") return "apagada (crm:etapa-automatica:<negocio> = off)";
@@ -687,7 +729,7 @@ async function automatizaciones(
 
   const lectura = await estadoDeEtapaPorLectura(workspaceId).catch(() => null);
   const sinInterruptor = "activa (no tiene interruptor: corre siempre)";
-  const estados: Record<string, string | EstadoDeEtapaPorLectura> = {
+  const estados: Record<string, string | EstadoDeEtapaPorLectura | EstadoConversionesMeta | { no_se_pudo_leer: string }> = {
     seguimientos_programados: reglasProgramadas > 0 ? `activa: ${reglasProgramadas} reglas prendidas` : "sin reglas prendidas",
     seguimientos_v3:
       v3.hayLineasConV3 && v3.reglasSinRespuesta > 0
@@ -760,6 +802,8 @@ async function automatizaciones(
     archivar_terminadas_tablero: await estadoDelArchivado().catch(() => "no se pudo leer"),
     cerebro_sincronizacion: await estadoDelCerebro(workspaceId).catch(() => "no se pudo leer"),
     origen_de_pauta: await estadoDeLaPauta(workspaceId).catch(() => "no se pudo leer"),
+    // Corre en la corrida diaria de pauta (4 a. m.): un Purchase a Meta por cada venta de pauta con ctwa_clid y monto.
+    conversiones_meta: await seguro("conversiones_meta", () => estadoDeConversionesMeta(workspaceId)),
     agente_de_ventas: await estadoDelAgenteDeVentas(workspaceId).catch(() => "no se pudo leer"),
     agente_de_marketing: await estadoDelAgenteDeMarketing(workspaceId).catch(() => "no se pudo leer"),
     agente_de_sistemas: await estadoDelAgenteDeSistemas(workspaceId).catch(() => "no se pudo leer"),

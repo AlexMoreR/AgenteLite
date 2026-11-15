@@ -313,4 +313,37 @@ prueba("(e) el código solo hace un POST a .../events: nada de campañas, conjun
   assert.ok(!/console\.[a-z]+\([^)]*llave/.test(texto), "la llave no va al log");
 });
 
+prueba("(parte 3) que_es_esta_aplicacion muestra la automatización conversiones_meta", () => {
+  const texto = fs.readFileSync(`${RAIZ}/src/lib/mcp/que-es-esta-aplicacion.ts`, "utf8");
+  assert.ok(/\bconversiones_meta:\s/.test(texto), "aparece la clave conversiones_meta en automatizaciones()");
+  for (const campo of ["modo", "llaves_completas", "enviados", "con_error", "sin_monto", "ultimo_envio", "ultimo_error"]) {
+    assert.ok(new RegExp(`\\b${campo}:`).test(texto), `muestra ${campo}`);
+  }
+  assert.ok(texto.includes("faltanLlaves(process.env)"), "las llaves se miran con faltanLlaves");
+  assert.ok(/seguro\("conversiones_meta"/.test(texto), "si la base no responde sale no_se_pudo_leer");
+});
+
+prueba("(parte 3) la nota del manual tiene conversiones_meta y EventoDeConversion bajo títulos que existen", () => {
+  const manual = fs.readFileSync(`${RAIZ}/docs/que-es-esta-aplicacion.md`, "utf8");
+  const nota = fs.readFileSync(`${RAIZ}/docs/cambios-pendientes/26bf4l8g.md`, "utf8");
+  const titulosDelManual = new Set(manual.split("\n").filter((linea) => linea.startsWith("## ")).map((linea) => linea.trim()));
+  // Cada línea "- `clave`: ..." de la nota, con el título "## ..." bajo el que está.
+  const claves = new Map();
+  let titulo = null;
+  for (const linea of nota.split("\n")) {
+    if (linea.startsWith("## ")) {
+      titulo = linea.trim();
+      assert.ok(titulosDelManual.has(titulo), `el título "${titulo}" existe en el manual`);
+      continue;
+    }
+    const clave = linea.match(/^- `([^`]+)`: \S/);
+    if (clave) {
+      assert.ok(titulo, `la línea ${clave[1]} va bajo un título`);
+      claves.set(clave[1], titulo);
+    }
+  }
+  assert.equal(claves.get("conversiones_meta"), "## Automatizaciones");
+  assert.equal(claves.get("EventoDeConversion"), "## Entidades");
+});
+
 console.log(`\n${pruebas} pruebas pasaron`);
