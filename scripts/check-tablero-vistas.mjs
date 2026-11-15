@@ -92,6 +92,19 @@ await prueba("las columnas de la tabla son las del plan, en orden", () => {
   assert.equal(filas.length, TARJETAS.length, "una fila por tarjeta");
 });
 
+await prueba("la tabla ya no dibuja la columna Tipo, pero filtrar y agrupar por Tipo siguen (15-nov-2026)", () => {
+  assert.deepEqual(
+    vistas.COLUMNAS_DE_LA_TABLA.map((c) => c.nombre),
+    ["Código", "Título", "Área", "Estado", "Prioridad", "Responsable", "Fecha"],
+  );
+  assert.ok(vistas.COLUMNAS_CON_OPCIONES.includes("tipo"), "el filtro y el agrupado por Tipo siguen");
+  const tabla = fs.readFileSync("src/features/tableros-inteligentes/components/VistaTabla.tsx", "utf8");
+  assert.ok(!/COLUMNAS\.map/.test(tabla), "la tabla no recorre la lista completa (traería Tipo)");
+  assert.ok(!/case "tipo"/.test(tabla), "no queda la celda de Tipo");
+  assert.ok(!/IconoDeTipo/.test(tabla), "no queda el ícono del tipo");
+  assert.ok(/colSpan=\{COLUMNAS_DE_LA_TABLA\.length\}/.test(tabla), "la fila de grupo ocupa las columnas que se ven");
+});
+
 await prueba("la vista por defecto es Tabla y las vistas son Tabla, Tablero, Calendario y Mapa", () => {
   assert.equal(vistas.VISTA_POR_DEFECTO, "tabla");
   assert.deepEqual([...vistas.VISTAS], ["tabla", "tablero", "calendario", "mapa"]);

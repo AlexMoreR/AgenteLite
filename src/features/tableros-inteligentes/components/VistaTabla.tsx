@@ -12,8 +12,8 @@ import { borrarVistaDeTablaAction, editarCeldaAction, guardarVistaDeTablaAction 
 import { NOMBRE_DEL_ESTADO, esEstado, type MiembroDelNegocio } from "../services/reglas";
 import type { TarjetaVista, TipoVista } from "../services/tableros";
 import {
-  COLUMNAS,
   COLUMNAS_CON_OPCIONES,
+  COLUMNAS_DE_LA_TABLA,
   CONFIG_VACIA,
   NOMBRE_DE_LA_COLUMNA,
   aplicarConfig,
@@ -26,13 +26,13 @@ import {
   normalizar,
   opcionesDeColumna,
   type ClaveDeColumna,
+  type ClaveDeColumnaDeLaTabla,
   type ColumnaConOpciones,
   type ConfigDeTabla,
   type FilaDeTabla,
   type VistaDeTabla,
 } from "../services/vistas-de-tabla";
 import { COLOR_DEL_ESTADO } from "./colores";
-import { IconoDeTipo } from "./IconoDeTipo";
 import { accionSegura, useCambioDeEstado } from "./VistaKanban";
 
 const DIA = new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", day: "numeric", month: "short", year: "numeric" });
@@ -72,7 +72,6 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
   const filas = useMemo(() => filasDeTabla(tarjetas, tipos), [tarjetas, tipos]);
   // Lo que entra en la vista elegida: en "Todas", sin las carpetas. Los menús de filtro siguen ofreciendo todo.
   const filasDeLaTabla = useMemo(() => filasDeLaVista(filas, activa === null, config.filtros), [filas, activa, config.filtros]);
-  const tipoPorId = useMemo(() => new Map(tipos.map((tipo) => [tipo.id, tipo])), [tipos]);
   const grupos = useMemo(() => aplicarConfig(filasDeLaTabla, config), [filasDeLaTabla, config]);
   const visibles = grupos.reduce((suma, grupo) => suma + grupo.filas.length, 0);
   // Las tarjetas en Hecho o Fallido que la tabla esconde (tras buscar y filtrar) mientras el filtro de Estado no las incluya.
@@ -194,7 +193,7 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
     );
   };
 
-  const celda = (fila: FilaDeTabla<TarjetaVista>, columna: ClaveDeColumna) => {
+  const celda = (fila: FilaDeTabla<TarjetaVista>, columna: ClaveDeColumnaDeLaTabla) => {
     const { tarjeta } = fila;
     switch (columna) {
       case "codigo":
@@ -210,15 +209,6 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
             {tarjeta.titulo}
           </button>
         );
-      case "tipo": {
-        const tipo = tipoPorId.get(tarjeta.tipoId);
-        return (
-          <span className="flex items-center gap-1.5">
-            {tipo ? <IconoDeTipo icono={tipo.icono} color={tipo.color} className="size-3.5 shrink-0" /> : null}
-            <span className="truncate">{fila.tipoNombre}</span>
-          </span>
-        );
-      }
       case "area":
         return (
           <>
@@ -477,10 +467,10 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
             </div>
           )
         ) : (
-          <table className="w-full min-w-[1100px] border-collapse text-sm">
+          <table className="w-full min-w-[960px] border-collapse text-sm">
             <thead className="sticky top-0 z-10 bg-card">
               <tr className="border-b border-border">
-                {COLUMNAS.map(({ clave, nombre }) => {
+                {COLUMNAS_DE_LA_TABLA.map(({ clave, nombre }) => {
                   const orden = config.orden?.columna === clave ? config.orden.direccion : null;
                   const Icono = orden === "asc" ? ArrowUp : orden === "desc" ? ArrowDown : ArrowUpDown;
                   return (
@@ -508,7 +498,7 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
               <tbody key={grupo.clave || "vacio"}>
                 {config.agrupar ? (
                   <tr className="border-b border-border bg-muted/50">
-                    <th colSpan={COLUMNAS.length} scope="colgroup" className="px-3 py-1.5 text-left text-xs font-semibold">
+                    <th colSpan={COLUMNAS_DE_LA_TABLA.length} scope="colgroup" className="px-3 py-1.5 text-left text-xs font-semibold">
                       {grupo.texto} <span className="font-normal tabular-nums text-muted-foreground">{grupo.filas.length}</span>
                     </th>
                   </tr>
@@ -519,7 +509,7 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
                     onClick={() => alAbrir(fila.tarjeta.id)}
                     className="cursor-pointer border-b border-border hover:bg-muted/40"
                   >
-                    {COLUMNAS.map(({ clave }) => (
+                    {COLUMNAS_DE_LA_TABLA.map(({ clave }) => (
                       <td
                         key={clave}
                         className="px-2 py-1 align-middle"
