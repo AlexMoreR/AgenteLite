@@ -218,6 +218,8 @@ const PanelDeEnvio = dynamic(() => import("./panel-de-envio").then((modulo) => m
 
 /** Hasta este peso una foto sube en un solo pedido (ver subirArchivoEnEnvio). */
 const TROZO_DE_FOTO_ACHICADA_BYTES = 1024 * 1024;
+// Un envio cuya burbuja ya se retiro (llego su mensaje real): se corta sin dejarla en rojo.
+const MOTIVO_YA_RETIRADA = "Ya llegó al chat.";
 
 /** iPhone, iPad (que se presenta como Mac con pantalla tactil) o Mac: graban la nota en audio/mp4. */
 function esEquipoApple(): boolean {
@@ -890,13 +892,23 @@ export const ConversationPanel = memo(function ConversationPanel({
     }
     return [...sinNotasInternas, ...enEnvio];
   }, [renderedMessages, fotosDeEsteChat, chatDeLasFotos]);
-  // Llego el mensaje real de una foto: se retira la burbuja y se libera su vista previa local.
+  /*
+    Llego el mensaje real de una foto: se retira la burbuja y se libera su vista previa local.
+    Tambien al volver de otro chat: el almacen vive fuera del panel y, al abrir el chat de nuevo,
+    cambian `chatDeLasFotos` y sus mensajes, asi que esto corre en el primer render y borra la que
+    llego mientras la asesora estaba en otro chat (quitarFotos borra tambien su guardado).
+  */
   useEffect(() => {
     const llegaron = fotosQueYaLlegaron(fotosDeEsteChat, chatDeLasFotos, renderedMessages);
     if (llegaron.length > 0) {
       quitarFotos(llegaron);
     }
   }, [fotosDeEsteChat, chatDeLasFotos, renderedMessages]);
+  // El chat abierto y sus mensajes, para cruzar lo que se retoma tras una recarga (mas abajo).
+  const mensajesDelChatRef = useRef({ chat: chatDeLasFotos, mensajes: renderedMessages });
+  useEffect(() => {
+    mensajesDelChatRef.current = { chat: chatDeLasFotos, mensajes: renderedMessages };
+  }, [chatDeLasFotos, renderedMessages]);
   // Mientras un archivo sube o se envia (de cualquier chat), la app no se recarga sola. Cerrar la
   // pestaña en ese momento pregunta antes (beforeunload en fotos-en-envio.ts).
   const hayFotosEnCurso = todasLasFotosEnEnvio.some(
@@ -1112,11 +1124,17 @@ export const ConversationPanel = memo(function ConversationPanel({
         actualizarFoto(id, { archivo, comprimida: true });
       }
       const desde = performance.now();
-      const resultado = await conReintentosAutomaticos(() =>
-        subirArchivoEnEnvio(inicial, archivo, (avance) => actualizarFoto(id, { avance })),
+      const resultado = await conReintentosAutomaticos(async () =>
+        // Ya se retiro (llego su mensaje real): no se sube.
+        leerFoto(id)
+          ? subirArchivoEnEnvio(inicial, archivo, (avance) => actualizarFoto(id, { avance }))
+          : { ok: false as const, motivo: MOTIVO_YA_RETIRADA, reintentable: false },
       );
       tiempos.subirMs = performance.now() - desde;
       tiempos.intentosDeSubida = resultado.intentos;
+      if (!leerFoto(id)) {
+        return false;
+      }
       if (!resultado.ok) {
         return fallar(resultado.motivo);
       }
@@ -1148,7 +1166,11 @@ export const ConversationPanel = memo(function ConversationPanel({
         Con esperas de 1,5 s y 4 s no deberia pasar nunca: es la red de seguridad.
       */
       const actual = leerFoto(id);
-      if (intentosDeEnvio > 0 && actual && plazoVencido(plazoDe(actual), Date.now())) {
+      if (!actual) {
+        // Se retiro entre intentos porque ya llego su mensaje real: no se manda otra vez.
+        return { ok: false as const, motivo: MOTIVO_YA_RETIRADA, reintentable: false };
+      }
+      if (intentosDeEnvio > 0 && plazoVencido(plazoDe(actual), Date.now())) {
         return { ok: false as const, motivo: MOTIVO_PASO_LA_HORA, reintentable: false };
       }
       intentosDeEnvio += 1;
@@ -1193,6 +1215,10 @@ export const ConversationPanel = memo(function ConversationPanel({
     });
     tiempos.enviarMs = performance.now() - desdeElEnvio;
     tiempos.intentosDeEnvio = envio.intentos;
+    if (!envio.ok && !leerFoto(id)) {
+      // Retirada a mitad del envio: no queda en rojo ni se vuelve a guardar.
+      return false;
+    }
     if (!envio.ok) {
       return fallar(envio.motivo);
     }
@@ -1214,6 +1240,16 @@ export const ConversationPanel = memo(function ConversationPanel({
   }, [enviarFoto]);
   useEffect(() => {
     void reanudarEnviosGuardados((foto) => {
+      /*
+        Si el servidor ya lo habia mandado antes de la recarga, su mensaje real ya esta en el chat:
+        se cruza por clave o direccion (fotosQueYaLlegaron) y se retira al momento, sin volver a
+        subir ni mostrar la ruedita. Uno de otro chat se cruza al abrir ese chat (efecto de arriba).
+      */
+      const { chat, mensajes } = mensajesDelChatRef.current;
+      if (fotosQueYaLlegaron([foto], chat, mensajes).length > 0) {
+        quitarFotos([foto.id]);
+        return;
+      }
       void encolarFoto(foto.id, foto.conversationId, (id) => enviarFotoRef.current(id));
     });
   }, []);
