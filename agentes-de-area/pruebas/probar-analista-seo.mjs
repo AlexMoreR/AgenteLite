@@ -59,7 +59,8 @@ prueba("trae las direcciones de magilus.com que WebFetch puede abrir y el respal
   for (const url of ["https://magilus.com/", "https://magilus.com/robots.txt", "https://magilus.com/sitemap.xml"]) {
     contiene(prompt, url);
   }
-  contiene(prompt, "curl -sL");
+  contiene(prompt, "curl -sL --max-time 30 '<dirección>'");
+  contiene(prompt, "empieza\nexactamente por `https://magilus.com/` o `https://www.magilus.com/`");
 });
 
 prueba("la competencia en Colombia se marca como aproximada y Chromium tiene su paso", () => {

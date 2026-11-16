@@ -48,7 +48,10 @@ Estas direcciones las puedes abrir con WebFetch sin pedir permiso:
 
 Para las demás páginas, saca la dirección exacta de `sitemap.xml` o de Search Console. Si WebFetch pide un permiso
 para una dirección de magilus.com, no esperes la respuesta (nadie la contesta): ábrela con
-`curl -sL --max-time 30 <dirección>`. La red del ambiente permite magilus.com y www.magilus.com.
+`curl -sL --max-time 30 '<dirección>'` (la dirección entre comillas simples). Solo si la dirección empieza
+exactamente por `https://magilus.com/` o `https://www.magilus.com/` y no tiene espacios, comillas ni los signos
+`;` `&` `|` `$` `` ` `` `<` `>`; si tiene alguno, no la abras y anótala en la Bitácora.
+La red del ambiente permite magilus.com y www.magilus.com.
 Si ni así abre, anótalo en la Bitácora con el error exacto y sigue con lo que sí puedas revisar.
 
 ## Auditoría con navegador (skill Claude SEO)
