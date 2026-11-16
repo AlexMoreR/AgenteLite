@@ -48,6 +48,7 @@ import { recuperarArchivoPerdidoAction } from "@/app/actions/chats-actions";
 import { reaccionarPorRuta } from "@/lib/chats/enviar-por-ruta";
 import type { SharedInboxMessageItem } from "./chat-inbox-types";
 import type { EstadoDeFoto } from "./fotos-en-envio";
+import { marcaDeEnvioDeLaBurbuja } from "./marca-de-envio-de-la-burbuja";
 import { guardarBorrosa, leerBorrosa } from "./miniatura-borrosa";
 import { copiarAlPortapapeles, textoParaCopiar } from "./copiar-mensaje";
 import { accionesDelMensaje } from "./orden-del-menu-del-mensaje";
@@ -1178,12 +1179,16 @@ export const MessageBubble = memo(function MessageBubble({
     [message],
   );
   /*
-    Un archivo de la cola de envio (trae fotoEstado) se dibuja como ya enviado: con su ✓, sin
-    ruedita ni reloj, mientras sale por debajo. Solo si falla del todo cambia (fotoFallida). La
-    ruedita queda para una burbuja optimista de archivo que no venga de la cola.
+    Un archivo de la cola de envio se dibuja como ya enviado: con su ✓, sin ruedita ni reloj,
+    mientras sale por debajo, y tambien si ya no trae fotoEstado (la cola lo solto y queda un render
+    mas). Solo si falla del todo cambia (fotoFallida). La regla vive en marca-de-envio-de-la-burbuja.ts.
   */
-  const enColaDeEnvio = Boolean(fotoEstado) && fotoEstado !== "fallida";
-  const isPendingMedia = message.id.startsWith("optimistic-media:") && !fotoEstado;
+  const marcaDeEnvio = marcaDeEnvioDeLaBurbuja({
+    id: message.id,
+    fotoEstado,
+    outboundStatusLabel: message.outboundStatusLabel,
+  });
+  const isPendingMedia = marcaDeEnvio === "ruedita";
   const fotoFallida = fotoEstado === "fallida";
   const isDeleted = Boolean(message.deletedAt);
   const mediaPreviewLabel = getMediaPreviewLabel(message.type);
@@ -1416,11 +1421,11 @@ export const MessageBubble = memo(function MessageBubble({
             {isPendingMedia ? (
               <LoaderCircle className="ml-0.5 h-3 w-3 shrink-0 animate-spin" aria-label="Enviando" />
             ) : null}
-            {outbound && enColaDeEnvio ? (
+            {outbound && marcaDeEnvio === "enviado" ? (
               // En la cola de envio se ve como ya enviado (fotos-en-envio.ts): sin ruedita ni reloj.
               <Check className="ml-1 h-3 w-3 shrink-0" aria-label="Enviado" />
             ) : null}
-            {outbound && !message.outboundStatusLabel && message.id.startsWith("optimistic:") ? (
+            {outbound && marcaDeEnvio === "reloj" ? (
               // Burbuja optimista: reloj tenue del mismo ancho que el ✓ que trae la real, como
               // WhatsApp. Sin esto la hora se corria al llegar el mensaje guardado.
               <Clock3 className="ml-1 h-3 w-3 shrink-0 opacity-60" aria-label="Enviando" />
@@ -1506,9 +1511,9 @@ export const MessageBubble = memo(function MessageBubble({
     <span className="inline-flex items-center gap-1 text-[11px] leading-none text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.7)]">
       {message.authorType === "bot" ? <Bot className={`h-3 w-3 shrink-0 ${sombraDelIcono}`} aria-label="Bot" /> : null}
       {formatChatTime(message.createdAt)}
-      {!outbound || fotoFallida ? null : enColaDeEnvio ? (
+      {!outbound || marcaDeEnvio === "fallida" ? null : marcaDeEnvio === "enviado" ? (
         <Check className={`h-3.5 w-3.5 shrink-0 ${sombraDelIcono}`} aria-label="Enviado" />
-      ) : isPendingMedia || (!message.outboundStatusLabel && message.id.startsWith("optimistic")) ? (
+      ) : marcaDeEnvio === "ruedita" || marcaDeEnvio === "reloj" ? (
         <Clock3 className={`h-3 w-3 shrink-0 ${sombraDelIcono}`} aria-label="Enviando" />
       ) : message.outboundStatusLabel === "READ" ? (
         <CheckCheck className={`h-3.5 w-3.5 shrink-0 text-sky-300 ${sombraDelIcono}`} aria-label="Leído" />

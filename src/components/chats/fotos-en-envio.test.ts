@@ -27,6 +27,7 @@ import {
   type DestinoDeFoto,
   type FotoEnEnvio,
 } from "./fotos-en-envio";
+import { marcaDeEnvioDeLaBurbuja } from "./marca-de-envio-de-la-burbuja";
 
 function destino(conversationId: string): DestinoDeFoto {
   return {
@@ -327,5 +328,33 @@ describe("cola por chat", () => {
     });
     await Promise.all([lento, otro]);
     assert.deepEqual(orden, ["b", "a"]);
+  });
+});
+
+describe("marcaDeEnvioDeLaBurbuja: cuándo dibuja ruedita la burbuja", () => {
+  it("una foto de la cola sin estado (ya la soltó) se ve enviada, nunca con ruedita", () => {
+    assert.equal(marcaDeEnvioDeLaBurbuja({ id: "optimistic-media:local-x" }), "enviado");
+    assert.equal(marcaDeEnvioDeLaBurbuja({ id: nuevoIdDeFoto(), fotoEstado: null }), "enviado");
+  });
+
+  it("una foto de la cola en camino se ve enviada; solo la fallida cambia", () => {
+    assert.equal(marcaDeEnvioDeLaBurbuja({ id: "optimistic-media:local-x", fotoEstado: "subiendo" }), "enviado");
+    assert.equal(marcaDeEnvioDeLaBurbuja({ id: "optimistic-media:local-x", fotoEstado: "enviando" }), "enviado");
+    assert.equal(marcaDeEnvioDeLaBurbuja({ id: "optimistic-media:local-x", fotoEstado: "enviada" }), "enviado");
+    assert.equal(marcaDeEnvioDeLaBurbuja({ id: "optimistic-media:local-x", fotoEstado: "fallida" }), "fallida");
+  });
+
+  it("un optimistic-media: que no es de la cola deja la ruedita, como antes", () => {
+    assert.equal(marcaDeEnvioDeLaBurbuja({ id: "optimistic-media:/uploads/a.jpg" }), "ruedita");
+  });
+
+  it("un texto optimista sin acuse de WhatsApp lleva el reloj; con acuse, no", () => {
+    assert.equal(marcaDeEnvioDeLaBurbuja({ id: "optimistic:abc" }), "reloj");
+    assert.equal(marcaDeEnvioDeLaBurbuja({ id: "optimistic:abc", outboundStatusLabel: "SENT" }), "ninguna");
+  });
+
+  it("un mensaje real no lleva ni ruedita ni reloj: se dibuja su acuse", () => {
+    assert.equal(marcaDeEnvioDeLaBurbuja({ id: "cm123", outboundStatusLabel: "READ" }), "ninguna");
+    assert.equal(marcaDeEnvioDeLaBurbuja({ id: "cm123" }), "ninguna");
   });
 });

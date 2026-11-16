@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { FileText, SendHorizonal, X } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { quitarArchivo } from "@/components/chats/quitar-archivo-de-la-vista-previa";
@@ -50,7 +50,26 @@ export function MediaPreviewDialog({ files, onCancel, onSend, onRemove }: Props)
   const activePosition = Math.max(0, Math.min(activeIndex, previews.length - 1));
   const active = previews[activePosition];
 
-  const handleSend = () => onSend(caption.trim());
+  /*
+    Un solo envío por lista de archivos. En el iPhone un doble toque en Enviar o un Enter repetido
+    llamaba dos veces a onSend (la foto salía dos veces) y la ventana podía quedar a medio cerrar
+    con la tira de miniaturas y sus X encima del chat. El candado (ref) corta el segundo llamado en
+    el acto; el estado esconde la ventana en el mismo render. Se guarda la lista enviada, no un sí o
+    no: si llega una lista nueva sin desmontar la ventana, el candado queda abierto solo.
+  */
+  const enviadosRef = useRef<File[] | null>(null);
+  const [enviadosDe, setEnviadosDe] = useState<File[] | null>(null);
+  const yaEnviado = enviadosDe === files;
+
+  const handleSend = () => {
+    if (enviadosRef.current === files) return;
+    enviadosRef.current = files;
+    setEnviadosDe(files);
+    // Las vistas previas se liberan al enviar y no solo al desmontar: si el Dialog queda montado un
+    // instante (iPhone), no queda ninguna miniatura dibujada. Liberarlas dos veces no hace daño.
+    previews.forEach((preview) => URL.revokeObjectURL(preview.url));
+    onSend(caption.trim());
+  };
 
   // Quita un archivo y deja en grande el que toca (la siguiente, o la anterior si era la última).
   const handleRemove = (index: number) => {
@@ -67,7 +86,7 @@ export function MediaPreviewDialog({ files, onCancel, onSend, onRemove }: Props)
 
   return (
     <Dialog
-      open={files.length > 0}
+      open={files.length > 0 && !yaEnviado}
       onOpenChange={(next) => {
         if (!next) onCancel();
       }}
@@ -83,7 +102,7 @@ export function MediaPreviewDialog({ files, onCancel, onSend, onRemove }: Props)
         <div className="flex min-h-0 flex-1 flex-col">
           {/* Vista previa principal */}
           <div className="relative flex min-h-[180px] flex-1 items-center justify-center overflow-hidden bg-muted/40 p-3">
-            {active ? (
+            {active && !yaEnviado ? (
               <button
                 type="button"
                 onClick={(event) => {
@@ -97,7 +116,7 @@ export function MediaPreviewDialog({ files, onCancel, onSend, onRemove }: Props)
                 <X className="size-5" />
               </button>
             ) : null}
-            {active?.kind === "image" ? (
+            {yaEnviado ? null : active?.kind === "image" ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={active.url} alt={active.file.name} className="max-h-[44vh] max-w-full rounded-lg object-contain" />
             ) : active?.kind === "video" ? (
@@ -119,7 +138,7 @@ export function MediaPreviewDialog({ files, onCancel, onSend, onRemove }: Props)
 
           {/* Tira de miniaturas cuando hay varios archivos. pt-3 y gap-3 dejan lugar para la X, que
               sale por fuera de la esquina de cada miniatura. */}
-          {previews.length > 1 ? (
+          {previews.length > 1 && !yaEnviado ? (
             <div className="flex shrink-0 gap-3 overflow-x-auto border-t border-border px-3 pt-3 pb-2">
               {previews.map((preview, index) => (
                 <div key={preview.url} className="relative shrink-0">
@@ -127,7 +146,7 @@ export function MediaPreviewDialog({ files, onCancel, onSend, onRemove }: Props)
                     type="button"
                     onClick={() => setActiveIndex(index)}
                     className={`flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-lg border transition ${
-                      index === activeIndex ? "border-[var(--primary)] ring-1 ring-[var(--primary)]" : "border-border opacity-70 hover:opacity-100"
+                      index === activePosition ? "border-[var(--primary)] ring-1 ring-[var(--primary)]" : "border-border opacity-70 hover:opacity-100"
                     }`}
                     title={preview.file.name}
                   >
