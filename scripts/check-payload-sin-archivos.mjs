@@ -39,7 +39,7 @@ await prueba("cargador: sin rawPayload en el select de mensajes, recortado en SQ
   assert.match(cargador, /\.then\(conPayloadsSinArchivos\)/);
   assert.match(cargador, /sqlPayloadSinArchivos\('"rawPayload"'\)/);
   assert.match(cargador, /WHERE "id" = ANY\(/);
-  assert.match(cargador, /rawPayload: stripHeavyBase64\(message\.rawPayload\)/, "la segunda red sigue");
+  assert.match(cargador, /rawPayload: (?:sacarMiniaturasPesadas\()?stripHeavyBase64\(message\.rawPayload\)/, "la segunda red sigue");
   // Lo del otro trabajador (check-chat-sin-refresco): paralelo, cursor comprobado, sin channel.metadata.
   assert.match(cargador, /Promise\.all\(\[\s*prisma\.conversation\.findFirst\([\s\S]*?\),\s*messagesPromise,\s*\]\)/);
   assert.match(cargador, /cursorPromise\.then\(\(cursorMessage\) =>/);

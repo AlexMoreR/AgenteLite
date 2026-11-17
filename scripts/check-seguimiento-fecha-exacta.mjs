@@ -45,8 +45,13 @@ prueba("un valor mal escrito da null", () => {
 prueba("1 minuto antes de ahora es pasada", () => {
   assert.deepEqual(validarFechaExacta(desde(-60_000), AHORA), { ok: false, motivo: "pasada" });
 });
-prueba("30 segundos adelante también es pasada", () => {
-  assert.deepEqual(validarFechaExacta(desde(30_000), AHORA), { ok: false, motivo: "pasada" });
+// Desde el 11-nov-2026 (Alex) vale cualquier hora que no paso: ya no se pide 1 minuto de margen.
+prueba("30 segundos adelante ya vale", () => {
+  assert.deepEqual(validarFechaExacta(desde(30_000), AHORA), { ok: true });
+});
+prueba("justo ahora es pasada, salvo con la holgura del servidor", () => {
+  assert.deepEqual(validarFechaExacta(AHORA, AHORA), { ok: false, motivo: "pasada" });
+  assert.deepEqual(validarFechaExacta(desde(-5_000), AHORA, 10_000), { ok: true });
 });
 prueba("91 días es muy lejana", () => {
   assert.deepEqual(validarFechaExacta(desde(91 * 86_400_000), AHORA), { ok: false, motivo: "muy lejana" });

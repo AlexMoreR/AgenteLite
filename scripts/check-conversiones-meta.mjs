@@ -325,7 +325,10 @@ prueba("el MCP (que_es_esta_aplicacion) muestra la automatización conversiones_
 
 prueba("la nota del manual tiene conversiones_meta y EventoDeConversion bajo títulos que existen", () => {
   const manual = fs.readFileSync(`${RAIZ}/docs/que-es-esta-aplicacion.md`, "utf8");
-  const nota = fs.readFileSync(`${RAIZ}/docs/cambios-pendientes/26bf4l8g.md`, "utf8");
+  // Una vez al día el manual nocturno junta la nota en el manual y la borra: entonces se miran las
+  // mismas líneas en el manual mismo.
+  const rutaNota = `${RAIZ}/docs/cambios-pendientes/26bf4l8g.md`;
+  const nota = fs.existsSync(rutaNota) ? fs.readFileSync(rutaNota, "utf8") : manual;
   const titulosDelManual = new Set(manual.split(/\r?\n/).filter((l) => l.startsWith("## ")).map((l) => l.trim()));
   let titulo = null;
   const claves = new Map();
@@ -338,7 +341,8 @@ prueba("la nota del manual tiene conversiones_meta y EventoDeConversion bajo tí
     const m = linea.match(/^- `([^`]+)`: \S/);
     if (m) {
       assert.ok(titulo, `la línea ${m[1]} va bajo un título`);
-      claves.set(m[1], titulo);
+      // La primera vez que sale cada clave (en el manual una clave puede repetirse más abajo).
+      if (!claves.has(m[1])) claves.set(m[1], titulo);
     }
   }
   assert.equal(claves.get("conversiones_meta"), "## Automatizaciones");

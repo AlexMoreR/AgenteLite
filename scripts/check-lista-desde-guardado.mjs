@@ -19,26 +19,24 @@ function prueba(nombre, fn) {
 prueba("loading.tsx usa la lista guardada con las siluetas de respaldo", () => {
   const cargando = leer("src/app/cliente/chats/loading.tsx");
   assert.match(cargando, /import \{ ListaDesdeGuardado \} from "@\/components\/chats\/lista-desde-guardado";/);
-  assert.match(cargando, /<ListaDesdeGuardado fallback=\{Array\.from\(\{ length: FILAS \}[\s\S]*?<Skeleton className="size-12 rounded-full" \/>[\s\S]*?\)\)\} \/>/);
+  assert.match(cargando, /<ListaDesdeGuardado\s+fallback=\{Array\.from\(\{ length: FILAS \}[\s\S]*?<Skeleton className="size-12 rounded-full" \/>[\s\S]*?\)\)\}\s*\/>/);
   // El panel del chat sigue siendo silueta.
   assert.match(cargando, /<div className="hidden min-h-0 flex-1 border-y border-r border-border bg-muted\/30 md:block" \/>/);
 });
 
-prueba("el componente lee en un efecto, es de solo lectura y sin lista deja las siluetas", () => {
+prueba("el componente pone la foto guardada en un efecto, es de solo lectura y deja las siluetas", () => {
+  // Desde el 11-11-2026 (Alex: "que la copia guardada sea IDENTICA a la lista final") ya no dibuja
+  // filas propias: pone ENCIMA la foto de la bandeja (guardado-local/foto-de-la-bandeja) y debajo
+  // quedan siempre las siluetas de loading.tsx.
   const lista = leer("src/components/chats/lista-desde-guardado.tsx");
   assert.match(lista, /^"use client";/);
-  assert.match(lista, /useEffect\(\(\) => \{[\s\S]*?leerListaDelCelular\(\)[\s\S]*?\}, \[\]\);/);
+  assert.match(lista, /import \{ mostrarFotoDeLaBandeja \} from "\.\/guardado-local\/foto-de-la-bandeja";/);
+  assert.match(lista, /useEffect\(\(\) => \{\s*mostrarFotoDeLaBandeja\(\);\s*\}, \[\]\);/);
   const render = lista.slice(lista.indexOf("export function ListaDesdeGuardado"));
   const antesDelEfecto = render.slice(0, render.indexOf("useEffect("));
-  assert.ok(!antesDelEfecto.includes("leerListaDelCelular"), "no se lee en el render (chocaria con el servidor)");
-  assert.match(lista, /if \(!filas\) \{\s*return <>\{fallback\}<\/>;/);
-  assert.match(lista, /aria-busy="true"/);
-  assert.match(lista, /pointer-events-none/);
+  assert.ok(!antesDelEfecto.includes("mostrarFotoDeLaBandeja"), "no se lee en el render (chocaria con el servidor)");
+  assert.match(render, /return <>\{fallback\}<\/>;/);
   assert.ok(!/href=|onClick=|<a |<Link/.test(lista), "sin enlaces ni toques");
-  // Desde el 10-nov-2026 (Alex: "lista de chats sin brincos") la fila guardada lleva la MISMA foto en
-  // miniatura de la lista (casi siempre ya en el navegador), nunca la inicial que despues brincaba a la foto.
-  assert.match(lista, /<ContactAvatar[\s\S]*?avatarUrl=\{fila\.avatarUrl\}[\s\S]*?miniatura/, "la foto en miniatura de la lista");
-  assert.ok(!/charAt\(0\)/.test(lista), "sin la inicial del nombre");
 });
 
 prueba("la bandeja guarda la lista, pero no con busqueda", () => {

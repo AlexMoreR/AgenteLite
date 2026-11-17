@@ -25,6 +25,7 @@ const {
   parsearMapaDeLineas,
   armarOrigenDeVenta,
   detectarOrigenMarketplace,
+  detectarOrigenWeb,
   leerReferralOficial,
   variantesDeTelefono,
   responderConsultaDeOrigen,
@@ -102,6 +103,14 @@ await prueba("detecta Marketplace: ref MK, 'vengo de' y link de item sin ref", (
   assert.equal(detectarOrigenMarketplace("facebook.com/marketplace/category/muebles"), null);
   assert.equal(detectarOrigenMarketplace(""), null);
   assert.equal(detectarOrigenMarketplace(null), null);
+});
+
+await prueba("detección de la página web (vengo de magilus.com)", () => {
+  assert.equal(detectarOrigenWeb("Hola Magilus, vengo de magilus.com y quiero…"), true);
+  assert.equal(detectarOrigenWeb("VENGO DE MAGILUS.COM"), true);
+  assert.equal(detectarOrigenWeb("vengo de Marketplace"), false);
+  assert.equal(detectarOrigenWeb(""), false);
+  assert.equal(detectarOrigenWeb(null), false);
 });
 
 await prueba("referral de la API oficial → anuncio", () => {

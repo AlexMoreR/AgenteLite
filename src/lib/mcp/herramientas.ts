@@ -193,7 +193,7 @@ const HERRAMIENTAS_DE_LECTURA = [
         buscar: { type: "string", description: "Nombre o telefono del contacto (opcional)" },
         origen: {
           description:
-            "De donde llego el cliente: anuncio (anuncio de Meta), marketplace u organico (organico / desconocido). Una sola o varias. Con este filtro se revisan hasta 500 chats del periodo y se devuelven los primeros 'limite'. Cada conversacion trae su 'origen' aunque no se filtre. Evolution no entrega la campana: solo el anuncio",
+            "De donde llego el cliente: anuncio (anuncio de Meta), web (pagina web magilus.com), marketplace u organico (organico / desconocido). Una sola o varias. Con este filtro se revisan hasta 500 chats del periodo y se devuelven los primeros 'limite'. Cada conversacion trae su 'origen' aunque no se filtre. Evolution no entrega la campana: solo el anuncio",
           anyOf: [
             { type: "string" },
             { type: "array", items: { type: "string", enum: [...TIPOS_DE_ORIGEN] } },
@@ -812,7 +812,7 @@ async function listarConversaciones(args: Argumentos, contexto: Contexto) {
   });
 
   /*
-    ORIGEN de cada chat, con la regla de origen-del-cliente.ts (anuncio > marketplace > organico).
+    ORIGEN de cada chat, con la regla de origen-del-cliente.ts (anuncio > web > marketplace > organico).
     Si el mapa de lineas no se puede leer, leerMapaDeLineas devuelve vacio y se sigue sin el.
   */
   const mapaDeLineas = await leerMapaDeLineas(contexto.workspaceId);
