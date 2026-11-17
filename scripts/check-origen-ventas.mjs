@@ -168,4 +168,112 @@ await prueba("GET /api/origen: llave, teléfono y respuesta sin datos del client
   assert.deepEqual(nada.body, { encontrado: false, origin: "SIN_DATO", originDetail: null, linea: null });
 });
 
+// registrarOrigenWeb (src/lib/origen-web.ts) con una base de mentira: se carga el archivo real con
+// los alias @/ resueltos a mano.
+function cargarOrigenWeb(prismaFalso) {
+  const ruta = path.resolve("src/lib/origen-web.ts");
+  const js = ts.transpileModule(fs.readFileSync(ruta, "utf8"), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+    fileName: ruta,
+  }).outputText;
+  class PrismaClientKnownRequestError extends Error {}
+  const requerir = (nombre) => {
+    if (nombre === "@/lib/prisma") return { prisma: prismaFalso };
+    if (nombre === "@/lib/origen-de-venta") return mod.exports;
+    if (nombre === "@prisma/client") return { Prisma: { PrismaClientKnownRequestError } };
+    return require(nombre);
+  };
+  const m = { exports: {} };
+  new Function("exports", "require", "module", "__filename", "__dirname", js)(m.exports, requerir, m, ruta, path.dirname(ruta));
+  return m.exports;
+}
+
+function baseFalsa({ contacto, entrantes = 1, etiqueta = null }) {
+  const log = { updates: [], tagsCreados: [], uniones: [], conteos: 0 };
+  const prisma = {
+    contact: {
+      findUnique: async () => contacto,
+      update: async (args) => log.updates.push(args),
+    },
+    message: { count: async () => (log.conteos++, entrantes) },
+    tag: {
+      findFirst: async () => etiqueta,
+      create: async (args) => (log.tagsCreados.push(args.data), { id: "tag-web" }),
+    },
+    contactTag: { createMany: async (args) => log.uniones.push(args) },
+  };
+  return { prisma, log };
+}
+
+const datosWeb = (extra = {}) => ({
+  workspaceId: "ws1",
+  contactId: "c1",
+  channelId: "ch1",
+  texto: "Hola, vengo de magilus.com",
+  contactoRecienCreado: true,
+  ...extra,
+});
+
+await prueba("registrarOrigenWeb: primer mensaje web → etiqueta Web, origen web y visible en el CRM", async () => {
+  const { prisma, log } = baseFalsa({ contacto: { metadata: { lid: true }, bloqueadoEn: null } });
+  await cargarOrigenWeb(prisma).registrarOrigenWeb(datosWeb());
+  assert.equal(log.updates.length, 1);
+  const data = log.updates[0].data;
+  assert.equal(data.excludedFromCrm, false);
+  assert.deepEqual(data.metadata, { lid: true, crmOrigin: "web", origen: { canal: "web" } });
+  assert.equal("crmStage" in data, false);
+  assert.equal("assignedToUserId" in data, false);
+  assert.equal(log.tagsCreados[0].slug, "web");
+  assert.equal(log.tagsCreados[0].name, "Web");
+  assert.deepEqual(log.uniones[0], {
+    data: [{ contactId: "c1", tagId: "tag-web", workspaceId: "ws1" }],
+    skipDuplicates: true,
+  });
+});
+
+await prueba("registrarOrigenWeb: reutiliza la etiqueta y no pisa un origen ya guardado", async () => {
+  const meta = { origen: { canal: "marketplace" }, crmOrigin: "marketplace" };
+  const { prisma, log } = baseFalsa({ contacto: { metadata: meta, bloqueadoEn: null }, etiqueta: { id: "tag-viejo" } });
+  await cargarOrigenWeb(prisma).registrarOrigenWeb(datosWeb());
+  assert.deepEqual(log.updates[0].data, { excludedFromCrm: false });
+  assert.equal(log.tagsCreados.length, 0);
+  assert.equal(log.uniones[0].data[0].tagId, "tag-viejo");
+});
+
+await prueba("registrarOrigenWeb: no actúa sin el texto, con contacto bloqueado ni si no es el primer mensaje", async () => {
+  const sinTexto = baseFalsa({ contacto: { metadata: null, bloqueadoEn: null } });
+  await cargarOrigenWeb(sinTexto.prisma).registrarOrigenWeb(datosWeb({ texto: "Hola, cuánto vale?" }));
+  assert.equal(sinTexto.log.updates.length + sinTexto.log.uniones.length, 0);
+
+  const bloqueado = baseFalsa({ contacto: { metadata: null, bloqueadoEn: new Date() } });
+  await cargarOrigenWeb(bloqueado.prisma).registrarOrigenWeb(datosWeb());
+  assert.equal(bloqueado.log.updates.length + bloqueado.log.uniones.length, 0);
+
+  const viejo = baseFalsa({ contacto: { metadata: null, bloqueadoEn: null }, entrantes: 3 });
+  await cargarOrigenWeb(viejo.prisma).registrarOrigenWeb(datosWeb({ contactoRecienCreado: false }));
+  assert.equal(viejo.log.conteos, 1);
+  assert.equal(viejo.log.updates.length + viejo.log.uniones.length, 0);
+
+  const fichaPreviaPrimerMensaje = baseFalsa({ contacto: { metadata: null, bloqueadoEn: null }, entrantes: 1 });
+  await cargarOrigenWeb(fichaPreviaPrimerMensaje.prisma).registrarOrigenWeb(datosWeb({ contactoRecienCreado: false }));
+  assert.equal(fichaPreviaPrimerMensaje.log.updates.length, 1);
+});
+
+await prueba("registrarOrigenWeb: se traga sus errores y no manda mensajes", async () => {
+  const { prisma } = baseFalsa({ contacto: null });
+  prisma.contact.findUnique = async () => {
+    throw new Error("base caida");
+  };
+  await cargarOrigenWeb(prisma).registrarOrigenWeb(datosWeb());
+  const fuente = fs.readFileSync(path.resolve("src/lib/origen-web.ts"), "utf8");
+  assert.doesNotMatch(fuente, /sendText|enviarMensaje|evolution|waha/i);
+});
+
+await prueba("webhook de Evolution: el chat web de la línea Admin no se oculta y se registra su origen", () => {
+  const webhook = fs.readFileSync(path.resolve("src/app/api/webhooks/evolution/route.ts"), "utf8");
+  assert.match(webhook, /channel\.purpose === "ADMIN" && !detectarOrigenWeb\(messageText\) \? \{ excludedFromCrm: true \}/);
+  assert.match(webhook, /after\(\(\) => registrarOrigenWeb\(datosOrigenWeb\)\)/);
+  assert.match(webhook, /after\(\(\) => registrarOrigenMarketplace\(datosOrigen\)\)/);
+});
+
 console.log(`\n${pruebas} pruebas de origen de ventas OK`);
