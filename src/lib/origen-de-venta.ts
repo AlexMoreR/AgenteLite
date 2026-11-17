@@ -204,6 +204,20 @@ export function detectarOrigenMarketplace(textoEntrante: string | null | undefin
 }
 
 /* ------------------------------------------------------------------------------------------------
+   PÁGINA WEB: el botón de WhatsApp de magilus.com abre el chat con un texto pre-llenado que dice
+   "vengo de magilus.com". Misma normalización que Marketplace (sin mayúsculas ni tildes).
+------------------------------------------------------------------------------------------------- */
+
+const VENGO_WEB_RE = /vengo\s+de\s+magilus\.com/i;
+
+/** true si el texto entrante trae "vengo de magilus.com" en cualquier parte. */
+export function detectarOrigenWeb(textoEntrante: string | null | undefined): boolean {
+  const t = String(textoEntrante ?? "").normalize("NFD").replace(/\p{Diacritic}/gu, "");
+  if (!t.trim()) return false;
+  return VENGO_WEB_RE.test(t);
+}
+
+/* ------------------------------------------------------------------------------------------------
    API OFICIAL (Cloud API): Meta manda el dato del anuncio en `messages[].referral` del primer
    mensaje que entra por un Click-to-WhatsApp. Se traduce a la misma forma que Evolution/WAHA
    (externalAdReply) para guardarlo igual en Contact.metadata.
