@@ -57,6 +57,19 @@ prueba("un link que no es web no se ofrece", () => {
   assert.equal(o.anuncioUrl, null);
 });
 
+prueba("origen.canal = web -> web (Página web magilus.com)", () => {
+  const o = origenDelCliente({ metadataContacto: { origen: { canal: "web" } } });
+  assert.equal(o.tipo, "web");
+  assert.equal(o.etiqueta, "Página web magilus.com");
+  assert.equal(origenDelCliente({ metadataContacto: { crmOrigin: "web" } }).tipo, "web");
+  // Lo que hoy da anuncio sigue dando anuncio, aunque también diga web.
+  assert.equal(origenDelCliente({ metadataContacto: { source: "meta ads", origen: { canal: "web" } } }).tipo, "anuncio");
+});
+
+prueba("TIPOS_DE_ORIGEN en orden de prioridad", () => {
+  assert.deepEqual([...TIPOS_DE_ORIGEN], ["anuncio", "web", "marketplace", "organico"]);
+});
+
 prueba("origen.canal = marketplace -> marketplace", () => {
   assert.equal(origenDelCliente({ metadataContacto: { origen: { canal: "marketplace" } } }).tipo, "marketplace");
 });
@@ -81,9 +94,10 @@ prueba("datos rotos -> orgánico, sin error", () => {
   }
 });
 
-prueba("herramientas.ts: filtro origen con sus tres opciones y campo origen en la respuesta", () => {
+prueba("herramientas.ts: filtro origen con sus cuatro opciones y campo origen en la respuesta", () => {
   const fuente = fs.readFileSync(path.join(RAIZ, "src/lib/mcp/herramientas.ts"), "utf8");
-  assert.deepEqual([...TIPOS_DE_ORIGEN], ["anuncio", "marketplace", "organico"]);
+  assert.deepEqual([...TIPOS_DE_ORIGEN], ["anuncio", "web", "marketplace", "organico"]);
+  assert.match(fuente, /web \(pagina web magilus\.com\)/);
   assert.match(fuente, /origen: \{\s+description:/);
   assert.match(fuente, /\.\.\.TIPOS_DE_ORIGEN/);
   assert.match(fuente, /totales_por_origen/);

@@ -25,6 +25,7 @@ const {
   parsearMapaDeLineas,
   armarOrigenDeVenta,
   detectarOrigenMarketplace,
+  detectarOrigenWeb,
   leerReferralOficial,
   variantesDeTelefono,
   responderConsultaDeOrigen,
@@ -157,6 +158,14 @@ await prueba("GET /api/origen: llave, teléfono y respuesta sin datos del client
 
   const nada = await responderConsultaDeOrigen({ autorizacion: "bearer secreta", telefono: "3110000000" }, deps);
   assert.deepEqual(nada.body, { encontrado: false, origin: "SIN_DATO", originDetail: null, linea: null });
+});
+
+await prueba("página web: «vengo de magilus.com» sin fijarse en mayúsculas ni tildes", () => {
+  assert.equal(detectarOrigenWeb("Hola Magilus, vengo de magilus.com y quiero…"), true);
+  assert.equal(detectarOrigenWeb("VENGO DE MAGILUS.COM"), true);
+  assert.equal(detectarOrigenWeb("vengo de Marketplace"), false);
+  assert.equal(detectarOrigenWeb(""), false);
+  assert.equal(detectarOrigenWeb(null), false);
 });
 
 console.log(`\n${pruebas} pruebas de origen de ventas OK`);

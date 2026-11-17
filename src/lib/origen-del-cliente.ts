@@ -4,7 +4,8 @@ import { origenDeLinea, type LineaDelChat, type MapaDeLineas } from "@/lib/orige
  * ORIGEN DEL CLIENTE para la ficha del chat y el filtro de `listar_conversaciones` (solo lectura,
  * sin base de datos). Lee lo que el webhook ya guardó en `Contact.metadata` y la línea del chat.
  *
- * Orden: 1) anuncio de Meta, 2) Marketplace, 3) orgánico / desconocido.
+ * Orden: 1) anuncio de Meta, 2) página web magilus.com, 3) Marketplace, 4) orgánico / desconocido.
+ * La web se marca con `metadata.origen.canal = "web"` o `metadata.crmOrigin = "web"`.
  *
  * Ojo: aquí manda primero el ANUNCIO (como pide la tarjeta). La regla que se manda a Gestión
  * (`armarOrigenDeVenta`) le da prioridad a la línea; no se cambia. Un cliente de anuncio que escribe
@@ -14,7 +15,7 @@ import { origenDeLinea, type LineaDelChat, type MapaDeLineas } from "@/lib/orige
  * de OrigenDePauta del cliente (la llena el reparto por anuncio o el informe diario de pauta).
  */
 
-export const TIPOS_DE_ORIGEN = ["anuncio", "marketplace", "organico"] as const;
+export const TIPOS_DE_ORIGEN = ["anuncio", "web", "marketplace", "organico"] as const;
 export type TipoDeOrigen = (typeof TIPOS_DE_ORIGEN)[number];
 
 export function esTipoDeOrigen(valor: unknown): valor is TipoDeOrigen {
@@ -83,6 +84,12 @@ export function origenDelCliente(input: {
       campanaId: texto(input.pauta?.campanaId),
       campanaNombre: texto(input.pauta?.campanaNombre),
     };
+  }
+
+  const vinoDeLaWeb =
+    texto(objeto(meta.origen).canal)?.toLowerCase() === "web" || texto(meta.crmOrigin)?.toLowerCase() === "web";
+  if (vinoDeLaWeb) {
+    return { tipo: "web", etiqueta: "Página web magilus.com", anuncioTitulo: null, anuncioId: null, anuncioUrl: null, red: null, ...SIN_CAMPANA };
   }
 
   const vinoDeMarketplace =
