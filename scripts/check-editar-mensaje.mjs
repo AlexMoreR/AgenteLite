@@ -1,29 +1,9 @@
 // Pruebas de editar mensajes ya enviados (src/lib/editar-mensaje.ts y editarMensajeWaha).
 // Correr: npm run test:editar-mensaje
 import fs from "node:fs";
-import path from "node:path";
 import assert from "node:assert/strict";
-import { createRequire } from "node:module";
-import ts from "typescript";
-
-const require = createRequire(import.meta.url);
-
-function cargar(ruta) {
-  const sourcePath = path.resolve(ruta);
-  const transpiled = ts.transpileModule(fs.readFileSync(sourcePath, "utf8"), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-    fileName: sourcePath,
-  });
-  const mod = { exports: {} };
-  new Function("exports", "require", "module", "__filename", "__dirname", transpiled.outputText)(
-    mod.exports,
-    require,
-    mod,
-    sourcePath,
-    path.dirname(sourcePath),
-  );
-  return mod.exports;
-}
+// Usa el cargador compartido: resuelve el alias "@/" (waha.ts importa @/lib/medicion-de-pedido).
+import { cargar } from "./supervisor-cargar.mjs";
 
 const { puedeEditarseMensaje } = cargar("src/lib/editar-mensaje.ts");
 const { editarMensajeWaha } = cargar("src/lib/waha.ts");
