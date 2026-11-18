@@ -72,6 +72,7 @@
     "test:pauta": "node scripts/check-pauta.mjs",
     "test:mapa-colombia": "node scripts/check-mapa-colombia.mjs",
     "test:mejoras-vs-ventas": "node scripts/check-mejoras-vs-ventas.mjs",
+    "test:inicio-en-chats": "node scripts/check-inicio-en-chats.mjs",
     "test:pauta-migracion": "node scripts/check-pauta-migracion.mjs",
     "test:conversiones-meta": "node scripts/check-conversiones-meta.mjs",
     "test:conversiones-meta-migracion": "node scripts/check-conversiones-meta-migracion.mjs",

@@ -32,19 +32,18 @@ export default auth((req) => {
   // La landing de marketing es solo para visitantes SIN sesión. Si el usuario ya está logueado
   // y cae en "/", lo mandamos directo a su panel. Pasa sobre todo con la PWA instalada: Android
   // congela el start_url del manifest al instalar, así que las apps ya instaladas siguen
-  // abriendo en "/" (la landing) aunque el manifest actual apunte a /cliente/chats.
-  // Todos entran por "Mi día": es la pantalla que dice A QUIÉN contactar hoy, con la primera
-  // tarea al frente. Antes se abría en Chats (una bandeja de 1.083 conversaciones donde hay que
-  // decidir por dónde empezar) y los empleados caían en la bienvenida del dueño, que les hablaba
-  // de crear agentes y conectar canales.
-  // Nota: /cliente/crm/mi-dia ya devuelve a /cliente si el usuario no tiene ese módulo.
+  // abriendo en "/" (la landing) aunque el manifest actual apunte a /cliente.
+  // Todos entran por "/cliente", que decide el destino según los módulos de cada persona:
+  // Chats si la puede ver (las asesoras tienen que contestar rápido), si no Mi día, y si no la
+  // bienvenida. No se manda directo a /cliente/chats porque esa pantalla manda a "No autorizado"
+  // a quien no tiene el módulo.
   if (pathname === "/" && role) {
     const appHome =
       role === "ADMIN"
         ? "/admin"
         : role === "EMPLEADO" && !primaryWorkspaceId
           ? "/empleado"
-          : "/cliente/crm/mi-dia";
+          : "/cliente";
     return NextResponse.redirect(new URL(appHome, nextUrl));
   }
 
@@ -55,7 +54,7 @@ export default auth((req) => {
         ? roleHome[role]
         : role === "EMPLEADO" && !primaryWorkspaceId
           ? "/empleado"
-          : "/cliente/crm/mi-dia";
+          : "/cliente";
     return NextResponse.redirect(new URL(home, nextUrl));
   }
 

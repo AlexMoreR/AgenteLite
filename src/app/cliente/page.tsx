@@ -30,25 +30,25 @@ export default async function ClientePage({ searchParams }: PageProps) {
 
   if (session.user.role === "EMPLEADO") {
     await requireClientWorkspaceAccess(undefined, { redirectTo: "/unauthorized" });
+  }
 
-    /**
-     * Una asesora entra a trabajar, no a configurar el negocio.
-     *
-     * Esta pantalla es la bienvenida del DUEÑO: habla de crear agentes, conectar canales y
-     * preparar Marketing IA. A una asesora no le sirve de nada -- y era lo primero que veia al
-     * iniciar sesion, teniendo que buscar a mano donde estaba su trabajo.
-     *
-     * Se la manda directo a "Mi dia", que es su lista de a quien contactar hoy ordenada por
-     * urgencia. Si no tiene ese modulo habilitado se prueba con Chats, y si tampoco, se queda
-     * aca (mejor una bienvenida inutil que un "no autorizado").
-     */
+  /**
+   * Al entrar, todos (asesoras y dueño) caen directo en la bandeja de Chats: hay que contestar
+   * rápido y antes se perdía un paso pasando por "Mi día".
+   *
+   * Si la persona no puede ver Chats se prueba con "Mi día" (módulo CRM), y si tampoco, se queda
+   * acá en la bienvenida (mejor una bienvenida que un "no autorizado"). El dueño que todavía no
+   * creó su negocio no tiene acceso (access es null) y también se queda acá, porque necesita el
+   * botón "Comenzar". El rol ADMIN no cambia: entra por /admin.
+   */
+  if (session.user.role !== "ADMIN") {
     const access = await getClientWorkspaceAccessForUser(session.user.id);
     if (access) {
-      if (canAccessClientModule(access, "crm")) {
-        redirect("/cliente/crm/mi-dia");
-      }
       if (canAccessClientModule(access, "chats")) {
         redirect("/cliente/chats");
+      }
+      if (canAccessClientModule(access, "crm")) {
+        redirect("/cliente/crm/mi-dia");
       }
     }
   }
