@@ -71,6 +71,7 @@ import { esOrquestador, esTareaGrande, nombreDelProyecto, sesionFijaDe, sinAcces
 import { datosDelLatidoDeConstruir } from "./latido.mjs";
 import { crearPausaPorUso } from "./pausa-uso.mjs";
 import { crearMedidor, faltanRecursos, leerCarga } from "./recursos.mjs";
+import { crearGuardiaSinLatido } from "./sin-latido.mjs";
 
 const ETAPAS = { planear, construir, subir };
 
@@ -131,7 +132,7 @@ export async function unaVuelta({ crm, config, registro }) {
   return { hizo: hacer, tarjetaId: tarjeta.id, ...resultado };
 }
 
-export async function procesar({ crm, config, registro: registroBase, motores = crearEstadoDeMotores(config), medidor = null, otrasSesiones = null, vivo = {}, lugar = "aizen1", puestoParaVerificar = null, colaPesada = null, etiqueta = "", alSoltarPuesto = null }, tarjeta, hacer) {
+export async function procesar({ crm, config, registro: registroBase, motores = crearEstadoDeMotores(config), medidor = null, otrasSesiones = null, vivo = {}, lugar = "aizen1", puestoParaVerificar = null, colaPesada = null, etiqueta = "", alSoltarPuesto = null, alLatir = null }, tarjeta, hacer) {
   const control = new AbortController();
   // Pausa por uso de Claude (pausa-uso.mjs): el planificador pide detener esta sesión con `vivo.detenerPorPausa()`.
   let pausadaPorUso = false;
@@ -160,6 +161,8 @@ export async function procesar({ crm, config, registro: registroBase, motores = 
   const latir = async () => {
     try {
       await crm.latido(tarjeta.id, datosDelLatido());
+      // La hora del último latido que el CRM aceptó (sin-latido.mjs: el reloj de las 2 h corre desde acá).
+      alLatir?.();
     } catch (error) {
       registro.aviso(`latido de ${tarjeta.id}: ${error.message}`);
       if (error.status === 409 || error.status === 404) {
@@ -899,6 +902,8 @@ export function crearPlanificador({
   leerCargaDelPc = leerCarga,
   // El ajuste automático del cupo de la nube (ajuste-de-cupos.mjs); undefined = el de la configuración.
   ajusteCupos: ajusteDado = undefined,
+  // Las tarjetas sin latido más de 2 h (sin-latido.mjs); undefined = la del archivo de la carpeta de trabajo.
+  sinLatido: sinLatidoDado = undefined,
 }) {
   const max = config.maxParalelo;
   // 31-oct-2026 (parte 4): durante 3 días el cupo de la nube de un proyecto baja solo en 1 si con varias a la vez chocan más.
@@ -916,6 +921,9 @@ export function crearPlanificador({
   const sesiones = new Map();
   /** Las que se construyen en la nube (no ocupan puesto de aizen1): id de la tarjeta -> { tarjeta, hacer, huella, promesa } */
   const enNube = new Map();
+  // 18-nov-2026: lo que este Coordinador tomó y la hora de su último latido; una que nadie trabaja hace más de 2 h se suelta sola.
+  const sinLatido =
+    sinLatidoDado ?? crearGuardiaSinLatido({ crm, config, registro, ahora, vivas: () => [...sesiones.values(), ...enNube.values()].map((sesion) => sesion.tarjeta.id) });
   // Lo que vuelve de la nube se verifica en aizen1 (npm ci, build…): no más a la vez que puestos tiene aizen1.
   const puestosDeVerificacion = crearSemaforo(Math.max(1, max));
   // La cola de pasos pesados de aizen1 (cola.mjs): una sola para todas las sesiones (0 = sin cola, como antes).
@@ -1132,6 +1140,7 @@ export function crearPlanificador({
     else sesiones.set(n, sesion);
     contarCorriendo();
     if (!nube) esperaPcDesde = null;
+    sinLatido.tomada(tarjeta, hacer);
     sesion.promesa = procesarTarjeta(
       {
         crm,
@@ -1155,6 +1164,7 @@ export function crearPlanificador({
           if (despertar) despertar();
           else cupoNuevo = true;
         },
+        alLatir: () => sinLatido.latio(tarjeta.id),
       },
       tarjeta,
       hacer,
@@ -1166,6 +1176,7 @@ export function crearPlanificador({
       .then((resultado) => {
         if (resultado?.estado === "SUBIENDO") suRegistro.info("construida y sube sola: pasa a la cola de subida");
         ajusteCupos.termino(tarjeta.id, resultado, hacer);
+        sinLatido.termino(tarjeta.id, { ok: resultado?.ok === true });
         return resultado;
       })
       .finally(() => {
@@ -1450,22 +1461,37 @@ export function crearPlanificador({
     }
   }
 
+  /** Las tarjetas que este Coordinador tomó y nadie trabaja hace más de 2 h: se sueltan (1.ª vez) o pasan a ERROR con aviso (2.ª). Nunca lanza. */
+  async function revisarSinLatido() {
+    try {
+      return await sinLatido.revisar();
+    } catch (error) {
+      registro.aviso(`sin latido: no pude revisar (${error?.message ?? error})`);
+      return { sueltas: [], errores: [] };
+    }
+  }
+
   return {
     llenar,
     /**
      * Al arrancar: el CRM suelta (sin error) todo lo que el proceso anterior dejó con candado. Un CRM que no
      * conoce /arranque (404) no es problema: lo viejo vence solo.
+     * 18-nov-2026: ANTES de /arranque, las que el proceso anterior dejó más de 2 h sin latido se sueltan (o pasan a ERROR la
+     * segunda vez) mientras siguen en su etapa: /arranque solo suelta las que tienen candado.
      */
     async iniciar() {
+      await revisarSinLatido();
       try {
         const respuesta = await crm.arranque();
         registro.info(`arranque: el CRM soltó ${respuesta?.sueltas?.length ?? 0} tarjeta(s) que había dejado el proceso anterior`);
+        sinLatido.arranco(respuesta?.sueltas ?? []);
         return respuesta?.sueltas ?? [];
       } catch (error) {
         registro.aviso(`arranque: no se pudo soltar lo anterior (${error.message}); lo que quedó vence solo`);
         return [];
       }
     },
+    revisarSinLatido,
     corriendo: () => sesiones.size + enNube.size,
     /** Las tareas largas que corren: sin puesto (subiendo, vigilando, esperando pruebas) o en la nube. */
     tareasLargas: () => [...sesiones.values()].filter((sesion) => !ocupa(sesion)).length + enNube.size,

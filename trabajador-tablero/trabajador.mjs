@@ -153,6 +153,7 @@ const TOPES = {
   // Lleva build y pruebas: pasado el tope sigue por su cuenta (en vuelo, no se lanza otra) y la vuelta no lo espera.
   "revisar de nuevo por revisar": 2 * MINUTO,
   "notas de la bóveda": 5 * MINUTO,
+  "tarjetas sin latido": 2 * MINUTO,
   autoactualizar: 10 * MINUTO,
   "aplicar la versión nueva": 10 * MINUTO,
 };
@@ -211,6 +212,12 @@ while (!parar) {
     // No usa Claude ni el PC: corre también en la pausa por uso.
     const r = await conTope("notas de la bóveda", () => notasDeBoveda.revisar());
     if (r.error) registro.aviso(`notas de la bóveda: ${primeraLinea(r.error)}`);
+  }
+  if (parar) break;
+  {
+    // 18-nov-2026 (lib/sin-latido.mjs): las que tomé y nadie trabaja hace más de 2 h (lo que quedó del proceso anterior). Sin Claude.
+    const r = await conTope("tarjetas sin latido", () => planificador.revisarSinLatido());
+    if (r.error) registro.aviso(`tarjetas sin latido: ${primeraLinea(r.error)}`);
   }
   if (parar) break;
   if (!pendiente && vigilante) {
