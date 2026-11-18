@@ -69,12 +69,12 @@ const pagina = cargar("src/app/cliente/page.tsx", {
   "@/lib/workspace": { getPrimaryWorkspaceForUser: async () => estado.membership },
 }).default;
 
-async function abrirCliente({ role, access }) {
+async function abrirCliente({ role, access, params = {} }) {
   estado.session = { user: { id: "u-1", role, name: "Ana Pérez" } };
   estado.access = access;
   estado.membership = access ? { workspace: { id: "ws-1" } } : null;
   try {
-    await pagina({ searchParams: Promise.resolve({}) });
+    await pagina({ searchParams: Promise.resolve(params) });
     return "bienvenida";
   } catch (error) {
     if (error instanceof Redireccion) return error.destino;
@@ -99,6 +99,12 @@ assert.equal(await abrirCliente({ role: "EMPLEADO", access: acceso({ moduleAcces
 assert.equal(await abrirCliente({ role: "CLIENTE", access: null }), "bienvenida");
 // ADMIN que abre /cliente a mano: no cambia, ve la bienvenida.
 assert.equal(await abrirCliente({ role: "ADMIN", access: acceso({ role: "ADMIN" }) }), "bienvenida");
+
+// Recién creado el negocio llega con ?ok=: se queda en la bienvenida para que se vea el aviso.
+assert.equal(
+  await abrirCliente({ role: "CLIENTE", access: acceso({ isOwner: true, role: "OWNER" }), params: { ok: "Negocio configurado" } }),
+  "bienvenida",
+);
 
 // ---------- La app instalada abre en /cliente ----------
 const manifestTexto = leer("src/app/manifest.ts");

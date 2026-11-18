@@ -40,8 +40,12 @@ export default async function ClientePage({ searchParams }: PageProps) {
    * acá en la bienvenida (mejor una bienvenida que un "no autorizado"). El dueño que todavía no
    * creó su negocio no tiene acceso (access es null) y también se queda acá, porque necesita el
    * botón "Comenzar". El rol ADMIN no cambia: entra por /admin.
+   * Tampoco se redirige si llega un aviso (?ok=, p. ej. "Negocio configurado" al crear el negocio):
+   * se muestra acá la bienvenida con el aviso, para que no se pierda.
    */
-  if (session.user.role !== "ADMIN") {
+  const params = await searchParams;
+  const okMessage = typeof params.ok === "string" ? params.ok : "";
+  if (session.user.role !== "ADMIN" && !okMessage) {
     const access = await getClientWorkspaceAccessForUser(session.user.id);
     if (access) {
       if (canAccessClientModule(access, "chats")) {
@@ -54,8 +58,6 @@ export default async function ClientePage({ searchParams }: PageProps) {
   }
 
   const membership = await getPrimaryWorkspaceForUser(session.user.id);
-  const params = await searchParams;
-  const okMessage = typeof params.ok === "string" ? params.ok : "";
   const hasWorkspace = Boolean(membership);
   const firstName = session.user.name?.trim().split(/\s+/)[0] ?? "";
   const welcomeHeading = firstName ? `Bienvenido ${firstName}` : "Bienvenido";
