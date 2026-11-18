@@ -16,7 +16,10 @@ import { clasificarIntenciones } from "./clasificar";
 import { decidir, siguienteEstado } from "./decidir";
 import { fotoDelClienteReciente, type MensajeReciente } from "./foto-y-precio";
 import { guardarEstado, leerEstado } from "./estado";
+import { mandarRespaldo, motivoDelAviso } from "./respaldo";
+import type { EstadoDeLaCharla } from "./decidir";
 import type { Accion, ReglaV3 as Regla } from "../domain/reglas";
+import type { ResultadoDelRedactor } from "../servicios/redactor";
 
 /** Los productos que nombra una regla: el que activa, el del paso y el de su condición. */
 function productosDeLaRegla(regla: Regla): string[] {
@@ -47,8 +50,12 @@ export type Herramientas = {
   avisarAsesor: (motivo: string) => Promise<void>;
   cambiarEtapa: (etapa: string) => Promise<void>;
   pausarIa: () => Promise<void>;
-  /** Cuando la regla dice "que conteste la IA": recibe la guía escrita en el libro. */
-  responderConIa: (guia: string) => Promise<void>;
+  /**
+   * Cuando la regla dice "que conteste la IA": recibe la guía escrita en el libro. Devuelve lo que
+   * pasó: si la IA falló, el motor manda el respaldo y avisa. Sin resultado (void), como antes: se
+   * da por respondido.
+   */
+  responderConIa: (guia: string) => Promise<ResultadoDelRedactor | void>;
   /**
    * ¿Este mismo texto ya salió en esta conversación hace poco?
    *
@@ -64,10 +71,16 @@ export type Herramientas = {
   alEntrarAlPaso?: (productoId: string, paso: string) => Promise<void>;
   /**
    * Ninguna regla del libro aplica: que conteste el redactor de la estrella, con sus candados (no
-   * inventar, nunca mayorista, avisar a una asesora si falta un dato). Devuelve el porqué, o null si
-   * no pudo hacerse cargo. Opcional: sin esto el mensaje sigue su camino de siempre.
+   * inventar, nunca mayorista, avisar a una asesora si falta un dato). Devuelve lo que pasó (o el
+   * porqué en texto, que cuenta como respondido), o null si no pudo hacerse cargo. Si la IA falló,
+   * el motor manda el respaldo. Opcional: sin esto el mensaje sigue su camino de siempre.
    */
-  responderSinRegla?: (contexto: { foto: string | null }) => Promise<string | null>;
+  responderSinRegla?: (contexto: { foto: string | null }) => Promise<ResultadoDelRedactor | string | null>;
+  /**
+   * El id de un flujo de ESTA línea por su nombre, o null si no existe. Lo usa el respaldo para
+   * mandar la ficha. Opcional: sin esto el respaldo es solo el texto.
+   */
+  buscarFlujo?: (titulo: string) => Promise<string | null>;
   /**
    * MEDIR (Embudo F1): se llama una vez al terminar el turno con la traza de lo que pasó. Solo
    * mira: no puede cambiar ninguna decisión. Quien lo implemente tiene que volver al instante
@@ -270,10 +283,12 @@ async function evaluar(
     algo concreto. La contesta el redactor, mirando la foto como contexto.
   */
   if (!input.mensaje.trim() && input.foto) {
-    const porque = await input.herramientas.responderSinRegla?.({ foto: input.foto });
-    if (porque) {
-      await guardarEstado(input.conversationId, siguienteEstado(estado, []));
-      return { atendido: true, regla: "Redactor (foto)", porque, acciones: 1 };
+    const delRedactor = comoResultado(await input.herramientas.responderSinRegla?.({ foto: input.foto }));
+    if (delRedactor) {
+      const rescate = await rescatarSiFallo(delRedactor, siguienteEstado(estado, []), input);
+      await guardarEstado(input.conversationId, rescate.estado);
+      await alEntrarAlPasoSiCambio(estado, rescate.estado, input.herramientas);
+      return { atendido: true, regla: "Redactor (foto)", porque: delRedactor.porque + rescate.nota, acciones: 1 };
     }
     return { atendido: false, regla: null, porque: "Llegó una foto sin texto y no hubo redactor.", acciones: 0 };
   }
@@ -338,9 +353,16 @@ async function evaluar(
       Ni regla ni catálogo: contesta el redactor (Alex, 03-10-2026), con los candados de la estrella.
       Antes el mensaje quedaba sin respuesta hasta que entrara una asesora.
     */
-    const delRedactor = await input.herramientas.responderSinRegla?.({ foto: input.foto ?? null });
+    const delRedactor = comoResultado(await input.herramientas.responderSinRegla?.({ foto: input.foto ?? null }));
     if (delRedactor) {
-      return { atendido: true, regla: "Redactor", porque: delRedactor, acciones: 1 };
+      // La IA no logró redactar: el respaldo, para que la clienta no se quede sin respuesta.
+      const sinCambios = siguienteEstado(estado, []);
+      const rescate = await rescatarSiFallo(delRedactor, sinCambios, input);
+      if (rescate.estado !== sinCambios) {
+        await guardarEstado(input.conversationId, rescate.estado);
+        await alEntrarAlPasoSiCambio(estado, rescate.estado, input.herramientas);
+      }
+      return { atendido: true, regla: "Redactor", porque: delRedactor.porque + rescate.nota, acciones: 1 };
     }
     return { atendido: false, regla: null, porque: decision.porque, acciones: 0 };
   }
@@ -378,8 +400,10 @@ async function evaluar(
     Se ejecuta antes de decidir si hay que escalar, y no con un retorno temprano, porque si no una
     regla del tipo [mensaje + cambiar_etapa] perdería la etapa solo porque el texto se repetía.
   */
+  let fallaDeLaIa: ResultadoDelRedactor | null = null;
   for (const accion of filtradas) {
-    await ejecutarUna(accion, input);
+    const delRedactor = await ejecutarUna(accion, input);
+    if (delRedactor?.falla && !fallaDeLaIa) fallaDeLaIa = delRedactor;
   }
 
   /*
@@ -396,7 +420,17 @@ async function evaluar(
     );
   }
 
-  const nuevoEstado = siguienteEstado(estado, acciones);
+  let nuevoEstado = siguienteEstado(estado, acciones);
+  /*
+    La red del paso pidió "responder con IA" y la IA no logró redactar. Si la regla no le mandó nada
+    más en este turno, va el respaldo; si ya le llegó otro mensaje de la regla, solo el aviso.
+  */
+  let notaDelRespaldo = "";
+  if (fallaDeLaIa) {
+    const rescate = await rescatarSiFallo(fallaDeLaIa, nuevoEstado, input, { conRespaldo: traza.mensajesEnviados === 0 });
+    nuevoEstado = rescate.estado;
+    notaDelRespaldo = rescate.nota;
+  }
   await guardarEstado(input.conversationId, nuevoEstado);
   traza.envioFlujo = filtradas.some((accion) => accion.tipo === "flujo");
   traza.despues = { pasoActual: nuevoEstado.pasoActual, producto: nuevoEstado.productoActivo };
@@ -405,21 +439,14 @@ async function evaluar(
     Entró a un paso nuevo del embudo (o cambió de producto): se programan los seguimientos de ese
     paso. Solo al CAMBIAR, no en cada mensaje: si no, cada respuesta reprogramaría lo mismo.
   */
-  if (
-    nuevoEstado.productoActivo &&
-    nuevoEstado.pasoActual &&
-    (nuevoEstado.pasoActual !== estado.pasoActual || nuevoEstado.productoActivo !== estado.productoActivo)
-  ) {
-    await input.herramientas
-      .alEntrarAlPaso?.(nuevoEstado.productoActivo, nuevoEstado.pasoActual)
-      .catch((error) => console.error("[agente-v3] seguimientos del paso", error instanceof Error ? error.message : error));
-  }
+  await alEntrarAlPasoSiCambio(estado, nuevoEstado, input.herramientas);
 
-  const porque = !seCallo
+  const porqueDeLaRegla = !seCallo
     ? decision.porque
     : leDiceAlgo
       ? `${decision.porque} (No se repitió un texto que ya había salido.)`
       : `${decision.porque} Pero ese mensaje ya se había enviado en esta conversación, así que se avisó a un asesor en vez de repetirlo.`;
+  const porque = porqueDeLaRegla + notaDelRespaldo;
 
   return {
     atendido: true,
@@ -470,6 +497,77 @@ async function responderDesdeElCatalogo(input: {
     : `Ninguna regla aplicaba; lo que escribió encaja con ${deQue} del catálogo: se le preguntó cuál y se avisó a una asesora.`;
 }
 
+/** Lo que devuelve el redactor, en una sola forma: un texto suelto cuenta como respondido. */
+function comoResultado(resultado: ResultadoDelRedactor | string | null | void | undefined): ResultadoDelRedactor | null {
+  if (!resultado) return null;
+  if (typeof resultado === "string") return { porque: resultado, respondio: true, causa: null };
+  return resultado;
+}
+
+/**
+ * Si la IA no logró redactar: el respaldo (salvo que la clienta ya haya recibido otra cosa en este
+ * turno), después el aviso a la asesora con la causa y, si fue el filtro, la pausa de la IA.
+ * Devuelve el estado después del respaldo y la frase que se suma al porqué.
+ */
+async function rescatarSiFallo(
+  delRedactor: ResultadoDelRedactor,
+  estado: EstadoDeLaCharla,
+  input: { workspaceId: string; conversationId: string; incluirApiOficial?: boolean; herramientas: Herramientas },
+  opciones: { conRespaldo: boolean } = { conRespaldo: true },
+): Promise<{ estado: EstadoDeLaCharla; nota: string }> {
+  const { falla } = delRedactor;
+  if (!falla) return { estado, nota: "" };
+
+  const respaldo = opciones.conRespaldo
+    ? await mandarRespaldo({
+        workspaceId: input.workspaceId,
+        incluirApiOficial: input.incluirApiOficial,
+        estado,
+        herramientas: input.herramientas,
+      }).catch((error) => {
+        console.error("[agente-v3] respaldo", error instanceof Error ? error.message : error);
+        return { envio: null, estado };
+      })
+    : { envio: null, estado };
+
+  await input.herramientas.avisarAsesor(motivoDelAviso(falla.motivo, respaldo.envio));
+  if (falla.pausar) await input.herramientas.pausarIa().catch(() => {});
+
+  console.warn("[agente-v3] la IA no redacto", {
+    conversationId: input.conversationId,
+    causa: delRedactor.causa,
+    respaldo: respaldo.envio,
+  });
+  const que =
+    respaldo.envio === "ficha"
+      ? "se mandó la ficha de respaldo y la charla pasó a PRODUCTO"
+      : respaldo.envio === "texto"
+        ? "se mandó el texto de respaldo"
+        : opciones.conRespaldo
+          ? "el respaldo ya se había enviado, no se repitió"
+          : "la clienta ya recibió otro mensaje de la regla";
+  return {
+    estado: respaldo.estado,
+    nota: ` La IA no pudo redactar (${delRedactor.causa ?? "sin causa"}): ${que}, y se avisó a una asesora${falla.pausar ? " y se pausó la IA" : ""}.`,
+  };
+}
+
+/**
+ * Entró a un paso nuevo del embudo (o cambió de producto): se programan los seguimientos de ese
+ * paso. Solo al CAMBIAR, no en cada mensaje: si no, cada respuesta reprogramaría lo mismo.
+ */
+async function alEntrarAlPasoSiCambio(antes: EstadoDeLaCharla, despues: EstadoDeLaCharla, herramientas: Herramientas) {
+  if (
+    despues.productoActivo &&
+    despues.pasoActual &&
+    (despues.pasoActual !== antes.pasoActual || despues.productoActivo !== antes.productoActivo)
+  ) {
+    await herramientas
+      .alEntrarAlPaso?.(despues.productoActivo, despues.pasoActual)
+      .catch((error) => console.error("[agente-v3] seguimientos del paso", error instanceof Error ? error.message : error));
+  }
+}
+
 async function ejecutarUna(
   accion: Accion,
   input: {
@@ -477,13 +575,13 @@ async function ejecutarUna(
     incluirApiOficial?: boolean;
     herramientas: Herramientas;
   },
-): Promise<void> {
+): Promise<ResultadoDelRedactor | null> {
   const { herramientas } = input;
 
   switch (accion.tipo) {
     case "mensaje":
       await herramientas.enviarPaso({ kind: "text", content: accion.texto });
-      return;
+      return null;
 
     case "flujo": {
       /*
@@ -501,28 +599,27 @@ async function ejecutarUna(
       for (const paso of flujo?.steps ?? []) {
         await herramientas.enviarPaso(paso);
       }
-      return;
+      return null;
     }
 
     case "responder_con_ia":
-      await herramientas.responderConIa(accion.guia);
-      return;
+      return comoResultado(await herramientas.responderConIa(accion.guia));
 
     case "avisar_asesor":
       await herramientas.avisarAsesor(accion.motivo);
-      return;
+      return null;
 
     case "cambiar_etapa_crm":
       await herramientas.cambiarEtapa(accion.etapa);
-      return;
+      return null;
 
     case "pausar_ia":
       await herramientas.pausarIa();
-      return;
+      return null;
 
     // activar_producto e ir_al_paso no mandan nada: solo mueven el estado, y eso lo hace
     // `siguienteEstado` con la lista completa de acciones.
     default:
-      return;
+      return null;
   }
 }

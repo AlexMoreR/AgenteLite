@@ -5,6 +5,7 @@ import { sendAndPersistEvolutionFlowStepResilient } from "@/lib/evolution-envio"
 import { prisma } from "@/lib/prisma";
 import { avisarAsesorPorWhatsApp } from "./avisos";
 import { responderConElRedactor } from "./redactor";
+import { buscarFlujoDeLaLinea } from "../motor/respaldo";
 import { agendarSeguimientoDeEtapa } from "@/features/crm/services/stage-follow-up";
 import { registrarTurnoV3 } from "@/features/embudo/servicios/eventos";
 
@@ -189,7 +190,7 @@ export async function retomarConversacionV3(input: {
       pausarIa,
       // El redactor de la estrella, con sus candados: igual que en el webhook.
       responderConIa: async (guia) => {
-        const porque = await responderConElRedactor({
+        const delRedactor = await responderConElRedactor({
           workspaceId: channel.workspaceId,
           conversationId: conversation.id,
           guia,
@@ -198,8 +199,16 @@ export async function retomarConversacionV3(input: {
           yaLoDijimos: yaLoDijimos,
           pausarIa,
         });
-        console.log("[retomar] v3_responder_con_ia", { conversationId: conversation.id, porque });
+        console.log("[retomar] v3_responder_con_ia", {
+          conversationId: conversation.id,
+          porque: delRedactor.porque,
+          causa: delRedactor.causa,
+        });
+        // Si la IA fallo, el motor manda el respaldo y avisa a la asesora con la causa.
+        return delRedactor;
       },
+      // El flujo de respaldo ("Ficha Camilla Divan") se busca entre los flujos de ESTA linea.
+      buscarFlujo: (titulo) => buscarFlujoDeLaLinea({ workspaceId: channel.workspaceId, channelId: channel.id, titulo }),
       responderSinRegla: async ({ foto }) =>
         responderConElRedactor({
           workspaceId: channel.workspaceId,

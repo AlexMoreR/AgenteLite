@@ -60,6 +60,7 @@ import { etapaAlAsignar } from "@/lib/etapa-automatica-crm";
 import { prisma } from "@/lib/prisma";
 import { avisarAsesorPorWhatsApp, esNumeroDelEquipo } from "@/features/agente-v3/servicios/avisos";
 import { responderConElRedactor } from "@/features/agente-v3/servicios/redactor";
+import { buscarFlujoDeLaLinea } from "@/features/agente-v3/motor/respaldo";
 import { leerFotoParaElV3, transcribirAudioParaElV3 } from "@/features/agente-v3/servicios/medios";
 import { sendChatPushToWorkspace } from "@/lib/web-push";
 import { quienesNoSeEnteran } from "@/lib/quien-se-entera-del-mensaje";
@@ -3280,7 +3281,7 @@ export async function POST(request: NextRequest) {
         pausarIa: pausarIaDelV3,
         // "Responder con IA" del libro: el redactor de la estrella, con la guia de la regla.
         responderConIa: async (guia) => {
-          const porque = await responderConElRedactor({
+          const delRedactor = await responderConElRedactor({
             workspaceId: channel.workspaceId,
             conversationId: conversation.id,
             guia,
@@ -3290,8 +3291,16 @@ export async function POST(request: NextRequest) {
             yaLoDijimos: yaLoDijimosEnElChat,
             pausarIa: pausarIaDelV3,
           });
-          console.log("[EVOLUTION] v3_responder_con_ia", { conversationId: conversation.id, porque });
+          console.log("[EVOLUTION] v3_responder_con_ia", {
+            conversationId: conversation.id,
+            porque: delRedactor.porque,
+            causa: delRedactor.causa,
+          });
+          // Si la IA fallo, el motor manda el respaldo y avisa a la asesora con la causa.
+          return delRedactor;
         },
+        // El flujo de respaldo ("Ficha Camilla Divan") se busca entre los flujos de ESTA linea.
+        buscarFlujo: (titulo) => buscarFlujoDeLaLinea({ workspaceId: channel.workspaceId, channelId: channel.id, titulo }),
         // Ninguna regla aplica: tambien el redactor, en vez de dejar el mensaje sin respuesta.
         responderSinRegla: async ({ foto }) =>
           responderConElRedactor({

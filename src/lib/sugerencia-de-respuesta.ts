@@ -77,7 +77,18 @@ export type SugerenciaGenerada =
       /** Reglas que siguieron sin cumplirse despues de las correcciones (vacio = todo bien). */
       problemas: string[];
     }
-  | { error: string };
+  | {
+      error: string;
+      /**
+       * Por que fallo la IA, para el registro y la nota del chat: "tiempo de espera", "la IA
+       * respondio 429", "fallo de conexion" o "respuesta vacia". El `error` que ve la asesora en la
+       * estrella no cambia.
+       */
+      causa?: string;
+    };
+
+/** Por que la IA no devolvio un texto. */
+type CausaDeLaFalla = { causa: string };
 
 export async function generarSugerenciaDeRespuesta(input: {
   workspaceId: string;
@@ -117,7 +128,11 @@ export async function generarSugerenciaDeRespuesta(input: {
     input.fuente === "official" ? flujo.origen.startsWith(origenDelChat) : flujo.origen === origenDelChat,
   );
 
+  let causa = "sin texto";
   const resultado = await redactarSugerencia({
+    alFallar: (porQue) => {
+      causa = porQue;
+    },
     apiKey,
     comoHablamos: libro?.comoHablamos?.trim() || "",
     producto,
@@ -130,7 +145,8 @@ export async function generarSugerenciaDeRespuesta(input: {
     foto: input.foto ?? null,
   });
   if (!resultado) {
-    return { error: "No se pudo generar la sugerencia. Inténtalo de nuevo." };
+    console.warn("[sugerencia] la IA no redacto", { conversationId: input.conversationId, causa });
+    return { error: "No se pudo generar la sugerencia. Inténtalo de nuevo.", causa };
   }
   return {
     texto: resultado.texto,
@@ -197,6 +213,8 @@ export async function redactarSugerencia(input: {
   ahora: Date;
   guia?: string | null;
   foto?: string | null;
+  /** Se llama con la causa cuando no hay texto ("tiempo de espera", "la IA respondió 429"...). */
+  alFallar?: (causa: string) => void;
 }): Promise<{ texto: string; flujo: FlujoSugerido | null; faltaDato: boolean; problemas: string[] } | null> {
   const { apiKey, comoHablamos, producto, lineas, enviado } = input;
   const flujosDisponibles = input.flujos.filter((flujo) => !enviado.flujosEnviados.has(flujo.id));
@@ -244,10 +262,12 @@ export async function redactarSugerencia(input: {
     .filter(Boolean)
     .join("\n\n");
 
-  let respuesta = await pedirAlModelo(apiKey, sistema, [{ role: "user", content: pedido }]);
-  if (!respuesta) {
+  const primera = await pedirAlModelo(apiKey, sistema, [{ role: "user", content: pedido }]);
+  if ("causa" in primera) {
+    input.alFallar?.(primera.causa);
     return null;
   }
+  let respuesta = primera.texto;
   let borrador = leerRespuesta(respuesta, flujosDisponibles);
 
   /*
@@ -284,9 +304,10 @@ export async function redactarSugerencia(input: {
         content: `Ese mensaje no cumple estas reglas:\n${problemas.map((p) => `- ${p}`).join("\n")}\n\nReescríbelo cumpliéndolas todas. ${FORMATO}`,
       },
     ]);
-    if (!corregida) break;
-    respuesta = corregida;
-    const nuevo = leerRespuesta(corregida, flujosDisponibles);
+    // Si la correccion falla, se sigue con el borrador anterior: el filtro decide si sale.
+    if ("causa" in corregida) break;
+    respuesta = corregida.texto;
+    const nuevo = leerRespuesta(corregida.texto, flujosDisponibles);
     borrador = {
       texto: nuevo.texto || borrador.texto,
       flujo: nuevo.flujo ?? borrador.flujo,
@@ -295,7 +316,12 @@ export async function redactarSugerencia(input: {
   }
 
   const texto = ultimosArreglos(borrador.texto);
-  if (!texto) return null;
+  // Vino un JSON sin texto (o solo comillas y espacios): es una respuesta vacia.
+  if (!texto) {
+    console.warn("[sugerencia] el texto quedo vacio despues de los arreglos");
+    input.alFallar?.("respuesta vacía");
+    return null;
+  }
   // Se vuelve a revisar el texto final: quien lo va a ENVIAR solo (el agente) no manda si quedo algo.
   return { texto, flujo: borrador.flujo, faltaDato: borrador.faltaDato, problemas: revisar(texto) };
 }
@@ -470,9 +496,19 @@ async function leerProducto(workspaceId: string, productoId: string | null): Pro
 
 type MensajeDelModelo = { role: "user" | "assistant"; content: string };
 
-async function pedirAlModelo(apiKey: string, sistema: string, mensajes: MensajeDelModelo[]) {
+/**
+ * Una llamada a la IA. Devuelve el texto o POR QUE no lo hubo: no es lo mismo que la IA tarde mas
+ * de 25 s, que conteste un error (429, 500) o que conteste vacio, y antes las tres salian como
+ * "nada" y la causa se perdia (Alex, 12-11-2026).
+ */
+async function pedirAlModelo(
+  apiKey: string,
+  sistema: string,
+  mensajes: MensajeDelModelo[],
+): Promise<{ texto: string } | CausaDeLaFalla> {
+  let respuesta: Response;
   try {
-    const respuesta = await fetch("https://api.openai.com/v1/chat/completions", {
+    respuesta = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       signal: AbortSignal.timeout(PLAZO_MS),
@@ -483,15 +519,33 @@ async function pedirAlModelo(apiKey: string, sistema: string, mensajes: MensajeD
         messages: [{ role: "system", content: sistema }, ...mensajes],
       }),
     });
-    if (!respuesta.ok) {
-      console.warn("[sugerencia] el modelo respondio", respuesta.status);
-      return null;
-    }
-    const datos = (await respuesta.json()) as { choices?: Array<{ message?: { content?: string } }> };
-    return datos.choices?.[0]?.message?.content?.trim() || null;
   } catch (error) {
+    const nombre = error instanceof Error ? error.name : "";
+    if (nombre === "TimeoutError" || nombre === "AbortError") {
+      console.warn("[sugerencia] la IA no contesto a tiempo", { plazoMs: PLAZO_MS });
+      return { causa: "tiempo de espera" };
+    }
     console.warn("[sugerencia] fallo la llamada", error instanceof Error ? error.message : String(error));
-    return null;
+    return { causa: "fallo de conexión" };
+  }
+  if (!respuesta.ok) {
+    console.warn("[sugerencia] el modelo respondio", respuesta.status);
+    return { causa: `la IA respondió ${respuesta.status}` };
+  }
+  try {
+    const datos = (await respuesta.json()) as { choices?: Array<{ message?: { content?: string } }> };
+    const texto = datos.choices?.[0]?.message?.content?.trim();
+    if (!texto) {
+      console.warn("[sugerencia] la IA respondio vacio");
+      return { causa: "respuesta vacía" };
+    }
+    return { texto };
+  } catch (error) {
+    // El cuerpo se corto o no era JSON: tampoco hay texto que usar.
+    const nombre = error instanceof Error ? error.name : "";
+    if (nombre === "TimeoutError" || nombre === "AbortError") return { causa: "tiempo de espera" };
+    console.warn("[sugerencia] respuesta ilegible", error instanceof Error ? error.message : String(error));
+    return { causa: "respuesta vacía" };
   }
 }
 
