@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Brain, Building2, Plug, Users } from "lucide-react";
+import { BarChart3, Brain, Building2, Plug, Shuffle, Users } from "lucide-react";
 
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const items = [
   { value: "negocio", label: "Negocio", href: "/cliente/negocio", icon: Building2 },
   { value: "equipo", label: "Equipo", href: "/cliente/equipo", icon: Users },
+  { value: "asignacion", label: "Asignación", href: "/cliente/equipo/asignacion", icon: Shuffle },
   { value: "reporte", label: "Reporte", href: "/cliente/negocio/reporte", icon: BarChart3 },
   { value: "claude", label: "Claude", href: "/cliente/negocio/claude", icon: Plug },
   { value: "cerebro", label: "Cerebro", href: "/cliente/negocio/cerebro", icon: Brain },
@@ -16,9 +17,18 @@ const items = [
 
 /**
  * La pestaña Claude solo la ve el dueño o un administrador del negocio (misma regla que su página).
- * La pestaña Cerebro, el dueño y quien él autorice.
+ * La pestaña Cerebro, el dueño y quien él autorice. La pestaña Asignación, el dueño o un ADMIN (el mismo
+ * candado que su página y que Reparto por anuncio).
  */
-export function NegocioEquipoTabsLista({ verClaude, verCerebro }: { verClaude: boolean; verCerebro: boolean }) {
+export function NegocioEquipoTabsLista({
+  verClaude,
+  verCerebro,
+  verAsignacion,
+}: {
+  verClaude: boolean;
+  verCerebro: boolean;
+  verAsignacion: boolean;
+}) {
   const pathname = usePathname();
   const active = pathname?.startsWith("/cliente/negocio/reporte")
     ? "reporte"
@@ -26,15 +36,22 @@ export function NegocioEquipoTabsLista({ verClaude, verCerebro }: { verClaude: b
       ? "claude"
       : pathname?.startsWith("/cliente/negocio/cerebro")
         ? "cerebro"
-        : pathname?.startsWith("/cliente/equipo")
-          ? "equipo"
-          : "negocio";
+        : pathname?.startsWith("/cliente/equipo/asignacion")
+          ? "asignacion"
+          : pathname?.startsWith("/cliente/equipo")
+            ? "equipo"
+            : "negocio";
 
   return (
     <Tabs value={active}>
       <TabsList>
         {items
-          .filter((item) => (item.value !== "claude" || verClaude) && (item.value !== "cerebro" || verCerebro))
+          .filter(
+            (item) =>
+              (item.value !== "claude" || verClaude) &&
+              (item.value !== "cerebro" || verCerebro) &&
+              (item.value !== "asignacion" || verAsignacion),
+          )
           .map(({ value, label, href, icon: Icon }) => (
             <TabsTrigger key={value} value={value} nativeButton={false} render={<Link href={href} />}>
               <Icon />
