@@ -1,6 +1,7 @@
-// Pruebas de "asignar solo cuando el chat necesita asesora" (T-772, parte 1):
+// Pruebas de "asignar solo cuando el chat necesita asesora" (T-772, partes 1 y 2):
 // src/lib/reparto-cuando-lo-necesita.ts, con el reparto por turno (src/lib/reparto-por-turno.ts) y el
-// rescate de chats sin asesora (src/lib/rescate-de-chats-huerfanos.ts). Sin base ni red: una base
+// rescate de chats sin asesora (src/lib/rescate-de-chats-huerfanos.ts); parte 2: la asesora que escribe
+// (src/lib/conversation-claim.ts) y el aviso del agente (src/lib/asignar-porque-el-agente-pide.ts). Sin base ni red: una base
 // simulada en memoria. Correr: npm run test:reparto-cuando-lo-necesita
 import assert from "node:assert/strict";
 
@@ -66,12 +67,34 @@ const prisma = {
       const c = estado.conversaciones.get(where.id);
       return c ? structuredClone(c) : null;
     },
+    findFirst: async ({ where }) => {
+      const c = estado.conversaciones.get(where.id);
+      if (!c || c.workspaceId !== where.workspaceId || !cumpleCampo(c.assignedToUserId, where.assignedToUserId)) return null;
+      return structuredClone(c);
+    },
+    updateMany: async ({ where, data }) => {
+      const c = estado.conversaciones.get(where.id);
+      if (!c || !cumpleCampo(c.assignedToUserId, where.assignedToUserId)) return { count: 0 };
+      Object.assign(c, data);
+      return { count: 1 };
+    },
     findMany: async ({ where, take }) =>
       [...estado.conversaciones.values()]
         .filter((c) => cumpleConversacion(c, where))
         .sort((a, b) => b.lastMessageAt - a.lastMessageAt)
         .slice(0, take ?? Infinity)
         .map((c) => structuredClone(c)),
+  },
+  officialApiConversation: {
+    updateMany: async ({ where, data }) => {
+      const c = estado.conversaciones.get(where.id);
+      if (!c || !cumpleCampo(c.assignedToUserId, where.assignedToUserId)) return { count: 0 };
+      Object.assign(c, data);
+      return { count: 1 };
+    },
+  },
+  user: {
+    findUnique: async ({ where }) => ({ name: where.id, email: null }),
   },
   whatsAppChannel: {
     findUnique: async ({ where }) => ({ id: where.id, purpose: where.id === "linea-admin" ? "ADMIN" : "SALES" }),
@@ -112,11 +135,18 @@ const mocks = {
       return "asesora-de-turno";
     },
   },
+  // La toma al escribir (conversation-claim.ts): sin sesión ni embudo ni historial de verdad.
+  "@/auth": { auth: async () => null },
+  "@/features/embudo/servicios/eventos": { registrarAsesoraRespondio: () => {} },
+  "@/lib/conversation-activity": { recordConversationActivity: async () => {} },
+  "@/lib/etapa-automatica-crm": { etapaAlAsignar: async () => {} },
 };
 
 const rcn = cargar("src/lib/reparto-cuando-lo-necesita.ts", mocks);
 const turno = cargar("src/lib/reparto-por-turno.ts", mocks);
 const rescate = cargar("src/lib/rescate-de-chats-huerfanos.ts", mocks);
+const toma = cargar("src/lib/conversation-claim.ts", mocks);
+const agentePide = cargar("src/lib/asignar-porque-el-agente-pide.ts", mocks);
 
 // ── Chats ───────────────────────────────────────────────────────────────────────────────────────
 const AHORA = new Date();
@@ -305,9 +335,63 @@ await prueba("rescate con (b) apagado no asigna por 'cuánto vale'; con comoAnte
   assert.deepEqual(estado.asignaciones.sort(), ["x-ok", "x-precio"]);
 });
 
+// ── 5. La asesora que escribe (interruptor c) y el aviso del agente (interruptor a) — parte 2 ──
+const escribe = (id, userId, source = "agent") => toma.claimConversationIfUnassigned({ source, conversationId: id, workspaceId: "ws1", userId });
+const avisoDelAgente = (id) => agentePide.asignarPorqueElAgentePide({ conversationId: id, channelId: "linea-ventas", workspaceId: "ws1" });
+
+await prueba("toma: con (c) prendido, la asesora que escribe en un chat sin dueña se lo queda (Ventas 1 y Ventas 2)", async () => {
+  chat("t1", [...COMIENZO, IN("hola")]);
+  chat("t2", [...COMIENZO, IN("hola")], { channelId: "linea-ventas-2" });
+  await escribe("t1", "asesora-ventas-1");
+  await escribe("t2", "asesora-ventas-2");
+  assert.equal(estado.conversaciones.get("t1").assignedToUserId, "asesora-ventas-1");
+  assert.equal(estado.conversaciones.get("t2").assignedToUserId, "asesora-ventas-2");
+  // La API oficial, igual.
+  chat("t3", [...COMIENZO, IN("hola")]);
+  await escribe("t3", "asesora-ventas-1", "official");
+  assert.equal(estado.conversaciones.get("t3").assignedToUserId, "asesora-ventas-1");
+});
+
+await prueba("toma: con (c) apagado, escribir no asigna (ni en Evolution ni en la API oficial)", async () => {
+  await configurar({ asesoraEscribe: false });
+  chat("t4", [...COMIENZO, IN("hola")]);
+  await escribe("t4", "asesora-ventas-1");
+  await escribe("t4", "asesora-ventas-2", "official");
+  assert.equal(estado.conversaciones.get("t4").assignedToUserId, null);
+  await configurar({ asesoraEscribe: true });
+  await escribe("t4", "asesora-ventas-2");
+  assert.equal(estado.conversaciones.get("t4").assignedToUserId, "asesora-ventas-2");
+});
+
+await prueba("toma: un chat ya asignado no cambia de dueña al escribir otra, ni el segundo asesor la pisa", async () => {
+  chat("t5", [...COMIENZO, IN("hola")], { assignedToUserId: "ingrid", segundoAsesorId: "camila" });
+  await escribe("t5", "asesora-ventas-2");
+  await escribe("t5", "camila");
+  assert.equal(estado.conversaciones.get("t5").assignedToUserId, "ingrid");
+  assert.equal(estado.conversaciones.get("t5").segundoAsesorId, "camila");
+});
+
+await prueba("aviso del agente: con (a) prendido asigna (aunque no haya aviso por WhatsApp); con (a) apagado no", async () => {
+  chat("v1", [...COMIENZO, IN("Quiropodia")]);
+  assert.equal(await avisoDelAgente("v1"), "asesora-de-turno");
+  assert.deepEqual(estado.asignaciones, ["v1"]);
+  await configurar({ agentePide: false });
+  chat("v2", [...COMIENZO, IN("Quiropodia")]);
+  assert.equal(await avisoDelAgente("v2"), null);
+  assert.equal(estado.conversaciones.get("v2").assignedToUserId, null);
+  assert.deepEqual(estado.asignaciones, ["v1"]);
+});
+
+await prueba("aviso del agente: un chat con asesora no cambia", async () => {
+  chat("v3", [...COMIENZO, IN("Quiropodia")], { assignedToUserId: "ingrid" });
+  assert.equal(await avisoDelAgente("v3"), null);
+  assert.equal(estado.conversaciones.get("v3").assignedToUserId, "ingrid");
+  assert.deepEqual(estado.asignaciones, []);
+});
+
 console.log(`\n${pruebas} pruebas ok`);
 
-// ── 5. Antes y después ──────────────────────────────────────────────────────────────────────────
+// ── 6. Antes y después ──────────────────────────────────────────────────────────────────────────
 /*
   Cinco chats escritos a mano, sin teléfono ni nombre, con la forma de los chats de ventas de hoy
   (el primero es el de "Para el combo de estética"). Esta sesión no puede leer chats reales (no usa

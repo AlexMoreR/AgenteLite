@@ -122,6 +122,7 @@ import { leerMonitores, leerPausadosDeReparto } from "@/lib/channel-collaborator
 import { filtrarPorHorario } from "@/lib/horario-de-reparto";
 import { filtrarEnLinea } from "@/lib/en-linea";
 import { repartirSiElTurnoLoAmerita } from "@/lib/reparto-por-turno";
+import { asignarPorqueElAgentePide } from "@/lib/asignar-porque-el-agente-pide";
 import { avisarPasoAAsesoraSiToca } from "@/lib/reparto-aviso-a-la-clienta";
 import {
   marcarRespuestaExteriorEnviada,
@@ -3009,6 +3010,17 @@ export async function POST(request: NextRequest) {
         cliente: contact.name?.trim() || phoneNumber,
         telefonoDelCliente: phoneNumber,
       }).catch(() => 0);
+      // T-772 parte 2: con (a) prendido y el chat sin asesora, se reparte aunque el aviso no esté configurado.
+      await asignarPorqueElAgentePide({
+        conversationId: conversation.id,
+        channelId: channel.id,
+        workspaceId: channel.workspaceId,
+      }).catch((error) => {
+        console.warn("[EVOLUTION] v3_asignar_fallo", {
+          conversationId: conversation.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
     };
 
     /*
@@ -3189,10 +3201,32 @@ export async function POST(request: NextRequest) {
         cliente: contact.name?.trim() || phoneNumber,
         telefonoDelCliente: phoneNumber,
       });
+      // T-772 parte 2: con (a) prendido y el chat sin asesora, se reparte aunque el aviso no esté configurado.
+      await asignarPorqueElAgentePide({
+        conversationId: conversation.id,
+        channelId: channel.id,
+        workspaceId: channel.workspaceId,
+      }).catch((error) => {
+        console.warn("[EVOLUTION] v3_asignar_fallo", {
+          conversationId: conversation.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
     };
     // Pausar la IA en este chat: la accion `pausar_ia` del libro y el redactor cuando pasa a una asesora.
     const pausarIaDelV3 = async () => {
       await setConversationAutomationPaused({ conversationId: conversation.id, paused: true }).catch(() => {});
+      // T-772 parte 2: la IA pausada también reparte el chat sin asesora, con (a) prendido.
+      await asignarPorqueElAgentePide({
+        conversationId: conversation.id,
+        channelId: channel.id,
+        workspaceId: channel.workspaceId,
+      }).catch((error) => {
+        console.warn("[EVOLUTION] v3_asignar_fallo", {
+          conversationId: conversation.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
     };
     /*
       El candado de "no repetir". La ventana es de un DIA, no de toda la conversacion: una charla que

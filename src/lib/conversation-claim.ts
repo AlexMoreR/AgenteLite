@@ -3,6 +3,7 @@ import { registrarAsesoraRespondio } from "@/features/embudo/servicios/eventos";
 import { recordConversationActivity } from "@/lib/conversation-activity";
 import { etapaAlAsignar } from "@/lib/etapa-automatica-crm";
 import { prisma } from "@/lib/prisma";
+import { leerConfigDeAsignacion } from "@/lib/reparto-cuando-lo-necesita";
 
 /**
  * La asesora que contesta un chat sin dueño se queda con ese lead.
@@ -46,6 +47,15 @@ export async function claimConversationIfUnassigned(input: {
         userId,
         via: "crm",
       });
+    }
+
+    /*
+      T-772 parte 2: el interruptor (c) `asesoraEscribe` (reparto:cuando:<ws>). Apagado, escribir en
+      un chat sin dueña ya no se lo queda (lo de arriba, el embudo, sigue igual). Prendido o sin
+      fila: lo de siempre. Un chat con dueña no se toca nunca, prendido o apagado.
+    */
+    if (!(await leerConfigDeAsignacion(input.workspaceId)).asesoraEscribe) {
+      return;
     }
 
     if (input.source === "official") {

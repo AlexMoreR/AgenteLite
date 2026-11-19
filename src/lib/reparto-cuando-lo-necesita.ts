@@ -32,7 +32,7 @@ import { respondioLaBienvenida } from "./turno-con-contenido";
    (a) agentePide: la nota "El agente pide un asesor" o la IA pausada asignan.
    (b) clientaPreguntaPlataOEntrega: precio, pago, envío, contraentrega o ciudad asignan (con las
        fotos ya mandadas, la regla del 11-11).
-   (c) asesoraEscribe: se guarda aquí; lo usa una parte siguiente de la tarjeta, no esta regla.
+   (c) asesoraEscribe: la asesora que escribe en un chat sin dueña se lo queda (conversation-claim.ts).
    comoAntes: la regla del 30-10 (asignar apenas responde la bienvenida) y nada más.
    Sin fila, con JSON roto o con la base caída: los valores por defecto (a, b y c prendidos).
 ------------------------------------------------------------------------------------------------ */
