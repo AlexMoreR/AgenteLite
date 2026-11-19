@@ -21,6 +21,7 @@ import {
 import { GRUPO_POR_DEFECTO, type GrupoDeBandeja } from "@/features/chats/domain/filtros-de-bandeja";
 import { contactosInternos, type ContactosInternos } from "@/features/chats/services/contactos-internos";
 import { conServerTiming, type MedidorServerTiming } from "@/lib/server-timing";
+import { cacheDeContadores, claveDeContadores } from "@/lib/cache-de-contadores";
 import {
   estadoQueAplica,
   hayBusqueda,
@@ -256,6 +257,41 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 403 });
   }
 
+  const userId = session.user.id;
+  const clave = claveDeContadores({
+    workspaceId: access.workspaceId,
+    userId,
+    busqueda: new URL(request.url).search,
+  });
+  let calculado = false;
+  const cuerpo = await cacheDeContadores.obtener(clave, async () => {
+    calculado = true;
+    const respuesta = await calcularContadores(request, t, { userId }, access);
+    // Solo se guardan las respuestas buenas.
+    if (!respuesta.ok) throw new RespuestaNoGuardable(respuesta);
+    return respuesta.json();
+  }).catch((error: unknown) => {
+    if (error instanceof RespuestaNoGuardable) return error.respuesta;
+    throw error;
+  });
+  if (cuerpo instanceof Response) return cuerpo;
+  if (!calculado) t.marca("memoria");
+  return NextResponse.json(cuerpo);
+}
+
+class RespuestaNoGuardable extends Error {
+  constructor(readonly respuesta: Response) {
+    super("respuesta no guardable");
+  }
+}
+
+async function calcularContadores(
+  request: Request,
+  t: MedidorServerTiming,
+  session: { userId: string },
+  access: NonNullable<Awaited<ReturnType<typeof getClientWorkspaceAccessForUserCached>>>,
+): Promise<Response> {
+
   /*
     Antes aca se volvia a leer la membresia con getPrimaryWorkspaceForUser: la MISMA que ya trae
     `access` (la primera activa por fecha de alta), mas los conteos de agentes, canales y TODAS
@@ -288,7 +324,7 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     supervisa se ignora igual que antes.
   */
   const [esLaSupervisora, snoozedRows, visibleChannelIds, lineasQueMonitorea] = await Promise.all([
-    esJefe ? false : esSupervisora(membership.workspace.id, session.user.id),
+    esJefe ? false : esSupervisora(membership.workspace.id, session.userId),
     /**
      * Los contactos con el lead pospuesto, para descontarlos.
      *
@@ -302,10 +338,10 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     `,
     getVisibleChannelIds({
       workspaceId: membership.workspace.id,
-      userId: session.user.id,
+      userId: session.userId,
       esJefe,
     }),
-    esJefe ? ([] as string[]) : canalesQueMonitorea({ workspaceId: membership.workspace.id, userId: session.user.id }),
+    esJefe ? ([] as string[]) : canalesQueMonitorea({ workspaceId: membership.workspace.id, userId: session.userId }),
   ]);
   const isManager = esJefe || esLaSupervisora;
   /*
@@ -325,7 +361,7 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     requestUrl.searchParams.get("assigned"),
     isManager ? { tipo: "jefe" } : monitoreados.length > 0 ? { tipo: "monitora", lineas: monitoreados } : { tipo: "asesora" },
   );
-  const alcanceDePastillas = whereDelAlcance(alcance, session.user.id);
+  const alcanceDePastillas = whereDelAlcance(alcance, session.userId);
   const asignacionDeLasPastillas: string = alcance.asignacion;
 
   /**
@@ -362,13 +398,13 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
   const quienEspera =
     monitoreados.length > 0
       ? {
-          userId: session.user.id,
+          userId: session.userId,
           canales: visibleChannelIds
             ? monitoreados.filter((id) => visibleChannelIds.includes(id))
             : monitoreados,
           soloMios: false,
         }
-      : { userId: session.user.id, canales: visibleChannelIds, soloMios: !isManager };
+      : { userId: session.userId, canales: visibleChannelIds, soloMios: !isManager };
 
   /*
     Los numeros de las pastillas "Sin responder" y "No leido": cuentan con las MISMAS reglas que la
@@ -392,7 +428,7 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
           workspaceId: membership.workspace.id,
           searchQuery,
           selectedConnectionKey: conexionElegida,
-          userId: session.user.id,
+          userId: session.userId,
           // La misma asignacion que el canal viejo (alcanceDePastillas), tambien en la linea oficial.
           assignedTo: alcance.asignacion,
           statusFilter,
@@ -438,7 +474,7 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
       workspaceId: membership.workspace.id,
       searchQuery,
       selectedConnectionKey: conexionElegida,
-      userId: session.user.id,
+      userId: session.userId,
       assignedTo: "mine",
       statusFilter,
       filtros,
@@ -447,7 +483,7 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
       workspaceId: membership.workspace.id,
       searchQuery,
       selectedConnectionKey: conexionElegida,
-      userId: session.user.id,
+      userId: session.userId,
       assignedTo: "unassigned",
       statusFilter,
       filtros,
@@ -456,7 +492,7 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
       workspaceId: membership.workspace.id,
       searchQuery,
       selectedConnectionKey: conexionElegida,
-      userId: session.user.id,
+      userId: session.userId,
       assignedTo: "all",
       statusFilter,
       filtros,
@@ -510,7 +546,7 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
         workspaceId: membership.workspace.id,
         searchQuery,
         selectedConnectionKey: conexionElegida,
-        userId: session.user.id,
+        userId: session.userId,
         assignedTo: asignacionOficial,
         statusFilter,
         filtros: filtrosDelGrupo,
@@ -532,7 +568,7 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
   if (monitoreados.length > 0) {
     const deSusLineas: Prisma.ConversationWhereInput = { AND: [baseWhere, { channelId: { in: monitoreados } }] };
     const [mine, unassigned, all, equipo, proveedores] = await Promise.all([
-      prisma.conversation.count({ where: { AND: [deSusLineas, whereEsMio(session.user.id), delGrupo("mine")] } }),
+      prisma.conversation.count({ where: { AND: [deSusLineas, whereEsMio(session.userId), delGrupo("mine")] } }),
       prisma.conversation.count({ where: { AND: [deSusLineas, { assignedToUserId: null }, delGrupo("unassigned")] } }),
       prisma.conversation.count({ where: { AND: [deSusLineas, delGrupo("all")] } }),
       contarGrupo("equipo", deSusLineas, "all"),
@@ -561,7 +597,7 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
 
   // Los empleados solo cuentan sus chats asignados.
   if (!isManager) {
-    const soloLosSuyos: Prisma.ConversationWhereInput = { AND: [baseWhere, whereEsMio(session.user.id)] };
+    const soloLosSuyos: Prisma.ConversationWhereInput = { AND: [baseWhere, whereEsMio(session.userId)] };
     const [mine, equipo, proveedores] = await Promise.all([
       prisma.conversation.count({ where: { AND: [soloLosSuyos, delGrupo("mine")] } }),
       // La asesora solo cuenta lo suyo, tambien en Equipo y Proveedores.
@@ -591,7 +627,7 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
   }
 
   const [mine, unassigned, all, equipo, proveedores] = await Promise.all([
-    prisma.conversation.count({ where: { AND: [baseWhere, whereEsMio(session.user.id), delGrupo("mine")] } }),
+    prisma.conversation.count({ where: { AND: [baseWhere, whereEsMio(session.userId), delGrupo("mine")] } }),
     prisma.conversation.count({ where: { AND: [baseWhere, { assignedToUserId: null }, delGrupo("unassigned")] } }),
     prisma.conversation.count({ where: { AND: [baseWhere, delGrupo("all")] } }),
     contarGrupo("equipo", baseWhere, "all"),

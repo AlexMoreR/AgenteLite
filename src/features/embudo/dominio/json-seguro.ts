@@ -5,7 +5,6 @@
  * profundidad, sin cambiar el resto del valor.
  */
 
-// eslint-disable-next-line no-control-regex
 const NULOS = /\u0000/g;
 const SURROGATE_SUELTO = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g;
 

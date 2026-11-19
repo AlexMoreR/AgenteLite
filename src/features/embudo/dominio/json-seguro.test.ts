@@ -25,5 +25,5 @@ test("jsonSeguro limpia a cualquier profundidad y el resultado es JSON válido p
   assert.equal(limpio.n, 3);
   assert.equal(limpio.nulo, null);
   assert.ok(!JSON.stringify(limpio).includes("\u0000"));
-  assert.ok(!/\ud[89ab][0-9a-f]{2}"/i.test(JSON.stringify(limpio)));
+  assert.equal(textoSeguro(JSON.stringify(limpio)), JSON.stringify(limpio));
 });

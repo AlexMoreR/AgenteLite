@@ -26,6 +26,7 @@
     "test:editar-mensaje": "node scripts/check-editar-mensaje.mjs",
     "test:reenviar": "node scripts/check-reenviar.mjs",
     "test:json-seguro": "npx tsx --test src/features/embudo/dominio/json-seguro.test.ts",
+    "test:cache-de-contadores": "npx tsx --test src/lib/cache-de-contadores.test.ts",
     "test:comprimir-foto": "npx tsx --test src/lib/comprimir-foto.test.ts",
     "test:fotos-en-envio": "npx tsx --test src/components/chats/fotos-en-envio.test.ts",
     "test:registro-de-envio-de-medio": "npx tsx --test src/lib/registro-de-envio-de-medio.test.ts",

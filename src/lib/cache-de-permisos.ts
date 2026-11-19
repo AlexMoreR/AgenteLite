@@ -1,3 +1,4 @@
+import { cacheDeContadores } from "@/lib/cache-de-contadores";
 import { CacheConTtl } from "@/lib/cache-en-memoria";
 import type { CanalDelNegocio } from "@/lib/canales-del-negocio";
 import type { ClientWorkspaceAccess } from "@/lib/client-workspace-access";
@@ -73,6 +74,8 @@ function invalidarModelo(model: string, operation: string, args: unknown) {
     case "WorkspaceMember":
     case "Workspace":
       cacheDeAcceso.vaciar();
+      // Los contadores dependen de quien ve que: un cambio de permisos no espera a los 30 s.
+      cacheDeContadores.vaciar();
       if (model === "Workspace" && (operation === "delete" || operation === "deleteMany")) {
         cacheDeCanales.vaciar();
         cacheDeSupervisoras.vaciar();
@@ -80,13 +83,16 @@ function invalidarModelo(model: string, operation: string, args: unknown) {
       return;
     case "WhatsAppChannel":
       cacheDeCanales.vaciar();
+      cacheDeContadores.vaciar();
       return;
     case "AppSetting": {
       const clave = claveDeAppSetting(args);
       if (clave === null) {
         cacheDeSupervisoras.vaciar();
+        cacheDeContadores.vaciar();
       } else if (clave.startsWith(PREFIJO_SUPERVISORAS)) {
         cacheDeSupervisoras.invalidar(clave.slice(PREFIJO_SUPERVISORAS.length));
+        cacheDeContadores.vaciar();
       }
       return;
     }
@@ -100,4 +106,5 @@ export function vaciarCachesDePermisos() {
   cacheDeAcceso.vaciar();
   cacheDeSupervisoras.vaciar();
   cacheDeCanales.vaciar();
+  cacheDeContadores.vaciar();
 }
