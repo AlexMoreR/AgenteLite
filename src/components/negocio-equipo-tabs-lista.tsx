@@ -44,7 +44,8 @@ export function NegocioEquipoTabsLista({
 
   return (
     <Tabs value={active}>
-      <TabsList>
+      {/* En el celular las pestañas no caben: se deslizan de lado en vez de ensanchar la página. */}
+      <TabsList className="max-w-full justify-start overflow-x-auto">
         {items
           .filter(
             (item) =>
