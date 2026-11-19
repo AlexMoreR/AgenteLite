@@ -618,11 +618,13 @@ await prueba("recorte: el que mas lleva esperando primero, con la fecha en ISO",
 ------------------------------------------------------------------------------------------------ */
 const { GET } = cargar("@/app/api/cliente/chats/counts/route");
 const permisos = cargar("@/lib/cache-de-permisos");
+const contadores = cargar("@/lib/cache-de-contadores");
 const logOriginal = console.log;
 const errorOriginal = console.error;
 const errores = [];
 async function pedir(url) {
   sqls.length = 0;
+  contadores.cacheDeContadores.vaciar(); // este archivo prueba la espera, no la memoria de 30 s de la respuesta
   console.log = () => {}; // las lineas [timing]
   console.error = (...args) => errores.push(args.map(String).join(" "));
   try {

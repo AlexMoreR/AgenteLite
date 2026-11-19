@@ -4,6 +4,7 @@ import { after } from "next/server";
 import { prisma } from "@/lib/prisma";
 
 import { productoDeEntrada } from "../dominio/combo";
+import { jsonSeguro } from "../dominio/json-seguro";
 import {
   aplicarEvento,
   eventosDeSenales,
@@ -112,11 +113,11 @@ function datosDeLaFoto(foto: FotoDelLead) {
     pasoAnterior: foto.pasoAnterior,
     pasoDesde: foto.pasoDesde,
     pasoHistorial:
-      foto.pasoHistorial === undefined ? undefined : foto.pasoHistorial ? (foto.pasoHistorial as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
+      foto.pasoHistorial === undefined ? undefined : foto.pasoHistorial ? (jsonSeguro(foto.pasoHistorial) as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
     temperatura: foto.temperatura,
     puntaje: foto.puntaje,
     motivo: foto.motivo,
-    senales: foto.senales ? (foto.senales as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
+    senales: foto.senales ? (jsonSeguro(foto.senales) as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
     transferencia: foto.transferencia,
     asignadaA: foto.asignadaA,
     asignadaEn: foto.asignadaEn,
@@ -132,7 +133,7 @@ function datosDeLaFoto(foto: FotoDelLead) {
     temperaturaEn: foto.temperaturaEn,
     accion: foto.accion,
     accionDatos:
-      foto.accionDatos === undefined ? undefined : foto.accionDatos ? (foto.accionDatos as Prisma.InputJsonValue) : Prisma.DbNull,
+      foto.accionDatos === undefined ? undefined : foto.accionDatos ? (jsonSeguro(foto.accionDatos) as Prisma.InputJsonValue) : Prisma.DbNull,
     accionEn: foto.accionEn,
     tareaPrioridad: foto.tareaPrioridad,
     tareaVence: foto.tareaVence,
@@ -207,7 +208,7 @@ export async function registrarEventos(base: BaseDelEvento, eventos: EventoDelEm
             reglaNombre: evento.reglaNombre ?? null,
             libroVersion: evento.libroVersion ?? null,
             origen: evento.origen,
-            datos: evento.datos ? (evento.datos as Prisma.InputJsonValue) : Prisma.DbNull,
+            datos: evento.datos ? (jsonSeguro(evento.datos) as Prisma.InputJsonValue) : Prisma.DbNull,
             claveUnica: evento.claveUnica ?? null,
             ...(evento.createdAt ? { createdAt: evento.createdAt } : {}),
           },
