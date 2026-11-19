@@ -17,6 +17,7 @@ import {
   MINUTOS_PARA_CONSTRUIR_EN_LA_NUBE,
   MINUTOS_PARA_CONSTRUIR_EN_ORQUESTADOR,
   MINUTOS_POR_ETAPA,
+  NIVELES_DE_HERENCIA_DE_LA_VIA,
   PALABRA_DE_PRIORIDAD,
   PALABRAS_DE_LA_FILA,
   REPO_DE_GESTION,
@@ -236,14 +237,25 @@ ORDER BY c."trabajoIniciadoEn" ASC`;
 /** Lista SQL de textos ('A', 'B') a partir de una lista fija del código (solo letras, números y _). */
 const listaSql = (valores: readonly string[]) => valores.map((v) => `'${v.replace(/[^A-Za-z0-9_]/g, "")}'`).join(", ");
 
-/** La vía de la última aprobación vigente de la tarjeta `c` ('' si no hay). */
-const VIA_DE_LA_ULTIMA_APROBACION = `COALESCE((
-        SELECT h."despues"->>'via'
-        FROM "HistorialTarjeta" h
-        WHERE h."tarjetaId" = c."id" AND h."accion" = 'aprobar' AND h."deshechoEn" IS NULL
-        ORDER BY h."creadoEn" DESC
+/**
+ * La vía de la última aprobación vigente (sin deshacer) de la tarjeta cuyo id es `idSql`. Si esa aprobación no trae vía pero
+ * se heredó de una madre (`heredadaDe`: partes y tarjetas que crea el Coordinador), se usa la de la madre, hasta
+ * NIVELES_DE_HERENCIA_DE_LA_VIA niveles (viaConHerencia en reglas-trabajador.ts hace lo mismo en TypeScript). NULL si no hay.
+ */
+export function viaVigenteSql(idSql: string, nivel = 1): string {
+  const h = `h${nivel}`;
+  const deLaMadre = nivel <= NIVELES_DE_HERENCIA_DE_LA_VIA ? viaVigenteSql(`${h}."despues"->>'heredadaDe'`, nivel + 1) : "NULL";
+  return `(
+        SELECT COALESCE(NULLIF(${h}."despues"->>'via', ''), ${deLaMadre})
+        FROM "HistorialTarjeta" ${h}
+        WHERE ${h}."tarjetaId" = ${idSql} AND ${h}."accion" = 'aprobar' AND ${h}."deshechoEn" IS NULL
+        ORDER BY ${h}."creadoEn" DESC
         LIMIT 1
-      ), '')`;
+      )`;
+}
+
+/** La vía de la última aprobación vigente de la tarjeta `c` ('' si no hay), con la herencia de la madre. */
+export const VIA_DE_LA_ULTIMA_APROBACION = `COALESCE(${viaVigenteSql('c."id"')}, '')`;
 
 /**
  * ¿La vía de la última aprobación deja tomar la tarjeta `c`? La misma regla que laAprobacionDejaArrancar
@@ -252,7 +264,7 @@ const VIA_DE_LA_ULTIMA_APROBACION = `COALESCE((
  * (ZONAS_QUE_ARRANCAN_POR_VOZ, 31-oct-2026); con META_ADS, solo pantalla.
  * Nunca da NULL (para poder negarla en SQL_FUERA_POR_LA_VIA).
  */
-const CONDICION_DE_LA_VIA = `(
+export const CONDICION_DE_LA_VIA = `(
       cardinality(c."zonaProtegida") = 0
       OR ${VIA_DE_LA_ULTIMA_APROBACION} = 'pantalla'
       OR (

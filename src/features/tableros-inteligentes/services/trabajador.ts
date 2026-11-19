@@ -58,7 +58,6 @@ import {
   puedeElTrabajador,
   puedePartir,
   puedeReparar,
-  registroDeAprobacion,
   resultadoDeEntrada,
   fraseDeLaVigilancia,
   resumenDeTresLineasDeEntrada,
@@ -80,6 +79,7 @@ import {
   type EtapaDelTrabajador,
   type PedidoDeTomar,
   ALCANCE_SISTEMAS,
+  viaConHerencia,
 } from "./reglas-trabajador";
 import {
   archivosDeEntrada,
@@ -292,6 +292,23 @@ export async function quitarAprobador(workspaceId: string, id: unknown) {
 // ── La API del Coordinador ──────────────────────────────────────────────────────────────────
 
 type Tx = Prisma.TransactionClient;
+
+/**
+ * La vía (pantalla / voz / automatica) de la última aprobación vigente de la tarjeta madre, para que lo que se hereda de
+ * ella (partes, limpieza, causa externa) la lleve: con zona protegida /tomar la exige (CONDICION_DE_LA_VIA). {} si la madre
+ * no tiene vía: no se inventa ninguna.
+ */
+async function viaHeredadaDe(tx: Tx, madreId: string): Promise<{ via?: string }> {
+  const via = await viaConHerencia(madreId, async (id) => {
+    const fila = await tx.historialTarjeta.findFirst({
+      where: { tarjetaId: id, accion: "aprobar", deshechoEn: null },
+      orderBy: { creadoEn: "desc" },
+      select: { despues: true },
+    });
+    return fila?.despues ?? null;
+  });
+  return via ? { via } : {};
+}
 
 const quienEs = (contexto: ContextoTrabajador) => `${QUIEN_TRABAJADOR}${contexto.claveId}`;
 
@@ -1385,8 +1402,9 @@ async function partirTarjeta(
       }),
     );
     const padreId = puedeColgarDeLaMadre ? actual.id : madre.padreId;
-    // Con zona protegida, /tomar solo toma una tarjeta cuya última aprobación fue en la pantalla.
+    // Con zona protegida, /tomar exige la vía de la última aprobación (CONDICION_DE_LA_VIA): las partes llevan la de la madre.
     const conZona = actual.zonaProtegida.length > 0;
+    const viaDeLaMadre = await viaHeredadaDe(tx, actual.id);
 
     const hijas: string[] = [];
     for (const [indice, parte] of partes.entries()) {
@@ -1436,16 +1454,11 @@ async function partirTarjeta(
           accion: "aprobar",
           antes: { estado: estadoDeLasPartes } as Prisma.InputJsonValue,
           despues: {
-            ...(conZona
-              ? registroDeAprobacion({
-                  estado: estadoDeLasPartes,
-                  momento: estadoDeLasPartes === "PLAN_APROBADO" ? "plan" : "tarea",
-                  via: "pantalla",
-                  quienNombre: "el dueño (en la tarjeta madre)",
-                  userId: quienEs(contexto),
-                  textoConfirmacion: null,
-                })
-              : { estado: estadoDeLasPartes, momento: estadoDeLasPartes === "PLAN_APROBADO" ? "plan" : "tarea" }),
+            estado: estadoDeLasPartes,
+            momento: estadoDeLasPartes === "PLAN_APROBADO" ? "plan" : "tarea",
+            // La vía es la de la última aprobación de la madre (no se inventa: antes salía "pantalla" aunque la madre fuera por voz).
+            ...viaDeLaMadre,
+            ...(conZona ? { quienNombre: "el dueño (en la tarjeta madre)", userId: quienEs(contexto), textoConfirmacion: null } : {}),
             como: "heredada",
             heredadaDe: actual.id,
           } as Prisma.InputJsonValue,
@@ -1607,7 +1620,7 @@ async function pedirLimpieza(contexto: ContextoTrabajador, actual: FilaParaTraba
         origen: "TRABAJADOR",
         accion: "aprobar",
         antes: { estado: "APROBADO" } as Prisma.InputJsonValue,
-        despues: { estado: "APROBADO", momento: "tarea", como: "heredada", heredadaDe: actual.id } as Prisma.InputJsonValue,
+        despues: { estado: "APROBADO", momento: "tarea", como: "heredada", heredadaDe: actual.id, ...(await viaHeredadaDe(tx, actual.id)) } as Prisma.InputJsonValue,
       },
     });
     await tocarTableros(tx, [actual.tableroId], ahora);
@@ -1680,7 +1693,7 @@ async function pedirCausaExterna(contexto: ContextoTrabajador, actual: FilaParaT
             origen: "TRABAJADOR",
             accion: "aprobar",
             antes: { estado: "APROBADO" } as Prisma.InputJsonValue,
-            despues: { estado: "APROBADO", momento: "tarea", como: "heredada", heredadaDe: actual.id } as Prisma.InputJsonValue,
+            despues: { estado: "APROBADO", momento: "tarea", como: "heredada", heredadaDe: actual.id, ...(await viaHeredadaDe(tx, actual.id)) } as Prisma.InputJsonValue,
           },
         });
         origen = nueva;

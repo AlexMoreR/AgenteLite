@@ -39,8 +39,11 @@ import {
   NOMBRE_DE_LA_ZONA,
   esZona,
   etiquetaEsperando,
+  madreDeUnaAprobacionHeredada,
   prioridadDeLaFila,
   recogidaDelResultado,
+  viaConHerencia,
+  viaDeUnaAprobacion,
   zonasQueEsperanLaPantalla,
 } from "./reglas-trabajador";
 import { diaDeBogota } from "./archivadas";
@@ -295,10 +298,20 @@ export function lugarDelOrquestador(tarjeta: { estado: string; repo?: string | n
  * La vía de la última aprobación vigente (la más nueva sin deshacer, `despues.via`): la misma que lee el filtro de /tomar
  * (VIA_DE_LA_ULTIMA_APROBACION en sql-trabajador.ts). '' si no hay.
  */
-function viaDelHistorial(historial: readonly { despues: unknown }[]): string {
+async function viaDelHistorial(tarjetaId: string, historial: readonly { despues: unknown }[]): Promise<string> {
   const despues = historial[0]?.despues;
-  const via = despues && typeof despues === "object" && !Array.isArray(despues) ? (despues as { via?: unknown }).via : undefined;
-  return typeof via === "string" ? via : "";
+  const via = viaDeUnaAprobacion(despues);
+  // Sin vía propia pero heredada de una madre (partes y tarjetas del Coordinador): la de la madre, como en el filtro de /tomar.
+  if (via || !madreDeUnaAprobacionHeredada(despues)) return via;
+  return viaConHerencia(tarjetaId, async (id) => {
+    if (id === tarjetaId) return despues;
+    const fila = await prisma.historialTarjeta.findFirst({
+      where: { tarjetaId: id, accion: "aprobar", deshechoEn: null },
+      orderBy: { creadoEn: "desc" },
+      select: { despues: true },
+    });
+    return fila?.despues ?? null;
+  });
 }
 
 /**
@@ -398,7 +411,7 @@ async function filaDelCoordinador(workspaceId: string, ahora: Date, esperas: Map
     if (!(ESTADOS_DE_FILA as readonly string[]).includes(tarjeta.estado)) continue;
     const espera = tarjeta.entrantes[0]?.origen.titulo;
     // Espera la pantalla (31-oct-2026): /candidatas nunca la da, así que no va en la fila sino en bloqueadas con su motivo.
-    const pantalla = motivoDeLaPantalla(tarjeta.zonaProtegida ?? [], viaDelHistorial(tarjeta.historial ?? []));
+    const pantalla = motivoDeLaPantalla(tarjeta.zonaProtegida ?? [], await viaDelHistorial(tarjeta.id, tarjeta.historial ?? []));
     if (espera && tarjeta.estado !== "SUBIENDO") {
       bloqueadas.push(item(tarjeta, `Espera a la tarjeta «${espera}»`));
       const origenes = tarjeta.entrantes.map((entrante) => entrante.origen);

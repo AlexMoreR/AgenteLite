@@ -64,6 +64,7 @@ import {
   textoDeAprobarEnPantalla,
   textoDeConfirmacionParaBorrar,
   unirZonas,
+  viaConHerencia,
   zonasDeEntrada,
   zonasQueEsperanLaPantalla,
   type CuentaQueAprueba,
@@ -2221,13 +2222,15 @@ const CAMBIO_MIENTRAS_MIRABAS = "La tarjeta cambió mientras la mirabas. Revísa
 
 /** La vía de la última aprobación vigente (sin deshacer) de la tarjeta, como la lee el filtro de /tomar: '' si no hay. */
 async function viaDeLaUltimaAprobacion(tarjetaId: string): Promise<string> {
-  const fila = await prisma.historialTarjeta.findFirst({
-    where: { tarjetaId, accion: "aprobar", deshechoEn: null },
-    orderBy: { creadoEn: "desc" },
-    select: { despues: true },
+  // Con la herencia de la madre (partes y tarjetas del Coordinador): la misma regla que el filtro SQL de /tomar.
+  return viaConHerencia(tarjetaId, async (id) => {
+    const fila = await prisma.historialTarjeta.findFirst({
+      where: { tarjetaId: id, accion: "aprobar", deshechoEn: null },
+      orderBy: { creadoEn: "desc" },
+      select: { despues: true },
+    });
+    return fila?.despues ?? null;
   });
-  const via = (fila?.despues as { via?: unknown } | null)?.via;
-  return typeof via === "string" ? via : "";
 }
 
 /**

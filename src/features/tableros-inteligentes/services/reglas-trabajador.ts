@@ -158,6 +158,40 @@ export const VIAS_QUE_ARRANCAN_ZONAS_SOLAS = ["automatica", "voz"] as const;
  */
 export const ZONAS_QUE_ARRANCAN_POR_VOZ: readonly ZonaProtegida[] = ["CHATS", "BOT_VENTAS", "LIBRO_V3"];
 
+/** Cuántas tarjetas madre se miran hacia arriba cuando una aprobación heredada no trae vía (SQL y TS usan el mismo tope). */
+export const NIVELES_DE_HERENCIA_DE_LA_VIA = 3;
+
+/** La vía escrita en el `despues` de una aprobación ('' si no tiene). */
+export function viaDeUnaAprobacion(despues: unknown): string {
+  const via = despues && typeof despues === "object" && !Array.isArray(despues) ? (despues as { via?: unknown }).via : undefined;
+  return typeof via === "string" ? via : "";
+}
+
+/** La tarjeta madre de la que una aprobación se heredó (`despues.heredadaDe`), o null. */
+export function madreDeUnaAprobacionHeredada(despues: unknown): string | null {
+  const madre = despues && typeof despues === "object" && !Array.isArray(despues) ? (despues as { heredadaDe?: unknown }).heredadaDe : undefined;
+  return typeof madre === "string" && madre ? madre : null;
+}
+
+/**
+ * La vía de la última aprobación vigente de la tarjeta (la misma regla que VIA_DE_LA_ULTIMA_APROBACION en sql-trabajador.ts):
+ * si esa aprobación no trae vía pero se heredó de una madre (`heredadaDe`), se usa la vía de la última aprobación vigente
+ * de la madre, hasta NIVELES_DE_HERENCIA_DE_LA_VIA niveles. '' si no hay. `ultimaAprobacion(id)` devuelve el `despues` de la
+ * última aprobación NO deshecha de esa tarjeta (o null).
+ */
+export async function viaConHerencia(tarjetaId: string, ultimaAprobacion: (id: string) => Promise<unknown>): Promise<string> {
+  const vistas = new Set<string>();
+  let id: string | null = tarjetaId;
+  for (let nivel = 0; nivel <= NIVELES_DE_HERENCIA_DE_LA_VIA && id && !vistas.has(id); nivel += 1) {
+    vistas.add(id);
+    const despues = await ultimaAprobacion(id);
+    const via = viaDeUnaAprobacion(despues);
+    if (via) return via;
+    id = madreDeUnaAprobacionHeredada(despues);
+  }
+  return "";
+}
+
 /** De estas zonas, las que la voz NO destraba (vacío = la voz basta). */
 export function zonasQueNoArrancanPorVoz(zonas: readonly string[]): string[] {
   return zonas.filter((zona) => !(ZONAS_QUE_ARRANCAN_POR_VOZ as readonly string[]).includes(zona));
