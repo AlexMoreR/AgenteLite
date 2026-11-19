@@ -3,7 +3,13 @@ import { leerMarcaExterior } from "@/features/seguimiento-inteligente/dominio/ex
 import { ventanaDeMadrugada } from "@/lib/en-linea-reglas";
 import { prisma } from "@/lib/prisma";
 import { autoAssignConversationToCollaborator } from "@/lib/reparto-de-leads";
-import { chatNecesitaAsesora } from "@/lib/reparto-cuando-lo-necesita";
+import {
+  elChatNecesitaAsesora,
+  iaPausadaPorElChat,
+  leerConfigDeAsignacion,
+  notaDelAgentePideAsesor,
+  type ConfigDeAsignacion,
+} from "@/lib/reparto-cuando-lo-necesita";
 
 /**
  * LA RED: un cliente esperando y sin nadie a cargo.
@@ -33,6 +39,10 @@ import { chatNecesitaAsesora } from "@/lib/reparto-cuando-lo-necesita";
  * las fotos ya mandadas, que el agente haya pedido asesora o que la clienta hable de precio, pago,
  * envío, contraentrega o ciudad. Corre cada minuto, así ve lo que pasó después del último mensaje de
  * la clienta (las fotos o la nota del agente llegan después de su mensaje).
+ *
+ * DESDE LA T-772 (parte 1) decide `elChatNecesitaAsesora` con los interruptores de cada negocio
+ * (`reparto:cuando:<workspaceId>`), la misma llamada del reparto por turno: así lo que el negocio
+ * apague no se cuela a los 30 minutos. La IA pausada cuenta como "el agente pide".
  *
  * Los chats con el candado "No reasignar" vigente se saltan (domain/candado-no-reasignar.ts).
  *
@@ -67,15 +77,40 @@ const SELECCION = {
   channelId: true,
   workspaceId: true,
   lastMessageAt: true,
-  contact: { select: { metadata: true } },
+  automationPaused: true,
+  channel: { select: { purpose: true } },
+  contact: { select: { metadata: true, bloqueadoEn: true, excludedFromCrm: true } },
 } as const;
+
+/**
+ * Lee los últimos mensajes del chat y pregunta `elChatNecesitaAsesora` con los interruptores del
+ * negocio. `pidioAsesora`: la nota del agente ya se vio en lote (puede estar más atrás de lo leído).
+ */
+async function laReglaLoAsigna(
+  conversacion: { id: string; automationPaused: boolean; contact: { bloqueadoEn: Date | null; excludedFromCrm: boolean } | null },
+  config: ConfigDeAsignacion,
+  pidioAsesora = false,
+): Promise<boolean> {
+  const mensajes = await prisma.message.findMany({
+    where: { conversationId: conversacion.id, deletedAt: null },
+    orderBy: { createdAt: "desc" },
+    take: MENSAJES_PARA_BIENVENIDA,
+    select: { type: true, direction: true, content: true, createdAt: true },
+  });
+  return elChatNecesitaAsesora({
+    mensajes,
+    config,
+    agentePidioAsesor: pidioAsesora || Boolean(notaDelAgentePideAsesor(mensajes)),
+    iaPausada: iaPausadaPorElChat(conversacion),
+  });
+}
 
 /**
  * Chats de ventas sin dueño de las últimas 48 h donde la clienta respondió la bienvenida.
  *
  * Primero, en lote: el primer mensaje nuestro y el último de la clienta de cada chat. Si la clienta
  * no escribió después del primero nuestro, no respondió y no se sigue. A los que pasan se les traen
- * los últimos mensajes y decide `chatNecesitaAsesora` (desde el 11-11-2026), la misma regla del reparto por turno.
+ * los últimos mensajes y decide `elChatNecesitaAsesora` (desde la T-772), la misma regla del reparto por turno.
  */
 async function chatsQueRespondieronLaBienvenida(ahora: Date) {
   const sinDueno = await prisma.conversation.findMany({
@@ -98,9 +133,15 @@ async function chatsQueRespondieronLaBienvenida(ahora: Date) {
 
   const ids = sinDueno.map((conversacion) => conversacion.id);
   const vigentes = { conversationId: { in: ids }, type: { not: "SYSTEM" as const }, deletedAt: null };
-  // Antes de leer cada chat: que ya tenga fotos nuestras (sin fotos la regla nunca asigna) y algún
-  // mensaje de la clienta. Así se leen pocos chats por vuelta.
-  const [primerosNuestros, ultimosDelCliente, conPedidoDelAgente] = await Promise.all([
+  // Antes de leer cada chat, en lote: el primer mensaje nuestro, la primera foto nuestra, el último
+  // de la clienta y la nota del agente. Con eso se descartan sin leerlos los que la regla nunca
+  // asignaría, así se leen pocos chats por vuelta.
+  const [primerosNuestros, primerasFotos, ultimosDelCliente, conPedidoDelAgente] = await Promise.all([
+    prisma.message.groupBy({
+      by: ["conversationId"],
+      where: { ...vigentes, direction: "OUTBOUND" },
+      _min: { createdAt: true },
+    }),
     prisma.message.groupBy({
       by: ["conversationId"],
       where: { ...vigentes, direction: "OUTBOUND", type: { in: ["IMAGE", "VIDEO", "DOCUMENT"] } },
@@ -111,7 +152,6 @@ async function chatsQueRespondieronLaBienvenida(ahora: Date) {
       where: { ...vigentes, direction: "INBOUND" },
       _max: { createdAt: true },
     }),
-    // El agente pidió asesora: esos se asignan aunque todavía no haya fotos.
     prisma.message.groupBy({
       by: ["conversationId"],
       where: { conversationId: { in: ids }, type: "SYSTEM", deletedAt: null, content: { startsWith: "El agente pide un asesor" } },
@@ -120,28 +160,40 @@ async function chatsQueRespondieronLaBienvenida(ahora: Date) {
   ]);
   const pidioAsesora = new Set(conPedidoDelAgente.map((fila) => fila.conversationId));
   const primerNuestro = new Map(primerosNuestros.map((fila) => [fila.conversationId, fila._min.createdAt]));
+  const conFotos = new Set(primerasFotos.map((fila) => fila.conversationId));
   const ultimoDelCliente = new Map(ultimosDelCliente.map((fila) => [fila.conversationId, fila._max.createdAt]));
+
+  // Los interruptores de cada negocio (con su minuto de memoria).
+  const configs = new Map<string, ConfigDeAsignacion>();
+  for (const workspaceId of new Set(sinDueno.map((conversacion) => conversacion.workspaceId))) {
+    configs.set(workspaceId, await leerConfigDeAsignacion(workspaceId));
+  }
 
   const elegidas: typeof sinDueno = [];
   for (const conversacion of sinDueno) {
     if (elegidas.length >= CUANTOS_POR_VUELTA * 3) {
       break;
     }
-    const nuestro = primerNuestro.get(conversacion.id);
+    const config = configs.get(conversacion.workspaceId);
+    if (!config) continue;
     const cliente = ultimoDelCliente.get(conversacion.id);
-    if ((!nuestro && !pidioAsesora.has(conversacion.id)) || !cliente) {
+    if (!cliente) {
       continue;
+    }
+    const iaPausada = iaPausadaPorElChat(conversacion);
+    if (config.comoAntes) {
+      // La regla del 30-10: la clienta escribió después de nuestro primer mensaje.
+      const nuestro = primerNuestro.get(conversacion.id);
+      if (!nuestro || cliente <= nuestro) continue;
+    } else {
+      const porElAgente = config.agentePide && (pidioAsesora.has(conversacion.id) || iaPausada);
+      const porLaClienta = config.clientaPreguntaPlataOEntrega && conFotos.has(conversacion.id);
+      if (!porElAgente && !porLaClienta) continue;
     }
     if (leerMarcaExterior(conversacion.contact?.metadata)) {
       continue;
     }
-    const mensajes = await prisma.message.findMany({
-      where: { conversationId: conversacion.id, deletedAt: null },
-      orderBy: { createdAt: "desc" },
-      take: MENSAJES_PARA_BIENVENIDA,
-      select: { type: true, direction: true, content: true, createdAt: true },
-    });
-    if (chatNecesitaAsesora(mensajes).asignar) {
+    if (await laReglaLoAsigna(conversacion, config, pidioAsesora.has(conversacion.id))) {
       elegidas.push(conversacion);
     }
   }
@@ -216,6 +268,20 @@ export async function rescatarChatsHuerfanos(ahora = new Date()): Promise<{ repa
       });
       if (!ultimo || ultimo.direction !== "INBOUND") {
         continue;
+      }
+      /*
+        T-772: en las líneas de ventas, si ya le contestamos alguna vez, la media hora tampoco se salta
+        la regla (un "ok" que el bot no contestó no es motivo para pasarlo a una asesora). Si NUNCA
+        le contestó nadie (el bot falló del todo), la red de siempre sigue: alguien tiene que verlo.
+      */
+      if (conversacion.channel?.purpose === "SALES") {
+        const yaLeContestamos = await prisma.message.findFirst({
+          where: { conversationId: conversacion.id, direction: "OUTBOUND", type: { not: "SYSTEM" }, deletedAt: null },
+          select: { id: true },
+        });
+        if (yaLeContestamos && !(await laReglaLoAsigna(conversacion, await leerConfigDeAsignacion(conversacion.workspaceId)))) {
+          continue;
+        }
       }
     }
 

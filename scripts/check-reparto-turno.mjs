@@ -1,4 +1,5 @@
-// Pruebas del REPARTO POR TURNO con la regla "solo tras precio o fotos" (Alex, 12-10-2026):
+// Pruebas del REPARTO POR TURNO con la regla "solo tras precio o fotos" (Alex, 12-10-2026) y la regla
+// nueva "solo cuando el chat necesita asesora" (T-772, al final):
 // src/lib/turno-con-contenido.ts. Sin base ni red. Correr: npm run test:reparto-turno
 import assert from "node:assert/strict";
 import { cargar } from "./supervisor-cargar.mjs";
@@ -186,6 +187,28 @@ prueba("respondioLaBienvenida con filas del rescate: el bot habló último pero 
 prueba("respondioLaBienvenida con filas del rescate: solo bienvenida, o respuesta borrada = false", () => {
   assert.equal(t.respondioLaBienvenida(comoRescate([fila("INBOUND", 0), fila("OUTBOUND", 1)])), false);
   assert.equal(t.respondioLaBienvenida(comoRescate([fila("INBOUND", 0), fila("OUTBOUND", 1), fila("INBOUND", 2, new Date())])), false);
+});
+
+/* 7. La regla nueva (T-772, parte 1): asignar solo cuando el chat necesita asesora.
+   El reparto por turno ya no asigna por responder la bienvenida: decide `elChatNecesitaAsesora`
+   (src/lib/reparto-cuando-lo-necesita.ts). Responder la bienvenida solo asigna con `comoAntes`. */
+const regla = cargar("src/lib/reparto-cuando-lo-necesita.ts", { "@/lib/prisma": { prisma: {} } });
+const COMO_ANTES = { comoAntes: true };
+prueba("regla nueva: un 'ok' o 'Masajes' tras la bienvenida ya NO asignan", () => {
+  for (const texto of ["ok", "Masajes"]) {
+    const mensajes = viejoAlNuevo(IN(ANUNCIO), BOT(BIENVENIDA), IN(texto));
+    assert.equal(regla.elChatNecesitaAsesora({ mensajes }), false, texto);
+    assert.equal(regla.elChatNecesitaAsesora({ mensajes, config: {} }), false, texto);
+  }
+});
+prueba("regla nueva con comoAntes prendido: un 'ok' tras la bienvenida asigna (como respondioLaBienvenida)", () => {
+  const mensajes = viejoAlNuevo(IN(ANUNCIO), BOT(BIENVENIDA), IN("ok"));
+  assert.equal(regla.elChatNecesitaAsesora({ mensajes, config: COMO_ANTES }), true);
+  assert.equal(regla.elChatNecesitaAsesora({ mensajes: viejoAlNuevo(IN(ANUNCIO), BOT(BIENVENIDA)), config: COMO_ANTES }), false);
+});
+prueba("regla nueva: tras las fotos del bot, 'ok' no asigna y 'cuánto vale' sí", () => {
+  assert.equal(regla.elChatNecesitaAsesora({ mensajes: viejoAlNuevo(IN(ANUNCIO), BOT(BIENVENIDA), BOT("", "IMAGE"), IN("ok")) }), false);
+  assert.equal(regla.elChatNecesitaAsesora({ mensajes: viejoAlNuevo(IN(ANUNCIO), BOT(BIENVENIDA), BOT("", "IMAGE"), IN("cuánto vale")) }), true);
 });
 
 console.log(`\n${pruebas} pruebas ok`);

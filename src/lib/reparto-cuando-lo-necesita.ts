@@ -1,4 +1,7 @@
+import { prisma } from "@/lib/prisma";
+
 import { departamentoDeCiudad, limpiarTexto } from "../features/pauta/dominio/departamentos";
+import { respondioLaBienvenida } from "./turno-con-contenido";
 
 /*
   ¿EL CHAT NECESITA ASESORA? (Alex, 11-nov-2026, pisa la regla del 30-10 de "asignar apenas responde
@@ -19,9 +22,97 @@ import { departamentoDeCiudad, limpiarTexto } from "../features/pauta/dominio/de
   chats sin asesora (cada minuto, así lo que pasó DESPUÉS del mensaje de la clienta —las fotos, la
   nota del agente— también se ve). Pruebas: npm run test:reparto-cuando-lo-necesita.
 
-  Es el primer paso de la T-772 (autoasignación configurable): esa tarjeta le agrega los
-  interruptores, la pantalla y el MCP sobre este mismo archivo.
+  Es el primer paso de la T-772 (autoasignación configurable). La parte 1 de esa tarjeta le agregó
+  aquí los interruptores (`ConfigDeAsignacion`) y la regla con entrada completa
+  (`elChatNecesitaAsesora`); la pantalla y el MCP vienen en las partes siguientes.
 */
+
+/* ------------------------------------------------------------------------------------------------
+   LOS INTERRUPTORES (T-772, parte 1): AppSetting `reparto:cuando:<workspaceId>`, valor en JSON.
+   (a) agentePide: la nota "El agente pide un asesor" o la IA pausada asignan.
+   (b) clientaPreguntaPlataOEntrega: precio, pago, envío, contraentrega o ciudad asignan (con las
+       fotos ya mandadas, la regla del 11-11).
+   (c) asesoraEscribe: se guarda aquí; lo usa una parte siguiente de la tarjeta, no esta regla.
+   comoAntes: la regla del 30-10 (asignar apenas responde la bienvenida) y nada más.
+   Sin fila, con JSON roto o con la base caída: los valores por defecto (a, b y c prendidos).
+------------------------------------------------------------------------------------------------ */
+
+export type ConfigDeAsignacion = {
+  agentePide: boolean;
+  clientaPreguntaPlataOEntrega: boolean;
+  asesoraEscribe: boolean;
+  comoAntes: boolean;
+};
+
+export const CONFIG_DE_ASIGNACION_POR_DEFECTO: Readonly<ConfigDeAsignacion> = Object.freeze({
+  agentePide: true,
+  clientaPreguntaPlataOEntrega: true,
+  asesoraEscribe: true,
+  comoAntes: false,
+});
+
+const INTERRUPTORES = Object.keys(CONFIG_DE_ASIGNACION_POR_DEFECTO) as Array<keyof ConfigDeAsignacion>;
+
+export const claveConfigDeAsignacion = (workspaceId: string) => `reparto:cuando:${workspaceId}`;
+
+/** Cada interruptor que venga como true/false (o "true"/"false"); lo demás, el valor por defecto. */
+export function completarConfigDeAsignacion(valor: unknown): ConfigDeAsignacion {
+  const config: ConfigDeAsignacion = { ...CONFIG_DE_ASIGNACION_POR_DEFECTO };
+  if (!valor || typeof valor !== "object" || Array.isArray(valor)) return config;
+  const crudo = valor as Record<string, unknown>;
+  for (const clave of INTERRUPTORES) {
+    const v = crudo[clave];
+    if (v === true || v === "true") config[clave] = true;
+    else if (v === false || v === "false") config[clave] = false;
+  }
+  return config;
+}
+
+export function leerConfigDeAsignacionDeTexto(texto: string | null | undefined): ConfigDeAsignacion {
+  try {
+    return completarConfigDeAsignacion(texto ? JSON.parse(texto) : null);
+  } catch {
+    // JSON roto: los valores por defecto.
+    return { ...CONFIG_DE_ASIGNACION_POR_DEFECTO };
+  }
+}
+
+/** Un minuto de memoria por proceso, igual que reparto-config.ts. */
+const MEMORIA_MS = 60_000;
+const configsDeAsignacion = new Map<string, { valor: ConfigDeAsignacion; vence: number }>();
+
+export async function leerConfigDeAsignacion(workspaceId: string): Promise<ConfigDeAsignacion> {
+  const guardado = configsDeAsignacion.get(workspaceId);
+  if (guardado && guardado.vence > Date.now()) return { ...guardado.valor };
+  let valor: ConfigDeAsignacion;
+  try {
+    const fila = await prisma.appSetting.findUnique({ where: { key: claveConfigDeAsignacion(workspaceId) } });
+    valor = leerConfigDeAsignacionDeTexto(fila?.value);
+  } catch {
+    valor = { ...CONFIG_DE_ASIGNACION_POR_DEFECTO };
+  }
+  configsDeAsignacion.set(workspaceId, { valor, vence: Date.now() + MEMORIA_MS });
+  return { ...valor };
+}
+
+/** Guarda los interruptores (lo que falte o no sea true/false queda con el valor por defecto). */
+export async function guardarConfigDeAsignacion(
+  workspaceId: string,
+  config: Partial<ConfigDeAsignacion>,
+): Promise<ConfigDeAsignacion> {
+  if (!workspaceId) throw new Error("Falta el negocio");
+  const valor = completarConfigDeAsignacion(config);
+  const texto = JSON.stringify(valor);
+  const key = claveConfigDeAsignacion(workspaceId);
+  await prisma.appSetting.upsert({ where: { key }, create: { key, value: texto }, update: { value: texto } });
+  configsDeAsignacion.delete(workspaceId);
+  return valor;
+}
+
+/** Para las pruebas: olvida lo leído. */
+export function olvidarConfigsDeAsignacion() {
+  configsDeAsignacion.clear();
+}
 
 export type MensajeDelReparto = {
   direction: string;
@@ -151,20 +242,64 @@ function enOrden(mensajes: ReadonlyArray<MensajeDelReparto>): MensajeDelReparto[
 }
 
 export type DecisionDelReparto =
-  | { asignar: false; motivo: "sin_fotos" | "sin_pedido" }
-  | { asignar: true; motivo: "agente_pide_asesora" | "plata_o_entrega"; detalle: string };
+  | { asignar: false; motivo: "sin_fotos" | "sin_pedido" | "sin_respuesta" }
+  | {
+      asignar: true;
+      motivo: "agente_pide_asesora" | "ia_pausada" | "plata_o_entrega" | "respondio_la_bienvenida";
+      detalle: string;
+    };
 
-/**
- * La regla completa. `mensajes`: los del chat, con las notas del sistema (SYSTEM), en cualquier
- * orden si traen fecha.
- */
-export function chatNecesitaAsesora(mensajes: ReadonlyArray<MensajeDelReparto>): DecisionDelReparto {
+/** ¿Hay una nota del sistema "El agente pide un asesor: …"? Devuelve la nota (o null). */
+export function notaDelAgentePideAsesor(mensajes: ReadonlyArray<MensajeDelReparto>): MensajeDelReparto | null {
+  return (
+    enOrden(mensajes).find(
+      (m) => (m.type ?? "").toUpperCase() === "SYSTEM" && NOTA_PIDE_ASESOR.test((m.content ?? "").trim()),
+    ) ?? null
+  );
+}
+
+/** La IA pausada cuenta como "el agente pide", salvo si la pausó un bloqueo o el contacto está oculto del CRM. */
+export function iaPausadaPorElChat(conversacion: {
+  automationPaused?: boolean | null;
+  contact?: { bloqueadoEn?: Date | null; excludedFromCrm?: boolean | null } | null;
+}): boolean {
+  return Boolean(conversacion.automationPaused && !conversacion.contact?.bloqueadoEn && !conversacion.contact?.excludedFromCrm);
+}
+
+export type EntradaDeLaRegla = {
+  /** Los del chat, con las notas del sistema (SYSTEM), en cualquier orden si traen fecha. */
+  mensajes: ReadonlyArray<MensajeDelReparto>;
+  /** Sin config: los valores por defecto. */
+  config?: Partial<ConfigDeAsignacion> | null;
+  /** Sin dato: se busca la nota en `mensajes`. */
+  agentePidioAsesor?: boolean;
+  /** La IA del chat está pausada (`automationPaused`). */
+  iaPausada?: boolean;
+};
+
+/** La regla completa, con el motivo (para el log). */
+export function decidirSiElChatNecesitaAsesora(entrada: EntradaDeLaRegla): DecisionDelReparto {
+  const config = completarConfigDeAsignacion(entrada.config ?? null);
+  const { mensajes } = entrada;
+
+  // comoAntes: la regla del 30-10, sin mirar nada más.
+  if (config.comoAntes) {
+    return respondioLaBienvenida(mensajes)
+      ? { asignar: true, motivo: "respondio_la_bienvenida", detalle: "" }
+      : { asignar: false, motivo: "sin_respuesta" };
+  }
+
+  // (a) El agente pidió asesora o la IA está pausada: siempre, haya fotos o no.
+  if (config.agentePide) {
+    const nota = notaDelAgentePideAsesor(mensajes);
+    const pidio = entrada.agentePidioAsesor ?? Boolean(nota);
+    if (pidio) {
+      return { asignar: true, motivo: "agente_pide_asesora", detalle: (nota?.content ?? "").slice(0, 160) };
+    }
+    if (entrada.iaPausada) return { asignar: true, motivo: "ia_pausada", detalle: "" };
+  }
+
   const ordenados = enOrden(mensajes);
-
-  // (a) El agente pidió asesora: siempre, haya fotos o no.
-  const nota = ordenados.find((m) => (m.type ?? "").toUpperCase() === "SYSTEM" && NOTA_PIDE_ASESOR.test((m.content ?? "").trim()));
-  if (nota) return { asignar: true, motivo: "agente_pide_asesora", detalle: (nota.content ?? "").slice(0, 160) };
-
   const primeraFoto = ordenados.findIndex(
     (m) => m.direction === "OUTBOUND" && TIPOS_DE_FOTOS.has((m.type ?? "TEXT").toUpperCase()),
   );
@@ -172,8 +307,20 @@ export function chatNecesitaAsesora(mensajes: ReadonlyArray<MensajeDelReparto>):
 
   // (b) Cualquier mensaje de la clienta (también uno de antes de las fotos: "Precio en Bogotá" en el
   // primer mensaje sigue pendiente de respuesta cuando llegan las fotos).
-  const pedido = ordenados.find((m) => m.direction === "INBOUND" && hablaDePlataOEntrega(m.content));
-  if (pedido) return { asignar: true, motivo: "plata_o_entrega", detalle: (pedido.content ?? "").slice(0, 160) };
+  if (config.clientaPreguntaPlataOEntrega) {
+    const pedido = ordenados.find((m) => m.direction === "INBOUND" && hablaDePlataOEntrega(m.content));
+    if (pedido) return { asignar: true, motivo: "plata_o_entrega", detalle: (pedido.content ?? "").slice(0, 160) };
+  }
 
   return { asignar: false, motivo: "sin_pedido" };
+}
+
+/** ¿El chat necesita asesora? La regla de la T-772 (reparto por turno y rescate de los 30 min). */
+export function elChatNecesitaAsesora(entrada: EntradaDeLaRegla): boolean {
+  return decidirSiElChatNecesitaAsesora(entrada).asignar;
+}
+
+/** La regla del 11-11 con los valores por defecto, buscando la nota en los mensajes. */
+export function chatNecesitaAsesora(mensajes: ReadonlyArray<MensajeDelReparto>): DecisionDelReparto {
+  return decidirSiElChatNecesitaAsesora({ mensajes });
 }

@@ -1,13 +1,20 @@
 import { prisma } from "@/lib/prisma";
 import { autoAssignConversationToCollaborator } from "@/lib/reparto-de-leads";
-import { chatNecesitaAsesora } from "@/lib/reparto-cuando-lo-necesita";
+import {
+  decidirSiElChatNecesitaAsesora,
+  iaPausadaPorElChat,
+  leerConfigDeAsignacion,
+  notaDelAgentePideAsesor,
+} from "@/lib/reparto-cuando-lo-necesita";
 
 /**
  * EL REPARTO: la clienta recibe asesora cuando el chat la NECESITA (Alex, 11-nov-2026).
  *
- * Desde el 11-11-2026 decide `chatNecesitaAsesora` (reparto-cuando-lo-necesita.ts): nadie antes de
- * que el bot mande las fotos, y después solo si el agente pidió asesora o la clienta habla de
- * precio, pago, envío, contraentrega o ciudad. Lo de abajo es la historia de la regla anterior.
+ * Desde el 11-11-2026 decide la regla de reparto-cuando-lo-necesita.ts: nadie antes de que el bot
+ * mande las fotos, y después solo si el agente pidió asesora o la clienta habla de precio, pago,
+ * envío, contraentrega o ciudad. Desde la T-772 (parte 1) es `elChatNecesitaAsesora`, con los
+ * interruptores del negocio (`reparto:cuando:<workspaceId>`): la IA pausada también cuenta como
+ * "el agente pide", y con `comoAntes` vuelve la regla del 30-10. Lo de abajo es la historia.
  *
  * Regla de Alex (30-10-2026, pisa la del 02-10 y el interruptor `exigirPrecioOFotos` del 12-10).
  * Se asigna cuando se cumplen tres cosas: el chat no tiene asesora, la línea es de ventas
@@ -37,7 +44,11 @@ export async function repartirSiElTurnoLoAmerita(input: {
   const [conversacion, canal] = await Promise.all([
     prisma.conversation.findUnique({
       where: { id: input.conversationId },
-      select: { assignedToUserId: true },
+      select: {
+        assignedToUserId: true,
+        automationPaused: true,
+        contact: { select: { bloqueadoEn: true, excludedFromCrm: true } },
+      },
     }),
     prisma.whatsAppChannel.findUnique({
       where: { id: input.channelId },
@@ -56,7 +67,14 @@ export async function repartirSiElTurnoLoAmerita(input: {
     select: { direction: true, type: true, content: true, createdAt: true },
   });
 
-  const decision = chatNecesitaAsesora(mensajes);
+  const config = await leerConfigDeAsignacion(input.workspaceId);
+  const decision = decidirSiElChatNecesitaAsesora({
+    mensajes,
+    config,
+    agentePidioAsesor: Boolean(notaDelAgentePideAsesor(mensajes)),
+    // Un contacto bloqueado u oculto del CRM también tiene la IA pausada: eso no es pedir asesora.
+    iaPausada: iaPausadaPorElChat(conversacion),
+  });
   if (!decision.asignar) {
     return { asignada: false };
   }
