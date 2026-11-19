@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import NextAuth from "next-auth";
 import authConfig from "@/auth.config";
+import { COOKIE_INICIO, OPCIONES_COOKIE_INICIO, debeMandarAlInicio } from "@/lib/abrir-en-chats";
 
 const { auth } = NextAuth(authConfig);
 
@@ -77,6 +78,22 @@ export default auth((req) => {
   if (pathname.startsWith("/cliente")) {
     if (!role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(role)) {
       return NextResponse.redirect(new URL("/unauthorized", nextUrl));
+    }
+
+    // App instalada, favorito o pestaña vieja que abre Mi día: se manda a /cliente, que abre Chats a quien la
+    // puede ver. La cookie corta (aizen_inicio) evita el rebote: a quien no ve Chats, /cliente lo devuelve a
+    // Mi día y esa segunda vez pasa normal. La regla está en src/lib/abrir-en-chats.ts.
+    if (
+      debeMandarAlInicio({
+        pathname,
+        search: nextUrl.search,
+        header: (nombre) => req.headers.get(nombre),
+        cookie: (nombre) => req.cookies?.get(nombre)?.value,
+      })
+    ) {
+      const respuesta = NextResponse.redirect(new URL("/cliente", nextUrl));
+      respuesta.cookies.set(COOKIE_INICIO, "1", OPCIONES_COOKIE_INICIO);
+      return respuesta;
     }
   }
 

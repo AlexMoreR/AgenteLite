@@ -17,19 +17,29 @@ const middleware = cargar("src/middleware.ts", {
   "@/auth.config": { __esModule: true, default: {} },
   "next/server": {
     NextResponse: {
-      redirect: (url) => ({ destino: new URL(url).pathname }),
-      next: () => ({ destino: null }),
+      redirect: (url) => {
+        const respuesta = { destino: new URL(url).pathname, cookiesPuestas: [] };
+        respuesta.cookies = { set: (nombre, valor, opciones) => respuesta.cookiesPuestas.push({ nombre, valor, opciones }) };
+        return respuesta;
+      },
+      next: () => ({ destino: null, cookiesPuestas: [] }),
     },
   },
 }).default;
 
-function entrar(ruta, user) {
+// Llama al middleware real. headers: los encabezados del caso (además de host); cookies: las cookies del caso.
+function pedir(ruta, user, { headers = {}, cookies = {} } = {}) {
   const nextUrl = new URL(`https://magilus.com${ruta}`);
   return middleware({
     nextUrl,
     auth: user ? { user } : null,
-    headers: { get: (nombre) => (nombre === "host" ? "magilus.com" : null) },
-  }).destino;
+    headers: { get: (nombre) => (nombre === "host" ? "magilus.com" : (headers[nombre] ?? null)) },
+    cookies: { get: (nombre) => (nombre in cookies ? { name: nombre, value: cookies[nombre] } : undefined) },
+  });
+}
+
+function entrar(ruta, user, caso) {
+  return pedir(ruta, user, caso).destino;
 }
 
 for (const ruta of ["/", "/login", "/register"]) {
@@ -147,5 +157,44 @@ for (const ruta of ["/cliente/crm/registro", "/cliente/chats", "/cliente/crm/mi-
   assert.equal(decide({ pathname: ruta }), false, `${ruta} no redirige`);
 }
 
+// ---------- El middleware real conecta la regla: la app vieja que abre Mi día cae en /cliente ----------
+const DUENO = { role: "CLIENTE", primaryWorkspaceId: "ws-1" };
+const ASESORA = { role: "EMPLEADO", primaryWorkspaceId: "ws-1" };
+const MI_DIA = abrirEnChats.RUTA_MI_DIA;
+for (const [quien, user] of [["dueño", DUENO], ["asesora", ASESORA]]) {
+  const respuesta = pedir(MI_DIA, user, { headers: MARCAS_APERTURA });
+  assert.equal(respuesta.destino, "/cliente", `${quien}: apertura nueva de Mi día va a /cliente`);
+  assert.equal(respuesta.cookiesPuestas.length, 1, `${quien}: deja una sola cookie`);
+  const [cookie] = respuesta.cookiesPuestas;
+  assert.equal(cookie.nombre, "aizen_inicio", `${quien}: cookie aizen_inicio`);
+  assert.equal(cookie.valor, "1", `${quien}: valor de la cookie`);
+  assert.deepEqual(
+    { ...cookie.opciones },
+    { maxAge: 60, httpOnly: true, sameSite: "lax", path: "/" },
+    `${quien}: opciones de la cookie (60 s, httpOnly, lax, /)`,
+  );
+
+  assert.equal(entrar(MI_DIA, user, { headers: { ...MARCAS_APERTURA, rsc: "1" } }), null, `${quien}: con rsc: 1 pasa normal`);
+  assert.equal(
+    entrar(MI_DIA, user, { headers: { ...MARCAS_APERTURA, "sec-fetch-site": "same-origin" } }),
+    null,
+    `${quien}: con sec-fetch-site same-origin pasa normal`,
+  );
+  assert.equal(
+    entrar(MI_DIA, user, { headers: MARCAS_APERTURA, cookies: { aizen_inicio: "1" } }),
+    null,
+    `${quien}: con la cookie aizen_inicio pasa normal (no rebota)`,
+  );
+  assert.equal(entrar(`${MI_DIA}?x=1`, user, { headers: MARCAS_APERTURA }), null, `${quien}: con ?x=1 pasa normal`);
+  assert.equal(entrar(MI_DIA, user, { headers: {} }), null, `${quien}: sin marcas Sec-Fetch-* pasa normal`);
+  for (const ruta of ["/cliente/crm/registro", "/cliente/chats"]) {
+    assert.equal(entrar(ruta, user, { headers: MARCAS_APERTURA }), null, `${quien}: ${ruta} con marcas de apertura pasa normal`);
+  }
+}
+const sinSesion = pedir(MI_DIA, null, { headers: MARCAS_APERTURA });
+assert.equal(sinSesion.destino, "/unauthorized", "sin sesión Mi día sigue yendo a /unauthorized, no a /cliente");
+assert.equal(sinSesion.cookiesPuestas.length, 0, "sin sesión no se pone la cookie aizen_inicio");
+
 console.log("OK inicio-en-chats: raíz y /login a /cliente; /cliente abre Chats, si no Mi día, si no la bienvenida; app instalada en /cliente.");
 console.log("OK abrir-en-chats: solo la apertura nueva de /cliente/crm/mi-dia (sin RSC, sin cookie, sin parámetros) va al inicio.");
+console.log("OK middleware: la app instalada o el favorito de Mi día abren en /cliente con la cookie aizen_inicio de 60 s.");
