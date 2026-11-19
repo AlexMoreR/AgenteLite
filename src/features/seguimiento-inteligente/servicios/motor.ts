@@ -23,6 +23,7 @@ import { marcarParaReactivar } from "./reactivacion";
 import { aplicarTopeDeTareas } from "./tope";
 import { barrerDiaSiguiente } from "./dia-siguiente";
 import { barrerTrasAsesora } from "./tras-asesora";
+import { cortarTexto } from "@/features/embudo/dominio/json-seguro";
 
 /**
  * EL MOTOR EN VIVO del seguimiento inteligente.
@@ -207,7 +208,7 @@ export async function revisarLead(conversationId: string, opciones: { ahora?: Da
             puntajeBase: calificacion.puntajeBase,
             motivo: calificacion.motivo,
             productoInteres: evaluacion.familia,
-            senales: calificacion.senales.slice(0, 6).map((s) => ({ tipo: s.tipo, fragmento: s.fragmento.slice(0, 80) })),
+            senales: calificacion.senales.slice(0, 6).map((s) => ({ tipo: s.tipo, fragmento: cortarTexto(s.fragmento, 80) })),
           },
         });
       }
