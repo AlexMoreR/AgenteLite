@@ -115,4 +115,37 @@ const navCrm = leer("src/components/nav-crm.tsx");
 assert.match(navCrm, /\{ title: "Mi día", view: "mi-dia"/, "el menú del CRM debe seguir teniendo Mi día");
 assert.ok(navCrm.includes("href={`/cliente/crm/${item.view}`}"), "Mi día del menú debe seguir abriendo /cliente/crm/mi-dia");
 
+// ---------- Regla "abrir en Chats" para la app instalada con el start_url viejo (/cliente/crm/mi-dia) ----------
+const abrirEnChats = cargar("src/lib/abrir-en-chats.ts");
+const abrirEnChatsTexto = leer("src/lib/abrir-en-chats.ts");
+assert.ok(!/from\s+["']next/.test(abrirEnChatsTexto), "abrir-en-chats.ts no debe importar next ni next-auth");
+assert.equal(abrirEnChats.RUTA_MI_DIA, "/cliente/crm/mi-dia");
+assert.equal(abrirEnChats.COOKIE_INICIO, "aizen_inicio");
+assert.deepEqual(
+  { ...abrirEnChats.OPCIONES_COOKIE_INICIO },
+  { maxAge: 60, httpOnly: true, sameSite: "lax", path: "/" },
+  "opciones de la cookie aizen_inicio",
+);
+
+const MARCAS_APERTURA = { "sec-fetch-mode": "navigate", "sec-fetch-dest": "document", "sec-fetch-site": "none" };
+function decide({ pathname = "/cliente/crm/mi-dia", search = "", headers = MARCAS_APERTURA, cookies = {} } = {}) {
+  return abrirEnChats.debeMandarAlInicio({
+    pathname,
+    search,
+    header: (nombre) => headers[nombre] ?? null,
+    cookie: (nombre) => cookies[nombre],
+  });
+}
+
+assert.equal(decide(), true, "apertura nueva de Mi día (navigate, document, none, sin RSC ni cookie) va al inicio");
+assert.equal(decide({ headers: { ...MARCAS_APERTURA, rsc: "1" } }), false, "con RSC: 1 no redirige");
+assert.equal(decide({ headers: { ...MARCAS_APERTURA, "sec-fetch-site": "same-origin" } }), false, "con Sec-Fetch-Site: same-origin no redirige");
+assert.equal(decide({ cookies: { aizen_inicio: "1" } }), false, "con la cookie aizen_inicio no redirige");
+assert.equal(decide({ search: "?x=1" }), false, "con ?x=1 no redirige");
+assert.equal(decide({ headers: {} }), false, "sin marcas Sec-Fetch-* (navegador viejo) no redirige");
+for (const ruta of ["/cliente/crm/registro", "/cliente/chats", "/cliente/crm/mi-dia/"]) {
+  assert.equal(decide({ pathname: ruta }), false, `${ruta} no redirige`);
+}
+
 console.log("OK inicio-en-chats: raíz y /login a /cliente; /cliente abre Chats, si no Mi día, si no la bienvenida; app instalada en /cliente.");
+console.log("OK abrir-en-chats: solo la apertura nueva de /cliente/crm/mi-dia (sin RSC, sin cookie, sin parámetros) va al inicio.");
