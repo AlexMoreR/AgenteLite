@@ -51,6 +51,9 @@ export const HERRAMIENTAS_PROHIBIDAS = [
   "Task",
 ];
 
+/** Un número de minutos mayor que 0; si no lo es (o falta), el valor por defecto. */
+const minutosPositivos = (valor, porDefecto) => (Number.isFinite(Number(valor)) && Number(valor) > 0 ? Number(valor) : porDefecto);
+
 const TIEMPOS_POR_DEFECTO = {
   // Un poco menos que el tope del CRM (20 / 90 / 45 min), para avisar el error antes de que venza.
   planMinutos: 19,
@@ -660,6 +663,11 @@ export function completarConfig(datos, base = process.cwd()) {
     herramientasPermitidas: lista(datos.herramientasPermitidas).length ? datos.herramientasPermitidas : HERRAMIENTAS_PERMITIDAS,
     herramientasProhibidas: [...new Set([...HERRAMIENTAS_PROHIBIDAS, ...lista(datos.herramientasProhibidas)])],
     tiempos: { ...TIEMPOS_POR_DEFECTO, ...(datos.tiempos ?? {}) },
+    // 18-nov-2026 (lib/sin-latido.mjs): cada cuánto se mira si las tarjetas tomadas siguen vivas y cuántos minutos sin señal es "sesión muerta".
+    sinLatido: {
+      revisarCadaMinutos: minutosPositivos(datos.sinLatido?.revisarCadaMinutos, 15),
+      minutosSinSenal: minutosPositivos(datos.sinLatido?.minutosSinSenal, 30),
+    },
     git: {
       nombre: typeof datos.git?.nombre === "string" ? datos.git.nombre : "Coordinador Tablero IA",
       correo: typeof datos.git?.correo === "string" ? datos.git.correo : "gestionmagilus@gmail.com",

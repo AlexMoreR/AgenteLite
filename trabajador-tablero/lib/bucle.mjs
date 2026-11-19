@@ -61,13 +61,13 @@ import {
   sePuedeRevisarDeNuevo,
   subir,
 } from "./etapas.mjs";
-import { idCorto } from "./git.mjs";
+import { esRamaDelTrabajador, idCorto, nombreDeRama } from "./git.mjs";
 import { MEDIR_POR_DEFECTO, medirTarjeta, referenciasParaDepender, textoDeLaMedida } from "./medir.mjs";
 import { anotarAvisoAlCto } from "./notas-boveda.mjs";
 import { notaDeYaHecho } from "./revision-previa.mjs";
 import { modeloDelPaso, nombreDelModelo } from "./modelos.mjs";
 import { crearEstadoDeMotores, crearVigilanteDeUso, motorDeLaEtapa, nombreDelMotor, textoDelAvisoDeLimite } from "./motores.mjs";
-import { esOrquestador, esTareaGrande, nombreDelProyecto, sesionFijaDe, sinAccesoALaNube, sinAccesoASesionesNuevas } from "./nube.mjs";
+import { commitsDeLaRama, esOrquestador, esTareaGrande, nombreDelProyecto, preguntaDelCommit, resultadoDelCommit, sesionFijaDe, sinAccesoALaNube, sinAccesoASesionesNuevas } from "./nube.mjs";
 import { datosDelLatidoDeConstruir } from "./latido.mjs";
 import { crearPausaPorUso } from "./pausa-uso.mjs";
 import { crearMedidor, faltanRecursos, leerCarga } from "./recursos.mjs";
@@ -902,7 +902,7 @@ export function crearPlanificador({
   leerCargaDelPc = leerCarga,
   // El ajuste automático del cupo de la nube (ajuste-de-cupos.mjs); undefined = el de la configuración.
   ajusteCupos: ajusteDado = undefined,
-  // Las tarjetas sin latido más de 2 h (sin-latido.mjs); undefined = la del archivo de la carpeta de trabajo.
+  // Las tarjetas sin señal más de 30 min (sin-latido.mjs); undefined = la del archivo de la carpeta de trabajo.
   sinLatido: sinLatidoDado = undefined,
 }) {
   const max = config.maxParalelo;
@@ -921,9 +921,34 @@ export function crearPlanificador({
   const sesiones = new Map();
   /** Las que se construyen en la nube (no ocupan puesto de aizen1): id de la tarjeta -> { tarjeta, hacer, huella, promesa } */
   const enNube = new Map();
-  // 18-nov-2026: lo que este Coordinador tomó y la hora de su último latido; una que nadie trabaja hace más de 2 h se suelta sola.
+  /**
+   * La pregunta que dejó la sesión de la nube en la rama de la tarjeta (commit vacío "pregunta: …"), o null. Solo se mira al
+   * construir (planear no tiene rama). Lanza si no se pudo leer GitHub: la guardia espera a la próxima revisión.
+   */
+  const preguntaDeLaRama = async (entrada, id) => {
+    if (entrada.etapa !== "construir") return null;
+    const repo = config.repos[entrada.repo];
+    const rama = entrada.rama ?? nombreDeRama({ id, titulo: entrada.titulo ?? "" });
+    if (!repo || !esRamaDelTrabajador(rama)) return null;
+    const { commits, error } = await commitsDeLaRama({ config }, repo, rama);
+    // Una rama que no existe (404) no tiene ninguna pregunta; cualquier otro fallo (sin red, gh sin sesión) no deja saberlo.
+    if (error) {
+      if (/\b404\b|not found/i.test(error)) return null;
+      throw new Error(error.split("\n")[0]);
+    }
+    // Del más nuevo al más viejo: lo último que dejó la sesión manda (un "resultado:" después de una pregunta ya la contestó).
+    for (const commit of commits) {
+      if (resultadoDelCommit(commit.mensaje)) return null;
+      const pregunta = preguntaDelCommit(commit.mensaje);
+      if (pregunta) return pregunta;
+    }
+    return null;
+  };
+  // 18-nov-2026: lo que este Coordinador tomó y la hora de su última señal; una que nadie trabaja hace más de 30 min se suelta sola
+  // (la revisión corre cada 15 min y no usa Claude).
   const sinLatido =
-    sinLatidoDado ?? crearGuardiaSinLatido({ crm, config, registro, ahora, vivas: () => [...sesiones.values(), ...enNube.values()].map((sesion) => sesion.tarjeta.id) });
+    sinLatidoDado ??
+    crearGuardiaSinLatido({ crm, config, registro, ahora, vivas: () => [...sesiones.values(), ...enNube.values()].map((sesion) => sesion.tarjeta.id), preguntaDeLaTarjeta: preguntaDeLaRama });
   // Lo que vuelve de la nube se verifica en aizen1 (npm ci, build…): no más a la vez que puestos tiene aizen1.
   const puestosDeVerificacion = crearSemaforo(Math.max(1, max));
   // La cola de pasos pesados de aizen1 (cola.mjs): una sola para todas las sesiones (0 = sin cola, como antes).
@@ -1461,13 +1486,16 @@ export function crearPlanificador({
     }
   }
 
-  /** Las tarjetas que este Coordinador tomó y nadie trabaja hace más de 2 h: se sueltan (1.ª vez) o pasan a ERROR con aviso (2.ª). Nunca lanza. */
-  async function revisarSinLatido() {
+  /**
+   * Las tarjetas que este Coordinador tomó y nadie trabaja hace más de 30 min (se mira cada 15): se sueltan (1.ª vez), pasan a
+   * ERROR con aviso (2.ª) o a ERROR con su pregunta. `forzar` salta la espera de 15 min. Nunca lanza.
+   */
+  async function revisarSinLatido(opciones = {}) {
     try {
-      return await sinLatido.revisar();
+      return await sinLatido.revisar(opciones);
     } catch (error) {
-      registro.aviso(`sin latido: no pude revisar (${error?.message ?? error})`);
-      return { sueltas: [], errores: [] };
+      registro.aviso(`sin señal: no pude revisar (${error?.message ?? error})`);
+      return { sueltas: [], errores: [], preguntas: [] };
     }
   }
 
@@ -1476,20 +1504,26 @@ export function crearPlanificador({
     /**
      * Al arrancar: el CRM suelta (sin error) todo lo que el proceso anterior dejó con candado. Un CRM que no
      * conoce /arranque (404) no es problema: lo viejo vence solo.
-     * 18-nov-2026: ANTES de /arranque, las que el proceso anterior dejó más de 2 h sin latido se sueltan (o pasan a ERROR la
-     * segunda vez) mientras siguen en su etapa: /arranque solo suelta las que tienen candado.
+     * 18-nov-2026: tras /arranque se retoma lo demás que el proceso anterior dejó tomado (SUBIENDO no vence sola) sin esperar los
+     * 30 min y sin contar como intento: al arrancar no hay ninguna sesión viva, y la culpa fue del apagón o de la actualización.
      */
     async iniciar() {
-      await revisarSinLatido();
+      let sueltas = [];
       try {
         const respuesta = await crm.arranque();
-        registro.info(`arranque: el CRM soltó ${respuesta?.sueltas?.length ?? 0} tarjeta(s) que había dejado el proceso anterior`);
-        sinLatido.arranco(respuesta?.sueltas ?? []);
-        return respuesta?.sueltas ?? [];
+        sueltas = respuesta?.sueltas ?? [];
+        registro.info(`arranque: el CRM soltó ${sueltas.length} tarjeta(s) que había dejado el proceso anterior`);
       } catch (error) {
         registro.aviso(`arranque: no se pudo soltar lo anterior (${error.message}); lo que quedó vence solo`);
-        return [];
       }
+      try {
+        sinLatido.arranco(sueltas);
+        const retomadas = await sinLatido.retomarAlArrancar(sueltas);
+        if (retomadas.length) registro.info(`arranque: retomé ${retomadas.length} tarjeta(s) que habían quedado a medias`);
+      } catch (error) {
+        registro.aviso(`arranque: no pude retomar lo que quedó a medias (${error?.message ?? error})`);
+      }
+      return sueltas;
     },
     revisarSinLatido,
     corriendo: () => sesiones.size + enNube.size,

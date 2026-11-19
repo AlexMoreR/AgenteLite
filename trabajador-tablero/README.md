@@ -820,10 +820,11 @@ agotado se suelta sin usar Claude, el respaldo de Claude) y la alerta de uso de 
 - `lib/diagnostico.mjs`: clasifica una falla, decide (reparar, partir, esperar, escalar) y escribe el resumen de 3 líneas.
 - `lib/medir.mjs`, `lib/candado-de-build.mjs`, `lib/recoger-errores.mjs`: medir el tamaño y las dependencias antes de planear, que los builds no choquen y recoger los errores viejos (ver arriba).
 - `lib/atasco.mjs`: detecta una sesión quieta (sin archivos ni procesador por 15 min).
-- `lib/sin-latido.mjs` (18-nov-2026): las tarjetas que este Coordinador tomó y nadie trabaja hace más de 2 h (por su último latido,
-  guardado en `<carpetaTrabajo>/sin-latido.json`): la 1.ª vez se sueltan solas a la fila; la 2.ª, ERROR ("sin latido más de 2 h,
-  dos veces") y WhatsApp al dueño. Se revisa al arrancar, antes de `/arranque`, y en cada vuelta. Una en las manos de una sesión
-  viva nunca se toca.
+- `lib/sin-latido.mjs` (18-nov-2026): cada 15 min (sin Claude) mira las tarjetas que este Coordinador tomó; la que lleva más de 30 min
+  sin señal (último latido, en `<carpetaTrabajo>/sin-latido.json`) y no es de una sesión viva se suelta sola una vez a la fila (desde
+  main); la 2.ª vez, ERROR y UN WhatsApp al dueño (`crm.aviso` "necesita"); si dejó una pregunta ("pregunta:" en su rama), ERROR con la
+  pregunta, sin reintento. Con el CRM caído (502) no suelta nada. Al arrancar retoma sola lo que quedó a medias, sin contar como
+  intento. Se cambia con `"sinLatido": { "revisarCadaMinutos": 15, "minutosSinSenal": 30 }` en `config.local.json` (opcional).
 - `lib/resolver-choque.mjs`: la sesión corta de Claude que junta solo los archivos en conflicto del rebase y sus comprobaciones.
 - `lib/git.mjs`, `lib/procesos.mjs`, `lib/zonas.mjs`, `lib/crm.mjs`, `lib/config.mjs`, `lib/registro.mjs`.
 - La API del lado del CRM: `src/app/api/trabajador/tablero/*` y `src/features/tableros-inteligentes/services/trabajador.ts`;

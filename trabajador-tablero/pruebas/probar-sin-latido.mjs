@@ -1,6 +1,6 @@
-// Pruebas de las TARJETAS SIN LATIDO (lib/sin-latido.mjs y su lugar en el planificador), sin red, sin CRM y sin WhatsApp:
+// Pruebas de las TARJETAS SIN SEÑAL (lib/sin-latido.mjs y su lugar en el planificador), sin red, sin CRM y sin WhatsApp:
 //   node trabajador-tablero/pruebas/probar-sin-latido.mjs   (también corre dentro de npm run test:trabajador-tablero)
-// Un crm simulado anota lo que se le pide; el reloj se adelanta a mano.
+// Un crm simulado anota lo que se le pide; el reloj se adelanta a mano (en minutos).
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -11,7 +11,7 @@ import { completarConfig } from "../lib/config.mjs";
 import { ErrorDelCrm } from "../lib/crm.mjs";
 import { crearEstadoDeMotores } from "../lib/motores.mjs";
 import { decidirRecogida } from "../lib/recoger-errores.mjs";
-import { MARCA_SIN_LATIDO, crearGuardiaSinLatido, leerSinLatido, motivoDeDosVeces, rutaDeSinLatido } from "../lib/sin-latido.mjs";
+import { MARCA_SIN_LATIDO, MINUTOS_ENTRE_REVISIONES, MINUTOS_SIN_SENAL, crearGuardiaSinLatido, leerSinLatido, motivoDeDosVeces, rutaDeSinLatido } from "../lib/sin-latido.mjs";
 
 let pruebas = 0;
 async function prueba(nombre, fn) {
@@ -22,20 +22,21 @@ async function prueba(nombre, fn) {
 
 const T = fs.mkdtempSync(path.join(os.tmpdir(), "sin-latido-"));
 let numero = 0;
-const HORA = 3_600_000;
+const MIN = 60_000;
 const registroFalso = () => {
   const lineas = [];
   return { lineas, info: (m) => lineas.push(`INFO ${m}`), aviso: (m) => lineas.push(`AVISO ${m}`), error: (m) => lineas.push(`ERROR ${m}`) };
 };
-const nuevaConfig = () =>
+const nuevaConfig = (extra = {}) =>
   completarConfig({
     urlCrm: "https://crm.ejemplo.com",
     claveTrabajador: "aizen_trab_x",
     carpetaTrabajo: path.join(T, `trabajo${numero++}`),
     repos: { aizencrm: { ruta: T, subirSolo: false, ramaBase: "main", remoto: "origin", verificar: [["true"]] } },
+    ...extra,
   });
 
-/** Un crm que solo anota. `fallar[accion]` = un ErrorDelCrm para esa acción. */
+/** Un crm que solo anota. `fallar[accion]` = un ErrorDelCrm para esa acción (candidatas es la lectura del estado). */
 function crmFalso({ fallar = {}, sueltasAlArrancar = [] } = {}) {
   const pedidos = [];
   const anotar = (accion, ...datos) => {
@@ -45,6 +46,8 @@ function crmFalso({ fallar = {}, sueltasAlArrancar = [] } = {}) {
   };
   return {
     pedidos,
+    acciones: () => pedidos.map((p) => p.accion),
+    candidatas: async () => anotar("candidatas"),
     soltar: async (id, motivo, extra) => anotar("soltar", id, motivo, extra),
     error: async (id, motivo, zonas, reversion, extra) => anotar("error", id, motivo, extra),
     aviso: async (texto, tipo, tarjetaId) => anotar("aviso", texto, tipo, tarjetaId),
@@ -55,176 +58,286 @@ function crmFalso({ fallar = {}, sueltasAlArrancar = [] } = {}) {
   };
 }
 
-/** Un reloj que se adelanta: `reloj.pasar(horas)`. */
+/** Un reloj que se adelanta: `reloj.pasar(minutos)`. */
 function crearReloj(inicio = Date.parse("2026-11-18T12:00:00Z")) {
   let ahora = inicio;
-  return { ahora: () => ahora, pasar: (horas) => (ahora += horas * HORA) };
+  return { ahora: () => ahora, pasar: (minutos) => (ahora += minutos * MIN) };
 }
 
 const tarjeta = (id, extra = {}) => ({ id, titulo: `Tarjeta ${id}`, repo: "aizencrm", ultimosIntentos: [], ...extra });
+const guardiaDe = (crm, config, reloj, extra = {}) => crearGuardiaSinLatido({ crm, config, registro: registroFalso(), ahora: reloj.ahora, ...extra });
 
-await prueba("latido de hace 3 h y nadie la trabaja: se suelta sola (1 de 2), sin ERROR ni WhatsApp", async () => {
+await prueba("los valores por defecto: revisar cada 15 min, 30 min sin señal; la configuración los cambia y lo inválido vuelve al defecto", async () => {
+  assert.equal(MINUTOS_ENTRE_REVISIONES, 15);
+  assert.equal(MINUTOS_SIN_SENAL, 30);
+  assert.deepEqual(nuevaConfig().sinLatido, { revisarCadaMinutos: 15, minutosSinSenal: 30 });
+  assert.deepEqual(nuevaConfig({ sinLatido: { revisarCadaMinutos: 5, minutosSinSenal: 45 } }).sinLatido, { revisarCadaMinutos: 5, minutosSinSenal: 45 });
+  assert.deepEqual(nuevaConfig({ sinLatido: { revisarCadaMinutos: -1, minutosSinSenal: "x" } }).sinLatido, { revisarCadaMinutos: 15, minutosSinSenal: 30 });
+});
+
+await prueba("29 min sin señal: no se suelta; 31 min: se suelta UNA vez (1 de 2), sin ERROR ni WhatsApp", async () => {
   const config = nuevaConfig();
   const reloj = crearReloj();
   const crm = crmFalso();
-  const guardia = crearGuardiaSinLatido({ crm, config, registro: registroFalso(), ahora: reloj.ahora });
+  const guardia = guardiaDe(crm, config, reloj);
   guardia.tomada(tarjeta("a"), "construir");
-  reloj.pasar(3);
-  const hechas = await guardia.revisar();
-  assert.deepEqual(hechas, { sueltas: ["a"], errores: [] });
-  assert.deepEqual(crm.pedidos.map((p) => p.accion), ["soltar"]);
-  const [id, motivo, extra] = crm.pedidos[0].datos;
+  reloj.pasar(29);
+  assert.deepEqual(await guardia.revisar({ forzar: true }), { sueltas: [], errores: [], preguntas: [] });
+  assert.equal(crm.pedidos.length, 0, "a los 29 min no se toca ni se llama al CRM");
+  reloj.pasar(2);
+  const hechas = await guardia.revisar({ forzar: true });
+  assert.deepEqual(hechas, { sueltas: ["a"], errores: [], preguntas: [] });
+  assert.deepEqual(crm.acciones(), ["candidatas", "soltar"]);
+  const [id, motivo, extra] = crm.pedidos[1].datos;
   assert.equal(id, "a");
-  assert.match(motivo, /lleva 3 h/);
+  assert.match(motivo, /lleva 31 min/);
   assert.equal(extra.categoria, "coordinador_cortado");
   assert.equal(extra.etapa, "construir");
   assert.ok(extra.causa.includes(MARCA_SIN_LATIDO), "la causa lleva la marca: el contador también queda en los intentos del CRM");
-  assert.deepEqual(leerSinLatido(config.carpetaTrabajo).tarjetas.a.veces, 1);
+  assert.equal(leerSinLatido(config.carpetaTrabajo).tarjetas.a.veces, 1);
   // Revisar otra vez no la vuelve a soltar (ya no está en las manos).
+  reloj.pasar(20);
   await guardia.revisar();
-  assert.equal(crm.pedidos.length, 1);
+  assert.equal(crm.acciones().filter((a) => a === "soltar").length, 1);
 });
 
-await prueba("la segunda vez sin latido más de 2 h: ERROR con el motivo claro y WhatsApp al dueño (necesita, con la tarjeta)", async () => {
+await prueba("la revisión corre solo cada 15 min (sin forzar) y sin tarjetas atrasadas ni llama al CRM", async () => {
   const config = nuevaConfig();
   const reloj = crearReloj();
   const crm = crmFalso();
-  const guardia = crearGuardiaSinLatido({ crm, config, registro: registroFalso(), ahora: reloj.ahora });
-  guardia.tomada(tarjeta("b"), "planear");
-  reloj.pasar(2.5);
+  const guardia = guardiaDe(crm, config, reloj);
+  guardia.tomada(tarjeta("p"), "planear");
+  reloj.pasar(10);
+  guardia.tomada(tarjeta("q"), "planear");
+  reloj.pasar(21);
+  // La primera revisión corre (p lleva 31 min, q solo 21); hasta pasar 15 min no vuelve a mirar nada.
   await guardia.revisar();
+  assert.deepEqual(crm.acciones(), ["candidatas", "soltar"]);
+  reloj.pasar(11); // q ya lleva 32 min, pero la última revisión fue hace 11
+  await guardia.revisar();
+  assert.equal(crm.acciones().length, 2, "antes de los 15 min no revisa");
+  reloj.pasar(5);
+  await guardia.revisar();
+  assert.equal(crm.acciones().filter((a) => a === "soltar").length, 2, "pasados los 15 min vuelve a revisar y suelta q");
+  // Sin atrasadas no hay ni una llamada al CRM.
+  const config2 = nuevaConfig();
+  const crm2 = crmFalso();
+  const guardia2 = guardiaDe(crm2, config2, reloj);
+  guardia2.tomada(tarjeta("r"), "planear");
+  reloj.pasar(10);
+  await guardia2.revisar({ forzar: true });
+  assert.equal(crm2.pedidos.length, 0);
+});
+
+await prueba("la segunda vez sin señal: ERROR con el motivo claro y UN solo WhatsApp (necesita, con la tarjeta)", async () => {
+  const config = nuevaConfig();
+  const reloj = crearReloj();
+  const crm = crmFalso();
+  const guardia = guardiaDe(crm, config, reloj);
+  guardia.tomada(tarjeta("b"), "planear");
+  reloj.pasar(40);
+  await guardia.revisar({ forzar: true });
   // Vuelve a la fila y se toma otra vez: el contador sigue en 1.
-  reloj.pasar(0.1);
+  reloj.pasar(5);
   guardia.tomada(tarjeta("b"), "planear");
   assert.equal(leerSinLatido(config.carpetaTrabajo).tarjetas.b.veces, 1);
-  reloj.pasar(2.5);
-  const hechas = await guardia.revisar();
-  assert.deepEqual(hechas, { sueltas: [], errores: ["b"] });
-  assert.deepEqual(crm.pedidos.map((p) => p.accion), ["soltar", "error", "aviso"]);
-  const [id, motivo, extra] = crm.pedidos[1].datos;
+  reloj.pasar(40);
+  const hechas = await guardia.revisar({ forzar: true });
+  assert.deepEqual(hechas, { sueltas: [], errores: ["b"], preguntas: [] });
+  assert.deepEqual(crm.acciones().filter((a) => a !== "candidatas"), ["soltar", "error", "aviso"]);
+  const error = crm.pedidos.find((p) => p.accion === "error");
+  const [id, motivo, extra] = error.datos;
   assert.equal(id, "b");
-  assert.match(motivo, /sin latido más de 2 h, dos veces/);
+  assert.match(motivo, /sin señal de la sesión más de 30 min, dos veces/);
   assert.equal(extra.etapa, "planear");
-  const [texto, tipo, tarjetaId] = crm.pedidos[2].datos;
+  const aviso = crm.pedidos.find((p) => p.accion === "aviso");
+  const [texto, tipo, tarjetaId] = aviso.datos;
   assert.equal(tipo, "necesita");
   assert.equal(tarjetaId, "b");
   assert.match(texto, /Tarjeta b/);
+  assert.ok(!texto.includes("\n"), "el WhatsApp es de una sola línea");
   assert.equal(leerSinLatido(config.carpetaTrabajo).tarjetas.b, undefined, "en ERROR sale del archivo");
+  // Más revisiones: ningún aviso más.
+  reloj.pasar(120);
+  await guardia.revisar({ forzar: true });
+  await guardia.revisar({ forzar: true });
+  assert.equal(crm.acciones().filter((a) => a === "aviso").length, 1, "un solo aviso por tarjeta");
   // El recogedor diario no la reintenta sola: la deja al dueño.
   assert.equal(decidirRecogida({ motivo, ultimosIntentos: [{ etapa: "planear", categoria: "coordinador_cortado" }] }).accion, "dueno");
+  assert.match(motivoDeDosVeces({ etapa: "planear" }), /Necesita que/);
 });
 
-await prueba("latido de hace 1 h: no se toca", async () => {
+await prueba("si el WhatsApp falla la tarjeta ya está en ERROR y no se insiste", async () => {
   const config = nuevaConfig();
   const reloj = crearReloj();
-  const crm = crmFalso();
-  const guardia = crearGuardiaSinLatido({ crm, config, registro: registroFalso(), ahora: reloj.ahora });
-  guardia.tomada(tarjeta("c"), "subir");
-  reloj.pasar(1);
-  assert.deepEqual(await guardia.revisar(), { sueltas: [], errores: [] });
-  // Justo en 2 h tampoco: tiene que pasar de 2 h.
-  reloj.pasar(1);
-  await guardia.revisar();
-  assert.equal(crm.pedidos.length, 0);
-  assert.equal(leerSinLatido(config.carpetaTrabajo).tarjetas.c.enLasManos, true);
+  const crm = crmFalso({ fallar: { aviso: new ErrorDelCrm("Bad Gateway", 502) } });
+  const guardia = guardiaDe(crm, config, reloj);
+  guardia.tomada(tarjeta("w", { ultimosIntentos: [{ etapa: "construir", causa: `${MARCA_SIN_LATIDO} y nadie la trabajaba (1 de 2).` }] }), "construir");
+  reloj.pasar(31);
+  assert.deepEqual((await guardia.revisar({ forzar: true })).errores, ["w"]);
+  reloj.pasar(60);
+  await guardia.revisar({ forzar: true });
+  assert.equal(crm.acciones().filter((a) => a === "aviso").length, 1);
 });
 
-await prueba("una sesión viva la tiene: nunca se suelta; el reloj corre desde el último latido, no desde que se tomó", async () => {
+await prueba("sesión viva: nunca se toca, ni con 5 h sin latido; el reloj corre desde el último latido", async () => {
   const config = nuevaConfig();
   const reloj = crearReloj();
   const crm = crmFalso();
   const vivas = new Set(["d"]);
-  const guardia = crearGuardiaSinLatido({ crm, config, registro: registroFalso(), ahora: reloj.ahora, vivas: () => vivas });
+  const guardia = guardiaDe(crm, config, reloj, { vivas: () => vivas });
   guardia.tomada(tarjeta("d"), "construir");
-  guardia.tomada(tarjeta("e"), "subir");
   // "d": una sesión viva sin latido 5 h (el CRM no contesta, por ejemplo): no se toca.
-  reloj.pasar(5);
-  await guardia.revisar();
-  assert.ok(!crm.pedidos.some((p) => p.datos[0] === "d"), "la viva no se toca");
-  // Una construcción de 180 min en la nube que late cada minuto: nunca pasa de 2 h sin latido.
+  reloj.pasar(300);
+  await guardia.revisar({ forzar: true });
+  assert.equal(crm.pedidos.length, 0, "la viva no se toca");
+  // Una construcción de 180 min en la nube que late cada minuto, y luego 30 min de subida: nunca pasa de 30 min sin latido.
   const config2 = nuevaConfig();
   const crm2 = crmFalso();
-  const guardia2 = crearGuardiaSinLatido({ crm: crm2, config: config2, registro: registroFalso(), ahora: reloj.ahora });
+  const guardia2 = guardiaDe(crm2, config2, reloj);
   guardia2.tomada(tarjeta("f"), "construir");
-  for (let minuto = 0; minuto < 180; minuto += 1) {
-    reloj.pasar(1 / 60);
+  for (let minuto = 0; minuto < 210; minuto += 1) {
+    reloj.pasar(1);
     guardia2.latio("f");
+    if (minuto % 15 === 0) await guardia2.revisar({ forzar: true });
   }
-  // Luego la vigilancia de 30 min de la subida, también con latido.
-  for (let minuto = 0; minuto < 30; minuto += 1) {
-    reloj.pasar(1 / 60);
-    guardia2.latio("f");
-  }
-  reloj.pasar(1.5);
-  await guardia2.revisar();
-  assert.equal(crm2.pedidos.length, 0, "3,5 h desde que se tomó pero 1,5 h desde el último latido: no se toca");
-  // Terminó bien: sale del archivo.
+  reloj.pasar(20);
+  await guardia2.revisar({ forzar: true });
+  assert.equal(crm2.pedidos.length, 0, "3,5 h desde que se tomó pero 20 min desde el último latido: no se toca");
   guardia2.termino("f", { ok: true });
   assert.equal(leerSinLatido(config2.carpetaTrabajo).tarjetas.f, undefined);
+});
+
+await prueba("pregunta abierta: ERROR con la pregunta escrita, sin contar como reintento y sin WhatsApp", async () => {
+  const config = nuevaConfig();
+  const reloj = crearReloj();
+  const crm = crmFalso();
+  const preguntas = [];
+  const guardia = guardiaDe(crm, config, reloj, {
+    preguntaDeLaTarjeta: async (entrada, id) => {
+      preguntas.push(id);
+      return id === "n" ? "¿El descuento aplica a camillas o solo a sillas?" : null;
+    },
+  });
+  guardia.tomada(tarjeta("n"), "construir");
+  guardia.tomada(tarjeta("o"), "construir");
+  reloj.pasar(35);
+  const hechas = await guardia.revisar({ forzar: true });
+  assert.deepEqual(hechas, { sueltas: ["o"], errores: [], preguntas: ["n"] });
+  const error = crm.pedidos.find((p) => p.accion === "error");
+  const [id, motivo, extra] = error.datos;
+  assert.equal(id, "n");
+  assert.match(motivo, /hizo una pregunta y paró: ¿El descuento aplica a camillas o solo a sillas\?/);
+  assert.match(motivo, /Necesita que la contestes/);
+  assert.equal(extra.categoria, "nube_pregunta");
+  assert.ok(!crm.acciones().includes("aviso"), "la pregunta no manda WhatsApp");
+  assert.equal(leerSinLatido(config.carpetaTrabajo).tarjetas.n, undefined, "sale del archivo: no hay reintento pendiente");
+  // Si no se pudo mirar la rama (sin red a GitHub) espera; no suelta a ciegas.
+  const config2 = nuevaConfig();
+  const crm2 = crmFalso();
+  const guardia2 = guardiaDe(crm2, config2, reloj, {
+    preguntaDeLaTarjeta: async () => {
+      throw new Error("gh: sin conexión");
+    },
+  });
+  guardia2.tomada(tarjeta("m"), "construir");
+  reloj.pasar(35);
+  await guardia2.revisar({ forzar: true });
+  assert.deepEqual(crm2.acciones(), ["candidatas"], "sin poder mirar la rama no suelta");
+  // Pasado demasiado tiempo (4 veces el umbral) se suelta igual: un fallo permanente de GitHub no la deja colgada para siempre.
+  reloj.pasar(120);
+  await guardia2.revisar({ forzar: true });
+  assert.ok(crm2.acciones().includes("soltar"));
+});
+
+await prueba("el CRM da 502: no se suelta nada; los 30 min cuentan desde que se pudo leer", async () => {
+  const config = nuevaConfig();
+  const reloj = crearReloj();
+  const crm = crmFalso({ fallar: { candidatas: new ErrorDelCrm("Bad Gateway", 502) } });
+  const registro = registroFalso();
+  const guardia = crearGuardiaSinLatido({ crm, config, registro, ahora: reloj.ahora });
+  guardia.tomada(tarjeta("x"), "construir");
+  reloj.pasar(90);
+  const hechas = await guardia.revisar({ forzar: true });
+  assert.deepEqual(hechas, { sueltas: [], errores: [], preguntas: [] });
+  assert.deepEqual(crm.acciones(), ["candidatas"], "solo intentó leer el estado");
+  assert.ok(registro.lineas.some((l) => /el CRM no contesta/.test(l)));
+  assert.equal(leerSinLatido(config.carpetaTrabajo).tarjetas.x.enLasManos, true);
+  // El CRM vuelve: el reloj de 30 min va desde la última falla del CRM, no desde el último latido (que fue hace 90 min).
+  crm.pedidos.length = 0;
+  crm.candidatas = async () => ({ ok: true });
+  reloj.pasar(29);
+  await guardia.revisar({ forzar: true });
+  assert.equal(crm.pedidos.length, 0, "hace 29 min de la última falla del CRM: todavía no suelta");
+  reloj.pasar(2);
+  assert.deepEqual((await guardia.revisar({ forzar: true })).sueltas, ["x"]);
+  // Un 502 al soltar (la lectura sí funcionó) tampoco la pierde: lo intenta en la próxima revisión.
+  const config2 = nuevaConfig();
+  const crm2 = crmFalso({ fallar: { soltar: new ErrorDelCrm("Bad Gateway", 502) } });
+  const guardia2 = guardiaDe(crm2, config2, reloj);
+  guardia2.tomada(tarjeta("y"), "planear");
+  reloj.pasar(40);
+  await guardia2.revisar({ forzar: true });
+  await guardia2.revisar({ forzar: true });
+  assert.equal(crm2.acciones().filter((a) => a === "soltar").length, 2);
+  assert.equal(leerSinLatido(config2.carpetaTrabajo).tarjetas.y.enLasManos, true);
 });
 
 await prueba("reinicio entre el primer y el segundo intento: el contador se conserva (archivo, y si se perdió, los intentos del CRM)", async () => {
   const config = nuevaConfig();
   const reloj = crearReloj();
   const crm = crmFalso();
-  const primera = crearGuardiaSinLatido({ crm, config, registro: registroFalso(), ahora: reloj.ahora });
+  const primera = guardiaDe(crm, config, reloj);
   primera.tomada(tarjeta("g"), "construir");
-  reloj.pasar(3);
-  await primera.revisar();
+  reloj.pasar(40);
+  await primera.revisar({ forzar: true });
   // El Coordinador se reinicia: otra guardia, la misma carpeta.
-  const segunda = crearGuardiaSinLatido({ crm, config, registro: registroFalso(), ahora: reloj.ahora });
+  const segunda = guardiaDe(crm, config, reloj);
   segunda.tomada(tarjeta("g"), "construir");
-  reloj.pasar(3);
-  // Otro reinicio (el corte de luz otra vez) antes de revisar.
-  const tercera = crearGuardiaSinLatido({ crm, config, registro: registroFalso(), ahora: reloj.ahora });
-  assert.deepEqual(await tercera.revisar(), { sueltas: [], errores: ["g"] });
-  assert.deepEqual(crm.pedidos.map((p) => p.accion), ["soltar", "error", "aviso"]);
+  reloj.pasar(40);
+  const tercera = guardiaDe(crm, config, reloj);
+  assert.deepEqual((await tercera.revisar()).errores, ["g"]);
+  assert.deepEqual(crm.acciones().filter((a) => a !== "candidatas"), ["soltar", "error", "aviso"]);
 
-  // Sin archivo (se borró la carpeta de trabajo): el contador sale de los intentos que trae /tomar.
+  // Sin archivo (se borró la carpeta de trabajo): el contador sale de los intentos que trae /tomar (también las marcas de la versión de 2 h).
   const config2 = nuevaConfig();
   const crm2 = crmFalso();
-  const sinArchivo = crearGuardiaSinLatido({ crm: crm2, config: config2, registro: registroFalso(), ahora: reloj.ahora });
+  const sinArchivo = guardiaDe(crm2, config2, reloj);
   const intentos = [{ numero: 4, etapa: "construir", categoria: "coordinador_cortado", causa: `${MARCA_SIN_LATIDO} y nadie la trabajaba (1 de 2).`, accion: "esperar", cuentaComoIntento: false }];
   sinArchivo.tomada(tarjeta("h", { ultimosIntentos: intentos }), "construir");
   assert.equal(leerSinLatido(config2.carpetaTrabajo).tarjetas.h.veces, 1);
+  fs.rmSync(rutaDeSinLatido(config2.carpetaTrabajo));
+  sinArchivo.tomada(tarjeta("v", { ultimosIntentos: [{ ...intentos[0], causa: "sin latido más de 2 h y nadie la trabajaba (1 de 2)." }] }), "construir");
+  assert.equal(leerSinLatido(config2.carpetaTrabajo).tarjetas.v.veces, 1);
   // La marca de OTRA etapa no cuenta.
   fs.rmSync(rutaDeSinLatido(config2.carpetaTrabajo));
   sinArchivo.tomada(tarjeta("i", { ultimosIntentos: intentos }), "subir");
   assert.equal(leerSinLatido(config2.carpetaTrabajo).tarjetas.i.veces, 0);
 });
 
-await prueba("el CRM ya la movió (409) se olvida; sin red se reintenta en la próxima vuelta", async () => {
+await prueba("el CRM ya la movió (409) se olvida; sin red (0) se reintenta en la próxima revisión", async () => {
   const config = nuevaConfig();
   const reloj = crearReloj();
   const crm = crmFalso({ fallar: { soltar: new ErrorDelCrm("Esa acción no se puede desde APROBADO.", 409) } });
-  const guardia = crearGuardiaSinLatido({ crm, config, registro: registroFalso(), ahora: reloj.ahora });
+  const guardia = guardiaDe(crm, config, reloj);
   guardia.tomada(tarjeta("j"), "planear");
-  reloj.pasar(3);
-  await guardia.revisar();
+  reloj.pasar(40);
+  await guardia.revisar({ forzar: true });
   assert.equal(leerSinLatido(config.carpetaTrabajo).tarjetas.j, undefined);
 
   const config2 = nuevaConfig();
   const sinRed = crmFalso({ fallar: { soltar: new ErrorDelCrm("No se pudo hablar con el CRM.", 0) } });
-  const guardia2 = crearGuardiaSinLatido({ crm: sinRed, config: config2, registro: registroFalso(), ahora: reloj.ahora });
+  const guardia2 = guardiaDe(sinRed, config2, reloj);
   guardia2.tomada(tarjeta("k"), "planear");
-  reloj.pasar(3);
-  await guardia2.revisar();
-  await guardia2.revisar();
-  assert.equal(sinRed.pedidos.length, 2, "lo intenta otra vez");
+  reloj.pasar(40);
+  await guardia2.revisar({ forzar: true });
+  await guardia2.revisar({ forzar: true });
+  assert.equal(sinRed.acciones().filter((a) => a === "soltar").length, 2, "lo intenta otra vez");
   assert.equal(leerSinLatido(config2.carpetaTrabajo).tarjetas.k.enLasManos, true);
 });
 
-await prueba("el planificador: al arrancar suelta las de más de 2 h ANTES de /arranque; un reinicio corto no cuenta", async () => {
-  const config = nuevaConfig();
-  const reloj = crearReloj();
-  // El proceso anterior dejó dos: "vieja" (9 días sin latido) y "corta" (10 min).
-  const antes = crearGuardiaSinLatido({ crm: crmFalso(), config, registro: registroFalso(), ahora: reloj.ahora });
-  antes.tomada(tarjeta("vieja"), "construir");
-  reloj.pasar(9 * 24 - 0.2);
-  antes.tomada(tarjeta("corta"), "planear");
-  reloj.pasar(0.2);
-  const crm = crmFalso({ sueltasAlArrancar: ["corta"] });
-  const planificador = crearPlanificador({
+const planificadorDe = (crm, config, reloj, extra = {}) =>
+  crearPlanificador({
     crm,
     config,
     registro: registroFalso(),
@@ -232,14 +345,66 @@ await prueba("el planificador: al arrancar suelta las de más de 2 h ANTES de /a
     motores: crearEstadoDeMotores(config),
     vigilante: null,
     ahora: reloj.ahora,
+    ...extra,
   });
+
+await prueba("arranque tras un apagón: retoma solas las que quedaron a medias, sin esperar y sin contar como intento", async () => {
+  const config = nuevaConfig();
+  const reloj = crearReloj();
+  // El proceso anterior dejó tres tomadas: "vieja" (9 días, SUBIENDO que /arranque no suelta), "corta" (10 min, con candado: la suelta
+  // /arranque) y "reintento" (ya había una vez sin señal, 5 h).
+  const antes = guardiaDe(crmFalso(), config, reloj);
+  antes.tomada(tarjeta("reintento", { ultimosIntentos: [{ etapa: "construir", causa: MARCA_SIN_LATIDO }] }), "construir");
+  antes.termino("reintento", { ok: false });
+  antes.tomada(tarjeta("vieja"), "subir");
+  reloj.pasar(9 * 24 * 60 - 12);
+  antes.tomada(tarjeta("corta"), "planear");
+  reloj.pasar(10);
+  const crm = crmFalso({ sueltasAlArrancar: ["corta"] });
+  const planificador = planificadorDe(crm, config, reloj);
   await planificador.iniciar();
-  assert.deepEqual(crm.pedidos.map((p) => `${p.accion}${p.datos[0] ? ` ${p.datos[0]}` : ""}`), ["soltar vieja", "arranque"]);
+  assert.deepEqual(crm.pedidos.map((p) => `${p.accion}${p.accion === "soltar" ? ` ${p.datos[0]}` : ""}`), ["arranque", "soltar vieja"]);
+  assert.match(crm.pedidos[1].datos[1], /no cuenta como intento/);
   const guardado = leerSinLatido(config.carpetaTrabajo).tarjetas;
-  assert.equal(guardado.vieja.veces, 1);
-  assert.equal(guardado.corta, undefined, "la soltó /arranque tras 10 min: no cuenta como intento");
+  assert.equal(guardado.vieja, undefined, "retomada: no cuenta como intento");
+  assert.equal(guardado.corta, undefined, "la soltó /arranque: no cuenta como intento");
+  assert.equal(guardado.reintento.veces, 1, "lo que ya llevaba un intento lo conserva");
+  planificador.parar();
+
+  // Si la tarjeta SUBIENDO ya no está en su etapa (409), se olvida; con el CRM caído (502) queda para la revisión de cada 15 min.
+  const config2 = nuevaConfig();
+  const antes2 = guardiaDe(crmFalso(), config2, reloj);
+  antes2.tomada(tarjeta("s1"), "subir");
+  antes2.tomada(tarjeta("s2"), "subir");
+  let n = 0;
+  const crm2 = crmFalso();
+  crm2.soltar = async (id, motivo, extra) => {
+    crm2.pedidos.push({ accion: "soltar", datos: [id, motivo, extra] });
+    if (n++ === 0) throw new ErrorDelCrm("Esa acción no se puede desde HECHO.", 409);
+    throw new ErrorDelCrm("Bad Gateway", 502);
+  };
+  const planificador2 = planificadorDe(crm2, config2, reloj);
+  await planificador2.iniciar();
+  const guardado2 = leerSinLatido(config2.carpetaTrabajo).tarjetas;
+  assert.equal(guardado2.s1, undefined);
+  assert.equal(guardado2.s2.enLasManos, true, "con 502 sigue tomada: la revisión periódica la suelta");
+  planificador2.parar();
+});
+
+await prueba("el planificador: la revisión corre cada 15 min y una sesión suya viva nunca se suelta", async () => {
+  const config = nuevaConfig();
+  const reloj = crearReloj();
+  const crm = crmFalso();
+  const planificador = planificadorDe(crm, config, reloj);
+  const guardia = guardiaDe(crmFalso(), config, reloj);
+  guardia.tomada(tarjeta("z"), "planear");
+  reloj.pasar(45);
+  await planificador.revisarSinLatido();
+  assert.deepEqual(crm.acciones(), ["candidatas", "soltar"], "orfana de 45 min: la suelta");
+  await planificador.revisarSinLatido();
+  assert.equal(crm.acciones().filter((a) => a === "soltar").length, 1, "la segunda llamada inmediata no vuelve a mirar");
   planificador.parar();
 });
 
 fs.rmSync(T, { recursive: true, force: true });
-console.log(`\n${pruebas} pruebas de las tarjetas sin latido: todas bien`);
+console.log(`\n${pruebas} pruebas de las tarjetas sin señal: todas bien`);
