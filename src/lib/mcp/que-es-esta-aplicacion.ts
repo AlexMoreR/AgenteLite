@@ -20,6 +20,8 @@ import { estadoDeEtapaPorLectura, type EstadoDeEtapaPorLectura } from "@/feature
 import { claveModoDelRecibo, claveTelefonoDePrueba, modoDelRecibo, prefijoReciboEnviado, resumenDeEnvios, telefonoParaWhatsApp } from "@/lib/recibo-de-caja";
 import { claveDeReglas, leerReglasDeTexto } from "@/lib/reparto-por-anuncio";
 import { PREFIJO_CONFIG_DEMORA, leerConfigDemoraDeTexto } from "@/features/chats/domain/demora-de-asesora";
+import { cuandoSeAsigna } from "@/lib/mcp/asignacion";
+import { claveConfigDeAsignacion, leerConfigDeAsignacionDeTexto } from "@/lib/reparto-cuando-lo-necesita";
 import { faltanLlaves, leerModo } from "@/features/pauta/dominio/evento-de-conversion";
 import { claveModoConversiones } from "@/features/pauta/servicios/conversiones-meta";
 
@@ -694,6 +696,19 @@ async function estadoDeLaAlertaCpu() {
   return `activa: última foto ${fecha(ultima.tomadaEn)}; ${estado.activa ? "alerta sonando" : "sin alerta"}, ${envio}`;
 }
 
+/*
+  Los interruptores, leídos de la fila (lo mismo que hace leerConfigDeAsignacion, sin su memoria de un
+  minuto): leerConfigDeAsignacion devuelve los valores por defecto si la base falla, y aquí eso tiene que
+  salir como no_se_pudo_leer, no como un estado inventado.
+*/
+async function estadoDelRepartoPorTurno(workspaceId: string): Promise<string | { no_se_pudo_leer: string }> {
+  return seguro("reparto_por_turno", async () => {
+    const fila = await prisma.appSetting.findUnique({ where: { key: claveConfigDeAsignacion(workspaceId) }, select: { value: true } });
+    const cuando = cuandoSeAsigna(leerConfigDeAsignacionDeTexto(fila?.value));
+    return `activa (corre siempre); asigna ${cuando}${fila ? "" : " (valores por defecto: nunca se guardó)"}`;
+  });
+}
+
 async function automatizaciones(
   workspaceId: string,
   descritas: Map<string, string>,
@@ -746,9 +761,9 @@ async function automatizaciones(
     retomar_envios_de_flujo: sinInterruptor,
     // Cron cada minuto: push a la asesora si su chat de ventas lleva 5 min sin respuesta humana (7:00 a 23:00).
     demora_de_asesora: await estadoDeLaDemoraDeAsesora(workspaceId).catch(() => "no se pudo leer"),
-    // Corre en cada mensaje de la clienta (webhook), no en el reloj. Se gobierna desde Equipo
-    // (pausa de reparto y horario por vendedora), no con una bandera.
-    reparto_por_turno: sinInterruptor,
+    // Corre en cada mensaje de la clienta (webhook) y en el rescate de cada minuto. Cuándo asigna lo
+    // dicen los interruptores (Equipo > Asignación o cambiar_asignacion); quién, la pausa de reparto.
+    reparto_por_turno: await estadoDelRepartoPorTurno(workspaceId),
     // Corre en el mismo paso del reparto por turno (webhook de Evolution): "Te paso con una asesora…".
     aviso_paso_a_asesora: sinInterruptor,
     // Corre en el webhook, en el primer mensaje de un chat que llega de un anuncio de Meta.

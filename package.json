@@ -150,6 +150,7 @@
     "test:listo-para-pagar": "npx tsx --test src/features/listo-para-pagar/dominio/senal.test.ts src/features/listo-para-pagar/dominio/lider-de-ventas.test.ts",
     "test:supervisor-accionable": "node scripts/check-supervisor-accionable.mjs",
     "test:mcp-supervisor": "node scripts/check-mcp-supervisor.mjs",
+    "test:mcp-asignacion": "node scripts/check-mcp-asignacion.mjs",
     "test:rescate-mensajes": "node scripts/check-rescate-mensajes.mjs",
     "test:turno": "node scripts/check-turno.mjs",
     "test:recuperacion-72h": "node scripts/check-recuperacion-72h.mjs",

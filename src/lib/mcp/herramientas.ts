@@ -79,6 +79,11 @@ import {
   ejecutarHerramientaMcpRespuestaASeguimientos,
   esHerramientaDeRespuestaASeguimientos,
 } from "@/lib/mcp/respuesta-a-seguimientos";
+import {
+  HERRAMIENTAS_MCP_ASIGNACION,
+  ejecutarHerramientaMcpAsignacion,
+  esHerramientaDeAsignacion,
+} from "@/lib/mcp/asignacion";
 import { getFlowReply } from "@/lib/agent-product-flow";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
@@ -1173,6 +1178,7 @@ export const HERRAMIENTAS_MCP = [
   ...HERRAMIENTAS_MCP_CEREBRO,
   ...HERRAMIENTAS_MCP_INSTRUCCIONES_DE_SEGUIMIENTO,
   ...HERRAMIENTAS_MCP_RESPUESTA_A_SEGUIMIENTOS,
+  ...HERRAMIENTAS_MCP_ASIGNACION,
 ];
 
 export async function ejecutarHerramientaMcp(nombre: string, args: Argumentos, contexto: Contexto) {
@@ -1226,6 +1232,9 @@ export async function ejecutarHerramientaMcp(nombre: string, args: Argumentos, c
   }
   if (esHerramientaDeRespuestaASeguimientos(nombre)) {
     return ejecutarHerramientaMcpRespuestaASeguimientos(nombre, args, contexto);
+  }
+  if (esHerramientaDeAsignacion(nombre)) {
+    return ejecutarHerramientaMcpAsignacion(nombre, args, contexto);
   }
   switch (nombre) {
     case "resumen_del_negocio":

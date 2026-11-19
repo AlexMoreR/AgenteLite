@@ -1,4 +1,5 @@
 import { registrarVersionProtegido, type QuienCambio } from "@/features/embudo/servicios/versiones";
+import { leerFotoDeAsignacion, restaurarFotoDeAsignacion } from "@/lib/asignacion-del-negocio";
 import { prisma } from "@/lib/prisma";
 
 /*
@@ -21,8 +22,12 @@ export type CambioDelMcp = {
   at: string;
   /** Lo que se cambió, en palabras del negocio: "Guion del paso PRODUCTO del Combo Camillas". */
   titulo: string;
-  /** Qué tabla y qué fila, para poder volver atrás sin adivinar. */
-  tabla: "ProductFunnelStage" | "ProductStageFollowUp" | "FollowRule" | "Agent";
+  /**
+   * Qué tabla y qué fila, para poder volver atrás sin adivinar. "Asignacion" es la asignación de chats
+   * del negocio (cambiar_asignacion): filaId es el negocio, y antes/después son la foto de
+   * asignacion-del-negocio.ts (interruptores, `pausedAssignmentIds` de las líneas tocadas y minutos).
+   */
+  tabla: "ProductFunnelStage" | "ProductStageFollowUp" | "FollowRule" | "Agent" | "Asignacion";
   filaId: string;
   accion: "editar" | "crear" | "borrar";
   /** Los campos como estaban. En "crear" va vacío; en "borrar", la fila entera. */
@@ -109,7 +114,7 @@ export async function deshacerCambioMcp(
   }
 
   try {
-    await revertir(workspaceId, cambio);
+    await revertir(workspaceId, cambio, quien);
   } catch (fallo) {
     return { ok: false, error: fallo instanceof Error ? fallo.message : "No se pudo deshacer" };
   }
@@ -132,7 +137,21 @@ export async function deshacerCambioMcp(
   return { ok: true, titulo: cambio.titulo, agenteId: cambio.agenteId };
 }
 
-async function revertir(workspaceId: string, cambio: CambioDelMcp) {
+async function revertir(workspaceId: string, cambio: CambioDelMcp, quien?: QuienCambio) {
+  if (cambio.tabla === "Asignacion") {
+    // Siempre la del negocio de la clave: filaId tiene que ser ese mismo negocio.
+    const antes = leerFotoDeAsignacion(cambio.antes);
+    const despues = leerFotoDeAsignacion(cambio.despues);
+    if (cambio.filaId !== workspaceId || !antes || !despues) {
+      throw new Error("Ese cambio de asignación no se puede leer: no se tocó nada.");
+    }
+    await restaurarFotoDeAsignacion(workspaceId, antes, despues, {
+      id: quien?.id ?? "mcp",
+      nombre: quien?.nombre ?? "Claude (MCP)",
+    });
+    return;
+  }
+
   if (cambio.tabla === "ProductFunnelStage") {
     // Las etapas no se crean ni se borran desde el MCP: siempre es una edición.
     await prisma.productFunnelStage.update({ where: { id: cambio.filaId }, data: cambio.antes });
