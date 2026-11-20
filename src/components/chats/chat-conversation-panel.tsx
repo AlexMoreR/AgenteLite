@@ -2967,7 +2967,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                         </div>
                       </div>
                     ) : (
-                      <div className="flex min-h-[48px] w-full min-w-0 flex-1 items-end gap-0.5 rounded-3xl border border-border bg-card px-2 py-1 shadow-[0_1px_6px_#0000001f] transition focus-within:border-[var(--primary)] focus-within:bg-card focus-within:ring-2 focus-within:ring-ring/50 md:min-h-[48px]">
+                      <div className="flex min-h-[48px] w-full min-w-0 flex-1 items-end gap-0.5 rounded-3xl border border-border bg-card px-1 py-1 shadow-[0_1px_6px_#0000001f] transition focus-within:border-[var(--primary)] focus-within:bg-card focus-within:ring-2 focus-within:ring-ring/50 md:min-h-[48px]">
                         {mediaConfig ? (
                           <>
                             <input
@@ -3054,7 +3054,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                                   size="icon"
                                   aria-label="Adjuntar"
                                   title="Adjuntar"
-                                  className="inline-flex size-10 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-background hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:size-9"
+                                  className="inline-flex h-10 w-8 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-background hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:h-9"
                                 >
                                   <Plus className="size-5" />
                                 </Button>
@@ -3287,7 +3287,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                               type="button"
                               variant="ghost"
                               size="icon"
-                              className="inline-flex size-10 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-background hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:size-9"
+                              className="inline-flex h-10 w-8 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-background hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:h-9"
                               aria-label="Abrir selector de emoticones"
                               title="Emoticones"
                             >
@@ -3314,7 +3314,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                           ref={composerTextAreaRef}
                           name="message"
                           rows={1}
-                          placeholder={composer.placeholder || "Escribe un mensaje..."}
+                          placeholder={composer.placeholder || "Mensaje"}
                           onChange={(event) => {
                             const conTexto = event.currentTarget.value.trim().length > 0;
                             setComposerHasText(conTexto);
@@ -3395,7 +3395,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                           disabled={isSuggestingReply}
                           aria-label="Respuesta sugerida con IA"
                           title="Respuesta sugerida con IA"
-                          className="inline-flex size-10 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-muted-foreground/20 hover:text-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:size-9"
+                          className="inline-flex h-10 w-8 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-muted-foreground/20 hover:text-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:h-9"
                         >
                           {isSuggestingReply ? (
                             <LoaderCircle className="size-5 animate-spin" />
@@ -3413,7 +3413,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                             onClick={startAudioRecording}
                             aria-label="Grabar nota de voz"
                             title="Grabar nota de voz"
-                            className="inline-flex size-10 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-muted-foreground/20 focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:size-9"
+                            className="inline-flex h-10 w-8 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-muted-foreground/20 focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:h-9"
                           >
                             <Mic className="size-5" />
                           </Button>

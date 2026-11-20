@@ -134,7 +134,7 @@ Si no encuentra algo, la casilla queda vacía y la escribes a mano.
 
 ### Responder un mensaje (texto)
 1. Abre la conversación.
-2. Escribe en la casilla de abajo ("Escribe un mensaje...").
+2. Escribe en la casilla de abajo ("Mensaje").
 3. Toca el botón de enviar (la flecha).
 Para emoticones: toca la carita junto a la casilla y elige uno.
 

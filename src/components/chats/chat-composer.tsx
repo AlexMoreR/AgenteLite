@@ -31,7 +31,7 @@ export function ComposerSendButton({
       variant="ghost"
       size="icon"
       disabled={pending || bloqueado}
-      className="inline-flex size-10 shrink-0 items-center justify-center rounded-full text-[var(--primary)] transition hover:bg-muted-foreground/20 disabled:cursor-not-allowed disabled:opacity-70 md:size-9"
+      className="inline-flex h-10 w-8 shrink-0 items-center justify-center rounded-full text-[var(--primary)] transition hover:bg-muted-foreground/20 disabled:cursor-not-allowed disabled:opacity-70 md:h-9"
       aria-label={pending ? "Enviando mensaje" : bloqueado ? "Espera a que cargue el chat" : "Enviar mensaje"}
       title={bloqueado ? "Espera a que cargue el chat" : undefined}
     >
