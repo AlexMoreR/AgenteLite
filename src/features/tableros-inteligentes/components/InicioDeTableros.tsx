@@ -57,9 +57,10 @@ const CUANDO = new Intl.DateTimeFormat("es-CO", {
 /** Las pestañas de arriba (solo las ve el dueño o el ADMIN): "Tableros" es lo de siempre. */
 export type VistaDelInicio = "tableros" | "hoy" | "coordinador" | "terminados";
 // `corto` es el nombre en el celular: las cuatro pestañas caben en una fila.
+// Orden (20-nov-2026, pedido de Alex): Hoy, Tableros, Coordinador, Terminados.
 const PESTANAS: { vista: VistaDelInicio; nombre: string; corto?: string }[] = [
-  { vista: "tableros", nombre: "Tableros" },
   { vista: "hoy", nombre: "Hoy" },
+  { vista: "tableros", nombre: "Tableros" },
   { vista: "coordinador", nombre: "Coordinador en vivo", corto: "Coordinador" },
   { vista: "terminados", nombre: "Trabajos terminados", corto: "Terminados" },
 ];
@@ -112,6 +113,13 @@ export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar,
 
   return (
     <div className="tablero-ia mx-auto w-full max-w-6xl space-y-8 px-4 py-6 md:px-6">
+      <h1 className="sr-only">Tableros</h1>
+      {/* Arriba de todo, "+ Nuevo" y debajo las pestañas (20-nov-2026: sin el título ni la bajada). */}
+      <div className="space-y-3">
+      <Button className="h-11 md:h-9" onClick={() => setEdicion({ modo: "crear" })}>
+        <Plus />
+        Nuevo
+      </Button>
       {puedeAdministrar ? (
         <div role="tablist" aria-label="Vistas de Tablero IA" className="flex gap-1 rounded-xl border bg-muted/40 p-1">
           {PESTANAS.map(({ vista: clave, nombre, corto }) => (
@@ -137,6 +145,7 @@ export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar,
           ))}
         </div>
       ) : null}
+      </div>
 
       {enHoy ? <VistaDeHoy /> : null}
 
@@ -183,34 +192,22 @@ export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar,
       ) : null}
 
       {!aparte ? (
-      <section aria-labelledby="titulo-tableros" className="space-y-4">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h1 id="titulo-tableros" className="text-lg font-semibold">
-              Tableros
-            </h1>
-            <p className="text-sm text-muted-foreground">Las ideas que arma Claude contigo, un tablero por tema.</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {cuentas.esDuenoDelNegocio ? (
-              <Button variant="outline" className="h-11 md:h-9" onClick={() => setVerArchivados(true)}>
-                <Archive />
-                Tableros archivados
-              </Button>
-            ) : null}
-            <Button className="h-11 md:h-9" onClick={() => setEdicion({ modo: "crear" })}>
-              <Plus />
-              Nuevo tablero
+      <section aria-label="Tableros" className="space-y-4">
+        {cuentas.esDuenoDelNegocio ? (
+          <div className="flex justify-end">
+            <Button variant="outline" className="h-11 md:h-9" onClick={() => setVerArchivados(true)}>
+              <Archive />
+              Tableros archivados
             </Button>
           </div>
-        </div>
+        ) : null}
 
         {tableros.length === 0 ? (
           <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed px-6 py-12 text-center">
             <Network className="size-10 text-muted-foreground" aria-hidden />
             <p className="font-medium">Todavía no hay tableros</p>
             <p className="max-w-sm text-sm text-muted-foreground">
-              Créalo tú con «Nuevo tablero» o pídeselo a Claude, por ejemplo: “Crea un tablero de Ventas y anota ahí
+              Créalo tú con «Nuevo» o pídeselo a Claude, por ejemplo: “Crea un tablero de Ventas y anota ahí
               las ideas que hablamos”.
             </p>
           </div>
