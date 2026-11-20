@@ -50,6 +50,7 @@ import type { SharedInboxMessageItem } from "./chat-inbox-types";
 import type { EstadoDeFoto } from "./fotos-en-envio";
 import { marcaDeEnvioDeLaBurbuja } from "./marca-de-envio-de-la-burbuja";
 import { guardarBorrosa, leerBorrosa } from "./miniatura-borrosa";
+import { fotoParaLaBurbuja } from "./miniatura-de-foto";
 import { copiarAlPortapapeles, textoParaCopiar } from "./copiar-mensaje";
 import { accionesDelMensaje } from "./orden-del-menu-del-mensaje";
 import { esMiniaturaAparte } from "@/lib/miniaturas-aparte";
@@ -1239,7 +1240,21 @@ export const MessageBubble = memo(function MessageBubble({
   const [videoActivo, setVideoActivo] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
+  /*
+    En la burbuja va la foto achicada (ver fotoParaLaBurbuja); el visor y Descargar, la original. Si
+    la achicada no carga, se vuelve a la original de esa misma direccion antes de pasar a la siguiente.
+  */
+  const [achicadaFallo, setAchicadaFallo] = useState<string | null>(null);
+  const fotoEnLaBurbuja = useMemo(() => {
+    if (!imagePreviewUrl || achicadaFallo === imagePreviewUrl) return imagePreviewUrl;
+    return fotoParaLaBurbuja(imagePreviewUrl, cajaDeLaFoto?.ancho);
+  }, [achicadaFallo, imagePreviewUrl, cajaDeLaFoto]);
+
   const handleImageError = () => {
+    if (imagePreviewUrl && fotoEnLaBurbuja !== imagePreviewUrl) {
+      setAchicadaFallo(imagePreviewUrl);
+      return;
+    }
     setImagePreviewIndex((current) => {
       const nextIndex = current + 1;
       return nextIndex < imagePreviewUrls.length ? nextIndex : current;
@@ -1898,7 +1913,7 @@ export const MessageBubble = memo(function MessageBubble({
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     ref={refDeLaFoto}
-                    src={imagePreviewUrl}
+                    src={fotoEnLaBurbuja ?? imagePreviewUrl}
                     alt={message.content?.trim() || "Imagen del chat"}
                     loading="lazy"
                     decoding="async"

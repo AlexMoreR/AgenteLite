@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { miniaturaDeFoto } from "./miniatura-de-foto";
+import { fotoParaLaBurbuja, miniaturaDeFoto } from "./miniatura-de-foto";
 
 test("una foto guardada en /uploads/chat-media sale por el optimizador a 96 px y q=75", () => {
   assert.equal(
@@ -49,4 +49,34 @@ test("una direccion que solo contiene /uploads/ en el medio queda igual", () => 
   const url = "https://otro.com/uploads/foto.jpg";
   assert.equal(miniaturaDeFoto(url), url);
   assert.equal(miniaturaDeFoto("//uploads/foto.jpg"), "//uploads/foto.jpg");
+});
+
+// fotoParaLaBurbuja (velocidad de Chats, paso 5): la foto de la burbuja al doble del ancho en pantalla.
+
+test("burbuja: el ancho pedido es el primero del optimizador que cubre el doble de lo que se ve", () => {
+  assert.equal(
+    fotoParaLaBurbuja("/uploads/chat-media/a.jpg", 360),
+    "/_next/image?url=%2Fuploads%2Fchat-media%2Fa.jpg&w=750&q=75",
+  );
+  assert.equal(fotoParaLaBurbuja("/uploads/chat-media/a.jpg", 146), "/_next/image?url=%2Fuploads%2Fchat-media%2Fa.jpg&w=384&q=75");
+  assert.equal(fotoParaLaBurbuja("/uploads/chat-media/a.jpg", 120), "/_next/image?url=%2Fuploads%2Fchat-media%2Fa.jpg&w=256&q=75");
+  assert.equal(fotoParaLaBurbuja("/uploads/chat-media/a.png", 260), "/_next/image?url=%2Fuploads%2Fchat-media%2Fa.png&w=640&q=75");
+});
+
+test("burbuja: sin ancho conocido se pide como una foto de 360 px; muy ancha, 1080", () => {
+  assert.equal(fotoParaLaBurbuja("/uploads/chat-media/a.webp", null), "/_next/image?url=%2Fuploads%2Fchat-media%2Fa.webp&w=750&q=75");
+  assert.equal(fotoParaLaBurbuja("/uploads/chat-media/a.jpeg", 900), "/_next/image?url=%2Fuploads%2Fchat-media%2Fa.jpeg&w=1080&q=75");
+});
+
+test("burbuja: GIF, data:, blob:, el proxy y las de afuera quedan igual", () => {
+  for (const url of [
+    "/uploads/chat-media/a.gif",
+    "data:image/jpeg;base64,abc",
+    "blob:https://app.aizenbot.com/123",
+    "/api/media/proxy?url=https%3A%2F%2Fx",
+    "https://mmg.whatsapp.net/foto.jpg",
+    "/uploads/chat-media/sin-extension",
+  ]) {
+    assert.equal(fotoParaLaBurbuja(url, 300), url);
+  }
 });

@@ -1579,6 +1579,65 @@ export function SharedInbox({
   }, [fijadosEnVivo, assignedFilter, statusFilter, selectedConnectionKey, searchQuery, enEspera, ponerFiltrosNuevos, conversationListApiPath, searchAction, hrefDeFila]);
 
   /*
+    UN CHAT QUE NO ESTA EN LA LISTA: SE TRAE SOLO SU FILA (velocidad de Chats, paso 4, 19-nov-2026).
+
+    Antes, un mensaje de un chat que no estaba en la lista esperaba 800 ms y pedia la lista entera
+    (~65 kB, ~0,9 s): medido, ~3,5 s hasta verlo, y en el celular con 4G mas. Ahora se pide solo ese
+    chat con `ids=` -el mismo /list, con los MISMOS filtros y permisos: si no cumple el filtro puesto,
+    el servidor no lo devuelve y no entra, igual que antes-. Varios juntos van en un pedido (hasta 3;
+    con mas, la lista entera). Si el pedido falla, la lista entera como antes.
+  */
+  const traerFilasQueFaltan = useCallback(
+    async (ids: string[]) => {
+      try {
+        const params = new URLSearchParams();
+        params.set("ids", ids.join(","));
+        if (searchQuery.trim()) params.set("q", searchQuery.trim());
+        if (selectedConnectionKey.trim()) params.set("connection", selectedConnectionKey.trim());
+        params.set("assigned", assignedFilter);
+        if (statusFilter !== "open") params.set("status", statusFilter);
+        ponerFiltrosNuevos(params);
+        const respuesta = await fetch(`${conversationListApiPath}?${params.toString()}`, {
+          credentials: "same-origin",
+          cache: "no-store",
+        });
+        const datos = (await respuesta.json().catch(() => null)) as
+          | { ok?: boolean; conversations?: SharedInboxConversationItem[] }
+          | null;
+        if (!datos?.ok || !Array.isArray(datos.conversations)) {
+          throw new Error("filas");
+        }
+        const filas = filasDeList(datos.conversations, (item) => hrefDeFila(item));
+        if (filas.length === 0 || isSearchActiveRef.current) {
+          return;
+        }
+        setConversationItems((current) => {
+          let next = current;
+          for (const item of filas) {
+            if (!item.id) continue;
+            next = updateConversationItemInSortedList(next, item.id, item, { ordenDelServidor: ordenDelServidorRef.current });
+          }
+          return next;
+        });
+        for (const item of filas) {
+          // Medicion: mensaje entrante (aviso del altavoz) hasta pintado en la lista, chat nuevo en ella.
+          terminarMedicionAlPintar(`entrante:${extractConversationIdFromKey(item.id)}`, "entrante_pintado", {
+            chatAbierto: false,
+            filaNueva: true,
+          });
+        }
+      } catch {
+        setPedidoDeLista((actual) => actual + 1);
+      }
+    },
+    [searchQuery, selectedConnectionKey, assignedFilter, statusFilter, ponerFiltrosNuevos, conversationListApiPath, hrefDeFila],
+  );
+  const traerFilasQueFaltanRef = useRef(traerFilasQueFaltan);
+  traerFilasQueFaltanRef.current = traerFilasQueFaltan;
+  const filasQueFaltanRef = useRef(new Set<string>());
+  const faltaLaListaEnteraRef = useRef(false);
+
+  /*
     Búsqueda aumentativa, en DOS pasos (Alex, 10-11-2026):
      1. `soloNombreYNumero=1`: los chats por nombre o numero que estan mas alla de lo ya cargado. Se
         AGREGAN (nunca quitan) a la lista; no navega ni la reemplaza, asi borrar el buscador siempre
@@ -2566,9 +2625,10 @@ export function SharedInbox({
          - Entraba con la asesora vacia ("---") aunque tuviera dueña, y un chat que ya estaba en la
            lista se quedaba con la asesora vieja cuando lo asignaban.
 
-        Por eso, un aviso de un chat que NO esta en la lista pide la lista de nuevo al servidor -una
-        sola vez aunque lleguen varios seguidos-, que devuelve la fila completa y aplica todos los
-        filtros: entra por ahi, no a ciegas.
+        Por eso, un aviso de un chat que NO esta en la lista le pide al servidor la fila de ese chat
+        (desde el 19-nov-2026 solo esa, con `ids=`; antes la lista entera) -una sola vez aunque
+        lleguen varios seguidos-, que devuelve la fila completa y aplica todos los filtros: entra por
+        ahi, no a ciegas.
 
         El que YA estaba se mueve arriba en el acto con lo que trae el aviso, y no pide la lista
         entera (plan "Chats instantaneo", fase 1): cada mensaje, cada visto y cada envio propio
@@ -2586,13 +2646,29 @@ export function SharedInbox({
         Asi la vista abierta no agrega pedidos por cada mensaje que entra.
       */
       if (!yaEstaEnLaLista && !esAvisoLocal && !ordenDelServidorRef.current) {
+        // Solo la fila de ese chat (traerFilasQueFaltan); los de la API oficial no la tienen por id.
+        const idDeLaFila = extractConversationIdFromKey(snapshot.id);
+        if (!snapshot.id.startsWith("official:") && /^[a-z0-9]+$/i.test(idDeLaFila)) {
+          filasQueFaltanRef.current.add(idDeLaFila);
+        } else {
+          faltaLaListaEnteraRef.current = true;
+        }
         if (esperaDelPedidoDeListaRef.current) {
           clearTimeout(esperaDelPedidoDeListaRef.current);
         }
+        // Los avisos que caen juntos salen en un solo pedido.
         esperaDelPedidoDeListaRef.current = setTimeout(() => {
           esperaDelPedidoDeListaRef.current = null;
-          setPedidoDeLista((actual) => actual + 1);
-        }, 800);
+          const ids = Array.from(filasQueFaltanRef.current);
+          filasQueFaltanRef.current.clear();
+          const listaEntera = faltaLaListaEnteraRef.current || ids.length > 3;
+          faltaLaListaEnteraRef.current = false;
+          if (listaEntera) {
+            setPedidoDeLista((actual) => actual + 1);
+          } else if (ids.length > 0) {
+            void traerFilasQueFaltanRef.current(ids);
+          }
+        }, 150);
       }
 
       if (!yaEstaEnLaLista) {

@@ -483,7 +483,11 @@ export function ChatsAutoRefresh({
         }
       }, VENTANA_POR_CHAT_MS);
       ventanas.set(conversationId, ventana);
+      programarPedido(conversationId);
+    };
 
+    // El pedido de la fila (y del chat, si esta abierto) sale en la proxima vuelta de 250 ms.
+    const programarPedido = (conversationId: string) => {
       pendientes.add(conversationId);
       // Se juntan los avisos de un mismo instante de distintos chats en una sola vuelta.
       if (juntarTimer === undefined) {
@@ -498,7 +502,7 @@ export function ChatsAutoRefresh({
       }
     };
 
-    function avisoDeChat(conversationId: string) {
+    function avisoDeChat(conversationId: string, esDelCliente = false) {
       if (document.visibilityState !== "visible") {
         alVolver.add(conversationId);
         return;
@@ -508,6 +512,15 @@ export function ChatsAutoRefresh({
         return;
       }
       if (ventanas.has(conversationId)) {
+        /*
+          Un mensaje de la clienta NO espera a que cierre la ventana (19-nov-2026). Medido con 4G: el
+          segundo mensaje de una rafaga tardaba 3,8-4,6 s en verse (los 3 s de la ventana + el pedido)
+          contra 0,6 s el primero. La ventana queda para los acuses y los ecos, que son la mayoria.
+        */
+        if (esDelCliente) {
+          programarPedido(conversationId);
+          return;
+        }
         enEspera.add(conversationId);
         return;
       }
@@ -568,7 +581,7 @@ export function ChatsAutoRefresh({
             }
           }
         }
-        avisoDeChat(conversationId);
+        avisoDeChat(conversationId, tipo === "waha-incoming");
         return;
       }
 
