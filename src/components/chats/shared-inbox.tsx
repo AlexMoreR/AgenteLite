@@ -25,7 +25,8 @@ import {
   saveConversationToCache,
 } from "@/components/chats/chat-history-cache";
 import { precargaEnCamino } from "@/components/chats/chat-conversation-warmup";
-import { EVENTO_PONERSE_AL_DIA } from "@/components/agents/chats-auto-refresh";
+import { EVENTO_ESTADOS_DEL_CHAT, EVENTO_PONERSE_AL_DIA } from "@/components/agents/chats-auto-refresh";
+import { aplicarEstados, type EstadoSaliente } from "@/components/chats/aplicar-estados";
 import { atenderChatSinAcceso, EVENTO_CHAT_SIN_ACCESO } from "@/components/chats/guardado-local/sin-acceso";
 import { reconciliarPrimeraPagina } from "@/components/chats/guardado-local/reglas";
 import { guardarListaEnElCelular } from "@/components/chats/guardado-local/lista-guardada";
@@ -2500,6 +2501,33 @@ export function SharedInbox({
     window.addEventListener("chat-live-update", handleLiveUpdate as EventListener);
     return () => window.removeEventListener("chat-live-update", handleLiveUpdate as EventListener);
   }, [baseParaMezclar, normalizeRealtimeConversationItem, selectedConversationKey]);
+
+  /*
+    Un "entregado" o "leido" del chat abierto: llegan solo los chulos (/estados) y se ponen sobre los
+    mensajes que ya estan en pantalla, sin bajar el chat entero (velocidad de Chats, paso 3). Si el
+    chat todavia se muestra desde la copia guardada (sin /live), no se toca: el /live de apertura
+    trae los estados de todos modos.
+  */
+  useEffect(() => {
+    function alLlegarEstados(event: Event) {
+      const detalle = (event as CustomEvent<{ chatKey?: string; estados?: EstadoSaliente[] }>).detail;
+      const chatKey = detalle?.chatKey?.trim() || "";
+      const estados = Array.isArray(detalle?.estados) ? detalle.estados : [];
+      if (!chatKey || estados.length === 0 || !conversationIdMatchesKey(selectedConversationKey, chatKey)) {
+        return;
+      }
+      setLiveConversation((current) => {
+        if (!current || !conversationIdMatchesKey(chatKey, current.id)) {
+          return current;
+        }
+        const mensajes = aplicarEstados(current.messages, estados);
+        return mensajes === current.messages ? current : { ...current, messages: mensajes };
+      });
+    }
+
+    window.addEventListener(EVENTO_ESTADOS_DEL_CHAT, alLlegarEstados);
+    return () => window.removeEventListener(EVENTO_ESTADOS_DEL_CHAT, alLlegarEstados);
+  }, [selectedConversationKey]);
 
   // Canal que se esta viendo (filtro "connection"). Vacio = bandeja unificada.
   const selectedChannelIdFilter = selectedConnectionKey.trim().startsWith("channel:")

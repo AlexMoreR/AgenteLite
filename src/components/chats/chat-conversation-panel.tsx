@@ -47,6 +47,9 @@ import {
 /** Cuantas barras tiene la onda mientras se graba una nota de voz. */
 const BARRAS_DE_GRABACION = 36;
 
+/** Al abrir un chat, cuantos mensajes (los ultimos) se dibujan en el primer cuadro. */
+const PRIMERA_TANDA = 15;
+
 /*
   Los datos del contacto se traen ANTES de que se abra su panel.
 
@@ -185,6 +188,7 @@ import type {
 import { FichaDeCotizacion } from "@/features/cotizaciones/components/FichaDeCotizacion";
 import { CHAT_COMPOSER_RECENT_KEY, type ComposerEmojiTab } from "./chat-inbox-emojis";
 import { MessageBubble } from "./chat-message-bubble";
+import { extractConversationIdFromKey } from "./chat-inbox-conversation-utils";
 import { useHayMasALaDerecha } from "./use-hay-mas-a-la-derecha";
 import { ChatFloatingDateBadge } from "./chat-floating-date-badge";
 import { esNotaInternaDelAgente } from "@/lib/notas-internas-del-agente";
@@ -890,6 +894,38 @@ export const ConversationPanel = memo(function ConversationPanel({
     }
     return [...sinNotasInternas, ...enEnvio];
   }, [renderedMessages, fotosDeEsteChat, chatDeLasFotos]);
+  /*
+    ABRIR UN CHAT: PRIMERO LO DE ABAJO (velocidad de Chats, paso 2, 19-nov-2026).
+
+    Medido en produccion: abrir un chat ya visto cuesta ~100 ms de procesador en la PC (~0,4 s en un
+    celular de gama media), y cada burbuja suma ~0,7 ms (un chat de 50 mensajes tarda ~25 ms mas
+    que uno de 11). Lo que la asesora ve al abrir son los ultimos mensajes: en el primer cuadro se
+    dibujan solo los ultimos PRIMERA_TANDA y el resto en el cuadro siguiente, ya con el chat a la
+    vista. Solo al CAMBIAR de chat; los mensajes que llegan despues se dibujan como siempre. La
+    vista se queda abajo sola (la ventana de apertura y el observador de tamaño de shared-inbox), y
+    el aviso de historial de arriba no se dibuja en ese cuadro (`recortarTanda`); la carga de mensajes
+    viejos ya esta frenada durante la apertura (suppressHistoryLoadUntilRef, 0,7 s).
+  */
+  const chatDeLaTanda = renderedConversation ? extractConversationIdFromKey(renderedConversation.id) : "";
+  // Arranca vacio a proposito: el panel se vuelve a montar en cada chat que se abre (su `key` en
+  // shared-inbox es el chat), asi que la primera tanda vale tambien al montar.
+  const [chatCompleto, setChatCompleto] = useState("");
+  const recortarTanda = chatDeLaTanda !== chatCompleto && displayedMessages.length > PRIMERA_TANDA;
+  useEffect(() => {
+    if (chatDeLaTanda === chatCompleto) {
+      return;
+    }
+    let reloj: ReturnType<typeof setTimeout> | undefined;
+    const cuadro = window.requestAnimationFrame(() => {
+      reloj = setTimeout(() => setChatCompleto(chatDeLaTanda), 0);
+    });
+    return () => {
+      window.cancelAnimationFrame(cuadro);
+      if (reloj !== undefined) clearTimeout(reloj);
+    };
+  }, [chatDeLaTanda, chatCompleto]);
+  const inicioDeLaTanda = recortarTanda ? displayedMessages.length - PRIMERA_TANDA : 0;
+  const mensajesDeLaTanda = recortarTanda ? displayedMessages.slice(inicioDeLaTanda) : displayedMessages;
   // Llego el mensaje real de una foto: se retira la burbuja y se libera su vista previa local.
   useEffect(() => {
     const llegaron = fotosQueYaLlegaron(fotosDeEsteChat, chatDeLasFotos, renderedMessages);
@@ -2549,7 +2585,8 @@ export const ConversationPanel = memo(function ConversationPanel({
                       </span>
                     </div>
                   ) : null}
-                  {canLoadOlderMessages ? (
+                  {/* Con la primera tanda nada mas, el tope esta cerca: no se pide historial todavia. */}
+                  {canLoadOlderMessages && !recortarTanda ? (
                     <div className="pb-2 pt-1">
                       <div ref={loadMoreSentinelRef} aria-hidden="true" className="h-px w-full" />
                       {/*
@@ -2592,11 +2629,11 @@ export const ConversationPanel = memo(function ConversationPanel({
                     entran mas mensajes por pantalla, que en el celular es lo que mas cuenta.
                   */}
                   <div className="space-y-1 md:space-y-1.5">
-                    {displayedMessages.map((message, index) => (
+                    {mensajesDeLaTanda.map((message, index) => (
                       <MessageBubble
                         key={message.id}
                         message={message}
-                        previousMessage={displayedMessages[index - 1]}
+                        previousMessage={displayedMessages[inicioDeLaTanda + index - 1]}
                         onRetry={
                           message.outboundStatusLabel === "error" ? onRetryFailedMessage : undefined
                         }

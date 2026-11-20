@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { Bell } from "lucide-react";
 
+import { getPendingConversationSelection, getSelectionClosed } from "@/components/chats/chat-selection-store";
 import { cn } from "@/lib/utils";
 import { recordarVistaDeLaBandeja } from "@/lib/vista-de-la-bandeja";
 
@@ -23,6 +24,45 @@ const POLL_INTERVAL_MS = 60000;
 
 /** Los avisos del altavoz que caen en este rato se cuentan con UN solo pedido de la lista. */
 const VENTANA_DE_RAFAGA_MS = 3000;
+
+/**
+ * Dentro de Chats, la primera consulta espera este rato para no sumarse a la carga de la bandeja.
+ */
+const PRIMERA_CONSULTA_EN_CHATS_MS = 15000;
+
+/*
+  Dentro de Chats la campanita NO pide la lista por cada mensaje (19-nov-2026).
+
+  Medido en produccion: 3 s despues de cada mensaje entrante pedia /list de 40 chats (65 kB, ~0,9 s),
+  en cada pestaña abierta, encima de lo que ya pide la bandeja. En Chats no hace falta: la bandeja
+  trae la fila de cada chat que cambia (/summary) y la avisa con `chat-list-update`, que trae el
+  numero de no leidos. La campanita se arma con eso; el reloj de 60 s queda de red de seguridad
+  (por ejemplo, para un chat que no esta en la bandeja de quien mira).
+*/
+function estaEnChats() {
+  try {
+    return window.location.pathname.startsWith("/cliente/chats");
+  } catch {
+    return false;
+  }
+}
+
+/** El chat abierto en la bandeja: el que se toco o, si no, el de la direccion (?chatKey=). */
+function chatAbiertoEnChats(): string | null {
+  const elegido = getPendingConversationSelection();
+  const clave = elegido?.chatKey?.trim() || elegido?.id?.trim();
+  if (clave) {
+    return clave;
+  }
+  if (getSelectionClosed()) {
+    return null;
+  }
+  try {
+    return new URLSearchParams(window.location.search).get("chatKey")?.trim() || null;
+  } catch {
+    return null;
+  }
+}
 
 type NotificationConversation = {
   key?: string;
@@ -182,7 +222,12 @@ export function ChatNotificationBell({ className }: { className?: string }) {
       }
     };
 
-    void poll();
+    if (estaEnChats()) {
+      // La bandeja esta cargando su propia lista: la campanita pide la suya un rato despues.
+      timeoutId = setTimeout(poll, PRIMERA_CONSULTA_EN_CHATS_MS);
+    } else {
+      void poll();
+    }
 
     const alVolverAMirar = () => {
       if (document.visibilityState === "visible") {
@@ -235,6 +280,10 @@ export function ChatNotificationBell({ className }: { className?: string }) {
       if (document.visibilityState !== "visible") {
         return;
       }
+      // En Chats el numero se arma con las filas que trae la bandeja (alCambiarUnaFila, abajo).
+      if (estaEnChats()) {
+        return;
+      }
       if (rafagaTimer !== undefined) {
         return;
       }
@@ -246,6 +295,64 @@ export function ChatNotificationBell({ className }: { className?: string }) {
       }, VENTANA_DE_RAFAGA_MS);
     };
     window.addEventListener("official-realtime-poke", alLlegarAlgo);
+
+    /*
+      En Chats: cada fila que trae la bandeja (/summary) trae cuantos sin leer tiene ese chat. Con
+      eso se actualiza el numero de ese chat, sin pedir la lista entera. Las filas locales (la
+      burbuja optimista de un envio propio) no traen nada del servidor y se ignoran, igual que el
+      chat abierto: el servidor lo marca leido al traerlo, y contarlo haria parpadear el punto.
+    */
+    const alCambiarUnaFila = (evento: Event) => {
+      if (!estaEnChats()) {
+        return;
+      }
+      const detalle = (
+        evento as CustomEvent<{
+          local?: boolean;
+          conversation?: { id?: unknown; incomingCount?: unknown; lastMessageAt?: unknown } | null;
+        } | null>
+      ).detail;
+      const fila = detalle?.conversation;
+      if (detalle?.local === true || !fila || typeof fila.id !== "string" || typeof fila.incomingCount !== "number") {
+        return;
+      }
+      const id = fila.id.trim();
+      if (!id) {
+        return;
+      }
+      const clave = id.includes(":") ? id : `agent:${id}`;
+      if (clave === chatAbiertoEnChats()) {
+        return;
+      }
+      const leidoHace = leidosRecien.current.get(clave);
+      if (leidoHace && Date.now() - leidoHace < 15000) {
+        return;
+      }
+      const cuenta = fila.incomingCount;
+      const fecha =
+        fila.lastMessageAt instanceof Date
+          ? fila.lastMessageAt.getTime()
+          : typeof fila.lastMessageAt === "string"
+            ? new Date(fila.lastMessageAt).getTime()
+            : 0;
+      const cuando = Number.isFinite(fecha) ? fecha : 0;
+      setPorChat((actuales) => {
+        const antes = actuales[clave];
+        if (cuenta <= 0) {
+          if (!antes) {
+            return actuales;
+          }
+          const siguiente = { ...actuales };
+          delete siguiente[clave];
+          return siguiente;
+        }
+        if (antes && antes.cuenta === cuenta && antes.cuando === cuando) {
+          return actuales;
+        }
+        return { ...actuales, [clave]: { cuenta, cuando } };
+      });
+    };
+    window.addEventListener("chat-list-update", alCambiarUnaFila);
 
     /*
       Abrir un chat apaga su aviso en el acto (lo avisa shared-inbox).
@@ -284,6 +391,7 @@ export function ChatNotificationBell({ className }: { className?: string }) {
       cancelled = true;
       document.removeEventListener("visibilitychange", alVolverAMirar);
       window.removeEventListener("official-realtime-poke", alLlegarAlgo);
+      window.removeEventListener("chat-list-update", alCambiarUnaFila);
       window.removeEventListener("chat-conversation-read", alLeerUnChat);
       window.removeEventListener("notificaciones-vistas", alMirarLasNotificaciones);
       if (timeoutId) clearTimeout(timeoutId);

@@ -107,6 +107,28 @@ async function publicarChatAbierto(response: Response | null, chatKey: string) {
   }
 }
 
+/** Lo escucha la bandeja (shared-inbox.tsx): cambia los chulos del chat abierto sin bajarlo entero. */
+export const EVENTO_ESTADOS_DEL_CHAT = "chat-estados-update";
+
+export type EstadoDeMensajeSaliente = { id: string; estado: string; reproducidoAt: string | null };
+
+/** true si llegaron los estados y se avisaron; false si hay que pedir el chat entero. */
+async function publicarEstados(response: Response | null, chatKey: string) {
+  if (!response?.ok) return false;
+  const payload = (await response.json().catch(() => null)) as
+    | { ok?: boolean; estados?: unknown }
+    | null;
+  if (!payload?.ok || !Array.isArray(payload.estados)) return false;
+  const estados = payload.estados.filter(
+    (fila): fila is EstadoDeMensajeSaliente =>
+      Boolean(fila) &&
+      typeof (fila as EstadoDeMensajeSaliente).id === "string" &&
+      typeof (fila as EstadoDeMensajeSaliente).estado === "string",
+  );
+  window.dispatchEvent(new CustomEvent(EVENTO_ESTADOS_DEL_CHAT, { detail: { chatKey, estados } }));
+  return true;
+}
+
 async function publicarFila(response: Response | null) {
   if (!response?.ok) return;
   const payload = (await response.json().catch(() => null)) as
@@ -200,9 +222,12 @@ export function ChatsAutoRefresh({
     }
 
     window.addEventListener("chat-live-update", handleLiveUpdate as EventListener);
+    // Los chulos que llegan solos (/estados) tambien dicen que el tiempo real del chat abierto anda.
+    window.addEventListener(EVENTO_ESTADOS_DEL_CHAT, handleLiveUpdate as EventListener);
     window.addEventListener("chat-list-update", handleListUpdate as EventListener);
     return () => {
       window.removeEventListener("chat-live-update", handleLiveUpdate as EventListener);
+      window.removeEventListener(EVENTO_ESTADOS_DEL_CHAT, handleLiveUpdate as EventListener);
       window.removeEventListener("chat-list-update", handleListUpdate as EventListener);
     };
   }, []);
@@ -400,19 +425,45 @@ export function ChatsAutoRefresh({
     const alVolver = new Set<string>();
     const MAXIMO_FILAS_AL_VOLVER = 20;
 
+    /*
+      Chats con algun aviso que NO fue un acuse desde su ultimo pedido (un mensaje, un eco, una
+      edicion). Si en la ventana solo hubo acuses, el chat abierto no necesita bajar entero: basta
+      con los chulos (/estados, ~1 kB en vez de ~17 kB de /live). Ver estados/route.ts.
+    */
+    const conMasQueAcuses = new Set<string>();
+
     const traerConversacion = async (conversationId: string) => {
       const chatKey = `agent:${conversationId}`;
       const query = `chatKey=${encodeURIComponent(chatKey)}`;
       const estaAbierto = selectedConversationKeyRef.current?.trim() === chatKey;
+      const soloAcuses = !conMasQueAcuses.has(conversationId);
+      conMasQueAcuses.delete(conversationId);
 
       try {
-        const [liveResponse, summaryResponse] = await Promise.all([
+        const [chatResponse, summaryResponse] = await Promise.all([
           estaAbierto
-            ? fetch(`/api/cliente/chats/live?${query}`, { credentials: "same-origin", cache: "no-store" })
+            ? fetch(`/api/cliente/chats/${soloAcuses ? "estados" : "live"}?${query}`, {
+                credentials: "same-origin",
+                cache: "no-store",
+              })
             : Promise.resolve(null),
           fetch(`/api/cliente/chats/summary?${query}`, { credentials: "same-origin", cache: "no-store" }),
         ]);
-        await publicarChatAbierto(liveResponse, chatKey);
+        if (estaAbierto && soloAcuses) {
+          const publicados = await publicarEstados(chatResponse, chatKey);
+          if (!publicados && chatResponse?.status !== 404) {
+            // Sin los chulos (la ruta fallo): como antes, el chat entero.
+            const liveResponse = await fetch(`/api/cliente/chats/live?${query}`, {
+              credentials: "same-origin",
+              cache: "no-store",
+            }).catch(() => null);
+            await publicarChatAbierto(liveResponse, chatKey);
+          } else if (chatResponse?.status === 404) {
+            atenderChatSinAcceso(chatResponse, chatKey);
+          }
+        } else {
+          await publicarChatAbierto(chatResponse, chatKey);
+        }
         await publicarFila(summaryResponse);
       } catch {
         // Sin red: el refresco de respaldo lo recoge.
@@ -496,6 +547,9 @@ export function ChatsAutoRefresh({
       const tipo = detail?.type ?? "";
 
       if (conversationId && AVISOS_CON_CONVERSACION.has(tipo)) {
+        if (tipo !== "waha-ack") {
+          conMasQueAcuses.add(conversationId);
+        }
         if (!esElAbierto(conversationId)) {
           const ahora = Date.now();
           if (tipo === "waha-incoming") {

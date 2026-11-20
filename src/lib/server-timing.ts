@@ -53,7 +53,17 @@ export function conServerTiming(
     pasos.push(["total", total]);
     // Las llamadas a WAHA (y otros de afuera) que terminaron dentro del pedido, para ver cual tarda.
     const externas = (contador.externas ?? []).slice(0, 20);
-    const valor = [...pasos, ...externas]
+    /*
+      Cuantas consultas SQL hizo el pedido y cuantos esperaban conexion al empezar, tambien en la
+      cabecera (19-nov-2026): antes solo salian en la linea [timing] del servidor, y desde el
+      navegador no se podia contar cuantas consultas cuesta cada accion. Van como "dur" porque es lo
+      unico que el navegador expone como numero (PerformanceResourceTiming.serverTiming).
+    */
+    const conteos: Array<[string, number]> = [["consultas", contador.consultas]];
+    if (typeof poolEspera === "number") {
+      conteos.push(["poolEspera", poolEspera]);
+    }
+    const valor = [...pasos, ...conteos, ...externas]
       .map(([nombre, ms]) => `${nombre.replace(/[^a-zA-Z0-9_-]/g, "")};dur=${ms.toFixed(1)}`)
       .join(", ");
     try {
