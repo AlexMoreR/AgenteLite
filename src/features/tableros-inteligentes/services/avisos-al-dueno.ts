@@ -43,9 +43,9 @@ import { linkDeHoy, linkDeLaTarjeta, linkDelCoordinador, pendientesDelDueno, tod
   ALERTAS (29-oct-2026): cada aviso queda también en la página /cliente/alertas y, con el interruptor
   `alertas:solo-urgentes:<ws>` prendido (por defecto), por WhatsApp salen SOLO los urgentes, con un mensaje de 2 líneas y el
   link a la página. Esto CAMBIA lo del 26-oct (los 5 tipos por WhatsApp). Prioridades (ver prioridadDelAviso):
-    caido, limite              → URGENTE (WhatsApp)
-    necesita                   → URGENTE solo si es por dinero, Meta Ads o una clave; si no, ALTA (solo la página)
-    trabado, sin_trabajo       → ALTA (solo la página; ya no llegan por WhatsApp)
+    caido, limite, trabado, sin_trabajo, cupos y "Se deshizo una subida"
+                               → MEDIA (Tecnología, 19-nov-2026: solo la página, no llegan al WhatsApp de Alexander)
+    necesita                   → URGENTE solo si es por dinero, Meta Ads, una clave o una decisión; si no, ALTA (solo la página)
   Interruptor apagado = exactamente lo anterior.
 
   "TERMINADA" (30-oct-2026; sin WhatsApp desde el 6-nov-2026): del 30-oct al 6-nov el dueño recibía "✅ ¡Listo! Terminó la
@@ -62,7 +62,7 @@ import { linkDeHoy, linkDeLaTarjeta, linkDelCoordinador, pendientesDelDueno, tod
   apagado) todo sale como antes, al dueño, y queda anotado en el historial.
 
   CUPOS SIN USAR (31-oct-2026): el Coordinador manda el tipo "cupos" cuando lleva 10 min con tarjetas en fila y puestos
-  libres. Es técnico y va SOLO a Emanuel (aunque esté prendido "solo urgentes"), con prioridad ALTA y la clave fija
+  libres. Es técnico y va SOLO a Emanuel (aunque esté prendido "solo urgentes"), con prioridad MEDIA y la clave fija
   `coord:cupos` (el texto cambia cada minuto: "hace 12 min"). Sin el WhatsApp de Sistemas válido NO va al dueño: queda solo
   en /cliente/alertas. Mismo silencio de 9 p. m. a 7 a. m., interruptor general y "uno cada 3 horas".
 
@@ -372,10 +372,20 @@ export type AvisoCalculado = { clave: string; tipo: TipoDeAviso; lineas: string[
  */
 const ES_UNA_DUDA_DE_NEGOCIO = /preguntas abiertas|el agente necesita (una |algo del due[nñ]o: )?decisi[oó]n/i;
 
-/** La prioridad de cada tipo de aviso (regla del dueño, 29-oct-2026). `motivo` solo importa en "necesita". */
+/** "Se deshizo una subida…" (lo manda el Coordinador como "necesita"): es un fallo al subir, de Tecnología. */
+const ES_UNA_SUBIDA_DESHECHA = /^\s*Se deshizo una subida/i;
+
+/**
+ * La prioridad de cada tipo de aviso (regla del dueño, 29-oct-2026; Tecnología = MEDIA desde el 19-nov-2026). `motivo`
+ * solo importa en "necesita". Los técnicos (caído, límite, trabada, sin trabajo, cupos y "Se deshizo una subida") quedan
+ * en MEDIA: solo la página, no llegan al WhatsApp de Alexander (a Emanuel le siguen llegando).
+ */
 export function prioridadDelAviso(tipo: TipoDeAviso, motivo?: string | null): Prioridad {
-  if (tipo === "caido" || tipo === "limite") return "URGENTE";
-  if (tipo === "necesita") return esDeDineroMetaOClave(motivo ?? "") || ES_UNA_DUDA_DE_NEGOCIO.test(motivo ?? "") ? "URGENTE" : "ALTA";
+  if (esAvisoTecnico(tipo)) return "MEDIA";
+  if (tipo === "necesita") {
+    if (ES_UNA_SUBIDA_DESHECHA.test(motivo ?? "")) return "MEDIA";
+    return esDeDineroMetaOClave(motivo ?? "") || ES_UNA_DUDA_DE_NEGOCIO.test(motivo ?? "") ? "URGENTE" : "ALTA";
+  }
   return "ALTA";
 }
 
@@ -782,7 +792,7 @@ export async function registrarAvisoDelCoordinador(
   if (typeof tipo !== "string" || !(TIPOS_DEL_COORDINADOR as readonly string[]).includes(tipo)) return { descartado: true };
   if (!(await avisosPrendidos(workspaceId))) return { apagado: true };
   const clave = claveDelAvisoDelCoordinador(tipo, texto, tarjetaId);
-  // ALERTAS: "limite" es Urgente; "necesita" solo si es por dinero, Meta Ads o una clave. Todo queda en la página.
+  // ALERTAS: "limite" y "cupos" son de Tecnología (Media); "necesita" es Urgente solo si es por dinero, Meta Ads o una clave. Todo queda en la página.
   const prioridad = prioridadDelAviso(tipo as TipoDeAviso, texto);
   const titulo = tituloDelTexto(texto);
   const soloUrgentes = await soloUrgentesPrendido(workspaceId);
@@ -797,7 +807,9 @@ export async function registrarAvisoDelCoordinador(
   if (yaSeAvisoDe(estado, clave, ahora)) return { repetido: true };
   await registrarAlerta({ workspaceId, clave, prioridad, titulo, detalle: texto, origen: ORIGEN_COORDINADOR, refrescar: false, ...paraEmanuel });
   // Cupos sin usar: solo a Emanuel, aunque esté prendido "solo urgentes"; sin su WhatsApp, queda solo en la página (nunca al dueño).
-  if (tipo === "cupos") {
+  // El límite (Media desde el 19-nov-2026) igual, para que no se pierda el de Emanuel; con "solo urgentes" apagado y sin
+  // su WhatsApp sigue yendo al dueño como antes.
+  if (tipo === "cupos" || (tipo === "limite" && (sistemas || soloUrgentes))) {
     const envio: ResultadoDelEnvio = sistemas
       ? await enviarDesdeAdmin(workspaceId, sistemas.numero, texto)
       : { salio: false, motivo: "Emanuel no tiene el WhatsApp de Sistemas: quedó solo en la página de alertas" };

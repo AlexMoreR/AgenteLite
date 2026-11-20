@@ -1,4 +1,4 @@
-import { ORIGEN_POR_AREA, claveDeAlerta, textoDeUrgente, tituloCorto, tituloDelTexto } from "@/features/alertas/dominio/reglas";
+import { ORIGEN_POR_AREA, claveDeAlerta, prioridadFinal, textoDeUrgente, tituloCorto, tituloDelTexto } from "@/features/alertas/dominio/reglas";
 import { marcarSalioPorWhatsApp, registrarAlerta, soloUrgentesPrendido } from "@/features/alertas/servicios/alertas";
 import { leerConfigGravedad, lineaInterna } from "@/features/avisos-gravedad/servicios/enrutador";
 import { coachOpusActivo } from "@/features/coach/revision-opus/servicio";
@@ -106,8 +106,10 @@ export async function mandarWhatsAppAlEquipo(input: {
     const titulo = pedido.titulo ? tituloCorto(pedido.titulo) : tituloDelTexto(pedido.texto);
     const origen = area === "coach" ? ORIGEN_DEL_COACH : (ORIGEN_POR_AREA[area] ?? "Agente de área");
     claveDeLaAlerta = claveDeAlerta(origen, titulo);
-    const urgente = pedido.prioridad === "URGENTE";
-    await registrarAlerta({ workspaceId, clave: claveDeLaAlerta, prioridad: pedido.prioridad ?? "MEDIA", titulo, detalle: pedido.texto, origen });
+    // Lo de Tecnología (el Agente de Sistemas) queda en Media aunque el agente lo marque Urgente (19-nov-2026).
+    const prioridad = prioridadFinal({ prioridad: pedido.prioridad ?? "MEDIA", origen, clave: claveDeLaAlerta });
+    const urgente = prioridad === "URGENTE";
+    await registrarAlerta({ workspaceId, clave: claveDeLaAlerta, prioridad, titulo, detalle: pedido.texto, origen });
     if (!urgente) {
       const bloqueado = await bloquear(MOTIVO_SOLO_EN_PAGINA);
       return { ...bloqueado, soloEnPagina: true };

@@ -69,6 +69,39 @@ export function leerPrioridad(valor: unknown): Prioridad | null {
 /** Por WhatsApp solo salen las URGENTES. */
 export const salePorWhatsApp = (prioridad: Prioridad | string): boolean => prioridad === "URGENTE";
 
+/* ───────────── TECNOLOGÍA = MEDIA (decisión de Alexander, 19-nov-2026) ───────────── */
+
+/**
+ * Del Coordinador, las de Tecnología: se cayó (`auto:caido`), tarjeta trabada o en error / "lleva X h sin avanzar"
+ * (`auto:trabado:`), sin trabajo (`auto:sin_trabajo`), Claude llegó al límite (`coord:limite:`), cupos sin usar
+ * (`coord:cupos`) y "Se deshizo una subida" (llega como `coord:necesita:[<tarjeta>:]Se deshizo una subida…`).
+ * "URGENTE: no se pudo deshacer una subida" NO está: producción puede quedar rota y sigue Urgente.
+ */
+const RE_COORDINADOR_DE_TECNOLOGIA = /^(auto:caido$|auto:trabado:|auto:sin_trabajo$|coord:limite:|coord:cupos$|coord:necesita:(?:[A-Za-z0-9_-]+:)?Se deshizo una subida)/;
+
+/**
+ * ¿Es una alerta del área de Tecnología? Lista CERRADA de orígenes y claves: lo que no está acá (ventas, clientes, una
+ * línea caída, mensajes perdidos, Coach, recibos, los "necesita" por dinero, Meta Ads, una clave o una decisión) no es
+ * de Tecnología. Así una alerta de ventas nunca pierde su WhatsApp por error.
+ */
+export function esAlertaDeTecnologia(alerta: { origen: string; clave: string }): boolean {
+  const clave = String(alerta.clave ?? "");
+  if (alerta.origen === ORIGEN_POR_AREA.sistemas) return true;
+  if (alerta.origen === ORIGEN_COORDINADOR) return RE_COORDINADOR_DE_TECNOLOGIA.test(clave);
+  if (alerta.origen === ORIGEN_SUPERVISOR) return clave.startsWith("sup:CEREBRO:");
+  return false;
+}
+
+/**
+ * La prioridad con la que se guarda (y se decide el WhatsApp de) una alerta. Las de Tecnología quedan en MEDIA: una
+ * Urgente o Alta baja a Media (solo la página, no llega al WhatsApp de Alexander); una Media o Baja se queda como está.
+ * Las demás no cambian.
+ */
+export function prioridadFinal(alerta: { prioridad: Prioridad; origen: string; clave: string }): Prioridad {
+  if (!esAlertaDeTecnologia(alerta)) return alerta.prioridad;
+  return (ORDEN_DE_PRIORIDAD[alerta.prioridad] ?? PRIORIDADES.length) < ORDEN_DE_PRIORIDAD.MEDIA ? "MEDIA" : alerta.prioridad;
+}
+
 /**
  * Por prioridad (Urgente primero) y, dentro de cada una, de la más reciente a la más vieja según la ÚLTIMA vez que
  * llegó: una alerta que se repite sube. No cambia la lista original.

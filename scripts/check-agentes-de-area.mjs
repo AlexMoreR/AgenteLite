@@ -282,6 +282,22 @@ await prueba("lo que Alexander recibía sin prioridad (o con una que no es urgen
   assert.equal(db.enviados.length, 1);
 });
 
+await prueba("Tecnología = Media (19-nov): un URGENTE del Agente de Sistemas a Alexander queda solo en la página, en Media", async () => {
+  reiniciar({ activo: true });
+  db.settings.set(`agente-area:sistemas:${WS}`, JSON.stringify({ activo: true }));
+  const r = await envios.mandarWhatsAppAlEquipo({ ...pedir(ALEX, "ALEXANDER", "CPU del servidor al 97 % hace 5 min", { prioridad: "URGENTE", titulo: "CPU del servidor alta" }), area: "sistemas" });
+  assert.equal(r.ok, false);
+  assert.equal(r.soloEnPagina, true);
+  assert.equal(db.enviados.length, 0, "no sale por WhatsApp");
+  assert.equal(db.alertas.length, 1);
+  assert.equal(db.alertas[0].prioridad, "MEDIA");
+  assert.equal(db.alertas[0].origen, "Agente de Sistemas");
+  // Uno de ventas sigue saliendo Urgente.
+  const ventas = await envios.mandarWhatsAppAlEquipo(pedir(ALEX, "ALEXANDER", "Cayó la respuesta de clientes nuevos", { prioridad: "URGENTE" }));
+  assert.equal(ventas.ok, true);
+  assert.equal(db.enviados.length, 1);
+});
+
 await prueba("con el interruptor de alertas apagado, Alexander recibe el mensaje completo como antes", async () => {
   reiniciar({ activo: true });
   db.settings.set(`alertas:solo-urgentes:${WS}`, "false");

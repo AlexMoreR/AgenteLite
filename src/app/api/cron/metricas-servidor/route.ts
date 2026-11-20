@@ -12,8 +12,9 @@ export const dynamic = "force-dynamic";
 /*
   Monitoreo del servidor (parte 2). El script del VPS (lo instala el orquestador, no esta app) manda aquí una
   "foto" del servidor cada minuto: CPU, carga, memoria, disco y contenedores. Se guarda, se borra lo de más de
-  7 días y, si la CPU pasa de 85 % en 5 fotos seguidas, se le avisa al dueño por WhatsApp (línea Admin) con el
-  mismo mecanismo del Agente de Sistemas: solo números del equipo, nunca una línea de ventas, nunca un cliente.
+  7 días y, si la CPU pasa de 85 % en 5 fotos seguidas, se le avisa al dueño con el mismo mecanismo del Agente de
+  Sistemas: solo números del equipo, nunca una línea de ventas, nunca un cliente. Desde el 19-nov-2026 es una alerta
+  MEDIA (Tecnología): con "solo urgentes" prendido queda en la página de Alertas y no sale por WhatsApp.
   Se llama con cualquiera de los secretos de siempre del reloj. Solo POST.
 */
 
@@ -42,7 +43,8 @@ async function avisarAlDueno(pedido: { titulo: string; texto: string; ahora: Dat
         tipo: "ALEXANDER",
         numero: destino.numero,
         destinatario: "Alexander",
-        prioridad: "URGENTE",
+        // Tecnología (19-nov-2026): queda en la página de Alertas en Media, no llega al WhatsApp de Alexander.
+        prioridad: "MEDIA",
         titulo: pedido.titulo,
         texto: pedido.texto,
       },
