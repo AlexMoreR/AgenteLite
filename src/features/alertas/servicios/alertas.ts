@@ -11,6 +11,7 @@ import {
   motivoCierraLaClave,
   tituloEntreComillasDelAviso,
   ordenarAlertas,
+  prioridadFinal,
   puedeVerAlerta,
   salePorWhatsApp,
   textoDeUrgente,
@@ -85,8 +86,16 @@ export type PedidoDeAlerta = {
 
 export type ResultadoDeAlerta = { id: string | null; creada: boolean; salioPorWhatsApp: boolean };
 
-/** Guarda (o refresca) la alerta y, si es urgente y la fuente dio cómo, manda el aviso corto. */
-export async function registrarAlerta(pedido: PedidoDeAlerta): Promise<ResultadoDeAlerta> {
+/**
+ * Guarda (o refresca) la alerta y, si es urgente y la fuente dio cómo, manda el aviso corto. Red de seguridad de todas
+ * las fuentes (19-nov-2026): la prioridad pasa por `prioridadFinal`, así una alerta de Tecnología queda en MEDIA y no sale
+ * al WhatsApp aunque la fuente la mande Urgente.
+ */
+export async function registrarAlerta(pedidoOriginal: PedidoDeAlerta): Promise<ResultadoDeAlerta> {
+  const pedido: PedidoDeAlerta = { ...pedidoOriginal, prioridad: prioridadFinal(pedidoOriginal) };
+  // Con "solo urgentes" apagado todo sale como antes: el WhatsApp se decide con la prioridad que mandó la fuente.
+  const bajoDePrioridad = pedido.prioridad !== pedidoOriginal.prioridad;
+  const prioridadDelWhatsApp = bajoDePrioridad && pedido.enviar && !(await soloUrgentesPrendido(pedido.workspaceId)) ? pedidoOriginal.prioridad : pedido.prioridad;
   const titulo = tituloCorto(pedido.titulo, 200) || "Alerta sin título";
   const detalle = pedido.detalle?.trim() ? pedido.detalle.trim().slice(0, 8000) : null;
   let id: string | null = null;
@@ -120,7 +129,7 @@ export async function registrarAlerta(pedido: PedidoDeAlerta): Promise<Resultado
   }
 
   let salio = false;
-  if (salePorWhatsApp(pedido.prioridad) && pedido.enviar) {
+  if (salePorWhatsApp(prioridadDelWhatsApp) && pedido.enviar) {
     try {
       salio = await pedido.enviar(textoDeUrgente(titulo));
     } catch (error) {

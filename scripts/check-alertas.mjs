@@ -154,6 +154,52 @@ await prueba("registrarAlerta: guarda siempre; solo la urgente sale por WhatsApp
   assert.equal(filas.length, 3);
 });
 
+await prueba("Tecnología = Media (19-nov): prioridadFinal baja las del Coordinador, el Agente de Sistemas y el cerebro; ventas y clientes siguen Urgentes", () => {
+  const final = (origen, clave, prioridad = "URGENTE") => reglas.prioridadFinal({ prioridad, origen, clave });
+  for (const clave of ["auto:caido", "auto:trabado:x:EN_CURSO", "auto:sin_trabajo", "coord:limite:⛔ Claude llegó a su límite de uso", "coord:cupos"]) {
+    assert.equal(final("Coordinador", clave), "MEDIA", clave);
+    assert.equal(final("Coordinador", clave, "ALTA"), "MEDIA", `${clave} (alta)`);
+  }
+  assert.equal(final("Coordinador", 'coord:necesita:tarj1:Se deshizo una subida de "X".'), "MEDIA", "se deshizo una subida");
+  assert.equal(final("Coordinador", 'coord:necesita:Se deshizo una subida de "X".'), "MEDIA", "se deshizo una subida (clave sin tarjeta)");
+  assert.equal(final("Agente de Sistemas", "agente-de-sistemas:abc"), "MEDIA");
+  assert.equal(final("Supervisor", "sup:CEREBRO:sin-bitacora"), "MEDIA");
+  // Una Media o Baja de Tecnología no sube.
+  assert.equal(final("Coordinador", "auto:caido", "BAJA"), "BAJA");
+  assert.equal(final("Agente de Sistemas", "x", "MEDIA"), "MEDIA");
+  // Lo que afecta ventas o clientes no cambia.
+  assert.equal(final("Supervisor", "sup:INC:libro-v292:respuesta-nuevos"), "URGENTE", "la caída del libro v292 (60,1 % → 26,8 %)");
+  assert.equal(final("Línea de WhatsApp", "LINEA:caida:c1"), "URGENTE");
+  assert.equal(final("Mensajes perdidos", "perdidos:x"), "URGENTE");
+  assert.equal(final("Coach", "coach:x"), "URGENTE");
+  assert.equal(final("Recibos de caja", "recibo:x", "ALTA"), "ALTA");
+  assert.equal(final("Agente de Ventas", "agente-de-ventas:x"), "URGENTE");
+  assert.equal(final("Coordinador", "coord:necesita:tarj1:Necesito tu sí para el presupuesto de Meta Ads."), "URGENTE");
+  assert.equal(final("Coordinador", "auto:necesita:t1:POR_APROBAR"), "URGENTE");
+  assert.equal(final("Coordinador", 'coord:necesita:tarj1:URGENTE: no se pudo deshacer una subida de "X"'), "URGENTE", "no se pudo deshacer: sigue Urgente");
+  assert.equal(reglas.esAlertaDeTecnologia({ origen: "Supervisor", clave: "sup:INC:libro-v292:x" }), false);
+  assert.equal(reglas.esAlertaDeTecnologia({ origen: "Coordinador", clave: "auto:caido" }), true);
+});
+
+await prueba("registrarAlerta: una Urgente de Tecnología se guarda en Media y no sale; la de ventas del Supervisor sí sale", async () => {
+  const enviados = [];
+  const enviar = async (texto) => (enviados.push(texto), true);
+  const caido = await servicio.registrarAlerta({ workspaceId: "ws1", clave: "auto:caido", prioridad: "URGENTE", titulo: "Sistemas detenido", origen: "Coordinador", enviar });
+  assert.equal(caido.salioPorWhatsApp, false);
+  assert.equal(enviados.length, 0, "no llama a enviar");
+  assert.equal(filas.find((f) => f.clave === "auto:caido").prioridad, "MEDIA");
+  const ventas = await servicio.registrarAlerta({ workspaceId: "ws1", clave: "sup:INC:libro-v292:x", prioridad: "URGENTE", titulo: "Bajó la respuesta de clientes nuevos", detalle: "del 60,1 % al 26,8 %", origen: "Supervisor", enviar });
+  assert.equal(ventas.salioPorWhatsApp, true);
+  assert.equal(enviados.length, 1, "sí llama a enviar");
+  assert.equal(filas.find((f) => f.clave === "sup:INC:libro-v292:x").prioridad, "URGENTE");
+  // Con "solo urgentes" apagado, todo sale como antes (la página la muestra en Media igual).
+  ajustes.set("alertas:solo-urgentes:ws1", "false");
+  const apagado = await servicio.registrarAlerta({ workspaceId: "ws1", clave: "sup:CEREBRO:x", prioridad: "URGENTE", titulo: "El cerebro no responde", origen: "Supervisor", enviar });
+  assert.equal(apagado.salioPorWhatsApp, true);
+  assert.equal(enviados.length, 2);
+  assert.equal(filas.find((f) => f.clave === "sup:CEREBRO:x").prioridad, "MEDIA");
+});
+
 await prueba("registrarAlerta: si el WhatsApp falla, la alerta queda guardada", async () => {
   const r = await servicio.registrarAlerta({ workspaceId: "ws1", clave: "k", prioridad: "URGENTE", titulo: "Línea caída", origen: "Línea de WhatsApp", enviar: async () => { throw new Error("línea caída"); } });
   assert.equal(r.salioPorWhatsApp, false);

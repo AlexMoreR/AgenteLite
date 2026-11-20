@@ -263,30 +263,50 @@ await prueba("5. Límite de Claude: lo manda el Coordinador con tipo 'limite' o 
   assert.deepEqual(await deltrabajador.enviarAvisoDelTrabajador(contexto, { texto }, DIA), { descartado: true });
   assert.deepEqual(await deltrabajador.enviarAvisoDelTrabajador(contexto, { texto, tipo: "umbral" }, DIA), { descartado: true });
   assert.equal(estado.enviados.length, 0, "el aviso del umbral o sin tipo no sale");
-  const salio = await deltrabajador.enviarAvisoDelTrabajador(contexto, { texto, tipo: "limite" }, DIA);
-  assert.equal(salio.salio, true);
-  assert.equal(estado.enviados.length, 1);
-  // Alertas (29-oct-2026): el límite es Urgente y sale corto: 2 líneas (título + link a la página de alertas).
-  assert.equal(estado.enviados[0].text, "🚨 Urgente: Claude llegó a su límite de uso: Sistemas quedó en pausa.\nVer: https://app.aizenbot.com/cliente/alertas");
-  assert.equal(estado.enviados[0].phoneNumber, "573001112233");
+  // Tecnología = Media (19-nov-2026): con "solo urgentes" y sin el WhatsApp de Sistemas, queda solo en la página (nunca al dueño).
+  const sinEmanuel = await deltrabajador.enviarAvisoDelTrabajador(contexto, { texto, tipo: "limite" }, DIA);
+  assert.equal(sinEmanuel.salio, false);
+  assert.match(sinEmanuel.motivo, /Emanuel no tiene el WhatsApp de Sistemas/);
+  assert.equal(estado.enviados.length, 0, "no le llega al WhatsApp del dueño");
   assert.equal(estado.alertas.length, 1, "queda en la página");
-  assert.equal(estado.alertas[0].prioridad, "URGENTE");
+  assert.equal(estado.alertas[0].prioridad, "MEDIA");
   assert.equal(estado.alertas[0].origen, "Coordinador");
   assert.equal(estado.alertas[0].detalle, texto, "el texto completo, en la página");
+  assert.deepEqual(await deltrabajador.enviarAvisoDelTrabajador(contexto, { texto, tipo: "limite" }, new Date(DIA.getTime() + 5 * 60_000)), { repetido: true }, "no se reintenta cada minuto");
+  // Con el WhatsApp de Emanuel: el límite le sigue llegando a él (por registrarAvisoDelCoordinador), con el texto completo.
+  reiniciar();
+  guardarNumero();
+  assert.deepEqual(await avisos.guardarConfigDeSistemas("ws1", { telefono: "573114445566" }), { ok: true });
+  const salio = await avisos.registrarAvisoDelCoordinador("ws1", "limite", texto, DIA);
+  assert.equal(salio.salio, true);
+  assert.equal(estado.enviados.length, 1);
+  assert.equal(estado.enviados[0].phoneNumber, "573114445566", "a Emanuel, no al dueño");
+  assert.equal(estado.enviados[0].text, texto);
+  assert.equal(estado.alertas[0].prioridad, "MEDIA");
+  assert.equal(estado.alertas[0].salioPorWhatsApp, true);
   // El mismo aviso otra vez (pasado el minuto) no se repite antes de 3 horas; después sí.
   const luego = new Date(DIA.getTime() + 5 * 60_000);
-  assert.deepEqual(await deltrabajador.enviarAvisoDelTrabajador(contexto, { texto, tipo: "limite" }, luego), { repetido: true });
+  assert.deepEqual(await avisos.registrarAvisoDelCoordinador("ws1", "limite", texto, luego), { repetido: true });
   const mas = new Date(DIA.getTime() + 3 * HORA + 60_000);
   assert.equal((await deltrabajador.enviarAvisoDelTrabajador(contexto, { texto, tipo: "limite" }, mas)).salio, true);
   assert.equal(estado.enviados.length, 2);
+  assert.ok(estado.enviados.every((e) => e.phoneNumber === "573114445566"));
+  // Con "solo urgentes" APAGADO y sin Emanuel: todo como antes, el límite sale al dueño con su texto.
+  reiniciar();
+  guardarNumero();
+  estado.ajustes.set("alertas:solo-urgentes:ws1", "false");
+  assert.equal((await avisos.registrarAvisoDelCoordinador("ws1", "limite", texto, DIA)).salio, true);
+  assert.equal(estado.enviados.length, 1);
+  assert.equal(estado.enviados[0].phoneNumber, "573001112233");
+  assert.equal(estado.enviados[0].text, texto);
 });
 
-await prueba("cupos sin usar (31-oct): el tipo 'cupos' pasa, clave fija, ALTA, sale SOLO a Emanuel aunque esté 'solo urgentes'; sin su WhatsApp no va al dueño", async () => {
+await prueba("cupos sin usar (31-oct): el tipo 'cupos' pasa, clave fija, MEDIA (19-nov), sale SOLO a Emanuel aunque esté 'solo urgentes'; sin su WhatsApp no va al dueño", async () => {
   guardarNumero();
   const texto = '⚠️ Cupos sin usar: 3 en fila y 1 de 4 corriendo hace 12 min.\n"Arreglar X" espera un puesto en la nube.';
   assert.equal(avisos.TIPOS_DEL_COORDINADOR.includes("cupos"), true);
   assert.equal(avisos.esAvisoTecnico("cupos"), true);
-  assert.equal(avisos.prioridadDelAviso("cupos"), "ALTA");
+  assert.equal(avisos.prioridadDelAviso("cupos"), "MEDIA");
   assert.equal(avisos.claveDelAvisoDelCoordinador("cupos", texto), "coord:cupos");
   assert.equal(avisos.claveDelAvisoDelCoordinador("cupos", "otro texto", "tarj1"), "coord:cupos", "el texto cambia cada minuto: la clave no");
   // Sin el WhatsApp de Sistemas: queda solo en la página y no sale al dueño.
@@ -296,7 +316,7 @@ await prueba("cupos sin usar (31-oct): el tipo 'cupos' pasa, clave fija, ALTA, s
   assert.equal(estado.enviados.length, 0, "nunca al dueño");
   assert.equal(estado.alertas.length, 1);
   assert.equal(estado.alertas[0].clave, "coord:cupos");
-  assert.equal(estado.alertas[0].prioridad, "ALTA");
+  assert.equal(estado.alertas[0].prioridad, "MEDIA");
   // Con el WhatsApp de Emanuel ("solo urgentes" prendido por defecto): sale a él, con el texto completo.
   reiniciar();
   guardarNumero();
@@ -326,11 +346,12 @@ await prueba("cupos sin usar (31-oct): el tipo 'cupos' pasa, clave fija, ALTA, s
 
 /* ------------------------------------------------------------------ las alertas: prioridad y página */
 
-await prueba("alertas: caído y límite son Urgente; trabado y sin trabajo, Alta; necesita es Urgente por dinero, Meta Ads, una clave o una duda de negocio", async () => {
-  assert.equal(avisos.prioridadDelAviso("caido"), "URGENTE");
-  assert.equal(avisos.prioridadDelAviso("limite"), "URGENTE");
-  assert.equal(avisos.prioridadDelAviso("trabado"), "ALTA");
-  assert.equal(avisos.prioridadDelAviso("sin_trabajo"), "ALTA");
+await prueba("alertas: caído, límite, trabado, sin trabajo y cupos son Media (Tecnología, 19-nov); necesita es Urgente por dinero, Meta Ads, una clave o una duda de negocio", async () => {
+  for (const tipo of ["caido", "limite", "trabado", "sin_trabajo", "cupos"]) assert.equal(avisos.prioridadDelAviso(tipo), "MEDIA", tipo);
+  assert.equal(avisos.prioridadDelAviso("necesita", 'Se deshizo una subida de "Arreglar X".\nMotivo: falló la vigilancia'), "MEDIA", "un fallo al subir es de Tecnología");
+  assert.equal(avisos.prioridadDelAviso("necesita", 'Se deshizo una subida de "Abonos".\nMotivo: el pago no cuadró'), "MEDIA", "aunque el motivo hable de dinero");
+  assert.notEqual(avisos.prioridadDelAviso("necesita", 'URGENTE: no se pudo deshacer una subida de "X", hay que revisar a mano.'), "MEDIA", "no se pudo deshacer: no baja");
+  assert.equal(avisos.prioridadDelAviso("aprobar_en_pantalla"), "ALTA");
   assert.equal(avisos.prioridadDelAviso("necesita", "toca Meta Ads"), "URGENTE");
   assert.equal(avisos.prioridadDelAviso("necesita", "falta una clave, un acceso o un permiso"), "URGENTE");
   assert.equal(avisos.prioridadDelAviso("necesita", "mueve dinero del presupuesto"), "URGENTE");
@@ -346,25 +367,43 @@ await prueba("alertas: caído y límite son Urgente; trabado y sin trabajo, Alta
   assert.equal(chats.prioridad, "ALTA");
 });
 
-await prueba("alertas: de lo que se calcula, todo queda en la página y por WhatsApp sale solo lo urgente, en 2 líneas con el link", async () => {
+await prueba("alertas: con 'solo urgentes' y sin Sistemas, el Coordinador caído y una trabada quedan en la página (Media) sin WhatsApp al dueño", async () => {
   guardarNumero();
-  // Coordinador caído (urgente) + una tarjeta trabada (alta) en la misma vuelta.
+  // Coordinador caído + una tarjeta trabada en la misma vuelta.
   estado.latido = hace(30 * 60_000).toISOString();
   estado.enCurso = [{ id: "c9", titulo: "Una trabada", estado: "EN_CURSO" }];
   estado.historial.set("c9", hace(5 * HORA));
-  assert.deepEqual(await avisos.revisarAvisosAlDueno(DIA), { enviados: 1 });
-  assert.equal(estado.enviados.length, 1);
-  assert.equal(estado.enviados[0].text, "🚨 Urgente: Sistemas detenido: el Coordinador no da señales hace 30 min\nVer: https://app.aizenbot.com/cliente/alertas");
-  assert.deepEqual(estado.alertas.map((a) => a.prioridad).sort(), ["URGENTE"], "con el Coordinador caído la trabada no se avisa");
-  // Ya vuelto el Coordinador, la trabada se guarda (Alta) y no sale; y no se repite cada minuto.
-  estado.latido = DIA.toISOString();
+  assert.deepEqual(await avisos.revisarAvisosAlDueno(DIA), { enviados: 0 });
+  assert.equal(estado.enviados.length, 0, "el caído no llega al WhatsApp del dueño");
+  assert.deepEqual(estado.alertas.map((a) => [a.clave, a.prioridad]), [["auto:caido", "MEDIA"]], "con el Coordinador caído la trabada no se avisa");
+  // Ya vuelto el Coordinador, la trabada se guarda (Media) y no sale; y no se repite cada minuto.
   const luego = new Date(DIA.getTime() + 60_000);
   estado.latido = luego.toISOString();
   assert.deepEqual(await avisos.revisarAvisosAlDueno(luego), { enviados: 0 });
   assert.deepEqual(await avisos.revisarAvisosAlDueno(new Date(luego.getTime() + 60_000)), { enviados: 0 });
-  assert.deepEqual(estado.alertas.map((a) => a.prioridad).sort(), ["ALTA", "URGENTE"]);
-  assert.equal(estado.alertas.find((a) => a.prioridad === "ALTA").veces, 1, "no suma una vez por minuto");
-  assert.equal(estado.alertas.find((a) => a.prioridad === "URGENTE").salioPorWhatsApp, true);
+  assert.equal(estado.enviados.length, 0, "la trabada tampoco llega al WhatsApp del dueño");
+  assert.deepEqual(estado.alertas.map((a) => [a.clave, a.prioridad]), [["auto:caido", "MEDIA"], ["auto:trabado:c9:EN_CURSO", "MEDIA"]]);
+  assert.equal(estado.alertas.find((a) => a.clave === "auto:trabado:c9:EN_CURSO").veces, 1, "no suma una vez por minuto");
+  assert.ok(estado.alertas.every((a) => !a.salioPorWhatsApp));
+});
+
+await prueba("alertas: con un teléfono de Sistemas válido, el caído y la trabada siguen saliendo al WhatsApp de Emanuel", async () => {
+  guardarNumero();
+  assert.deepEqual(await avisos.guardarConfigDeSistemas("ws1", { telefono: "573114445566" }), { ok: true });
+  estado.latido = hace(30 * 60_000).toISOString();
+  await avisos.revisarAvisosAlDueno(DIA);
+  assert.equal(estado.enviados.length, 1);
+  assert.equal(estado.enviados[0].phoneNumber, "573114445566", "a Emanuel, no al dueño");
+  assert.match(estado.enviados[0].text, /Sistemas está detenido/);
+  const luego = new Date(DIA.getTime() + 60_000);
+  estado.latido = luego.toISOString();
+  estado.enCurso = [{ id: "c9", titulo: "Una trabada", estado: "EN_CURSO" }];
+  estado.historial.set("c9", hace(5 * HORA));
+  await avisos.revisarAvisosAlDueno(luego);
+  assert.equal(estado.enviados.length, 2);
+  assert.equal(estado.enviados[1].phoneNumber, "573114445566");
+  assert.match(estado.enviados[1].text, /Una trabada/);
+  assert.ok(estado.alertas.every((a) => a.prioridad === "MEDIA"));
 });
 
 await prueba("aprobada por voz con META_ADS: una alerta Alta del Coordinador por tarjeta, con el link; CHATS y LIBRO_V3 por voz no (31-oct)", async () => {
@@ -420,6 +459,7 @@ await prueba("SUBIENDO pendiente por voz con META_ADS (31-oct): UN aviso aprobar
 
 await prueba("revisión: un solo aviso por problema; vuelve a avisar solo si sigue igual después de 3 horas", async () => {
   guardarNumero();
+  estado.ajustes.set("alertas:solo-urgentes:ws1", "false"); // la mecánica de siempre: el caído es Media (19-nov) y solo sale al dueño con "solo urgentes" apagado
   estado.latido = hace(20 * 60_000).toISOString();
   assert.deepEqual(await avisos.revisarAvisosAlDueno(DIA), { enviados: 1 });
   assert.equal(estado.enviados.length, 1);
@@ -434,6 +474,7 @@ await prueba("revisión: un solo aviso por problema; vuelve a avisar solo si sig
 
 await prueba("revisión: si el problema se arregla y vuelve, avisa de nuevo sin esperar las 3 horas", async () => {
   guardarNumero();
+  estado.ajustes.set("alertas:solo-urgentes:ws1", "false"); // la mecánica de siempre: el caído es Media (19-nov) y solo sale al dueño con "solo urgentes" apagado
   estado.latido = hace(20 * 60_000).toISOString();
   await avisos.revisarAvisosAlDueno(DIA);
   const despues = new Date(DIA.getTime() + 10 * 60_000);
@@ -458,11 +499,11 @@ await prueba("revisión: el latido no cuenta como avance (se mide con el histori
   guardarNumero();
   estado.enCurso = [{ id: "c1", titulo: "Una tarea vieja", estado: "SUBIENDO" }];
   estado.historial.set("c1", hace(2.5 * HORA));
-  // Alertas (29-oct-2026): "trabado" es Alta: queda en la página y ya no sale por WhatsApp.
+  // Alertas (19-nov-2026): "trabado" es de Tecnología, Media: queda en la página y no sale por WhatsApp.
   assert.deepEqual(await avisos.revisarAvisosAlDueno(DIA), { enviados: 0 });
   assert.equal(estado.enviados.length, 0);
   assert.equal(estado.alertas.length, 1);
-  assert.equal(estado.alertas[0].prioridad, "ALTA");
+  assert.equal(estado.alertas[0].prioridad, "MEDIA");
   assert.match(estado.alertas[0].titulo, /"Una tarea vieja" lleva 2 h sin avanzar/);
   assert.match(estado.alertas[0].detalle, /lleva 2 h subiendo sin avanzar/);
   // Con el interruptor de alertas apagado vuelve lo de antes: sale por WhatsApp, completo.
@@ -481,7 +522,7 @@ await prueba("revisión: una tarjeta SIN repo (tarea humana) en EN_CURSO hace 3 
   assert.equal(estado.enviados.length, 0);
   // La misma tarjeta con repo (la ejecuta el Coordinador) sí avisa.
   estado.enCurso = [{ id: "h1", titulo: "Revisar mejoras del Agente SEO", estado: "EN_CURSO", repo: "aizencrm" }];
-  assert.deepEqual(await avisos.revisarAvisosAlDueno(DIA), { enviados: 0 }, "trabado es Alta: solo en la página");
+  assert.deepEqual(await avisos.revisarAvisosAlDueno(DIA), { enviados: 0 }, "trabado es Media: solo en la página");
   assert.equal(estado.alertas.length, 1);
   estado.ajustes.set("alertas:solo-urgentes:ws1", "false");
   estado.ajustes.delete("tablero:avisos-dueno:estado:ws1");
@@ -527,6 +568,7 @@ await prueba("del Coordinador: de noche contesta silenciado y no manda; con el i
 
 await prueba("interruptor: empieza prendido; apagado no sale nada ni de la revisión; la prueba sí sale", async () => {
   guardarNumero();
+  estado.ajustes.set("alertas:solo-urgentes:ws1", "false"); // la mecánica de siempre: el caído es Media (19-nov) y solo sale al dueño con "solo urgentes" apagado
   assert.equal(await avisos.avisosPrendidos("ws1"), true, "sin ajuste: prendido");
   estado.latido = hace(60 * 60_000).toISOString();
   await avisos.guardarConfigDeAvisos("ws1", { activo: false });
@@ -561,6 +603,7 @@ await prueba("sale por la línea Admin fija y SOLO al número guardado, nunca po
 });
 
 await prueba("sin número no hay error 412: queda anotado 'falta su número' y se ve en la caja", async () => {
+  estado.ajustes.set("alertas:solo-urgentes:ws1", "false"); // la mecánica de siempre: el caído es Media (19-nov) y solo sale al dueño con "solo urgentes" apagado
   estado.latido = hace(60 * 60_000).toISOString();
   assert.deepEqual(await avisos.revisarAvisosAlDueno(DIA), { enviados: 0 });
   assert.equal(estado.enviados.length, 0);
@@ -582,6 +625,7 @@ await prueba("sin número no hay error 412: queda anotado 'falta su número' y s
 
 await prueba("si la línea Admin falla, no se da por avisado y se reintenta en la siguiente vuelta", async () => {
   guardarNumero();
+  estado.ajustes.set("alertas:solo-urgentes:ws1", "false"); // la mecánica de siempre: el caído es Media (19-nov) y solo sale al dueño con "solo urgentes" apagado
   estado.latido = hace(60 * 60_000).toISOString();
   estado.fallaElEnvio = true;
   assert.deepEqual(await avisos.revisarAvisosAlDueno(DIA), { enviados: 0 });
@@ -802,6 +846,7 @@ await prueba("barrido: si la base falla, no lanza y devuelve 0; revisarNegocio s
     assert.deepEqual(await servicioDeAlertas.limpiezaUnicaDelCoordinador("ws1", DIA), { corrio: false, cerradas: 0, dejadas: 0 });
     assert.equal(estado.ajustes.has("alertas:limpieza-coordinador-v1:ws1"), false, "sin marca: se reintenta");
     guardarNumero();
+    estado.ajustes.set("alertas:solo-urgentes:ws1", "false"); // el caído es Media (19-nov): sale al dueño solo con "solo urgentes" apagado
     estado.latido = hace(20 * 60_000).toISOString();
     assert.deepEqual(await avisos.revisarAvisosAlDueno(DIA), { enviados: 1 });
   } finally {
