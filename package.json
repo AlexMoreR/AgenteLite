@@ -16,6 +16,7 @@
     "test:contraentrega": "node scripts/check-contraentrega.mjs",
     "test:buscar-producto-de-envio": "npx tsx --test src/lib/buscar-producto-de-envio.test.ts",
     "test:recibo-de-caja": "npx tsx --test src/lib/recibo-de-caja.test.ts",
+    "test:pago-a-proveedora": "npx tsx --test src/lib/pago-a-proveedora.test.ts",
     "test:firma-del-chat": "node scripts/check-firma-del-chat.mjs",
     "test:recibiendo-clientes": "node scripts/check-recibiendo-clientes.mjs",
     "test:nota-de-voz": "node scripts/check-nota-de-voz.mjs",

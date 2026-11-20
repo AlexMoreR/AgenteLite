@@ -18,6 +18,12 @@ import { MOTIVO_TERMINADA, terminadasPrendidas } from "@/features/tableros-intel
 import { tieneAccesoAlDrive } from "@/features/cerebro/services/conexion";
 import { estadoDeEtapaPorLectura, type EstadoDeEtapaPorLectura } from "@/features/crm/services/etapa-por-lectura";
 import { claveModoDelRecibo, claveTelefonoDePrueba, modoDelRecibo, prefijoReciboEnviado, resumenDeEnvios, telefonoParaWhatsApp } from "@/lib/recibo-de-caja";
+import {
+  claveModoDelPago,
+  claveTelefonoDePrueba as claveTelefonoDePruebaDelPago,
+  modoDelPago,
+  prefijoPagoEnviado,
+} from "@/lib/pago-a-proveedora";
 import { claveDeReglas, leerReglasDeTexto } from "@/lib/reparto-por-anuncio";
 import { PREFIJO_CONFIG_DEMORA, leerConfigDemoraDeTexto } from "@/features/chats/domain/demora-de-asesora";
 import { cuandoSeAsigna } from "@/lib/mcp/asignacion";
@@ -423,6 +429,30 @@ async function estadoDelReciboDeCaja(workspaceId: string) {
   return `ACTIVO: cada abono de Gestión le manda al cliente su recibo de caja en PDF por la línea Admin y lo deja con la etiqueta Cliente y en GANADO${envios}`;
 }
 
+/**
+ * El aviso de pago a proveedora por WhatsApp (Gestión → línea Admin): el modo, si hay teléfono de prueba
+ * (sin mostrarlo), cuántos salieron hoy (día de Bogotá) y el último, leído de `pago-proveedora:enviado:<negocio>:*`.
+ */
+async function estadoDelPagoAProveedora(workspaceId: string) {
+  const [modo, telefono, marcas] = await Promise.all([
+    bandera(claveModoDelPago(workspaceId)),
+    bandera(claveTelefonoDePruebaDelPago(workspaceId)),
+    prisma.appSetting.findMany({ where: { key: { startsWith: prefijoPagoEnviado(workspaceId) } }, select: { value: true } }),
+  ]);
+  const actual = modoDelPago(modo);
+  const resumen = resumenDeEnvios(marcas.map((marca) => marca.value), new Date());
+  const envios = `; ${resumen.enviadosHoy} avisos enviados hoy${resumen.ultimo ? `; último: ${resumen.ultimo.fecha} (${resumen.ultimo.modo})` : "; ninguno enviado todavía"}`;
+  if (actual === "APAGADO") {
+    return `APAGADO (pago-proveedora:modo:<negocio> sin guardar o distinto de PRUEBA/ACTIVO): Gestión recibe 'apagado' y no sale nada${envios}`;
+  }
+  if (actual === "PRUEBA") {
+    return telefonoParaWhatsApp(telefono)
+      ? `PRUEBA: cada aviso le llega solo al teléfono de prueba por la línea Admin, nunca a la proveedora${envios}`
+      : `PRUEBA sin teléfono de prueba guardado (pago-proveedora:telefono-prueba:<negocio>): no sale nada y Gestión recibe 'fallo'${envios}`;
+  }
+  return `ACTIVO: cada pago a proveedora con comprobante le manda a la proveedora el aviso con el comprobante por la línea Admin${envios}`;
+}
+
 /** El coach de ventas: si corre solo cada noche y de cuando es el ultimo informe. */
 async function estadoDelCoach(workspaceId: string) {
   const [bandera, ultimo] = await Promise.all([
@@ -825,6 +855,7 @@ async function automatizaciones(
     alerta_cpu_servidor: await estadoDeLaAlertaCpu().catch(() => "no se pudo leer"),
     recoger_errores_tablero: await estadoDeRecogerErrores(workspaceId).catch(() => "no se pudo leer"),
     recibo_de_caja: await estadoDelReciboDeCaja(workspaceId).catch(() => "no se pudo leer"),
+    pago_a_proveedora: await estadoDelPagoAProveedora(workspaceId).catch(() => "no se pudo leer"),
     // Cron cada minuto: lo que WAHA no pudo descifrar y no llegó en 2 min queda en la bandeja con nota.
     mensajes_indescifrables: await estadoDeMensajesIndescifrables(workspaceId).catch(() => "no se pudo leer"),
     // Vive en el Coordinador (aizen1), no en la base: el CRM solo recibe las 3 líneas del resumen con la subida.
