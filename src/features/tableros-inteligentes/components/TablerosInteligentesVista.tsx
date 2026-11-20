@@ -240,6 +240,7 @@ function construirNodos(
         colorTipo: tipo?.color ?? null,
         iconoTipo: tipo?.icono ?? null,
         nombreTipo: tipo?.nombre ?? null,
+        prioridad: tarjeta.prioridad,
         alAbrirFicha: () => alAbrirFicha(id),
       },
     };

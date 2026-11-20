@@ -117,12 +117,41 @@ await prueba("valor de cada columna: área heredada de la carpeta, prioridad, fe
   assert.equal(fila(idea1).areaHeredada, true);
   assert.equal(fila(idea2).areaHeredada, false);
   assert.deepEqual(vistas.valorDeColumna(fila(tareaPorAprobar), "prioridad"), { clave: "URGENTE", texto: "Urgente" });
-  assert.deepEqual(vistas.valorDeColumna(fila(idea2), "prioridad"), { clave: "NORMAL", texto: "Normal" });
+  // Sin prioridad es Media (21-nov-2026: los 4 niveles Urgente, Alta, Media y Baja; antes decía Normal).
+  assert.deepEqual(vistas.valorDeColumna(fila(idea2), "prioridad"), { clave: "MEDIA", texto: "Media" });
   assert.equal(vistas.valorDeColumna(fila(sistemas), "estado").clave, "", "una carpeta no es una idea");
   assert.equal(vistas.valorDeColumna(fila(idea2), "fecha").clave, "2026-11");
   assert.equal(vistas.diaDeBogota("2026-11-10T17:00:00.000Z"), "2026-11-10");
   assert.equal(vistas.diaDeBogota("2026-11-04T03:00:00.000Z"), "2026-11-03", "el día es el de Colombia");
   assert.equal(vistas.diaDeBogota(null), null);
+});
+
+await prueba("prioridad (21-nov-2026): 4 niveles con su nombre; filtrar, agrupar y ordenar con Urgente primero", () => {
+  const alta = tarjeta({ titulo: "Alta", tipoId: "tarea", prioridad: "ALTA" });
+  const baja = tarjeta({ titulo: "Baja", tipoId: "tarea", prioridad: "BAJA" });
+  const media = tarjeta({ titulo: "Media", tipoId: "tarea", prioridad: "MEDIA" });
+  const marcadaBaja = tarjeta({ titulo: "Marcada", tipoId: "tarea", prioridad: "BAJA", urgente: true });
+  const lista = vistas.filasDeTabla([baja, media, alta, marcadaBaja], TIPOS);
+  const de = (t) => lista.find((f) => f.tarjeta.id === t.id);
+  assert.deepEqual(vistas.valorDeColumna(de(alta), "prioridad"), { clave: "ALTA", texto: "Alta" });
+  assert.deepEqual(vistas.valorDeColumna(de(baja), "prioridad"), { clave: "BAJA", texto: "Baja" });
+  assert.deepEqual(vistas.valorDeColumna(de(marcadaBaja), "prioridad"), { clave: "URGENTE", texto: "Urgente" }, "la marca urgente manda");
+  assert.deepEqual(
+    ids(vistas.ordenarFilas(lista, { columna: "prioridad", direccion: "asc" })),
+    [marcadaBaja.id, alta.id, media.id, baja.id],
+  );
+  assert.deepEqual(
+    ids(vistas.ordenarFilas(lista, { columna: "prioridad", direccion: "desc" })),
+    [baja.id, media.id, alta.id, marcadaBaja.id],
+  );
+  assert.deepEqual(ids(vistas.filtrarFilas(lista, { busqueda: "", filtros: { prioridad: ["ALTA", "BAJA"] } })), [baja.id, alta.id]);
+  assert.deepEqual(
+    vistas.agrupar(lista, "prioridad").map((g) => g.texto),
+    ["Urgente", "Alta", "Media", "Baja"],
+  );
+  assert.equal(vistas.prioridadDeLaTarjeta({ urgente: false }), "MEDIA", "sin dato, Media");
+  const tabla = fs.readFileSync("src/features/tableros-inteligentes/components/VistaTabla.tsx", "utf8");
+  assert.match(tabla, /guardarCelda\(tarjeta\.id, \{ prioridad \}\)/, "la celda de prioridad se cambia ahí mismo");
 });
 
 await prueba("filtrar: Tipo = Idea deja solo tarjetas de tipo Idea; varias columnas se suman", () => {

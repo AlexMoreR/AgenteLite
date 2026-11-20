@@ -466,18 +466,18 @@ await prueba("dependencias: una tarjeta no se toma hasta que de la que depende e
   assert.equal((await tomar("ws3"))[0]?.id, "marketing", "si Ventas se borró, no frena");
 });
 
-await prueba("prioridad (31-oct): primero SUBIENDO, después PRIORIDAD, después CHATS o BOT_VENTAS y al final la más vieja", async () => {
+await prueba("prioridad (21-nov): primero SUBIENDO, después el nivel (la marca urgente y PRIORIDAD cuentan como Urgente) y la más vieja", async () => {
   // Un negocio aparte (y todo dentro de BEGIN/ROLLBACK) para no mover las demás pruebas.
   await db.query("BEGIN");
   await db.exec(`
     INSERT INTO "Workspace" ("id", "name", "slug", "updatedAt", "ownerId") VALUES ('ws5', 'Quinto', 'quinto', now(), NULL);
     INSERT INTO "TableroInteligente" ("id", "workspaceId", "nombre") VALUES ('tab5', 'ws5', 'Prioridad');
     INSERT INTO "TipoTarjeta" ("id", "tableroId", "nombre", "requiereAprobacion", "usaEstados", "orden") VALUES ('tarea5', 'tab5', 'Tarea', true, true, 0);
-    INSERT INTO "TarjetaTablero" ("id", "tableroId", "titulo", "detalle", "estado", "creadoPor", "actualizadoEn", "tipoId", "repo", "zonaProtegida") VALUES
-      ('pr-vieja', 'tab5', 'Vieja sin zona', '', 'APROBADO', 'u-dueno', '2026-10-20 01:00:00', 'tarea5', 'aizencrm', ARRAY[]::text[]),
-      ('pr-chats', 'tab5', 'Toca los chats', '', 'APROBADO', 'u-dueno', '2026-10-20 02:00:00', 'tarea5', 'aizencrm', ARRAY['CHATS']),
-      ('pr-prio', 'tab5', 'PRIORIDAD: arreglar el reparto', '', 'APROBADO', 'u-dueno', '2026-10-20 03:00:00', 'tarea5', 'aizencrm', ARRAY[]::text[]),
-      ('pr-minuscula', 'tab5', 'Otra', 'la prioridad es baja', 'APROBADO', 'u-dueno', '2026-10-20 04:00:00', 'tarea5', 'aizencrm', ARRAY[]::text[]);
+    INSERT INTO "TarjetaTablero" ("id", "tableroId", "titulo", "detalle", "estado", "creadoPor", "creadoEn", "actualizadoEn", "tipoId", "repo", "zonaProtegida") VALUES
+      ('pr-vieja', 'tab5', 'Vieja sin zona', '', 'APROBADO', 'u-dueno', '2026-10-20 01:00:00', '2026-10-20 01:00:00', 'tarea5', 'aizencrm', ARRAY[]::text[]),
+      ('pr-chats', 'tab5', 'Toca los chats', '', 'APROBADO', 'u-dueno', '2026-10-20 02:00:00', '2026-10-20 02:00:00', 'tarea5', 'aizencrm', ARRAY['CHATS']),
+      ('pr-prio', 'tab5', 'PRIORIDAD: arreglar el reparto', '', 'APROBADO', 'u-dueno', '2026-10-20 03:00:00', '2026-10-20 03:00:00', 'tarea5', 'aizencrm', ARRAY[]::text[]),
+      ('pr-minuscula', 'tab5', 'Otra', 'la prioridad es baja', 'APROBADO', 'u-dueno', '2026-10-20 04:00:00', '2026-10-20 04:00:00', 'tarea5', 'aizencrm', ARRAY[]::text[]);
     INSERT INTO "HistorialTarjeta" ("id", "tarjetaId", "quien", "origen", "accion", "despues", "creadoEn") VALUES
       ('hpr1', 'pr-chats', 'u-dueno', 'PANTALLA', 'aprobar', '{"estado":"APROBADO","via":"pantalla"}', '2026-10-20 02:00:00');
   `);
@@ -485,16 +485,16 @@ await prueba("prioridad (31-oct): primero SUBIENDO, después PRIORIDAD, después
     (await candidatas("ws5")).map((f) => [f.id, f.prioridad]),
     [
       ["pr-prio", 0],
-      ["pr-chats", 1],
-      ["pr-vieja", 3],
-      ["pr-minuscula", 3],
+      ["pr-chats", 2],
+      ["pr-vieja", 2],
+      ["pr-minuscula", 2],
     ],
-    "PRIORIDAD, CHATS, la vieja (y «prioridad» en minúsculas no adelanta; lo demás es 3 desde la fila por niveles)",
+    "PRIORIDAD es Urgente; las demás quedan en Media y CHATS desempata antes que la vieja («prioridad» en minúsculas no adelanta)",
   );
   // Una SUBIENDO pendiente, la más nueva de todas, sigue primero.
   await db.exec(`
-    INSERT INTO "TarjetaTablero" ("id", "tableroId", "titulo", "estado", "creadoPor", "actualizadoEn", "tipoId", "repo", "trabajoVenceEn") VALUES
-      ('pr-sube', 'tab5', 'Subir', 'SUBIENDO', 'u-dueno', '2026-10-20 09:00:00', 'tarea5', 'aizencrm', NULL)`);
+    INSERT INTO "TarjetaTablero" ("id", "tableroId", "titulo", "estado", "creadoPor", "creadoEn", "actualizadoEn", "tipoId", "repo", "trabajoVenceEn") VALUES
+      ('pr-sube', 'tab5', 'Subir', 'SUBIENDO', 'u-dueno', '2026-10-20 09:00:00', '2026-10-20 09:00:00', 'tarea5', 'aizencrm', NULL)`);
   assert.deepEqual(
     (await candidatas("ws5")).map((f) => f.id),
     ["pr-sube", "pr-prio", "pr-chats", "pr-vieja", "pr-minuscula"],
@@ -511,58 +511,124 @@ await prueba("prioridad (31-oct): primero SUBIENDO, después PRIORIDAD, después
   assert.deepEqual(await filas(`SELECT "id" FROM "TarjetaTablero" WHERE "id" LIKE 'pr-%'`), [], "el ROLLBACK no deja nada");
 });
 
-await prueba("fila por niveles (31-oct): SUBIENDO, urgente, ventas y chats, dinero de Gestión, lo demás; igual a prioridadDeLaFila", async () => {
-  const { prioridadDeLaFila } = cargar("src/features/tableros-inteligentes/services/reglas-trabajador.ts");
+await prueba("cómo se comprueba (21-nov): se aprueba una Baja y después una Urgente; el trabajador toma primero la Urgente", async () => {
+  await db.query("BEGIN");
+  await db.exec(`
+    INSERT INTO "Workspace" ("id", "name", "slug", "updatedAt", "ownerId") VALUES ('ws7', 'Séptimo', 'septimo', now(), NULL);
+    INSERT INTO "TableroInteligente" ("id", "workspaceId", "nombre") VALUES ('tab7', 'ws7', 'Empresa Magilus');
+    INSERT INTO "TipoTarjeta" ("id", "tableroId", "nombre", "requiereAprobacion", "usaEstados", "orden") VALUES ('tarea7', 'tab7', 'Tarea', true, true, 0);
+    INSERT INTO "TarjetaTablero" ("id", "tableroId", "titulo", "estado", "creadoPor", "creadoEn", "actualizadoEn", "tipoId", "repo", "prioridad") VALUES
+      ('ap-baja', 'tab7', 'Cambiar el logo', 'APROBADO', 'u-dueno', '2026-11-20 08:00:00', '2026-11-20 08:00:00', 'tarea7', 'aizencrm', 'BAJA')`);
+  // Mientras la Urgente no está aprobada, la Baja es la única de la fila.
+  await db.exec(`
+    INSERT INTO "TarjetaTablero" ("id", "tableroId", "titulo", "estado", "creadoPor", "creadoEn", "actualizadoEn", "tipoId", "repo", "prioridad") VALUES
+      ('ap-urgente', 'tab7', 'Arreglar el reporte', 'POR_APROBAR', 'u-dueno', '2026-11-20 09:00:00', '2026-11-20 09:00:00', 'tarea7', 'aizencrm', 'URGENTE')`);
+  assert.deepEqual((await candidatas("ws7")).map((f) => [f.id, f.prioridad]), [["ap-baja", 3]]);
+  // Se aprueba la Urgente después: pasa adelante de la Baja aunque es más nueva.
+  await db.exec(`UPDATE "TarjetaTablero" SET "estado" = 'APROBADO', "actualizadoEn" = '2026-11-20 09:05:00' WHERE "id" = 'ap-urgente'`);
+  assert.deepEqual((await candidatas("ws7")).map((f) => [f.id, f.prioridad]), [["ap-urgente", 0], ["ap-baja", 3]]);
+  const [tomada] = await tomar("ws7");
+  assert.equal(tomada?.id, "ap-urgente", "el trabajador toma primero la Urgente");
+  assert.equal(tomada?.estado, "PLANEANDO");
+  // No corta lo que ya se construye: con la Urgente en marcha, otra Urgente nueva entra de siguiente, sin tocar la que corre.
+  await db.exec(`
+    INSERT INTO "TarjetaTablero" ("id", "tableroId", "titulo", "estado", "creadoPor", "creadoEn", "actualizadoEn", "tipoId", "repo", "prioridad") VALUES
+      ('ap-urgente-2', 'tab7', 'Otra urgente', 'APROBADO', 'u-dueno', '2026-11-20 10:00:00', '2026-11-20 10:00:00', 'tarea7', 'aizencrm', 'URGENTE')`);
+  assert.deepEqual((await candidatas("ws7")).map((f) => f.id), ["ap-urgente-2", "ap-baja"], "entra de primera en la fila");
+  const [enMarcha] = await filas(`SELECT "estado"::text AS "estado", "trabajoVenceEn" FROM "TarjetaTablero" WHERE "id" = 'ap-urgente'`);
+  assert.equal(enMarcha.estado, "PLANEANDO", "la que se construye sigue igual");
+  assert.ok(enMarcha.trabajoVenceEn, "con su candado");
+  await db.query("ROLLBACK");
+});
+
+await prueba("fila (21-nov): SUBIENDO, el nivel (Urgente, Alta, Media, Baja), el desempate de siempre y la más vieja; igual a la regla de TypeScript", async () => {
+  const { prioridadDeLaFila, categoriaDeLaFila } = cargar("src/features/tableros-inteligentes/services/reglas-trabajador.ts");
   await db.query("BEGIN");
   await db.exec(`
     INSERT INTO "Workspace" ("id", "name", "slug", "updatedAt", "ownerId") VALUES ('ws6', 'Sexto', 'sexto', now(), NULL);
     INSERT INTO "TableroInteligente" ("id", "workspaceId", "nombre") VALUES ('tab6', 'ws6', 'Sistemas'), ('tab6v', 'ws6', 'CRM Ventas');
     INSERT INTO "TipoTarjeta" ("id", "tableroId", "nombre", "requiereAprobacion", "usaEstados", "orden") VALUES
       ('tarea6', 'tab6', 'Tarea', true, true, 0), ('tarea6v', 'tab6v', 'Tarea', true, true, 0);
-    INSERT INTO "TarjetaTablero" ("id", "tableroId", "titulo", "detalle", "estado", "creadoPor", "actualizadoEn", "tipoId", "repo", "urgente") VALUES
-      ('fn-crm-vieja', 'tab6', 'Cambiar el logo', '', 'APROBADO', 'u-dueno', '2026-10-01 01:00:00', 'tarea6', 'aizencrm', false),
-      ('fn-abonos-crm', 'tab6', 'Registrar abonos', '', 'APROBADO', 'u-dueno', '2026-10-01 02:00:00', 'tarea6', 'aizencrm', false),
-      ('fn-ventana', 'tab6', 'Cambiar la ventana', '', 'APROBADO', 'u-dueno', '2026-10-01 03:00:00', 'tarea6', 'gestion', false),
-      ('fn-nomina', 'tab6', 'Arreglar la NÓMINA', '', 'APROBADO', 'u-dueno', '2026-10-02 01:00:00', 'tarea6', 'gestion', false),
-      ('fn-gastos', 'tab6', 'gastos del mes', '', 'APROBADO', 'u-dueno', '2026-10-02 02:00:00', 'tarea6', 'gestion', false),
-      ('fn-tablero-ventas', 'tab6v', 'Botón nuevo', '', 'APROBADO', 'u-dueno', '2026-10-03 01:00:00', 'tarea6v', 'aizencrm', false),
-      ('fn-conversacion', 'tab6', 'Abrir una conversación', '', 'APROBADO', 'u-dueno', '2026-10-03 02:00:00', 'tarea6', 'aizencrm', false),
-      ('fn-asesoras', 'tab6', 'Firma de las ASESORAS', '', 'APROBADO', 'u-dueno', '2026-10-03 03:00:00', 'tarea6', 'gestion', false),
-      ('fn-urgente-gestion', 'tab6', 'URGENTE: cuadre de caja', '', 'APROBADO', 'u-dueno', '2026-10-09 01:00:00', 'tarea6', 'gestion', false),
-      ('fn-urgente-campo', 'tab6', 'Cambiar el menú', '', 'APROBADO', 'u-dueno', '2026-10-09 02:00:00', 'tarea6', 'aizencrm', true);
+    INSERT INTO "TarjetaTablero" ("id", "tableroId", "titulo", "detalle", "estado", "creadoPor", "creadoEn", "actualizadoEn", "tipoId", "repo", "urgente", "prioridad") VALUES
+      ('fn-crm-vieja', 'tab6', 'Cambiar el logo', '', 'APROBADO', 'u-dueno', '2026-10-01 01:00:00', '2026-10-30 01:00:00', 'tarea6', 'aizencrm', false, 'MEDIA'),
+      ('fn-abonos-crm', 'tab6', 'Registrar abonos', '', 'APROBADO', 'u-dueno', '2026-10-01 02:00:00', '2026-10-01 02:00:00', 'tarea6', 'aizencrm', false, 'MEDIA'),
+      ('fn-ventana', 'tab6', 'Cambiar la ventana', '', 'APROBADO', 'u-dueno', '2026-10-01 03:00:00', '2026-10-01 03:00:00', 'tarea6', 'gestion', false, 'MEDIA'),
+      ('fn-nomina', 'tab6', 'Arreglar la NÓMINA', '', 'APROBADO', 'u-dueno', '2026-10-02 01:00:00', '2026-10-02 01:00:00', 'tarea6', 'gestion', false, 'MEDIA'),
+      ('fn-gastos', 'tab6', 'gastos del mes', '', 'APROBADO', 'u-dueno', '2026-10-02 02:00:00', '2026-10-02 02:00:00', 'tarea6', 'gestion', false, 'MEDIA'),
+      ('fn-tablero-ventas', 'tab6v', 'Botón nuevo', '', 'APROBADO', 'u-dueno', '2026-10-03 01:00:00', '2026-10-03 01:00:00', 'tarea6v', 'aizencrm', false, 'MEDIA'),
+      ('fn-conversacion', 'tab6', 'Abrir una conversación', '', 'APROBADO', 'u-dueno', '2026-10-03 02:00:00', '2026-10-03 02:00:00', 'tarea6', 'aizencrm', false, 'MEDIA'),
+      ('fn-asesoras', 'tab6', 'Firma de las ASESORAS', '', 'APROBADO', 'u-dueno', '2026-10-03 03:00:00', '2026-10-03 03:00:00', 'tarea6', 'gestion', false, 'MEDIA'),
+      ('fn-urgente-gestion', 'tab6', 'URGENTE: cuadre de caja', '', 'APROBADO', 'u-dueno', '2026-10-09 01:00:00', '2026-10-09 01:00:00', 'tarea6', 'gestion', false, 'BAJA'),
+      ('fn-urgente-campo', 'tab6', 'Cambiar el menú', '', 'APROBADO', 'u-dueno', '2026-10-09 02:00:00', '2026-10-09 02:00:00', 'tarea6', 'aizencrm', true, 'MEDIA'),
+      ('fn-urgente-prio', 'tab6', 'Cambiar el pie de página', '', 'APROBADO', 'u-dueno', '2026-10-09 03:00:00', '2026-10-09 03:00:00', 'tarea6', 'aizencrm', false, 'URGENTE'),
+      ('fn-alta-nueva', 'tab6', 'Cambiar el color', '', 'APROBADO', 'u-dueno', '2026-10-20 01:00:00', '2026-10-20 01:00:00', 'tarea6', 'aizencrm', false, 'ALTA'),
+      ('fn-alta-chats', 'tab6', 'Filtros de los chats', '', 'APROBADO', 'u-dueno', '2026-10-21 01:00:00', '2026-10-21 01:00:00', 'tarea6', 'aizencrm', false, 'ALTA'),
+      ('fn-baja-chats', 'tab6', 'Otros chats', '', 'APROBADO', 'u-dueno', '2026-09-01 01:00:00', '2026-09-01 01:00:00', 'tarea6', 'aizencrm', false, 'BAJA'),
+      ('fn-raro', 'tab6', 'Valor raro', '', 'APROBADO', 'u-dueno', '2026-10-01 04:00:00', '2026-10-01 04:00:00', 'tarea6', 'aizencrm', false, 'NORMAL');
   `);
   const lista = await candidatas("ws6");
   assert.deepEqual(
     lista.map((f) => [f.id, f.prioridad]),
     [
+      // Urgente: la marca del título, el campo urgente y la prioridad URGENTE; dentro, la más vieja.
       ["fn-urgente-gestion", 0],
       ["fn-urgente-campo", 0],
-      ["fn-tablero-ventas", 1],
-      ["fn-conversacion", 1],
-      ["fn-asesoras", 1],
+      ["fn-urgente-prio", 0],
+      // Alta: los chats desempatan antes que la más vieja.
+      ["fn-alta-chats", 1],
+      ["fn-alta-nueva", 1],
+      // Media: ventas y chats, dinero de Gestión, lo demás; dentro de cada uno la más vieja (por creación, no por el último cambio).
+      ["fn-tablero-ventas", 2],
+      ["fn-conversacion", 2],
+      ["fn-asesoras", 2],
       ["fn-nomina", 2],
       ["fn-gastos", 2],
-      ["fn-crm-vieja", 3],
-      ["fn-abonos-crm", 3],
-      ["fn-ventana", 3],
+      ["fn-crm-vieja", 2],
+      ["fn-abonos-crm", 2],
+      ["fn-ventana", 2],
+      ["fn-raro", 2],
+      // Baja: al final aunque sea la más vieja y toque los chats.
+      ["fn-baja-chats", 3],
     ],
-    "0 → 1 → 2 → 3 y, dentro de cada nivel, la más vieja primero",
+    "nivel → desempate → la más vieja",
   );
-  // La regla de TypeScript (la pantalla en vivo) da lo mismo que el CASE de SQL, fila por fila.
+  // La regla de TypeScript (la pantalla en vivo) da lo mismo que el SQL, fila por fila y en el mismo orden.
   const datos = await filas(
-    `SELECT c."id", c."titulo", c."detalle", c."urgente", c."repo", c."zonaProtegida", b."nombre" AS "tablero"
+    `SELECT c."id", c."titulo", c."detalle", c."urgente", c."prioridad", c."repo", c."zonaProtegida", c."estado"::text AS "estado",
+            c."creadoEn", c."numero", b."nombre" AS "tablero"
      FROM "TarjetaTablero" c JOIN "TableroInteligente" b ON b."id" = c."tableroId" WHERE b."workspaceId" IN ('ws5', 'ws6')`,
   );
   const deTs = new Map(datos.map((d) => [d.id, prioridadDeLaFila(d)]));
   for (const fila of lista) assert.equal(fila.prioridad, deTs.get(fila.id), `${fila.id}: SQL y TypeScript dan lo mismo`);
-  // Una urgente de gestion sale antes que una de aizencrm más vieja, y una SUBIENDO va antes que la urgente.
+  const enOrdenTs = datos
+    .filter((d) => d.id.startsWith("fn-"))
+    .sort(
+      (a, b) =>
+        (a.estado === "SUBIENDO" ? 0 : 1) - (b.estado === "SUBIENDO" ? 0 : 1) ||
+        prioridadDeLaFila(a) - prioridadDeLaFila(b) ||
+        categoriaDeLaFila(a) - categoriaDeLaFila(b) ||
+        new Date(a.creadoEn).getTime() - new Date(b.creadoEn).getTime() ||
+        a.numero - b.numero,
+    )
+    .map((d) => d.id);
+  assert.deepEqual(lista.map((f) => f.id), enOrdenTs, "el orden de TypeScript es el mismo del SQL");
+  // Una SUBIENDO va antes que la urgente, y después SQL_TOMAR_UNA toma la urgente más vieja.
   await db.exec(`
-    INSERT INTO "TarjetaTablero" ("id", "tableroId", "titulo", "estado", "creadoPor", "actualizadoEn", "tipoId", "repo", "trabajoVenceEn") VALUES
-      ('fn-sube', 'tab6', 'Subir el logo', 'SUBIENDO', 'u-dueno', '2026-10-20 09:00:00', 'tarea6', 'aizencrm', NULL)`);
+    INSERT INTO "TarjetaTablero" ("id", "tableroId", "titulo", "estado", "creadoPor", "creadoEn", "actualizadoEn", "tipoId", "repo", "trabajoVenceEn", "prioridad") VALUES
+      ('fn-sube', 'tab6', 'Subir el logo', 'SUBIENDO', 'u-dueno', '2026-10-20 09:00:00', '2026-10-20 09:00:00', 'tarea6', 'aizencrm', NULL, 'BAJA')`);
   const [primera] = await tomar("ws6");
-  assert.equal(primera?.id, "fn-sube", "SUBIENDO primero");
+  assert.equal(primera?.id, "fn-sube", "SUBIENDO primero, aunque sea Baja");
   const [segunda] = await tomar("ws6");
-  assert.equal(segunda?.id, "fn-urgente-gestion", "SQL_TOMAR_UNA toma la urgente de Gestión antes que la vieja del CRM");
+  assert.equal(segunda?.id, "fn-urgente-gestion", "SQL_TOMAR_UNA toma la urgente más vieja");
+  // En empate de fecha de creación decide el número T-n.
+  await db.exec(`
+    INSERT INTO "TarjetaTablero" ("id", "tableroId", "titulo", "estado", "creadoPor", "creadoEn", "actualizadoEn", "tipoId", "repo", "prioridad") VALUES
+      ('fn-empate-a', 'tab6', 'Empate A', 'APROBADO', 'u-dueno', '2026-01-01 00:00:00', '2026-01-01 00:00:00', 'tarea6', 'aizencrm', 'URGENTE'),
+      ('fn-empate-b', 'tab6', 'Empate B', 'APROBADO', 'u-dueno', '2026-01-01 00:00:00', '2026-01-01 00:00:00', 'tarea6', 'aizencrm', 'URGENTE')`);
+  const [numeroA] = await filas(`SELECT "numero" FROM "TarjetaTablero" WHERE "id" = 'fn-empate-a'`);
+  const [numeroB] = await filas(`SELECT "numero" FROM "TarjetaTablero" WHERE "id" = 'fn-empate-b'`);
+  assert.ok(numeroA.numero < numeroB.numero);
+  assert.deepEqual((await candidatas("ws6")).slice(0, 2).map((f) => f.id), ["fn-empate-a", "fn-empate-b"]);
   await db.query("ROLLBACK");
   assert.deepEqual(await filas(`SELECT "id" FROM "TarjetaTablero" WHERE "id" LIKE 'fn-%'`), [], "el ROLLBACK no deja nada");
 });

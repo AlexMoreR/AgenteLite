@@ -103,6 +103,9 @@ async function atender(pedido: Pedido, contexto: { workspaceId: string; userId: 
           "aunque este en un tablero que no es suyo, pero solo esa tarjeta. Asignar no reinicia la aprobacion. ver_tablero devuelve " +
           "el responsable de cada tarjeta y acepta responsable para ver solo las de una persona. Si el nombre coincide con dos " +
           "personas, pedir el email. " +
+          "PRIORIDAD: crear_tarjeta y editar_tarjeta aceptan prioridad (URGENTE, ALTA, MEDIA por defecto, BAJA). El Coordinador toma " +
+          "primero las URGENTE, despues ALTA, MEDIA y BAJA, y dentro de la misma la mas vieja; una URGENTE no corta lo que ya se " +
+          "construye, entra de siguiente. Cambiar la prioridad no reinicia la aprobacion. ver_tablero devuelve la prioridad de cada tarjeta. " +
           "CEREBRO (Mi empresa -> Cerebro): la base de conocimiento del negocio es una carpeta de Google Drive con lo que ya esta decidido " +
           "(decisiones, politicas, reglas, precios, aprendizajes). Antes de preguntar o suponer algo que quiza ya este decidido, consultar " +
           "cerebro_buscar, cerebro_listar y cerebro_leer; si el cerebro no esta conectado, decirlo y no inventar. cuando Alexander TOMA UNA DECISION en la " +

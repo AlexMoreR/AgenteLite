@@ -40,6 +40,7 @@ import {
   esZona,
   etiquetaEsperando,
   madreDeUnaAprobacionHeredada,
+  categoriaDeLaFila,
   prioridadDeLaFila,
   recogidaDelResultado,
   viaConHerencia,
@@ -344,7 +345,8 @@ async function filaDelCoordinador(workspaceId: string, ahora: Date, esperas: Map
           { estado: "SUBIENDO", OR: [{ trabajoVenceEn: null }, { trabajoVenceEn: { lte: ahora } }] },
         ],
       },
-      orderBy: { actualizadoEn: "asc" },
+      // La más vieja primero (21-nov-2026): fecha de creación y, en empate, el número T-n, como ORDEN_PARA_TOMAR.
+      orderBy: [{ creadoEn: "asc" }, { numero: "asc" }],
       take: 40,
       select: {
         id: true,
@@ -352,6 +354,7 @@ async function filaDelCoordinador(workspaceId: string, ahora: Date, esperas: Map
         detalle: true,
         estado: true,
         urgente: true,
+        prioridad: true,
         repo: true,
         zonaProtegida: true,
         tablero: { select: { nombre: true } },
@@ -397,15 +400,20 @@ async function filaDelCoordinador(workspaceId: string, ahora: Date, esperas: Map
     link: linkDeLaTarjeta(tarjeta.id),
     motivo,
   });
-  // El mismo orden con que /tomar escoge (31-oct-2026): SUBIENDO primero, después prioridadDeLaFila y, en empate, la más vieja
-  // (sort es estable y paraTomar viene por actualizadoEn).
+  // El mismo orden con que /tomar escoge (ORDEN_PARA_TOMAR, 21-nov-2026): SUBIENDO primero, después el nivel (prioridadDeLaFila:
+  // Urgente, Alta, Media, Baja), el desempate (categoriaDeLaFila) y, en empate, la más vieja (sort es estable y paraTomar viene
+  // por fecha de creación y número).
   const enOrden = paraTomar
-    .map((tarjeta) => ({
-      tarjeta,
-      sube: tarjeta.estado === "SUBIENDO" ? 0 : 1,
-      prioridad: prioridadDeLaFila({ ...tarjeta, tablero: tarjeta.tablero?.nombre ?? null }),
-    }))
-    .sort((a, b) => a.sube - b.sube || a.prioridad - b.prioridad)
+    .map((tarjeta) => {
+      const paraLaFila = { ...tarjeta, tablero: tarjeta.tablero?.nombre ?? null };
+      return {
+        tarjeta,
+        sube: tarjeta.estado === "SUBIENDO" ? 0 : 1,
+        prioridad: prioridadDeLaFila(paraLaFila),
+        categoria: categoriaDeLaFila(paraLaFila),
+      };
+    })
+    .sort((a, b) => a.sube - b.sube || a.prioridad - b.prioridad || a.categoria - b.categoria)
     .map(({ tarjeta }) => tarjeta);
   for (const tarjeta of enOrden) {
     if (!(ESTADOS_DE_FILA as readonly string[]).includes(tarjeta.estado)) continue;

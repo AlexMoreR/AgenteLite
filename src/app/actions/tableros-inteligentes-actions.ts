@@ -170,6 +170,25 @@ export async function cambiarResponsableAction(tarjetaId: string, responsableId:
   }
 }
 
+/**
+ * Cambiar la prioridad desde la ficha (21-nov-2026): URGENTE, ALTA, MEDIA o BAJA (la valida editarTarjeta). Lo hace quien edita
+ * ese tablero (el alcance de la sesión lo comprueba). Cuenta como mover: no reinicia la aprobación ni corta lo que se construye.
+ * `aviso`: se bajó la prioridad pero el título la sigue dejando urgente.
+ */
+export async function cambiarPrioridadAction(
+  tarjetaId: string,
+  prioridad: string,
+): Promise<{ ok: true; aviso?: string } | { ok: false; error: string }> {
+  const contexto = await contextoDePantalla();
+  try {
+    const { avisoDePrioridad } = await editarTarjeta(contexto, tarjetaId, { prioridad });
+    return avisoDePrioridad ? { ok: true, aviso: avisoDePrioridad } : { ok: true };
+  } catch (fallo) {
+    const texto = mensaje(fallo, "No se pudo cambiar la prioridad");
+    return texto === "No hay nada distinto para cambiar." ? { ok: true } : { ok: false, error: texto };
+  }
+}
+
 /** Marcar la tarjeta como urgente: el responsable recibe un WhatsApp "URGENTE" (avisos-al-equipo.ts). */
 export async function marcarUrgenteAction(tarjetaId: string): Promise<{ ok: true; yaEstaba: boolean } | { ok: false; error: string }> {
   const contexto = await contextoDePantalla();

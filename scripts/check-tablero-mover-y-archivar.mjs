@@ -142,6 +142,7 @@ const falso = {
         trabajoVenceEn: null,
         responsableId: null,
         urgente: false,
+        prioridad: "MEDIA",
         borradoEn: null,
         archivadaEn: null,
         terminadaEn: null,
@@ -353,6 +354,7 @@ function tarjeta(id, extra = {}) {
     trabajoVenceEn: null,
     responsableId: null,
     urgente: false,
+    prioridad: "MEDIA",
     borradoEn: null,
     archivadaEn: null,
     terminadaEn: null,
@@ -535,6 +537,70 @@ await prueba("historial: asignar solo al responsable queda como siempre (sin la 
   await llamar("editar_tarjeta", { tarjeta_id: "t1", responsable: "Bruno" });
   assert.deepEqual(ultimo().despues, { responsableId: "u-bruno", responsableNombre: "Bruno Ruiz" });
   assert.equal(de("t1").estado, "APROBADO");
+});
+
+/* Prioridad (21-nov-2026): cambiarla cuenta como mover; bajarla quita la marca urgente y queda en el historial. */
+
+await prueba("MCP: cambiar la prioridad de una APROBADO o EN_CURSO conserva el estado y el plan (cuenta como mover)", async () => {
+  for (const estadoInicial of ["APROBADO", "PLAN_APROBADO", "EN_CURSO", "POR_APROBAR"]) {
+    sembrar();
+    tareaConPlan(estadoInicial, estadoInicial === "EN_CURSO" ? { trabajoVenceEn: new Date(Date.parse("2026-11-10T13:00:00Z")) } : {});
+    const r = await llamar("editar_tarjeta", { tarjeta_id: "t1", prioridad: "alta" });
+    assert.equal(r.ok, true, estadoInicial);
+    assert.equal(de("t1").prioridad, "ALTA", `${estadoInicial}: se guarda en MAYÚSCULAS`);
+    assert.equal(de("t1").estado, estadoInicial, `${estadoInicial}: el estado no cambia`);
+    assert.equal(de("t1").plan, "1. Cambiar el guion.\n2. Probar.", `${estadoInicial}: el plan no cambia`);
+    assert.equal(r.prioridad, "ALTA");
+    assert.match(r.aviso, /Se movió: conserva su estado/);
+    assert.deepEqual(ultimo().antes, { prioridad: "MEDIA" });
+    assert.deepEqual(ultimo().despues, { prioridad: "ALTA", movimiento: true });
+  }
+});
+
+await prueba("MCP: crear_tarjeta guarda la prioridad (MEDIA si no viene) y una prioridad que no existe da error claro", async () => {
+  const conPrioridad = await llamar("crear_tarjeta", { tablero_id: "tb1", titulo: "Algo urgente", tipo: "Tarea", prioridad: "URGENTE" });
+  assert.equal(de(conPrioridad.tarjeta_id).prioridad, "URGENTE");
+  assert.equal(conPrioridad.prioridad, "URGENTE");
+  const sinPrioridad = await llamar("crear_tarjeta", { tablero_id: "tb1", titulo: "Algo normal", tipo: "Tarea" });
+  assert.equal(de(sinPrioridad.tarjeta_id).prioridad, "MEDIA");
+  assert.equal(sinPrioridad.prioridad, "MEDIA");
+  await assert.rejects(() => llamar("crear_tarjeta", { tablero_id: "tb1", titulo: "Otra", prioridad: "NORMAL" }), /La prioridad va: URGENTE, ALTA, MEDIA, BAJA/);
+  await assert.rejects(() => llamar("editar_tarjeta", { tarjeta_id: sinPrioridad.tarjeta_id, prioridad: "altísima" }), /La prioridad va/);
+});
+
+await prueba("MCP: bajar la prioridad de una marcada urgente quita la marca (en el historial) y deshacer la devuelve", async () => {
+  tareaConPlan("APROBADO", { urgente: true, prioridad: "MEDIA" });
+  const r = await llamar("editar_tarjeta", { tarjeta_id: "t1", prioridad: "BAJA" });
+  assert.equal(de("t1").urgente, false, "se quita la marca");
+  assert.equal(de("t1").prioridad, "BAJA");
+  assert.equal(de("t1").estado, "APROBADO", "sigue aprobada");
+  assert.equal(r.prioridad, "BAJA");
+  assert.deepEqual(ultimo().antes, { prioridad: "MEDIA", urgente: true });
+  assert.deepEqual(ultimo().despues, { prioridad: "BAJA", urgente: false, movimiento: true });
+  assert.doesNotMatch(r.aviso, /sigue contando como Urgente/);
+  await llamar("deshacer_cambio_tarjeta", { tarjeta_id: "t1", cambio_id: r.cambio_id });
+  assert.equal(de("t1").urgente, true, "deshacer devuelve la marca");
+  assert.equal(de("t1").prioridad, "MEDIA");
+});
+
+await prueba("MCP: si el título empieza por URGENTE, bajar la prioridad lo avisa (sigue contando como Urgente)", async () => {
+  tareaConPlan("APROBADO", { titulo: "URGENTE: se cae el login" });
+  const r = await llamar("editar_tarjeta", { tarjeta_id: "t1", prioridad: "BAJA" });
+  assert.equal(de("t1").prioridad, "BAJA");
+  assert.match(r.aviso, /sigue contando como Urgente porque el título empieza por URGENTE/);
+  assert.equal(de("t1").estado, "APROBADO");
+  // urgente: true con una prioridad que no es URGENTE se contradicen.
+  await assert.rejects(() => llamar("editar_tarjeta", { tarjeta_id: "t1", prioridad: "BAJA", urgente: true }), /no van juntas/);
+});
+
+await prueba("MCP: ver_tablero devuelve la prioridad de cada tarjeta (la marca urgente cuenta como URGENTE)", async () => {
+  tareaConPlan("APROBADO", { prioridad: "BAJA" });
+  tarjeta("t2", { estado: "APROBADO", repo: "aizencrm", urgente: true });
+  const r = await llamar("ver_tablero", { tablero_id: "tb1" });
+  const porId = new Map(r.tarjetas.map((t) => [t.tarjeta_id, t]));
+  assert.equal(porId.get("t1").prioridad, "BAJA");
+  assert.equal(porId.get("t2").prioridad, "URGENTE");
+  assert.equal(porId.get("idea1").prioridad, "MEDIA");
 });
 
 await prueba("lo que hay que hacer sí la devuelve a POR_APROBAR: título, detalle, repo, riesgo y zona protegida", async () => {

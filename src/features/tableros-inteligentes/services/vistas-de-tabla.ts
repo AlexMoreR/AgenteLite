@@ -17,6 +17,7 @@ import {
   type EstadoTarjetaTablero,
   type Veredicto,
 } from "./reglas";
+import { NOMBRE_DE_PRIORIDAD, nivelDePrioridad, PRIORIDADES, type Prioridad } from "./reglas-trabajador";
 
 /* ------------------------------------------------------------------ vistas */
 
@@ -50,9 +51,16 @@ export type TarjetaDeVista = {
   padreId: string | null;
   repo: string | null;
   urgente: boolean;
+  /** URGENTE | ALTA | MEDIA | BAJA (TarjetaVista trae la efectiva). Sin dato, MEDIA; con `urgente`, URGENTE. */
+  prioridad?: string | null;
   responsableId: string | null;
   responsableNombre: string | null;
 };
+
+/** La prioridad con que se muestra, filtra y ordena la fila: la marca urgente manda; si no, el campo (MEDIA si no trae). */
+export function prioridadDeLaTarjeta(tarjeta: Pick<TarjetaDeVista, "urgente" | "prioridad">): Prioridad {
+  return PRIORIDADES[tarjeta.urgente ? 0 : nivelDePrioridad(tarjeta.prioridad)];
+}
 
 /** Lo mínimo de un tipo (TipoVista lo cumple). */
 export type TipoDeVista = { id: string; nombre: string; requiereAprobacion: boolean; usaEstados: boolean; orden: number };
@@ -173,7 +181,11 @@ export function valorDeColumna(fila: FilaDeTabla, columna: ClaveDeColumna): { cl
         ? { clave: tarjeta.estado, texto: NOMBRE_DEL_ESTADO[tarjeta.estado] }
         : { clave: "", texto: "Sin estado" };
     case "prioridad":
-      return tarjeta.urgente ? { clave: "URGENTE", texto: "Urgente" } : { clave: "NORMAL", texto: "Normal" };
+    {
+      // Los 4 niveles (21-nov-2026): Urgente, Alta, Media y Baja.
+      const prioridad = prioridadDeLaTarjeta(tarjeta);
+      return { clave: prioridad, texto: NOMBRE_DE_PRIORIDAD[prioridad] };
+    }
     case "responsable":
       return tarjeta.responsableId
         ? { clave: tarjeta.responsableId, texto: tarjeta.responsableNombre ?? "Otra persona" }
@@ -292,7 +304,8 @@ function compararPor(a: FilaDeTabla, b: FilaDeTabla, columna: ClaveDeColumna): n
     case "estado":
       return (a.usaEstados ? indiceDelEstado(a.tarjeta.estado) : 99) - (b.usaEstados ? indiceDelEstado(b.tarjeta.estado) : 99);
     case "prioridad":
-      return Number(b.tarjeta.urgente) - Number(a.tarjeta.urgente);
+      // Urgente primero, después Alta, Media y Baja.
+      return nivelDePrioridad(prioridadDeLaTarjeta(a.tarjeta)) - nivelDePrioridad(prioridadDeLaTarjeta(b.tarjeta));
     case "tipo":
       return a.tipoOrden - b.tipoOrden || COMPARAR_TEXTO.compare(a.tipoNombre, b.tipoNombre);
     case "fecha":

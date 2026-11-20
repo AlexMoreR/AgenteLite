@@ -15,7 +15,7 @@ import type { VistaDeTabla } from "@/features/tableros-inteligentes/services/vis
 
   - Las vistas (la última y las guardadas) son de la persona de la sesión: la clave lleva su userId y
     nunca se lee ni se escribe la de otra.
-  - Cambiar el estado, el área o la fecha pasa por el MISMO servicio que el MCP y la ficha
+  - Cambiar el estado, el área, la fecha o la prioridad pasa por el MISMO servicio que el MCP y la ficha
     (cambiarEstadoTarjeta y editarTarjeta) con origen PANTALLA y el alcance de la sesión: las reglas
     (puedeCambiarEstado, el candado del Coordinador, tableros por cuenta) se revisan allá, no acá. Un
     menú que no ofrece una opción no es un permiso. El responsable sigue con cambiarResponsableAction.
@@ -79,13 +79,16 @@ export async function cambiarEstadoDesdeVistaAction(
   }
 }
 
-/** Cambiar el área o la fecha desde la celda ("" o null los borran; la fecha va AAAA-MM-DD). */
+/**
+ * Cambiar el área, la fecha o la prioridad desde la celda ("" o null borran el área y la fecha; la fecha va AAAA-MM-DD; la
+ * prioridad es URGENTE, ALTA, MEDIA o BAJA y la valida editarTarjeta). Cambiar la prioridad cuenta como mover: no reinicia la aprobación.
+ */
 export async function editarCeldaAction(
   tarjetaId: string,
-  cambio: { area: string | null } | { fecha: string | null },
-): Promise<Resultado> {
+  cambio: { area: string | null } | { fecha: string | null } | { prioridad: string },
+): Promise<{ ok: true; aviso?: string } | { ok: false; error: string }> {
   const contexto = await contextoDePantalla();
-  // Solo estos dos campos: la celda no edita nada más.
+  // Solo estos tres campos: la celda no edita nada más.
   const permitido =
     typeof cambio !== "object" || cambio === null
       ? null
@@ -93,11 +96,14 @@ export async function editarCeldaAction(
         ? { area: cambio.area ?? "" }
         : "fecha" in cambio
           ? { fecha: cambio.fecha ?? "" }
-          : null;
+          : "prioridad" in cambio && typeof cambio.prioridad === "string" && cambio.prioridad.trim()
+            ? { prioridad: cambio.prioridad }
+            : null;
   if (!permitido) return { ok: false, error: "Esa columna no se edita desde la tabla." };
   try {
-    await editarTarjeta(contexto, tarjetaId, permitido);
-    return { ok: true };
+    const { avisoDePrioridad } = await editarTarjeta(contexto, tarjetaId, permitido);
+    // Se bajó la prioridad pero el título la sigue dejando urgente: se le dice a quien la cambió.
+    return avisoDePrioridad ? { ok: true, aviso: avisoDePrioridad } : { ok: true };
   } catch (fallo) {
     const texto = mensaje(fallo, "No se pudo guardar el cambio");
     return texto === "No hay nada distinto para cambiar." ? { ok: true } : { ok: false, error: texto };

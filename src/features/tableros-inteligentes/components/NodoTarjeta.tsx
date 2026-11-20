@@ -7,6 +7,8 @@ import { cn } from "@/lib/utils";
 import { ANCHO_CENTRO, ANCHO_TARJETA } from "../services/disposicion";
 import type { Contadores } from "../services/niveles";
 import { colorDeTipoValido, inicialDeLaPersona } from "../services/reglas";
+import { NOMBRE_DE_PRIORIDAD, type Prioridad } from "../services/reglas-trabajador";
+import { COLOR_DE_PRIORIDAD } from "./colores";
 import { IconoDeTipo } from "./IconoDeTipo";
 
 export type DatosNodoTarjeta = {
@@ -28,6 +30,8 @@ export type DatosNodoTarjeta = {
   nombreTipo: string | null;
   /** Abre la ficha sin entrar (mantener presionada una tarjeta con hijas). */
   alAbrirFicha: () => void;
+  /** La prioridad (21-nov-2026): Urgente, Alta y Baja llevan etiqueta de color; Media (o sin dato) no. */
+  prioridad?: Prioridad;
 };
 
 export type NodoDeTarjeta = Node<DatosNodoTarjeta, "tarjeta">;
@@ -124,6 +128,11 @@ function NodoTarjetaBase({ data, selected }: NodeProps<NodoDeTarjeta>) {
       {data.codigo ? (
         <span className="max-w-full truncate text-[11px] font-medium leading-none tabular-nums text-zinc-500 dark:text-zinc-400">
           {data.codigo}
+        </span>
+      ) : null}
+      {data.prioridad && data.prioridad !== "MEDIA" ? (
+        <span className={cn("mt-0.5 rounded-full border px-1.5 text-[10px] font-medium leading-tight", COLOR_DE_PRIORIDAD[data.prioridad])}>
+          {NOMBRE_DE_PRIORIDAD[data.prioridad]}
         </span>
       ) : null}
       {/* El título: hasta 3 líneas (con o sin contadores) y entero al pasar el mouse. */}

@@ -2199,6 +2199,8 @@ model TarjetaTablero {
   responsableId     String?
   /// Marca "urgente" (avisos al equipo por WhatsApp): la pone el botón de la ficha, el MCP o un título que empieza por URGENTE.
   urgente           Boolean            @default(false)
+  /// Prioridad (21-nov-2026): 'URGENTE' | 'ALTA' | 'MEDIA' | 'BAJA' (texto: sin tipo nuevo en la base; lista en reglas-trabajador.ts). El trabajador toma primero las de más prioridad; la marca `urgente` cuenta como URGENTE.
+  prioridad         String             @default("MEDIA")
   /// Archivada (30-oct-2026): cuándo salió del tablero. Sigue HECHO o FALLIDO; no cuenta para el límite de 300 ni sale en el mapa. Null = en el tablero.
   archivadaEn       DateTime?
   /// Cuándo terminó (último cambio a HECHO o FALLIDO), guardado al archivarla.

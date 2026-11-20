@@ -1,4 +1,16 @@
 import type { EstadoTarjetaTablero } from "../services/reglas";
+import type { Prioridad } from "../services/reglas-trabajador";
+
+/**
+ * Color de cada prioridad (21-nov-2026): Urgente rojo, Alta naranja, Media gris y Baja azul claro. El mismo en la tabla, el mapa,
+ * el kanban y la ficha (con modo oscuro). La pastilla roja de Urgente es la que ya usaba la columna Prioridad.
+ */
+export const COLOR_DE_PRIORIDAD: Record<Prioridad, string> = {
+  URGENTE: "border-rose-300 bg-rose-100 text-rose-800 dark:border-rose-600 dark:bg-rose-900 dark:text-rose-100",
+  ALTA: "border-orange-300 bg-orange-100 text-orange-800 dark:border-orange-600 dark:bg-orange-900 dark:text-orange-100",
+  MEDIA: "border-zinc-300 bg-zinc-100 text-zinc-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200",
+  BAJA: "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-950 dark:text-sky-200",
+};
 
 /** Color de cada estado: el mismo en el mapa, la lista, el filtro y la ficha (con modo oscuro). */
 export const COLOR_DEL_ESTADO: Record<

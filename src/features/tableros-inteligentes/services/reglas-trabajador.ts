@@ -310,11 +310,51 @@ export function tieneAlgunaPalabra(texto: string | null | undefined, palabras: r
   return new RegExp(`(^|[^a-z0-9])(${palabras.join("|")})($|[^a-z0-9])`).test(sinTildes(texto));
 }
 
+/**
+ * La prioridad de la tarjeta (21-nov-2026, columna `prioridad`, texto: sin tipo nuevo en la base), de la más importante a la
+ * menos. Su posición en la lista es su nivel en la fila (URGENTE = 0 ... BAJA = 3). Sin prioridad cuenta como MEDIA.
+ */
+export const PRIORIDADES = ["URGENTE", "ALTA", "MEDIA", "BAJA"] as const;
+export type Prioridad = (typeof PRIORIDADES)[number];
+export const PRIORIDAD_POR_DEFECTO: Prioridad = "MEDIA";
+
+/** Cómo se lee cada prioridad en la pantalla. */
+export const NOMBRE_DE_PRIORIDAD: Record<Prioridad, string> = { URGENTE: "Urgente", ALTA: "Alta", MEDIA: "Media", BAJA: "Baja" };
+
+export function esPrioridad(valor: unknown): valor is Prioridad {
+  return typeof valor === "string" && (PRIORIDADES as readonly string[]).includes(valor);
+}
+
+/** La prioridad que llega del MCP o de la pantalla ("alta", " Baja ", "urgente"): en MAYÚSCULAS y sin tildes; null si no es una de las 4. */
+export function prioridadDeEntrada(valor: unknown): Prioridad | null {
+  if (typeof valor !== "string") return null;
+  const limpia = valor.normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toUpperCase();
+  return esPrioridad(limpia) ? limpia : null;
+}
+
+/** El nivel (0 a 3) de la prioridad guardada; lo que no es una de las 4 cuenta como MEDIA. */
+export function nivelDePrioridad(valor: string | null | undefined): 0 | 1 | 2 | 3 {
+  const indice = (PRIORIDADES as readonly string[]).indexOf(valor ?? "");
+  return (indice >= 0 ? indice : PRIORIDADES.indexOf(PRIORIDAD_POR_DEFECTO)) as 0 | 1 | 2 | 3;
+}
+
+/** ¿La tarjeta tiene la marca urgente? Campo `urgente`, título que empieza con URGENTE o PRIORIDAD en MAYÚSCULAS en el título o el detalle. */
+export function tieneMarcaUrgente(tarjeta: { urgente?: boolean | null; titulo: string; detalle?: string | null }): boolean {
+  return esUrgente(tarjeta) || tarjeta.titulo.includes(PALABRA_DE_PRIORIDAD) || (tarjeta.detalle ?? "").includes(PALABRA_DE_PRIORIDAD);
+}
+
+/** La prioridad con que cuenta la tarjeta: URGENTE si tiene la marca urgente; si no, la del campo (MEDIA si no trae). */
+export function prioridadEfectiva(tarjeta: { urgente?: boolean | null; titulo: string; detalle?: string | null; prioridad?: string | null }): Prioridad {
+  return PRIORIDADES[tieneMarcaUrgente(tarjeta) ? 0 : nivelDePrioridad(tarjeta.prioridad)];
+}
+
 /** Lo que se mira de una tarjeta para su lugar en la fila. */
 export type TarjetaParaLaFila = {
   titulo: string;
   detalle?: string | null;
   urgente?: boolean | null;
+  /** URGENTE | ALTA | MEDIA | BAJA (sin dato, MEDIA). */
+  prioridad?: string | null;
   repo?: string | null;
   zonaProtegida?: readonly string[] | null;
   /** El nombre del tablero de la tarjeta. */
@@ -322,26 +362,34 @@ export type TarjetaParaLaFila = {
 };
 
 /**
- * El lugar de la tarjeta en la fila del Coordinador (31-oct-2026), de menor a mayor:
- *   0 = URGENTE (campo `urgente` o título que empieza con URGENTE) o dice PRIORIDAD en MAYÚSCULAS;
- *   1 = ventas y chats de las asesoras: el tablero se llama Ventas, el título dice chat, conversación o asesora, o la zona es
- *       CHATS o BOT_VENTAS;
- *   2 = dinero de Gestión: repo gestion y el título dice venta, abono, gasto, nómina, comisión o cuenta;
- *   3 = lo demás.
+ * El nivel de la tarjeta en la fila del Coordinador (21-nov-2026), de menor a mayor: 0 = Urgente, 1 = Alta, 2 = Media,
+ * 3 = Baja (prioridadEfectiva: la marca urgente cuenta como Urgente aunque el campo diga otra cosa). Es el número que va
+ * en `prioridad` de /candidatas: el Coordinador ordena por él antes que por cualquier otra cosa.
  * Es la MISMA regla que PRIORIDAD_DE_LA_FILA (sql-trabajador.ts), con que /tomar escoge. Antes van las SUBIENDO.
  */
 export function prioridadDeLaFila(tarjeta: TarjetaParaLaFila): 0 | 1 | 2 | 3 {
-  if (esUrgente(tarjeta) || tarjeta.titulo.includes(PALABRA_DE_PRIORIDAD) || (tarjeta.detalle ?? "").includes(PALABRA_DE_PRIORIDAD)) return 0;
+  return nivelDePrioridad(prioridadEfectiva(tarjeta));
+}
+
+/**
+ * El desempate dentro de un mismo nivel (el orden automático del 31-oct-2026), de menor a mayor:
+ *   0 = ventas y chats de las asesoras: el tablero se llama Ventas, el título dice chat, conversación o asesora, o la zona es
+ *       CHATS o BOT_VENTAS;
+ *   1 = dinero de Gestión: repo gestion y el título dice venta, abono, gasto, nómina, comisión o cuenta;
+ *   2 = lo demás.
+ * Es la MISMA regla que CATEGORIA_DE_LA_FILA (sql-trabajador.ts). Después de esto va la más vieja.
+ */
+export function categoriaDeLaFila(tarjeta: TarjetaParaLaFila): 0 | 1 | 2 {
   const zonas = tarjeta.zonaProtegida ?? [];
   if (
     tieneAlgunaPalabra(tarjeta.tablero, PALABRAS_DE_LA_FILA.tableroDeVentas) ||
     tieneAlgunaPalabra(tarjeta.titulo, PALABRAS_DE_LA_FILA.chats) ||
     zonas.some((zona) => (ZONAS_DE_VENTAS_Y_CHATS as readonly string[]).includes(zona))
   ) {
-    return 1;
+    return 0;
   }
-  if (tarjeta.repo === REPO_DE_GESTION && tieneAlgunaPalabra(tarjeta.titulo, PALABRAS_DE_LA_FILA.dineroDeGestion)) return 2;
-  return 3;
+  if (tarjeta.repo === REPO_DE_GESTION && tieneAlgunaPalabra(tarjeta.titulo, PALABRAS_DE_LA_FILA.dineroDeGestion)) return 1;
+  return 2;
 }
 
 /* ───────────────────────────────────────────────────────────────────── tiempos y candado ── */

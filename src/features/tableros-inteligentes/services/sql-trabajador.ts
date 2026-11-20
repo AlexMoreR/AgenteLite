@@ -18,8 +18,11 @@ import {
   MINUTOS_PARA_CONSTRUIR_EN_ORQUESTADOR,
   MINUTOS_POR_ETAPA,
   NIVELES_DE_HERENCIA_DE_LA_VIA,
+  nivelDePrioridad,
   PALABRA_DE_PRIORIDAD,
   PALABRAS_DE_LA_FILA,
+  PRIORIDAD_POR_DEFECTO,
+  PRIORIDADES,
   REPO_DE_GESTION,
   VIAS_QUE_ARRANCAN_ZONAS_SOLAS,
   ZONAS_DE_VENTAS_Y_CHATS,
@@ -334,27 +337,38 @@ const tienePalabraSql = (columna: string, palabras: readonly string[]) => {
 };
 
 /**
- * El lugar de la tarjeta `c` en la fila (31-oct-2026): la MISMA regla que prioridadDeLaFila (reglas-trabajador.ts), con las
- * mismas listas. 0 = URGENTE (campo o título que empieza con URGENTE) o PRIORIDAD en MAYÚSCULAS en el título o el detalle;
- * 1 = ventas y chats (tablero Ventas, título con chat / conversación / asesora, zona CHATS o BOT_VENTAS); 2 = dinero de
- * Gestión (repo gestion y título con venta / abono / gasto / nómina / comisión / cuenta); 3 = lo demás. Usa el JOIN `b`.
+ * El nivel de la tarjeta `c` en la fila (21-nov-2026): la MISMA regla que prioridadDeLaFila (reglas-trabajador.ts).
+ * 0 = Urgente: la marca urgente (campo `urgente`, título que empieza con URGENTE o PRIORIDAD en MAYÚSCULAS en el título o el
+ * detalle) o la columna "prioridad" = URGENTE; 1 = ALTA; 3 = BAJA; 2 = MEDIA y cualquier otro valor.
  */
 const PRIORIDAD_DE_LA_FILA = `(CASE
     WHEN c."urgente" OR c."titulo" ~* '^[[:space:]]*urgente($|[^a-zA-Z0-9_])'
       OR strpos(c."titulo", '${PALABRA_DE_PRIORIDAD}') > 0 OR strpos(COALESCE(c."detalle", ''), '${PALABRA_DE_PRIORIDAD}') > 0 THEN 0
-    WHEN ${tienePalabraSql('b."nombre"', PALABRAS_DE_LA_FILA.tableroDeVentas)}
-      OR ${tienePalabraSql('c."titulo"', PALABRAS_DE_LA_FILA.chats)}
-      OR c."zonaProtegida" && ARRAY[${listaSql(ZONAS_DE_VENTAS_Y_CHATS)}]::text[] THEN 1
-    WHEN c."repo" = '${REPO_DE_GESTION}' AND ${tienePalabraSql('c."titulo"', PALABRAS_DE_LA_FILA.dineroDeGestion)} THEN 2
-    ELSE 3
+${PRIORIDADES.map((valor, nivel) => `    WHEN c."prioridad" = '${valor.replace(/[^A-Z]/g, "")}' THEN ${nivel}`).join("\n")}
+    ELSE ${nivelDePrioridad(PRIORIDAD_POR_DEFECTO)}
   END)`;
 
 /**
- * Primero una SUBIENDO pendiente (la que sube sola no espera detrás de otras); después la prioridad (PRIORIDAD_DE_LA_FILA:
- * urgente, ventas y chats, dinero de Gestión, lo demás) y al final la que más espera. Solo cambia el ORDEN: qué se puede
- * tomar lo dice wherePara.
+ * El desempate dentro de un mismo nivel (el orden automático del 31-oct-2026): la MISMA regla que categoriaDeLaFila
+ * (reglas-trabajador.ts), con las mismas listas. 0 = ventas y chats (tablero Ventas, título con chat / conversación /
+ * asesora, zona CHATS o BOT_VENTAS); 1 = dinero de Gestión (repo gestion y título con venta / abono / gasto / nómina /
+ * comisión / cuenta); 2 = lo demás. Usa el JOIN `b`.
  */
-const ORDEN_PARA_TOMAR = `ORDER BY (c."estado" = 'SUBIENDO') DESC, ${PRIORIDAD_DE_LA_FILA} ASC, c."actualizadoEn" ASC, c."creadoEn" ASC`;
+const CATEGORIA_DE_LA_FILA = `(CASE
+    WHEN ${tienePalabraSql('b."nombre"', PALABRAS_DE_LA_FILA.tableroDeVentas)}
+      OR ${tienePalabraSql('c."titulo"', PALABRAS_DE_LA_FILA.chats)}
+      OR c."zonaProtegida" && ARRAY[${listaSql(ZONAS_DE_VENTAS_Y_CHATS)}]::text[] THEN 0
+    WHEN c."repo" = '${REPO_DE_GESTION}' AND ${tienePalabraSql('c."titulo"', PALABRAS_DE_LA_FILA.dineroDeGestion)} THEN 1
+    ELSE 2
+  END)`;
+
+/**
+ * Primero una SUBIENDO pendiente (la que sube sola no espera detrás de otras); después el nivel (PRIORIDAD_DE_LA_FILA:
+ * Urgente, Alta, Media, Baja); dentro del mismo nivel el desempate (CATEGORIA_DE_LA_FILA: ventas y chats, dinero de
+ * Gestión, lo demás) y al final la más vieja (fecha de creación y, en empate, el número T-n). Solo cambia el ORDEN: qué se
+ * puede tomar lo dice wherePara.
+ */
+const ORDEN_PARA_TOMAR = `ORDER BY (c."estado" = 'SUBIENDO') DESC, ${PRIORIDAD_DE_LA_FILA} ASC, ${CATEGORIA_DE_LA_FILA} ASC, c."creadoEn" ASC, c."numero" ASC`;
 
 /**
  * Las que podría tomar, SIN tomarlas, en el orden en que las tomaría. El trabajador las mira para no
@@ -362,7 +376,8 @@ const ORDEN_PARA_TOMAR = `ORDER BY (c."estado" = 'SUBIENDO') DESC, ${PRIORIDAD_D
  * mismo repo: esas las manda en `excluir` a /tomar y esperan en fila.
  * "desbloquea" (25-oct-2026): cuántas tarjetas esperan a que esta esté HECHO (flechas esDependencia que salen de
  * ella): el Coordinador toma primero las que desbloquean a otras (trabajador-tablero/lib/reparto.mjs).
- * "prioridad" (31-oct-2026): PRIORIDAD_DE_LA_FILA (0 a 3), para que el reparto respete el mismo orden.
+ * "prioridad" (31-oct-2026; desde el 21-nov-2026 es el nivel Urgente = 0, Alta = 1, Media = 2, Baja = 3): PRIORIDAD_DE_LA_FILA,
+ * para que el reparto respete el mismo orden (el Coordinador ordena por él antes que por cualquier otra cosa).
  * Parámetros: $1 = workspaceId, $2 = repos (text[]).
  */
 export const SQL_CANDIDATAS = `

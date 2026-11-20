@@ -52,6 +52,13 @@ import {
   estadoAlPonerRepo,
   motivoNoEsDueno,
   partidaDelResultado,
+  EMPIEZA_URGENTE,
+  NOMBRE_DE_PRIORIDAD,
+  PALABRA_DE_PRIORIDAD,
+  PRIORIDAD_POR_DEFECTO,
+  PRIORIDADES,
+  prioridadDeEntrada,
+  prioridadEfectiva,
   puedeAprobarMomento,
   ALCANCE_SISTEMAS,
   puedeCerrarComoFallida,
@@ -70,6 +77,7 @@ import {
   type CuentaQueAprueba,
   type MomentoDeAprobacion,
   type PersonaQueAprueba,
+  type Prioridad,
   type ViaDeAprobacion,
 } from "./reglas-trabajador";
 import {
@@ -222,6 +230,11 @@ export type TarjetaVista = {
   responsableNombre: string | null;
   /** Marcada urgente (botón de la ficha, el MCP o un título que empieza por URGENTE): la columna Prioridad de la tabla. */
   urgente: boolean;
+  /**
+   * La prioridad con que cuenta (21-nov-2026): URGENTE | ALTA | MEDIA | BAJA. Es la efectiva (prioridadEfectiva): con la marca
+   * urgente es URGENTE aunque el campo diga otra cosa. La muestran la tabla, el mapa, el kanban y la ficha.
+   */
+  prioridad: Prioridad;
 };
 
 /** El resultado del Coordinador como lo ve la pantalla (todo opcional: lo escribe el Coordinador). */
@@ -333,6 +346,7 @@ const SELECT_TARJETA = {
   responsableId: true,
   responsable: { select: { name: true, email: true } },
   urgente: true,
+  prioridad: true,
 } as const;
 
 type FilaTarjeta = Prisma.TarjetaTableroGetPayload<{ select: typeof SELECT_TARJETA }>;
@@ -368,6 +382,7 @@ function aVista(fila: FilaTarjeta): TarjetaVista {
     responsableId: fila.responsableId,
     responsableNombre: fila.responsable ? nombreDePersona(fila.responsable) : null,
     urgente: fila.urgente === true,
+    prioridad: prioridadEfectiva(fila),
   };
 }
 
@@ -1461,9 +1476,11 @@ export async function crearTarjeta(
     riesgo?: unknown;
     motivoRiesgo?: unknown;
     responsable?: unknown;
+    prioridad?: unknown;
   },
 ) {
   const tablero = await tableroDelNegocio(contexto, datos.tableroId);
+  const prioridad = prioridadPedida(datos.prioridad) ?? PRIORIDAD_POR_DEFECTO;
   const titulo = textoLimpio(datos.titulo, MAX_TITULO);
   if (!titulo) {
     throw new Error("Hace falta el título de la tarjeta.");
@@ -1536,6 +1553,7 @@ export async function crearTarjeta(
         riesgoMotivo,
         riesgoPor: riesgo ? riesgoPor : null,
         responsableId: responsable?.userId ?? null,
+        prioridad,
         creadoPor: contexto.userId,
       },
       select: SELECT_TARJETA,
@@ -1558,6 +1576,8 @@ export async function crearTarjeta(
       riesgoPor: tarjeta.riesgoPor,
       // Sin responsable no se anota nada: el historial de antes de este campo queda igual.
       ...(responsable ? { responsableId: responsable.userId, responsableNombre: responsable.nombre } : {}),
+      // La prioridad, solo si no es la de siempre (MEDIA): igual que el responsable.
+      ...(tarjeta.prioridad !== PRIORIDAD_POR_DEFECTO ? { prioridad: tarjeta.prioridad } : {}),
     });
     // Cada flecha es su propio cambio: así se puede deshacer una sin tocar la tarjeta.
     for (const destinoId of conectarCon) {
@@ -1573,6 +1593,17 @@ export async function crearTarjeta(
   // Una tarea con repo que nace POR_APROBAR se aprueba sola (regla del dueño 25-oct; salvo dinero o Meta Ads).
   const aprobacion = await aprobarSiCorresponde(creada.tarjeta);
   return { ...creada, tarjeta: aprobacion.tarjeta, aprobacionAutomatica: aprobacion.resultado };
+}
+
+/**
+ * La prioridad que se pide (MCP o pantalla): undefined si no vino (o vino vacía); si no es una de las 4, error claro.
+ * Acepta minúsculas y tildes ("alta", "Baja").
+ */
+function prioridadPedida(valor: unknown): Prioridad | undefined {
+  if (valor === undefined || valor === null || (typeof valor === "string" && !valor.trim())) return undefined;
+  const prioridad = prioridadDeEntrada(valor);
+  if (!prioridad) throw new Error(`La prioridad va: ${PRIORIDADES.join(", ")}.`);
+  return prioridad;
 }
 
 /** Quién pone el riesgo según de dónde viene el cambio: la pantalla es el dueño; el MCP, Claude. */
@@ -1606,7 +1637,13 @@ function revisarRepoParaTipo(tipo: { nombre: string; requiereAprobacion: boolean
 const CAMBIO_EN_EL_MEDIO = "La tarjeta cambió mientras tanto (quizás el dueño la aprobó). Vuelve a leerla e intenta de nuevo.";
 
 /** Lo que se pide en editarTarjeta que solo mueve la tarjeta (soloMueve en reglas.ts, con el nombre de la entrada). */
-const CAMPOS_PEDIDOS_DE_MOVIMIENTO = new Set(["padreId", "area", "orden", "fecha", "responsable"]);
+const CAMPOS_PEDIDOS_DE_MOVIMIENTO = new Set(["padreId", "area", "orden", "fecha", "responsable", "prioridad"]);
+
+/**
+ * Cambiar la prioridad (21-nov-2026) también cuenta como mover: no cambia lo que hay que hacer, así que la tarjeta conserva su
+ * estado (no vuelve a POR_APROBAR). `urgente` entra porque bajar la prioridad le quita la marca urgente.
+ */
+const CAMPOS_DE_PRIORIDAD = new Set(["prioridad", "urgente"]);
 
 type CamposEditables = {
   titulo?: string;
@@ -1624,6 +1661,8 @@ type CamposEditables = {
   riesgoMotivo?: string | null;
   riesgoPor?: string | null;
   responsableId?: string | null;
+  prioridad?: Prioridad;
+  urgente?: boolean;
 };
 
 export async function editarTarjeta(
@@ -1644,9 +1683,11 @@ export async function editarTarjeta(
     riesgo?: unknown;
     motivoRiesgo?: unknown;
     responsable?: unknown;
+    prioridad?: unknown;
   },
 ) {
   const actual = await tarjetaDelNegocio(contexto, tarjetaId);
+  const prioridad = prioridadPedida(cambios.prioridad);
   // Si se pide algo más que mover (de qué cuelga, área, orden, fecha, responsable) y el Coordinador la tiene, se
   // niega antes de leer nada más, como siempre. Mover se puede aunque la tenga (puedeEditarTarjeta con soloMovimiento).
   const pideSoloMover = Object.entries(cambios).every(([campo, valor]) => valor === undefined || CAMPOS_PEDIDOS_DE_MOVIMIENTO.has(campo));
@@ -1657,6 +1698,12 @@ export async function editarTarjeta(
   const responsable = await responsableDeEntrada(contexto.workspaceId, cambios.responsable);
   if (responsable !== undefined && (responsable?.userId ?? null) !== actual.responsableId) {
     nuevo.responsableId = responsable?.userId ?? null;
+  }
+  // La prioridad (21-nov-2026). Pedir otra que no sea URGENTE le quita la marca urgente del campo (queda en el historial); si
+  // sigue urgente por el título o el detalle, se avisa en avisoDePrioridad (más abajo, con el texto como quedaría).
+  if (prioridad !== undefined) {
+    if (prioridad !== actual.prioridad) nuevo.prioridad = prioridad;
+    if (prioridad !== "URGENTE" && actual.urgente) nuevo.urgente = false;
   }
   const repo = repoDeEntrada(cambios.repo);
   if (repo !== undefined && repo !== actual.repo) nuevo.repo = repo;
@@ -1726,7 +1773,13 @@ export async function editarTarjeta(
   const riesgoPedido = riesgoDeEntrada(cambios.riesgo);
   const motivoPedido = motivoDeRiesgoDeEntrada(cambios.motivoRiesgo);
   // Con pideSoloMover, `nuevo` solo puede traer campos de mover (o nada: "No hay nada distinto", más abajo).
-  const mueve = riesgoPedido === undefined && motivoPedido === undefined && soloMueve(Object.keys(nuevo));
+  // Cambiar la prioridad también es mover (CAMPOS_DE_PRIORIDAD): si es lo único que cambia, mueve; si no, deciden los demás.
+  const camposSinPrioridad = Object.keys(nuevo).filter((campo) => !CAMPOS_DE_PRIORIDAD.has(campo));
+  const mueve =
+    riesgoPedido === undefined &&
+    motivoPedido === undefined &&
+    Object.keys(nuevo).length > 0 &&
+    (!camposSinPrioridad.length || soloMueve(camposSinPrioridad));
 
   // Riesgo: BAJO solo si las reglas no ven nada de riesgo alto con la tarjeta como quedaría. Si queda BAJO
   // y el texto o las zonas cambiaron a algo de riesgo alto, pasa a ALTO sola (y no se aprueba sola).
@@ -1771,6 +1824,18 @@ export async function editarTarjeta(
   if (!Object.keys(nuevo).length) {
     throw new Error("No hay nada distinto para cambiar.");
   }
+  // Se pidió bajar la prioridad, pero el título o el detalle la siguen dejando urgente (URGENTE al empezar o PRIORIDAD).
+  const tituloFinal = nuevo.titulo ?? actual.titulo;
+  const detalleFinal = nuevo.detalle ?? actual.detalle;
+  const sigueUrgentePorElTexto =
+    prioridad !== undefined &&
+    prioridad !== "URGENTE" &&
+    (EMPIEZA_URGENTE.test(tituloFinal) || tituloFinal.includes(PALABRA_DE_PRIORIDAD) || detalleFinal.includes(PALABRA_DE_PRIORIDAD));
+  const avisoDePrioridad = sigueUrgentePorElTexto
+    ? `Quedó en ${NOMBRE_DE_PRIORIDAD[prioridad]}, pero sigue contando como Urgente porque ${
+        EMPIEZA_URGENTE.test(tituloFinal) ? "el título empieza por URGENTE" : "el título o el detalle dicen PRIORIDAD"
+      }. Para bajarla, cambia ese texto.`
+    : null;
 
   // Mover (o cambiar solo el responsable) no reinicia la aprobación: la tarjeta sigue en el estado en que estaba.
   const estado = mueve
@@ -1828,7 +1893,7 @@ export async function editarTarjeta(
   const aprobacion = mueve
     ? { tarjeta: editada.tarjeta, resultado: null }
     : await aprobarSiCorresponde(editada.tarjeta);
-  return { ...editada, tarjeta: aprobacion.tarjeta, aprobacionAutomatica: aprobacion.resultado, avisoDeRiesgo };
+  return { ...editada, tarjeta: aprobacion.tarjeta, aprobacionAutomatica: aprobacion.resultado, avisoDeRiesgo, avisoDePrioridad };
 }
 
 /** Un `depende`: verdadero o falso (si no vino, falso); cualquier otra cosa se rechaza. */
@@ -2660,6 +2725,15 @@ export async function deshacerCambioTarjeta(contexto: ContextoTablero, cambioId:
     }
     datos.riesgo = typeof antes.riesgo === "string" ? antes.riesgo : null;
     ahora.riesgo = tarjeta.riesgo;
+  }
+  if ("prioridad" in antes) {
+    datos.prioridad = prioridadDeEntrada(antes.prioridad) ?? PRIORIDAD_POR_DEFECTO;
+    ahora.prioridad = tarjeta.prioridad;
+  }
+  // La marca urgente que quitó bajar la prioridad vuelve al deshacer (marcarla con el botón no se deshace por acá, como antes).
+  if (antes.urgente === true) {
+    datos.urgente = true;
+    ahora.urgente = tarjeta.urgente;
   }
   if ("riesgoMotivo" in antes) {
     datos.riesgoMotivo = typeof antes.riesgoMotivo === "string" ? antes.riesgoMotivo : null;

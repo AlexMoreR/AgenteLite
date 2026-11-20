@@ -2627,9 +2627,9 @@ prueba("el código T-123 llega a la tarjeta, al cuadrito, a la ficha y al MCP", 
   console.log("ok - revisar de nuevo (30-oct-2026): /por-revisar trae paraRevisarDeNuevo y /revisar_de_nuevo guarda commit, base y pruebas");
 }
 
-/* ------------------------------------------------------------------ orden de la fila (31-oct-2026) */
+/* ------------------------------------------------------------------ orden de la fila (31-oct-2026; niveles del 21-nov-2026) */
 
-prueba("prioridadDeLaFila: los 4 niveles (0 urgente, 1 ventas y chats, 2 dinero de Gestión, 3 lo demás)", () => {
+prueba("prioridadDeLaFila: el nivel es la prioridad (0 Urgente, 1 Alta, 2 Media, 3 Baja) y la marca urgente cuenta como Urgente", () => {
   const { prioridadDeLaFila } = trabajo;
   // 0: el campo urgente, el título que empieza con URGENTE, o PRIORIDAD en MAYÚSCULAS (la regla de antes, se conserva).
   assert.equal(prioridadDeLaFila({ titulo: "Arreglar el reporte", urgente: true, repo: "aizencrm" }), 0);
@@ -2637,39 +2637,89 @@ prueba("prioridadDeLaFila: los 4 niveles (0 urgente, 1 ventas y chats, 2 dinero 
   assert.equal(prioridadDeLaFila({ titulo: "URGENTE abonos", repo: "gestion" }), 0);
   assert.equal(prioridadDeLaFila({ titulo: "PRIORIDAD: arreglar el reparto", repo: "aizencrm" }), 0);
   assert.equal(prioridadDeLaFila({ titulo: "Otra", detalle: "es PRIORIDAD", repo: "aizencrm" }), 0);
-  // 1: el tablero se llama Ventas, el título dice chat / conversación / asesora, o la zona es CHATS o BOT_VENTAS.
-  assert.equal(prioridadDeLaFila({ titulo: "Botón nuevo", repo: "aizencrm", tablero: "Ventas" }), 1);
-  assert.equal(prioridadDeLaFila({ titulo: "Botón nuevo", repo: "aizencrm", tablero: "CRM Ventas" }), 1);
-  assert.equal(prioridadDeLaFila({ titulo: "Filtros de los chats", repo: "aizencrm", tablero: "Sistemas" }), 1);
-  assert.equal(prioridadDeLaFila({ titulo: "Abrir una conversación más rápido", repo: "aizencrm" }), 1);
-  assert.equal(prioridadDeLaFila({ titulo: "Firma de las ASESORAS", repo: "aizencrm" }), 1);
-  assert.equal(prioridadDeLaFila({ titulo: "Cambio chico", repo: "aizencrm", zonaProtegida: ["BOT_VENTAS"] }), 1);
-  assert.equal(prioridadDeLaFila({ titulo: "Cambio chico", repo: "aizencrm", zonaProtegida: ["CHATS"] }), 1);
-  // 2: repo gestion y el título habla de dinero.
-  for (const titulo of ["Ventas del día", "Registrar abonos", "Gasto de transporte", "Nómina de octubre", "Comisiones", "Cuentas por cobrar"]) {
-    assert.equal(prioridadDeLaFila({ titulo, repo: "gestion", tablero: "Sistemas" }), 2, titulo);
-  }
-  // 3: lo demás.
-  assert.equal(prioridadDeLaFila({ titulo: "Cambiar el logo", repo: "aizencrm", tablero: "Sistemas" }), 3);
-  assert.equal(prioridadDeLaFila({ titulo: "Cambiar el logo", repo: "gestion", tablero: "Sistemas" }), 3);
-  assert.equal(prioridadDeLaFila({ titulo: "Cambiar el logo" }), 3, "sin repo, zona ni tablero");
-  assert.equal(prioridadDeLaFila({ titulo: "Cambio", repo: "aizencrm", zonaProtegida: ["LIBRO_V3", "META_ADS"] }), 3, "Libro V3 y Meta Ads no adelantan");
+  // La marca urgente gana aunque el campo diga otra cosa.
+  assert.equal(prioridadDeLaFila({ titulo: "Algo", urgente: true, prioridad: "BAJA" }), 0);
+  assert.equal(prioridadDeLaFila({ titulo: "URGENTE: algo", prioridad: "ALTA" }), 0);
+  // El campo prioridad.
+  assert.equal(prioridadDeLaFila({ titulo: "Algo", prioridad: "URGENTE" }), 0);
+  assert.equal(prioridadDeLaFila({ titulo: "Algo", prioridad: "ALTA" }), 1);
+  assert.equal(prioridadDeLaFila({ titulo: "Algo", prioridad: "MEDIA" }), 2);
+  assert.equal(prioridadDeLaFila({ titulo: "Algo", prioridad: "BAJA" }), 3);
+  // Sin prioridad (o con un valor raro) es Media: las tarjetas de antes quedan en 2.
+  assert.equal(prioridadDeLaFila({ titulo: "Cambiar el logo" }), 2, "sin repo, zona ni tablero");
+  assert.equal(prioridadDeLaFila({ titulo: "Algo", prioridad: "baja" }), 2, "la base guarda MAYÚSCULAS: otro texto cuenta como Media");
+  assert.equal(prioridadDeLaFila({ titulo: "Algo", prioridad: null }), 2);
+  // Ventas, chats y Gestión ya no suben de nivel: son el desempate (categoriaDeLaFila).
+  assert.equal(prioridadDeLaFila({ titulo: "Filtros de los chats", repo: "aizencrm", tablero: "Ventas" }), 2);
+  assert.equal(prioridadDeLaFila({ titulo: "Registrar abonos", repo: "gestion", prioridad: "BAJA" }), 3);
+  assert.equal(prioridadDeLaFila({ titulo: "la prioridad es baja", repo: "aizencrm" }), 2, "prioridad en minúsculas no adelanta");
+  assert.equal(prioridadDeLaFila({ titulo: "Algo urgente para mañana", repo: "aizencrm" }), 2, "urgente en medio del título no adelanta");
+  assert.equal(prioridadDeLaFila({ titulo: "Urgentemente", repo: "aizencrm" }), 2, "«urgentemente» no es URGENTE");
 });
 
-prueba("prioridadDeLaFila: empates y casos borde", () => {
-  const { prioridadDeLaFila } = trabajo;
-  assert.equal(prioridadDeLaFila({ titulo: "URGENTE: los chats", repo: "aizencrm", tablero: "Ventas" }), 0, "una urgente de Ventas sigue siendo 0");
-  assert.equal(prioridadDeLaFila({ titulo: "Abonos en los chats", repo: "gestion" }), 1, "ventas y chats le gana a dinero de Gestión");
-  assert.equal(prioridadDeLaFila({ titulo: "Registrar abonos", repo: "aizencrm", tablero: "Sistemas" }), 3, "abonos en aizencrm no es dinero de Gestión");
-  assert.equal(prioridadDeLaFila({ titulo: "Cambiar la ventana de inicio", repo: "gestion" }), 3, "«ventana» no es venta");
-  assert.equal(prioridadDeLaFila({ titulo: "Botón", repo: "aizencrm", tablero: "Preventas" }), 3, "«Preventas» no es el tablero Ventas");
-  assert.equal(prioridadDeLaFila({ titulo: "Arreglar la NÓMINA", repo: "gestion" }), 2, "con tilde y en mayúsculas");
-  assert.equal(prioridadDeLaFila({ titulo: "arreglar la nomina", repo: "gestion" }), 2, "sin tilde");
-  assert.equal(prioridadDeLaFila({ titulo: "Descuenta el IVA", repo: "gestion" }), 3, "«descuenta» no es cuenta");
-  assert.equal(prioridadDeLaFila({ titulo: "Chatbot nuevo", repo: "aizencrm" }), 3, "«chatbot» no es chat");
-  assert.equal(prioridadDeLaFila({ titulo: "la prioridad es baja", repo: "aizencrm" }), 3, "prioridad en minúsculas no adelanta");
-  assert.equal(prioridadDeLaFila({ titulo: "Algo urgente para mañana", repo: "aizencrm" }), 3, "urgente en medio del título no adelanta");
-  assert.equal(prioridadDeLaFila({ titulo: "Urgentemente", repo: "aizencrm" }), 3, "«urgentemente» no es URGENTE");
+prueba("prioridades: la lista, la entrada del MCP y la efectiva", () => {
+  const { PRIORIDADES, PRIORIDAD_POR_DEFECTO, prioridadDeEntrada, nivelDePrioridad, prioridadEfectiva, esPrioridad } = trabajo;
+  assert.deepEqual([...PRIORIDADES], ["URGENTE", "ALTA", "MEDIA", "BAJA"]);
+  assert.equal(PRIORIDAD_POR_DEFECTO, "MEDIA");
+  assert.equal(prioridadDeEntrada(" alta "), "ALTA");
+  assert.equal(prioridadDeEntrada("Baja"), "BAJA");
+  assert.equal(prioridadDeEntrada("URGENTE"), "URGENTE");
+  assert.equal(prioridadDeEntrada("normal"), null);
+  assert.equal(prioridadDeEntrada(3), null);
+  assert.equal(esPrioridad("MEDIA"), true);
+  assert.equal(esPrioridad("media"), false);
+  assert.deepEqual(PRIORIDADES.map((p) => nivelDePrioridad(p)), [0, 1, 2, 3]);
+  assert.equal(nivelDePrioridad(undefined), 2);
+  assert.equal(prioridadEfectiva({ titulo: "Algo", prioridad: "BAJA" }), "BAJA");
+  assert.equal(prioridadEfectiva({ titulo: "Algo", urgente: true, prioridad: "BAJA" }), "URGENTE");
+  assert.equal(prioridadEfectiva({ titulo: "Algo" }), "MEDIA");
+});
+
+prueba("categoriaDeLaFila: el desempate de siempre (0 ventas y chats, 1 dinero de Gestión, 2 lo demás)", () => {
+  const { categoriaDeLaFila } = trabajo;
+  // 0: el tablero se llama Ventas, el título dice chat / conversación / asesora, o la zona es CHATS o BOT_VENTAS.
+  assert.equal(categoriaDeLaFila({ titulo: "Botón nuevo", repo: "aizencrm", tablero: "Ventas" }), 0);
+  assert.equal(categoriaDeLaFila({ titulo: "Botón nuevo", repo: "aizencrm", tablero: "CRM Ventas" }), 0);
+  assert.equal(categoriaDeLaFila({ titulo: "Filtros de los chats", repo: "aizencrm", tablero: "Sistemas" }), 0);
+  assert.equal(categoriaDeLaFila({ titulo: "Abrir una conversación más rápido", repo: "aizencrm" }), 0);
+  assert.equal(categoriaDeLaFila({ titulo: "Firma de las ASESORAS", repo: "aizencrm" }), 0);
+  assert.equal(categoriaDeLaFila({ titulo: "Cambio chico", repo: "aizencrm", zonaProtegida: ["BOT_VENTAS"] }), 0);
+  assert.equal(categoriaDeLaFila({ titulo: "Cambio chico", repo: "aizencrm", zonaProtegida: ["CHATS"] }), 0);
+  // 1: repo gestion y el título habla de dinero.
+  for (const titulo of ["Ventas del día", "Registrar abonos", "Gasto de transporte", "Nómina de octubre", "Comisiones", "Cuentas por cobrar"]) {
+    assert.equal(categoriaDeLaFila({ titulo, repo: "gestion", tablero: "Sistemas" }), 1, titulo);
+  }
+  // 2: lo demás.
+  assert.equal(categoriaDeLaFila({ titulo: "Cambiar el logo", repo: "aizencrm", tablero: "Sistemas" }), 2);
+  assert.equal(categoriaDeLaFila({ titulo: "Cambiar el logo", repo: "gestion", tablero: "Sistemas" }), 2);
+  assert.equal(categoriaDeLaFila({ titulo: "Cambiar el logo" }), 2, "sin repo, zona ni tablero");
+  assert.equal(categoriaDeLaFila({ titulo: "Cambio", repo: "aizencrm", zonaProtegida: ["LIBRO_V3", "META_ADS"] }), 2, "Libro V3 y Meta Ads no adelantan");
+});
+
+prueba("categoriaDeLaFila: empates y casos borde", () => {
+  const { categoriaDeLaFila } = trabajo;
+  assert.equal(categoriaDeLaFila({ titulo: "URGENTE: los chats", repo: "aizencrm", tablero: "Ventas" }), 0, "la marca urgente no cambia el desempate");
+  assert.equal(categoriaDeLaFila({ titulo: "Abonos en los chats", repo: "gestion" }), 0, "ventas y chats le gana a dinero de Gestión");
+  assert.equal(categoriaDeLaFila({ titulo: "Registrar abonos", repo: "aizencrm", tablero: "Sistemas" }), 2, "abonos en aizencrm no es dinero de Gestión");
+  assert.equal(categoriaDeLaFila({ titulo: "Cambiar la ventana de inicio", repo: "gestion" }), 2, "«ventana» no es venta");
+  assert.equal(categoriaDeLaFila({ titulo: "Botón", repo: "aizencrm", tablero: "Preventas" }), 2, "«Preventas» no es el tablero Ventas");
+  assert.equal(categoriaDeLaFila({ titulo: "Arreglar la NÓMINA", repo: "gestion" }), 1, "con tilde y en mayúsculas");
+  assert.equal(categoriaDeLaFila({ titulo: "arreglar la nomina", repo: "gestion" }), 1, "sin tilde");
+  assert.equal(categoriaDeLaFila({ titulo: "Descuenta el IVA", repo: "gestion" }), 2, "«descuenta» no es cuenta");
+  assert.equal(categoriaDeLaFila({ titulo: "Chatbot nuevo", repo: "aizencrm" }), 2, "«chatbot» no es chat");
+});
+
+prueba("los textos del MCP explican la prioridad (crear_tarjeta, editar_tarjeta, ver_tablero y las instrucciones)", () => {
+  const leer = (ruta) => readFileSync(new URL(`../${ruta}`, import.meta.url), "utf8");
+  const mcp = leer("src/lib/mcp/tableros-inteligentes.ts");
+  for (const nombre of ["crear_tarjeta", "editar_tarjeta"]) {
+    const inicio = mcp.indexOf(`name: "${nombre}"`);
+    const fin = mcp.indexOf("annotations:", inicio);
+    assert.match(mcp.slice(inicio, fin), /prioridad: PROPIEDAD_PRIORIDAD/, nombre);
+  }
+  assert.match(mcp, /enum: \[\.\.\.PRIORIDADES\]/);
+  assert.match(mcp, /prioridad: tarjeta\.prioridad/, "ver_tablero devuelve la prioridad");
+  assert.match(leer("src/app/api/mcp/route.ts"), /PRIORIDAD: crear_tarjeta y editar_tarjeta aceptan prioridad/);
 });
 
 prueba("esUrgente y EMPIEZA_URGENTE viven en reglas-trabajador y funcionan igual que antes", () => {

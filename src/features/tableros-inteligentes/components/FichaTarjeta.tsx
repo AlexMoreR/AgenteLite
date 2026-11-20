@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import {
+  cambiarPrioridadAction,
   cambiarResponsableAction,
   marcarUrgenteAction,
   historialDeTarjetaAction,
@@ -15,8 +16,9 @@ import {
   type CambioDeTarjetaVista,
 } from "@/app/actions/tableros-inteligentes-actions";
 import { NOMBRE_DEL_ESTADO, esEstado, textoDelLink, type MiembroDelNegocio } from "../services/reglas";
+import { NOMBRE_DE_PRIORIDAD, PRIORIDADES, esPrioridad } from "../services/reglas-trabajador";
 import type { ConexionVista, TarjetaVista, TipoVista } from "../services/tableros";
-import { COLOR_DEL_ESTADO } from "./colores";
+import { COLOR_DE_PRIORIDAD, COLOR_DEL_ESTADO } from "./colores";
 import { IconoDeTipo } from "./IconoDeTipo";
 import { PasarAlCerebro } from "./PasarAlCerebro";
 import { sePuedePasarAlCerebro } from "@/features/cerebro/services/reglas";
@@ -64,6 +66,7 @@ const CAMPO: Record<string, string> = {
   riesgoPor: "quién puso el riesgo",
   responsableId: "responsable",
   urgente: "urgente",
+  prioridad: "prioridad",
 };
 
 function resumenDelCambio(cambio: CambioDeTarjetaVista, nombreDelTipo: ReadonlyMap<string, string>): string | null {
@@ -189,6 +192,7 @@ export function FichaTarjeta({
   const [cargandoHistorial, setCargandoHistorial] = useState(false);
   const [asignando, setAsignando] = useState(false);
   const [marcandoUrgente, setMarcandoUrgente] = useState(false);
+  const [cambiandoPrioridad, setCambiandoPrioridad] = useState(false);
 
   const titulo = new Map(tarjetas.map((otra) => [otra.id, otra.titulo]));
   const nombreDelTipo = new Map([...tipos.values()].map((tipo) => [tipo.id, tipo.nombre]));
@@ -225,6 +229,24 @@ export function FichaTarjeta({
     setAsignando(false);
     if (resultado.ok) {
       toast.success(responsableId ? "Tarjeta asignada" : "Sin responsable");
+      setHistorial(null);
+    } else {
+      toast.error(resultado.error);
+    }
+    alAprobar();
+  };
+
+  const cambiarPrioridad = async (prioridad: string) => {
+    if (!tarjeta || !esPrioridad(prioridad) || prioridad === tarjeta.prioridad) return;
+    setCambiandoPrioridad(true);
+    const resultado = await cambiarPrioridadAction(tarjeta.id, prioridad).catch(() => ({
+      ok: false as const,
+      error: "No se pudo guardar: revisa la conexión e inténtalo de nuevo.",
+    }));
+    setCambiandoPrioridad(false);
+    if (resultado.ok) {
+      if (resultado.aviso) toast.info(resultado.aviso);
+      else toast.success(`Prioridad: ${NOMBRE_DE_PRIORIDAD[prioridad]}`);
       setHistorial(null);
     } else {
       toast.error(resultado.error);
@@ -312,6 +334,25 @@ export function FichaTarjeta({
                   <ExternalLink />
                   <span className="truncate">{textoDelLink(tarjeta.link, tarjeta.linkTexto)}</span>
                 </Button>
+              ) : null}
+
+              {/* La prioridad (21-nov-2026): el Coordinador toma primero Urgente, después Alta, Media y Baja. */}
+              {usaEstados ? (
+                <label className="block space-y-1">
+                  <span className="text-xs font-medium text-muted-foreground">Prioridad</span>
+                  <select
+                    className={cn("h-10 w-full rounded-lg border px-3 text-sm font-medium md:h-9", COLOR_DE_PRIORIDAD[tarjeta.prioridad])}
+                    value={tarjeta.prioridad}
+                    disabled={cambiandoPrioridad}
+                    onChange={(evento) => void cambiarPrioridad(evento.target.value)}
+                  >
+                    {PRIORIDADES.map((prioridad) => (
+                      <option key={prioridad} value={prioridad}>
+                        {NOMBRE_DE_PRIORIDAD[prioridad]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               ) : null}
 
               {puedeAsignar ? (

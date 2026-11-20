@@ -440,7 +440,7 @@ await prueba("la fila: las que esperan que las apruebes en la pantalla (Meta Ads
   assert.deepEqual(resumenDePasos(bloqueadas.p4.pasos), ["plan", true, "necesita_humano,pendiente,pendiente,pendiente,pendiente"]);
   assert.equal(bloqueadas.p6.motivo, "Espera que la apruebes en la pantalla (Meta Ads)");
   for (const id of ["p4", "p6"]) assert.ok(!fila.siguientes.some((i) => i.tarjetaId === id), `${id} no está en la fila`);
-  // El orden de hoy: prioridadDeLaFila (la que toca chats antes).
+  // El orden de hoy (21-nov-2026): las dos en Media, así que desempata categoriaDeLaFila (la que toca chats antes).
   assert.deepEqual(fila.bloqueadas.map((i) => i.tarjetaId), ["p6", "p4"]);
 
   const texto = servicio.textoDelCoordinador(vista);
@@ -456,6 +456,26 @@ await prueba("la fila: las que esperan que las apruebes en la pantalla (Meta Ads
   // ver_coordinador: cada elemento de `fila` trae su motivo, como `bloqueadas`.
   const mcp = fs.readFileSync(path.join(process.cwd(), "src/lib/mcp/tableros-inteligentes.ts"), "utf8");
   assert.match(mcp, /fila: vista\.fila\.siguientes\.map\(\(item\) => \(\{[^}]*motivo: item\.motivo/);
+});
+
+await prueba("la fila (21-nov-2026): Urgente, Alta, Media y Baja, en el mismo orden con que /tomar escoge", async () => {
+  estado.tarjetas.push(
+    // Se aprobó primero una Baja (es la más vieja de la fila) y después una Urgente.
+    tarjeta({ id: "q-baja", titulo: "Baja vieja", estado: "APROBADO", trabajoVenceEn: null, prioridad: "BAJA" }),
+    tarjeta({ id: "q-media-chats", titulo: "Media con los chats", estado: "APROBADO", trabajoVenceEn: null, prioridad: "MEDIA" }),
+    tarjeta({ id: "q-media", titulo: "Media", estado: "APROBADO", trabajoVenceEn: null }),
+    tarjeta({ id: "q-alta", titulo: "Alta", estado: "APROBADO", trabajoVenceEn: null, prioridad: "ALTA" }),
+    tarjeta({ id: "q-marcada", titulo: "Baja pero marcada urgente", estado: "APROBADO", trabajoVenceEn: null, prioridad: "BAJA", urgente: true }),
+    tarjeta({ id: "q-urgente", titulo: "Urgente nueva", estado: "APROBADO", trabajoVenceEn: null, prioridad: "URGENTE" }),
+  );
+  const { fila } = await servicio.vistaDelCoordinador("ws1", AHORA);
+  assert.deepEqual(
+    fila.siguientes.map((i) => i.tarjetaId),
+    ["q-marcada", "q-urgente", "q-alta", "q-media-chats", "q-media", "q-baja"],
+    "la Urgente pasa adelante de la Baja aprobada antes; la marca urgente cuenta como Urgente; en Media desempatan los chats",
+  );
+  const servicioTexto = fs.readFileSync(path.join(process.cwd(), "src/features/tableros-inteligentes/services/coordinador-en-vivo.ts"), "utf8");
+  assert.match(servicioTexto, /orderBy: \[\{ creadoEn: "asc" \}, \{ numero: "asc" \}\]/, "la más vieja primero, como ORDEN_PARA_TOMAR");
 });
 
 await prueba("en error y esperando a otra: los números y la lista (con la línea para el dueño y «que está en error»)", async () => {

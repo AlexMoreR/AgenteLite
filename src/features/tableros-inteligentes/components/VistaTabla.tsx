@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { cambiarResponsableAction } from "@/app/actions/tableros-inteligentes-actions";
 import { borrarVistaDeTablaAction, editarCeldaAction, guardarVistaDeTablaAction } from "@/app/actions/tablero-ia-vistas-actions";
 import { NOMBRE_DEL_ESTADO, esEstado, type MiembroDelNegocio } from "../services/reglas";
+import { NOMBRE_DE_PRIORIDAD, PRIORIDADES, esPrioridad } from "../services/reglas-trabajador";
 import type { TarjetaVista, TipoVista } from "../services/tableros";
 import {
   COLUMNAS_CON_OPCIONES,
@@ -32,7 +33,7 @@ import {
   type FilaDeTabla,
   type VistaDeTabla,
 } from "../services/vistas-de-tabla";
-import { COLOR_DEL_ESTADO } from "./colores";
+import { COLOR_DE_PRIORIDAD, COLOR_DEL_ESTADO } from "./colores";
 import { accionSegura, useCambioDeEstado } from "./VistaKanban";
 
 const DIA = new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", day: "numeric", month: "short", year: "numeric" });
@@ -137,9 +138,13 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
     if (activa === vista.id) elegirVista(null);
   };
 
-  const guardarCelda = async (tarjetaId: string, cambio: { area: string | null } | { fecha: string | null }) => {
+  const guardarCelda = async (
+    tarjetaId: string,
+    cambio: { area: string | null } | { fecha: string | null } | { prioridad: string },
+  ) => {
     const resultado = await accionSegura(editarCeldaAction(tarjetaId, cambio));
-    if (resultado.ok) toast.success("Guardado");
+    if (resultado.ok && "aviso" in resultado && resultado.aviso) toast.info(resultado.aviso);
+    else if (resultado.ok) toast.success("Guardado");
     else {
       toast.error(resultado.error);
       setRevision((n) => n + 1);
@@ -238,12 +243,24 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
       case "estado":
         return celdaDeEstado(fila);
       case "prioridad":
-        return tarjeta.urgente ? (
-          <span className="rounded-full border border-rose-300 bg-rose-100 px-2 py-0.5 text-xs font-medium text-rose-800 dark:border-rose-600 dark:bg-rose-900 dark:text-rose-100">
-            Urgente
-          </span>
-        ) : (
-          <span className="text-xs text-muted-foreground">Normal</span>
+        // Los 4 niveles con su color (21-nov-2026); se cambia ahí mismo, como el área y la fecha.
+        return (
+          <select
+            key={`${tarjeta.id}-${tarjeta.prioridad}-${revision}`}
+            aria-label={`Prioridad de ${tarjeta.codigo || tarjeta.titulo}`}
+            className={cn("w-full rounded-full border px-2 py-0.5 text-xs font-medium", COLOR_DE_PRIORIDAD[tarjeta.prioridad])}
+            defaultValue={tarjeta.prioridad}
+            onChange={(evento) => {
+              const prioridad = evento.target.value;
+              if (esPrioridad(prioridad) && prioridad !== tarjeta.prioridad) void guardarCelda(tarjeta.id, { prioridad });
+            }}
+          >
+            {PRIORIDADES.map((prioridad) => (
+              <option key={prioridad} value={prioridad}>
+                {NOMBRE_DE_PRIORIDAD[prioridad]}
+              </option>
+            ))}
+          </select>
         );
       case "responsable":
         if (!puedeAsignar) return <span className="truncate">{tarjeta.responsableNombre ?? <span className="text-muted-foreground">Nadie</span>}</span>;
@@ -292,6 +309,7 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
     columna === "estado" ||
     columna === "area" ||
     columna === "fecha" ||
+    columna === "prioridad" ||
     (columna === "responsable" && puedeAsignar);
 
   return (

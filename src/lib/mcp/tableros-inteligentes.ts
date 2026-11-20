@@ -43,6 +43,7 @@ import { textoDelCoordinador, vistaDelCoordinador } from "@/features/tableros-in
 import { contarHijas } from "@/features/tableros-inteligentes/services/niveles";
 import { dondeSeConstruyo } from "@/features/tableros-inteligentes/services/modelos-del-coordinador";
 import { RIESGOS } from "@/features/tableros-inteligentes/services/reglas-riesgo";
+import { PRIORIDADES } from "@/features/tableros-inteligentes/services/reglas-trabajador";
 import {
   MOMENTOS_DE_APROBACION,
   NOMBRE_DEL_MOMENTO,
@@ -194,6 +195,13 @@ const PROPIEDAD_RESPONSABLE = {
     "A quién se le asigna la tarjeta: el nombre o el email de una persona activa del negocio (por ejemplo 'Emanuel'). Si el nombre coincide con más de una persona, da error y pide el email. La persona la ve en 'Asignadas a mí' aunque esté en un tablero que no es suyo. Opcional.",
 } as const;
 
+const PROPIEDAD_PRIORIDAD = {
+  type: "string",
+  enum: [...PRIORIDADES],
+  description:
+    "Qué tan importante es (21-nov-2026): URGENTE, ALTA, MEDIA (por defecto) o BAJA. El Coordinador toma primero las URGENTE, después ALTA, MEDIA y BAJA; dentro de la misma, la más vieja primero. Una URGENTE no corta lo que ya se está construyendo: entra de siguiente. Una tarjeta marcada urgente (o con un título que empieza por URGENTE) cuenta como URGENTE. Opcional.",
+} as const;
+
 export const HERRAMIENTAS_MCP_TABLEROS = [
   {
     name: "listar_tableros",
@@ -247,7 +255,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     name: "ver_tablero",
     title: "Ver un tablero",
     description:
-      "Muestra las tarjetas de un tablero (título, detalle, tipo, de qué tarjeta cuelga, área, estado, responsable, fecha, link) con qué flechas las unen, y los tipos del tablero. Hay que llamarla antes de editar o conectar: devuelve los ids. " +
+      "Muestra las tarjetas de un tablero (título, detalle, tipo, de qué tarjeta cuelga, área, estado, responsable, prioridad, fecha, link) con qué flechas las unen, y los tipos del tablero. Hay que llamarla antes de editar o conectar: devuelve los ids. " +
       "No trae las ARCHIVADAS: las HECHO salen del tablero apenas terminan (una madre HECHO, cuando cierran sus hijas; una que se desarchivó se queda hasta que vuelva a terminar) y las FALLIDO a los 3 días (siguen HECHO o FALLIDO, no cuentan para el límite de 300 y se ven en la pestaña 'Trabajos terminados'). Para verlas, estado 'ARCHIVADA'. Para lo terminado en una semana, listar_terminadas.",
     inputSchema: {
       type: "object",
@@ -349,6 +357,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
         riesgo: PROPIEDAD_RIESGO,
         motivo_riesgo: PROPIEDAD_MOTIVO_RIESGO,
         responsable: PROPIEDAD_RESPONSABLE,
+        prioridad: PROPIEDAD_PRIORIDAD,
         conectar_con: {
           type: "array",
           items: { type: "string" },
@@ -364,7 +373,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     name: "editar_tarjeta",
     title: "Editar una tarjeta",
     description:
-      "Cambia el título, el detalle, el tipo, de qué tarjeta cuelga, el área, la fecha, el orden, el link, el repo, la zona protegida, el riesgo (BAJO / ALTO, con su motivo_riesgo) o el responsable (a quién se le asigna) de una tarjeta. Se manda solo lo que cambia. MOVER (10-nov-2026): si solo cambia de qué cuelga (padre_id), el área, el orden, la fecha o el responsable, la tarjeta CONSERVA su estado (Aprobado, Plan aprobado, Por revisar...) y su plan, no se recalcula el riesgo, se puede aunque el Coordinador la tenga (PLANEANDO, EN_CURSO, SUBIENDO) sin interrumpir su trabajo y el historial lo marca como movimiento. Si cambia lo que hay que hacer (título, detalle, tipo, repo, riesgo, zona protegida o link) y estaba aprobada (APROBADO, o con el trabajador: PLAN_LISTO, PLAN_APROBADO, POR_REVISAR, ERROR), vuelve a POR_APROBAR; si queda POR_APROBAR con riesgo BAJO y el interruptor está prendido, se aprueba sola. Mientras el Coordinador la tiene, esos campos no se editan (solo se mueve). Si se le cambia el tipo, queda POR_APROBAR (tipo con aprobación) o IDEA (sin aprobación): pierde la aprobación que tuviera. La zona protegida se puede agregar, no quitar (eso solo el dueño en la pantalla)." +
+      "Cambia el título, el detalle, el tipo, de qué tarjeta cuelga, el área, la fecha, el orden, el link, el repo, la zona protegida, el riesgo (BAJO / ALTO, con su motivo_riesgo), el responsable (a quién se le asigna) o la prioridad (URGENTE, ALTA, MEDIA, BAJA) de una tarjeta. Se manda solo lo que cambia. PRIORIDAD (21-nov-2026): cambiarla cuenta como mover (conserva su estado y su plan); bajarla le quita la marca urgente, y si el título sigue empezando por URGENTE la respuesta lo avisa. MOVER (10-nov-2026): si solo cambia de qué cuelga (padre_id), el área, el orden, la fecha o el responsable, la tarjeta CONSERVA su estado (Aprobado, Plan aprobado, Por revisar...) y su plan, no se recalcula el riesgo, se puede aunque el Coordinador la tenga (PLANEANDO, EN_CURSO, SUBIENDO) sin interrumpir su trabajo y el historial lo marca como movimiento. Si cambia lo que hay que hacer (título, detalle, tipo, repo, riesgo, zona protegida o link) y estaba aprobada (APROBADO, o con el trabajador: PLAN_LISTO, PLAN_APROBADO, POR_REVISAR, ERROR), vuelve a POR_APROBAR; si queda POR_APROBAR con riesgo BAJO y el interruptor está prendido, se aprueba sola. Mientras el Coordinador la tiene, esos campos no se editan (solo se mueve). Si se le cambia el tipo, queda POR_APROBAR (tipo con aprobación) o IDEA (sin aprobación): pierde la aprobación que tuviera. La zona protegida se puede agregar, no quitar (eso solo el dueño en la pantalla)." +
       REGLA_DEL_TABLERO,
     inputSchema: {
       type: "object",
@@ -384,6 +393,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
         riesgo: { ...PROPIEDAD_RIESGO, enum: [...RIESGOS, ""], description: `${PROPIEDAD_RIESGO.description} Vacío para quitarlo (queda como ALTO). Claude no puede bajar a BAJO una tarjeta que el trabajador o el dueño dejaron en ALTO.` },
         motivo_riesgo: PROPIEDAD_MOTIVO_RIESGO,
         responsable: { ...PROPIEDAD_RESPONSABLE, description: `${PROPIEDAD_RESPONSABLE.description} Vacío para quitar el responsable.` },
+        prioridad: PROPIEDAD_PRIORIDAD,
         urgente: {
           type: "boolean",
           description:
@@ -762,6 +772,7 @@ export async function ejecutarHerramientaMcpTableros(
             area: tarjeta.area,
             estado: usaEstados(tarjeta.tipoId) ? tarjeta.estado : null,
             responsable: tarjeta.responsableNombre,
+            prioridad: tarjeta.prioridad,
             orden: tarjeta.orden,
             fecha: dia(tarjeta.fecha),
             link: tarjeta.link,
@@ -869,6 +880,7 @@ export async function ejecutarHerramientaMcpTableros(
         riesgo: args.riesgo,
         motivoRiesgo: args.motivo_riesgo,
         responsable: args.responsable,
+        prioridad: args.prioridad,
       });
       return {
         ok: true,
@@ -879,6 +891,7 @@ export async function ejecutarHerramientaMcpTableros(
         padre_id: resultado.tarjeta.padreId,
         estado: resultado.tipo.usaEstados ? resultado.tarjeta.estado : null,
         responsable: resultado.tarjeta.responsableNombre,
+        prioridad: resultado.tarjeta.prioridad,
         ...(resultado.tarjeta.repo ? { repo: resultado.tarjeta.repo, riesgo: resultado.tarjeta.riesgo ?? "ALTO (sin riesgo puesto)" } : {}),
         ...(resultado.tarjeta.zonaProtegida.length ? { zona_protegida: resultado.tarjeta.zonaProtegida } : {}),
         ...(resultado.aprobacionAutomatica?.aprobada ? { aprobada_sola: true } : {}),
@@ -900,6 +913,9 @@ export async function ejecutarHerramientaMcpTableros(
     case "editar_tarjeta": {
       const tablero = await tableroDeLaTarjeta(contexto,args.tarjeta_id);
       if (args.urgente !== undefined && args.urgente !== true) throw new Error("urgente solo se puede marcar: va true.");
+      if (args.urgente === true && typeof args.prioridad === "string" && args.prioridad.trim() && args.prioridad.trim().toUpperCase() !== "URGENTE") {
+        throw new Error("urgente: true y una prioridad que no es URGENTE no van juntas: manda solo una de las dos.");
+      }
       const hayOtrosCambios = Object.entries(args).some(([campo, valor]) => campo !== "tarjeta_id" && campo !== "urgente" && valor !== undefined);
       if (args.urgente === true && !hayOtrosCambios) {
         const { yaEstaba } = await marcarUrgente(contexto, args.tarjeta_id);
@@ -929,15 +945,17 @@ export async function ejecutarHerramientaMcpTableros(
         riesgo: args.riesgo,
         motivoRiesgo: args.motivo_riesgo,
         responsable: args.responsable,
+        prioridad: args.prioridad,
       });
       if (args.urgente === true) await marcarUrgente(contexto, args.tarjeta_id);
-      const aviso = resultado.aprobacionAutomatica?.aprobada
+      const avisoDeAprobacion = resultado.aprobacionAutomatica?.aprobada
         ? "Quedó APROBADA sola (regla del dueño 25-oct, o de bajo riesgo con el interruptor apagado): el trabajador la toma enseguida, sin pedirle permiso al dueño."
         : resultado.avisoDeRiesgo
           ? `${resultado.avisoDeRiesgo} Queda para el dueño.`
           : resultado.aprobacionAutomatica
             ? `No se aprobó sola (${resultado.aprobacionAutomatica.porQue}): queda POR_APROBAR para el dueño.`
             : null;
+      const aviso = [avisoDeAprobacion, resultado.avisoDePrioridad].filter(Boolean).join(" ") || null;
       const avisoBase = resultado.movimiento
         ? `Se movió: conserva su estado (${resultado.tipo.usaEstados ? resultado.tarjeta.estado : "sin estado"}) y su plan. Para volver atrás: deshacer_cambio_tarjeta.`
         : resultado.cambioDeTipo
@@ -958,6 +976,7 @@ export async function ejecutarHerramientaMcpTableros(
         padre_id: resultado.tarjeta.padreId,
         estado: resultado.tipo.usaEstados ? resultado.tarjeta.estado : null,
         responsable: resultado.tarjeta.responsableNombre,
+        prioridad: args.urgente === true ? "URGENTE" : resultado.tarjeta.prioridad,
         repo: resultado.tarjeta.repo,
         riesgo: resultado.tarjeta.repo ? (resultado.tarjeta.riesgo ?? "ALTO (sin riesgo puesto)") : null,
         zona_protegida: resultado.tarjeta.zonaProtegida,

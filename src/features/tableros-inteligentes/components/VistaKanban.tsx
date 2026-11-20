@@ -20,7 +20,8 @@ import {
   veredictoDelKanban,
   type FilaDeTabla,
 } from "../services/vistas-de-tabla";
-import { COLOR_DEL_ESTADO } from "./colores";
+import { NOMBRE_DE_PRIORIDAD } from "../services/reglas-trabajador";
+import { COLOR_DE_PRIORIDAD, COLOR_DEL_ESTADO } from "./colores";
 import { IconoDeTipo } from "./IconoDeTipo";
 
 /**
@@ -245,12 +246,22 @@ export function VistaKanban({ tarjetas, tipos, alAbrir, alCambiar }: Props) {
                       <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                         {tipo ? <IconoDeTipo icono={tipo.icono} color={tipo.color} className="size-3.5" /> : null}
                         {tarjeta.codigo ? <span className="tabular-nums">{tarjeta.codigo}</span> : null}
+                        {/* La prioridad con su color (21-nov-2026); Media no lleva etiqueta, para no recargar la vista. */}
+                        {tarjeta.prioridad !== "MEDIA" ? (
+                          <span
+                            className={cn(
+                              "rounded-full border px-1.5 text-[11px] font-medium",
+                              !delCoordinador && "ml-auto",
+                              COLOR_DE_PRIORIDAD[tarjeta.prioridad],
+                            )}
+                          >
+                            {NOMBRE_DE_PRIORIDAD[tarjeta.prioridad]}
+                          </span>
+                        ) : null}
                         {delCoordinador ? (
                           <span className={cn("ml-auto rounded-full border px-1.5 text-[11px]", COLOR_DEL_ESTADO[tarjeta.estado].pastilla)}>
                             {NOMBRE_DEL_ESTADO[tarjeta.estado]}
                           </span>
-                        ) : tarjeta.urgente ? (
-                          <span className="ml-auto font-medium text-rose-600 dark:text-rose-400">Urgente</span>
                         ) : null}
                       </span>
                       <span className="mt-1 line-clamp-3 font-medium leading-snug">{tarjeta.titulo}</span>
