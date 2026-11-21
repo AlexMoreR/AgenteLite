@@ -1,2 +1,0 @@
-## Advertencias de operación
-- `push_suscripcion_global`: el celular se suscribe a las notificaciones (PushSubscriptionManager) en cualquier pantalla de /cliente, montado en el armazón (app-shell), ya no solo al abrir Chats; el permiso se sigue pidiendo tras el primer toque. En iPhone el aviso con el CRM cerrado solo llega con la app instalada en la pantalla de inicio: a quien tiene el permiso de llamadas le sale una franja ("Compartir → Agregar a inicio", o "Activar" si ya la instaló sin dar permiso), que se puede cerrar y no vuelve en la misma sesión.
