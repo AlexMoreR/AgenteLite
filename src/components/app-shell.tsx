@@ -384,14 +384,17 @@ export function AppShell({
                       userId={chatRealtimeUserId}
                     />
                     <ChatIncomingNotifier />
-                    {/*
-                      La suscripción a las notificaciones del celular va aca, una sola vez, y no en la
-                      pagina de Chats: una asesora que nunca abria Chats no quedaba suscrita y no le
-                      llegaba "Te está llamando" con el CRM cerrado. Se sigue pidiendo el permiso tras
-                      el primer toque, como antes.
-                    */}
-                    <PushSubscriptionManager enabled />
                   </>
+                ) : null}
+                {/*
+                  La suscripción a las notificaciones del celular va aca, una sola vez, y no en la
+                  pagina de Chats: una asesora que nunca abria Chats no quedaba suscrita y no le
+                  llegaba "Te está llamando" con el CRM cerrado. Se sigue pidiendo el permiso tras el
+                  primer toque, como antes. Tambien con solo el permiso de llamadas (sin Chats), que
+                  es a quien le sale la franja de iPhone.
+                */}
+                {(chatRealtimeWorkspaceId || puedeVerLlamadas) && pathname.startsWith("/cliente") ? (
+                  <PushSubscriptionManager enabled />
                 ) : null}
                 {/*
                   El signo de pregunta (copiloto de ayuda) sale del encabezado por ahora: nadie

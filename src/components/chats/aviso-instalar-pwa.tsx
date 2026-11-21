@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia } from "@/components/ui/item";
 import { isProbablyIos, isStandalone } from "@/lib/pwa-instalada";
 import { isPushSupported, requestPermissionAndSubscribe } from "./push-subscription-client";
+import { EVENTO_PERMISO_DECIDIDO } from "./push-subscription-manager";
 
 /** Cerrada en esta sesión del navegador: no vuelve a salir hasta abrir el CRM de nuevo. */
 const CLAVE_CERRADA = "aviso-instalar-pwa:cerrado";
@@ -61,6 +62,24 @@ export function AvisoInstalarPwa() {
     // En el cliente: en el servidor no se sabe qué teléfono es (y así no choca la hidratación).
     if (estaCerrada()) return;
     setEstado(estadoDelDispositivo());
+
+    /*
+      PushSubscriptionManager pide el permiso con el primer toque en cualquier parte del CRM. Cuando
+      termina avisa, y la franja se vuelve a calcular: con el permiso dado se va, negado pasa a
+      "bloqueado". Al volver a la app también (pudo cambiarlo en Ajustes del iPhone).
+    */
+    const recalcular = () => {
+      if (!estaCerrada()) setEstado(estadoDelDispositivo());
+    };
+    const alVolver = () => {
+      if (document.visibilityState === "visible") recalcular();
+    };
+    window.addEventListener(EVENTO_PERMISO_DECIDIDO, recalcular);
+    document.addEventListener("visibilitychange", alVolver);
+    return () => {
+      window.removeEventListener(EVENTO_PERMISO_DECIDIDO, recalcular);
+      document.removeEventListener("visibilitychange", alVolver);
+    };
   }, []);
 
   if (estado === "nada") return null;
@@ -71,6 +90,11 @@ export function AvisoInstalarPwa() {
   };
 
   const activar = async () => {
+    // Ya se decidió (por ejemplo con el primer toque en otra parte): no se pide otra vez.
+    if (Notification.permission !== "default") {
+      setEstado(estadoDelDispositivo());
+      return;
+    }
     setOcupado(true);
     try {
       const resultado = await requestPermissionAndSubscribe();
@@ -97,7 +121,11 @@ export function AvisoInstalarPwa() {
         : "Las notificaciones están bloqueadas. Actívalas en Ajustes del iPhone → Notificaciones → esta app.";
 
   return (
-    <div className="px-3 pt-3 md:px-4">
+    /*
+      Un toque en la franja (Activar o la X) no llega al pedido de permiso del primer toque de
+      PushSubscriptionManager: el permiso lo pide solo "Activar", y cerrar no abre el diálogo de iOS.
+    */
+    <div className="px-3 pt-3 md:px-4" onPointerDown={(event) => event.stopPropagation()}>
       <Item variant="muted" size="sm" role="status">
         <ItemMedia variant="icon" className="text-primary">
           <PhoneIncoming />

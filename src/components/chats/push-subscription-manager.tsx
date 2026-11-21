@@ -8,6 +8,9 @@ import {
   subscribeToPush,
 } from "./push-subscription-client";
 
+/** Se lanza en `window` cuando termina el pedido de permiso tras el primer toque. */
+export const EVENTO_PERMISO_DECIDIDO = "push:permiso-decidido";
+
 /**
  * Registra este dispositivo para recibir notificaciones Web Push (VAPID), de modo que
  * la PWA suene y muestre el mensaje "tipo WhatsApp" aunque esté cerrada o en segundo
@@ -40,7 +43,10 @@ export function PushSubscriptionManager({ enabled = true }: { enabled?: boolean 
         return;
       }
       quitarGesto();
-      void requestPermissionAndSubscribe();
+      // Avisa al terminar: la franja de iPhone (AvisoInstalarPwa) se entera de si se dio o no.
+      void requestPermissionAndSubscribe().finally(() => {
+        window.dispatchEvent(new Event(EVENTO_PERMISO_DECIDIDO));
+      });
     };
     const quitarGesto = () => {
       window.removeEventListener("pointerdown", handleGesture);

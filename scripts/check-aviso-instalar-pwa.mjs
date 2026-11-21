@@ -63,8 +63,18 @@ prueba("el interruptor de Ajustes usa las funciones compartidas y no tiene copia
 prueba("PushSubscriptionManager se monta una sola vez, en el armazón y no en Chats", () => {
   assert.equal((armazon.match(/<PushSubscriptionManager\b/g) ?? []).length, 1, "app-shell debe montar PushSubscriptionManager una vez");
   assert.ok(!chats.includes("<PushSubscriptionManager"), "la pagina de Chats todavia monta PushSubscriptionManager");
-  const bloque = armazon.slice(armazon.indexOf("<ChatsOfficialRealtime"), armazon.indexOf("<PushSubscriptionManager"));
-  assert.ok(bloque.length > 0 && !bloque.includes(") : null}"), "PushSubscriptionManager debe ir junto a ChatsOfficialRealtime");
+  const realtime = armazon.indexOf("<ChatsOfficialRealtime");
+  const manager = armazon.indexOf("<PushSubscriptionManager");
+  assert.ok(realtime > 0 && manager > realtime && manager < armazon.indexOf("</header>"), "PushSubscriptionManager debe ir junto a ChatsOfficialRealtime");
+  assert.ok(/\(chatRealtimeWorkspaceId \|\| puedeVerLlamadas\) && pathname\.startsWith\("\/cliente"\)/.test(armazon), "el manager no cubre a quien solo tiene llamadas");
+});
+
+prueba("la franja se entera del permiso pedido con el primer toque y no lo pide dos veces", () => {
+  const managerFuente = leer("src/components/chats/push-subscription-manager.tsx");
+  assert.ok(/dispatchEvent\(new Event\(EVENTO_PERMISO_DECIDIDO\)\)/.test(managerFuente), "el manager no avisa al decidirse el permiso");
+  assert.ok(/addEventListener\(EVENTO_PERMISO_DECIDIDO/.test(franja), "la franja no escucha el aviso del permiso");
+  assert.ok(/onPointerDown=\{\(event\) => event\.stopPropagation\(\)\}/.test(franja), "un toque en la franja dispara el pedido global");
+  assert.ok(/if \(Notification\.permission !== "default"\)/.test(franja), "Activar pide el permiso aunque ya se decidio");
 });
 
 prueba("la franja sale solo a quien tiene el permiso de llamadas", () => {
