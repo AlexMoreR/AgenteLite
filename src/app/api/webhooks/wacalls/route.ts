@@ -7,7 +7,12 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { normalizePhoneFromJid } from "@/lib/evolution-webhook";
 import { notifyRealtimeUpdate } from "@/lib/realtime-notify";
-import { getWaCallsBaseUrl } from "@/lib/wacalls";
+import { buscarFichaDeLaLlamada, getWaCallsBaseUrl } from "@/lib/wacalls";
+import {
+  avisarFinDeLlamada,
+  avisarLlamadaEntrante,
+  type DatosDeLaLlamada,
+} from "@/features/llamadas/services/avisar-llamada-entrante";
 import { CALL_RESULT_PENDING } from "@/features/crm/domain/crm-config";
 import { transcribirYResumirLlamada } from "@/lib/llamada-transcripcion";
 
@@ -44,6 +49,44 @@ const FINALES_SIN_CONTACTO = new Set([
   "do_not_disturb",
   "cancelled",
 ]);
+
+/*
+  Los avisos de WaCalls ANTES del final (parte 1 de "Llamadas entrantes en la PWA", 20-nov-2026).
+
+  Lo que se sabe de la API de WaCalls (internal/app/events/webhook.go del VPS) es que avisa a este
+  buzón cuando la llamada empieza a sonar, cuando se conecta y cuando termina ("call.ended"), siempre
+  con el mismo cuerpo firmado: `event` y `call` con `callId` (el id de la llamada), `sessionId` (la
+  línea), `peer` (el número del cliente, como JID), `direction` ("inbound" entrante, "outbound"
+  saliente), `startedAt` y, al final, `endedAt` y `endReason` (el estado con que terminó).
+
+  La sesión que hizo este cambio corrió en la nube, sin acceso al VPS, y no pudo leer el nombre exacto
+  de los dos primeros eventos. Por eso se aceptan los nombres probables de cada uno; un nombre
+  que no esté acá se sigue ignorando como hasta hoy (200 sin hacer nada), así que no rompe nada.
+  PENDIENTE de confirmar en el VPS: `grep -rn '"call\.' internal/` en el código de WaCalls.
+*/
+// "call.started" queda afuera a propósito: podría ser el de "se conectó", y timbrar una llamada ya
+// atendida sería peor que no timbrar.
+const EVENTOS_DE_TIMBRE = new Set(["call.ringing", "call.incoming", "call.offer", "call.received"]);
+const EVENTOS_DE_CONTESTADA = new Set(["call.connected", "call.answered", "call.accepted"]);
+
+/** Entrante, según WaCalls. Sin dirección no se avisa: mejor un timbre de menos que uno falso. */
+function esEntrante(direccion: string | undefined) {
+  const valor = (direccion ?? "").trim().toLowerCase();
+  return valor === "inbound" || valor === "incoming";
+}
+
+/** Lo que necesita el aviso al equipo. Sin id de llamada o sin número no se puede avisar. */
+function datosDelAviso(
+  llamada: WaCallsWebhookBody["call"],
+  workspaceFijado: string | null,
+): DatosDeLaLlamada | null {
+  const llamadaId = llamada?.callId?.trim();
+  const telefono = normalizePhoneFromJid(llamada?.peer ?? null);
+  if (!llamadaId || !telefono) {
+    return null;
+  }
+  return { llamadaId, sessionId: llamada?.sessionId ?? null, telefono, workspaceFijado };
+}
 
 /** Margen de reloj aceptado para la firma. Corta los reenvíos de un pedido viejo capturado. */
 const TOLERANCIA_SEGUNDOS = 300;
@@ -114,9 +157,37 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "cuerpo inválido" }, { status: 400 });
   }
 
-  // WaCalls también avisa cuando empieza a sonar y cuando se conecta. Acá solo interesa el final.
-  // Se responde 200 igual: un 4xx haría que WaCalls reintente tres veces un aviso que está bien.
-  if (payload.event !== "call.ended") {
+  const evento = payload.event ?? "";
+
+  /*
+    Llamada ENTRANTE que empieza a sonar, o que alguien contestó: se avisa al equipo y se responde
+    200 enseguida. El aviso va en after(): no demora la respuesta (WaCalls reintenta si tardamos) y,
+    si falla, el webhook ya respondió bien. Las salientes no se avisan: las hizo alguien del equipo.
+  */
+  if (EVENTOS_DE_TIMBRE.has(evento) || EVENTOS_DE_CONTESTADA.has(evento)) {
+    const datos = datosDelAviso(payload.call, workspaceFijado);
+    if (!datos || !esEntrante(payload.call?.direction)) {
+      return NextResponse.json({ ok: true, ignorado: evento });
+    }
+    if (EVENTOS_DE_TIMBRE.has(evento)) {
+      after(() =>
+        avisarLlamadaEntrante(datos).catch((error) =>
+          console.warn("[wacalls] no se pudo avisar la llamada entrante", error),
+        ),
+      );
+    } else {
+      after(() =>
+        avisarFinDeLlamada({ ...datos, estado: "contestada", huboContacto: true }).catch((error) =>
+          console.warn("[wacalls] no se pudo avisar que contestaron la llamada", error),
+        ),
+      );
+    }
+    return NextResponse.json({ ok: true, avisada: evento });
+  }
+
+  // De lo demás, acá solo interesa el final. Se responde 200 igual: un 4xx haría que WaCalls
+  // reintente tres veces un aviso que está bien.
+  if (evento !== "call.ended") {
     return NextResponse.json({ ok: true, ignorado: payload.event ?? null });
   }
 
@@ -130,24 +201,37 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, ignorado: "sin teléfono" });
   }
 
+  /*
+    Si era ENTRANTE, al final se avisa que dejó de sonar (y, si nadie contestó, la notificación pasa a
+    "Llamada perdida"). Va después de anotarla, en after(), y también cuando el número no tiene ficha:
+    esa llamada igual timbró. No se repite en un aviso "repetido" (un reintento de WaCalls).
+  */
+  const finDeLaEntrante = () => {
+    const datos = datosDelAviso(llamada, workspaceFijado);
+    if (!datos || !esEntrante(llamada.direction)) {
+      return;
+    }
+    const huboContactoEnLaLlamada = !FINALES_SIN_CONTACTO.has((llamada.endReason ?? "").trim());
+    after(() =>
+      avisarFinDeLlamada({ ...datos, estado: "terminada", huboContacto: huboContactoEnLaLlamada }).catch(
+        (error) => console.warn("[wacalls] no se pudo avisar el fin de la llamada", error),
+      ),
+    );
+  };
+
   /**
    * La ficha se busca por teléfono. Si el número no está en el CRM no se crea una ficha nueva:
    * una llamada a un número suelto no es un lead, y crear fichas desde acá llenaría el embudo de
    * equivocaciones de marcado y de llamadas a proveedores.
    */
-  const contacto = await prisma.contact.findFirst({
-    where: {
-      phoneNumber: telefono,
-      // El mismo teléfono puede existir en dos negocios distintos. Sin acotarlo, una llamada
-      // podría anotarse en el equivocado; con WACALLS_WORKSPACE_ID puesto, eso deja de ser
-      // posible. Sin la variable sigue funcionando como antes (el más reciente).
-      ...(workspaceFijado ? { workspaceId: workspaceFijado } : {}),
-    },
-    orderBy: { updatedAt: "desc" },
-    select: { id: true, workspaceId: true },
-  });
+  // El mismo teléfono puede existir en dos negocios distintos. Sin acotarlo, una llamada podría
+  // anotarse en el equivocado; con WACALLS_WORKSPACE_ID puesto, eso deja de ser posible. Sin la
+  // variable sigue funcionando como antes (el más reciente). La búsqueda vive en src/lib/wacalls.ts
+  // porque el aviso de llamada entrante usa la misma.
+  const contacto = await buscarFichaDeLaLlamada({ telefono, workspaceId: workspaceFijado });
   if (!contacto) {
     console.info(`[wacalls] llamada con ${telefono}: no hay ficha en el CRM`);
+    finDeLaEntrante();
     return NextResponse.json({ ok: true, ignorado: "sin ficha" });
   }
 
@@ -257,6 +341,8 @@ export async function POST(request: Request) {
       }),
     );
   }
+
+  finDeLaEntrante();
 
   console.info(
     `[wacalls] anotada llamada ${saliente ? "saliente" : "entrante"} a ${telefono} (${llamada.endReason}) como ${result}, intento ${intentosPrevios + 1}`,

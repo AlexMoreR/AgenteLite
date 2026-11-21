@@ -171,6 +171,49 @@ export async function getLineasDelNegocio(workspaceId: string): Promise<string[]
 }
 
 /**
+ * El canal de WhatsApp del negocio al que pertenece una linea de llamadas de WaCalls.
+ *
+ * Es la busqueda al reves de getWaCallsSessionIdForChannel: WaCalls avisa con su `sessionId` (la
+ * linea) y aca se encuentra el canal que la tiene guardada en su metadata, con la misma lectura
+ * (`leerSesionDeLlamadas`) que usan las demas funciones de este archivo. Con `workspaceId` puesto
+ * (WACALLS_WORKSPACE_ID) solo se mira ese negocio. Si ningun canal la tiene, devuelve null.
+ */
+export async function buscarCanalDeLaLineaDeLlamadas(input: {
+  sessionId: string | null | undefined;
+  workspaceId?: string | null;
+}): Promise<{ id: string; workspaceId: string } | null> {
+  const sid = input.sessionId?.trim();
+  if (!sid) {
+    return null;
+  }
+  const canales = await prisma.whatsAppChannel.findMany({
+    where: { isActive: true, ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}) },
+    select: { id: true, workspaceId: true, metadata: true },
+    orderBy: { createdAt: "asc" },
+  });
+  const canal = canales.find((fila) => leerSesionDeLlamadas(fila.metadata) === sid);
+  return canal ? { id: canal.id, workspaceId: canal.workspaceId } : null;
+}
+
+/**
+ * La ficha del cliente de una llamada, por telefono. Es la misma busqueda con la que el webhook de
+ * WaCalls anota la llamada al terminar, y la usa tambien el aviso de llamada entrante.
+ *
+ * El mismo telefono puede existir en dos negocios distintos: con `workspaceId` puesto la busqueda
+ * queda en ese negocio; sin el, toma la ficha mas reciente (como siempre). No crea fichas.
+ */
+export async function buscarFichaDeLaLlamada(input: { telefono: string; workspaceId?: string | null }) {
+  return prisma.contact.findFirst({
+    where: {
+      phoneNumber: input.telefono,
+      ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+    },
+    orderBy: { updatedAt: "desc" },
+    select: { id: true, workspaceId: true, name: true, avatarUrl: true },
+  });
+}
+
+/**
  * Otra linea del MISMO negocio que no sea la(s) dada(s): para la llamada de tres, donde la segunda
  * llamada tiene que salir por una linea distinta de la que ya esta hablando con el cliente
  * (WaCalls hace una llamada por linea). Sigue el mismo patron que getWaCallsSessionIdDelNegocio:

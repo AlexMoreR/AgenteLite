@@ -202,6 +202,75 @@ async function acumularMensaje(entrada) {
   return { mensajes, total };
 }
 
+/**
+ * Si lo que esta a la vista es el AREA DEL CLIENTE (/cliente/...), ahi avisa la propia app.
+ *
+ * Se mira visibilityState y no si hay clientes: una pestaña abierta pero tapada por WhatsApp no
+ * esta a la vista, y ahi la asesora SI necesita el aviso.
+ */
+async function crmALaVista() {
+  const clientList = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+  return clientList.some((client) => {
+    if (client.visibilityState !== "visible") {
+      return false;
+    }
+    try {
+      return new URL(client.url).pathname.startsWith("/cliente");
+    } catch {
+      return false;
+    }
+  });
+}
+
+/*
+  Llamada entrante (tipo === "llamada"), aparte de los chats.
+
+  No pasa por el agrupado de mensajes: una llamada no es "un mensaje mas" dentro del resumen, es algo
+  que hay que atender YA. Tiene su propio tag (llamada:<id>), se queda en pantalla mientras suena
+  (requireInteraction) y vibra largo, como el timbre del telefono. Cuando nadie contesta, el servidor
+  manda otra con el MISMO tag que la reemplaza por "Llamada perdida".
+
+  Igual que con los mensajes, si el CRM esta a la vista no se muestra (ahi timbra la app). La de
+  "Llamada perdida" si se muestra siempre: es el registro de que alguien llamo.
+*/
+async function mostrarLlamada(payload) {
+  const llamadaId = payload.llamadaId || "";
+  const tag = llamadaId ? `llamada:${llamadaId}` : payload.tag || "llamada:";
+  const perdida = payload.estado === "perdida";
+  const cliente = payload.cliente || "";
+  const url = payload.url || "/cliente/chats";
+
+  if (!perdida && (await crmALaVista())) {
+    return undefined;
+  }
+
+  // El mismo tag deberia reemplazar la anterior; en el iPhone no siempre pasa, asi que se cierra a mano.
+  try {
+    const enPantalla = await self.registration.getNotifications({ tag });
+    for (const notificacion of enPantalla) {
+      notificacion.close();
+    }
+  } catch {
+    // Si no se puede leer lo anterior, igual se muestra la nueva.
+  }
+
+  const titulo =
+    payload.title || (perdida ? `Llamada perdida de ${cliente}` : `Te está llamando ${cliente}`).trim();
+  const comunes = {
+    body: payload.body || "",
+    tag,
+    renotify: true,
+    icon: payload.icon || "/icon?size=192",
+    badge: payload.badge || "/icon?size=192",
+    data: { url, tipo: "llamada", llamadaId },
+  };
+  const opciones = perdida
+    ? { ...comunes, vibrate: [120, 60, 120] }
+    : { ...comunes, requireInteraction: true, vibrate: [500, 250, 500, 250, 500] };
+
+  return self.registration.showNotification(titulo, opciones);
+}
+
 self.addEventListener("push", (event) => {
   let payload = {};
   try {
@@ -209,6 +278,11 @@ self.addEventListener("push", (event) => {
   } catch (error) {
     // Si el cuerpo no es JSON válido, lo tratamos como texto plano del body.
     payload = { body: event.data ? event.data.text() : "" };
+  }
+
+  if (payload.tipo === "llamada") {
+    event.waitUntil(mostrarLlamada(payload).catch(() => undefined));
+    return;
   }
 
   const entrada = {
@@ -242,18 +316,7 @@ self.addEventListener("push", (event) => {
       todas las pantallas. Antes vivia solo en Chats y en Inicio no sonaba NADA (Alex, 13-sep-2026).
       Fuera de /cliente -admin, una pagina publica- no hay quien suene, asi que sale el aviso.
     */
-    const clientList = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-    const chatsALaVista = clientList.some((client) => {
-      if (client.visibilityState !== "visible") {
-        return false;
-      }
-      try {
-        return new URL(client.url).pathname.startsWith("/cliente");
-      } catch {
-        return false;
-      }
-    });
-    if (chatsALaVista) {
+    if (await crmALaVista()) {
       return undefined;
     }
 

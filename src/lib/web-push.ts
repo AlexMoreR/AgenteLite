@@ -44,6 +44,20 @@ export type WebPushNotificationPayload = {
   url?: string;
   icon?: string;
   badge?: string;
+  /*
+    Solo para las llamadas entrantes (src/features/llamadas/services/avisar-llamada-entrante.ts).
+    Los avisos de mensajes no los llevan y se ven igual que siempre. Con `tipo: "llamada"` el Service
+    Worker (public/sw.js) la muestra aparte, sin juntarla con el resumen de los chats.
+  */
+  tipo?: "llamada";
+  // La notificacion se queda en pantalla hasta que la toquen o la cierren (lo que dura el timbre).
+  requireInteraction?: boolean;
+  // El id de WaCalls de la llamada: con el se arma el tag `llamada:<id>`.
+  llamadaId?: string;
+  // "perdida" se muestra aunque el CRM este a la vista; "sonando" no (ahi timbra la propia app).
+  estado?: "sonando" | "perdida";
+  // El nombre de la ficha o, si no tiene, el numero.
+  cliente?: string;
 };
 
 type StoredSubscription = { id: string; endpoint: string; p256dh: string; auth: string };
