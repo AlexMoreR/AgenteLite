@@ -318,6 +318,11 @@ export default async function RootLayout({
               base ni recompilar: se cambia en Portainer y se reinicia el contenedor.
             */
             guardadoLocalApagado={process.env.CHATS_GUARDADO_LOCAL === "apagado"}
+            /* La misma regla de quién se entera de una llamada (tienePermisoDeLlamadas). */
+            puedeVerLlamadas={
+              session?.user?.role === "ADMIN" ||
+              Boolean(clientAccess && canAccessClientModule(clientAccess, "llamadas"))
+            }
           >
             {children}
           </AppShell>

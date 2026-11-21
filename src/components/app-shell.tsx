@@ -28,6 +28,8 @@ import { MobileKeyboardViewport } from "@/components/mobile-keyboard-viewport";
 import { ChatNotificationBell } from "@/components/ui/chat-notification-bell";
 import { ChatsOfficialRealtime } from "@/components/chats/chats-official-realtime";
 import { ChatIncomingNotifier } from "@/components/chats/chat-incoming-notifier";
+import { PushSubscriptionManager } from "@/components/chats/push-subscription-manager";
+import { AvisoInstalarPwa } from "@/components/chats/aviso-instalar-pwa";
 import { AvisoDeCanalCaido } from "@/features/monitoreo/components/AvisoDeCanalCaido";
 import { HelpCopilotWidget } from "@/components/help/help-copilot-widget";
 import type { AdminModuleKey } from "@/lib/admin-modules";
@@ -77,6 +79,8 @@ type AppShellProps = {
   participaDelReparto?: boolean;
   /** CHATS_GUARDADO_LOCAL=apagado: no se guarda nada de los chats en el navegador y se borra lo que habia. */
   guardadoLocalApagado?: boolean;
+  /** Tiene el permiso de llamadas: le sale la franja de iPhone para recibirlas con el CRM cerrado. */
+  puedeVerLlamadas?: boolean;
 };
 
 const breadcrumbLabels: Record<string, string> = {
@@ -217,6 +221,7 @@ export function AppShell({
   esJefeDelNegocio = false,
   participaDelReparto = false,
   guardadoLocalApagado = false,
+  puedeVerLlamadas = false,
 }: AppShellProps) {
   /*
     De quien es lo guardado en el navegador (P5, T2: guardado-local/dueno.ts). Va DURANTE el render y
@@ -379,6 +384,13 @@ export function AppShell({
                       userId={chatRealtimeUserId}
                     />
                     <ChatIncomingNotifier />
+                    {/*
+                      La suscripción a las notificaciones del celular va aca, una sola vez, y no en la
+                      pagina de Chats: una asesora que nunca abria Chats no quedaba suscrita y no le
+                      llegaba "Te está llamando" con el CRM cerrado. Se sigue pidiendo el permiso tras
+                      el primer toque, como antes.
+                    */}
+                    <PushSubscriptionManager enabled />
                   </>
                 ) : null}
                 {/*
@@ -401,6 +413,10 @@ export function AppShell({
             )}
           >
             {showClientPlanAlert && clientPlanAlert ? <ClientPlanWarningBar {...clientPlanAlert} /> : null}
+            {/* Con una conversación abierta no sale: en el celular le quitaria lugar al chat. */}
+            {puedeVerLlamadas && pathname.startsWith("/cliente") && !hasActiveChatConversation ? (
+              <AvisoInstalarPwa />
+            ) : null}
             {children}
           </main>
           {showClientPlanBlock && clientPlanBlock ? <ClientPlanBlockModal {...clientPlanBlock} /> : null}

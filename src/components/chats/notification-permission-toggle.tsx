@@ -5,6 +5,7 @@ import { Bell, BellOff, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { isProbablyIos, isStandalone } from "@/lib/pwa-instalada";
 import {
   getIsSubscribed,
   isPushSupported,
@@ -14,19 +15,6 @@ import {
 } from "./push-subscription-client";
 
 type Status = "loading" | "unsupported" | "denied" | "off" | "on";
-
-function isProbablyIos(): boolean {
-  if (typeof navigator === "undefined") return false;
-  return /iphone|ipad|ipod/i.test(navigator.userAgent);
-}
-
-function isStandalone(): boolean {
-  if (typeof window === "undefined") return false;
-  return (
-    window.matchMedia?.("(display-mode: standalone)").matches ||
-    (navigator as unknown as { standalone?: boolean }).standalone === true
-  );
-}
 
 function messageForFailure(result: PushActionResult): string {
   switch (result.reason) {

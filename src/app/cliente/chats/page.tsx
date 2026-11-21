@@ -8,7 +8,6 @@ import type { CrmStage } from "@/features/crm/types";
 import { ChatsAutoRefresh } from "@/components/agents/chats-auto-refresh";
 import { ChatsRealtimeSync } from "@/components/chats/chats-realtime-sync";
 import { ChatsEvolutionApiRealtime } from "@/components/chats/chats-evolution-api-realtime";
-import { PushSubscriptionManager } from "@/components/chats/push-subscription-manager";
 import { loadAgentConversationDetail } from "@/lib/chat-message-loader";
 import type { MensajeFijado } from "@/lib/chats/mensaje-fijado";
 import { MenuDelContacto } from "@/components/chats/menu-del-contacto";
@@ -1549,7 +1548,6 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
           selectedConversationPhoneNumber={selectedUnified?.source === "agent" ? selectedUnified.secondaryLabel : null}
         />
       ))}
-      <PushSubscriptionManager enabled={chatsRealtimeSyncEnabled} />
       <QueryFeedbackToast
         okMessage={okMessage}
         errorMessage={errorMessage}
