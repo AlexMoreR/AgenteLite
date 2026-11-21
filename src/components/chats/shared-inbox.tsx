@@ -27,6 +27,7 @@ import {
 import { precargaEnCamino } from "@/components/chats/chat-conversation-warmup";
 import { EVENTO_ESTADOS_DEL_CHAT, EVENTO_PONERSE_AL_DIA } from "@/components/agents/chats-auto-refresh";
 import { aplicarEstados, type EstadoSaliente } from "@/components/chats/aplicar-estados";
+import { salientesDesde, ultimoSalienteDelServidor } from "@/components/chats/eco-de-lo-enviado";
 import { atenderChatSinAcceso, EVENTO_CHAT_SIN_ACCESO } from "@/components/chats/guardado-local/sin-acceso";
 import { reconciliarPrimeraPagina } from "@/components/chats/guardado-local/reglas";
 import { guardarListaEnElCelular } from "@/components/chats/guardado-local/lista-guardada";
@@ -732,6 +733,9 @@ export function SharedInbox({
   const conversationItemsRef = useRef<SharedInboxConversationItem[]>([]);
   const [optimisticConversation, setOptimisticConversation] = useState<SharedInboxSelectedConversation | null>(null);
   const [liveConversation, setLiveConversation] = useState<SharedInboxSelectedConversation | null>(null);
+  // El chat abierto como lo mando el servidor, para el respaldo de despues de enviar (ver ecoPendienteRef).
+  const liveConversationRef = useRef(liveConversation);
+  liveConversationRef.current = liveConversation;
   const [optimisticOutgoingMessage, setOptimisticOutgoingMessage] = useState<OptimisticDraftMessage | null>(null);
   /*
     Textos que NO salieron, de todos los chats. Antes habia un solo espacio (el optimista): el
@@ -2499,6 +2503,19 @@ export function SharedInbox({
     refreshSelectedConversationFromServerRef.current = refreshSelectedConversationFromServer;
   }, [refreshSelectedConversationFromServer]);
   const refrescoTrasEnviarRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /*
+    SIN EL SEGUNDO /live (velocidad de Chats, 20-nov-2026). Despues de enviar, el chat abierto se
+    bajaba entero dos veces: con el eco de WhatsApp (el aviso en tiempo real, ~1 s) y con este
+    respaldo a los 1,5 s, 16 kB cada uno. Ahora el respaldo se cancela si antes de que dispare llega
+    del servidor el chat con los mensajes enviados.
+
+    Como se sabe que llegaron, sin mirar relojes del celular: al programar se anota la hora (del
+    servidor) del ultimo saliente que ya estaba en pantalla y cuantos envios van. Cuando un
+    `chat-live-update` de ese chat trae al menos esa cantidad de salientes mas nuevos, el eco llego.
+    Las notas del sistema (SYSTEM) no cuentan. Si no hay chat del servidor en pantalla para comparar,
+    no se anota nada y el respaldo corre como siempre.
+  */
+  const ecoPendienteRef = useRef<{ chatKey: string; desde: number; envios: number } | null>(null);
   useEffect(
     () => () => {
       if (refrescoTrasEnviarRef.current) {
@@ -2511,8 +2528,22 @@ export function SharedInbox({
     if (refrescoTrasEnviarRef.current) {
       clearTimeout(refrescoTrasEnviarRef.current);
     }
+    const enPantalla = liveConversationRef.current;
+    const anterior = ecoPendienteRef.current;
+    if (anterior && enPantalla && conversationIdMatchesKey(anterior.chatKey, enPantalla.id)) {
+      ecoPendienteRef.current = { ...anterior, envios: anterior.envios + 1 };
+    } else if (enPantalla) {
+      ecoPendienteRef.current = {
+        chatKey: enPantalla.id,
+        desde: ultimoSalienteDelServidor(enPantalla.messages),
+        envios: 1,
+      };
+    } else {
+      ecoPendienteRef.current = null;
+    }
     refrescoTrasEnviarRef.current = setTimeout(() => {
       refrescoTrasEnviarRef.current = null;
+      ecoPendienteRef.current = null;
       void refreshSelectedConversationFromServerRef.current();
     }, 1500);
   }, []);
@@ -2539,6 +2570,19 @@ export function SharedInbox({
       terminarMedicionAlPintar(`entrante:${extractConversationIdFromKey(snapshot.id)}`, "entrante_pintado", {
         chatAbierto: true,
       });
+
+      // El eco de lo enviado ya llego: el respaldo de los 1,5 s no hace falta (ver ecoPendienteRef).
+      const eco = ecoPendienteRef.current;
+      if (
+        eco &&
+        refrescoTrasEnviarRef.current &&
+        conversationIdMatchesKey(eco.chatKey, snapshot.id) &&
+        salientesDesde(snapshot.messages, eco.desde) >= eco.envios
+      ) {
+        clearTimeout(refrescoTrasEnviarRef.current);
+        refrescoTrasEnviarRef.current = null;
+        ecoPendienteRef.current = null;
+      }
 
       // Base validada por id (ver baseParaMezclar): nunca la conversacion de otro chat.
       setLiveConversation((current) => mergeConversationSnapshotIfChanged(baseParaMezclar(current, snapshot), snapshot));
