@@ -1,6 +1,7 @@
 // Pruebas de las llamadas entrantes en la PWA, parte 1: el servidor avisa cuando entra una llamada
 // (src/app/api/webhooks/wacalls/route.ts, src/features/llamadas/services/avisar-llamada-entrante.ts,
-// src/lib/wacalls.ts y la rama "llamada" de public/sw.js).
+// src/lib/wacalls.ts y la rama "llamada" de public/sw.js). Parte 3: la pantalla de llamada entrante
+// (LlamadaEntrante.tsx) y las acciones contestar / rechazar de src/app/api/wacalls/llamada/route.ts.
 // Correr: npm run test:llamada-entrante
 //
 // El webhook se carga de verdad (transpilado con typescript, como en check-llamada-global.mjs) con
@@ -347,6 +348,221 @@ await prueba("al terminar una saliente: se anota como siempre y no avisa nada nu
 });
 
 console.info = infoOriginal;
+
+// --- Parte 3: la pantalla de llamada entrante y las acciones contestar / rechazar ---
+
+const pantalla = leer("src/features/llamadas/components/LlamadaEntrante.tsx");
+const enCurso = leer("src/features/llamadas/components/LlamadaEnCurso.tsx");
+const rutaLlamada = leer("src/app/api/wacalls/llamada/route.ts");
+const altavoz = leer("src/components/chats/chats-official-realtime.tsx");
+const hookLlamada = leer("src/features/llamadas/components/useLlamada.ts");
+const sonidos = leer("src/features/llamadas/components/sonidos-de-llamada.ts");
+
+await prueba("la pantalla de llamada entrante tiene Contestar y Colgar, foto, nombre y numero", () => {
+  assert.ok(pantalla.includes('"Contestar"'), "falta el boton Contestar");
+  assert.ok(pantalla.includes("Colgar"), "falta el boton Colgar");
+  assert.ok(pantalla.includes("Contesta desde el celular de la línea"), "falta el texto para cuando WaCalls no deja contestar");
+  assert.ok(pantalla.includes("La llamada ya terminó"), "falta el aviso de llamada terminada (?llamada=<id>)");
+  assert.ok(pantalla.includes("<ContactAvatar"), "falta la foto");
+  assert.ok(/fixed inset-0/.test(pantalla), "no es de pantalla completa");
+  assert.ok(pantalla.includes("EVENTO_LLAMADA_ENTRANTE"), "no escucha el aviso en vivo");
+  assert.ok(pantalla.includes('get("llamada")'), "no mira el ?llamada=<id> de la notificacion");
+  assert.ok(pantalla.includes('accion: "rechazar"'), "Colgar no rechaza la llamada");
+  assert.ok(pantalla.includes("contestarEntrante("), "Contestar no pasa por la llamada global");
+});
+
+await prueba("la pantalla esta montada DENTRO de LlamadaEnCursoProvider", () => {
+  const abre = enCurso.indexOf("<LlamadaEnCursoContext.Provider");
+  const cierra = enCurso.indexOf("</LlamadaEnCursoContext.Provider>");
+  const montada = enCurso.indexOf("<LlamadaEntrante />");
+  assert.ok(abre > 0 && cierra > abre, "no se encontro el Provider");
+  assert.ok(montada > abre && montada < cierra, "<LlamadaEntrante /> no esta dentro del Provider");
+  assert.ok(/export function LlamadaEnCursoProvider/.test(enCurso));
+  // Al contestar, la llamada sigue en el cuadro de siempre con el mismo audio de las salientes.
+  assert.ok(enCurso.includes("contestar(llamadaId)"), "contestarEntrante no usa el contestar de useLlamada");
+  assert.ok(/await conectarAudio\(callId, mic, \{ timbrar: true \}\)/.test(hookLlamada), "las salientes no usan conectarAudio");
+  assert.ok(/await conectarAudio\(callId, mic, \{ timbrar: false \}\)/.test(hookLlamada), "contestar no usa conectarAudio");
+  assert.ok(/accion: "contestar", llamadaId/.test(hookLlamada));
+  assert.ok(/sessionId: lineaRef\.current/.test(hookLlamada), "los pasos de la entrante no mandan su linea");
+});
+
+await prueba("el altavoz pasa el aviso solo a quien se entera, sin refrescar la bandeja", () => {
+  const rama = altavoz.indexOf('payload.type === "llamada-entrante"');
+  assert.ok(rama > 0, "falta la rama llamada-entrante en chats-official-realtime.tsx");
+  const cuerpo = altavoz.slice(rama, rama + 300);
+  assert.ok(/if \(!noSeEntera\)/.test(cuerpo), "no mira noSeEnteran");
+  assert.ok(cuerpo.includes("EVENTO_LLAMADA_ENTRANTE"));
+  assert.ok(cuerpo.includes("return;"), "la llamada sigue al refresco de la bandeja");
+  assert.ok(rama > altavoz.indexOf("const noSeEntera ="), "la rama corre antes de calcular noSeEntera");
+});
+
+await prueba("el timbre entrante se repite, se detiene, y el audio se prepara con el primer toque", () => {
+  assert.ok(/export function empezarTonoDeLlamadaEntrante\(\): \(\) => void/.test(sonidos));
+  assert.ok(/export function prepararAudioDeTimbre/.test(sonidos));
+  assert.ok(/export function empezarVibracionDeLlamadaEntrante/.test(sonidos));
+  assert.ok(sonidos.includes("setInterval(timbrar, ENTRANTE_CICLO_MS)"), "el timbre no se repite");
+  assert.ok(sonidos.includes("vibrar(0)"), "la vibracion no se apaga");
+  assert.ok(pantalla.includes("prepararAudioDeTimbre()"), "la pantalla no prepara el audio");
+});
+
+await prueba("aviso-de-llamada-entrante: lee el aviso y descarta lo roto o los enlaces de afuera", () => {
+  const { leerAvisoDeLlamadaEntrante, clienteDeLaLlamada, EVENTO_LLAMADA_ENTRANTE } = cargarTs(
+    "src/features/llamadas/components/aviso-de-llamada-entrante.ts",
+  );
+  assert.equal(EVENTO_LLAMADA_ENTRANTE, "aizen:llamada-entrante");
+  const aviso = leerAvisoDeLlamadaEntrante({
+    estado: "sonando",
+    llamadaId: "llam-1",
+    nombre: "Laura",
+    numero: "57 300",
+    foto: "/f.jpg",
+    conversacionId: "chat-1",
+    href: "/cliente/chats?llamada=llam-1",
+  });
+  assert.equal(aviso.numero, "57300");
+  assert.equal(aviso.href, "/cliente/chats?llamada=llam-1");
+  assert.equal(clienteDeLaLlamada(aviso), "Laura");
+  assert.equal(clienteDeLaLlamada({ nombre: null, numero: "573001112233" }), "+573001112233");
+  assert.equal(leerAvisoDeLlamadaEntrante({ ...aviso, href: "https://otro.sitio/x" }).href, null);
+  assert.equal(leerAvisoDeLlamadaEntrante({ estado: "otra", llamadaId: "x" }), null);
+  assert.equal(leerAvisoDeLlamadaEntrante({ estado: "sonando" }), null);
+  assert.equal(leerAvisoDeLlamadaEntrante(null), null);
+});
+
+await prueba("route.ts acepta contestar y rechazar DESPUES del control de permiso", () => {
+  const permiso = rutaLlamada.indexOf('canAccessClientModule(access, "llamadas")');
+  assert.ok(permiso > 0, "falta el control del permiso llamadas");
+  for (const accion of ['case "contestar":', 'case "rechazar":', 'case "entrante":']) {
+    const posicion = rutaLlamada.indexOf(accion);
+    assert.ok(posicion > permiso, `${accion} falta o corre antes del permiso`);
+  }
+  assert.ok(/"contestar"\s*\|\s*"rechazar"/.test(rutaLlamada), "el tipo Accion no tiene contestar y rechazar");
+  // La linea de la llamada se busca solo entre las del negocio de quien pide.
+  assert.ok(/buscarLlamadaEnElNegocio\(access\.workspaceId, llamadaId, operadorId\)/.test(rutaLlamada));
+  const busqueda = rutaLlamada.slice(rutaLlamada.indexOf("async function buscarLlamadaEnElNegocio"));
+  assert.ok(/getLineasDelNegocio\(workspaceId\)/.test(busqueda.slice(0, 600)));
+});
+
+// La ruta de verdad, con la sesion, el permiso y WaCalls simulados.
+const sesion = { actual: { user: { id: "asesora-con-permiso" } } };
+const acceso = { actual: { workspaceId: negocio, modulos: ["llamadas"] } };
+simulados["@/auth"] = { auth: async () => sesion.actual };
+simulados["@/lib/client-workspace-access"] = {
+  getClientWorkspaceAccessForUser: async () => acceso.actual,
+  canAccessClientModule: (access, modulo) => access.modulos.includes(modulo),
+};
+const { POST: POST_LLAMADA } = cargarTs("src/app/api/wacalls/llamada/route.ts");
+
+const wacalls = { pedidos: [], llamadas: new Map(), aceptar: { status: 404, body: "404 page not found" } };
+const fetchOriginal = globalThis.fetch;
+globalThis.fetch = async (url, init = {}) => {
+  const direccion = new URL(String(url));
+  const metodo = init.method ?? "GET";
+  wacalls.pedidos.push({ metodo, ruta: direccion.pathname });
+  const partes = direccion.pathname.split("/");
+  // /api/sessions/<linea>/calls/<id>[/accept]
+  const linea = partes[3];
+  const id = decodeURIComponent(partes[5] ?? "");
+  const llamada = wacalls.llamadas.get(`${linea}/${id}`);
+  const responder = (status, cuerpo) =>
+    new Response(typeof cuerpo === "string" ? cuerpo : JSON.stringify(cuerpo), { status });
+  if (partes[6] === "accept") {
+    return responder(wacalls.aceptar.status, wacalls.aceptar.body);
+  }
+  if (!llamada) {
+    return responder(404, { error: "no such call" });
+  }
+  if (metodo === "DELETE") {
+    wacalls.llamadas.delete(`${linea}/${id}`);
+    return responder(200, {});
+  }
+  return responder(200, { call: llamada });
+};
+process.env.WACALLS_URL = "http://wacalls.prueba";
+process.env.WACALLS_API_TOKEN = "token-de-prueba";
+
+async function pedirRuta(cuerpo) {
+  wacalls.pedidos = [];
+  const respuesta = await POST_LLAMADA(
+    new Request("http://localhost/api/wacalls/llamada", { method: "POST", body: JSON.stringify(cuerpo) }),
+  );
+  return respuesta;
+}
+
+console.info = () => undefined;
+
+await prueba("contestar / rechazar / entrante sin el permiso llamadas: 403 y no se toca WaCalls", async () => {
+  acceso.actual = { workspaceId: negocio, modulos: ["chats"] };
+  for (const accion of ["contestar", "rechazar", "entrante"]) {
+    const respuesta = await pedirRuta({ accion, llamadaId: "llam-9" });
+    assert.equal(respuesta.status, 403, accion);
+    assert.equal(wacalls.pedidos.length, 0, accion);
+  }
+  sesion.actual = null;
+  acceso.actual = { workspaceId: negocio, modulos: ["llamadas"] };
+  assert.equal((await pedirRuta({ accion: "contestar", llamadaId: "llam-9" })).status, 401);
+  sesion.actual = { user: { id: "asesora-con-permiso" } };
+});
+
+await prueba("una llamada de la linea de OTRO negocio no se puede ver, contestar ni rechazar", async () => {
+  wacalls.llamadas.set("linea-otra/llam-ajena", { status: "ringing", peer: "573009999999@s.whatsapp.net" });
+  const vista = await pedirRuta({ accion: "entrante", llamadaId: "llam-ajena" });
+  assert.equal(vista.body.sonando, false);
+  assert.equal((await pedirRuta({ accion: "contestar", llamadaId: "llam-ajena" })).status, 410);
+  await pedirRuta({ accion: "rechazar", llamadaId: "llam-ajena" });
+  assert.ok(wacalls.pedidos.every((p) => !p.ruta.includes("linea-otra")), "se le pregunto a una linea ajena");
+  assert.ok(wacalls.llamadas.has("linea-otra/llam-ajena"), "se corto una llamada de otro negocio");
+});
+
+await prueba("entrante: si sigue sonando dice con quien (de la ficha del negocio); si no, que termino", async () => {
+  wacalls.llamadas.set("linea-1/llam-1", { status: "ringing", peer: "573001112233@s.whatsapp.net" });
+  const sonando = await pedirRuta({ accion: "entrante", llamadaId: "llam-1" });
+  assert.equal(sonando.status, 200);
+  assert.deepEqual(sonando.body, {
+    ok: true,
+    sonando: true,
+    llamadaId: "llam-1",
+    nombre: "Laura Gómez",
+    numero: "573001112233",
+    foto: "/f.jpg",
+  });
+  const terminada = await pedirRuta({ accion: "entrante", llamadaId: "llam-ya-no" });
+  assert.equal(terminada.body.sonando, false);
+  assert.equal((await pedirRuta({ accion: "entrante" })).status, 400);
+});
+
+await prueba("contestar sin endpoint en WaCalls: 'Contesta desde el celular de la línea'", async () => {
+  wacalls.aceptar = { status: 404, body: "404 page not found" };
+  const respuesta = await pedirRuta({ accion: "contestar", llamadaId: "llam-1" });
+  assert.equal(respuesta.status, 501);
+  assert.equal(respuesta.body.contestarDesdeElCelular, true);
+  assert.equal(respuesta.body.error, "Contesta desde el celular de la línea.");
+  assert.ok(wacalls.pedidos.some((p) => p.metodo === "POST" && p.ruta === "/api/sessions/linea-1/calls/llam-1/accept"));
+});
+
+await prueba("contestar con WaCalls que si deja: devuelve callId y la linea, como iniciar", async () => {
+  wacalls.aceptar = { status: 200, body: { call: { callId: "llam-1" } } };
+  const respuesta = await pedirRuta({ accion: "contestar", llamadaId: "llam-1" });
+  assert.equal(respuesta.status, 200);
+  assert.deepEqual(respuesta.body, { ok: true, callId: "llam-1", sessionId: "linea-1" });
+  // Ya contestada (por otra asesora): no se vuelve a contestar.
+  wacalls.llamadas.set("linea-1/llam-2", { status: "connected", peer: "573001112233@s.whatsapp.net" });
+  assert.equal((await pedirRuta({ accion: "contestar", llamadaId: "llam-2" })).status, 409);
+});
+
+await prueba("rechazar corta la llamada en su linea; una que ya termino no es error", async () => {
+  wacalls.llamadas.set("linea-1/llam-3", { status: "ringing", peer: "573001112233@s.whatsapp.net" });
+  const respuesta = await pedirRuta({ accion: "rechazar", llamadaId: "llam-3" });
+  assert.equal(respuesta.status, 200);
+  assert.ok(wacalls.pedidos.some((p) => p.metodo === "DELETE" && p.ruta === "/api/sessions/linea-1/calls/llam-3"));
+  assert.ok(!wacalls.llamadas.has("linea-1/llam-3"));
+  assert.equal((await pedirRuta({ accion: "rechazar", llamadaId: "llam-3" })).status, 200);
+});
+
+globalThis.fetch = fetchOriginal;
+console.info = infoOriginal;
+delete process.env.WACALLS_URL;
+delete process.env.WACALLS_API_TOKEN;
 
 await prueba("sw.js tiene la rama de llamada, aparte del agrupado de chats", () => {
   const sw = leer("public/sw.js");

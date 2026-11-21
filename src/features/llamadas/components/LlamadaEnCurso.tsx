@@ -5,9 +5,10 @@ import { toast } from "sonner";
 
 import { looksLikeLidNumber } from "@/lib/whatsapp-lid";
 
+import { LlamadaEntrante } from "./LlamadaEntrante";
 import { PanelDeLlamada } from "./PanelDeLlamada";
 import { CLAVE_DEL_CUADRO, leerPreferencia, type PreferenciaDelCuadro } from "./posicion-del-cuadro";
-import { useLlamada, type EstadoLlamada } from "./useLlamada";
+import { useLlamada, type EstadoLlamada, type ResultadoDeContestar } from "./useLlamada";
 
 /**
  * La llamada en curso, UNA sola para todo el CRM.
@@ -37,6 +38,11 @@ type ValorLlamadaEnCurso = {
   /** Hay una llamada (marcando, sonando, hablando o mostrando cómo terminó). */
   ocupada: boolean;
   marcar: (pedido: PedidoDeLlamada) => void;
+  /**
+   * Contesta una llamada ENTRANTE (LlamadaEntrante.tsx). Si sale bien, la llamada sigue en el mismo
+   * cuadro de siempre, con los datos del cliente que llamó.
+   */
+  contestarEntrante: (pedido: { llamadaId: string } & DatosDeLaLlamada) => Promise<ResultadoDeContestar>;
 };
 
 const LlamadaEnCursoContext = createContext<ValorLlamadaEnCurso | null>(null);
@@ -45,7 +51,18 @@ export function LlamadaEnCursoProvider({ children }: { children: React.ReactNode
   // Se desestructura en vez de guardar el objeto entero: la referencia del audio va aparte de
   // los valores que sí se leen al dibujar, y así no parece que estuvieramos mirando una
   // referencia durante el render.
-  const { estado, silenciado, segundos, motivoFin, recienContesto, llamar, colgar, alternarSilencio, audioRef } = useLlamada({
+  const {
+    estado,
+    silenciado,
+    segundos,
+    motivoFin,
+    recienContesto,
+    llamar,
+    contestar,
+    colgar,
+    alternarSilencio,
+    audioRef,
+  } = useLlamada({
     onError: (mensaje) => toast.error(mensaje),
   });
 
@@ -90,11 +107,29 @@ export function LlamadaEnCursoProvider({ children }: { children: React.ReactNode
     [llamar, ocupada],
   );
 
-  const valor = useMemo(() => ({ estado, ocupada, marcar }), [estado, ocupada, marcar]);
+  const contestarEntrante = useCallback(
+    async ({ llamadaId, telefono, nombre, avatarUrl }: { llamadaId: string } & DatosDeLaLlamada) => {
+      if (ocupada) {
+        return "ocupada" as const;
+      }
+      setDatos({ telefono, nombre, avatarUrl });
+      setExpandido(true);
+      return contestar(llamadaId);
+    },
+    [contestar, ocupada],
+  );
+
+  const valor = useMemo(
+    () => ({ estado, ocupada, marcar, contestarEntrante }),
+    [estado, ocupada, marcar, contestarEntrante],
+  );
 
   return (
     <LlamadaEnCursoContext.Provider value={valor}>
       {children}
+
+      {/* La pantalla de llamada ENTRANTE: timbra encima de todo y, al contestar, pasa a este cuadro. */}
+      <LlamadaEntrante />
 
       {ocupada && datos ? (
         <PanelDeLlamada

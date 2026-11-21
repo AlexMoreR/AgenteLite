@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 
 import { CHAT_STATUS_CHANGED_EVENT, type ChatStatusChangedDetail } from "@/components/chats/chat-inbox-types";
+import { EVENTO_LLAMADA_ENTRANTE } from "@/features/llamadas/components/aviso-de-llamada-entrante";
 import { EVENTO_CHATS_RECONECTADO } from "@/lib/chat-envio-reintento";
 import { iniciarMedicion } from "@/lib/metricas-chats";
 import { avisoAjenoCoincideConSuLista } from "@/lib/vista-de-la-bandeja";
@@ -139,6 +140,18 @@ export function ChatsOfficialRealtime({
         const quienMira = userIdRef.current;
         const noSeEntera =
           Boolean(quienMira) && Array.isArray(noSeEnteran) && (noSeEnteran as unknown[]).includes(quienMira);
+        /*
+          Llamada ENTRANTE de WhatsApp (sonando, contestada o terminada). No refresca nada: se pasa
+          con sus datos a la pantalla de llamada entrante (LlamadaEntrante.tsx) por su propio evento,
+          y solo a quien le toca enterarse (la misma lista `noSeEnteran` del servidor).
+        */
+        if (payload.type === "llamada-entrante") {
+          if (!noSeEntera) {
+            window.dispatchEvent(new CustomEvent(EVENTO_LLAMADA_ENTRANTE, { detail: payload.data ?? {} }));
+          }
+          return;
+        }
+
         // El sonido y la campanita solo para quien le toca ese chat; el refresco de abajo va igual.
         if (payload.type === "waha-incoming" && !noSeEntera) {
           window.dispatchEvent(

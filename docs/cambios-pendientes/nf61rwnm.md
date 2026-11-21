@@ -1,0 +1,10 @@
+## Qué no existe hoy
+- `llamada_entrante_contestar_desde_el_crm`: el botón Contestar de la pantalla de llamada entrante le pide a WaCalls `POST /api/sessions/<línea>/calls/<id>/accept`. No se pudo confirmar que WaCalls tenga ese endpoint (la tarea corrió en la nube, sin acceso al VPS): si no lo tiene, la pantalla dice "Contesta desde el celular de la línea" y se cierra, y no se le vuelve a pedir el micrófono a la asesora mientras la pestaña siga abierta. El parche de WaCalls para contestar desde el CRM va en otra tarjeta. Colgar (rechazar) usa el mismo `DELETE` de colgar una saliente.
+- `llamada_entrante_botones_en_la_notificacion`: la notificación "Te está llamando …" no trae botones de Contestar ni Colgar: al tocarla abre el chat con `?llamada=<id>` y ahí sale la pantalla (o "La llamada ya terminó").
+- `llamada_entrante_otros_gateways`: solo timbran las llamadas que entran por WaCalls; no hay llamadas entrantes por WAHA, Evolution ni la API oficial.
+- `llamada_entrante_sin_chats`: la pantalla de llamada entrante se entera en vivo por el altavoz de Chats (ChatsOfficialRealtime, que se monta para quien tiene el módulo Chats); quien tiene solo el permiso de llamadas recibe la notificación del celular, pero no el timbre en el CRM abierto.
+
+## Advertencias de operación
+- `llamada_entrante_timbre`: con el CRM abierto, la llamada entrante sale en pantalla completa (foto, nombre, número, Contestar y Colgar), timbra en bucle y vibra en Android hasta contestar, colgar, que la conteste otra asesora o que termine (tope de 90 s si no llega el aviso de fin). Con el CRM cerrado no hay timbre continuo: solo la notificación del celular, que suena una vez.
+- `llamada_entrante_iphone`: el iPhone solo recibe la notificación con la app instalada en la pantalla de inicio, y no vibra desde la web. El sonido del timbre puede quedar bloqueado hasta el primer toque en la pantalla (iPhone y Chrome no dejan sonar antes); la pantalla sale igual y empieza a sonar con ese toque.
+- `llamada_entrante_colgar`: Colgar rechaza la llamada para todo el equipo (el cliente deja de timbrar), no solo para quien lo tocó.

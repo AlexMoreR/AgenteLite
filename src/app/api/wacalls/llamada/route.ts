@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 
 import { auth } from "@/auth";
 import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
+import { normalizePhoneFromJid } from "@/lib/evolution-webhook";
 import {
+  buscarFichaDeLaLlamada,
   getLineasDelNegocio,
   getOtraLineaDelNegocio,
   getWaCallsSessionIdDelNegocio,
@@ -25,7 +27,16 @@ export const dynamic = "force-dynamic";
  * era repetir ese bloque cuatro veces con el riesgo de que una quedara sin control.
  */
 
-type Accion = "iniciar" | "webrtc" | "colgar" | "silenciar" | "estado" | "diagnostico";
+type Accion =
+  | "iniciar"
+  | "webrtc"
+  | "colgar"
+  | "silenciar"
+  | "estado"
+  | "diagnostico"
+  | "entrante"
+  | "contestar"
+  | "rechazar";
 
 type Cuerpo = {
   accion?: Accion;
@@ -51,6 +62,11 @@ type Cuerpo = {
    * la linea del chat. Solo se acepta si es una linea de ESTE negocio.
    */
   sessionId?: string;
+  /**
+   * Solo "entrante", "contestar" y "rechazar": el id de la llamada ENTRANTE en WaCalls, tal como
+   * llego en el aviso en vivo (`type: "llamada-entrante"`) o en el `?llamada=<id>` de la notificacion.
+   */
+  llamadaId?: string;
 };
 
 const SIN_OTRA_LINEA = "No hay otra línea libre para agregar a alguien";
@@ -299,6 +315,108 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true });
     }
 
+    /*
+      Llamadas ENTRANTES (parte 3 de "Llamadas entrantes en la PWA", 21-nov-2026).
+
+      El navegador solo conoce el id de la llamada, no la linea por la que entro. La linea se busca
+      preguntandole a WaCalls por esa llamada en CADA linea DE ESTE NEGOCIO (getLineasDelNegocio):
+      asi nunca se toca una llamada de otro negocio aunque alguien mande un id ajeno.
+
+      - "entrante": si la llamada sigue sonando, con quien es (para el `?llamada=<id>` de la
+        notificacion, cuando la pantalla se abre sin el aviso en vivo).
+      - "contestar": la contesta desde el CRM y devuelve lo mismo que "iniciar" (callId y la linea),
+        que es lo que necesita el navegador para conectar el audio con "webrtc".
+      - "rechazar": la corta mientras suena (el boton Colgar de la pantalla de llamada entrante).
+    */
+    case "entrante":
+    case "contestar":
+    case "rechazar": {
+      const llamadaId = limpiarSessionId(cuerpo.llamadaId);
+      if (!llamadaId) {
+        return NextResponse.json({ error: "Datos inválidos" }, { status: 400 });
+      }
+      const encontrada = await buscarLlamadaEnElNegocio(access.workspaceId, llamadaId, operadorId);
+      const estadoDeLaLlamada = encontrada?.call.status ?? "ended";
+      const terminada = estadoDeLaLlamada === "ended";
+
+      if (cuerpo.accion === "entrante") {
+        if (!encontrada || terminada || estadoDeLaLlamada === "connected") {
+          return NextResponse.json({ ok: true, sonando: false, contestada: estadoDeLaLlamada === "connected" });
+        }
+        const numero = normalizePhoneFromJid(encontrada.call.peer ?? null);
+        const ficha = numero
+          ? await buscarFichaDeLaLlamada({ telefono: numero, workspaceId: access.workspaceId }).catch(() => null)
+          : null;
+        return NextResponse.json({
+          ok: true,
+          sonando: true,
+          llamadaId,
+          nombre: ficha?.name?.trim() || null,
+          numero: numero ?? "",
+          foto: ficha?.avatarUrl?.trim() || null,
+        });
+      }
+
+      if (!encontrada || terminada) {
+        if (cuerpo.accion === "rechazar") {
+          // Rechazar algo que ya se corto no es un error para la asesora, como en "colgar".
+          return NextResponse.json({ ok: true });
+        }
+        return NextResponse.json({ error: "La llamada ya terminó." }, { status: 410 });
+      }
+
+      if (cuerpo.accion === "rechazar") {
+        const respuesta = await waCallsRequest<unknown>({
+          path: `/api/sessions/${encontrada.linea}/calls/${encodeURIComponent(llamadaId)}`,
+          method: "DELETE",
+          operadorId,
+        });
+        if (!respuesta.ok && respuesta.status !== 404) {
+          return NextResponse.json({ error: traducir(respuesta.error) }, { status: respuesta.status });
+        }
+        return NextResponse.json({ ok: true });
+      }
+
+      // contestar
+      if (estadoDeLaLlamada === "connected") {
+        return NextResponse.json({ error: "Ya la contestó otra persona." }, { status: 409 });
+      }
+      /*
+        OJO: la sesion que hizo esto corrio en la nube, sin acceso al VPS, y no pudo confirmar en el
+        codigo de WaCalls que exista un endpoint para contestar una llamada entrante. Se intenta con
+        el nombre probable (`/accept`); si WaCalls no lo tiene (o falla por lo que sea), se responde
+        `contestarDesdeElCelular` y la pantalla le dice a la asesora que conteste en el celular de la
+        linea. El parche de WaCalls, si hace falta, va en otra tarjeta.
+      */
+      const respuesta = await waCallsRequest<{ call?: { callId?: string } }>({
+        path: `/api/sessions/${encontrada.linea}/calls/${encodeURIComponent(llamadaId)}/accept`,
+        method: "POST",
+        operadorId,
+      });
+      if (!respuesta.ok) {
+        if (respuesta.error === "no such call") {
+          return NextResponse.json({ error: "La llamada ya terminó." }, { status: 410 });
+        }
+        if (respuesta.error === "operator already on a call") {
+          return NextResponse.json({ error: traducir(respuesta.error) }, { status: 409 });
+        }
+        console.info(
+          "[wacalls] contestar desde el CRM no disponible",
+          JSON.stringify({ llamadaId: llamadaId.slice(0, 64), status: respuesta.status }),
+        );
+        return NextResponse.json(
+          { error: "Contesta desde el celular de la línea.", contestarDesdeElCelular: true },
+          { status: 501 },
+        );
+      }
+      // Lo mismo que devuelve "iniciar": con esto el navegador conecta el audio por "webrtc".
+      return NextResponse.json({
+        ok: true,
+        callId: respuesta.data.call?.callId || llamadaId,
+        sessionId: encontrada.linea,
+      });
+    }
+
     default:
       return NextResponse.json({ error: "Acción desconocida" }, { status: 400 });
   }
@@ -311,6 +429,34 @@ function limpiarSessionId(valor: unknown): string | null {
   }
   const limpio = valor.trim();
   return limpio && limpio.length <= 128 ? limpio : null;
+}
+
+/**
+ * La llamada `llamadaId` en las lineas de ESTE negocio: la primera linea donde WaCalls la tiene
+ * activa. Si no esta en ninguna (termino o es de otro negocio), null.
+ */
+async function buscarLlamadaEnElNegocio(
+  workspaceId: string,
+  llamadaId: string,
+  operadorId: string,
+): Promise<{ linea: string; call: { status?: string; peer?: string } } | null> {
+  const lineas = await getLineasDelNegocio(workspaceId);
+  const respuestas = await Promise.all(
+    lineas.map(async (linea) => ({
+      linea,
+      respuesta: await waCallsRequest<{ call?: { status?: string; peer?: string } }>({
+        path: `/api/sessions/${linea}/calls/${encodeURIComponent(llamadaId)}`,
+        operadorId,
+        timeoutMs: 5000,
+      }),
+    })),
+  );
+  for (const { linea, respuesta } of respuestas) {
+    if (respuesta.ok && respuesta.data.call) {
+      return { linea, call: respuesta.data.call };
+    }
+  }
+  return null;
 }
 
 /** WaCalls no pudo marcar porque la linea (o quien llama) ya esta en otra llamada. */

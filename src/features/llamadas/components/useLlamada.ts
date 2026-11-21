@@ -102,8 +102,8 @@ type OpcionesDeMarcado = {
  * cerrando; si el navegador no lo tiene, `fetch` con `keepalive` hace lo mismo. Va el mismo cuerpo
  * que usa colgar(), a la misma ruta.
  */
-function colgarSinEsperar(callId: string, channelId: string | undefined) {
-  const cuerpo = JSON.stringify({ accion: "colgar", callId, channelId });
+function colgarSinEsperar(callId: string, channelId: string | undefined, sessionId?: string) {
+  const cuerpo = JSON.stringify({ accion: "colgar", callId, channelId, sessionId });
   try {
     if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
       if (navigator.sendBeacon("/api/wacalls/llamada", cuerpo)) {
@@ -122,6 +122,16 @@ function colgarSinEsperar(callId: string, channelId: string | undefined) {
   }
 }
 
+/** Un pedido a la ruta que fallo, con lo que contesto (p. ej. `contestarDesdeElCelular`). */
+class ErrorDeLlamada extends Error {
+  readonly datos: Record<string, unknown> | null;
+
+  constructor(mensaje: string, datos: Record<string, unknown> | null) {
+    super(mensaje);
+    this.datos = datos;
+  }
+}
+
 async function pedir(body: unknown) {
   const respuesta = await fetch("/api/wacalls/llamada", {
     method: "POST",
@@ -131,7 +141,7 @@ async function pedir(body: unknown) {
   });
   const data = (await respuesta.json().catch(() => null)) as { error?: string; [k: string]: unknown } | null;
   if (!respuesta.ok) {
-    throw new Error(data?.error || "No se pudo completar la operación.");
+    throw new ErrorDeLlamada(data?.error || "No se pudo completar la operación.", data);
   }
   return data ?? {};
 }
@@ -191,6 +201,7 @@ function esperarRutas(pc: RTCPeerConnection, topeMs = 3000) {
 function enviarDiagnostico(
   callId: string,
   channelId: string | undefined,
+  sessionId: string | undefined,
   diagnostico: DiagnosticoDeLlamada,
   segundosHablados: number,
 ) {
@@ -200,12 +211,15 @@ function enviarDiagnostico(
       headers: { "Content-Type": "application/json" },
       credentials: "same-origin",
       keepalive: true,
-      body: JSON.stringify({ accion: "diagnostico", callId, channelId, segundosHablados, diagnostico }),
+      body: JSON.stringify({ accion: "diagnostico", callId, channelId, sessionId, segundosHablados, diagnostico }),
     }).catch(() => {});
   } catch {
     // El diagnostico nunca puede romper el colgar.
   }
 }
+
+/** Como termino el intento de contestar una llamada entrante desde el CRM. */
+export type ResultadoDeContestar = "contestada" | "desde-el-celular" | "terminada" | "ocupada" | "error";
 
 export function useLlamada({ onError, onTerminada }: Opciones = {}) {
   const [estado, setEstado] = useState<EstadoLlamada>("libre");
@@ -231,6 +245,13 @@ export function useLlamada({ onError, onTerminada }: Opciones = {}) {
     lee de la prop: la llamada vive en SU linea aunque la pantalla cambie de chat en el medio.
   */
   const canalRef = useRef<string | undefined>(undefined);
+  /*
+    La linea de WaCalls de una llamada ENTRANTE contestada desde el CRM, tal como la devolvio
+    "contestar". El canal del chat no sirve ahi: la llamada entro por la linea que el cliente marco.
+    Va en todos los pasos que siguen (webrtc, estado, colgar, silenciar) y el servidor la acepta
+    solo si es una linea de este negocio. En las salientes queda vacia y manda el canal, como siempre.
+  */
+  const lineaRef = useRef<string | undefined>(undefined);
   /** El estado leido desde los temporizadores, que no ven el `estado` de React actualizado. */
   const estadoRef = useRef<EstadoLlamada>("libre");
   const segundosRef = useRef(0);
@@ -244,6 +265,8 @@ export function useLlamada({ onError, onTerminada }: Opciones = {}) {
   /** La ultima llamada cuyo diagnostico ya salio: cada llamada manda uno solo. */
   const diagnosticoEnviadoDeRef = useRef<string | null>(null);
   const revisionRef = useRef<number | null>(null);
+  /** El colgar de ahora, para el temporizador del audio caido (conectarAudio se arma antes que colgar). */
+  const colgarRef = useRef<(() => Promise<void>) | null>(null);
 
   const cambiarEstado = useCallback((siguiente: EstadoLlamada) => {
     estadoRef.current = siguiente;
@@ -261,7 +284,7 @@ export function useLlamada({ onError, onTerminada }: Opciones = {}) {
       return;
     }
     diagnosticoEnviadoDeRef.current = callId;
-    enviarDiagnostico(callId, canalRef.current, diagnosticoRef.current, segundosRef.current);
+    enviarDiagnostico(callId, canalRef.current, lineaRef.current, diagnosticoRef.current, segundosRef.current);
   }, []);
 
   /** Suelta micrófono, audio y conexión. Se llama al colgar y al desmontar. */
@@ -290,6 +313,7 @@ export function useLlamada({ onError, onTerminada }: Opciones = {}) {
       audioRef.current.srcObject = null;
     }
     callIdRef.current = null;
+    lineaRef.current = undefined;
     busquedasEnHistorialRef.current = 0;
     setSilenciado(false);
     setSegundos(0);
@@ -301,7 +325,7 @@ export function useLlamada({ onError, onTerminada }: Opciones = {}) {
   const colgarAlSalir = useCallback(() => {
     const callId = callIdRef.current;
     if (callId) {
-      colgarSinEsperar(callId, canalRef.current);
+      colgarSinEsperar(callId, canalRef.current, lineaRef.current);
     }
   }, []);
 
@@ -374,7 +398,7 @@ export function useLlamada({ onError, onTerminada }: Opciones = {}) {
     }
     let respuesta: { status?: string; endReason?: string | null; enHistorial?: boolean };
     try {
-      respuesta = (await pedir({ accion: "estado", callId, channelId: canalRef.current })) as typeof respuesta;
+      respuesta = (await pedir({ accion: "estado", callId, channelId: canalRef.current, sessionId: lineaRef.current })) as typeof respuesta;
     } catch {
       // Un sondeo que falla no corta nada: se vuelve a preguntar en un segundo.
       return;
@@ -414,6 +438,206 @@ export function useLlamada({ onError, onTerminada }: Opciones = {}) {
     }
   }, [cambiarEstado, terminarConMotivo]);
 
+  /**
+   * Conecta el audio de una llamada que ya existe en WaCalls: el canal de datos "pcm", el microfono,
+   * el parlante y el saludo "webrtc". Es el MISMO mecanismo para las salientes (llamar) y para las
+   * entrantes contestadas desde el CRM (contestar). Si algo falla, lanza el error y quien la llamo
+   * cuelga y limpia.
+   */
+  const conectarAudio = useCallback(
+    async (callId: string, mic: MediaStream, { timbrar }: { timbrar: boolean }) => {
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      });
+      pcRef.current = pc;
+
+      // El canal se crea ANTES de la oferta: si no, no aparece en el saludo y del otro lado
+      // nunca llega el audio. Sin orden y sin reenvios: ver audio-de-llamada.ts, es LA causa de
+      // que a veces el cliente no escuchara a la asesora.
+      const canal = pc.createDataChannel(CANAL_PCM, OPCIONES_CANAL_PCM);
+      canal.binaryType = "arraybuffer";
+
+      const ctx = new AudioContext({ sampleRate: FRECUENCIA });
+      ctxRef.current = ctx;
+      // Si el sistema suspende el audio (otra app tomo el parlante, el celular bloqueo la
+      // pantalla), se vuelve a encender: suspendido, no sale ni entra nada.
+      ctx.onstatechange = () => {
+        if (ctxRef.current === ctx && ctx.state !== "running" && ctx.state !== "closed") {
+          void ctx.resume().catch(() => {});
+        }
+      };
+      await ctx.audioWorklet.addModule("/worklets/capture-processor.js");
+      await ctx.audioWorklet.addModule("/worklets/playback-processor.js");
+      await ctx.resume();
+
+      // "Tuuu... tuuu..." hasta que el cliente conteste, y desde ya se pregunta en que va.
+      // (En una entrante contestada ya se esta hablando: no hay timbrado.)
+      if (timbrar && estadoRef.current === "sonando") {
+        apagarTimbradoRef.current = empezarTimbrado(ctx);
+      }
+      sondeoRef.current = window.setInterval(() => void revisarEstado(), SONDEO_MS);
+
+      // Micrófono → canal de datos, en paquetes de 20 ms.
+      const diagnostico = diagnosticoRef.current;
+      const empaquetador = new EmpaquetadorPcm();
+      let ultimoEnvio = 0;
+      const captura = new AudioWorkletNode(ctx, "capture-processor");
+      captura.port.onmessage = (evento: MessageEvent<Float32Array>) => {
+        if (canal.readyState !== "open") {
+          return;
+        }
+        for (const paquete of empaquetador.agregar(evento.data)) {
+          const cola = canal.bufferedAmount;
+          if (cola > diagnostico.colaMaxima) diagnostico.colaMaxima = cola;
+          // Con la red ahogada se tira audio NUEVO en vez de apilarlo: apilado llega tarde y
+          // WaCalls lo descarta igual, despues de varios segundos de silencio para el cliente.
+          if (hayQueDescartar(cola)) {
+            diagnostico.descartados += 1;
+            continue;
+          }
+          try {
+            canal.send(aEnteros(paquete));
+          } catch {
+            diagnostico.descartados += 1;
+            continue;
+          }
+          const ahora = performance.now();
+          if (ultimoEnvio && estadoRef.current === "hablando") {
+            diagnostico.huecoMaximoEnviadoMs = Math.max(diagnostico.huecoMaximoEnviadoMs, Math.round(ahora - ultimoEnvio));
+          }
+          ultimoEnvio = ahora;
+          diagnostico.enviados += 1;
+        }
+      };
+      let fuenteMic = ctx.createMediaStreamSource(mic);
+      fuenteMic.connect(captura);
+
+      /*
+        Si el microfono se apaga solo (se desconecto el auricular, otro programa lo tomo), antes
+        la llamada seguia "andando" y el cliente dejaba de escuchar sin que nadie se enterara.
+        Ahora se pide de nuevo y se reconecta; si no se puede, se avisa.
+      */
+      const vigilarMicrofono = (stream: MediaStream) => {
+        stream.getAudioTracks().forEach((pista) => {
+          pista.addEventListener("ended", () => {
+            if (micRef.current !== stream || ctxRef.current !== ctx) {
+              return;
+            }
+            diagnostico.microfonoCaido += 1;
+            void navigator.mediaDevices
+              .getUserMedia(RESTRICCIONES_MIC)
+              .then((nuevo) => {
+                if (ctxRef.current !== ctx) {
+                  nuevo.getTracks().forEach((t) => t.stop());
+                  return;
+                }
+                // Si estaba silenciada, sigue silenciada.
+                const activo = pista.enabled;
+                nuevo.getAudioTracks().forEach((t) => {
+                  t.enabled = activo;
+                });
+                fuenteMic.disconnect();
+                micRef.current = nuevo;
+                fuenteMic = ctx.createMediaStreamSource(nuevo);
+                fuenteMic.connect(captura);
+                vigilarMicrofono(nuevo);
+              })
+              .catch(() => {
+                onError?.("Se desconectó el micrófono: el cliente no te escucha. Revisa el auricular y vuelve a llamar.");
+              });
+          });
+        });
+      };
+      vigilarMicrofono(mic);
+      // El procesador no escribe nada en su salida; conectarlo al destino es lo que lo mantiene
+      // vivo, no se escucha a si misma la asesora.
+      captura.connect(ctx.destination);
+
+      // Canal de datos → parlante.
+      const reproduccion = new AudioWorkletNode(ctx, "playback-processor");
+      const destino = ctx.createMediaStreamDestination();
+      reproduccion.connect(destino);
+      reproduccion.port.onmessage = (evento: MessageEvent<{ tipo: "corte"; objetivoMs: number }>) => {
+        if (evento.data.tipo !== "corte" || estadoRef.current !== "hablando") {
+          return;
+        }
+        diagnostico.cortesReproduccion += 1;
+        diagnostico.objetivoColchonMaxMs = Math.max(diagnostico.objetivoColchonMaxMs, evento.data.objetivoMs);
+      };
+      let ultimoRecibido = 0;
+      canal.onmessage = (evento: MessageEvent<ArrayBuffer>) => {
+        const ahora = performance.now();
+        if (ultimoRecibido && estadoRef.current === "hablando") {
+          diagnostico.huecoMaximoRecibidoMs = Math.max(diagnostico.huecoMaximoRecibidoMs, Math.round(ahora - ultimoRecibido));
+        }
+        ultimoRecibido = ahora;
+        diagnostico.recibidos += 1;
+        diagnostico.bytesRecibidos += evento.data.byteLength;
+        reproduccion.port.postMessage(aFlotantes(evento.data));
+      };
+
+      // Cada 5 s: cuanto paso de verdad por la red (sale en el diagnostico al colgar).
+      revisionRef.current = window.setInterval(() => {
+        if (pcRef.current !== pc) {
+          return;
+        }
+        void pc
+          .getStats()
+          .then((reporte) => {
+            const reportes: Array<Record<string, unknown>> = [];
+            reporte.forEach((r) => reportes.push(r as Record<string, unknown>));
+            const ruta = leerRutaElegida(reportes);
+            if (ruta) {
+              diagnostico.bytesEnviadosRed = ruta.bytesEnviados;
+              diagnostico.bytesRecibidosRed = ruta.bytesRecibidos;
+              if (ruta.rttMs !== null) diagnostico.rttMs = ruta.rttMs;
+            }
+          })
+          .catch(() => {});
+      }, REVISION_MS);
+      if (audioRef.current) {
+        audioRef.current.srcObject = destino.stream;
+        void audioRef.current.play().catch(() => {
+          onError?.("El navegador bloqueó el audio. Toca la pantalla y vuelve a intentar.");
+        });
+      }
+
+      // Que se abra el canal de audio NO quiere decir que el cliente contesto (ver revisarEstado).
+
+      pc.onconnectionstatechange = () => {
+        if (pc.connectionState === "failed" || pc.connectionState === "closed") {
+          // Se corto el audio. Se le da al sondeo unos segundos para traer COMO termino (WaCalls
+          // tarda un instante en pasarla a su historial) y, si no llega, se cuelga igual.
+          void revisarEstado();
+          const id = window.setTimeout(() => {
+            if (callIdRef.current === callId && estadoRef.current !== "terminada" && estadoRef.current !== "libre") {
+              void colgarRef.current?.();
+            }
+          }, 4000);
+          temporizadoresRef.current.push(id);
+        }
+      };
+
+      const oferta = await pc.createOffer();
+      await pc.setLocalDescription(oferta);
+      await esperarRutas(pc);
+
+      const respuesta = (await pedir({
+        accion: "webrtc",
+        callId,
+        channelId: canalRef.current,
+        sessionId: lineaRef.current,
+        sdpOffer: pc.localDescription?.sdp ?? oferta.sdp,
+      })) as { sdpAnswer?: string };
+
+      if (!respuesta.sdpAnswer) {
+        throw new Error("El servicio no devolvió el audio.");
+      }
+      await pc.setRemoteDescription({ type: "answer", sdp: respuesta.sdpAnswer });
+    },
+    [onError, revisarEstado],
+  );
+
   const colgar = useCallback(async () => {
     // Con el motivo a la vista, el boton rojo solo cierra el panel: la llamada ya no existe.
     if (estadoRef.current === "terminada") {
@@ -426,7 +650,7 @@ export function useLlamada({ onError, onTerminada }: Opciones = {}) {
     cambiarEstado("cortando");
     try {
       if (callId) {
-        await pedir({ accion: "colgar", callId, channelId: canalRef.current });
+        await pedir({ accion: "colgar", callId, channelId: canalRef.current, sessionId: lineaRef.current });
       }
     } catch {
       // Si el servicio no contesta igual se corta de este lado: lo que no puede pasar es que la
@@ -437,6 +661,10 @@ export function useLlamada({ onError, onTerminada }: Opciones = {}) {
       onTerminada?.();
     }
   }, [cambiarEstado, limpiar, onTerminada]);
+
+  useEffect(() => {
+    colgarRef.current = colgar;
+  }, [colgar]);
 
   const llamar = useCallback(
     async (telefono: string, { esOculto = false, channelId }: OpcionesDeMarcado = {}) => {
@@ -466,193 +694,7 @@ export function useLlamada({ onError, onTerminada }: Opciones = {}) {
         }
         callIdRef.current = callId;
         cambiarEstado("sonando");
-
-        const pc = new RTCPeerConnection({
-          iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-        });
-        pcRef.current = pc;
-
-        // El canal se crea ANTES de la oferta: si no, no aparece en el saludo y del otro lado
-        // nunca llega el audio. Sin orden y sin reenvios: ver audio-de-llamada.ts, es LA causa de
-        // que a veces el cliente no escuchara a la asesora.
-        const canal = pc.createDataChannel(CANAL_PCM, OPCIONES_CANAL_PCM);
-        canal.binaryType = "arraybuffer";
-
-        const ctx = new AudioContext({ sampleRate: FRECUENCIA });
-        ctxRef.current = ctx;
-        // Si el sistema suspende el audio (otra app tomo el parlante, el celular bloqueo la
-        // pantalla), se vuelve a encender: suspendido, no sale ni entra nada.
-        ctx.onstatechange = () => {
-          if (ctxRef.current === ctx && ctx.state !== "running" && ctx.state !== "closed") {
-            void ctx.resume().catch(() => {});
-          }
-        };
-        await ctx.audioWorklet.addModule("/worklets/capture-processor.js");
-        await ctx.audioWorklet.addModule("/worklets/playback-processor.js");
-        await ctx.resume();
-
-        // "Tuuu... tuuu..." hasta que el cliente conteste, y desde ya se pregunta en que va.
-        if (estadoRef.current === "sonando") {
-          apagarTimbradoRef.current = empezarTimbrado(ctx);
-        }
-        sondeoRef.current = window.setInterval(() => void revisarEstado(), SONDEO_MS);
-
-        // Micrófono → canal de datos, en paquetes de 20 ms.
-        const diagnostico = diagnosticoRef.current;
-        const empaquetador = new EmpaquetadorPcm();
-        let ultimoEnvio = 0;
-        const captura = new AudioWorkletNode(ctx, "capture-processor");
-        captura.port.onmessage = (evento: MessageEvent<Float32Array>) => {
-          if (canal.readyState !== "open") {
-            return;
-          }
-          for (const paquete of empaquetador.agregar(evento.data)) {
-            const cola = canal.bufferedAmount;
-            if (cola > diagnostico.colaMaxima) diagnostico.colaMaxima = cola;
-            // Con la red ahogada se tira audio NUEVO en vez de apilarlo: apilado llega tarde y
-            // WaCalls lo descarta igual, despues de varios segundos de silencio para el cliente.
-            if (hayQueDescartar(cola)) {
-              diagnostico.descartados += 1;
-              continue;
-            }
-            try {
-              canal.send(aEnteros(paquete));
-            } catch {
-              diagnostico.descartados += 1;
-              continue;
-            }
-            const ahora = performance.now();
-            if (ultimoEnvio && estadoRef.current === "hablando") {
-              diagnostico.huecoMaximoEnviadoMs = Math.max(diagnostico.huecoMaximoEnviadoMs, Math.round(ahora - ultimoEnvio));
-            }
-            ultimoEnvio = ahora;
-            diagnostico.enviados += 1;
-          }
-        };
-        let fuenteMic = ctx.createMediaStreamSource(mic);
-        fuenteMic.connect(captura);
-
-        /*
-          Si el microfono se apaga solo (se desconecto el auricular, otro programa lo tomo), antes
-          la llamada seguia "andando" y el cliente dejaba de escuchar sin que nadie se enterara.
-          Ahora se pide de nuevo y se reconecta; si no se puede, se avisa.
-        */
-        const vigilarMicrofono = (stream: MediaStream) => {
-          stream.getAudioTracks().forEach((pista) => {
-            pista.addEventListener("ended", () => {
-              if (micRef.current !== stream || ctxRef.current !== ctx) {
-                return;
-              }
-              diagnostico.microfonoCaido += 1;
-              void navigator.mediaDevices
-                .getUserMedia(RESTRICCIONES_MIC)
-                .then((nuevo) => {
-                  if (ctxRef.current !== ctx) {
-                    nuevo.getTracks().forEach((t) => t.stop());
-                    return;
-                  }
-                  // Si estaba silenciada, sigue silenciada.
-                  const activo = pista.enabled;
-                  nuevo.getAudioTracks().forEach((t) => {
-                    t.enabled = activo;
-                  });
-                  fuenteMic.disconnect();
-                  micRef.current = nuevo;
-                  fuenteMic = ctx.createMediaStreamSource(nuevo);
-                  fuenteMic.connect(captura);
-                  vigilarMicrofono(nuevo);
-                })
-                .catch(() => {
-                  onError?.("Se desconectó el micrófono: el cliente no te escucha. Revisa el auricular y vuelve a llamar.");
-                });
-            });
-          });
-        };
-        vigilarMicrofono(mic);
-        // El procesador no escribe nada en su salida; conectarlo al destino es lo que lo mantiene
-        // vivo, no se escucha a si misma la asesora.
-        captura.connect(ctx.destination);
-
-        // Canal de datos → parlante.
-        const reproduccion = new AudioWorkletNode(ctx, "playback-processor");
-        const destino = ctx.createMediaStreamDestination();
-        reproduccion.connect(destino);
-        reproduccion.port.onmessage = (evento: MessageEvent<{ tipo: "corte"; objetivoMs: number }>) => {
-          if (evento.data.tipo !== "corte" || estadoRef.current !== "hablando") {
-            return;
-          }
-          diagnostico.cortesReproduccion += 1;
-          diagnostico.objetivoColchonMaxMs = Math.max(diagnostico.objetivoColchonMaxMs, evento.data.objetivoMs);
-        };
-        let ultimoRecibido = 0;
-        canal.onmessage = (evento: MessageEvent<ArrayBuffer>) => {
-          const ahora = performance.now();
-          if (ultimoRecibido && estadoRef.current === "hablando") {
-            diagnostico.huecoMaximoRecibidoMs = Math.max(diagnostico.huecoMaximoRecibidoMs, Math.round(ahora - ultimoRecibido));
-          }
-          ultimoRecibido = ahora;
-          diagnostico.recibidos += 1;
-          diagnostico.bytesRecibidos += evento.data.byteLength;
-          reproduccion.port.postMessage(aFlotantes(evento.data));
-        };
-
-        // Cada 5 s: cuanto paso de verdad por la red (sale en el diagnostico al colgar).
-        revisionRef.current = window.setInterval(() => {
-          if (pcRef.current !== pc) {
-            return;
-          }
-          void pc
-            .getStats()
-            .then((reporte) => {
-              const reportes: Array<Record<string, unknown>> = [];
-              reporte.forEach((r) => reportes.push(r as Record<string, unknown>));
-              const ruta = leerRutaElegida(reportes);
-              if (ruta) {
-                diagnostico.bytesEnviadosRed = ruta.bytesEnviados;
-                diagnostico.bytesRecibidosRed = ruta.bytesRecibidos;
-                if (ruta.rttMs !== null) diagnostico.rttMs = ruta.rttMs;
-              }
-            })
-            .catch(() => {});
-        }, REVISION_MS);
-        if (audioRef.current) {
-          audioRef.current.srcObject = destino.stream;
-          void audioRef.current.play().catch(() => {
-            onError?.("El navegador bloqueó el audio. Toca la pantalla y vuelve a intentar.");
-          });
-        }
-
-        // Que se abra el canal de audio NO quiere decir que el cliente contesto (ver revisarEstado).
-
-        pc.onconnectionstatechange = () => {
-          if (pc.connectionState === "failed" || pc.connectionState === "closed") {
-            // Se corto el audio. Se le da al sondeo unos segundos para traer COMO termino (WaCalls
-            // tarda un instante en pasarla a su historial) y, si no llega, se cuelga igual.
-            void revisarEstado();
-            const id = window.setTimeout(() => {
-              if (callIdRef.current === callId && estadoRef.current !== "terminada" && estadoRef.current !== "libre") {
-                void colgar();
-              }
-            }, 4000);
-            temporizadoresRef.current.push(id);
-          }
-        };
-
-        const oferta = await pc.createOffer();
-        await pc.setLocalDescription(oferta);
-        await esperarRutas(pc);
-
-        const respuesta = (await pedir({
-          accion: "webrtc",
-          callId,
-          channelId: canalRef.current,
-          sdpOffer: pc.localDescription?.sdp ?? oferta.sdp,
-        })) as { sdpAnswer?: string };
-
-        if (!respuesta.sdpAnswer) {
-          throw new Error("El servicio no devolvió el audio.");
-        }
-        await pc.setRemoteDescription({ type: "answer", sdp: respuesta.sdpAnswer });
+        await conectarAudio(callId, mic, { timbrar: true });
       } catch (error) {
         const mensaje =
           error instanceof DOMException && error.name === "NotAllowedError"
@@ -664,13 +706,85 @@ export function useLlamada({ onError, onTerminada }: Opciones = {}) {
         // Si ya se había creado la llamada del otro lado, se corta: si no, el número queda
         // sonando en el teléfono del cliente sin nadie del otro lado.
         if (callIdRef.current) {
-          void pedir({ accion: "colgar", callId: callIdRef.current, channelId: canalRef.current }).catch(() => {});
+          void pedir({
+            accion: "colgar",
+            callId: callIdRef.current,
+            channelId: canalRef.current,
+            sessionId: lineaRef.current,
+          }).catch(() => {});
         }
         limpiar();
         cambiarEstado("libre");
       }
     },
-    [colgar, limpiar, onError, cambiarEstado, revisarEstado],
+    [conectarAudio, limpiar, onError, cambiarEstado],
+  );
+
+  /**
+   * Contesta desde el CRM una llamada ENTRANTE que esta sonando y conecta el audio con el mismo
+   * mecanismo de las salientes. Despues la llamada sigue en el cuadro de siempre (LlamadaEnCurso).
+   *
+   * Si WaCalls no deja contestar desde aca, devuelve "desde-el-celular" y no queda nada abierto: la
+   * asesora contesta en el celular de la linea.
+   */
+  const contestar = useCallback(
+    async (llamadaId: string): Promise<ResultadoDeContestar> => {
+      if ((estadoRef.current as EstadoLlamada) !== "libre") {
+        return "ocupada";
+      }
+      setMotivoFin(null);
+      cambiarEstado("marcando");
+      canalRef.current = undefined;
+      try {
+        // El microfono se pide primero, con el toque de "Contestar" todavia fresco (lo pide el iPhone).
+        const mic = await navigator.mediaDevices.getUserMedia(RESTRICCIONES_MIC);
+        micRef.current = mic;
+        diagnosticoRef.current = diagnosticoVacio();
+
+        const contestada = (await pedir({ accion: "contestar", llamadaId })) as { callId?: string; sessionId?: string };
+        const callId = contestada.callId;
+        if (!callId) {
+          throw new Error("El servicio no devolvió la llamada.");
+        }
+        callIdRef.current = callId;
+        lineaRef.current = contestada.sessionId || undefined;
+        segundosRef.current = 0;
+        setSegundos(0);
+        cambiarEstado("hablando");
+        await conectarAudio(callId, mic, { timbrar: false });
+        return "contestada";
+      } catch (error) {
+        if (error instanceof ErrorDeLlamada && error.datos?.contestarDesdeElCelular === true) {
+          limpiar();
+          cambiarEstado("libre");
+          return "desde-el-celular";
+        }
+        const terminada = error instanceof ErrorDeLlamada && error.message === "La llamada ya terminó.";
+        if (!terminada) {
+          onError?.(
+            error instanceof DOMException && error.name === "NotAllowedError"
+              ? "Hay que permitir el micrófono para poder contestar."
+              : error instanceof Error
+                ? error.message
+                : "No se pudo contestar la llamada.",
+          );
+        }
+        // Si ya se habia contestado y el audio no conecto, se corta: el cliente no puede quedar en
+        // una llamada muda.
+        if (callIdRef.current) {
+          void pedir({
+            accion: "colgar",
+            callId: callIdRef.current,
+            channelId: canalRef.current,
+            sessionId: lineaRef.current,
+          }).catch(() => {});
+        }
+        limpiar();
+        cambiarEstado("libre");
+        return terminada ? "terminada" : "error";
+      }
+    },
+    [cambiarEstado, conectarAudio, limpiar, onError],
   );
 
   const alternarSilencio = useCallback(async () => {
@@ -686,11 +800,22 @@ export function useLlamada({ onError, onTerminada }: Opciones = {}) {
     });
     setSilenciado(siguiente);
     try {
-      await pedir({ accion: "silenciar", callId, muted: siguiente, channelId: canalRef.current });
+      await pedir({ accion: "silenciar", callId, muted: siguiente, channelId: canalRef.current, sessionId: lineaRef.current });
     } catch {
       // El corte local ya ocurrió; que el servicio no se entere no cambia lo que se escucha.
     }
   }, [silenciado]);
 
-  return { estado, silenciado, segundos, motivoFin, recienContesto, llamar, colgar, alternarSilencio, audioRef };
+  return {
+    estado,
+    silenciado,
+    segundos,
+    motivoFin,
+    recienContesto,
+    llamar,
+    contestar,
+    colgar,
+    alternarSilencio,
+    audioRef,
+  };
 }
