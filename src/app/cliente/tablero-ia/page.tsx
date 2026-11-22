@@ -97,8 +97,9 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
     yo: access.userId,
     verTodos: alcance.soloDe === null,
     miembros: alcance.soloDe ? miembros.map((miembro) => ({ ...miembro, email: "" })) : miembros,
-    // "Eliminar tablero" y "Tableros archivados": solo el dueño del negocio (el servidor lo vuelve a revisar).
-    esDuenoDelNegocio: access.isOwner,
+    // "Eliminar tablero" y "Tableros archivados": el dueño del negocio o el ADMIN de la plataforma (22-nov-2026;
+    // el servidor lo vuelve a revisar con la misma regla, en quienArchiva).
+    esDuenoDelNegocio: access.isOwner || persona.esAdminPlataforma,
   };
 
   // Sin nada en el link: la página de inicio con el listado (el último que cambió va primero).

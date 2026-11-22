@@ -451,7 +451,7 @@ export const ESTADOS_QUE_FRENAN_ARCHIVAR = [
   "SUBIENDO",
 ] as const satisfies readonly EstadoTarjetaTablero[];
 
-export const SOLO_EL_DUENO_ARCHIVA = "Eliminar (archivar) y recuperar un tablero lo hace solo el dueño del negocio.";
+export const SOLO_EL_DUENO_ARCHIVA = "Eliminar (archivar) y recuperar un tablero lo hace solo el dueño del negocio o el ADMIN de la plataforma.";
 
 /** Cuántas tarjetas en marcha se nombran en el mensaje (las demás van como "y N más"). */
 const MAX_EN_EL_MENSAJE = 10;

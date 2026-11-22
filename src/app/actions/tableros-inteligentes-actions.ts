@@ -239,16 +239,21 @@ export async function renombrarTableroAction(tableroId: string, nombre: string, 
   lo vuelve a revisar (problemaParaArchivarTablero), junto con el nombre escrito y las tarjetas en marcha.
 */
 
-const quienArchiva = (access: Awaited<ReturnType<typeof requireClientWorkspaceAccess>>): QuienArchiva => ({
-  workspaceId: access.workspaceId,
-  userId: access.userId,
-  esDueno: access.isOwner,
-});
+// Eliminar (archivar), recuperar y ver los archivados: el dueño del negocio o el ADMIN de la plataforma
+// (22-nov-2026, pedido de Alex: su cuenta es ADMIN y no veía «Eliminar»). Una asesora, nunca.
+const quienArchiva = async (access: Awaited<ReturnType<typeof requireClientWorkspaceAccess>>): Promise<QuienArchiva> => {
+  const esAdmin = access.isOwner
+    ? false
+    : await personaQueAprueba(access.workspaceId, access.userId)
+        .then((persona) => persona.esAdminPlataforma)
+        .catch(() => false);
+  return { workspaceId: access.workspaceId, userId: access.userId, esDueno: access.isOwner || esAdmin };
+};
 
 export async function archivarTableroAction(tableroId: string, confirmacion: string): Promise<Resultado> {
   const access = await requireClientWorkspaceAccess("tableros_inteligentes");
   try {
-    await archivarTablero(quienArchiva(access), tableroId, confirmacion);
+    await archivarTablero(await quienArchiva(access), tableroId, confirmacion);
     return { ok: true };
   } catch (fallo) {
     return { ok: false, error: mensaje(fallo, "No se pudo eliminar el tablero") };
@@ -258,7 +263,7 @@ export async function archivarTableroAction(tableroId: string, confirmacion: str
 export async function recuperarTableroAction(tableroId: string): Promise<Resultado> {
   const access = await requireClientWorkspaceAccess("tableros_inteligentes");
   try {
-    await recuperarTablero(quienArchiva(access), tableroId);
+    await recuperarTablero(await quienArchiva(access), tableroId);
     return { ok: true };
   } catch (fallo) {
     return { ok: false, error: mensaje(fallo, "No se pudo recuperar el tablero") };
@@ -268,7 +273,7 @@ export async function recuperarTableroAction(tableroId: string): Promise<Resulta
 export async function tablerosArchivadosAction(): Promise<{ ok: true; tableros: TableroArchivadoVista[] } | { ok: false; error: string }> {
   const access = await requireClientWorkspaceAccess("tableros_inteligentes");
   try {
-    return { ok: true, tableros: await listarTablerosArchivados(quienArchiva(access)) };
+    return { ok: true, tableros: await listarTablerosArchivados(await quienArchiva(access)) };
   } catch (fallo) {
     return { ok: false, error: mensaje(fallo, "No se pudieron leer los tableros archivados") };
   }
