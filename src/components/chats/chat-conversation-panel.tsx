@@ -2968,7 +2968,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                         </div>
                       </div>
                     ) : (
-                      <div className="flex min-h-[48px] w-full min-w-0 flex-1 items-end gap-0.5 rounded-3xl border border-border bg-card px-1 py-1 shadow-[0_1px_6px_#0000001f] transition focus-within:border-[var(--primary)] focus-within:bg-card focus-within:ring-2 focus-within:ring-ring/50 md:min-h-[48px]">
+                      <div className="flex min-h-[48px] w-full min-w-0 flex-1 items-end gap-0.5 rounded-3xl border border-border bg-card px-1 py-1 shadow-[0_1px_6px_#0000001f] md:min-h-[48px]">
                         {mediaConfig ? (
                           <>
                             <input
