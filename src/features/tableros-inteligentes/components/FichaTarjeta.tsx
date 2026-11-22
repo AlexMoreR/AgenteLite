@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, ArrowDownLeft, ArrowUpRight, CornerLeftUp, ExternalLink, History, Layers, Loader2 } from "lucide-react";
+import { AlertTriangle, ArrowDownLeft, ArrowUpRight, ChevronRight, CornerLeftUp, ExternalLink, History, Layers, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -293,7 +293,8 @@ export function FichaTarjeta({
                     {tipo.nombre}
                   </span>
                 ) : null}
-                {usaEstados ? (
+                {/* El estado no se repite cuando se llama igual que el tipo (una Idea en estado Idea decía "Idea" dos veces). */}
+                {usaEstados && NOMBRE_DEL_ESTADO[tarjeta.estado].toLowerCase() !== tipo?.nombre.trim().toLowerCase() ? (
                   <span className={cn("rounded-full border px-2 py-0.5 text-xs font-medium", color.pastilla)}>
                     {NOMBRE_DEL_ESTADO[tarjeta.estado]}
                   </span>
@@ -319,11 +320,19 @@ export function FichaTarjeta({
             <div className="space-y-4 px-4 pb-6">
               {/* Las tarjetas con aprobación muestran arriba el resumen corto (TrabajoDeLaTarjeta) y su detalle
                   completo va en "Ver detalles"; las demás (áreas, ideas) muestran el detalle tal cual. */}
-              {pideAprobacion ? null : tarjeta.detalle ? (
-                <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{tarjeta.detalle}</p>
-              ) : (
-                <p className="text-sm text-muted-foreground">Sin detalle.</p>
-              )}
+              {/* (22-nov-2026, pedido de Alex) Arriba solo el título: el detalle va cerrado y se abre al tocarlo,
+                  igual que el "Ver detalles" de las tarjetas con aprobación. */}
+              {pideAprobacion ? null : tarjeta.detalle?.trim() ? (
+                <details className="group rounded-lg border">
+                  <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-3 text-sm font-medium [&::-webkit-details-marker]:hidden">
+                    <ChevronRight className="size-4 shrink-0 transition-transform group-open:rotate-90" aria-hidden />
+                    Ver detalle
+                  </summary>
+                  <p className="whitespace-pre-wrap border-t px-3 py-3 text-sm leading-relaxed text-foreground [overflow-wrap:anywhere]">
+                    {tarjeta.detalle}
+                  </p>
+                </details>
+              ) : null}
 
               {tarjeta.link ? (
                 <Button
