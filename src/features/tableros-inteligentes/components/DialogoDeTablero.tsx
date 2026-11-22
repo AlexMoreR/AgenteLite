@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
-import { archivarTableroAction, crearTableroAction, renombrarTableroAction } from "@/app/actions/tableros-inteligentes-actions";
+import { crearTableroAction, eliminarTableroAction, renombrarTableroAction } from "@/app/actions/tableros-inteligentes-actions";
 import { MAX_NOMBRE_TABLERO, problemaDelNombreDeTablero, type MiembroDelNegocio } from "../services/reglas";
 
 /*
@@ -18,9 +18,10 @@ import { MAX_NOMBRE_TABLERO, problemaDelNombreDeTablero, type MiembroDelNegocio 
   Tableros por cuenta: cualquiera crea y renombra los suyos. El dueño del negocio (o el ADMIN) además
   elige "De quién es" entre los miembros activos (así arma "Desarrollo Emanuel" y se lo da a Emanuel).
 
-  "Eliminar tablero" (10-nov-2026): al final del diálogo de "Cambiar nombre", solo para el dueño del negocio. Pide
-  escribir el nombre exacto y ARCHIVA el tablero (no borra nada; se recupera en "Tableros archivados"). El servidor
-  vuelve a revisar todo y, si hay tarjetas aprobadas o con el Coordinador, dice cuáles.
+  "Eliminar tablero" (10-nov-2026; desde el 22-nov-2026 BORRA DE VERDAD): al final del diálogo de "Cambiar nombre"
+  y en el «Eliminar» de los tres puntos, para el dueño del negocio o el ADMIN. Pide escribir el nombre exacto y borra
+  el tablero con sus tarjetas para siempre (ya no hay "Tableros archivados"). El servidor vuelve a revisar todo y,
+  si hay tarjetas aprobadas o con el Coordinador, dice cuáles.
 */
 
 /** La página de inicio (el listado). Igual que RUTA_TABLEROS del servicio, que no se importa acá porque trae Prisma. */
@@ -134,7 +135,7 @@ function Formulario({ edicion, tableros, cuentas, alCerrar, alRenombrar, alCrear
     setGuardando(true);
     setErrorAlEliminar(null);
     try {
-      const resultado = await archivarTableroAction(edicion.id, confirmacion);
+      const resultado = await eliminarTableroAction(edicion.id, confirmacion);
       if (!resultado.ok) {
         setErrorAlEliminar(resultado.error);
         return;
@@ -270,8 +271,8 @@ function Formulario({ edicion, tableros, cuentas, alCerrar, alRenombrar, alCrear
           {eliminando ? (
             <>
               <p className="text-sm text-muted-foreground">
-                El tablero se archiva: deja de verse, el Coordinador no toma sus tarjetas y no cuenta en avisos ni resúmenes. No se
-                borra nada y lo puedes recuperar en Tableros archivados. Para confirmar, escribe su nombre:{" "}
+                Se borra para siempre el tablero con todas sus tarjetas y su historial. No se puede deshacer ni recuperar. Para
+                confirmar, escribe su nombre:{" "}
                 <span className="font-medium text-foreground">{edicion.nombre}</span>
               </p>
               <div className="grid gap-1.5">

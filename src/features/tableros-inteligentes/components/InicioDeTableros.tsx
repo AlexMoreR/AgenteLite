@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Archive, EllipsisVertical, Network, Pencil, Plus, Trash2 } from "lucide-react";
+import { EllipsisVertical, Network, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -26,7 +26,6 @@ import { VistaDeHoy } from "./VistaDeHoy";
 import { TrabajosTerminados } from "./TrabajosTerminados";
 import { SeccionTrabajador } from "./SeccionTrabajador";
 import { useListaDeTableros } from "../hooks/useRefrescoDelTablero";
-import { DialogoDeTablerosArchivados } from "./DialogoDeTablerosArchivados";
 
 /*
   La PÁGINA DE INICIO de Tablero IA (/cliente/tablero-ia sin ?tablero, ?tarjeta ni ?area): una
@@ -76,8 +75,6 @@ export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar,
     [lista],
   );
   const [edicion, setEdicion] = useState<EdicionDeTablero | null>(null);
-  // "Tableros archivados" (solo el dueño del negocio): también acá, por si archivó todos y no hay selector a mano.
-  const [verArchivados, setVerArchivados] = useState(false);
   // Las pestañas "Tableros", "Hoy", "Coordinador en vivo" y "Trabajos terminados" (solo el dueño o el ADMIN las ven).
   const [vista, setVista] = useState<VistaDelInicio>(puedeAdministrar ? vistaInicial : "tableros");
   const enHoy = puedeAdministrar && vista === "hoy";
@@ -171,14 +168,6 @@ export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar,
 
       {!aparte ? (
       <section aria-label="Tableros" className="space-y-4">
-        {cuentas.esDuenoDelNegocio ? (
-          <div className="flex justify-end">
-            <Button variant="outline" className="h-11 md:h-9" onClick={() => setVerArchivados(true)}>
-              <Archive />
-              Tableros archivados
-            </Button>
-          </div>
-        ) : null}
 
         {tableros.length === 0 ? (
           <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed px-6 py-12 text-center">
@@ -273,16 +262,11 @@ export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar,
         alArchivar={(id) => {
           setTableros((lista) => lista.filter((tablero) => tablero.id !== id));
           setEdicion(null);
-          toast.success("Tablero eliminado: quedó en Tableros archivados");
+          toast.success("Tablero eliminado para siempre");
           router.refresh();
         }}
       />
 
-      <DialogoDeTablerosArchivados
-        abierto={verArchivados}
-        alCerrar={() => setVerArchivados(false)}
-        alRecuperar={() => router.refresh()}
-      />
     </div>
   );
 }

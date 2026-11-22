@@ -196,3 +196,76 @@ export async function listarTablerosArchivados(quien: QuienArchiva): Promise<Tab
     }))
     .reverse();
 }
+
+/*
+  "Eliminar tablero" BORRA DE VERDAD (22-nov-2026, decisión de Alex: "que se elimine del todo"). Ya no se archiva:
+  el tablero, sus tarjetas, tipos, flechas, historial e intentos se borran para siempre y no se pueden recuperar.
+  Las mismas reglas de antes: el dueño del negocio o el ADMIN de la plataforma (quienArchiva), el nombre exacto
+  escrito y sin tarjetas vivas aprobadas o con el Coordinador (problemaParaArchivarTablero).
+
+  El orden importa: una tarjeta no deja borrar su tipo (onDelete: Restrict), así que primero se borran las tarjetas
+  (con ellas, por cascada, sus flechas, su historial y sus intentos; las hijas de otros tableros quedan sin madre) y
+  después el tablero (con él, sus tipos). Todo en una transacción: si algo falla no queda nada a medias.
+*/
+export async function eliminarTablero(quien: QuienArchiva, tableroId: unknown, confirmacion: unknown) {
+  if (!quien.esDueno) throw new Error(SOLO_EL_DUENO_ARCHIVA);
+  const id = idDeEntrada(tableroId);
+  const tablero = id
+    ? await prisma.tableroInteligente.findFirst({ where: { id, workspaceId: quien.workspaceId }, select: { id: true, nombre: true } })
+    : null;
+  if (!tablero) throw new Error("No existe ese tablero en este negocio.");
+  const enMarcha = await prisma.tarjetaTablero.findMany({
+    where: { tableroId: tablero.id, borradoEn: null, archivadaEn: null, estado: { in: [...ESTADOS_QUE_FRENAN_ARCHIVAR] } },
+    orderBy: [{ numero: "asc" }, { creadoEn: "asc" }],
+    take: 200,
+    select: { numero: true, titulo: true, estado: true },
+  });
+  const problema = problemaParaArchivarTablero({
+    esDueno: quien.esDueno,
+    nombre: tablero.nombre,
+    confirmacion,
+    enMarcha: enMarcha.map((tarjeta) => ({
+      codigo: codigoDeTarjeta(tarjeta.numero),
+      titulo: tarjeta.titulo,
+      estado: tarjeta.estado as EstadoTarjetaTablero,
+    })),
+  });
+  if (problema) throw new Error(problema);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.$queryRawUnsafe(SQL_CANDADO_DE_ARCHIVADOS, quien.workspaceId);
+    await borrarTablerosDeVerdad(tx, quien.workspaceId, [tablero.id]);
+  });
+  return { id: tablero.id, nombre: tablero.nombre };
+}
+
+/**
+ * Los que quedaron archivados de antes del 22-nov-2026 (NETMAGI): con "eliminar" borrando de verdad, se borran para
+ * siempre la primera vez que el dueño o el ADMIN abren Tablero IA. Devuelve los nombres que borró (vacío casi siempre).
+ */
+export async function borrarLosTablerosArchivados(quien: QuienArchiva): Promise<string[]> {
+  if (!quien.esDueno) return [];
+  if (!(await tablerosArchivadosDe(quien.workspaceId)).length) return [];
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRawUnsafe(SQL_CANDADO_DE_ARCHIVADOS, quien.workspaceId);
+    const ids = (await tablerosArchivadosDe(quien.workspaceId, tx)).map((archivado) => archivado.tableroId);
+    if (!ids.length) return [];
+    const tableros = await tx.tableroInteligente.findMany({ where: { id: { in: ids }, workspaceId: quien.workspaceId }, select: { nombre: true } });
+    await borrarTablerosDeVerdad(tx, quien.workspaceId, ids);
+    return tableros.map((tablero) => tablero.nombre);
+  });
+}
+
+async function borrarTablerosDeVerdad(tx: Prisma.TransactionClient, workspaceId: string, ids: string[]) {
+  const deEsteNegocio = (
+    await tx.tableroInteligente.findMany({ where: { id: { in: ids }, workspaceId }, select: { id: true } })
+  ).map((tablero) => tablero.id);
+  if (deEsteNegocio.length) {
+    await tx.tarjetaTablero.deleteMany({ where: { tableroId: { in: deEsteNegocio } } });
+    await tx.tableroInteligente.deleteMany({ where: { id: { in: deEsteNegocio }, workspaceId } });
+  }
+  // Que no quede en la lista de archivados un tablero que ya no existe.
+  const lista = await tablerosArchivadosDe(workspaceId, tx);
+  const queda = lista.filter((archivado) => !ids.includes(archivado.tableroId));
+  if (queda.length !== lista.length) await guardarLista(tx, workspaceId, queda);
+}

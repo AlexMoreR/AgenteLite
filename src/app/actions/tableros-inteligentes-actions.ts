@@ -61,11 +61,8 @@ import {
 } from "@/features/tableros-inteligentes/services/archivadas";
 import type { MomentoDeAprobacion } from "@/features/tableros-inteligentes/services/reglas-trabajador";
 import {
-  archivarTablero,
-  listarTablerosArchivados,
-  recuperarTablero,
+  eliminarTablero,
   type QuienArchiva,
-  type TableroArchivadoVista,
 } from "@/features/tableros-inteligentes/services/tableros-archivados";
 
 /*
@@ -250,32 +247,14 @@ const quienArchiva = async (access: Awaited<ReturnType<typeof requireClientWorks
   return { workspaceId: access.workspaceId, userId: access.userId, esDueno: access.isOwner || esAdmin };
 };
 
-export async function archivarTableroAction(tableroId: string, confirmacion: string): Promise<Resultado> {
+/** "Eliminar tablero" (22-nov-2026): lo borra para siempre con sus tarjetas; ver eliminarTablero. */
+export async function eliminarTableroAction(tableroId: string, confirmacion: string): Promise<Resultado> {
   const access = await requireClientWorkspaceAccess("tableros_inteligentes");
   try {
-    await archivarTablero(await quienArchiva(access), tableroId, confirmacion);
+    await eliminarTablero(await quienArchiva(access), tableroId, confirmacion);
     return { ok: true };
   } catch (fallo) {
     return { ok: false, error: mensaje(fallo, "No se pudo eliminar el tablero") };
-  }
-}
-
-export async function recuperarTableroAction(tableroId: string): Promise<Resultado> {
-  const access = await requireClientWorkspaceAccess("tableros_inteligentes");
-  try {
-    await recuperarTablero(await quienArchiva(access), tableroId);
-    return { ok: true };
-  } catch (fallo) {
-    return { ok: false, error: mensaje(fallo, "No se pudo recuperar el tablero") };
-  }
-}
-
-export async function tablerosArchivadosAction(): Promise<{ ok: true; tableros: TableroArchivadoVista[] } | { ok: false; error: string }> {
-  const access = await requireClientWorkspaceAccess("tableros_inteligentes");
-  try {
-    return { ok: true, tableros: await listarTablerosArchivados(await quienArchiva(access)) };
-  } catch (fallo) {
-    return { ok: false, error: mensaje(fallo, "No se pudieron leer los tableros archivados") };
   }
 }
 

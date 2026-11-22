@@ -26,6 +26,7 @@ import {
   tarjetaAsignada,
 } from "@/features/tableros-inteligentes/services/tableros";
 import { preferenciasDe } from "@/features/tableros-inteligentes/services/vistas-guardadas";
+import { borrarLosTablerosArchivados } from "@/features/tableros-inteligentes/services/tableros-archivados";
 import { FichaDeAsignada } from "@/features/tableros-inteligentes/components/FichaDeAsignada";
 import { InicioDeTableros } from "@/features/tableros-inteligentes/components/InicioDeTableros";
 import { TablerosInteligentesVista } from "@/features/tableros-inteligentes/components/TablerosInteligentesVista";
@@ -84,6 +85,16 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
     // una tarjeta (el selector Responsable de la ficha: lo ve cualquiera que edite un tablero).
     miembrosDelNegocio(access.workspaceId),
   ]);
+  /*
+    Desde el 22-nov-2026 "Eliminar" borra de verdad (decisión de Alex). Lo que quedó archivado de antes (NETMAGI) se
+    borra para siempre la primera vez que entra el dueño o el ADMIN. Sin archivados es una sola lectura de AppSetting.
+    Si falla, la página sigue igual (los archivados no se ven en ningún lado).
+  */
+  await borrarLosTablerosArchivados({
+    workspaceId: access.workspaceId,
+    userId: access.userId,
+    esDueno: access.isOwner || persona.esAdminPlataforma,
+  }).catch((fallo) => console.error("[tablero-ia] no se pudieron borrar los tableros archivados", fallo));
   // "Pasar al cerebro": el dueño o quien él autorizó. Si falla la lectura, el botón simplemente no sale.
   const puedeCerebro = await permisosDelCerebro(access).then((permisos) => permisos.ver).catch(() => false);
   // La sección Trabajador: el dueño o el ADMIN de la plataforma (nunca una asesora).
@@ -97,7 +108,7 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
     yo: access.userId,
     verTodos: alcance.soloDe === null,
     miembros: alcance.soloDe ? miembros.map((miembro) => ({ ...miembro, email: "" })) : miembros,
-    // "Eliminar tablero" y "Tableros archivados": el dueño del negocio o el ADMIN de la plataforma (22-nov-2026;
+    // "Eliminar tablero" (lo borra para siempre): el dueño del negocio o el ADMIN de la plataforma (22-nov-2026;
     // el servidor lo vuelve a revisar con la misma regla, en quienArchiva).
     esDuenoDelNegocio: access.isOwner || persona.esAdminPlataforma,
   };

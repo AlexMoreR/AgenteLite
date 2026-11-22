@@ -153,6 +153,16 @@ const falso = {
       estado.tarjetas.set(fila.id, fila);
       return hidratarTarjeta(fila);
     },
+    deleteMany: async ({ where }) => {
+      const dentro = tarjetasQue(where);
+      const ids = new Set(dentro.map((t) => t.id));
+      for (const t of dentro) estado.tarjetas.delete(t.id);
+      // Cascada: sus flechas y su historial; las hijas de otro tablero quedan sin madre (SetNull).
+      estado.conexiones = estado.conexiones.filter((c) => !ids.has(c.origenId) && !ids.has(c.destinoId));
+      estado.historial = estado.historial.filter((h) => !ids.has(h.tarjetaId));
+      for (const t of estado.tarjetas.values()) if (ids.has(t.padreId)) t.padreId = null;
+      return { count: dentro.length };
+    },
     updateMany: async ({ where, data }) => {
       const dentro = tarjetasQue(where);
       for (const t of dentro) {
@@ -200,6 +210,16 @@ const falso = {
     updateMany: async ({ where, data = {} }) => {
       const filas = tablerosQue(where);
       for (const fila of filas) Object.assign(fila, data, { actualizadoEn: data.actualizadoEn ?? ahora() });
+      return { count: filas.length };
+    },
+    deleteMany: async ({ where }) => {
+      const filas = tablerosQue(where);
+      for (const fila of filas) {
+        // Como la base: una tarjeta no deja borrar su tipo (Restrict), así que antes hay que borrar las tarjetas.
+        if ([...estado.tarjetas.values()].some((t) => t.tableroId === fila.id)) throw new Error("Restrict: el tipo tiene tarjetas");
+        estado.tableros.delete(fila.id);
+        for (const [id, tipo] of estado.tipos) if (tipo.tableroId === fila.id) estado.tipos.delete(id);
+      }
       return { count: filas.length };
     },
   },
@@ -896,23 +916,66 @@ await prueba("la lista guardada se lee con cuidado: un valor dañado no rompe na
   assert.deepEqual((await tableros.listarTableros(dueno)).map((t) => t.id), ["tb1"]);
 });
 
-await prueba("las server actions usan isOwner y la pantalla solo le muestra los botones al dueño del negocio", async () => {
+await prueba("eliminar: el dueño o el ADMIN, borra de verdad y ya no hay Tableros archivados en la pantalla", async () => {
   const leer = (ruta) => fs.readFileSync(path.join(RAIZ, ruta), "utf8");
   const acciones = leer("src/app/actions/tableros-inteligentes-actions.ts");
-  assert.match(acciones, /esDueno: access\.isOwner/);
-  for (const accion of ["archivarTableroAction", "recuperarTableroAction", "tablerosArchivadosAction"]) {
-    assert.match(acciones, new RegExp(`export async function ${accion}\\(`), accion);
+  assert.match(acciones, /esDueno: access\.isOwner \|\| esAdmin/);
+  assert.match(acciones, /export async function eliminarTableroAction\(/);
+  assert.match(acciones, /await eliminarTablero\(await quienArchiva\(access\)/);
+  for (const vieja of ["archivarTableroAction", "recuperarTableroAction", "tablerosArchivadosAction"]) {
+    assert.doesNotMatch(acciones, new RegExp(`export async function ${vieja}\\(`), vieja);
   }
-  assert.match(leer("src/app/cliente/tablero-ia/page.tsx"), /esDuenoDelNegocio: access\.isOwner/);
+  const pagina = leer("src/app/cliente/tablero-ia/page.tsx");
+  assert.match(pagina, /esDuenoDelNegocio: access\.isOwner \|\| persona\.esAdminPlataforma/);
+  assert.match(pagina, /await borrarLosTablerosArchivados\(/);
   const dialogo = leer("src/features/tableros-inteligentes/components/DialogoDeTablero.tsx");
   assert.match(dialogo, /const puedeEliminar = edicion\.modo === "renombrar" && cuentas\.esDuenoDelNegocio;/);
   assert.match(dialogo, /variant="destructive"/);
   assert.match(dialogo, /Eliminar tablero/);
   assert.match(dialogo, /confirmacion\.trim\(\) !== edicion\.nombre/);
+  assert.match(dialogo, /Se borra para siempre/);
   const selector = leer("src/features/tableros-inteligentes/components/SelectorDeTablero.tsx");
-  assert.match(selector, /cuentas\.esDuenoDelNegocio \? \(/);
-  assert.match(selector, /Tableros archivados/);
-  assert.match(leer("src/features/tableros-inteligentes/components/DialogoDeTablerosArchivados.tsx"), /Recuperar/);
+  assert.doesNotMatch(selector, /DialogoDeTablerosArchivados/);
+  assert.doesNotMatch(leer("src/features/tableros-inteligentes/components/InicioDeTableros.tsx"), /DialogoDeTablerosArchivados/);
+  assert.equal(fs.existsSync(path.join(RAIZ, "src/features/tableros-inteligentes/components/DialogoDeTablerosArchivados.tsx")), false);
+});
+
+await prueba("eliminar de verdad: las mismas reglas (dueño, nombre exacto, sin tarjetas en marcha)", async () => {
+  conTableroViejo();
+  await rechaza(archivados.eliminarTablero(ana, "tb2", "Viejo"), /solo el dueño del negocio/);
+  await rechaza(archivados.eliminarTablero(yo, "tb2", "viejo"), /escribe el nombre exacto del tablero: Viejo/);
+  await rechaza(archivados.eliminarTablero(yo, "no-existe", "Viejo"), /No existe ese tablero/);
+  tarjeta("v-frena", { tableroId: "tb2", numero: 412, titulo: "Cambiar el guion", estado: "EN_CURSO", repo: "aizencrm" });
+  await rechaza(archivados.eliminarTablero(yo, "tb2", "Viejo"), /T-412 «Cambiar el guion»/);
+  assert.ok(estado.tableros.has("tb2"), "no se borró nada");
+});
+
+await prueba("eliminar de verdad: se van el tablero, sus tarjetas, tipos, flechas e historial; lo demás queda", async () => {
+  conTableroViejo();
+  const deOtros = [...estado.tarjetas.values()].filter((t) => t.tableroId !== "tb2").map((t) => t.id).sort();
+  estado.conexiones.push({ id: "c-vieja", tableroId: "tb2", origenId: "v-area", destinoId: "v-idea" });
+  estado.historial.push({ id: "h-vieja", tarjetaId: "v-idea", creadoEn: new Date(), deshechoEn: null });
+  const r = await archivados.eliminarTablero(yo, "tb2", "  Viejo ");
+  assert.deepEqual(r, { id: "tb2", nombre: "Viejo" });
+  assert.equal(estado.tableros.has("tb2"), false);
+  assert.equal([...estado.tarjetas.values()].some((t) => t.tableroId === "tb2"), false, "sin tarjetas del tablero");
+  assert.equal([...estado.tipos.values()].some((t) => t.tableroId === "tb2"), false, "sin sus tipos");
+  assert.equal(estado.conexiones.some((c) => c.id === "c-vieja"), false);
+  assert.equal(estado.historial.some((h) => h.id === "h-vieja"), false);
+  assert.deepEqual([...estado.tarjetas.values()].map((t) => t.id).sort(), deOtros, "las de otros tableros quedan");
+  assert.deepEqual((await tableros.listarTableros(dueno)).map((t) => t.id), ["tb1"]);
+});
+
+await prueba("lo que quedó archivado de antes se borra de verdad (solo con el dueño o el ADMIN) y la lista queda vacía", async () => {
+  conTableroViejo();
+  await archivados.archivarTablero(yo, "tb2", "Viejo");
+  assert.deepEqual(await archivados.borrarLosTablerosArchivados(ana), [], "una asesora no borra nada");
+  assert.ok(estado.tableros.has("tb2"));
+  assert.deepEqual(await archivados.borrarLosTablerosArchivados(yo), ["Viejo"]);
+  assert.equal(estado.tableros.has("tb2"), false);
+  assert.deepEqual(lista(), []);
+  assert.deepEqual(await archivados.borrarLosTablerosArchivados(yo), [], "la segunda vez no hay nada");
+  assert.ok(estado.tableros.has("tb1"), "los vivos no se tocan");
 });
 
 await prueba("todo lo que reparte trabajo, avisa o resume filtra los tableros archivados", async () => {

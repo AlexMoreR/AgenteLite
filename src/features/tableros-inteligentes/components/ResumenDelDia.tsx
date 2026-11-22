@@ -52,7 +52,6 @@ export function ResumenDelDia() {
             <CalendarCheck className="size-5 text-muted-foreground" aria-hidden />
             Resumen de hoy
           </h2>
-          <p className="text-sm text-muted-foreground">Lo que hizo el Coordinador hoy: lo aprobado solo, lo subido y lo que falló.</p>
         </div>
         <Button
           variant="outline"

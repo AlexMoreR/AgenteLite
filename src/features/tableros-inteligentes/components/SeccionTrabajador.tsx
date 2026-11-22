@@ -93,9 +93,6 @@ export function SeccionTrabajador() {
           <Bot className="size-5 text-muted-foreground" aria-hidden />
           Coordinador
         </h2>
-        <p className="text-sm text-muted-foreground">
-          El PC que ejecuta las tareas aprobadas con repo: escribe el plan, lo construye en una rama y, con tu sí final, lo sube.
-        </p>
       </div>
 
       {!panel ? <Loader2 className="mx-auto animate-spin text-muted-foreground" aria-label="Cargando" /> : null}
@@ -115,10 +112,6 @@ export function SeccionTrabajador() {
           />
           <span>
             <span className="font-medium">Aprobar solas las tareas de bajo riesgo</span>
-            <span className="block text-xs text-muted-foreground">
-              Las tareas sencillas, sin dinero, permisos, chats ni cambios que borren datos, arrancan sin pedirte permiso. Apagado, todo
-              vuelve a pedir tu aprobación.
-            </span>
             {!panel.esDueno ? (
               <span className="mt-1 block text-xs text-muted-foreground">Solo el dueño del negocio mueve este interruptor.</span>
             ) : null}
@@ -141,11 +134,6 @@ export function SeccionTrabajador() {
           />
           <span>
             <span className="font-medium">Aprobar tareas solo</span>
-            <span className="block text-xs text-muted-foreground">
-              Toda tarea con repo arranca sin esperarte. Solo te espera la que toca dinero de Gestión (abonos, saldos, nómina, comisiones,
-              facturación, pagos) o puede subir presupuesto, activar campañas o crear gasto en Meta Ads. Apagado, solo se aprueban solas las
-              de bajo riesgo y lo demás te espera.
-            </span>
             {!panel.esDueno ? (
               <span className="mt-1 block text-xs text-muted-foreground">Solo el dueño del negocio mueve este interruptor.</span>
             ) : null}
@@ -168,11 +156,6 @@ export function SeccionTrabajador() {
           />
           <span>
             <span className="font-medium">Aprobar planes solo</span>
-            <span className="block text-xs text-muted-foreground">
-              Aprobada la tarea, el plan pasa solo a construir. Un plan que toca dinero de Gestión pasa solo si tú ya aprobaste la tarea.
-              Lo que puede subir presupuesto, activar campañas o crear gasto en Meta Ads sigue esperando tu sí. Apagado, todos los planes
-              piden tu sí.
-            </span>
             {!panel.esDueno ? (
               <span className="mt-1 block text-xs text-muted-foreground">Solo el dueño del negocio mueve este interruptor.</span>
             ) : null}
@@ -195,11 +178,6 @@ export function SeccionTrabajador() {
           />
           <span>
             <span className="font-medium">Avisos al equipo por WhatsApp</span>
-            <span className="block text-xs text-muted-foreground">
-              Avisa por WhatsApp (línea Admin) y en su página de alertas a la persona responsable: tarea asignada, urgente, cuando el
-              Coordinador la necesita y recordatorio de 24 h. Solo a quien tenga número en Mi empresa → Equipo. De 9 p. m. a 7 a. m. solo
-              lo urgente.
-            </span>
             {panel.sinNumeroDeAvisos.length ? (
               <span className="mt-1 block text-xs text-amber-700 dark:text-amber-400">
                 Sin número (no les llega nada): {panel.sinNumeroDeAvisos.join(", ")}.
@@ -269,11 +247,6 @@ export function SeccionTrabajador() {
 
         <div className="space-y-2 rounded-xl border bg-card p-4">
           <p className="text-sm font-medium">Quién más aprueba</p>
-          <p className="text-xs text-muted-foreground">
-            Tú apruebas todo. Un aprobador DESARROLLO aprueba la tarea y el plan de tarjetas con repo (Gestión, AizenCRM). El sí final
-            para subir a producción es solo tuyo, salvo el aprobador de Sistemas (periodo de prueba): aprueba y sube las tarjetas
-            técnicas, nunca las de dinero o Meta Ads.
-          </p>
           {panel?.aprobadores.map((aprobador) => (
             <div key={aprobador.id} className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm">
               <div className="min-w-0 flex-1">
