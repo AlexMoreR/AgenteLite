@@ -31,11 +31,12 @@ export function ComposerSendButton({
       variant="ghost"
       size="icon"
       disabled={pending || bloqueado}
-      className="inline-flex h-10 w-8 shrink-0 items-center justify-center rounded-full text-[var(--primary)] transition hover:bg-muted-foreground/20 disabled:cursor-not-allowed disabled:opacity-70 md:h-9"
+      // Redondo y verde, afuera de la caja, como en WhatsApp (22-nov-2026); el mismo del microfono.
+      className="inline-flex size-12 shrink-0 items-center justify-center rounded-full bg-[#25d366] text-white shadow-[0_1px_6px_#0000001f] transition hover:bg-[#1fbe5b] hover:text-white disabled:cursor-not-allowed disabled:opacity-70 dark:bg-[#21c063] dark:text-[#0b141a] dark:hover:bg-[#1daa57] dark:hover:text-[#0b141a]"
       aria-label={pending ? "Enviando mensaje" : bloqueado ? "Espera a que cargue el chat" : "Enviar mensaje"}
       title={bloqueado ? "Espera a que cargue el chat" : undefined}
     >
-      <SendHorizonal className={`size-5 ${pending ? "animate-pulse" : ""}`} />
+      <SendHorizonal className={`size-6 ${pending ? "animate-pulse" : ""}`} />
     </Button>
   );
 }

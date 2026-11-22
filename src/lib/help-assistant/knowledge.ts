@@ -160,7 +160,7 @@ Para emoticones: toca la carita junto a la casilla y elige uno.
 3. Escribe un texto opcional y toca enviar.
 
 ### Enviar un audio / nota de voz
-1. Toca + ("Adjuntar") → "Audio"; o toca el icono de micrófono a la derecha de la casilla (cuando no has escrito nada).
+1. Toca + ("Adjuntar") → "Audio"; o toca el botón verde redondo del micrófono, a la derecha de la casilla (cuando no has escrito nada; con texto, ese botón es la flecha de enviar).
 2. Verás "Grabando" con el tiempo.
 3. Toca la flecha ("Enviar nota de voz") para enviarla, o el bote de basura ("Cancelar grabación") para descartarla.
 
@@ -171,10 +171,7 @@ Para crear una: toca "Crear respuesta rápida", escribe "Título" y "Mensaje", y
 Las respuestas con la etiqueta "Empresa" las ven y las usan todas las asesoras; solo el dueño y los administradores las crean, las editan o las borran. Además, cada asesora puede crear las suyas, que solo ve ella. El dueño y los administradores ven todas (con el filtro "Ver": "De la empresa", "Sin repartir" o una asesora), al crear eligen "De la empresa (la ven todas)" o para qué asesoras, pueden cambiarle la dueña al editarla y usan "Duplicar para otra" (icono de copiar) para pasarle una copia a otra asesora.
 
 ### Respuesta sugerida con IA
-1. En la casilla, toca el icono de destello/estrellas ("Respuesta sugerida con IA"). Arriba aparece "Generando sugerencia…".
-2. La IA escribe una propuesta en la casilla, leyendo los últimos mensajes, el producto del que se habla y los datos del negocio (precios, formas de pago). Nunca se envía sola: revísala, edítala o bórrala, y envíala tú.
-3. Funciona en Ventas 1 y en Ventas 2, en el computador y en el celular.
-4. Si falta un dato (valor del envío a una ciudad, tiempo de entrega), la sugerencia dice que lo confirmas en vez de inventarlo.
+Ya no existe: el botón de la estrella ("Respuesta sugerida con IA") se quitó de la casilla el 22-nov-2026.
 
 ### Poner o quitar etiquetas a un chat
 Las etiquetas están en el panel del contacto: toca la foto del contacto en la cabecera de la conversación y busca "Etiquetas".

@@ -3,19 +3,18 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Archive, Network, Pencil, Plus } from "lucide-react";
+import { Archive, EllipsisVertical, Network, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
-import type { GrupoDeContador } from "../services/niveles";
 import { NOMBRE_DEL_ESTADO } from "../services/reglas";
 import type { AsignadaVista, TableroDelInicio } from "../services/tableros";
 import { CoordinadorEnVivo } from "./CoordinadorEnVivo";
 import {
   DialogoDeTablero,
   RUTA_DEL_INICIO,
-  etiquetaDelDueno,
   linkDeLaTarjetaEnPantalla,
   linkDelTableroEnPantalla,
   puedeRenombrar,
@@ -39,22 +38,6 @@ import { DialogoDeTablerosArchivados } from "./DialogoDeTablerosArchivados";
   grilla en pantallas anchas.
 */
 
-/** Los contadores: en el orden y con los colores de los chips del diagrama (variables de .tablero-ia). */
-const CONTADORES: { grupo: GrupoDeContador; nombre: string; color: string }[] = [
-  { grupo: "teToca", nombre: "Te toca", color: "var(--tia-rojo)" },
-  { grupo: "enCurso", nombre: "En curso", color: "var(--tia-verde)" },
-  { grupo: "siguen", nombre: "Sigue", color: "var(--tia-gris)" },
-  { grupo: "hecho", nombre: "Hecho", color: "var(--tia-gris)" },
-];
-
-const CUANDO = new Intl.DateTimeFormat("es-CO", {
-  timeZone: "America/Bogota",
-  day: "numeric",
-  month: "short",
-  hour: "numeric",
-  minute: "2-digit",
-});
-
 /** Las vistas del selector de arriba (solo las ve el dueño o el ADMIN): "Tableros" es lo de siempre. */
 export type VistaDelInicio = "tableros" | "hoy" | "coordinador" | "terminados";
 // Orden (20-nov-2026, pedido de Alex): Hoy, Tableros, Coordinador, Terminados.
@@ -66,8 +49,6 @@ const PESTANAS: { vista: VistaDelInicio; nombre: string }[] = [
 ];
 
 const esVistaDelInicio = (valor: string): valor is VistaDelInicio => PESTANAS.some((pestana) => pestana.vista === valor);
-
-const tarjetasEnTexto = (cuantas: number) => (cuantas === 1 ? "1 tarjeta" : `${cuantas} tarjetas`);
 
 type Props = {
   tableros: TableroDelInicio[];
@@ -211,54 +192,57 @@ export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar,
         ) : (
           <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {tableros.map((tablero) => {
-              const conLapiz = puedeRenombrar(cuentas, tablero);
-              const deQuien = etiquetaDelDueno(cuentas, tablero);
+              /*
+                Solo el título y los tres puntos (22-nov-2026, pedido de Alex): sin la cantidad de tarjetas,
+                la fecha, de quién es ni los contadores. «Editar» abre el cambio de nombre; «Eliminar» (solo
+                el dueño del negocio) abre directo la confirmación, que archiva el tablero.
+              */
+              const conMenu = puedeRenombrar(cuentas, tablero);
+              const edicionDelTablero = {
+                modo: "renombrar" as const,
+                id: tablero.id,
+                nombre: tablero.nombre,
+                duenoUserId: tablero.duenoUserId,
+                duenoNombre: tablero.duenoNombre,
+              };
               return (
                 <li key={tablero.id} className="relative">
                   <Link
                     href={linkDelTableroEnPantalla(tablero.id)}
-                    className="flex h-full flex-col gap-3 rounded-xl border bg-card p-4 transition-colors hover:border-foreground/30 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="flex h-full items-center rounded-xl border bg-card p-4 transition-colors hover:border-foreground/30 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
-                    <span className={conLapiz ? "min-w-0 pr-10" : "min-w-0"}>
-                      <span className="block truncate font-medium" title={tablero.nombre}>
-                        {tablero.nombre}
-                      </span>
-                      {deQuien ? <span className="block truncate text-xs text-muted-foreground">{deQuien}</span> : null}
-                      <span className="block text-xs text-muted-foreground tabular-nums">
-                        {tarjetasEnTexto(tablero.tarjetas)} · {CUANDO.format(new Date(tablero.actualizadoEn))}
-                      </span>
-                    </span>
-                    <span className="flex flex-wrap gap-1.5">
-                      {CONTADORES.map(({ grupo, nombre, color }) => (
-                        <span
-                          key={grupo}
-                          className="flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium tabular-nums"
-                        >
-                          <span className="size-2 shrink-0 rounded-full" style={{ background: color }} aria-hidden />
-                          {nombre} {tablero.contadores[grupo]}
-                        </span>
-                      ))}
+                    <span className={`block min-w-0 truncate font-medium ${conMenu ? "pr-10" : ""}`} title={tablero.nombre}>
+                      {tablero.nombre}
                     </span>
                   </Link>
-                  {conLapiz ? (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="absolute top-2 right-2 size-10 text-muted-foreground md:size-8"
-                      onClick={() =>
-                        setEdicion({
-                          modo: "renombrar",
-                          id: tablero.id,
-                          nombre: tablero.nombre,
-                          duenoUserId: tablero.duenoUserId,
-                          duenoNombre: tablero.duenoNombre,
-                        })
-                      }
-                      aria-label={`Cambiar nombre de ${tablero.nombre}`}
-                      title="Cambiar nombre"
-                    >
-                      <Pencil />
-                    </Button>
+                  {conMenu ? (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        render={
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="absolute top-1/2 right-2 size-10 -translate-y-1/2 text-muted-foreground md:size-8"
+                            aria-label={`Opciones de ${tablero.nombre}`}
+                            title="Opciones"
+                          />
+                        }
+                      >
+                        <EllipsisVertical />
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="min-w-40">
+                        <DropdownMenuItem onClick={() => setEdicion(edicionDelTablero)}>
+                          <Pencil />
+                          Editar
+                        </DropdownMenuItem>
+                        {cuentas.esDuenoDelNegocio ? (
+                          <DropdownMenuItem variant="destructive" onClick={() => setEdicion({ ...edicionDelTablero, eliminar: true })}>
+                            <Trash2 />
+                            Eliminar
+                          </DropdownMenuItem>
+                        ) : null}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   ) : null}
                 </li>
               );

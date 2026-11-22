@@ -35,7 +35,6 @@ import {
   RotateCcw,
   SendHorizonal,
   Smile,
-  Sparkles,
   StickyNote,
   Trash2,
   TriangleAlert,
@@ -99,7 +98,6 @@ import { ContactAvatar } from "@/components/chats/contact-avatar";
 import { imagenesDelPortapapeles } from "@/components/chats/imagenes-del-portapapeles";
 import {
   getContactDetailsAction,
-  generateSuggestedReplyAction,
   marcarFlujoDeSugerenciaAction,
   refreshContactAvatarNowAction,
 } from "@/app/actions/chats-actions";
@@ -199,7 +197,6 @@ import { AvisoDeLlamada } from "./aviso-de-llamada";
 import { FranjaMensajeFijado } from "./franja-mensaje-fijado";
 import type { MensajeFijado } from "@/lib/chats/mensaje-fijado";
 import { BotonDeMapaDeCaminos } from "./boton-mapa-de-caminos";
-import { dondeVaLaSugerencia } from "./destino-de-la-sugerencia";
 import { copiarAlPortapapeles, textoDeVariosParaCopiar } from "./copiar-mensaje";
 import { ALTO_DE_LA_BARRA, CLASES_BOTON_DE_LA_BARRA, CLASES_ETIQUETA_DE_LA_BARRA, mostrarNombreAlMantener } from "./boton-de-la-barra";
 import { textoTraeElTotal } from "@/lib/etapa-automatica-crm-texto";
@@ -602,7 +599,6 @@ export const ConversationPanel = memo(function ConversationPanel({
    * Las fotos que fallan no vienen aca: quedan como burbuja en el chat, con su Reintentar.
    */
   const todosLosArchivosFallidos = useArchivosFallidos();
-  const [isSuggestingReply, setIsSuggestingReply] = useState(false);
   /*
     La sugerencia de la estrella que esta en la caja, para registrar al enviar que salio de ahi (y
     si se edito). Se suelta si la caja queda vacia -lo que se escriba despues ya es de ella- o al
@@ -1856,72 +1852,6 @@ export const ConversationPanel = memo(function ConversationPanel({
     [insertQuickReply, selectedConversationId],
   );
 
-  const handleSuggestReply = useCallback(async () => {
-    // Se usa el chat REALMENTE abierto y no mediaConfig: en los chats de la API oficial ese
-    // config no existía, así que el botón ✨ se veía pero al tocarlo no pasaba NADA (ni un aviso).
-    const conversationId =
-      renderedConversation?.id ?? mediaConfig?.conversationId ?? audioConfig?.conversationId;
-    if (!conversationId || isSuggestingReply) {
-      return;
-    }
-
-    // El chat donde se toco ✨: la sugerencia es para este cliente y no para otro.
-    const chatPedido = selectedConversationId ?? "";
-    setIsSuggestingReply(true);
-    try {
-      // La fuente sale de la clave del chat abierto: los de la API oficial se leen de otra tabla.
-      const fuente = selectedConversationId?.startsWith("official:") ? "official" : "agent";
-      const result = await generateSuggestedReplyAction(conversationId, fuente);
-      if (result.error || !result.suggestion) {
-        toast.error(result.error || "No se pudo generar la sugerencia");
-        return;
-      }
-      // El boton "Enviar flujo" se ve solo en el chat donde se pidio, igual que antes.
-      setFlujoSugerido(
-        result.flujo
-          ? { ...result.flujo, sugerenciaId: result.sugerenciaId ?? null, chat: chatPedido }
-          : null,
-      );
-
-      // Si la asesora ya esta en otro chat, la caja a la vista es la de ese otro cliente: no se toca.
-      const destino = dondeVaLaSugerencia({
-        chatPedido,
-        chatAbierto: chatAbiertoRef.current,
-        borradorDelChatPedido: leerBorrador(chatPedido),
-      });
-      if (destino === "borrador") {
-        guardarBorrador(chatPedido, result.suggestion);
-        toast.info("La sugerencia era para otro chat: quedó en su caja.");
-        return;
-      }
-      if (destino === "descartar") {
-        toast.info("La sugerencia era para otro chat y no se usó.");
-        return;
-      }
-
-      sugerenciaEnLaCaja.current = result.sugerenciaId
-        ? { id: result.sugerenciaId, chat: chatPedido }
-        : null;
-      const textarea = composerTextAreaRef.current;
-      if (textarea) {
-        const suggestion = result.suggestion;
-        textarea.value = suggestion;
-        composerSelectionRef.current = { start: suggestion.length, end: suggestion.length };
-        setComposerHasText(suggestion.trim().length > 0);
-        autoResizeComposer(textarea);
-        window.requestAnimationFrame(() => {
-          textarea.focus();
-          textarea.setSelectionRange(suggestion.length, suggestion.length);
-        });
-      }
-    } catch (error) {
-      console.error("[handleSuggestReply] error", error);
-      toast.error("No se pudo generar la sugerencia");
-    } finally {
-      setIsSuggestingReply(false);
-    }
-  }, [renderedConversation?.id, mediaConfig?.conversationId, audioConfig?.conversationId, isSuggestingReply, autoResizeComposer, selectedConversationId]);
-
   /*
     Envio a la ubicacion del cliente, consultado en Gestion (ver panel-de-envio.tsx). Va en las dos
     fichas (celular y escritorio). Al guardar la ubicacion se actualiza la ciudad de la ficha y se
@@ -2842,7 +2772,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                   ) : null}
 
                   {/* El flujo que propone la estrella: un boton, nunca se manda solo. */}
-                  {flujoSugerido && mediaConfig && flujoSugerido.chat === (selectedConversationId ?? "") && !isSuggestingReply ? (
+                  {flujoSugerido && mediaConfig && flujoSugerido.chat === (selectedConversationId ?? "") ? (
                     <div className="mb-1.5 flex items-center gap-1.5">
                       <button
                         type="button"
@@ -2876,15 +2806,6 @@ export const ConversationPanel = memo(function ConversationPanel({
                       >
                         <X className="size-4" />
                       </button>
-                    </div>
-                  ) : null}
-
-                  {/* Mientras la estrella redacta: que se vea que esta trabajando, y donde va a aparecer. */}
-                  {isSuggestingReply ? (
-                    <div className="mb-1.5 flex items-center gap-2 rounded-xl bg-muted/70 px-3 py-1.5 text-[13px] text-muted-foreground" role="status">
-                      <Sparkles className="size-4 shrink-0 text-[var(--primary)]" />
-                      <LoaderCircle className="size-3.5 shrink-0 animate-spin" />
-                      Generando sugerencia…
                     </div>
                   ) : null}
 
@@ -2968,6 +2889,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                         </div>
                       </div>
                     ) : (
+                      <>
                       <div className="flex min-h-[48px] w-full min-w-0 flex-1 items-end gap-0.5 rounded-3xl border border-border bg-card px-1 py-1 shadow-[0_1px_6px_#0000001f] md:min-h-[48px]">
                         {mediaConfig ? (
                           <>
@@ -3388,38 +3310,28 @@ export const ConversationPanel = memo(function ConversationPanel({
                            */
                           className="min-h-10 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-[16px] leading-6 md:text-[15px] text-foreground placeholder:text-muted-foreground outline-none disabled:opacity-70 md:min-h-9 md:py-1.5"
                         />
+                      </div>
+                      {/*
+                        Enviar y grabar, afuera de la caja y redondo, como en WhatsApp (22-nov-2026, pedido de
+                        Alex): sin texto es el microfono; con texto, la flecha de enviar. La estrella de
+                        sugerencias con IA se quito el mismo dia.
+                      */}
+                      {composerHasText || !audioConfig ? (
+                        <ComposerSendButton enviando={enviandoTexto} bloqueado={envioBloqueado} />
+                      ) : (
                         <Button
                           type="button"
                           variant="ghost"
                           size="icon"
-                          onClick={() => void handleSuggestReply()}
-                          disabled={isSuggestingReply}
-                          aria-label="Respuesta sugerida con IA"
-                          title="Respuesta sugerida con IA"
-                          className="inline-flex h-10 w-8 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-muted-foreground/20 hover:text-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:h-9"
+                          onClick={startAudioRecording}
+                          aria-label="Grabar nota de voz"
+                          title="Grabar nota de voz"
+                          className="inline-flex size-12 shrink-0 items-center justify-center rounded-full bg-[#25d366] text-white shadow-[0_1px_6px_#0000001f] transition hover:bg-[#1fbe5b] hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-[#21c063] dark:text-[#0b141a] dark:hover:bg-[#1daa57] dark:hover:text-[#0b141a]"
                         >
-                          {isSuggestingReply ? (
-                            <LoaderCircle className="size-5 animate-spin" />
-                          ) : (
-                            <Sparkles className="size-5" />
-                          )}
+                          <Mic className="size-6" />
                         </Button>
-                        {composerHasText || !audioConfig ? (
-                          <ComposerSendButton enviando={enviandoTexto} bloqueado={envioBloqueado} />
-                        ) : (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            onClick={startAudioRecording}
-                            aria-label="Grabar nota de voz"
-                            title="Grabar nota de voz"
-                            className="inline-flex h-10 w-8 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-muted-foreground/20 focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 md:h-9"
-                          >
-                            <Mic className="size-5" />
-                          </Button>
-                        )}
-                      </div>
+                      )}
+                    </>
                     )}
                   </div>
                 </form>

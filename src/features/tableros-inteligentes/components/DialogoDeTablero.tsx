@@ -32,7 +32,15 @@ export const linkDeLaTarjetaEnPantalla = (id: string) => `${RUTA_DEL_INICIO}?tar
 
 /** Lo que edita el diálogo: un tablero que se renombra, o uno nuevo. */
 export type EdicionDeTablero =
-  | { modo: "renombrar"; id: string; nombre: string; duenoUserId: string | null; duenoNombre: string | null }
+  | {
+      modo: "renombrar";
+      id: string;
+      nombre: string;
+      duenoUserId: string | null;
+      duenoNombre: string | null;
+      /** Abre directo en la confirmación de «Eliminar tablero» (el «Eliminar» de los tres puntos, 22-nov-2026). */
+      eliminar?: boolean;
+    }
   | { modo: "crear" };
 
 /**
@@ -97,7 +105,7 @@ function Formulario({ edicion, tableros, cuentas, alCerrar, alRenombrar, alCrear
   const [guardando, setGuardando] = useState(false);
   // "Eliminar tablero" (solo el dueño del negocio): primero se pide escribir el nombre exacto.
   const puedeEliminar = edicion.modo === "renombrar" && cuentas.esDuenoDelNegocio;
-  const [eliminando, setEliminando] = useState(false);
+  const [eliminando, setEliminando] = useState(puedeEliminar && edicion.modo === "renombrar" && Boolean(edicion.eliminar));
   const [confirmacion, setConfirmacion] = useState("");
   const [errorAlEliminar, setErrorAlEliminar] = useState<string | null>(null);
   const campo = useRef<HTMLInputElement>(null);

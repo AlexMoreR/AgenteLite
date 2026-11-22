@@ -7,8 +7,10 @@ import fs from "node:fs";
 import path from "node:path";
 import assert from "node:assert/strict";
 
-const panel = fs.readFileSync(path.resolve("src/components/chats/chat-conversation-panel.tsx"), "utf8");
-const composer = fs.readFileSync(path.resolve("src/components/chats/chat-composer.tsx"), "utf8");
+// Los archivos tienen fin de linea de Windows (CRLF): sin normalizar no se encontraba el cierre de cada boton y la prueba fallaba siempre.
+const leer = (ruta) => fs.readFileSync(path.resolve(ruta), "utf8").split("\r\n").join("\n");
+const panel = leer("src/components/chats/chat-conversation-panel.tsx");
+const composer = leer("src/components/chats/chat-composer.tsx");
 const ayuda = fs.readFileSync(path.resolve("src/lib/help-assistant/knowledge.ts"), "utf8");
 
 // 1. Texto de ayuda.
@@ -35,9 +37,6 @@ function clasesDelBoton(fuente, ariaLabel) {
 const botones = [
   [panel, 'aria-label="Adjuntar"'],
   [panel, 'aria-label="Abrir selector de emoticones"'],
-  [panel, 'aria-label="Respuesta sugerida con IA"'],
-  [panel, 'aria-label="Grabar nota de voz"'],
-  [composer, 'aria-label={pending ? "Enviando mensaje"'],
 ];
 for (const [fuente, ariaLabel] of botones) {
   const clases = clasesDelBoton(fuente, ariaLabel);
@@ -46,6 +45,19 @@ for (const [fuente, ariaLabel] of botones) {
   }
   for (const noDebe of ["size-10", "md:size-9"]) {
     assert.ok(!clases.has(noDebe), `el boton ${ariaLabel} ya no debe tener ${noDebe}`);
+  }
+}
+
+// 3. (22-nov-2026, pedido de Alex) Sin la estrella de sugerencias con IA, y el microfono y enviar van afuera de la
+// caja, redondos y verdes como en WhatsApp (48 px).
+assert.ok(!panel.includes('aria-label="Respuesta sugerida con IA"'), "la estrella de sugerencias ya no va");
+for (const [fuente, ariaLabel] of [
+  [panel, 'aria-label="Grabar nota de voz"'],
+  [composer, 'aria-label={pending ? "Enviando mensaje"'],
+]) {
+  const clases = clasesDelBoton(fuente, ariaLabel);
+  for (const debe of ["size-12", "rounded-full", "bg-[#25d366]"]) {
+    assert.ok(clases.has(debe), `el boton ${ariaLabel} debe tener ${debe}`);
   }
 }
 
