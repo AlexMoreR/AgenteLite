@@ -82,13 +82,15 @@ test("d) con pocas filas se dibujan todas; sin alto medido, solo una pantalla", 
 
 const CLAVES = Array.from({ length: TOTAL }, (_, fila) => `agent:chat-${fila}`);
 
-test("e) se precargan las filas visibles: unas 8 en 700 px y unas 10 en 900 px, segun el desplazamiento", () => {
+test("e) se precargan las 3 de arriba de lo que se ve, segun el desplazamiento", () => {
   const arriba = clavesAPrecargar({ claves: CLAVES, primeraFila: 0, altoVisible: 700 });
-  assert.deepEqual(arriba, CLAVES.slice(0, 8));
-  assert.equal(clavesAPrecargar({ claves: CLAVES, primeraFila: 0, altoVisible: 900 }).length, 10);
+  assert.deepEqual(arriba, CLAVES.slice(0, 3));
+  assert.equal(clavesAPrecargar({ claves: CLAVES, primeraFila: 0, altoVisible: 900 }).length, 3);
+  // Si la pantalla muestra menos de 3 filas, solo esas (mas la de arriba cortada).
+  assert.deepEqual(clavesAPrecargar({ claves: CLAVES, primeraFila: 0, altoVisible: ALTO_DE_FILA }), CLAVES.slice(0, 2));
   // Bajando hasta la fila 500, son las de la fila 500 en adelante.
   const abajo = clavesAPrecargar({ claves: CLAVES, primeraFila: 500, altoVisible: 700 });
-  assert.deepEqual(abajo, CLAVES.slice(500, 508));
+  assert.deepEqual(abajo, CLAVES.slice(500, 503));
   // Al fondo no se pasa del final de la lista.
   const fondo = clavesAPrecargar({ claves: CLAVES, primeraFila: TOTAL + 50, altoVisible: 700 });
   assert.deepEqual(fondo, CLAVES.slice(TOTAL - 1));
@@ -96,12 +98,12 @@ test("e) se precargan las filas visibles: unas 8 en 700 px y unas 10 en 900 px, 
   assert.deepEqual(clavesAPrecargar({ claves: CLAVES, primeraFila: -3, altoVisible: 700 }), arriba);
 });
 
-test("f) nunca mas de 15, aunque la pantalla sea muy alta", () => {
-  assert.equal(TOPE_DE_PRECARGA, 15);
+test("f) nunca mas de 3, aunque la pantalla sea muy alta", () => {
+  assert.equal(TOPE_DE_PRECARGA, 3);
   const altisima = clavesAPrecargar({ claves: CLAVES, primeraFila: 0, altoVisible: 5000 });
-  assert.equal(altisima.length, 15);
-  assert.deepEqual(altisima, CLAVES.slice(0, 15));
-  assert.ok(clavesAPrecargar({ claves: CLAVES, primeraFila: 1200, altoVisible: 100_000 }).length <= 15);
+  assert.equal(altisima.length, 3);
+  assert.deepEqual(altisima, CLAVES.slice(0, 3));
+  assert.ok(clavesAPrecargar({ claves: CLAVES, primeraFila: 1200, altoVisible: 100_000 }).length <= 3);
 });
 
 test("g) sin repetidos ni claves vacias, y los oficiales no se precargan", () => {

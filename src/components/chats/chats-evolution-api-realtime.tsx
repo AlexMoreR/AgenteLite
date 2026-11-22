@@ -9,6 +9,7 @@ import {
   extractEvolutionRemoteJid,
   normalizePhoneFromJid,
 } from "@/lib/evolution-webhook";
+import { fetchCompartido } from "@/components/chats/pedido-compartido";
 
 type ChatsEvolutionApiRealtimeProps = {
   enabled?: boolean;
@@ -127,7 +128,7 @@ export function ChatsEvolutionApiRealtime({
       }
 
       try {
-        const summaryResponse = await fetch(
+        const summaryResponse = await fetchCompartido(
           `/api/cliente/chats/summary?instanceName=${encodeURIComponent(instanceName)}&phoneNumber=${encodeURIComponent(phoneNumber)}`,
           { credentials: "same-origin", cache: "no-store" },
         );

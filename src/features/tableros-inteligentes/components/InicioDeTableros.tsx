@@ -7,6 +7,7 @@ import { Archive, Network, Pencil, Plus } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import type { GrupoDeContador } from "../services/niveles";
 import { NOMBRE_DEL_ESTADO } from "../services/reglas";
 import type { AsignadaVista, TableroDelInicio } from "../services/tableros";
@@ -54,16 +55,17 @@ const CUANDO = new Intl.DateTimeFormat("es-CO", {
   minute: "2-digit",
 });
 
-/** Las pestañas de arriba (solo las ve el dueño o el ADMIN): "Tableros" es lo de siempre. */
+/** Las vistas del selector de arriba (solo las ve el dueño o el ADMIN): "Tableros" es lo de siempre. */
 export type VistaDelInicio = "tableros" | "hoy" | "coordinador" | "terminados";
-// `corto` es el nombre en el celular: las cuatro pestañas caben en una fila.
 // Orden (20-nov-2026, pedido de Alex): Hoy, Tableros, Coordinador, Terminados.
-const PESTANAS: { vista: VistaDelInicio; nombre: string; corto?: string }[] = [
+const PESTANAS: { vista: VistaDelInicio; nombre: string }[] = [
   { vista: "hoy", nombre: "Hoy" },
   { vista: "tableros", nombre: "Tableros" },
-  { vista: "coordinador", nombre: "Coordinador en vivo", corto: "Coordinador" },
-  { vista: "terminados", nombre: "Trabajos terminados", corto: "Terminados" },
+  { vista: "coordinador", nombre: "Coordinador en vivo" },
+  { vista: "terminados", nombre: "Trabajos terminados" },
 ];
+
+const esVistaDelInicio = (valor: string): valor is VistaDelInicio => PESTANAS.some((pestana) => pestana.vista === valor);
 
 const tarjetasEnTexto = (cuantas: number) => (cuantas === 1 ? "1 tarjeta" : `${cuantas} tarjetas`);
 
@@ -114,37 +116,32 @@ export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar,
   return (
     <div className="tablero-ia mx-auto w-full max-w-6xl space-y-8 px-4 py-6 md:px-6">
       <h1 className="sr-only">Tableros</h1>
-      {/* Arriba de todo, "+ Nuevo" y debajo las pestañas (20-nov-2026: sin el título ni la bajada). */}
-      <div className="space-y-3">
-      <Button className="h-11 md:h-9" onClick={() => setEdicion({ modo: "crear" })}>
-        <Plus />
-        Nuevo
-      </Button>
-      {puedeAdministrar ? (
-        <div role="tablist" aria-label="Vistas de Tablero IA" className="flex gap-1 rounded-xl border bg-muted/40 p-1">
-          {PESTANAS.map(({ vista: clave, nombre, corto }) => (
-            <button
-              key={clave}
-              type="button"
-              role="tab"
-              aria-selected={vista === clave}
-              onClick={() => elegirVista(clave)}
-              className={`h-11 min-w-0 flex-1 rounded-lg px-1 text-xs font-medium sm:px-3 sm:text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:h-9 ${
-                vista === clave ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {corto ? (
-                <>
-                  <span className="sm:hidden">{corto}</span>
-                  <span className="hidden sm:inline">{nombre}</span>
-                </>
-              ) : (
-                nombre
-              )}
-            </button>
-          ))}
-        </div>
-      ) : null}
+      {/*
+        Arriba de todo, "+ Nuevo" y al lado el selector de vista (21-nov-2026, pedido de Alex: un
+        select en vez de las pestañas, y el botón con el tamaño de los de toda la app, como "Nuevo
+        contacto" en Contactos).
+      */}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button type="button" className="shrink-0 gap-1.5" onClick={() => setEdicion({ modo: "crear" })}>
+          <Plus className="size-4" />
+          Nuevo
+        </Button>
+        {puedeAdministrar ? (
+          <NativeSelect
+            aria-label="Vista de Tablero IA"
+            value={vista}
+            onChange={(evento) => {
+              const nueva = evento.target.value;
+              if (esVistaDelInicio(nueva)) elegirVista(nueva);
+            }}
+          >
+            {PESTANAS.map(({ vista: clave, nombre }) => (
+              <NativeSelectOption key={clave} value={clave}>
+                {nombre}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+        ) : null}
       </div>
 
       {enHoy ? <VistaDeHoy /> : null}

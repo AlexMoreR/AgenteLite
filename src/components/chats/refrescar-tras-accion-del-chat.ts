@@ -5,6 +5,7 @@ import {
   normalizeLiveConversationListSnapshot,
   normalizeLiveConversationSnapshot,
 } from "./chat-inbox-conversation-utils";
+import { fetchCompartido } from "@/components/chats/pedido-compartido";
 
 /**
  * Despues de asignar, cambiar la etapa o anotar DESDE EL CHAT ABIERTO: traer solo ese chat y su fila.
@@ -40,7 +41,7 @@ export async function refrescarTrasAccionDelChat(input: {
     const query = `chatKey=${encodeURIComponent(chatKey)}`;
     const [liveResponse, summaryResponse] = await Promise.all([
       fetch(`/api/cliente/chats/live?${query}`, { credentials: "same-origin", cache: "no-store" }),
-      fetch(`/api/cliente/chats/summary?${query}`, { credentials: "same-origin", cache: "no-store" }),
+      fetchCompartido(`/api/cliente/chats/summary?${query}`, { credentials: "same-origin", cache: "no-store" }),
     ]);
     const [livePayload, summaryPayload] = await Promise.all([leerJson(liveResponse), leerJson(summaryResponse)]);
     const chat = livePayload?.ok ? normalizeLiveConversationSnapshot(livePayload.conversation) : null;

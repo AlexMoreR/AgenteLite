@@ -57,6 +57,10 @@ const stubs = {
       v && typeof v === "object" && typeof v.id === "string" && Array.isArray(v.messages) ? v : null,
     normalizeLiveConversationListSnapshot: (v) => (v && typeof v === "object" && typeof v.id === "string" ? v : null),
   },
+  // La fila (/summary) sale por el pedido compartido (21-nov-2026); aca pasa derecho al fetch falso.
+  "@/components/chats/pedido-compartido": {
+    fetchCompartido: (url, init) => globalThis.fetch(url, init),
+  },
 };
 const rutaRefresco = path.resolve("src/components/chats/refrescar-tras-accion-del-chat.ts");
 const refrescoJs = ts.transpileModule(fs.readFileSync(rutaRefresco, "utf8"), {

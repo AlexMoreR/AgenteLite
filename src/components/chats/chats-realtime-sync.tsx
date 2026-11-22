@@ -17,6 +17,7 @@ import {
   hasEvolutionEditedMessagePayload,
   normalizePhoneFromJid,
 } from "@/lib/evolution-webhook";
+import { fetchCompartido } from "@/components/chats/pedido-compartido";
 
 type ChatsRealtimeSyncProps = {
   apiBaseUrl?: string;
@@ -515,7 +516,7 @@ export function ChatsRealtimeSync({
       });
 
       try {
-        const response = await fetch(summaryUrl, {
+        const response = await fetchCompartido(summaryUrl, {
             credentials: "same-origin",
             cache: "no-store",
           });

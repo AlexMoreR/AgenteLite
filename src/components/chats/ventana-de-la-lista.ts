@@ -81,8 +81,13 @@ export function calcularVentanaDeLaLista({
   el celular con un chat abierto) no se precarga nada, para no competir con el chat abierto.
 */
 
+/*
+  Precarga mas liviana (Alex, 21-nov-2026): como mucho los 3 de arriba de lo que se ve. Antes eran
+  hasta 15 (7-10 en la practica, ~125 kB al entrar a Chats). Los de arriba son los que mas se abren;
+  los demas se traen al tocarlos, unos 0,15 s mas.
+*/
 /** Como mucho, cuantos chats se precargan por pantalla. */
-export const TOPE_DE_PRECARGA = 15;
+export const TOPE_DE_PRECARGA = 3;
 
 export function clavesAPrecargar({
   claves,

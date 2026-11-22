@@ -158,6 +158,7 @@ import {
   type NoEnviadoGuardado,
   type RespuestaDelEnvio,
 } from "@/lib/chat-envio-reintento";
+import { fetchCompartido } from "@/components/chats/pedido-compartido";
 
 /*
   Cuantos chats se piden al bajar por la lista. Eran 10: llegar al fondo de "Todas" (unos 2.500)
@@ -2445,7 +2446,7 @@ export function SharedInbox({
         }),
         esOficial
           ? Promise.resolve(null)
-          : fetch(`/api/cliente/chats/summary?chatKey=${encodeURIComponent(chatKey)}`, {
+          : fetchCompartido(`/api/cliente/chats/summary?chatKey=${encodeURIComponent(chatKey)}`, {
               credentials: "same-origin",
               cache: "no-store",
             }),
