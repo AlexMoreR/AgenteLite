@@ -8,16 +8,20 @@ import type { SharedInboxMessageItem, SharedInboxSelectedConversation } from "./
   `window` para saber si puede guardar.
 */
 const almacen = new Map<string, string>();
-// Cuanto cabe en el navegador (en caracteres por clave). Infinity = sin limite; la prueba de la cuota lo baja.
-let cuota = Number.POSITIVE_INFINITY;
+// Cuanto cabe en TOTAL (suma de todas las claves), como en un navegador de verdad. La v4 guarda un chat por clave.
+let cuotaTotal = Number.POSITIVE_INFINITY;
+// Cuantas veces se escribio cada clave (para ver que solo se escribe el chat que cambio).
+const escrituras = new Map<string, number>();
+const ocupado = () => [...almacen.values()].reduce((suma, valor) => suma + valor.length, 0);
 const ventanaFalsa = {
   localStorage: {
     getItem: (clave: string) => almacen.get(clave) ?? null,
     setItem: (clave: string, valor: string) => {
-      if (valor.length > cuota) {
+      if (ocupado() - (almacen.get(clave)?.length ?? 0) + valor.length > cuotaTotal) {
         throw new Error("QuotaExceededError");
       }
       almacen.set(clave, valor);
+      escrituras.set(clave, (escrituras.get(clave) ?? 0) + 1);
     },
     removeItem: (clave: string) => void almacen.delete(clave),
     get length() {
@@ -119,11 +123,9 @@ test("d) la copia guardada en el navegador tiene como mucho 50 mensajes por chat
 
   const guardado = [...almacen.entries()].find(([clave]) => clave.startsWith("aglite:chat-history-cache"));
   assert.ok(guardado, "se guardo la copia");
-  assert.equal(guardado[0], "aglite:chat-history-cache:v3:negocio-n:asesora-a:v3", "la llave lleva el dueño");
-  const store = JSON.parse(guardado[1]) as { conversations: Record<string, { messages: { id: string }[] }> };
-  for (const chat of Object.values(store.conversations)) {
-    assert.ok(chat.messages.length <= MAX_MENSAJES_POR_CHAT, `guardo ${chat.messages.length}`);
-  }
+  assert.equal(guardado[0], "aglite:chat-history-cache:v4:negocio-n:asesora-a:v3|chat-1", "una llave por chat, con el dueño");
+  const chat = JSON.parse(guardado[1]) as { messages: { id: string }[] };
+  assert.ok(chat.messages.length <= MAX_MENSAJES_POR_CHAT, `guardo ${chat.messages.length}`);
 
   // Al leerla, son los 50 mas nuevos y el cursor apunta al mas viejo que quedo (el 251).
   const leida = readConversationFromCache("chat-1", { ignoreFreshness: true })!;
@@ -142,13 +144,12 @@ test("d) la copia guardada en el navegador tiene como mucho 50 mensajes por chat
   assert.equal(otraVez.loadMoreCursor, mensaje(271).id);
 });
 
+/** El chat tal como quedo escrito en el navegador (v4: una llave por chat, que termina en "|<id>"). */
 function chatGuardado(id: string) {
-  const guardado = [...almacen.entries()].find(([clave]) => clave.startsWith("aglite:chat-history-cache"));
-  if (!guardado) {
-    return null;
-  }
-  const store = JSON.parse(guardado[1]) as { conversations: Record<string, unknown> };
-  return store.conversations[id] ?? null;
+  const guardado = [...almacen.entries()].find(
+    ([clave]) => clave.startsWith("aglite:chat-history-cache:v4:") && clave.endsWith(`|${id}`),
+  );
+  return guardado ? (JSON.parse(guardado[1]) as unknown) : null;
 }
 
 test("e) un chat guardado se lee enseguida, antes del guardado diferido, sin escribir antes de tiempo", async () => {
@@ -429,20 +430,20 @@ test("s) con el navegador lleno se recorta a la mitad (lo mas reciente) y queda 
     saveConversationToCache(copia(1, 20, { id: `chat-s${numero}` }));
   }
   await esperarGuardado();
-  const llave = "aglite:chat-history-cache:v3:negocio-n:asesora-c:v3";
-  const conCuatro = almacen.get(llave)!;
-  assert.equal(Object.keys(JSON.parse(conCuatro).conversations).length, 4);
+  const prefijo = "aglite:chat-history-cache:v4:negocio-n:asesora-c:v3|";
+  const deC = () => [...almacen.keys()].filter((clave) => clave.startsWith(prefijo)).map((clave) => clave.slice(prefijo.length));
+  assert.equal(deC().length, 4);
   try {
     // Con un quinto chat ya no cabe; la mitad si.
-    cuota = conCuatro.length;
+    cuotaTotal = ocupado();
     saveConversationToCache(copia(1, 20, { id: "chat-s5" }));
     await esperarGuardado();
-    const guardados = Object.keys(JSON.parse(almacen.get(llave)!).conversations);
-    assert.equal(guardados.length, 2, "quedo la mitad de los cinco");
+    const guardados = deC();
+    assert.equal(guardados.length, 2, "quedo la mitad de los cinco (los mas recientes, con el nuevo)");
     assert.ok(guardados.includes("chat-s5"), "el ultimo guardado se queda");
     assert.ok(readConversationFromCache("chat-s5", { ignoreFreshness: true }));
   } finally {
-    cuota = Number.POSITIVE_INFINITY;
+    cuotaTotal = Number.POSITIVE_INFINITY;
   }
 });
 
@@ -526,4 +527,79 @@ test("x) la precarga que recibe 404 borra la copia del chat", async () => {
   } finally {
     Date.now = ahora;
   }
+});
+
+/* ── v4 (22-nov-2026): una llave por chat ─────────────────────────────────────────────────────── */
+
+test("y) lo guardado en la v3 (todos juntos) se pasa a una llave por chat y la llave vieja se borra", async () => {
+  dueno.fijarDuenoDelGuardado({ workspaceId: "negocio-n", userId: "asesora-y" });
+  const ahora = Date.now();
+  const viejo = (id: string, cachedAt: number) => ({
+    ...JSON.parse(JSON.stringify(copia(1, 3, { id }))),
+    cachedAt,
+  });
+  const llaveV3 = "aglite:chat-history-cache:v3:negocio-n:asesora-y:v3";
+  almacen.set(
+    llaveV3,
+    JSON.stringify({ version: 1, conversations: { "chat-y1": viejo("chat-y1", ahora), "chat-y2": viejo("chat-y2", ahora) } }),
+  );
+  // Por si quedo una llave por chat mas nueva del mismo chat: gana la mas nueva.
+  const masNueva = { ...viejo("chat-y2", ahora + 1000), label: "La mas nueva" };
+  almacen.set("aglite:chat-history-cache:v4:negocio-n:asesora-y:v3|chat-y2", JSON.stringify(masNueva));
+
+  assert.ok(readConversationFromCache("chat-y1", { ignoreFreshness: true }), "el de la v3 se lee");
+  assert.equal(readConversationFromCache("chat-y2", { ignoreFreshness: true })?.label, "La mas nueva");
+  assert.equal(almacen.has(llaveV3), false, "la llave de la v3 se borro");
+  assert.ok(almacen.has("aglite:chat-history-cache:v4:negocio-n:asesora-y:v3|chat-y1"), "el de la v3 quedo en su llave");
+});
+
+test("z) al guardar un chat se escribe solo ese chat, no los demas", async () => {
+  dueno.fijarDuenoDelGuardado({ workspaceId: "negocio-n", userId: "asesora-z" });
+  for (let numero = 1; numero <= 5; numero += 1) {
+    saveConversationToCache(copia(1, 10, { id: `chat-z${numero}` }));
+  }
+  await esperarGuardado();
+  const prefijo = "aglite:chat-history-cache:v4:negocio-n:asesora-z:v3|";
+  const antes = new Map([...escrituras].filter(([clave]) => clave.startsWith(prefijo)));
+  assert.equal(antes.size, 5);
+
+  // Llega un mensaje al chat 3.
+  saveConversationToCache(copia(1, 11, { id: "chat-z3" }));
+  await esperarGuardado();
+  for (const [clave, veces] of escrituras) {
+    if (!clave.startsWith(prefijo)) continue;
+    const esperado = clave.endsWith("|chat-z3") ? antes.get(clave)! + 1 : antes.get(clave);
+    assert.equal(veces, esperado, `${clave.slice(prefijo.length)} se escribio ${veces} veces`);
+  }
+  assert.equal(readConversationFromCache("chat-z3", { ignoreFreshness: true })?.messages.length, 11);
+
+  // Lo mismo otra vez (sin cambios): no se escribe nada.
+  const despues = escrituras.get(`${prefijo}chat-z3`);
+  saveConversationToCache(copia(1, 11, { id: "chat-z3" }));
+  await esperarGuardado();
+  assert.equal(escrituras.get(`${prefijo}chat-z3`), despues);
+
+  // Borrar el chat borra su llave y deja las otras.
+  cache.clearConversationFromCache("chat-z3");
+  assert.equal(almacen.has(`${prefijo}chat-z3`), false);
+  assert.ok(almacen.has(`${prefijo}chat-z1`));
+});
+
+test("z2) una llave ilegible se descarta sin tumbar a los demas chats", async () => {
+  dueno.fijarDuenoDelGuardado({ workspaceId: "negocio-n", userId: "asesora-w" });
+  saveConversationToCache(copia(1, 3, { id: "chat-w1" }));
+  await esperarGuardado();
+  almacen.set("aglite:chat-history-cache:v4:negocio-n:asesora-w:v3|chat-roto", "{no es json");
+  almacen.set("aglite:chat-history-cache:v4:negocio-n:asesora-w:v3|chat-sin-mensajes", JSON.stringify({ id: "x", cachedAt: 1 }));
+  // Otra pestaña cambio algo: se vuelve a leer desde el navegador.
+  dueno.fijarDuenoDelGuardado({ workspaceId: "negocio-n", userId: "asesora-v" });
+  dueno.fijarDuenoDelGuardado({ workspaceId: "negocio-n", userId: "asesora-w" });
+  saveConversationToCache(copia(1, 3, { id: "chat-w2" }));
+  await esperarGuardado();
+  almacen.set("aglite:chat-history-cache:v4:negocio-n:asesora-w:v3|chat-roto", "{no es json");
+  almacen.set("aglite:chat-history-cache:v4:negocio-n:asesora-w:v3|chat-sin-mensajes", JSON.stringify({ id: "x", cachedAt: 1 }));
+  cache.clearConversationCache();
+  saveConversationToCache(copia(1, 3, { id: "chat-w3" }));
+  await esperarGuardado();
+  assert.ok(readConversationFromCache("chat-w3", { ignoreFreshness: true }));
 });

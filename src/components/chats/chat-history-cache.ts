@@ -26,11 +26,28 @@ type ConversationCacheStore = {
 // Sin dueño no se lee ni se guarda nada. La v2 (sin dueño) se borra: cada chat se pide una vez mas.
 const PREFIJO_DE_LA_LLAVE = "aglite:chat-history-cache:v3:";
 const LEGACY_STORAGE_KEYS = ["aglite:chat-history-cache:v1", "aglite:chat-history-cache:v2"];
+/*
+  v4 (22-nov-2026, velocidad de Chats): UNA llave por chat. La v3 guardaba los 80 chats juntos en una
+  sola llave (1,8 M de caracteres) y cada guardado la volvia a escribir entera: ~20 ms en un PC y
+  unos 80 ms en un celular, con la pantalla trabada, en cada mensaje que llegaba o salia. Ahora se
+  escribe solo el chat que cambio (pocos kB). La v3 se pasa a la v4 la primera vez que se lee.
+  Formato: "aglite:chat-history-cache:v4:<dueño>|<clave del chat>". El "|" separa: el dueño y la
+  clave llevan ":" y ningun id lleva "|".
+*/
+const PREFIJO_POR_CHAT = "aglite:chat-history-cache:v4:";
 /** Nunca se muestra una copia con mas de esto, ni siquiera con ignoreFreshness. */
 const CADUCIDAD_DURA_MS = MAX_HORAS_DEL_GUARDADO * 3_600_000;
 
 function llaveDelStore(dueno: string) {
   return `${PREFIJO_DE_LA_LLAVE}${dueno}`;
+}
+
+function prefijoDelDueno(dueno: string) {
+  return `${PREFIJO_POR_CHAT}${dueno}|`;
+}
+
+function llaveDelChat(dueno: string, clave: string) {
+  return `${prefijoDelDueno(dueno)}${clave}`;
 }
 const VISITED_STORAGE_KEY = "aglite:chat-visited:v1";
 // Sin el base64 cada chat pesa unos pocos KB en vez de cientos, asi que entran todos y dejamos
@@ -56,6 +73,12 @@ let cachedStore: ConversationCacheStore | null = null;
 let cachedStoreDueno: string | null = null;
 let cachedVisitedStore: Record<string, number> | null = null;
 let storageListenerAttached = false;
+/*
+  Lo que esta escrito en el navegador, chat por chat (la misma referencia que en `cachedStore`).
+  writeStore compara contra esto y escribe solo los chats que cambiaron y borra los que salieron.
+  Se arma al leer el guardado y se olvida junto con `cachedStore`.
+*/
+let persistidos = new Map<string, CachedConversation>();
 
 function isBrowser() {
   return typeof window !== "undefined";
@@ -71,6 +94,7 @@ function olvidarLoDeMemoria() {
   cachedStore = null;
   cachedStoreDueno = null;
   cachedVisitedStore = null;
+  persistidos = new Map();
 }
 alCambiarElDueno(olvidarLoDeMemoria);
 
@@ -88,6 +112,7 @@ function invalidateCaches(event?: StorageEvent) {
   cachedStore = null;
   cachedStoreDueno = null;
   cachedVisitedStore = null;
+  persistidos = new Map();
 }
 
 function ensureStorageListeners() {
@@ -122,23 +147,80 @@ function readStore(): ConversationCacheStore {
     }
   }
 
+  const conversations: Record<string, CachedConversation> = {};
+  const leidos = new Map<string, CachedConversation>();
   try {
-    const raw = window.localStorage.getItem(llaveDelStore(dueno));
-    if (!raw) {
-      return { version: 1, conversations: {} };
+    const almacen = window.localStorage;
+    const prefijo = prefijoDelDueno(dueno);
+
+    // Lo de la v3 (todos juntos en una llave) se pasa a una llave por chat, una sola vez.
+    const raw = almacen.getItem(llaveDelStore(dueno));
+    if (raw !== null) {
+      try {
+        const viejo = JSON.parse(raw) as ConversationCacheStore | null;
+        if (viejo && viejo.version === 1 && typeof viejo.conversations === "object" && viejo.conversations !== null) {
+          for (const [clave, conversacion] of Object.entries(viejo.conversations)) {
+            if (esCopiaValida(conversacion)) {
+              conversations[clave] = conversacion;
+            }
+          }
+        }
+      } catch {
+        // Ilegible: se descarta, cada chat se vuelve a pedir.
+      }
+      try {
+        almacen.removeItem(llaveDelStore(dueno));
+      } catch {
+        // Sin permiso para borrar: se vuelve a intentar la proxima vez.
+      }
     }
 
-    const parsed = JSON.parse(raw) as ConversationCacheStore | null;
-    if (!parsed || parsed.version !== 1 || typeof parsed.conversations !== "object" || parsed.conversations === null) {
-      return { version: 1, conversations: {} };
+    const claves: string[] = [];
+    for (let indice = 0; indice < almacen.length; indice += 1) {
+      const clave = almacen.key(indice);
+      if (clave?.startsWith(prefijo)) {
+        claves.push(clave);
+      }
     }
-
-    cachedStore = parsed;
-    cachedStoreDueno = dueno;
-    return parsed;
+    for (const llave of claves) {
+      const clave = llave.slice(prefijo.length);
+      try {
+        const conversacion = JSON.parse(almacen.getItem(llave) ?? "null") as CachedConversation | null;
+        if (!clave || !esCopiaValida(conversacion)) {
+          almacen.removeItem(llave);
+          continue;
+        }
+        // Si la v3 tambien lo traia, gana la copia mas nueva.
+        const deLaV3 = conversations[clave];
+        if (!deLaV3 || conversacion.cachedAt >= deLaV3.cachedAt) {
+          conversations[clave] = conversacion;
+        }
+        if (conversations[clave] === conversacion) {
+          leidos.set(clave, conversacion);
+        }
+      } catch {
+        // Un chat ilegible no tumba a los demas.
+      }
+    }
   } catch {
     return { version: 1, conversations: {} };
   }
+
+  const store: ConversationCacheStore = { version: 1, conversations };
+  cachedStore = store;
+  cachedStoreDueno = dueno;
+  persistidos = leidos;
+  // Lo que vino de la v3 (o gano sobre la v4) queda escrito ya en su propia llave.
+  if (Object.keys(conversations).length !== leidos.size) {
+    writeStore(trimStore(store));
+  }
+  return cachedStore;
+}
+
+function esCopiaValida(valor: unknown): valor is CachedConversation {
+  if (!valor || typeof valor !== "object") return false;
+  const copia = valor as Partial<CachedConversation>;
+  return typeof copia.id === "string" && Array.isArray(copia.messages) && typeof copia.cachedAt === "number";
 }
 
 function writeStore(store: ConversationCacheStore) {
@@ -151,44 +233,86 @@ function writeStore(store: ConversationCacheStore) {
   if (!dueno) {
     cachedStore = null;
     cachedStoreDueno = null;
+    persistidos = new Map();
     return;
+  }
+  if (cachedStoreDueno !== dueno) {
+    // Lo anotado era de otro dueño (sus llaves ya las borro dueno.ts).
+    persistidos = new Map();
   }
   cachedStore = store;
   cachedStoreDueno = dueno;
 
-  const llave = llaveDelStore(dueno);
+  let almacen: Storage;
   try {
-    window.localStorage.setItem(llave, JSON.stringify(store));
-    return;
+    almacen = window.localStorage;
   } catch {
-    // Lleno: se prueba con la mitad (abajo).
+    return;
   }
 
-  /*
-    Sin espacio (cuota): se quedan la mitad de los chats, los guardados mas recientemente, y se
-    intenta UNA vez mas. Antes el guardado quedaba roto y todos los chats volvian a pedirse al servidor.
-  */
-  const recortado = recortarALaMitad(store);
-  cachedStore = recortado;
-  try {
-    window.localStorage.setItem(llave, JSON.stringify(recortado));
-  } catch (error) {
+  // Los que salieron (recortados o borrados): se borra su llave.
+  for (const clave of [...persistidos.keys()]) {
+    if (!(clave in store.conversations)) {
+      try {
+        almacen.removeItem(llaveDelChat(dueno, clave));
+      } catch {
+        // Sigue con los demas.
+      }
+      persistidos.delete(clave);
+    }
+  }
+
+  // Solo se escriben los que cambiaron: guardarPendientes pone un objeto nuevo en cada chat que cambia.
+  for (const [clave, conversacion] of Object.entries(store.conversations)) {
+    if (persistidos.get(clave) === conversacion) {
+      continue;
+    }
+    const texto = JSON.stringify(conversacion);
+    if (escribirChat(almacen, dueno, clave, texto)) {
+      persistidos.set(clave, conversacion);
+      continue;
+    }
+    /*
+      Sin espacio (cuota): se quedan la mitad de los chats, los guardados mas recientemente (siempre
+      con este), y se intenta UNA vez mas. Antes el guardado quedaba roto y todos los chats volvian a
+      pedirse al servidor.
+    */
+    for (const sobrante of mitadMasVieja(store, clave)) {
+      delete store.conversations[sobrante];
+      try {
+        almacen.removeItem(llaveDelChat(dueno, sobrante));
+      } catch {
+        // Sigue con los demas.
+      }
+      persistidos.delete(sobrante);
+    }
+    if (escribirChat(almacen, dueno, clave, texto)) {
+      persistidos.set(clave, conversacion);
+      continue;
+    }
     // Callarlo hacia que el sintoma (abrir un chat va lento) no tuviera ninguna pista.
     console.warn("[chat-cache] no se pudo guardar la cache de chats", {
-      chats: Object.keys(recortado.conversations).length,
-      kb: Math.round(JSON.stringify(recortado).length / 1024),
-      motivo: String(error),
+      chats: Object.keys(store.conversations).length,
+      kb: Math.round(texto.length / 1024),
     });
   }
 }
 
-/** La mitad de los chats: los guardados mas recientemente (por cachedAt). */
-function recortarALaMitad(store: ConversationCacheStore): ConversationCacheStore {
+function escribirChat(almacen: Storage, dueno: string, clave: string, texto: string) {
+  try {
+    almacen.setItem(llaveDelChat(dueno, clave), texto);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** La mitad de los chats guardados hace mas tiempo (por cachedAt), sin contar `quedarse`. */
+function mitadMasVieja(store: ConversationCacheStore, quedarse: string): string[] {
   const entries = Object.entries(store.conversations).sort((left, right) => right[1].cachedAt - left[1].cachedAt);
-  return {
-    version: 1,
-    conversations: Object.fromEntries(entries.slice(0, Math.floor(entries.length / 2))),
-  };
+  const conservar = new Set(entries.slice(0, Math.floor(entries.length / 2)).map(([clave]) => clave));
+  conservar.add(quedarse);
+  return entries.map(([clave]) => clave).filter((clave) => !conservar.has(clave));
 }
 
 function readVisitedStore(): Record<string, number> {
@@ -935,6 +1059,7 @@ export function clearConversationCache() {
   cachedStore = null;
   cachedStoreDueno = null;
   cachedVisitedStore = {};
+  persistidos = new Map();
 
   try {
     // Todas las copias de chats de este navegador, de cualquier dueño.
