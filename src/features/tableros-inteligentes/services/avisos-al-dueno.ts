@@ -66,6 +66,13 @@ import { linkDeHoy, linkDeLaTarjeta, linkDelCoordinador, pendientesDelDueno, tod
   `coord:cupos` (el texto cambia cada minuto: "hace 12 min"). Sin el WhatsApp de Sistemas válido NO va al dueño: queda solo
   en /cliente/alertas. Mismo silencio de 9 p. m. a 7 a. m., interruptor general y "uno cada 3 horas".
 
+  APROBACIONES SIN WHATSAPP (23-nov-2026, decisión del dueño): lo que espera su sí (el "👆 «título» necesita tu decisión",
+  "apruébala en pantalla para que arranque" y los "necesita" del Coordinador: plan listo, preguntas abiertas, una decisión,
+  una clave o un acceso) queda SOLO en /cliente/alertas (con la misma prioridad) y en el tablero: no sale al WhatsApp del
+  dueño y se anota como ya avisado para no reintentarlo cada minuto. El código no se borra: se vuelve a prender con la fila
+  `tablero:avisos-dueno:aprobaciones:<ws>` = "true". Lo de Emanuel, "Coordinador caído", "Se deshizo una subida" y el
+  resumen de las 6 p. m. no cambian.
+
   Todo se guarda en AppSetting (sin tablas nuevas). El reloj del servidor (api/cron/follows) llama a
   revisarAvisosAlDueno cada minuto. Antes de este archivo el aviso del Coordinador devolvía 412 porque nadie
   guardaba el número en ninguna pantalla.
@@ -79,6 +86,9 @@ export const claveEstadoDeAvisos = (workspaceId: string) => `tablero:avisos-duen
 /** El WhatsApp de Emanuel (responsable de Sistemas) y su interruptor: mismo mecanismo que el del dueño, otra clave. */
 export const claveTelefonoDeSistemas = (workspaceId: string) => `tablero:avisos-sistemas:telefono:${workspaceId}`;
 export const claveInterruptorDeSistemas = (workspaceId: string) => `tablero:avisos-sistemas:activo:${workspaceId}`;
+/** Interruptor de los avisos de aprobación por WhatsApp (23-nov-2026): solo "true" los prende; sin fila, apagados. */
+export const PREFIJO_AVISOS_DE_APROBACION = "tablero:avisos-dueno:aprobaciones:";
+export const claveAvisosDeAprobacion = (workspaceId: string) => `${PREFIJO_AVISOS_DE_APROBACION}${workspaceId}`;
 /** El ajuste que usaba el aviso del Coordinador antes de que existiera la caja de Mi empresa. */
 const claveTelefonoViejo = (workspaceId: string) => `trabajador:aviso-telefono:${workspaceId}`;
 
@@ -170,6 +180,23 @@ export async function avisosPrendidos(workspaceId: string): Promise<boolean> {
   const fila = await prisma.appSetting.findUnique({ where: { key: claveInterruptorDeAvisos(workspaceId) }, select: { value: true } });
   return fila?.value !== "false";
 }
+
+/**
+ * ¿Salen por WhatsApp los avisos que esperan el sí del dueño? Solo si la fila vale exactamente "true". Sin fila o si
+ * falla la lectura: apagados (quedan solo en la página de alertas y en el tablero). Nunca lanza.
+ */
+export async function avisosDeAprobacionPrendidos(workspaceId: string): Promise<boolean> {
+  try {
+    const fila = await prisma.appSetting.findUnique({ where: { key: claveAvisosDeAprobacion(workspaceId) }, select: { value: true } });
+    return fila?.value === "true";
+  } catch (error) {
+    console.warn("[avisos-al-dueno] no se pudo leer el interruptor de aprobaciones", error instanceof Error ? error.message : String(error));
+    return false;
+  }
+}
+
+/** Los avisos del reloj que esperan el sí del dueño (los que apaga el interruptor de aprobaciones). */
+const esAvisoDeAprobacion = (tipo: TipoDeAviso): boolean => tipo === "necesita" || tipo === "aprobar_en_pantalla";
 
 /** El número guardado (el de la caja de Mi empresa o, si no hay, el ajuste viejo), sin validar. */
 export async function telefonoGuardado(workspaceId: string): Promise<string | null> {
@@ -700,6 +727,15 @@ export async function revisarNegocio(workspaceId: string, ahora: Date): Promise<
     const paraEmanuel = sistemas?.responsableId && esAvisoTecnico(aviso.tipo) ? { destinatarioId: sistemas.responsableId } : {};
     await registrarAlerta({ workspaceId, clave: aviso.clave, prioridad: aviso.prioridad, titulo: aviso.titulo, detalle: aviso.lineas.join("\n"), origen: ORIGEN_COORDINADOR, refrescar: false, ...paraEmanuel });
   }
+  // Aprobaciones sin WhatsApp (23-nov-2026): con el interruptor apagado quedan solo en la página y se anotan como avisadas.
+  if (porAvisar.some((aviso) => esAvisoDeAprobacion(aviso.tipo)) && !(await avisosDeAprobacionPrendidos(workspaceId))) {
+    for (const aviso of porAvisar) {
+      if (!esAvisoDeAprobacion(aviso.tipo)) continue;
+      estado.avisados[aviso.clave] = ahora.toISOString();
+      cambio = true;
+    }
+    porAvisar = porAvisar.filter((aviso) => !esAvisoDeAprobacion(aviso.tipo));
+  }
   if (sistemas) {
     const tecnicos = porAvisar.filter((aviso) => esAvisoTecnico(aviso.tipo));
     porAvisar = porAvisar.filter((aviso) => !esAvisoTecnico(aviso.tipo));
@@ -819,6 +855,13 @@ export async function registrarAvisoDelCoordinador(
     anotarEnHistorial(estado, { cuando: ahora.toISOString(), tipo: `sistemas:${tipo}`, texto, salio: envio.salio, motivo: envio.salio ? null : `no salió a Emanuel: ${envio.motivo}` });
     await guardarEstadoDeAvisos(workspaceId, estado);
     return envio;
+  }
+  // Aprobaciones sin WhatsApp (23-nov-2026): plan listo, preguntas abiertas, una decisión, una clave o un acceso quedan solo
+  // en la página. "Se deshizo una subida" (también "necesita") es de Tecnología y sigue su camino de siempre.
+  if (tipo === "necesita" && !ES_UNA_SUBIDA_DESHECHA.test(texto) && !(await avisosDeAprobacionPrendidos(workspaceId))) {
+    estado.avisados[clave] = ahora.toISOString();
+    await guardarEstadoDeAvisos(workspaceId, estado);
+    return { salio: false, motivo: "no salió: quedó en la página de alertas" };
   }
   if (soloUrgentes && prioridad !== "URGENTE") {
     // No sale por WhatsApp: se revisa en la página de alertas.

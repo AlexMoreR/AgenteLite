@@ -141,6 +141,10 @@ const deltrabajador = cargar("src/features/tableros-inteligentes/services/aviso-
   "./trabajador": { ErrorDelTrabajador: class extends Error { constructor(m, status) { super(m); this.status = status; } } },
 });
 
+// Avisos de aprobación por WhatsApp (23-nov-2026): sin la fila están apagados. Las pruebas de antes que esperan el WhatsApp
+// de una aprobación la guardan en "true" para seguir comprobando lo mismo.
+const prenderAprobaciones = () => estado.ajustes.set("tablero:avisos-dueno:aprobaciones:ws1", "true");
+
 let pruebas = 0;
 async function prueba(nombre, fn) {
   reiniciar();
@@ -650,6 +654,7 @@ await prueba("varios problemas en una vuelta se juntan en UN mensaje de máximo 
 });
 
 await prueba("alertas: un 'necesita' del Coordinador sin dinero, Meta Ads ni clave queda en la página y no sale", async () => {
+  prenderAprobaciones();
   guardarNumero();
   const contexto = { workspaceId: "ws1" };
   const resultado = await deltrabajador.enviarAvisoDelTrabajador(contexto, { texto: "Necesito que elijas el color del botón.", tipo: "necesita" }, new Date("2026-11-02T15:00:00Z"));
@@ -722,6 +727,7 @@ const DIA_TARJETA = new Date("2026-11-03T15:00:00Z");
 const DIA_SIN_TARJETA = new Date("2026-11-04T15:00:00Z");
 
 await prueba("tarjetaId: con una tarjeta del negocio, el 'necesita' queda con la clave coord:necesita:<id>:<texto> y el urgente lleva a la tarjeta", async () => {
+  prenderAprobaciones();
   guardarNumero();
   const resultado = await deltrabajador.enviarAvisoDelTrabajador({ workspaceId: "ws1" }, { texto: PREGUNTA, tipo: "necesita", tarjetaId: "tarj1" }, DIA_TARJETA);
   assert.equal(resultado.salio, true);
@@ -738,10 +744,12 @@ await prueba("tarjetaId: con una tarjeta del negocio, el 'necesita' queda con la
 });
 
 await prueba("tarjetaId: de otro negocio, borrada, inexistente, mal escrita o sin id, se guarda coord:necesita:<texto> como antes", async () => {
+  prenderAprobaciones();
   guardarNumero();
   const casos = [{ tarjetaId: "ajena1" }, { tarjetaId: "borrada1" }, { tarjetaId: "no-existe" }, { tarjetaId: 123 }, { tarjetaId: "  " }, {}];
   for (const [i, extra] of casos.entries()) {
     reiniciar();
+    prenderAprobaciones();
     guardarNumero();
     const resultado = await deltrabajador.enviarAvisoDelTrabajador({ workspaceId: "ws1" }, { texto: PREGUNTA, tipo: "necesita", ...extra }, new Date(DIA_SIN_TARJETA.getTime() + i * 2 * 60_000));
     assert.equal(resultado.salio, true, JSON.stringify(extra));
@@ -751,6 +759,7 @@ await prueba("tarjetaId: de otro negocio, borrada, inexistente, mal escrita o si
 });
 
 await prueba("tarjetaId: registrarAvisoDelCoordinador sin el parámetro guarda como antes; sin 'solo urgentes' cambia solo la línea Ver; uno no urgente no sale", async () => {
+  prenderAprobaciones();
   guardarNumero();
   assert.equal(avisos.claveDelAvisoDelCoordinador("necesita", "hola"), "coord:necesita:hola");
   assert.equal(avisos.claveDelAvisoDelCoordinador("necesita", "hola", "tarj1"), "coord:necesita:tarj1:hola");
@@ -902,6 +911,98 @@ await prueba("revisarNegocio: corre la limpieza única y el barrido en cada vuel
   assert.equal(delBarrido.estado, "RESUELTA");
   assert.equal(vieja.estado, "RESUELTA");
   assert.ok(estado.ajustes.has("alertas:limpieza-coordinador-v1:ws1"));
+});
+
+/* ------------------------------------------------------------------ aprobaciones sin WhatsApp (23-nov-2026) */
+
+await prueba("aprobaciones apagadas (sin la fila): una tarjeta POR_APROBAR de abonos deja su alerta y no manda WhatsApp, ni la vuelta siguiente", async () => {
+  guardarNumero();
+  assert.equal(await avisos.avisosDeAprobacionPrendidos("ws1"), false, "sin fila: apagados");
+  estado.enCurso = [{ id: "x", titulo: "X", estado: "EN_CURSO" }];
+  estado.historial.set("x", hace(HORA / 2));
+  estado.esperando = [esperando({ id: "ab1", titulo: "Registrar los abonos de los clientes", detalle: "Guardar los abonos y pagos de cada pedido", estado: "POR_APROBAR" })];
+  assert.equal(avisos.calcularAvisos(await avisos.leerSituacion("ws1"), DIA).filter((a) => a.tipo === "necesita").length, 1, "la tarjeta sí espera el sí del dueño");
+  assert.deepEqual(await avisos.revisarAvisosAlDueno(DIA), { enviados: 0 });
+  assert.equal(estado.enviados.length, 0);
+  assert.equal(estado.alertas.length, 1);
+  assert.equal(estado.alertas[0].clave, "auto:necesita:ab1:POR_APROBAR");
+  assert.equal(estado.alertas[0].prioridad, avisos.prioridadDelAviso("necesita", avisos.porQueNecesitaAlDueno(estado.esperando[0])), "la misma prioridad de hoy");
+  assert.equal(estado.alertas[0].salioPorWhatsApp, false);
+  // Queda anotado como avisado: la vuelta del minuto siguiente no lo intenta otra vez.
+  assert.ok(JSON.parse(estado.ajustes.get("tablero:avisos-dueno:estado:ws1")).avisados["auto:necesita:ab1:POR_APROBAR"]);
+  assert.deepEqual(await avisos.revisarAvisosAlDueno(new Date(DIA.getTime() + 60_000)), { enviados: 0 });
+  assert.equal(estado.enviados.length, 0);
+  // Con la fila en "true" vuelve a salir como antes; otro valor ("TRUE", "1") no la prende.
+  for (const valor of ["TRUE", "1", "si"]) {
+    estado.ajustes.set("tablero:avisos-dueno:aprobaciones:ws1", valor);
+    assert.equal(await avisos.avisosDeAprobacionPrendidos("ws1"), false, valor);
+  }
+  prenderAprobaciones();
+  assert.equal(await avisos.avisosDeAprobacionPrendidos("ws1"), true);
+});
+
+await prueba("aprobaciones apagadas: aprobar_en_pantalla deja su alerta Alta y no manda WhatsApp (con 'solo urgentes' apagado)", async () => {
+  guardarNumero();
+  estado.ajustes.set("alertas:solo-urgentes:ws1", "false");
+  estado.enFila = 1;
+  estado.fueraPorLaVia = [{ id: "t1", titulo: "Arreglar la campaña", estado: "APROBADO", zonaProtegida: ["META_ADS"], via: "voz" }];
+  assert.deepEqual(await avisos.revisarAvisosAlDueno(DIA), { enviados: 0 });
+  assert.equal(estado.enviados.length, 0);
+  assert.deepEqual(estado.alertas.map((a) => [a.clave, a.prioridad]), [["auto:necesita:t1:VIA_PANTALLA", "ALTA"]]);
+  // Con la fila en "true", lo mismo sale como hoy.
+  reiniciar();
+  prenderAprobaciones();
+  guardarNumero();
+  estado.ajustes.set("alertas:solo-urgentes:ws1", "false");
+  estado.enFila = 1;
+  estado.fueraPorLaVia = [{ id: "t1", titulo: "Arreglar la campaña", estado: "APROBADO", zonaProtegida: ["META_ADS"], via: "voz" }];
+  assert.deepEqual(await avisos.revisarAvisosAlDueno(DIA), { enviados: 1 });
+  assert.match(estado.enviados[0].text, /apruébala en pantalla/);
+});
+
+await prueba("aprobaciones apagadas: el 'necesita' del Coordinador por Meta Ads responde salio:false, no manda nada y deja la alerta", async () => {
+  guardarNumero();
+  const respuesta = await avisos.registrarAvisoDelCoordinador("ws1", "necesita", "Necesito tu sí para el presupuesto de Meta Ads.", DIA);
+  assert.deepEqual(respuesta, { salio: false, motivo: "no salió: quedó en la página de alertas" });
+  assert.equal(estado.enviados.length, 0);
+  assert.equal(estado.alertas.length, 1);
+  assert.equal(estado.alertas[0].clave, "coord:necesita:Necesito tu sí para el presupuesto de Meta Ads.");
+  assert.equal(estado.alertas[0].prioridad, "URGENTE", "la misma prioridad de hoy");
+  // Anotado: no se reintenta en las próximas 3 horas.
+  assert.deepEqual(await avisos.registrarAvisoDelCoordinador("ws1", "necesita", "Necesito tu sí para el presupuesto de Meta Ads.", new Date(DIA.getTime() + 60_000)), { repetido: true });
+  // Pedir una clave o un acceso y una pregunta abierta tampoco salen.
+  for (const texto of ["Falta la clave de la API de Meta: necesito el acceso.", "El plan tiene preguntas abiertas: ¿con IVA o sin IVA?"]) {
+    assert.equal((await avisos.registrarAvisoDelCoordinador("ws1", "necesita", texto, DIA)).salio, false, texto);
+  }
+  assert.equal(estado.enviados.length, 0);
+  assert.equal(estado.alertas.length, 3);
+});
+
+await prueba("aprobaciones apagadas: 'Coordinador caído' y el límite de Claude a Emanuel siguen saliendo; 'Se deshizo una subida' sigue su camino", async () => {
+  guardarNumero();
+  // Caído: con "solo urgentes" apagado y sin Sistemas, al dueño como siempre.
+  estado.ajustes.set("alertas:solo-urgentes:ws1", "false");
+  estado.latido = hace(30 * 60_000).toISOString();
+  assert.deepEqual(await avisos.revisarAvisosAlDueno(DIA), { enviados: 1 });
+  assert.match(estado.enviados[0].text, /Sistemas está detenido/);
+  assert.equal(estado.enviados[0].phoneNumber, "573001112233");
+  // Con el WhatsApp de Emanuel: el caído y el límite le llegan a él.
+  reiniciar();
+  guardarNumero();
+  assert.deepEqual(await avisos.guardarConfigDeSistemas("ws1", { telefono: "573114445566" }), { ok: true });
+  estado.latido = hace(30 * 60_000).toISOString();
+  await avisos.revisarAvisosAlDueno(DIA);
+  assert.equal(estado.enviados.length, 1);
+  assert.equal(estado.enviados[0].phoneNumber, "573114445566");
+  const limite = await avisos.registrarAvisoDelCoordinador("ws1", "limite", "⛔ Claude llegó a su límite de uso.\nVuelve a las 3:20 p. m.", DIA);
+  assert.equal(limite.salio, true);
+  assert.equal(estado.enviados[1].phoneNumber, "573114445566");
+  const cupos = await avisos.registrarAvisoDelCoordinador("ws1", "cupos", "Hay 2 puestos libres hace 12 min.", DIA);
+  assert.equal(cupos.salio, true);
+  assert.equal(estado.enviados.length, 3);
+  // "Se deshizo una subida" no es de aprobación: no responde con el motivo de las aprobaciones.
+  const deshecha = await avisos.registrarAvisoDelCoordinador("ws1", "necesita", "Se deshizo una subida: falló el build.", DIA);
+  assert.notEqual(deshecha.motivo, "no salió: quedó en la página de alertas");
 });
 
 console.log(`\n${pruebas} pruebas, todas bien`);

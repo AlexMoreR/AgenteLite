@@ -12,7 +12,7 @@ import { CLAVE_ESTADO_ALERTA_CPU, leerEstadoAlertaCpu } from "@/lib/recibir-metr
 import { aprobacionAutomaticaPrendida, aprobarPlanesSoloPrendido, aprobarTareasSoloPrendido } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
 import { recogidaDelResultado } from "@/features/tableros-inteligentes/services/reglas-trabajador";
 import { dondeTableroVivo } from "@/features/tableros-inteligentes/services/tableros-archivados";
-import { avisosPrendidos, leerEstadoDeAvisos, sistemasPrendido, telefonoDeSistemasGuardado, telefonoGuardado } from "@/features/tableros-inteligentes/services/avisos-al-dueno";
+import { avisosDeAprobacionPrendidos, avisosPrendidos, leerEstadoDeAvisos, sistemasPrendido, telefonoDeSistemasGuardado, telefonoGuardado } from "@/features/tableros-inteligentes/services/avisos-al-dueno";
 import { resumenDeAvisosAlEquipo } from "@/features/tableros-inteligentes/services/avisos-al-equipo";
 import { MOTIVO_TERMINADA, terminadasPrendidas } from "@/features/tableros-inteligentes/services/avisos-de-terminadas";
 import { tieneAccesoAlDrive } from "@/features/cerebro/services/conexion";
@@ -545,9 +545,18 @@ async function estadoDelResumenDiario() {
 
 /** Tablero IA: los avisos de WhatsApp al dueño (solo Sistemas detenido o que lo necesita): interruptor, número y último aviso. */
 async function estadoDeAvisosAlDueno(workspaceId: string) {
-  const [prendido, telefono, estado] = await Promise.all([avisosPrendidos(workspaceId), telefonoGuardado(workspaceId), leerEstadoDeAvisos(workspaceId)]);
+  const [prendido, telefono, estado, aprobaciones] = await Promise.all([
+    avisosPrendidos(workspaceId),
+    telefonoGuardado(workspaceId),
+    leerEstadoDeAvisos(workspaceId),
+    avisosDeAprobacionPrendidos(workspaceId),
+  ]);
   const ultimo = estado.historial[0];
-  const cola = ultimo ? `; último: ${ultimo.tipo} del ${ultimo.cuando.slice(0, 16).replace("T", " ")} UTC, ${ultimo.salio ? "salió" : (ultimo.motivo ?? "no salió")}` : "; todavía no ha salido ninguno";
+  // Avisos de aprobación (23-nov-2026): sin la fila en "true" no salen por WhatsApp.
+  const deAprobacion = aprobaciones
+    ? "; avisos de aprobación (lo que espera el sí del dueño) PRENDIDOS: también salen por WhatsApp"
+    : '; avisos de aprobación (lo que espera el sí del dueño) APAGADOS: quedan solo en Alertas y en el tablero, sin WhatsApp (se prenden con la fila tablero:avisos-dueno:aprobaciones:<negocio> = "true")';
+  const cola = `${deAprobacion}${ultimo ? `; último: ${ultimo.tipo} del ${ultimo.cuando.slice(0, 16).replace("T", " ")} UTC, ${ultimo.salio ? "salió" : (ultimo.motivo ?? "no salió")}` : "; todavía no ha salido ninguno"}`;
   if (!prendido) return `APAGADA: interruptor apagado en Mi empresa → Claude, no sale nada${cola}`;
   if (!telefono) return `PRENDIDA pero SIN NÚMERO: falta guardar el número del dueño en Mi empresa → Claude, así que nada sale${cola}`;
   return `PRENDIDA: el reloj revisa cada minuto y avisa por la línea Admin solo si el Coordinador se cae, se queda sin trabajo, una tarjeta se traba o algo necesita al dueño (o Claude se agota)${cola}`;

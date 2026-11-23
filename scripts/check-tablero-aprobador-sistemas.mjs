@@ -238,6 +238,7 @@ await prueba("la vuelta completa: tarjeta en ERROR → WhatsApp de Emanuel, aler
 await prueba("la vuelta completa con una tarjeta que pide una clave: sigue yendo a Alexander", async () => {
   reiniciar();
   configurar();
+  estado.ajustes.set("tablero:avisos-dueno:aprobaciones:ws1", "true"); // avisos de aprobación por WhatsApp prendidos (23-nov-2026)
   estado.esperando = [{ id: "t2", titulo: "Conectar Meta", detalle: "", estado: "ERROR", plan: null, zonaProtegida: [], resultado: { error: "Falta la clave de la API: 403 sin permiso" } }];
   await avisos.revisarNegocio("ws1", DIA);
   assert.deepEqual(numeroDeLosEnviados(), [NUMERO_DUENO]);
@@ -261,6 +262,7 @@ await prueba("respaldo: sin teléfono válido o con el interruptor apagado, no h
 await prueba("registrarAvisoDelCoordinador: el límite de Claude va a Emanuel; 'necesita' por dinero sigue yendo a Alexander", async () => {
   reiniciar();
   configurar();
+  estado.ajustes.set("tablero:avisos-dueno:aprobaciones:ws1", "true"); // avisos de aprobación por WhatsApp prendidos (23-nov-2026)
   const limite = await avisos.registrarAvisoDelCoordinador("ws1", "limite", "⛔ Claude llegó a su límite de uso.\nVuelve a las 3:20 p. m.", DIA);
   assert.equal(limite.salio, true);
   assert.deepEqual(numeroDeLosEnviados(), [NUMERO_EMANUEL]);
