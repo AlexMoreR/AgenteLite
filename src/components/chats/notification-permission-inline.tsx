@@ -1,22 +1,28 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Bell, BellRing, Loader2 } from "lucide-react";
+import { Bell, BellOff, BellRing, Loader2, Smartphone } from "lucide-react";
 import { toast } from "sonner";
 
+import { isProbablyIos, isStandalone } from "@/lib/pwa-instalada";
 import {
   getIsSubscribed,
   isPushSupported,
   requestPermissionAndSubscribe,
 } from "./push-subscription-client";
 
-type Status = "loading" | "hidden" | "off" | "on";
+/*
+  "instalar", "bloqueado" y "sin-soporte" (23-nov-2026): antes no mostraban NADA y en el iPhone de
+  Claudia la pantalla de Notificaciones quedaba con una caja vacia, sin forma de activarlas. En una
+  pestaña de Safari el iPhone no tiene notificaciones web: solo con la app en la pantalla de inicio.
+*/
+type Status = "loading" | "instalar" | "bloqueado" | "sin-soporte" | "off" | "on";
 
 /**
  * Control COMPACTO para activar/probar las notificaciones push del dispositivo, pensado
  * para incrustarse dentro del menú de la campanita de chats. Reutiliza la misma lógica
- * que el interruptor completo de Ajustes (NotificationPermissionToggle). Si el navegador
- * no soporta push o el permiso está bloqueado, no muestra nada (se gestiona en Ajustes).
+ * que el interruptor completo de Ajustes (NotificationPermissionToggle). Si no se pueden activar
+ * aquí (Safari del iPhone sin instalar, permiso bloqueado), dice cómo hacerlo.
  */
 export function NotificationPermissionInline() {
   const [status, setStatus] = useState<Status>("loading");
@@ -26,8 +32,16 @@ export function NotificationPermissionInline() {
   useEffect(() => {
     let cancelled = false;
     const resolve = async () => {
-      if (!isPushSupported() || Notification.permission === "denied") {
-        if (!cancelled) setStatus("hidden");
+      if (isProbablyIos() && !isStandalone()) {
+        if (!cancelled) setStatus("instalar");
+        return;
+      }
+      if (!isPushSupported()) {
+        if (!cancelled) setStatus("sin-soporte");
+        return;
+      }
+      if (Notification.permission === "denied") {
+        if (!cancelled) setStatus("bloqueado");
         return;
       }
       const subscribed = await getIsSubscribed();
@@ -49,8 +63,7 @@ export function NotificationPermissionInline() {
         setStatus("on");
         toast.success("Notificaciones activadas en este dispositivo.");
       } else if (result.reason === "denied") {
-        setStatus("hidden");
-        toast.error("Notificaciones bloqueadas. Actívalas en los ajustes del navegador.");
+        setStatus("bloqueado");
       } else {
         toast.error("No se pudo activar. Inténtalo desde Conexión → Ajustes.");
       }
@@ -84,8 +97,29 @@ export function NotificationPermissionInline() {
     }
   };
 
-  if (status === "loading" || status === "hidden") {
+  if (status === "loading") {
     return null;
+  }
+
+  if (status === "instalar" || status === "bloqueado" || status === "sin-soporte") {
+    const texto =
+      status === "instalar"
+        ? "En iPhone solo suenan con la app instalada. En Safari toca ··· → Compartir → Agregar a inicio, abre la app desde ese ícono y vuelve aquí a activarlas."
+        : status === "bloqueado"
+          ? isProbablyIos()
+            ? "Están bloqueadas en este iPhone. Ve a Ajustes → Notificaciones → la app del CRM y activa Permitir notificaciones."
+            : "Están bloqueadas en este navegador. Toca el candado junto a la dirección → Notificaciones → Permitir, y recarga."
+          : "Este navegador no puede recibir notificaciones. Abre el CRM en Chrome o instala la app.";
+    return (
+      <div className="flex items-start gap-2 px-3 py-2.5 text-xs text-foreground">
+        {status === "instalar" ? (
+          <Smartphone className="mt-0.5 size-3.5 shrink-0 text-primary" />
+        ) : (
+          <BellOff className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+        )}
+        <span>{texto}</span>
+      </div>
+    );
   }
 
   if (status === "on") {
