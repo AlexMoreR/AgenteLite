@@ -384,6 +384,42 @@ const CATEGORIA_DE_LA_FILA = `(CASE
 const ORDEN_PARA_TOMAR = `ORDER BY (c."estado" = 'SUBIENDO') DESC, ${PRIORIDAD_DE_LA_FILA} ASC, ${CATEGORIA_DE_LA_FILA} ASC, c."creadoEn" ASC, c."numero" ASC`;
 
 /**
+ * Solo Features (23-nov-2026): la tarjeta `c` cuelga del Área cuyo id es el parámetro `area` (por padreId, a cualquier
+ * profundidad: las sub-áreas cuentan; hasta 50 niveles y sin pasar por tarjetas borradas, como SQL_ANCESTROS) o ya se
+ * empezó (`intentos` > 0), aunque esté fuera: así se terminan las que ya estaban en marcha (planear, construir, subir,
+ * recoger errores y rescatar). Va en el WHERE, ANTES del LIMIT: 60 aprobadas de fuera no tapan a las de Features.
+ */
+const dentroDelArea = (area: string) => `
+    AND (
+      c."intentos" > 0
+      OR c."id" IN (
+        WITH RECURSIVE baja AS (
+          SELECT h."id", 1 AS "nivel"
+          FROM "TarjetaTablero" h
+          WHERE h."padreId" = ${area}::text AND h."borradoEn" IS NULL
+          UNION ALL
+          SELECT h."id", s."nivel" + 1
+          FROM baja s
+          JOIN "TarjetaTablero" h ON h."padreId" = s."id" AND h."borradoEn" IS NULL
+          WHERE s."nivel" < 50
+        )
+        SELECT "id" FROM baja
+      )
+    )`;
+
+/** SQL_CANDIDATAS, con el filtro del Área si `area` es el parámetro (`$3`); sin él, la consulta de siempre. */
+const consultaDeCandidatas = (area: string | null) => `
+SELECT c."id", c."tableroId", c."titulo", c."estado"::text AS "estado", c."repo", c."zonaProtegida", c."plan",
+  (SELECT count(*)::int FROM "ConexionTarjeta" d WHERE d."origenId" = c."id" AND d."esDependencia") AS "desbloquea",
+  ${PRIORIDAD_DE_LA_FILA}::int AS "prioridad"
+FROM "TarjetaTablero" c
+JOIN "TableroInteligente" b ON b."id" = c."tableroId"
+JOIN "TipoTarjeta" k ON k."id" = c."tipoId"
+${wherePara("$2")}${area ? dentroDelArea(area) : ""}
+${ORDEN_PARA_TOMAR}
+LIMIT 50`;
+
+/**
  * Las que podría tomar, SIN tomarlas, en el orden en que las tomaría. El trabajador las mira para no
  * juntar en paralelo dos del mismo repo que tocan la misma zona o el mismo módulo, ni dos subidas del
  * mismo repo: esas las manda en `excluir` a /tomar y esperan en fila.
@@ -393,30 +429,23 @@ const ORDEN_PARA_TOMAR = `ORDER BY (c."estado" = 'SUBIENDO') DESC, ${PRIORIDAD_D
  * para que el reparto respete el mismo orden (el Coordinador ordena por él antes que por cualquier otra cosa).
  * Parámetros: $1 = workspaceId, $2 = repos (text[]).
  */
-export const SQL_CANDIDATAS = `
-SELECT c."id", c."tableroId", c."titulo", c."estado"::text AS "estado", c."repo", c."zonaProtegida", c."plan",
-  (SELECT count(*)::int FROM "ConexionTarjeta" d WHERE d."origenId" = c."id" AND d."esDependencia") AS "desbloquea",
-  ${PRIORIDAD_DE_LA_FILA}::int AS "prioridad"
-FROM "TarjetaTablero" c
-JOIN "TableroInteligente" b ON b."id" = c."tableroId"
-JOIN "TipoTarjeta" k ON k."id" = c."tipoId"
-${wherePara("$2")}
-${ORDEN_PARA_TOMAR}
-LIMIT 50`;
+export const SQL_CANDIDATAS = consultaDeCandidatas(null);
 
 /**
- * Toma UNA tarjeta (la primera de SQL_CANDIDATAS que no esté en $5): APROBADO -> PLANEANDO,
- * PLAN_APROBADO -> EN_CURSO, SUBIENDO pendiente (sin candado) -> SUBIENDO con candado.
- * $3 = repos (text[]), $4 = vencimiento del candado (ISO), $5 = ids que NO se toman (text[]).
+ * SQL_CANDIDATAS solo con lo que cuelga del Área Features (sub-áreas incluidas) MÁS las ya empezadas (dentroDelArea).
+ * Parámetros: $1 = workspaceId, $2 = repos (text[]), $3 = id del Área.
  */
-export const SQL_TOMAR_UNA = `
+export const SQL_CANDIDATAS_EN_AREA = consultaDeCandidatas("$3");
+
+/** SQL_TOMAR_UNA, con el filtro del Área si `area` es el parámetro (`$6`); sin él, la consulta de siempre. */
+const consultaDeTomarUna = (area: string | null) => `
 WITH elegida AS (
   SELECT c."id", c."estado"::text AS "antes"
   FROM "TarjetaTablero" c
   JOIN "TableroInteligente" b ON b."id" = c."tableroId"
   JOIN "TipoTarjeta" k ON k."id" = c."tipoId"
   ${wherePara("$3")}
-    AND NOT (c."id" = ANY($5::text[]))
+    AND NOT (c."id" = ANY($5::text[]))${area ? dentroDelArea(area) : ""}
   ${ORDEN_PARA_TOMAR}
   LIMIT 1
   FOR UPDATE OF c SKIP LOCKED
@@ -434,6 +463,19 @@ SET "estado" = CASE elegida."antes"
 FROM elegida
 WHERE t."id" = elegida."id"
 RETURNING t."id", t."tableroId", elegida."antes", t."estado"::text AS "estado"`;
+
+/**
+ * Toma UNA tarjeta (la primera de SQL_CANDIDATAS que no esté en $5): APROBADO -> PLANEANDO,
+ * PLAN_APROBADO -> EN_CURSO, SUBIENDO pendiente (sin candado) -> SUBIENDO con candado.
+ * $3 = repos (text[]), $4 = vencimiento del candado (ISO), $5 = ids que NO se toman (text[]).
+ */
+export const SQL_TOMAR_UNA = consultaDeTomarUna(null);
+
+/**
+ * SQL_TOMAR_UNA solo con lo que cuelga del Área Features (sub-áreas incluidas) o ya se empezó (dentroDelArea): una de
+ * fuera con `intentos` = 0 no se toma. $6 = id del Área.
+ */
+export const SQL_TOMAR_UNA_EN_AREA = consultaDeTomarUna("$6");
 
 /**
  * Las APROBADO / PLAN_APROBADO / SUBIENDO pendientes (sin candado, 31-oct) que el Coordinador tomaría si no fuera por la
