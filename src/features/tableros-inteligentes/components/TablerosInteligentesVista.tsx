@@ -722,6 +722,7 @@ export function TablerosInteligentesVista({
         puedeCerebro={puedeCerebro}
         miembros={cuentas.miembros}
         puedeAsignar={puedeAsignar}
+        puedeEliminar={cuentas.esDuenoDelNegocio}
         alCerrar={cerrarFicha}
         alElegir={vista === "mapa" ? mostrarTarjeta : abrirComoPagina}
         alEntrar={(id) => {

@@ -5,6 +5,8 @@ import { personaPuedeAprobar } from "@/features/tableros-inteligentes/services/r
 import {
   alcanceDe,
   aprobarTarjeta,
+  borrarTarjeta,
+  deshacerCambioTarjeta,
   cambiarZonasEnPantalla,
   cerrarComoFallida,
   borrarTipo,
@@ -246,6 +248,39 @@ const quienArchiva = async (access: Awaited<ReturnType<typeof requireClientWorks
         .catch(() => false);
   return { workspaceId: access.workspaceId, userId: access.userId, esDueno: access.isOwner || esAdmin };
 };
+
+/**
+ * «Eliminar tarjeta» en los tres puntos de la ficha (22-nov-2026, pedido de Alex): el dueño del negocio o el
+ * ADMIN de la plataforma, igual que eliminar un tablero. Es el borrado suave de siempre (borrarTarjeta): se
+ * guarda en el historial y se deshace con deshacerBorradoDeTarjetaAction. Una tarjeta que el Coordinador está
+ * trabajando no se borra (puedeBorrarTarjeta).
+ */
+export async function eliminarTarjetaAction(tarjetaId: string): Promise<{ ok: true; cambioId: string } | { ok: false; error: string }> {
+  const access = await requireClientWorkspaceAccess("tableros_inteligentes");
+  try {
+    if (!(await quienArchiva(access)).esDueno) {
+      return { ok: false, error: "Solo el dueño del negocio o el administrador eliminan tarjetas." };
+    }
+    const borrada = await borrarTarjeta({ ...alcanceDe(access), userId: access.userId, origen: "PANTALLA" }, tarjetaId);
+    return { ok: true, cambioId: borrada.cambioId };
+  } catch (fallo) {
+    return { ok: false, error: mensaje(fallo, "No se pudo eliminar la tarjeta") };
+  }
+}
+
+/** El «Deshacer» del aviso de «Eliminar tarjeta»: la devuelve con sus flechas. Mismo permiso. */
+export async function deshacerBorradoDeTarjetaAction(cambioId: string): Promise<Resultado> {
+  const access = await requireClientWorkspaceAccess("tableros_inteligentes");
+  try {
+    if (!(await quienArchiva(access)).esDueno) {
+      return { ok: false, error: "Solo el dueño del negocio o el administrador recuperan tarjetas." };
+    }
+    await deshacerCambioTarjeta({ ...alcanceDe(access), userId: access.userId, origen: "PANTALLA" }, cambioId);
+    return { ok: true };
+  } catch (fallo) {
+    return { ok: false, error: mensaje(fallo, "No se pudo deshacer") };
+  }
+}
 
 /** "Eliminar tablero" (22-nov-2026): lo borra para siempre con sus tarjetas; ver eliminarTablero. */
 export async function eliminarTableroAction(tableroId: string, confirmacion: string): Promise<Resultado> {

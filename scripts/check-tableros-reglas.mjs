@@ -110,6 +110,10 @@ prueba("no se deshace un cambio de la PANTALLA ni una aprobación", () => {
   assert.ok(reglas.puedeDeshacer(cambio({ accion: "aprobar", antes: { estado: "POR_APROBAR" } }), [], "APROBADO"));
 });
 
+prueba("22-nov: un borrado hecho en la pantalla sí se deshace (el «Deshacer» del aviso)", () => {
+  assert.equal(reglas.puedeDeshacer(cambio({ origen: "PANTALLA", accion: "borrar" }), [], "IDEA"), null);
+});
+
 prueba("no se deshace dos veces ni se deshace un deshacer", () => {
   assert.ok(reglas.puedeDeshacer(cambio({ deshechoEn: despues(5) }), [], "IDEA"));
   assert.ok(reglas.puedeDeshacer(cambio({ accion: "deshacer" }), [], "IDEA"));
@@ -790,6 +794,11 @@ prueba("editar algo aprobado o que dejó el trabajador lo devuelve a POR_APROBAR
 prueba("borrar: sin la confirmación del dueño, Claude no borra nada aprobado ni nada del trabajador", () => {
   for (const estado of ["APROBADO", "EN_CURSO", ...FASE2]) assert.ok(reglas.puedeBorrarTarjeta("MCP", estado), estado);
   assert.equal(reglas.puedeBorrarTarjeta("PANTALLA", "ERROR"), null);
+});
+
+prueba("22-nov: en la pantalla («Eliminar tarjeta») no se borra lo que el Coordinador está trabajando", () => {
+  for (const estado of ["PLANEANDO", "EN_CURSO", "SUBIENDO"]) assert.match(reglas.puedeBorrarTarjeta("PANTALLA", estado), /Coordinador/, estado);
+  for (const estado of ["IDEA", "POR_APROBAR", "APROBADO", "HECHO", "ERROR"]) assert.equal(reglas.puedeBorrarTarjeta("PANTALLA", estado), null, estado);
 });
 
 const voz = (texto, cuentaOk = true) => ({

@@ -1,15 +1,31 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, ArrowDownLeft, ArrowUpRight, ChevronRight, CornerLeftUp, ExternalLink, History, Layers, Loader2 } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowDownLeft,
+  ArrowUpRight,
+  ChevronRight,
+  CornerLeftUp,
+  EllipsisVertical,
+  ExternalLink,
+  History,
+  Layers,
+  Loader2,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import {
   cambiarPrioridadAction,
   cambiarResponsableAction,
+  deshacerBorradoDeTarjetaAction,
+  eliminarTarjetaAction,
   marcarUrgenteAction,
   historialDeTarjetaAction,
   marcarDependenciaAction,
@@ -153,6 +169,8 @@ type Props = {
   miembros: MiembroDelNegocio[];
   /** Puede cambiar el responsable (quien edita el tablero). Quien solo es responsable la ve, no la asigna. */
   puedeAsignar: boolean;
+  /** Dueño del negocio o ADMIN: «Eliminar tarjeta» en los tres puntos (el servidor lo vuelve a revisar). */
+  puedeEliminar?: boolean;
   alCerrar: () => void;
   alElegir: (tarjetaId: string) => void;
   alEntrar: (tarjetaId: string) => void;
@@ -183,6 +201,7 @@ export function FichaTarjeta({
   puedeCerebro = false,
   miembros,
   puedeAsignar,
+  puedeEliminar = false,
   alCerrar,
   alElegir,
   alEntrar,
@@ -193,6 +212,8 @@ export function FichaTarjeta({
   const [asignando, setAsignando] = useState(false);
   const [marcandoUrgente, setMarcandoUrgente] = useState(false);
   const [cambiandoPrioridad, setCambiandoPrioridad] = useState(false);
+  const [confirmarBorrado, setConfirmarBorrado] = useState(false);
+  const [eliminando, setEliminando] = useState(false);
 
   const titulo = new Map(tarjetas.map((otra) => [otra.id, otra.titulo]));
   const nombreDelTipo = new Map([...tipos.values()].map((tipo) => [tipo.id, tipo.nombre]));
@@ -252,6 +273,43 @@ export function FichaTarjeta({
       toast.error(resultado.error);
     }
     alAprobar();
+  };
+
+  /*
+    «Eliminar tarjeta» (22-nov-2026): borrado suave, se guarda en el historial. El aviso trae «Deshacer»,
+    que la devuelve con sus flechas.
+  */
+  const eliminar = async () => {
+    if (!tarjeta) return;
+    const { id, titulo: tituloDeLaTarjeta } = tarjeta;
+    setEliminando(true);
+    const resultado = await eliminarTarjetaAction(id).catch(() => ({
+      ok: false as const,
+      error: "No se pudo eliminar: revisa la conexión e inténtalo de nuevo.",
+    }));
+    setEliminando(false);
+    if (!resultado.ok) {
+      toast.error(resultado.error);
+      return;
+    }
+    setConfirmarBorrado(false);
+    alCerrar();
+    alAprobar();
+    toast.success(`Tarjeta eliminada: ${tituloDeLaTarjeta}`, {
+      duration: 10_000,
+      action: {
+        label: "Deshacer",
+        onClick: () => {
+          void deshacerBorradoDeTarjetaAction(resultado.cambioId)
+            .catch(() => ({ ok: false as const, error: "No se pudo deshacer: revisa la conexión." }))
+            .then((deshecho) => {
+              if (deshecho.ok) toast.success("Tarjeta recuperada");
+              else toast.error(deshecho.error);
+              alAprobar();
+            });
+        },
+      },
+    });
   };
 
   const marcarUrgente = async () => {
@@ -364,40 +422,100 @@ export function FichaTarjeta({
                 </label>
               ) : null}
 
-              {puedeAsignar ? (
-                <label className="block space-y-1">
-                  <span className="text-xs font-medium text-muted-foreground">Responsable</span>
-                  <select
-                    className="h-10 w-full rounded-lg border bg-background px-3 text-sm md:h-9"
-                    value={tarjeta.responsableId ?? ""}
-                    disabled={asignando}
-                    onChange={(evento) => void asignar(evento.target.value || null)}
-                  >
-                    <option value="">Nadie</option>
-                    {/* Alguien que ya no está entre las personas activas igual se muestra mientras sea el responsable. */}
-                    {tarjeta.responsableId && !miembros.some((miembro) => miembro.userId === tarjeta.responsableId) ? (
-                      <option value={tarjeta.responsableId}>{tarjeta.responsableNombre ?? "Otra persona"}</option>
+              {/* (22-nov-2026, pedido de Alex) A la derecha del Responsable, los tres puntos: «Marcar urgente»
+                  (antes un botón grande debajo) y «Eliminar tarjeta» (dueño o ADMIN). */}
+              {puedeAsignar || tarjeta.responsableNombre || puedeEliminar ? (
+                <div className="space-y-1">
+                  {puedeAsignar ? (
+                    <label htmlFor={`responsable-${tarjeta.id}`} className="block text-xs font-medium text-muted-foreground">
+                      Responsable
+                    </label>
+                  ) : null}
+                  <div className="flex items-center gap-2">
+                    {puedeAsignar ? (
+                      <select
+                        id={`responsable-${tarjeta.id}`}
+                        className="h-10 min-w-0 flex-1 rounded-lg border bg-background px-3 text-sm md:h-9"
+                        value={tarjeta.responsableId ?? ""}
+                        disabled={asignando}
+                        onChange={(evento) => void asignar(evento.target.value || null)}
+                      >
+                        <option value="">Nadie</option>
+                        {/* Alguien que ya no está entre las personas activas igual se muestra mientras sea el responsable. */}
+                        {tarjeta.responsableId && !miembros.some((miembro) => miembro.userId === tarjeta.responsableId) ? (
+                          <option value={tarjeta.responsableId}>{tarjeta.responsableNombre ?? "Otra persona"}</option>
+                        ) : null}
+                        {miembros.map((miembro) => (
+                          <option key={miembro.userId} value={miembro.userId}>
+                            {miembro.nombre}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <p className="min-w-0 flex-1 text-sm">
+                        {tarjeta.responsableNombre ? (
+                          <>
+                            <span className="text-xs font-medium text-muted-foreground">Responsable: </span>
+                            {tarjeta.responsableNombre}
+                          </>
+                        ) : null}
+                      </p>
+                    )}
+                    {(puedeAsignar && tarjeta.responsableId) || puedeEliminar ? (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger
+                          render={
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="size-10 shrink-0 md:size-9"
+                              aria-label="Más opciones de la tarjeta"
+                              title="Más opciones"
+                            />
+                          }
+                        >
+                          {marcandoUrgente || eliminando ? <Loader2 className="animate-spin" /> : <EllipsisVertical />}
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="min-w-44">
+                          {puedeAsignar && tarjeta.responsableId ? (
+                            <DropdownMenuItem disabled={marcandoUrgente} onClick={() => void marcarUrgente()}>
+                              <AlertTriangle />
+                              Marcar urgente
+                            </DropdownMenuItem>
+                          ) : null}
+                          {puedeEliminar ? (
+                            <DropdownMenuItem variant="destructive" disabled={eliminando} onClick={() => setConfirmarBorrado(true)}>
+                              <Trash2 />
+                              Eliminar tarjeta
+                            </DropdownMenuItem>
+                          ) : null}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     ) : null}
-                    {miembros.map((miembro) => (
-                      <option key={miembro.userId} value={miembro.userId}>
-                        {miembro.nombre}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : tarjeta.responsableNombre ? (
-                <p className="text-sm">
-                  <span className="text-xs font-medium text-muted-foreground">Responsable: </span>
-                  {tarjeta.responsableNombre}
-                </p>
+                  </div>
+                </div>
               ) : null}
 
-              {puedeAsignar && tarjeta.responsableId ? (
-                <Button variant="outline" className="h-10 w-full justify-start" disabled={marcandoUrgente} onClick={() => void marcarUrgente()}>
-                  {marcandoUrgente ? <Loader2 className="animate-spin" /> : <AlertTriangle />}
-                  Marcar urgente
-                </Button>
-              ) : null}
+              <Dialog open={confirmarBorrado} onOpenChange={(abrir) => (!eliminando ? setConfirmarBorrado(abrir) : undefined)}>
+                <DialogContent className="sm:max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>¿Eliminar esta tarjeta?</DialogTitle>
+                    <DialogDescription>
+                      «{tarjeta.titulo}» sale del tablero con sus flechas. Sus tarjetas hijas quedan sueltas. Al eliminarla
+                      sale un aviso con «Deshacer» para recuperarla.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <DialogFooter>
+                    <Button variant="outline" disabled={eliminando} onClick={() => setConfirmarBorrado(false)}>
+                      Cancelar
+                    </Button>
+                    <Button variant="destructive" disabled={eliminando} onClick={() => void eliminar()}>
+                      {eliminando ? <Loader2 className="animate-spin" /> : <Trash2 />}
+                      Eliminar tarjeta
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
 
               <TrabajoDeLaTarjeta
                 tarjeta={tarjeta}

@@ -329,7 +329,8 @@ export function puedeDeshacer(
   if (cambio.accion === "aprobar") {
     return "Esa es una aprobación (de la pantalla o confirmada por la persona): no se deshace. Si hace falta, se edita la tarjeta y vuelve a POR_APROBAR.";
   }
-  if (cambio.origen === "PANTALLA") {
+  // Un borrado hecho en la pantalla sí se deshace (el «Deshacer» del aviso de «Eliminar tarjeta», 22-nov-2026).
+  if (cambio.origen === "PANTALLA" && cambio.accion !== "borrar") {
     return "Ese cambio lo hizo el dueño en la pantalla (por ejemplo, una aprobación): no se deshace desde acá.";
   }
   if (cambio.origen === "TRABAJADOR") {
@@ -806,7 +807,12 @@ export function puedeBorrarTarjeta(
   zonaProtegida: readonly string[] = [],
   confirmacion?: ConfirmacionDeBorrado,
 ): Veredicto {
-  if (origen === "PANTALLA") return null;
+  if (origen === "PANTALLA") {
+    // «Eliminar tarjeta» en la ficha (22-nov-2026): tampoco con el Coordinador trabajándola.
+    return estado === "PLANEANDO" || estado === "EN_CURSO" || estado === "SUBIENDO"
+      ? `La tarjeta está ${estado}: el Coordinador la está trabajando. Espera a que termine para eliminarla.`
+      : null;
+  }
   if (zonaProtegida.length) {
     return `La tarjeta toca una zona protegida (${zonaProtegida.join(", ")}): Claude no la borra. Se borra solo en la pantalla.`;
   }
