@@ -179,6 +179,8 @@ const prenderYBase = async (ahora = DIA) => {
   prender();
   await equipo.revisarAvisosDelEquipoDelNegocio("ws1", ahora);
 };
+/** Los "necesita" al dueño por WhatsApp (23-nov-2026): solo salen con esta fila en "true"; sin ella, quedan en Alertas. */
+const prenderAprobaciones = () => estado.ajustes.set("tablero:avisos-dueno:aprobaciones:ws1", "true");
 const vuelta = (ahora = DIA) => equipo.revisarAvisosDelEquipoDelNegocio("ws1", ahora);
 const textos = () => estado.enviados.map((e) => e.text);
 
@@ -330,6 +332,7 @@ await prueba("3. una tarjeta en ERROR le avisa al responsable, con la causa, una
 });
 
 await prueba("3. una tarjeta en ERROR sin responsable le avisa al dueño (su número de Mi empresa → Claude); si pide una clave, lo dice", async () => {
+  prenderAprobaciones();
   await prenderYBase();
   estado.tarjetas = [tarjeta({ id: "t9", estado: "ERROR", resultado: { error: "401 invalid token en el servidor" } })];
   await vuelta(mas(0.1));
@@ -360,12 +363,39 @@ await prueba("3. una tarjeta POR_APROBAR que toca Meta Ads le avisa a su respons
 });
 
 await prueba("3. si el aviso de siempre al dueño ya mandó esa tarjeta, este no la duplica", async () => {
+  prenderAprobaciones();
   await prenderYBase();
   estado.ajustes.set("tablero:avisos-dueno:estado:ws1", JSON.stringify({ avisados: { "auto:trabado:t9:ERROR": DIA.toISOString() }, historial: [] }));
   estado.tarjetas = [tarjeta({ id: "t9", estado: "ERROR", resultado: { error: "falló" } })];
   await vuelta(mas(0.1));
   assert.deepEqual(estado.enviados, []);
   assert.equal(estado.avisos.find((a) => a.motivo === "necesita:ERROR").estado, "YA_VISTO");
+});
+
+await prueba("sin la fila de aprobaciones: el \"necesita\" al dueño no sale por WhatsApp, queda en Alertas y YA_VISTO; el de Emanuel sí sale", async () => {
+  await prenderYBase();
+  estado.tarjetas = [
+    tarjeta({ id: "a1", titulo: "Revisar los abonos", estado: "POR_APROBAR", zonaProtegida: ["META_ADS"] }),
+    tarjeta({ id: "a2", titulo: "Mi propia tarjeta", estado: "ERROR", responsableId: "u_alex", creadoPor: "u_alex", resultado: { error: "falló la prueba" } }),
+    tarjeta({ id: "a3", titulo: "Subir el catálogo", estado: "ERROR", responsableId: "u_em", resultado: { error: "falló la prueba del build" } }),
+  ];
+  await vuelta(mas(0.1));
+  assert.ok(!estado.enviados.some((e) => e.phoneNumber === "573196892277"), "ningún WhatsApp al dueño");
+  const necesita = estado.enviados.filter((e) => e.text.includes("Coordinador necesita"));
+  assert.equal(necesita.length, 1, "solo sale el de Emanuel");
+  assert.equal(necesita[0].phoneNumber, "573001110001");
+  assert.match(necesita[0].text, /^Emanuel, el Coordinador necesita algo para seguir con "Subir el catálogo"/);
+  const enviadosAntes = estado.enviados.length;
+  for (const id of ["a1", "a2"]) {
+    assert.equal(estado.avisos.find((a) => a.tarjetaId === id && a.motivo.startsWith("necesita:")).estado, "YA_VISTO", `${id} queda YA_VISTO`);
+    const alerta = estado.alertas.find((a) => a.clave.startsWith(`auto:equipo:${id}:necesita:`));
+    assert.ok(alerta && alerta.destinatarioId === "u_alex" && alerta.prioridad === "ALTA", `${id} queda en Alertas del dueño`);
+    assert.ok(!/https?:\/\//.test(alerta.titulo), "sin link en el título de la alerta");
+  }
+  await vuelta(mas(0.2));
+  await vuelta(mas(1));
+  assert.equal(estado.enviados.length, enviadosAntes, "el reloj no lo vuelve a intentar");
+  assert.equal(estado.alertas.filter((a) => a.destinatarioId === "u_alex").length, 2, "tampoco duplica la alerta");
 });
 
 await prueba("4. el recordatorio sale UNA sola vez a las 24 horas sin movimiento", async () => {
@@ -393,6 +423,7 @@ await prueba("4. si la tarjeta se movió, no hay recordatorio; si la tiene el Co
 });
 
 await prueba("una tarjeta que el dueño creó y se asignó a sí mismo no le avisa (ni al pasar 24 horas); en ERROR o URGENTE sí", async () => {
+  prenderAprobaciones();
   estado.tarjetas = [tarjeta({ id: "p1", responsableId: "u_alex", creadoPor: "u_alex" })];
   estado.historial.set("p1", DIA);
   await prenderYBase();

@@ -5,6 +5,7 @@ import { sendEvolutionTextMessageWithReconnect } from "@/lib/evolution";
 import { prisma } from "@/lib/prisma";
 
 import {
+  avisosDeAprobacionPrendidos,
   enSilencioDeAvisos,
   leerEstadoDeAvisos,
   lineaAdmin,
@@ -26,7 +27,8 @@ import { dondeTableroVivo } from "./tableros-archivados";
     1. asignada      alguien quedó como responsable de la tarjeta (al crearla o al cambiarla).
     2. urgente       la tarjeta asignada quedó marcada urgente (botón, MCP o título que empieza por URGENTE).
     3. necesita      la tarjeta cayó en ERROR o espera algo de una persona (permiso, clave, VPS, el sí del dueño):
-                     le llega al responsable y, si no tiene, al dueño.
+                     le llega al responsable y, si no tiene, al dueño. Desde el 23-nov-2026 el que va al dueño no
+                     sale por WhatsApp (queda en Alertas) salvo `tablero:avisos-dueno:aprobaciones:<negocio>` = "true".
     4. recordatorio  una tarjeta asignada lleva 24 horas sin ningún movimiento en su historial: uno solo.
 
   Reglas:
@@ -421,6 +423,9 @@ export async function revisarAvisosDelEquipoDelNegocio(workspaceId: string, ahor
   const negocio = await conocerAlNegocio(workspaceId);
   const noche = enSilencioDeAvisos(ahora);
   let enviados = 0;
+  // El interruptor de aprobaciones se lee una sola vez por vuelta, y solo si hace falta.
+  let aprobacionesLeidas: boolean | null = null;
+  const aprobacionesPorWhatsApp = async () => (aprobacionesLeidas ??= await avisosDeAprobacionPrendidos(workspaceId));
 
   const anotar = async (aviso: AvisoAlEquipo, estado: string, detalle: string | null, extra: { numero?: string | null; userId?: string | null } = {}) => {
     try {
@@ -441,6 +446,18 @@ export async function revisarAvisosDelEquipoDelNegocio(workspaceId: string, ahor
     }
     if (!existente && aviso.cubierta) {
       await anotar(aviso, "YA_VISTO", "la dice el aviso urgente");
+      continue;
+    }
+    // Aprobaciones sin WhatsApp (23-nov-2026): el "necesita" que va al dueño (sin responsable o con el dueño de
+    // responsable) queda solo en Alertas y se anota YA_VISTO para que el reloj no lo reintente. Con
+    // `tablero:avisos-dueno:aprobaciones:<negocio>` = "true" sale como siempre. Al resto del equipo le sigue llegando.
+    if (aviso.tipo === "necesita" && (!aviso.userId || aviso.userId === negocio.ownerId) && !(await aprobacionesPorWhatsApp())) {
+      if (negocio.ownerId) {
+        await guardarAlertaDelAviso(workspaceId, aviso, negocio.ownerId, textoDelAviso(aviso, null, "").replace(/\s*https?:\/\/\S+$/, ""));
+      }
+      const detalle = "no salió por WhatsApp: quedó en la página de alertas";
+      if (existente) await prisma.avisoTarjetaEquipo.updateMany({ where: { id: existente.id, estado: "PENDIENTE" }, data: { estado: "YA_VISTO", detalle } });
+      else await anotar(aviso, "YA_VISTO", detalle);
       continue;
     }
     // De noche solo sale lo urgente; lo demás espera (sin anotar) y sale a las 7 a. m. si todavía aplica.
