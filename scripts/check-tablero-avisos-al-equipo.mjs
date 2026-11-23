@@ -181,6 +181,8 @@ const prenderYBase = async (ahora = DIA) => {
 };
 const vuelta = (ahora = DIA) => equipo.revisarAvisosDelEquipoDelNegocio("ws1", ahora);
 const textos = () => estado.enviados.map((e) => e.text);
+/** Prende el interruptor de aprobaciones del dueño (parte 1): sin esta fila el "necesita" al dueño no sale por WhatsApp. */
+const prenderAprobaciones = () => estado.ajustes.set("tablero:avisos-dueno:aprobaciones:ws1", "true");
 
 /* ------------------------------------------------------------------ las pruebas */
 
@@ -330,6 +332,7 @@ await prueba("3. una tarjeta en ERROR le avisa al responsable, con la causa, una
 });
 
 await prueba("3. una tarjeta en ERROR sin responsable le avisa al dueño (su número de Mi empresa → Claude); si pide una clave, lo dice", async () => {
+  prenderAprobaciones();
   await prenderYBase();
   estado.tarjetas = [tarjeta({ id: "t9", estado: "ERROR", resultado: { error: "401 invalid token en el servidor" } })];
   await vuelta(mas(0.1));
@@ -338,6 +341,40 @@ await prueba("3. una tarjeta en ERROR sin responsable le avisa al dueño (su nú
   assert.match(estado.enviados[0].text, /^Alexander, el Coordinador necesita algo para seguir con .*: falta una clave, un acceso o un permiso\. /);
   await vuelta(mas(0.2));
   assert.equal(estado.enviados.length, 1, "un solo mensaje por tarjeta");
+});
+
+await prueba("3. sin la fila de aprobaciones, el 'necesita' al dueño no sale por WhatsApp: queda en alertas y YA_VISTO; el de Emanuel sí sale", async () => {
+  await prenderYBase();
+  estado.tarjetas = [
+    tarjeta({ id: "t9", titulo: "Registrar abonos", estado: "ERROR", resultado: { error: "401 invalid token en el servidor" } }),
+    tarjeta({ id: "d1", titulo: "Plan del dueño", estado: "ERROR", responsableId: "u_alex", creadoPor: "u_alex", resultado: { error: "falló la prueba" } }),
+    tarjeta({ id: "e1", titulo: "Subir el catálogo", estado: "ERROR", responsableId: "u_em", resultado: { error: "falló la prueba del build" } }),
+  ];
+  await vuelta(mas(0.1));
+  assert.ok(!estado.enviados.some((e) => e.phoneNumber === "573196892277"), "ningún WhatsApp al dueño");
+  const necesita = () => estado.enviados.filter((e) => e.text.includes("Coordinador necesita"));
+  assert.equal(necesita().length, 1, "solo el 'necesita' de Emanuel");
+  assert.equal(necesita()[0].phoneNumber, "573001110001");
+  assert.match(necesita()[0].text, /^Emanuel, el Coordinador necesita algo para seguir con "Subir el catálogo"/);
+  const yaEnviados = estado.enviados.length;
+  for (const id of ["t9", "d1"]) {
+    assert.equal(estado.avisos.find((a) => a.tarjetaId === id && a.motivo === "necesita:ERROR").estado, "YA_VISTO", id);
+    const alerta = estado.alertas.find((a) => a.clave === `auto:equipo:${id}:necesita:ERROR`);
+    assert.ok(alerta && alerta.destinatarioId === "u_alex" && alerta.prioridad === "ALTA", `la alerta del dueño de ${id}`);
+  }
+  // Un reintento viejo que quedó PENDIENTE tampoco sale: pasa a YA_VISTO.
+  estado.avisos.push({ id: "viejo", workspaceId: "ws1", tarjetaId: "t8", motivo: "necesita:ERROR", estado: "PENDIENTE", intentos: 1 });
+  estado.tarjetas.push(tarjeta({ id: "t8", estado: "ERROR", resultado: { error: "falló" } }));
+  await vuelta(mas(0.2));
+  await vuelta(mas(0.3));
+  assert.equal(estado.enviados.length, yaEnviados, "el reloj no lo reintenta");
+  assert.equal(estado.avisos.find((a) => a.id === "viejo").estado, "YA_VISTO");
+  assert.equal(estado.alertas.filter((a) => a.destinatarioId === "u_alex").length, 3, "una alerta por tarjeta, sin duplicar");
+  // Con la fila en "true" todo vuelve a ser como antes: una tarjeta nueva sí le escribe al dueño.
+  prenderAprobaciones();
+  estado.tarjetas.push(tarjeta({ id: "t7", estado: "ERROR", resultado: { error: "falló" } }));
+  await vuelta(mas(0.4));
+  assert.ok(estado.enviados.some((e) => e.phoneNumber === "573196892277" && /Coordinador necesita/.test(e.text)));
 });
 
 await prueba("3. si pide configurar el VPS o Portainer lo dice en una frase", async () => {
@@ -393,6 +430,7 @@ await prueba("4. si la tarjeta se movió, no hay recordatorio; si la tiene el Co
 });
 
 await prueba("una tarjeta que el dueño creó y se asignó a sí mismo no le avisa (ni al pasar 24 horas); en ERROR o URGENTE sí", async () => {
+  prenderAprobaciones();
   estado.tarjetas = [tarjeta({ id: "p1", responsableId: "u_alex", creadoPor: "u_alex" })];
   estado.historial.set("p1", DIA);
   await prenderYBase();
