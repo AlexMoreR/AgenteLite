@@ -72,6 +72,7 @@ import {
   textoDeConfirmacionParaBorrar,
   unirZonas,
   viaConHerencia,
+  esReglaFeaturesConHerencia,
   zonasDeEntrada,
   zonasQueEsperanLaPantalla,
   type CuentaQueAprueba,
@@ -80,6 +81,7 @@ import {
   type Prioridad,
   type ViaDeAprobacion,
 } from "./reglas-trabajador";
+import { VIA_REGLA_FEATURES } from "./reglas-features";
 import {
   frase,
   motivoDeRiesgoDeEntrada,
@@ -2288,14 +2290,17 @@ const CAMBIO_MIENTRAS_MIRABAS = "La tarjeta cambió mientras la mirabas. Revísa
 /** La vía de la última aprobación vigente (sin deshacer) de la tarjeta, como la lee el filtro de /tomar: '' si no hay. */
 async function viaDeLaUltimaAprobacion(tarjetaId: string): Promise<string> {
   // Con la herencia de la madre (partes y tarjetas del Coordinador): la misma regla que el filtro SQL de /tomar.
-  return viaConHerencia(tarjetaId, async (id) => {
+  const lector = async (id: string) => {
     const fila = await prisma.historialTarjeta.findFirst({
       where: { tarjetaId: id, accion: "aprobar", deshechoEn: null },
       orderBy: { creadoEn: "desc" },
       select: { despues: true },
     });
     return fila?.despues ?? null;
-  });
+  };
+  const via = await viaConHerencia(tarjetaId, lector);
+  // Regla Features (23-nov-2026): la aprobación automática de la regla deja arrancar en todas las zonas (VIA_REGLA_FEATURES).
+  return via === "automatica" && (await esReglaFeaturesConHerencia(tarjetaId, lector)) ? VIA_REGLA_FEATURES : via;
 }
 
 /**

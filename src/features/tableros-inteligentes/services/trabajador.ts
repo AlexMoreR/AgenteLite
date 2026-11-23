@@ -94,7 +94,9 @@ import {
   porQueUnSupuestoEsDeNegocio,
   riesgoDelPlan,
 } from "./reglas-riesgo";
+import { decisionDelCoordinador, esDeFeatures, gastoDeVerdadEnMetaAds, registroDeAprobacionFeatures } from "./reglas-features";
 import {
+  tarjetaEsDeFeatures,
   anotarAprobacionAutomatica,
   aprobacionAutomaticaPrendida,
   aprobarPlanesSoloPrendido,
@@ -422,16 +424,23 @@ async function ancestrosDe(tx: Tx, ids: string[]): Promise<Map<string, string[]>
 }
 
 function paraElTrabajador(fila: FilaParaTrabajar, intentos: DatosDeIntentos, ancestros: string[]) {
+  // Regla Features (23-nov-2026): el Coordinador no frena por zona, riesgo ALTO ni preguntas abiertas; sigue con su opción
+  // recomendada y sube solo. Solo el gasto de verdad en Meta Ads espera al dueño (`gastoEnMetaAds`).
+  const features = esDeFeatures({ tableroId: fila.tableroId, repo: fila.repo, ancestros });
   return {
     tableroId: fila.tableroId,
     ancestros,
+    features,
+    // Con `features`, el motivo si la tarjeta SUBE presupuesto / prende campañas / crea gasto en Meta Ads (null si no): ese sí es de Alexander.
+    gastoEnMetaAds: features ? gastoDeVerdadEnMetaAds({ titulo: fila.titulo, detalle: fila.detalle, plan: fila.plan }) : null,
     reparaciones: fila.reparaciones,
     topeReparaciones: TOPE_DE_REPARACIONES,
     esperasSeguidas: intentos.esperasSeguidas,
     esParte: intentos.esParte,
     ultimosIntentos: intentos.ultimosIntentos,
     ultimoError: intentos.ultimoError,
-    planAprobadoPorElDueno: intentos.planAprobadoPorElDueno,
+    // En Features el plan con preguntas abiertas igual se construye (como si lo hubiera aprobado el dueño).
+    planAprobadoPorElDueno: intentos.planAprobadoPorElDueno || features,
     id: fila.id,
     titulo: fila.titulo,
     detalle: fila.detalle,
@@ -1061,9 +1070,12 @@ export async function accionDelTrabajador(
   const datos: Prisma.TarjetaTableroUpdateManyMutationInput = { estado: a, trabajoVenceEn: null };
   const despues: Record<string, unknown> = { estado: a };
   // El plan de una tarjeta BAJO que se aprueba solo: se anota como una aprobación aparte (abajo).
-  let aprobacionDelPlan: ReturnType<typeof registroDeAprobacionAutomatica> | null = null;
+  let aprobacionDelPlan: ReturnType<typeof registroDeAprobacionAutomatica> | ReturnType<typeof registroDeAprobacionFeatures> | null = null;
   // true si ese plan se aprobó por la regla del dueño (24-oct) y no por el riesgo BAJO.
   let reglaDelDueno = false;
+  // Regla Features (23-nov): el plan se aprobó por la regla de Features; `decisionDeFeatures` = la nota de la opción recomendada.
+  let reglaDeFeatures = false;
+  let decisionDeFeatures: string | null = null;
   // La fila de intentos que deja una escalada (/error con categoria).
   let intentoPorGuardar: IntentoPorGuardar | null = null;
   // Las zonas protegidas que marca el Coordinador (el cambio toca esas rutas): se suman, nunca se quitan.
@@ -1092,10 +1104,16 @@ export async function accionDelTrabajador(
       // pantalla, así que aprobarlo solo la dejaría parada en PLAN_APROBADO sin que nadie lo vea. Desde el 25-oct, CHATS y BOT_VENTAS
       // arrancan solas (ZONAS_QUE_ARRANCAN_SOLAS): su plan se aprueba solo igual que el de cualquier otra tarjeta.
       // Un solo sí (30-oct): si el dueño ya aprobó la tarea (pantalla o voz), el dinero de Gestión no pide otro sí al plan.
-      const planesSolos = await aprobarPlanesSoloPrendido(contexto.workspaceId);
+      // Regla Features (23-nov-2026): el plan pasa solo a construir (riesgo ALTO, zona o preguntas abiertas no lo frenan: queda
+      // escrita la decisión del Coordinador). Solo espera si SUBE gasto de verdad en Meta Ads (gastoDeVerdadEnMetaAds, no menciones).
+      const deFeatures = await tarjetaEsDeFeatures(prisma, actual);
+      const planesSolos = deFeatures || (await aprobarPlanesSoloPrendido(contexto.workspaceId));
       let esperaPorRegla: string | null = null;
       let motivoPorRegla = "el plan no toca dinero de Gestión ni gasto en Meta Ads";
-      if (planesSolos && zonasQueNoArrancanSolas(actual.zonaProtegida).length) {
+      if (deFeatures) {
+        esperaPorRegla = gastoDeVerdadEnMetaAds({ plan, titulo: actual.titulo, detalle: actual.detalle });
+        motivoPorRegla = "cuelga del área Features: plan aprobado solo (regla del dueño 23-nov)";
+      } else if (planesSolos && zonasQueNoArrancanSolas(actual.zonaProtegida).length) {
         esperaPorRegla = `tiene zona protegida (${zonasQueNoArrancanSolas(actual.zonaProtegida).join(", ")}): su plan se aprueba en la pantalla`;
       } else if (planesSolos) {
         const si = siDelPlanPorLaRegla(plan, await tareaAprobadaPorElDueno(actual.id, contexto.workspaceId));
@@ -1130,8 +1148,8 @@ export async function accionDelTrabajador(
           // 29-oct-2026: un plan con preguntas abiertas, sin criterios de aceptación o con un supuesto de negocio no se
           // aprueba solo, aunque sea BAJO.
           const preguntas = porQueElPlanTienePreguntas(plan) ?? porQueFaltanCriterios(plan) ?? porQueUnSupuestoEsDeNegocio(plan);
-          if (preguntas) despues.nota = `plan listo, espera tu sí (${preguntas})`;
-          if (!noSola && !esperaPorRegla && !preguntas) {
+          if (preguntas && !deFeatures) despues.nota = `plan listo, espera tu sí (${preguntas})`;
+          if (!deFeatures && !noSola && !esperaPorRegla && !preguntas) {
             const motivo = motivoDeLaAprobacionAutomatica(revision.motivoDeclarado ?? actual.riesgoMotivo);
             aprobacionDelPlan = registroDeAprobacionAutomatica({ estado: "PLAN_APROBADO", momento: "plan", motivo });
             a = "PLAN_APROBADO";
@@ -1152,6 +1170,20 @@ export async function accionDelTrabajador(
             despues.riesgo = "ALTO";
             despues.riesgoMotivo = datos.riesgoMotivo;
           }
+        } else if (deFeatures) {
+          aprobacionDelPlan = registroDeAprobacionFeatures({ estado: "PLAN_APROBADO", momento: "plan", motivo: motivoPorRegla });
+          reglaDeFeatures = true;
+          // El riesgo ya quedó escrito en la tarjeta (arriba). Si el plan trae riesgo ALTO o preguntas abiertas, la opción
+          // recomendada del Coordinador queda escrita al final del plan (visible en la tarjeta) y en el historial.
+          const riesgoFinal = (typeof datos.riesgo === "string" ? datos.riesgo : null) ?? actual.riesgo ?? (revision.motivosAlto.length ? "ALTO" : null);
+          const decision = decisionDelCoordinador(plan, riesgoFinal);
+          if (decision) {
+            datos.plan = `${plan.trimEnd()}\n\n${decision}`;
+            despues.plan = datos.plan;
+            decisionDeFeatures = decision;
+          }
+          a = "PLAN_APROBADO";
+          datos.estado = a;
         } else {
           aprobacionDelPlan = registroDeAprobacionAutomatica({
             estado: "PLAN_APROBADO",
@@ -1194,6 +1226,13 @@ export async function accionDelTrabajador(
         ? await prisma.historialTarjeta.findMany({ where: { tarjetaId: actual.id, accion: "aprobar" }, select: { accion: true, despues: true }, take: 100 })
         : [];
       const tareaAprobadaPorElDueno = tareaAprobadaPorElDuenoEnElHistorial(historial);
+      // Regla Features (23-nov-2026): sin "sí final". Si pasó las pruebas, sube sola en todas las zonas (aunque el riesgo haya
+      // subido a ALTO: queda escrito). Solo esperan el gasto de verdad en Meta Ads y una migración destructiva.
+      const deFeatures = await tarjetaEsDeFeatures(prisma, actual);
+      const gastoEnMetaAds = deFeatures
+        ? gastoDeVerdadEnMetaAds({ plan: actual.plan, titulo: actual.titulo, detalle: actual.detalle, esperaPor: resultado.esperaPor ?? null, archivos: archivosDeEntrada(cuerpo.archivos) })
+        : null;
+      if (deFeatures && resultado.paso) subeSolo = true;
       if (resultado.paso && !subeSolo && datos.riesgo === undefined) {
         aprobacionHeredada =
           porQueNoHeredaLaAprobacion({
@@ -1214,6 +1253,8 @@ export async function accionDelTrabajador(
         esperaPor: resultado.esperaPor ?? null,
         tareaAprobadaPorElDueno,
         migracionDestructiva: resultado.migracionDestructiva ?? null,
+        features: deFeatures,
+        gastoEnMetaAds,
       });
       datos.estado = a;
       despues.estado = a;
@@ -1222,6 +1263,9 @@ export async function accionDelTrabajador(
       if (a === "ERROR") {
         motivoDeError = `construido, no sube: ${resultado.esperaPor || datos.riesgoMotivo || "el Coordinador no la dejó subir sola"}`.slice(0, 600);
       }
+      // Features: lo que espera el sí de Alexander (gasto de verdad en Meta Ads) lo dice con su motivo; lo que sube no arrastra el motivo del Coordinador.
+      if (deFeatures && a === "POR_REVISAR" && gastoEnMetaAds && !resultado.esperaPor) resultado.esperaPor = gastoEnMetaAds.slice(0, 300);
+      if (deFeatures && a === "SUBIENDO") delete resultado.esperaPor;
       // Lo que queda guardado dice lo que de verdad pasó: si el riesgo subió a ALTO, ya no "sube solo".
       if (a === "SUBIENDO" && aprobacionHeredada) {
         subeSolo = true;
@@ -1238,6 +1282,8 @@ export async function accionDelTrabajador(
           ? motivoDeError
           : a === "SUBIENDO" && aprobacionHeredada
           ? TEXTO_APROBACION_HEREDADA
+          : a === "SUBIENDO" && deFeatures
+          ? "construido, sube solo (regla Features: sin sí final; vigilancia de 30 min y reversión sola si falla)"
           : a === "SUBIENDO"
           ? zonasQueSuben.length
             ? `construido, sube solo (zona ${zonasQueSuben.map((zona) => (esZona(zona) ? NOMBRE_DE_LA_ZONA[zona] : zona)).join(", ")})`
@@ -1333,7 +1379,11 @@ export async function accionDelTrabajador(
     if (aprobacionDelPlan) {
       // El plan queda PLAN_LISTO un instante y se aprueba solo: quedan las dos filas en el historial.
       despues.estado = "PLAN_LISTO";
-      despues.nota = reglaDelDueno ? "plan listo, se aprueba solo (regla del dueño 24-oct)" : "plan listo, se aprueba solo (riesgo BAJO)";
+      despues.nota = reglaDeFeatures
+        ? `plan listo, se aprueba solo (regla Features 23-nov)${decisionDeFeatures ? `. ${decisionDeFeatures}` : ""}`
+        : reglaDelDueno
+          ? "plan listo, se aprueba solo (regla del dueño 24-oct)"
+          : "plan listo, se aprueba solo (riesgo BAJO)";
     }
     await anotarTrabajador(tx, contexto, actual.id, { estado }, despues);
     if (aprobacionDelPlan) await anotarAprobacionAutomatica(tx, actual.id, { estado: "PLAN_LISTO" }, aprobacionDelPlan);

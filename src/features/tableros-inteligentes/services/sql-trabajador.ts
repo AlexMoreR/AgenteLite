@@ -30,6 +30,7 @@ import {
   ZONAS_QUE_ARRANCAN_SOLAS,
 } from "./reglas-trabajador";
 import { PREFIJO_TABLEROS_ARCHIVADOS } from "./reglas";
+import { COMO_REGLA_FEATURES, FEATURES_AUTO_APROBAR } from "./reglas-features";
 
 const AHORA = `($2::timestamptz AT TIME ZONE 'UTC')`;
 
@@ -245,11 +246,11 @@ const listaSql = (valores: readonly string[]) => valores.map((v) => `'${v.replac
  * se heredó de una madre (`heredadaDe`: partes y tarjetas que crea el Coordinador), se usa la de la madre, hasta
  * NIVELES_DE_HERENCIA_DE_LA_VIA niveles (viaConHerencia en reglas-trabajador.ts hace lo mismo en TypeScript). NULL si no hay.
  */
-export function viaVigenteSql(idSql: string, nivel = 1): string {
+export function viaVigenteSql(idSql: string, nivel = 1, campo: "via" | "regla" = "via"): string {
   const h = `h${nivel}`;
-  const deLaMadre = nivel <= NIVELES_DE_HERENCIA_DE_LA_VIA ? viaVigenteSql(`${h}."despues"->>'heredadaDe'`, nivel + 1) : "NULL";
+  const deLaMadre = nivel <= NIVELES_DE_HERENCIA_DE_LA_VIA ? viaVigenteSql(`${h}."despues"->>'heredadaDe'`, nivel + 1, campo) : "NULL";
   return `(
-        SELECT COALESCE(NULLIF(${h}."despues"->>'via', ''), ${deLaMadre})
+        SELECT COALESCE(NULLIF(${h}."despues"->>'${campo}', ''), ${deLaMadre})
         FROM "HistorialTarjeta" ${h}
         WHERE ${h}."tarjetaId" = ${idSql} AND ${h}."accion" = 'aprobar' AND ${h}."deshechoEn" IS NULL
         ORDER BY ${h}."creadoEn" DESC
@@ -259,6 +260,18 @@ export function viaVigenteSql(idSql: string, nivel = 1): string {
 
 /** La vía de la última aprobación vigente de la tarjeta `c` ('' si no hay), con la herencia de la madre. */
 export const VIA_DE_LA_ULTIMA_APROBACION = `COALESCE(${viaVigenteSql('c."id"')}, '')`;
+
+/**
+ * Regla Features (23-nov-2026): la última aprobación vigente es automática y de la regla 'regla-features' (campo `regla`, con la
+ * herencia de la madre): arranca en todas las zonas. Vacío si FEATURES_AUTO_APROBAR está apagado.
+ */
+const CLAUSULA_REGLA_FEATURES = FEATURES_AUTO_APROBAR
+  ? `
+      OR (
+        ${VIA_DE_LA_ULTIMA_APROBACION} = 'automatica'
+        AND COALESCE(${viaVigenteSql('c."id"', 1, "regla")}, '') = '${COMO_REGLA_FEATURES.replace(/[^A-Za-z0-9_-]/g, "")}'
+      )`
+  : "";
 
 /**
  * ¿La vía de la última aprobación deja tomar la tarjeta `c`? La misma regla que laAprobacionDejaArrancar
@@ -277,7 +290,7 @@ export const CONDICION_DE_LA_VIA = `(
       OR (
         c."zonaProtegida" <@ ARRAY[${listaSql(ZONAS_QUE_ARRANCAN_SOLAS)}]::text[]
         AND ${VIA_DE_LA_ULTIMA_APROBACION} IN (${listaSql(VIAS_QUE_ARRANCAN_ZONAS_SOLAS)})
-      )
+      )${CLAUSULA_REGLA_FEATURES}
     )`;
 
 /**

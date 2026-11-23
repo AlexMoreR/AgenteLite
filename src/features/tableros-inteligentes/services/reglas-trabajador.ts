@@ -75,6 +75,7 @@ import {
 import { type AreaDeAlerta, leerAreaDeAlerta, tocaDineroOMetaAds } from "@/features/alertas/dominio/reglas";
 import { type ModelosDelResultado, esLinkDeSesion, modelosDeEntrada } from "./modelos-del-coordinador";
 import { archivosDeEntrada, migracionDestructivaDeEntrada, porQueElPlanEsperaTuSi, porQueLaTareaEsperaTuSi } from "./reglas-riesgo";
+import { COMO_REGLA_FEATURES, FEATURES_AUTO_APROBAR, VIA_REGLA_FEATURES } from "./reglas-features";
 
 /* ───────────────────────────────────────────────────────────────────── repos ── */
 
@@ -192,6 +193,23 @@ export async function viaConHerencia(tarjetaId: string, ultimaAprobacion: (id: s
   return "";
 }
 
+/**
+ * ¿La última aprobación vigente de la tarjeta (o la de su madre, si se heredó) es la de la regla Features? (23-nov-2026)
+ * Misma herencia que viaConHerencia y que el SQL (viaVigenteSql con el campo `regla`).
+ */
+export async function esReglaFeaturesConHerencia(tarjetaId: string, ultimaAprobacion: (id: string) => Promise<unknown>): Promise<boolean> {
+  const vistas = new Set<string>();
+  let id: string | null = tarjetaId;
+  for (let nivel = 0; nivel <= NIVELES_DE_HERENCIA_DE_LA_VIA && id && !vistas.has(id); nivel += 1) {
+    vistas.add(id);
+    const despues = await ultimaAprobacion(id);
+    const regla = despues && typeof despues === "object" && !Array.isArray(despues) ? (despues as { regla?: unknown }).regla : undefined;
+    if (typeof regla === "string" && regla) return regla === COMO_REGLA_FEATURES;
+    id = madreDeUnaAprobacionHeredada(despues);
+  }
+  return false;
+}
+
 /** De estas zonas, las que la voz NO destraba (vacío = la voz basta). */
 export function zonasQueNoArrancanPorVoz(zonas: readonly string[]): string[] {
   return zonas.filter((zona) => !(ZONAS_QUE_ARRANCAN_POR_VOZ as readonly string[]).includes(zona));
@@ -205,6 +223,8 @@ export function zonasQueNoArrancanPorVoz(zonas: readonly string[]): string[] {
  */
 export function laAprobacionDejaArrancar(zonas: readonly string[], via: string | null | undefined): boolean {
   if (!zonas.length || via === "pantalla") return true;
+  // Regla Features (23-nov-2026): la aprobación automática 'regla-features' deja arrancar en todas las zonas.
+  if (via === VIA_REGLA_FEATURES && FEATURES_AUTO_APROBAR) return true;
   if (via === "voz") return zonasQueNoArrancanPorVoz(zonas).length === 0;
   if (zonasQueNoArrancanSolas(zonas).length) return false;
   return (VIAS_QUE_ARRANCAN_ZONAS_SOLAS as readonly string[]).includes(via ?? "");
@@ -716,7 +736,19 @@ export function destinoDelResultado(datos: {
   tareaAprobadaPorElDueno?: boolean;
   /** Lo destructivo de la migración (resultado.migracionDestructiva): con algo, nunca sube sola. */
   migracionDestructiva?: readonly string[] | null;
+  /**
+   * La tarjeta cae en la regla Features (23-nov-2026): sin "sí final". Si pasó las pruebas sube sola en todas las zonas.
+   * Solo esperan al dueño el gasto de verdad en Meta Ads (`gastoEnMetaAds` con motivo) y una migración destructiva; una prueba
+   * extra de zona que falló va a ERROR con su motivo (no se queda esperando un sí).
+   */
+  features?: boolean;
+  /** Con `features`: el motivo de gasto de verdad en Meta Ads (gastoDeVerdadEnMetaAds), o null. */
+  gastoEnMetaAds?: string | null;
 }): "SUBIENDO" | "POR_REVISAR" | "ERROR" {
+  if (datos.features && FEATURES_AUTO_APROBAR) {
+    if (!datos.paso || datos.gastoEnMetaAds || datos.migracionDestructiva?.length) return "POR_REVISAR";
+    return esperaPorZonaQueFalla(datos.esperaPor) ? "ERROR" : "SUBIENDO";
+  }
   if (!datos.paso || zonasQuePidenTuSi(datos.zonaProtegida).length > 0) return "POR_REVISAR";
   const frena = esperaFrenaLaSubida(datos.esperaPor, datos.tareaAprobadaPorElDueno) || Boolean(datos.migracionDestructiva?.length);
   if ((datos.subeSolo || datos.aprobacionHeredada) && !frena) return "SUBIENDO";

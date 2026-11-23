@@ -44,9 +44,11 @@ import {
   prioridadDeLaFila,
   recogidaDelResultado,
   viaConHerencia,
+  esReglaFeaturesConHerencia,
   viaDeUnaAprobacion,
   zonasQueEsperanLaPantalla,
 } from "./reglas-trabajador";
+import { VIA_REGLA_FEATURES } from "./reglas-features";
 import { diaDeBogota } from "./archivadas";
 import { leerPausaPorUso } from "./pausa-por-uso-de-claude";
 import { ErrorDelTrabajador, type ContextoTrabajador } from "./trabajador";
@@ -302,9 +304,7 @@ export function lugarDelOrquestador(tarjeta: { estado: string; repo?: string | n
 async function viaDelHistorial(tarjetaId: string, historial: readonly { despues: unknown }[]): Promise<string> {
   const despues = historial[0]?.despues;
   const via = viaDeUnaAprobacion(despues);
-  // Sin vía propia pero heredada de una madre (partes y tarjetas del Coordinador): la de la madre, como en el filtro de /tomar.
-  if (via || !madreDeUnaAprobacionHeredada(despues)) return via;
-  return viaConHerencia(tarjetaId, async (id) => {
+  const lector = async (id: string) => {
     if (id === tarjetaId) return despues;
     const fila = await prisma.historialTarjeta.findFirst({
       where: { tarjetaId: id, accion: "aprobar", deshechoEn: null },
@@ -312,7 +312,11 @@ async function viaDelHistorial(tarjetaId: string, historial: readonly { despues:
       select: { despues: true },
     });
     return fila?.despues ?? null;
-  });
+  };
+  // Sin vía propia pero heredada de una madre (partes y tarjetas del Coordinador): la de la madre, como en el filtro de /tomar.
+  const efectiva = via || !madreDeUnaAprobacionHeredada(despues) ? via : await viaConHerencia(tarjetaId, lector);
+  // Regla Features (23-nov-2026): la aprobación automática de la regla deja arrancar en todas las zonas.
+  return efectiva === "automatica" && (await esReglaFeaturesConHerencia(tarjetaId, lector)) ? VIA_REGLA_FEATURES : efectiva;
 }
 
 /**

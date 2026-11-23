@@ -4,6 +4,15 @@ import { prisma } from "@/lib/prisma";
 import { porQueElPlanNuevoEsperaTuSi, porQueLaTareaEsperaTuSi, porQueNoSeApruebaSola } from "./reglas-riesgo";
 import { esDuenoDelNegocio, tareaAprobadaPorElDuenoEnElHistorial, zonasQueNoArrancanSolas } from "./reglas-trabajador";
 import { estaArchivado, idsDeTodosLosTablerosArchivados } from "./tableros-archivados";
+import {
+  FEATURES_AUTO_APROBAR,
+  TABLERO_DE_FEATURES_ID,
+  decisionDelCoordinador,
+  esDeFeatures,
+  gastoDeVerdadEnMetaAds,
+  registroDeAprobacionFeatures,
+} from "./reglas-features";
+import { SQL_ANCESTROS } from "./sql-trabajador";
 
 /*
   APROBACIÓN AUTOMÁTICA del Tablero IA (22-oct-2026, decisión de Alexander: "las cosas básicas que
@@ -55,6 +64,17 @@ export const claveDelInterruptor = (workspaceId: string) => `tablero:aprobacion-
 export const claveDelInterruptorDePlanes = (workspaceId: string) => `tablero:planes-solos:${workspaceId}`;
 
 type Db = Prisma.TransactionClient | typeof prisma;
+
+/**
+ * ¿Esta tarjeta cae en la regla Features (23-nov-2026)? Mira por ids: su tablero y que alguna de sus madres, a cualquier
+ * profundidad, sea la tarjeta Área Features (SQL_ANCESTROS). Sin repo (no es de código) o apagada la regla: false.
+ * Solo consulta la base si el tablero es el de Features.
+ */
+export async function tarjetaEsDeFeatures(db: Db, tarjeta: { id: string; tableroId: string; repo: string | null }): Promise<boolean> {
+  if (!FEATURES_AUTO_APROBAR || !tarjeta.repo || tarjeta.tableroId !== TABLERO_DE_FEATURES_ID) return false;
+  const filas = await (db as Prisma.TransactionClient).$queryRawUnsafe<{ id: string; ancestros: string[] }[]>(SQL_ANCESTROS, [tarjeta.id]);
+  return esDeFeatures({ tableroId: tarjeta.tableroId, repo: tarjeta.repo, ancestros: filas[0]?.ancestros ?? [] });
+}
 
 /** ¿Está prendida la aprobación automática de este negocio? Sin ajuste guardado, sí. */
 export async function aprobacionAutomaticaPrendida(workspaceId: string, db: Db = prisma): Promise<boolean> {
@@ -215,7 +235,7 @@ export async function anotarAprobacionAutomatica(
   tx: Prisma.TransactionClient,
   tarjetaId: string,
   antes: { estado: string },
-  registro: ReturnType<typeof registroDeAprobacionAutomatica>,
+  registro: ReturnType<typeof registroDeAprobacionAutomatica> | ReturnType<typeof registroDeAprobacionFeatures>,
 ) {
   await tx.historialTarjeta.create({
     data: {
@@ -260,10 +280,20 @@ export async function aprobarSolaLaTarea(tarjetaId: string): Promise<ResultadoDe
   const workspaceId = tarjeta.tablero.workspaceId;
   // Un tablero archivado no avanza nada (tableros-archivados.ts): ni la aprobación sola.
   if (await estaArchivado(workspaceId, tarjeta.tableroId)) return { aprobada: false, porQue: "su tablero está archivado" };
+  // Regla Features (23-nov-2026): cuelga del área Features -> pasa sola, en todas las zonas y con cualquier riesgo. Solo el gasto
+  // de verdad en Meta Ads (presupuesto, campañas, gasto nuevo) sigue esperando el sí de Alexander. No depende de los interruptores.
+  const deFeatures = await tarjetaEsDeFeatures(prisma, tarjeta);
+  if (deFeatures) {
+    const gasto = gastoDeVerdadEnMetaAds({ titulo: tarjeta.titulo, detalle: tarjeta.detalle });
+    if (gasto) return { aprobada: false, porQue: gasto };
+  }
   const reglaDelDueno = await aprobarTareasSoloPrendido(workspaceId);
   let motivo: string;
-  let registro: ReturnType<typeof registroDeAprobacionAutomatica>;
-  if (reglaDelDueno) {
+  let registro: ReturnType<typeof registroDeAprobacionAutomatica> | ReturnType<typeof registroDeAprobacionFeatures>;
+  if (deFeatures) {
+    motivo = "cuelga del área Features: aprobada sola en todas las zonas (riesgo y zona quedan escritos en la tarjeta)";
+    registro = registroDeAprobacionFeatures({ estado: "APROBADO", momento: "tarea", motivo });
+  } else if (reglaDelDueno) {
     // Regla del dueño (25-oct): cualquier riesgo, salvo dinero de Gestión, gasto en Meta Ads o zona que no arranca sola.
     if (!tarjeta.repo) return { aprobada: false, porQue: "no tiene repo" };
     const espera = porQueLaTareaEsperaTuSi({
@@ -300,7 +330,7 @@ export async function aprobarSolaLaTarea(tarjetaId: string): Promise<ResultadoDe
         tipoId: tarjeta.tipoId,
         repo: tarjeta.repo,
         borradoEn: null,
-        ...(reglaDelDueno ? {} : { riesgo: "BAJO", zonaProtegida: { isEmpty: true } }),
+        ...(reglaDelDueno || deFeatures ? {} : { riesgo: "BAJO", zonaProtegida: { isEmpty: true } }),
       },
       data: { estado: "APROBADO", trabajoVenceEn: null },
     });
@@ -323,12 +353,12 @@ export async function aprobarSolasLasPendientes(limite = 200): Promise<number> {
     where: { estado: "POR_APROBAR", repo: { not: null }, borradoEn: null, ...(archivados.length ? { tableroId: { notIn: archivados } } : {}) },
     orderBy: { actualizadoEn: "asc" },
     take: limite,
-    select: { id: true, riesgo: true, tablero: { select: { workspaceId: true } } },
+    select: { id: true, riesgo: true, tableroId: true, tablero: { select: { workspaceId: true } } },
   });
   // Los interruptores se leen una vez por negocio.
   const prendidos = new Map<string, { tareas: boolean; bajo: boolean }>();
   let aprobadas = 0;
-  for (const { id, riesgo, tablero } of pendientes) {
+  for (const { id, riesgo, tableroId, tablero } of pendientes) {
     const { workspaceId } = tablero;
     try {
       if (!prendidos.has(workspaceId)) {
@@ -338,7 +368,9 @@ export async function aprobarSolasLasPendientes(limite = 200): Promise<number> {
         });
       }
       const interruptores = prendidos.get(workspaceId)!;
-      if (!interruptores.tareas && !(interruptores.bajo && riesgo === "BAJO")) continue;
+      // La regla Features (23-nov) no depende de los interruptores: aprobarSolaLaTarea decide si la tarjeta cuelga de Features.
+      const puedeSerDeFeatures = FEATURES_AUTO_APROBAR && tableroId === TABLERO_DE_FEATURES_ID;
+      if (!puedeSerDeFeatures && !interruptores.tareas && !(interruptores.bajo && riesgo === "BAJO")) continue;
       const resultado = await aprobarSolaLaTarea(id);
       if (resultado.aprobada) aprobadas += 1;
     } catch (error) {
@@ -360,30 +392,42 @@ export async function aprobarPlanesListosQueEsperan(limite = 100): Promise<numbe
     where: { estado: "PLAN_LISTO", repo: { not: null }, plan: { not: null }, borradoEn: null },
     orderBy: { actualizadoEn: "asc" },
     take: limite,
-    select: { id: true, tableroId: true, plan: true, zonaProtegida: true, actualizadoEn: true, tablero: { select: { workspaceId: true } } },
+    select: { id: true, tableroId: true, repo: true, titulo: true, detalle: true, riesgo: true, plan: true, zonaProtegida: true, actualizadoEn: true, tablero: { select: { workspaceId: true } } },
   });
   const prendidos = new Map<string, boolean>();
   let aprobadas = 0;
   for (const tarjeta of esperando) {
     const { workspaceId } = tarjeta.tablero;
     try {
-      if (!prendidos.has(workspaceId)) prendidos.set(workspaceId, await aprobarPlanesSoloPrendido(workspaceId));
-      if (!prendidos.get(workspaceId) || !tarjeta.plan || zonasQueNoArrancanSolas(tarjeta.zonaProtegida).length) continue;
-      // 29-oct-2026: también los criterios de aceptación y los supuestos de negocio (un plan en PLAN_LISTO todavía no se aprobó).
-      // 30-oct-2026 (un solo sí): si el dueño ya aprobó la tarea, el dinero de Gestión no pide un segundo sí.
-      const si = siDelPlanPorLaRegla(tarjeta.plan, await tareaAprobadaPorElDueno(tarjeta.id, workspaceId));
-      if (si.espera !== null) continue;
-      const registro = registroDeAprobacionAutomatica({
-        estado: "PLAN_APROBADO",
-        momento: "plan",
-        motivo: si.motivo,
-        regla: "dueno-24-oct",
-      });
+      if (!tarjeta.plan) continue;
+      // Regla Features (23-nov-2026): pasa a construir con cualquier riesgo, zona o pregunta abierta; solo espera el gasto de verdad en Meta Ads.
+      const deFeatures = await tarjetaEsDeFeatures(prisma, tarjeta);
+      if (deFeatures && gastoDeVerdadEnMetaAds({ plan: tarjeta.plan, titulo: tarjeta.titulo, detalle: tarjeta.detalle })) continue;
+      let registro: ReturnType<typeof registroDeAprobacionAutomatica> | ReturnType<typeof registroDeAprobacionFeatures>;
+      let planParaGuardar: string | null = null;
+      if (deFeatures) {
+        registro = registroDeAprobacionFeatures({ estado: "PLAN_APROBADO", momento: "plan", motivo: "cuelga del área Features: plan aprobado solo" });
+        const decision = decisionDelCoordinador(tarjeta.plan, tarjeta.riesgo);
+        if (decision) planParaGuardar = `${tarjeta.plan.trimEnd()}\n\n${decision}`;
+      } else {
+        if (!prendidos.has(workspaceId)) prendidos.set(workspaceId, await aprobarPlanesSoloPrendido(workspaceId));
+        if (!prendidos.get(workspaceId) || zonasQueNoArrancanSolas(tarjeta.zonaProtegida).length) continue;
+        // 29-oct-2026: también los criterios de aceptación y los supuestos de negocio (un plan en PLAN_LISTO todavía no se aprobó).
+        // 30-oct-2026 (un solo sí): si el dueño ya aprobó la tarea, el dinero de Gestión no pide un segundo sí.
+        const si = siDelPlanPorLaRegla(tarjeta.plan, await tareaAprobadaPorElDueno(tarjeta.id, workspaceId));
+        if (si.espera !== null) continue;
+        registro = registroDeAprobacionAutomatica({
+          estado: "PLAN_APROBADO",
+          momento: "plan",
+          motivo: si.motivo,
+          regla: "dueno-24-oct",
+        });
+      }
       const hecha = await prisma.$transaction(async (tx) => {
         // Condicionado a lo que se leyó: si el plan o la tarjeta cambiaron un instante antes, no se aprueba.
         const hecho = await tx.tarjetaTablero.updateMany({
           where: { id: tarjeta.id, estado: "PLAN_LISTO", actualizadoEn: tarjeta.actualizadoEn, borradoEn: null },
-          data: { estado: "PLAN_APROBADO", trabajoVenceEn: null },
+          data: { estado: "PLAN_APROBADO", trabajoVenceEn: null, ...(planParaGuardar ? { plan: planParaGuardar } : {}) },
         });
         if (hecho.count !== 1) return false;
         await anotarAprobacionAutomatica(tx, tarjeta.id, { estado: "PLAN_LISTO" }, registro);
