@@ -160,6 +160,7 @@ import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowIte
 import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
 import { persistEvolutionHistorySync, syncEvolutionMessagesSince } from "@/lib/evolution-chat-sync";
 import { persistChatMediaFromDataUrl } from "@/lib/chat-media-storage";
+import { dependenciasReales, recuperarArchivoDeWaha } from "@/lib/recuperar-archivo-de-waha";
 import { reabreAlLlegar } from "@/lib/chat-resuelto";
 
 function mapChannelStatus(eventName: string | null, rawState: string | null) {
@@ -2250,6 +2251,34 @@ export async function POST(request: NextRequest) {
             error: error instanceof Error ? error.message : String(error),
           });
         }
+      } else {
+        /*
+          No quedó en nuestro disco (23-nov-2026: los videos de las clientas quedaban apuntando a WAHA
+          y no se veían). Se anota POR QUÉ, para cortarlo de raíz, y se intenta recuperar ya, sin
+          esperar a que alguien abra el chat.
+        */
+        console.warn("[EVOLUTION] media_no_persistida", {
+          channelId: channel.id,
+          externalId: inboundExternalId,
+          messageType,
+          resuelto: mediaDataUrl ? (mediaDataUrl.startsWith("data:") ? "data" : "url") : "nada",
+          largo: mediaDataUrl?.length ?? 0,
+        });
+        const channelIdDelArchivo = channel.id;
+        const externalIdDelArchivo = inboundExternalId;
+        after(async () => {
+          const fila = await prisma.message
+            .findUnique({
+              where: { channelId_externalId: { channelId: channelIdDelArchivo, externalId: externalIdDelArchivo } },
+              select: { id: true, externalId: true, mediaUrl: true, type: true },
+            })
+            .catch(() => null);
+          if (!fila || !["IMAGE", "AUDIO", "VIDEO", "STICKER", "DOCUMENT"].includes(fila.type)) return;
+          await recuperarArchivoDeWaha(
+            { ...fila, type: fila.type as "IMAGE" | "AUDIO" | "VIDEO" | "STICKER" | "DOCUMENT" },
+            await dependenciasReales(),
+          );
+        });
       }
     } catch (error) {
       // No bloquear la ingesta: si falla, queda la resolucion perezosa como fallback.

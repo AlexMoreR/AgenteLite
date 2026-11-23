@@ -12,6 +12,12 @@ import { esSupervisora } from "@/lib/permisos-del-equipo";
 import { puedeAbrirChatPorClave } from "@/lib/chats-acceso-por-enlace";
 import { scheduleSingleContactAvatarRefresh } from "@/lib/contact-avatar-refresh";
 import { persistChatMediaFromDataUrl } from "@/lib/chat-media-storage";
+import {
+  dependenciasReales,
+  hayQueRecuperar,
+  recuperarArchivoDeWaha,
+  seEstaRecuperando,
+} from "@/lib/recuperar-archivo-de-waha";
 import { prisma } from "@/lib/prisma";
 import { tieneCierrePendiente } from "@/lib/crm-stage-sync";
 import { conServerTiming, type MedidorServerTiming } from "@/lib/server-timing";
@@ -446,6 +452,23 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     }),
   );
   t.marca("medios");
+
+  /*
+    Un archivo que quedó apuntando a WAHA no se ve (esa dirección pide la clave de la línea): se
+    recupera en segundo plano y la fila pasa a /uploads. El navegador vuelve a pedir el chat a los
+    2,5 s y ya lo trae (Alex, 23-nov-2026: los videos de las clientas no se veían en el celular).
+  */
+  let archivoDeWahaEnCurso = false;
+  for (const message of messages) {
+    if (!isResolvableMediaType(message.type) && message.type !== "DOCUMENT") continue;
+    const conArchivo = { id: message.id, externalId: message.externalId ?? null, mediaUrl: message.mediaUrl ?? null, type: message.type };
+    if (seEstaRecuperando(message.id)) archivoDeWahaEnCurso = true;
+    if (!hayQueRecuperar(conArchivo)) continue;
+    backgroundMediaTasks.push(async () => {
+      await recuperarArchivoDeWaha(conArchivo, await dependenciasReales());
+    });
+  }
+
   const [ultimaLlamada, ficha, seguimientosApagados] = await Promise.all([
     ultimaLlamadaPromesa,
     fichaPromesa,
@@ -455,7 +478,7 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     Quedaron medios resolviendose en segundo plano. Solo en ese caso el navegador vuelve a pedir
     el chat a los 2,5 s para recogerlos; antes lo hacia SIEMPRE, en cada apertura.
   */
-  const mediosPendientes = backgroundMediaTasks.length > 0;
+  const mediosPendientes = backgroundMediaTasks.length > 0 || archivoDeWahaEnCurso;
 
   if (mediaUrlDbUpdates.length > 0 || backgroundMediaTasks.length > 0) {
     after(async () => {
