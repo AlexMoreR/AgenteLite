@@ -1,2 +1,0 @@
-## Advertencias de operación
-- `tablero-ia`: desde el 22-nov-2026 «Eliminar» de un tablero (tres puntos o «Cambiar nombre», solo el dueño del negocio o el ADMIN, escribiendo el nombre exacto) lo BORRA PARA SIEMPRE con sus tarjetas, tipos, flechas, historial e intentos: no se puede recuperar. Ya no existe «Tableros archivados»; lo que estaba archivado (NETMAGI) se borró la primera vez que el dueño o el ADMIN abrieron Tablero IA (`borrarLosTablerosArchivados`). Sigue sin dejar borrar un tablero con tarjetas aprobadas o con el Coordinador.
