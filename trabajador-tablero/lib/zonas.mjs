@@ -68,18 +68,27 @@ export const CONFIRMACION_BOT_VENTAS = "✔ sin mensajes nuevos a clientes";
 export const CONFIRMACION_CHATS = "✔ chats: sin mensajes nuevos a clientes";
 export const CONFIRMACION_LIBRO_V3 = "✔ simulación V3: sin cambios fuera de lo pedido";
 
-/** Señales de gasto en una línea AGREGADA de código de Meta Ads: presupuesto, puja, prender o crear algo. */
+/**
+ * Señales de gasto en una línea AGREGADA de código de Meta Ads: presupuesto, puja, prender o crear algo. 23-nov-2026 (falso positivo de
+ * T-845 / T-855): las señales miran lo que el código HACE (asignar un estado, llamar una función de activar, crear por la API), no que
+ * el texto nombre la regla. `status === "ACTIVE"`, `.includes("ACTIVE")`, una frase que diga "activar" o un comentario ya no cuentan.
+ */
 const SENALES_DE_GASTO_EN_META = [
   { motivo: "daily_budget", patron: /daily[_-]?budget/i },
   { motivo: "lifetime_budget", patron: /lifetime[_-]?budget/i },
   { motivo: "bid_amount", patron: /bid[_-]?amount/i },
-  { motivo: "pasa algo a ACTIVE", patron: /\bstatus\b["'\]]?\s*[:=]+\s*["']?ACTIVE\b|\bACTIVE\b["']?\s*(?:,|\)|;|$)|=>\s*["']ACTIVE["']/ },
-  { motivo: "activar", patron: /\b(activar|activate|enable[_-]?(?:campaign|adset|ad)s?|resume[_-]?(?:campaign|adset|ad)s?|unpause)\w*/i },
+  // Solo ASIGNAR el estado ACTIVE (`status: "ACTIVE"`, `status = 'ACTIVE'`, `setStatus(id, "ACTIVE")`, `=> "ACTIVE"`); comparar no es prender.
+  { motivo: "pasa algo a ACTIVE", patron: /\bstatus\b["'\]]?\s*[:=](?!=)\s*["']?ACTIVE\b|\b(?:set|update|change)\w*status\w*\s*\([^)]*["']ACTIVE["']|=>\s*["']ACTIVE["']/i },
+  // Solo una función o llamada de activar (`activarCampana(`, `enable_campaign(`, `resumeAdset(`), no la palabra suelta en un texto.
+  { motivo: "activar", patron: /\b(?:activar|activate|enable|resume|unpause|reanudar|prender|encender)_?(?:campa[nñ]a|campaign|adset|ad_?set|conjunto|anuncio|ad)s?\w*\s*\(/i },
   {
     motivo: "crear campaña, conjunto o anuncio",
-    patron: /\b(create|crear|nueva|nuevo)[_\s-]*(?:meta[_\s-]*)?(?:campaign|campana|campaña|adset|ad[_-]?set|conjunto|ad|anuncio)s?\b|\b(?:campaigns|adsets|ads)\s*\.\s*create\b|\/(?:campaigns|adsets|ads)['"`]?\s*,\s*\{[^}]*method\s*:\s*['"]POST/i,
+    patron: /\b(create|crear|nueva|nuevo)[_\s-]*(?:meta[_\s-]*)?(?:campaign|campana|campaña|adset|ad[_-]?set|conjunto|ad|anuncio)s?\w*\s*\(|\b(?:campaigns|adsets|ads)\s*\.\s*create\b|\/(?:campaigns|adsets|ads)['"`]?\s*,\s*\{[^}]*method\s*:\s*['"]POST/i,
   },
 ];
+
+/** Archivos que no ejecutan nada (pruebas, documentación): nombrar presupuesto o ACTIVE ahí no es gastar. */
+const ARCHIVO_QUE_NO_EJECUTA = /(^|\/)(__tests__|tests?|pruebas|docs?|memory|e2e)\/|\.(test|spec)\.[cm]?[jt]sx?$|\.mdx?$|\.txt$/i;
 
 /** Las líneas agregadas (+) de un diff, sin las cabeceras `+++`. */
 export function lineasAgregadas(diff) {
@@ -89,21 +98,49 @@ export function lineasAgregadas(diff) {
     .map((linea) => linea.slice(1));
 }
 
+/** Las líneas agregadas que EJECUTAN algo: sin comentarios y sin los archivos de pruebas o documentación (por `diff --git`). */
+export function lineasAgregadasQueEjecutan(diff) {
+  const lineas = [];
+  let ignorando = false;
+  for (const linea of String(diff ?? "").split(/\r?\n/)) {
+    const cabecera = linea.match(/^diff --git a\/(.+?) b\/(.+)$/);
+    if (cabecera) {
+      ignorando = ARCHIVO_QUE_NO_EJECUTA.test(cabecera[2]);
+      continue;
+    }
+    if (ignorando || !linea.startsWith("+") || linea.startsWith("+++")) continue;
+    const codigo = linea.slice(1);
+    if (/^\s*(\/\/|\*|\/\*|#|--)/.test(codigo)) continue;
+    lineas.push(codigo);
+  }
+  return lineas;
+}
+
 /** Las señales de gasto de Meta Ads que aparecen en lo que agrega el diff (vacío = ninguna). */
 export function senalesDeGastoEnMetaAds(diff) {
-  const lineas = lineasAgregadas(diff);
+  const lineas = lineasAgregadasQueEjecutan(diff);
   return SENALES_DE_GASTO_EN_META.filter((senal) => lineas.some((linea) => senal.patron.test(linea))).map((senal) => senal.motivo);
 }
 
-/** ¿El plan declara que el cambio de Meta Ads gasta plata? Una línea "GASTO EN META ADS: <qué>" ("...: no" no cuenta). */
+/** Lo que dice que la línea de "GASTO EN META ADS" NO declara gasto: la niega o solo cita la regla. */
+const NO_DECLARA_GASTO = /^(?:no|ninguno|ninguna|sin|n\/a|cero|nunca|ni)(?![a-z])|^\(|^(?:regla|la regla|se mantiene|sigue|siguen|queda|quedan|solo para|es la regla|aplica solo)\b|^(?:este|esta|el|la|lo|los|las) (?:cambio|tarjeta|tarea|plan|trabajo)\b[^.\n]{0,40}\b(?:no|nunca|ni|sin)\b/;
+
+/**
+ * ¿El plan declara que el cambio de Meta Ads gasta plata? Una línea "GASTO EN META ADS: <qué>" que lo AFIRMA. No cuenta: "...: no",
+ * "ninguno", "sin gasto", "(regla del dueño)", "se mantiene", "este cambio no sube presupuesto".
+ */
 export function planDeclaraGastoEnMetaAds(plan) {
-  return String(plan ?? "")
+  const normales = String(plan ?? "")
     .split(/\r?\n/)
-    .some((original) => {
-      const normal = original.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-      const calce = normal.match(/^[ \t>*_#-]*\**gasto en meta ads\**\s*[:.\u2014\u2013-]?\s*\**\s*(.*)$/);
-      return Boolean(calce) && !/^(no|ninguno|ninguna|sin|n\/a|cero)(?![a-z])/.test(calce[1].trim());
-    });
+    .map((original) => original.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase());
+  return normales.some((normal, indice) => {
+    const calce = normal.match(/^[ \t>*_#-]*\**gasto en meta ads\**\s*[:.—–-]?\s*\**\s*(.*)$/);
+    if (!calce) return false;
+    let resto = calce[1].trim();
+    // "**GASTO EN META ADS**" solo en su línea: lo que dice es la línea siguiente.
+    if (!resto) resto = (normales.slice(indice + 1).find((otra) => otra.trim()) ?? "").replace(/^[\s>*_#-]+/, "").trim();
+    return !NO_DECLARA_GASTO.test(resto);
+  });
 }
 
 const ENVIOS_DE_MENSAJES = /\b(sendMessage|sendText|sendWhatsApp\w*|sendTemplate\w*|enviarMensaje\w*|mandarMensaje\w*|enviarWhatsApp\w*|enviarPlantilla\w*|messages\.create|sendMedia)\b|\/message\/send/i;

@@ -71,6 +71,7 @@ import { tamanoDeLaRespuesta } from "./medir.mjs";
 import { carpetaDeIntentos } from "./registro.mjs";
 import { migracionDestructiva } from "./riesgo.mjs";
 import { seguirConLaRecomendada } from "./preguntas-abiertas.mjs";
+import { motivoFrenaEnFeatures, repoParaLaTarjeta } from "./features-auto.mjs";
 import { MINUTOS_PARA_RESOLVER, resolverChoque } from "./resolver-choque.mjs";
 import {
   CONFIRMACION_BOT_VENTAS,
@@ -277,7 +278,8 @@ function configDelRepo(contexto, tarjeta) {
   const repo = contexto.config.repos[tarjeta.repo];
   if (!repo) throw new ErrorDeEtapa(`El repo "${tarjeta.repo}" no está configurado en este PC (config.local.json -> repos).`);
   if (!fs.existsSync(repo.ruta)) throw new ErrorDeEtapa(`No existe la carpeta del repo ${tarjeta.repo}: ${repo.ruta}.`);
-  return repo;
+  // 23-nov-2026: las tarjetas de Features suben solas en todas las zonas (features-auto.mjs); las demás, como diga la configuración.
+  return repoParaLaTarjeta(repo, tarjeta);
 }
 
 /**
@@ -668,7 +670,7 @@ export function promptDelPlan(tarjeta, repo, motor = "claude", { lecciones = "" 
     motor === "codex" ? SIN_SUBAGENTES_AL_PLANEAR : SUBAGENTES_AL_PLANEAR,
     "En la parte 5 escribe cada archivo con su ruta completa desde la raíz del repo (por ejemplo src/features/coach/servicio.ts): el Coordinador la usa para no construir a la vez dos tareas que tocan lo mismo.",
     fraseAlTerminar(repo),
-    INSTRUCCION_DE_RIESGO,
+    instruccionDeRiesgo(Boolean(repo.featuresAuto)),
     INSTRUCCION_NECESITO,
     `Antes de planear revisa que se pueda hacer. ${INSTRUCCION_DEPENDE_DE} ${INSTRUCCION_YA_HECHO} En esos dos casos contesta SOLO esa línea, sin plan.`,
     "Contesta SOLO con el plan.",
@@ -682,7 +684,14 @@ export function promptDelPlan(tarjeta, repo, motor = "claude", { lecciones = "" 
  * criterios espejan src/features/tableros-inteligentes/services/reglas-riesgo.ts; el CRM además lo
  * revisa por su cuenta (la parte 4 y las rutas de la parte 5), así que marcar BAJO no basta.
  */
-export const INSTRUCCION_DE_RIESGO = [
+export const INSTRUCCION_DE_RIESGO = instruccionDeRiesgo(false);
+
+/**
+ * La misma instrucción para Features (23-nov-2026): el RIESGO ALTO y las preguntas abiertas no frenan nada; solo lo que sube presupuesto,
+ * prende campañas o crea gasto nuevo en Meta Ads escribe ESPERA TU SÍ.
+ */
+export function instruccionDeRiesgo(features) {
+  return [
   'En las PRIMERAS líneas del plan (junto a la frase "Al terminar: ...") escribe una línea exacta con este formato:',
   "RIESGO: BAJO — <motivo en una frase>",
   "o bien",
@@ -698,8 +707,11 @@ export const INSTRUCCION_DE_RIESGO = [
   "APROBAR PLAN: SOLO",
   "o bien",
   "APROBAR PLAN: ESPERA TU SÍ — <motivo en una línea>",
-  "Escribe ESPERA TU SÍ solo si el plan toca dinero en Gestión (abonos, saldos, nómina, comisiones, facturación, pagos) o puede subir presupuesto, activar campañas o crear gasto en Meta Ads. En cualquier otro caso (aunque el RIESGO sea ALTO) escribe SOLO.",
-].join("\n");
+  features
+    ? "Escribe ESPERA TU SÍ SOLO si el plan sube presupuesto, prende (activa) campañas, conjuntos o anuncios o crea gasto nuevo en Meta Ads (son acciones del cambio, no que el texto nombre la regla). En cualquier otro caso (aunque el RIESGO sea ALTO, toque dinero de Gestión o una zona protegida) escribe SOLO: en este tablero el riesgo se escribe para que quede constancia, no para frenar."
+    : "Escribe ESPERA TU SÍ solo si el plan toca dinero en Gestión (abonos, saldos, nómina, comisiones, facturación, pagos) o puede subir presupuesto, activar campañas o crear gasto en Meta Ads. En cualquier otro caso (aunque el RIESGO sea ALTO) escribe SOLO.",
+  ].join("\n");
+}
 
 /**
  * Las pruebas extra de las zonas que suben solas (24-oct-2026): lo que el que construye tiene que dejar escrito en su
@@ -708,7 +720,11 @@ export const INSTRUCCION_DE_RIESGO = [
 export function reglasDeZonasQueSubenSolas(repo) {
   const zonas = repo.zonasQueSubenSolas ?? [];
   if (!zonas.length) return "";
-  const lineas = [`Zonas que suben solas a producción (sin el sí final del dueño): ${zonas.join(", ")}. Para que suban solas, deja escrito en tu RESUMEN final lo siguiente (si falta, no sube sola: el libro V3 espera el sí del dueño; chats y el bot de ventas quedan en ERROR con el motivo):`];
+  const lineas = [
+    repo.featuresAuto
+      ? `Zonas que suben solas a producción (sin el sí final del dueño; en este tablero lo único que frena es el gasto en Meta Ads): ${zonas.join(", ")}. Deja escrito en tu RESUMEN final lo siguiente (si falta, el Coordinador lo anota como aviso y sube igual con su vigilancia de 30 min):`
+      : `Zonas que suben solas a producción (sin el sí final del dueño): ${zonas.join(", ")}. Para que suban solas, deja escrito en tu RESUMEN final lo siguiente (si falta, no sube sola: el libro V3 espera el sí del dueño; chats y el bot de ventas quedan en ERROR con el motivo):`,
+  ];
   if (zonas.includes("LIBRO_V3")) {
     lineas.push(
       `- Libro V3: corre el simulador (v3_probar_mensaje / v3_simular_conversacion) con conversaciones reales recientes y escribe "${CONFIRMACION_LIBRO_V3}" y "versión anterior del libro: <número>" (con ese número se vuelve atrás con v3_volver_a_version).`,
@@ -732,6 +748,13 @@ export function reglasDeZonasQueSubenSolas(repo) {
 
 /** Lo que el plan tiene que decir al principio: si al terminar sube solo o espera el sí del dueño. */
 function fraseAlTerminar(repo) {
+  // 23-nov-2026: en Features todo sube solo (zonas incluidas); solo el gasto en Meta Ads espera.
+  if (repo.featuresAuto) {
+    return [
+      'Al principio del plan escribe esta frase: "Al terminar: sube solo a producción" (si toca una zona protegida, agrega "(zona X, con vigilancia de 30 min)"). En este tablero ninguna zona espera el sí del dueño.',
+      `Única excepción: si el cambio sube presupuesto, prende (activa) campañas, conjuntos o anuncios o crea gasto nuevo en Meta Ads, escribe una línea "${MARCA_GASTO_META_ADS}: <qué gasta>" y "Al terminar: espera tu sí". Si NO gasta, no escribas esa línea (o escribe "${MARCA_GASTO_META_ADS}: ninguno"): nombrar la regla en el texto no es gastar.`,
+    ].join("\n");
+  }
   // 1-nov-2026: cada repositorio sube solo salvo `subirSolo: false` explícito.
   if (repo.subirSolo === false) {
     return 'Al principio del plan escribe esta frase: "Al terminar: espera tu sí".';
@@ -1667,6 +1690,12 @@ export async function construir(contexto, tarjeta) {
       esperaPor = prueba.esperaPor;
       pruebas.push(...prueba.confirmaciones);
     }
+    // 23-nov-2026 (Features sube solo): ahí solo el gasto en Meta Ads frena. Cualquier otro motivo (falta la simulación V3, un envío
+    // nuevo, una frase de la prueba extra) queda como aviso en las pruebas y la tarjeta sube con su vigilancia de 30 min.
+    if (esperaPor && repo.featuresAuto && !motivoFrenaEnFeatures(esperaPor, esperaAlDueno)) {
+      pruebas.push(`⚠ no frena (Features sube solo): ${esperaPor}`);
+      esperaPor = null;
+    }
     // 30-oct-2026: chats y el bot de ventas ya no esperan el sí del dueño. Si no pueden subir solas (p. ej. un envío nuevo a
     // clientes), la tarjeta queda en ERROR con el motivo, sin reintentos (categoría "zona"). El gasto en Meta Ads sigue esperando.
     if (esperaPor && !esperaAlDueno(esperaPor) && zonasDeLaTarjeta.every((zona) => ["CHATS", "BOT_VENTAS"].includes(zona))) {
@@ -2294,7 +2323,9 @@ export async function subir(contexto, tarjeta) {
   const ramaLocal = `subida/${idCorto(tarjeta.id)}`;
   // Zonas que suben solas (bot de ventas, Meta Ads, libro V3): después de subir se vigilan los logs 30 minutos y, si algo
   // se rompe, se deshace con un commit nuevo. Mientras se vigila, no sube otra tarjeta.
-  const zonasAVigilar = (tarjeta.zonasAprobadas ?? []).filter((zona) => (repo.zonasQueSubenSolas ?? []).includes(zona));
+  // 23-nov-2026: en Features también se vigilan las zonas que el cambio tocó (resultado.zonaProtegida), no solo las aprobadas.
+  const zonasDeLaSubida = [...new Set([...(tarjeta.zonasAprobadas ?? []), ...(repo.featuresAuto ? tarjeta.resultado?.zonaProtegida ?? [] : [])])];
+  const zonasAVigilar = zonasDeLaSubida.filter((zona) => (repo.zonasQueSubenSolas ?? []).includes(zona));
   await git(repo.ruta, ["fetch", repo.remoto]);
   await esperarFinDeLaVigilancia(contexto, reloj, registro);
   // Sin ningún await entre esperar y tomar el turno: no se cuela otra tarjeta.

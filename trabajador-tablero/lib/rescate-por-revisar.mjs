@@ -10,7 +10,8 @@
 // las que tienen un sí humano y un motivo de espera que ya no frena (dinero de Gestión de una tarea aprobada a mano, un supuesto
 // de negocio); esas pasan a SUBIENDO por /:id/rescatar. Las que esperan por gasto en Meta Ads, o por dinero sin sí humano, no se listan.
 import { git } from "./git.mjs";
-import { pruebaExtraDeLasZonas, zonasTocadas } from "./zonas.mjs";
+import { esperaAlDueno, pruebaExtraDeLasZonas, zonasTocadas } from "./zonas.mjs";
+import { motivoFrenaEnFeatures, repoParaLaTarjeta } from "./features-auto.mjs";
 
 /** Cada cuánto se mira (ms): es una llamada barata al CRM; el diff solo se lee si hay tarjetas candidatas. */
 const CADA_MS = 3 * 60_000;
@@ -41,6 +42,10 @@ export async function decidirRescate(tarjeta, repo, diff) {
   const diffs = { todo: await diff.diffDe(diff.archivos) };
   for (const zona of zonas) if (tocadas[zona]) diffs[zona] = await diff.diffDe(tocadas[zona]);
   const prueba = pruebaExtraDeLasZonas({ zonas, zonasQueSubenSolas: zonasSolas, diffs, plan: tarjeta.plan, texto: "" });
+  // 23-nov-2026: en Features solo el gasto en Meta Ads frena; lo demás (V3 sin simulación, un envío nuevo) sube con aviso.
+  if (prueba.esperaPor && repo.featuresAuto && !motivoFrenaEnFeatures(prueba.esperaPor, esperaAlDueno)) {
+    return { accion: "subir", confirmacion: `✔ Features sube solo: ${prueba.esperaPor} (no frena; vigilancia de 30 min)` };
+  }
   if (prueba.esperaPor) {
     // El libro V3 necesita la simulación del que construyó: no se puede comprobar con el diff, se deja como está.
     if (/^falta (la simulaci[oó]n V3|el n[uú]mero de la versi[oó]n)/i.test(prueba.esperaPor)) return { accion: "saltar", motivo: prueba.esperaPor };
@@ -68,7 +73,7 @@ export function crearRescatador({ crm, config, registro, diffDeLaRama = diffDeLa
       for (const tarjeta of tarjetas ?? []) {
         const clave = `${tarjeta.id}:${tarjeta.commit ?? ""}:${tarjeta.esperaPor ?? ""}`;
         if (vistas.has(clave)) continue;
-        const repo = config.repos?.[tarjeta.repo];
+        const repo = repoParaLaTarjeta(config.repos?.[tarjeta.repo], tarjeta);
         if (!repo || repo.subirSolo !== true) {
           vistas.add(clave);
           continue;
