@@ -26,7 +26,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 
 import { agenteDelRepo, leccionesParaElPrompt, necesitoDe, textoDeIdentidad } from "./agentes.mjs";
-import { MAXIMO_DE_PARTES, MINIMO_DE_PARTES, enUnaLinea, esLimiteDeUso, recortar, sinRuido } from "./diagnostico.mjs";
+import { MAXIMO_DE_PARTES, MINIMO_DE_PARTES, FRASES_DE_LA_CAUSA, causaDeLaSubidaFallida, enUnaLinea, esLimiteDeUso, recortar, sinRuido } from "./diagnostico.mjs";
 import { ensayarMigraciones, migracionesNuevas } from "./ensayo.mjs";
 import {
   ErrorDeGit,
@@ -2797,11 +2797,15 @@ async function deshacerSubida(contexto, repo, carpeta, { antes, commit, motivo, 
       razon: vigilancia ? "la vigilancia de 30 min vio una falla" : "el despliegue falló",
     });
     registro.info(`deshecho: revert ${revert.slice(0, 10)} de ${commit.slice(0, 10)} en ${repo.ramaBase}`);
+    // Recién ahora (producción ya vuelve a la versión anterior) se leen los logs para decir la causa en sencillo. Nunca lanza.
+    const causa = await causaDeLaSubida(contexto, repo, carpeta, { commit, motivo, vigilancia });
+    const sencilla = `Causa (en sencillo): ${causa.sencilla}`;
+    // La 1ª línea de la vigilancia sigue empezando con "Revertida:" (causaExterna la busca así): la sencilla va después.
     return new ErrorDeEtapa(
       vigilancia
-        ? `Revertida: ${motivo}\nSubió sola, la vigilancia de 30 min vio la falla y se deshizo; producción vuelve a la versión anterior.\nCommit deshecho: ${commit.slice(0, 10)} (revert ${revert.slice(0, 10)}).`
-        : `Se subió, no arrancó y se deshizo; producción vuelve a la versión anterior.\nCommit deshecho: ${commit.slice(0, 10)} (revert ${revert.slice(0, 10)}).\nDetalle técnico: ${motivo}`,
-      { reversion: { commit, revert, ok: true }, ...(vigilancia ? { categoria: "otra" } : {}) },
+        ? `Revertida: ${motivo}\n${sencilla}\nSubió sola, la vigilancia de 30 min vio la falla y se deshizo; producción vuelve a la versión anterior.\nCommit deshecho: ${commit.slice(0, 10)} (revert ${revert.slice(0, 10)}).`
+        : `Se subió, no arrancó y se deshizo; producción vuelve a la versión anterior.\nCommit deshecho: ${commit.slice(0, 10)} (revert ${revert.slice(0, 10)}).\n${sencilla}\nDetalle técnico: ${motivo}`,
+      { reversion: { ok: true, commit, revert, clase: causa.clase, sencilla: causa.sencilla, lineas: causa.lineas }, ...(vigilancia ? { categoria: "otra" } : {}) },
     );
   } catch (error) {
     registro.error(`URGENTE: no se pudo deshacer ${commit}: ${error.message}`);
@@ -2810,4 +2814,55 @@ async function deshacerSubida(contexto, repo, carpeta, { antes, commit, motivo, 
       { reversion: { commit, revert: null, ok: false } },
     );
   }
+}
+
+/**
+ * La causa de una subida que ya se deshizo (parte 1 de 3, 23-nov-2026): lee los logs y la clasifica con causaDeLaSubidaFallida.
+ * Se llama SOLO después de que revertirEnRamaBase salió bien. Nunca lanza: si algo falla, la clase queda "desconocida".
+ * -> { clase, sencilla, lineas }
+ */
+async function causaDeLaSubida(contexto, repo, carpeta, { commit, motivo, vigilancia }) {
+  let logs = "";
+  try {
+    logs = await logsDeLaSubidaFallida(contexto, repo, carpeta, commit);
+  } catch (error) {
+    logs = "";
+    try {
+      contexto.registro?.aviso?.(`no se pudieron leer los logs de la subida que falló (queda la causa sin logs): ${String(error?.message ?? error).split("\n")[0]}`);
+    } catch {
+      // El registro tampoco puede frenar la reversión.
+    }
+  }
+  try {
+    const causa = causaDeLaSubidaFallida({ motivo, logs, vigilancia });
+    contexto.registro?.info?.(`causa de la subida que falló: ${causa.clase} — ${causa.sencilla}`);
+    return causa;
+  } catch {
+    return { clase: "desconocida", sencilla: FRASES_DE_LA_CAUSA.desconocida, lineas: [] };
+  }
+}
+
+/**
+ * Los logs de la subida que falló: primero los del servidor (repo.logsArranque o, si no está, ssh.logs); si no se pueden
+ * leer, el log de la corrida fallida de GitHub del commit (como esperarCi: subida.ciBuscar y ciDeRama.log, `gh run view
+ * --log-failed`). "" si no hay ninguno. Solo lectura.
+ */
+async function logsDeLaSubidaFallida(contexto, repo, carpeta, commit) {
+  const { config, registro } = contexto;
+  const remoto = repo.logsArranque ?? config.ssh?.logs ?? null;
+  if (remoto && config.ssh?.destino) {
+    const leido = await leerDelServidor(config, remoto, contexto.senal);
+    if (leido.ok && leido.salida.trim()) return leido.salida;
+    registro?.aviso?.("no se pudieron leer los logs del servidor después de deshacer: se busca el log de GitHub");
+  }
+  const { workflowDespliegue } = repo.subida ?? {};
+  const buscar = buscarCorridaDelDespliegue(repo.subida?.ciBuscar, workflowDespliegue);
+  const traerLog = repo.ciDeRama?.log;
+  if (!buscar || !traerLog) return "";
+  const buscado = await correr(conValores(buscar, { commit, workflow: workflowDespliegue ?? "" }), { cwd: carpeta, timeoutMs: 60_000, senal: contexto.senal });
+  // Solo un número es una corrida (con la lista vacía `--jq .[0].databaseId` escribe "null").
+  const corrida = buscado.codigo === 0 ? (buscado.salida.trim().split(/\s+/).find((palabra) => /^\d+$/.test(palabra)) ?? "") : "";
+  if (!corrida) return "";
+  const traido = await correr(conValores(traerLog, { commit, run: corrida }), { cwd: carpeta, timeoutMs: 120_000, senal: contexto.senal });
+  return traido.codigo === 0 && traido.salida.trim() ? logDelPasoQueFallo(traido.salida).texto : "";
 }

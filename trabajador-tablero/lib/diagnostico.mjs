@@ -707,8 +707,88 @@ export function recortarAviso(texto, n = LARGO_MAXIMO_DEL_AVISO, maxLineas = 3) 
   return recortar([...primeras, ...(ultima ? [ultima] : [])].join("\n"), n);
 }
 
+/* ─────────────── la causa de una subida que se deshizo, en palabras sencillas (parte 1 de 3) ── */
+
+/** El arranque del servidor: falta una variable de entorno, la migración de Prisma, entrypoint.sh con error, puerto ocupado. */
+const ARRANQUE_VARIABLE = /Environment variable not found|variable de entorno|missing (?:required )?(?:env|environment)|env(?:ironment)? var(?:iable)?[^\n]{0,40}(?:missing|not set|required|undefined)|is not set in the environment/i;
+const ARRANQUE_MIGRACION = /\bP30(?:0[0-9]|1[0-9])\b|migrate deploy[^\n]*(?:fail|error)|migration[^\n]*(?:failed|fall[oó])|(?:fall[oó]|error)[^\n]*migraci[oó]n/i;
+const ARRANQUE_ENTRYPOINT = /entrypoint\.sh[^\n]*(?:error|fail|fall|exit|code [1-9]|status [1-9])|(?:error|fail|exit)[^\n]*entrypoint\.sh/i;
+const ARRANQUE_PUERTO = /EADDRINUSE|address already in use|port[^\n]{0,30}(?:already|in use)|puerto[^\n]{0,30}ocupado/i;
+/** Un error del programa: los de JavaScript, módulos que faltan y los de Next o del build. */
+const CODIGO_BUILD = /Type error:|Failed to compile|Build error|Module not found|next build[^\n]*(?:fail|error)|build fall[oó]|ERROR: build/i;
+const CODIGO_PROGRAMA = /\b(?:TypeError|ReferenceError|SyntaxError|RangeError)\b|Cannot find module|Unhandled(?: promise)? rejection|PrismaClient\w*Error|⨯ /i;
+/** Falla pasajera: la red, el servidor ocupado, el registro de imágenes o GitHub sin respuesta (más SERVIDOR_CAIDO). */
+const PASAJERA = new RegExp(
+  [
+    SERVIDOR_CAIDO.source,
+    "ETIMEDOUT|ECONNRESET|EAI_AGAIN|ENOTFOUND|socket hang up|network (?:error|timeout)|corte de red",
+    "\\b(?:HTTP|status|c[oó]digo|contest[oó]|error)\\D{0,12}50[234]\\b|\\b50[234] (?:Bad Gateway|Service Unavailable|Gateway Time-?out)|Bad Gateway|Service Unavailable|Gateway Time-?out",
+    "servidor ocupado|server (?:is )?(?:busy|overloaded)|too many requests|rate limit",
+    "(?:registry|ghcr\\.io|docker\\.io|registro de im[aá]genes)[^\\n]{0,80}(?:timeout|timed out|unavailable|no respond|refused|50[234])",
+    "(?:github|api\\.github\\.com)[^\\n]{0,80}(?:timeout|timed out|unavailable|no respond|50[234])",
+  ].join("|"),
+  "i",
+);
+/** El despliegue venció (la versión nueva no apareció a tiempo, el CI se pasó del tiempo): sin error del código es pasajera. */
+const VENCIO = /se pas[oó] del tiempo|la versi[oó]n nueva no arranc[oó]/i;
+/** Una línea que habla de una falla (para la vigilancia y para mostrar algo cuando no se sabe la causa). */
+const LINEA_DE_FALLA = /error|fail|fall[oó]|\[minuto \d+\]/i;
+
+/** Las frases sencillas: una o dos frases sin palabras técnicas (van a la tarjeta y al WhatsApp del dueño). */
+export const FRASES_DE_LA_CAUSA = {
+  variable: "Faltó una configuración del servidor al arrancar.",
+  migracion: "Falló la actualización de la base de datos al arrancar la versión nueva.",
+  entrypoint: "La versión nueva no pudo arrancar en el servidor: el arranque terminó con error.",
+  puerto: "La versión nueva no pudo arrancar porque otro programa ya ocupaba su lugar en el servidor.",
+  armado: "El cambio tiene un error en el programa y la versión nueva no se pudo armar.",
+  programa: "El cambio tiene un error en el programa y la versión nueva falló al usarse.",
+  vigilancia: "Después de subir aparecieron fallas nuevas del programa, así que el cambio tiene un error que hay que corregir.",
+  pasajera: "Fue una falla pasajera: la red, el servidor o GitHub no respondieron a tiempo. El cambio en sí puede estar bien.",
+  vencio: "El servidor tardó demasiado en tomar la versión nueva, sin ningún error del programa: parece una falla pasajera.",
+  desconocida: "No se pudo saber la causa: los registros no muestran por qué falló.",
+};
+
+/** Las líneas del texto que calzan con `regla` (sin repetir), máximo 8 y de 300 caracteres cada una. */
+function lineasQueMuestran(texto, regla) {
+  const vistas = [];
+  for (const linea of String(texto ?? "").split(/\r?\n/)) {
+    const limpia = linea.trim();
+    if (limpia && regla.test(limpia) && !vistas.includes(limpia)) vistas.push(limpia);
+    if (vistas.length >= 8) break;
+  }
+  return vistas.map((linea) => recortar(linea, 300));
+}
+
+/**
+ * Por qué falló una subida que se deshizo, en palabras sencillas. Pura: no toca disco, red ni procesos.
+ *   motivo      el texto con que falló la subida (el de la etapa)
+ *   logs        lo que se leyó del servidor o de GitHub después de deshacer ("" si no se pudo)
+ *   vigilancia  true si la deshizo la vigilancia de 30 min (no el despliegue)
+ * -> { clase: "codigo" | "arranque" | "pasajera" | "desconocida", sencilla, lineas } (lineas: hasta 8 del texto que lo muestran).
+ * Orden: arranque, código, pasajera; un error del programa le gana a un 503 (el 503 puede ser porque el programa se cayó).
+ */
+export function causaDeLaSubidaFallida({ motivo = "", logs = "", vigilancia = false } = {}) {
+  const texto = sinRuido(`${motivo ?? ""}\n${logs ?? ""}`);
+  const con = (clase, frase, regla) => ({ clase, sencilla: FRASES_DE_LA_CAUSA[frase], lineas: lineasQueMuestran(texto, regla) });
+  if (ARRANQUE_VARIABLE.test(texto)) return con("arranque", "variable", ARRANQUE_VARIABLE);
+  if (ARRANQUE_MIGRACION.test(texto)) return con("arranque", "migracion", new RegExp(`${ARRANQUE_MIGRACION.source}|${ARRANQUE_ENTRYPOINT.source}`, "i"));
+  if (ARRANQUE_ENTRYPOINT.test(texto)) return con("arranque", "entrypoint", ARRANQUE_ENTRYPOINT);
+  if (ARRANQUE_PUERTO.test(texto)) return con("arranque", "puerto", ARRANQUE_PUERTO);
+  if (CODIGO_BUILD.test(texto)) return con("codigo", "armado", CODIGO_BUILD);
+  if (CODIGO_PROGRAMA.test(texto)) return con("codigo", vigilancia ? "vigilancia" : "programa", CODIGO_PROGRAMA);
+  if (PASAJERA.test(texto)) return con("pasajera", "pasajera", PASAJERA);
+  if (VENCIO.test(texto)) return con("pasajera", "vencio", VENCIO);
+  // La vigilancia vio fallas nuevas que no son de arranque ni de la red: son del programa.
+  if (vigilancia && /l[ií]nea\(s\) de falla nueva|\[minuto \d+\]/i.test(texto)) return con("codigo", "vigilancia", LINEA_DE_FALLA);
+  return con("desconocida", "desconocida", LINEA_DE_FALLA);
+}
+
 /** La causa de una reversión en una línea: el "Detalle técnico" si lo hay (es lo que de verdad falló), si no la primera línea. */
-function causaDeLaReversion(motivo) {
+function causaDeLaReversion(motivo, reversion = null) {
+  // La frase sencilla (causaDeLaSubidaFallida) le gana al detalle técnico: es la que entiende el dueño. Con la clase
+  // "desconocida" la frase no dice nada, así que queda el detalle técnico de siempre (es lo único que se sabe).
+  const sencilla = typeof reversion?.sencilla === "string" && reversion.clase !== "desconocida" ? reversion.sencilla.trim() : "";
+  if (sencilla) return sencilla;
   const texto = String(motivo ?? "");
   const tecnico = texto.match(/Detalle técnico:\s*([^\n]+)/);
   const linea = tecnico?.[1] ?? texto.split(/\r?\n/).find((l) => l.trim()) ?? "";
@@ -726,6 +806,6 @@ export function textoDelAvisoDeReversion(titulo, motivo, reversion) {
     ? [`Se deshizo una subida de "${nombre}".`, `Commit deshecho: ${corto(reversion.commit)}; commit de la reversión: ${corto(reversion.revert)}. Detalle en el tablero.`]
     : [`URGENTE: no se pudo deshacer una subida de "${nombre}", hay que revisar a mano.`, `Commit en producción: ${corto(reversion?.commit)}. Detalle en el tablero.`];
   const espacio = LARGO_MAXIMO_DEL_AVISO - primera.length - ultima.length - 2 - "Motivo: ".length;
-  const causa = enUnaLinea(causaDeLaReversion(motivo), Math.max(40, espacio));
+  const causa = enUnaLinea(causaDeLaReversion(motivo, reversion), Math.max(40, espacio));
   return recortarAviso([primera, `Motivo: ${causa}`, ultima].join("\n"));
 }
