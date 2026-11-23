@@ -181,6 +181,22 @@ export async function cambiarResponsableAction(tarjetaId: string, responsableId:
 }
 
 /**
+ * «Mover tarjeta» en los tres puntos de la ficha (23-nov-2026, pedido de Alex): la pone a colgar de un Área
+ * (su id) o la deja suelta (null). Lo hace quien edita ese tablero, como el responsable. Cuenta como mover:
+ * no reinicia la aprobación ni corta lo que se construye. editarTarjeta revisa que el tipo acepte esa madre.
+ */
+export async function moverTarjetaAction(tarjetaId: string, areaId: string | null): Promise<Resultado> {
+  const contexto = await contextoDePantalla();
+  try {
+    await editarTarjeta(contexto, tarjetaId, { padreId: areaId });
+    return { ok: true };
+  } catch (fallo) {
+    const texto = mensaje(fallo, "No se pudo mover la tarjeta");
+    return texto === "No hay nada distinto para cambiar." ? { ok: true } : { ok: false, error: texto };
+  }
+}
+
+/**
  * Cambiar la prioridad desde la ficha (21-nov-2026): URGENTE, ALTA, MEDIA o BAJA (la valida editarTarjeta). Lo hace quien edita
  * ese tablero (el alcance de la sesión lo comprueba). Cuenta como mover: no reinicia la aprobación ni corta lo que se construye.
  * `aviso`: se bajó la prioridad pero el título la sigue dejando urgente.

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   AlertTriangle,
   ArrowDownLeft,
@@ -9,9 +9,11 @@ import {
   CornerLeftUp,
   EllipsisVertical,
   ExternalLink,
+  FolderInput,
   History,
   Layers,
   Loader2,
+  Search,
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -27,6 +29,7 @@ import {
   deshacerBorradoDeTarjetaAction,
   eliminarTarjetaAction,
   marcarUrgenteAction,
+  moverTarjetaAction,
   historialDeTarjetaAction,
   marcarDependenciaAction,
   type CambioDeTarjetaVista,
@@ -34,6 +37,7 @@ import {
 import { NOMBRE_DEL_ESTADO, esEstado, textoDelLink, type MiembroDelNegocio } from "../services/reglas";
 import { NOMBRE_DE_PRIORIDAD, PRIORIDADES, esPrioridad } from "../services/reglas-trabajador";
 import type { ConexionVista, TarjetaVista, TipoVista } from "../services/tableros";
+import { areasParaMover, filtrarAreas } from "../services/areas-para-mover";
 import { COLOR_DE_PRIORIDAD, COLOR_DEL_ESTADO } from "./colores";
 import { IconoDeTipo } from "./IconoDeTipo";
 import { PasarAlCerebro } from "./PasarAlCerebro";
@@ -214,6 +218,9 @@ export function FichaTarjeta({
   const [cambiandoPrioridad, setCambiandoPrioridad] = useState(false);
   const [confirmarBorrado, setConfirmarBorrado] = useState(false);
   const [eliminando, setEliminando] = useState(false);
+  const [eligiendoArea, setEligiendoArea] = useState(false);
+  const [busquedaDeArea, setBusquedaDeArea] = useState("");
+  const [moviendo, setMoviendo] = useState(false);
 
   const titulo = new Map(tarjetas.map((otra) => [otra.id, otra.titulo]));
   const nombreDelTipo = new Map([...tipos.values()].map((tipo) => [tipo.id, tipo.nombre]));
@@ -222,6 +229,9 @@ export function FichaTarjeta({
   const usaEstados = tipo?.usaEstados ?? true;
   const pideAprobacion = (tipo?.requiereAprobacion ?? true) && usaEstados;
   const madre = tarjeta?.padreId && titulo.has(tarjeta.padreId) ? tarjeta.padreId : null;
+  // «Mover tarjeta» (23-nov-2026): las Áreas a las que puede ir (las que su tipo acepta como madre).
+  const areas = useMemo(() => (tarjeta ? areasParaMover(tarjeta, tarjetas, tipos) : []), [tarjeta, tarjetas, tipos]);
+  const areasVisibles = useMemo(() => filtrarAreas(areas, busquedaDeArea), [areas, busquedaDeArea]);
 
   const verHistorial = async () => {
     if (!tarjeta) return;
@@ -268,6 +278,30 @@ export function FichaTarjeta({
     if (resultado.ok) {
       if (resultado.aviso) toast.info(resultado.aviso);
       else toast.success(`Prioridad: ${NOMBRE_DE_PRIORIDAD[prioridad]}`);
+      setHistorial(null);
+    } else {
+      toast.error(resultado.error);
+    }
+    alAprobar();
+  };
+
+  const mover = async (areaId: string | null) => {
+    if (!tarjeta || moviendo) return;
+    if (areaId === tarjeta.padreId) {
+      setEligiendoArea(false);
+      return;
+    }
+    setMoviendo(true);
+    const resultado = await moverTarjetaAction(tarjeta.id, areaId).catch(() => ({
+      ok: false as const,
+      error: "No se pudo mover: revisa la conexión e inténtalo de nuevo.",
+    }));
+    setMoviendo(false);
+    if (resultado.ok) {
+      const destino = areaId ? areas.find((area) => area.id === areaId)?.titulo : null;
+      toast.success(destino ? `Movida a ${destino}` : "Quedó suelta, sin área");
+      setEligiendoArea(false);
+      setBusquedaDeArea("");
       setHistorial(null);
     } else {
       toast.error(resultado.error);
@@ -461,7 +495,7 @@ export function FichaTarjeta({
                         ) : null}
                       </p>
                     )}
-                    {(puedeAsignar && tarjeta.responsableId) || puedeEliminar ? (
+                    {(puedeAsignar && (tarjeta.responsableId || areas.length > 0)) || puedeEliminar ? (
                       <DropdownMenu>
                         <DropdownMenuTrigger
                           render={
@@ -474,13 +508,19 @@ export function FichaTarjeta({
                             />
                           }
                         >
-                          {marcandoUrgente || eliminando ? <Loader2 className="animate-spin" /> : <EllipsisVertical />}
+                          {marcandoUrgente || eliminando || moviendo ? <Loader2 className="animate-spin" /> : <EllipsisVertical />}
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="min-w-44">
                           {puedeAsignar && tarjeta.responsableId ? (
                             <DropdownMenuItem disabled={marcandoUrgente} onClick={() => void marcarUrgente()}>
                               <AlertTriangle />
                               Marcar urgente
+                            </DropdownMenuItem>
+                          ) : null}
+                          {puedeAsignar && areas.length > 0 ? (
+                            <DropdownMenuItem disabled={moviendo} onClick={() => setEligiendoArea(true)}>
+                              <FolderInput />
+                              Mover tarjeta
                             </DropdownMenuItem>
                           ) : null}
                           {puedeEliminar ? (
@@ -495,6 +535,75 @@ export function FichaTarjeta({
                   </div>
                 </div>
               ) : null}
+
+              {/* «Mover tarjeta»: la lista de Áreas, con buscador. Tocar una la mueve ahí. */}
+              <Dialog
+                open={eligiendoArea}
+                onOpenChange={(abrir) => {
+                  if (moviendo) return;
+                  setEligiendoArea(abrir);
+                  if (!abrir) setBusquedaDeArea("");
+                }}
+              >
+                <DialogContent className="flex max-h-[85dvh] flex-col sm:max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>Mover a un área</DialogTitle>
+                    <DialogDescription>
+                      Elige el área donde va a quedar «{tarjeta.titulo}». Sus tarjetas hijas se mueven con ella.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <label className="relative block">
+                    <span className="sr-only">Buscar un área</span>
+                    <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                    <input
+                      type="search"
+                      value={busquedaDeArea}
+                      onChange={(evento) => setBusquedaDeArea(evento.target.value)}
+                      placeholder="Buscar un área"
+                      className="h-10 w-full rounded-lg border bg-background pl-9 pr-3 text-sm md:h-9"
+                    />
+                  </label>
+                  <div className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1">
+                    <ul className="space-y-1">
+                      {areasVisibles.map((area) => (
+                        <li key={area.id}>
+                          <button
+                            type="button"
+                            disabled={moviendo}
+                            onClick={() => void mover(area.id)}
+                            className={cn(
+                              "flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition hover:bg-muted disabled:opacity-60",
+                              area.actual && "border-primary/50 bg-primary/5",
+                            )}
+                          >
+                            <Layers className="size-4 shrink-0 text-muted-foreground" />
+                            <span className="min-w-0 flex-1">
+                              {area.ruta ? <span className="block truncate text-xs text-muted-foreground">{area.ruta}</span> : null}
+                              <span className="block truncate text-sm font-medium">{area.titulo}</span>
+                            </span>
+                            {area.actual ? <span className="shrink-0 text-xs text-primary">Está aquí</span> : null}
+                          </button>
+                        </li>
+                      ))}
+                      {areasVisibles.length === 0 ? (
+                        <li className="px-3 py-6 text-center text-sm text-muted-foreground">Ningún área con ese nombre.</li>
+                      ) : null}
+                    </ul>
+                  </div>
+                  <DialogFooter>
+                    {/* Solo si hoy cuelga de un Área: si cuelga de una Idea, soltarla no es «sacarla del área». */}
+                    {areas.some((area) => area.actual) ? (
+                      <Button variant="ghost" disabled={moviendo} onClick={() => void mover(null)}>
+                        Dejarla sin área
+                      </Button>
+                    ) : null}
+                    <Button variant="outline" disabled={moviendo} onClick={() => setEligiendoArea(false)}>
+                      {moviendo ? <Loader2 className="animate-spin" /> : null}
+                      Cancelar
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
 
               <Dialog open={confirmarBorrado} onOpenChange={(abrir) => (!eliminando ? setConfirmarBorrado(abrir) : undefined)}>
                 <DialogContent className="sm:max-w-md">
