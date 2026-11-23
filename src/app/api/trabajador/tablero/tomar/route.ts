@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 
 import { cerebroParaLaTarjeta } from "@/features/cerebro/services/consultas";
+import { leerAreaFeatures } from "@/features/tableros-inteligentes/services/coordinador-en-vivo";
+import { areaPermitidaDeEntrada } from "@/features/tableros-inteligentes/services/reglas-trabajador";
 import { tomarTarjeta } from "@/features/tableros-inteligentes/services/trabajador";
 import { SIN_CACHE, contextoDelPedido, respuestaDeError, sinClave } from "../autenticar";
 
@@ -14,6 +16,8 @@ export const dynamic = "force-dynamic";
   de `excluir`) en APROBADO, PLAN_APROBADO o SUBIENDO pendiente, de forma atómica. Contesta
   `{ ok, tarjeta: null, motivo: "nada" | "ocupado" }` o `{ ok, tarjeta, hacer: "planear" | "construir" | "subir" }`.
   Ver services/trabajador.ts. Si el cerebro (Google Drive) tiene algo que toca la tarjeta, va en `tarjeta.cerebro`.
+  Solo Features (23-nov-2026): con `areaPermitidaId` (en el cuerpo o en la query; si no viene, el último que mandó el latido)
+  no toma una de fuera de esa Área que nunca se empezó (intentos = 0). Sin ninguno, como siempre.
 */
 export async function POST(request: Request) {
   const contexto = await contextoDelPedido(request);
@@ -26,7 +30,10 @@ export async function POST(request: Request) {
     // Sin cuerpo: un trabajador viejo (una a la vez).
   }
   try {
-    const respuesta = await tomarTarjeta(contexto, cuerpo);
+    const delPedido =
+      areaPermitidaDeEntrada(cuerpo.areaPermitidaId) ?? areaPermitidaDeEntrada(new URL(request.url).searchParams.get("areaPermitidaId"));
+    const areaPermitidaId = delPedido ?? (await leerAreaFeatures(contexto.workspaceId));
+    const respuesta = await tomarTarjeta(contexto, { ...cuerpo, areaPermitidaId });
     // Lo que el cerebro ya tiene decidido sobre esta tarjeta, para que el trabajador planee respetándolo.
     // Aparte de la toma y a prueba de fallas: sin cerebro conectado (o si falla) la tarjeta va como siempre.
     if (respuesta.tarjeta) {

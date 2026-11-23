@@ -1,0 +1,2 @@
+## Advertencias de operación
+- `coordinador_solo_features`: con el id del Área Features (en el pedido o el último que mandó el latido, guardado en AppSetting `tablero:area-features:<negocio>`), /candidatas y /tomar del Coordinador solo dan lo que cuelga de Features (sub-áreas incluidas) más las tarjetas ya empezadas (intentos > 0). Una aprobada de fuera de Features que nunca se empezó se queda esperando; para volver a tomar de todo el tablero hay que borrar esa clave de AppSetting y que el Coordinador deje de mandar el id.

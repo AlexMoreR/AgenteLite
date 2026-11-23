@@ -37,6 +37,7 @@ import {
 } from "./reglas-coordinador-en-vivo";
 import {
   NOMBRE_DE_LA_ZONA,
+  areaPermitidaDeEntrada,
   esZona,
   etiquetaEsperando,
   madreDeUnaAprobacionHeredada,
@@ -144,6 +145,36 @@ export async function leerCuposDelDia(workspaceId: string, dia: string): Promise
   }
 }
 
+/* ──────────────────────────────────────────────────────────────── el Área Features ── */
+
+/**
+ * Solo Features (23-nov-2026): el id del Área Features que el Coordinador manda en su latido (`areaPermitidaId`) se guarda acá.
+ * /candidatas y /tomar lo usan cuando el pedido no lo trae: así un Coordinador que no lo manda en cada pedido igual trabaja
+ * solo lo que cuelga de Features (más lo ya empezado). No empieza por `trabajador:latido:`.
+ */
+export const claveDelAreaFeatures = (workspaceId: string) => `tablero:area-features:${workspaceId}`;
+
+/** Guarda el id del Área Features si el latido trae uno válido y cambió (una lectura; casi nunca una escritura). */
+async function guardarAreaFeatures(workspaceId: string, cuerpo: unknown) {
+  if (!cuerpo || typeof cuerpo !== "object") return;
+  const area = areaPermitidaDeEntrada((cuerpo as { areaPermitidaId?: unknown }).areaPermitidaId);
+  if (!area) return;
+  const key = claveDelAreaFeatures(workspaceId);
+  const fila = await prisma.appSetting.findUnique({ where: { key }, select: { value: true } });
+  if (fila?.value === area) return;
+  await prisma.appSetting.upsert({ where: { key }, create: { key, value: area }, update: { value: area } });
+}
+
+/** El último id del Área Features que mandó el Coordinador de este negocio, o null (sin guardar, dañado o si falla). Nunca lanza. */
+export async function leerAreaFeatures(negocioId: string): Promise<string | null> {
+  try {
+    const fila = await prisma.appSetting.findUnique({ where: { key: claveDelAreaFeatures(negocioId) }, select: { value: true } });
+    return areaPermitidaDeEntrada(fila?.value);
+  } catch {
+    return null;
+  }
+}
+
 /** POST /latido: guarda el último latido de esta clave. Un cuerpo que no es un objeto es un 400. */
 export async function guardarLatido(contexto: ContextoTrabajador, cuerpo: unknown, ahora = new Date()) {
   const latido = latidoDeEntrada(cuerpo, ahora, HOST_DEL_CRM);
@@ -151,6 +182,10 @@ export async function guardarLatido(contexto: ContextoTrabajador, cuerpo: unknow
   const key = claveDelLatido(contexto.workspaceId, contexto.claveId);
   const value = JSON.stringify(latido);
   await prisma.appSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+  // El Área Features del Coordinador (la usan /candidatas y /tomar si el pedido no la trae): si falla, el latido sigue.
+  await guardarAreaFeatures(contexto.workspaceId, cuerpo).catch((error) =>
+    console.warn("[coordinador-en-vivo] no se pudo guardar el área Features", error instanceof Error ? error.message : String(error)),
+  );
   // Los máximos del día para el resumen de las 9 p. m.: si fallan, el latido sigue.
   await guardarCuposDelDia(contexto.workspaceId, cuerpo, ahora).catch((error) =>
     console.warn("[coordinador-en-vivo] no se pudieron guardar los máximos del día", error instanceof Error ? error.message : String(error)),

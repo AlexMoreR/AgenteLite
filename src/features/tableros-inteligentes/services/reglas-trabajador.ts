@@ -517,7 +517,17 @@ export function latidoDeEntrada(cuerpo: unknown): { lugar: LugarDeConstruccion |
   return { lugar, linkSesion: esLugarDeLaNube(lugar) ? linkDeSesionDeEntrada(datos.sesion) : null };
 }
 
-export type PedidoDeTomar = { maxParalelo?: unknown; excluir?: unknown };
+export type PedidoDeTomar = { maxParalelo?: unknown; excluir?: unknown; areaPermitidaId?: unknown };
+
+/**
+ * El id del Área Features que manda el Coordinador (23-nov-2026): el mismo formato que acepta su config
+ * (trabajador-tablero/lib/config.mjs, letras, números, _ y -, de 20 a 64). Cualquier otra cosa es null: como si no viniera.
+ */
+export function areaPermitidaDeEntrada(valor: unknown): string | null {
+  if (typeof valor !== "string") return null;
+  const id = valor.trim();
+  return /^[A-Za-z0-9_-]{20,64}$/.test(id) ? id : null;
+}
 
 export function opcionesDeTomar(pedido: PedidoDeTomar) {
   const numero = Math.floor(Number(pedido.maxParalelo));

@@ -50,6 +50,7 @@ import {
   detalleDeLaParte,
   linkDeEntrada,
   opcionesDeTomar,
+  areaPermitidaDeEntrada,
   motivoDeEntrada,
   sinMotivoDelCoordinador,
   partesDeEntrada,
@@ -110,11 +111,13 @@ import {
   SQL_ARRANQUE,
   SQL_CANDADO_DEL_NEGOCIO,
   SQL_CANDIDATAS,
+  SQL_CANDIDATAS_EN_AREA,
   SQL_ES_PARTE,
   SQL_MADRES_PARTIDAS,
   SQL_PASAR_HUERFANAS_A_ERROR,
   SQL_PASAR_VENCIDAS_A_ERROR,
   SQL_TOMAR_UNA,
+  SQL_TOMAR_UNA_EN_AREA,
   SQL_TRABAJANDO,
 } from "./sql-trabajador";
 import { QUIEN_TRABAJADOR, linkDeLaTarjeta } from "./tableros";
@@ -470,6 +473,8 @@ export type TarjetaParaTrabajar = ReturnType<typeof paraElTrabajador>;
  */
 export async function tomarTarjeta(contexto: ContextoTrabajador, pedido: PedidoDeTomar = {}, ahora = new Date()) {
   const { maxParalelo, excluir } = opcionesDeTomar(pedido);
+  // Solo Features (23-nov-2026): con el id del Área no se toma una de fuera que nunca se empezó (intentos = 0).
+  const areaPermitidaId = areaPermitidaDeEntrada(pedido.areaPermitidaId);
   const iso = ahora.toISOString();
   const vence = new Date(ahora.getTime() + MINUTOS_DE_GRACIA_DEL_LATIDO * 60_000).toISOString();
   return prisma.$transaction(async (tx) => {
@@ -543,13 +548,11 @@ export async function tomarTarjeta(contexto: ContextoTrabajador, pedido: PedidoD
       return { tarjeta: null, motivo: "ocupado" as const, enCurso: enCurso[0], enLasManos: enCurso, ...avisos };
     }
 
+    // Sin el id del Área, la consulta de siempre; con él, la misma con el filtro y el id en $6.
+    const valores: unknown[] = [contexto.workspaceId, iso, [...REPOS_DEL_TRABAJADOR], vence, excluir, ...(areaPermitidaId ? [areaPermitidaId] : [])];
     const [tomada] = await tx.$queryRawUnsafe<{ id: string; tableroId: string; antes: string; estado: string }[]>(
-      SQL_TOMAR_UNA,
-      contexto.workspaceId,
-      iso,
-      [...REPOS_DEL_TRABAJADOR],
-      vence,
-      excluir,
+      areaPermitidaId ? SQL_TOMAR_UNA_EN_AREA : SQL_TOMAR_UNA,
+      ...valores,
     );
     if (!tomada) return { tarjeta: null, motivo: "nada" as const, ...avisos };
 
@@ -661,11 +664,16 @@ async function cerrarLaMadreSiToca(tx: Tx, contexto: ContextoTrabajador, hija: {
   if (cerrada) await anotarTrabajador(tx, contexto, cerrada.id, { estado: cerrada.antes }, { estado: cerrada.estado, nota: cerrada.nota });
 }
 
-/** POST /candidatas: las que /tomar podría tomar, sin tomarlas (con su repo, zonas y plan). */
-export async function candidatasDelTrabajador(contexto: ContextoTrabajador) {
+/**
+ * POST /candidatas: las que /tomar podría tomar, sin tomarlas (con su repo, zonas y plan). Con `areaPermitidaId` (23-nov-2026),
+ * solo las que cuelgan de esa Área (sub-áreas incluidas) MÁS las ya empezadas (intentos > 0), filtradas antes del tope de 50.
+ */
+export async function candidatasDelTrabajador(contexto: ContextoTrabajador, areaPermitidaId?: unknown) {
+  const area = areaPermitidaDeEntrada(areaPermitidaId);
+  const valores: unknown[] = [contexto.workspaceId, [...REPOS_DEL_TRABAJADOR], ...(area ? [area] : [])];
   const filas = await prisma.$queryRawUnsafe<
     { id: string; tableroId: string; titulo: string; estado: string; repo: string; zonaProtegida: string[]; plan: string | null; desbloquea: number; prioridad: number }[]
-  >(SQL_CANDIDATAS, contexto.workspaceId, [...REPOS_DEL_TRABAJADOR]);
+  >(area ? SQL_CANDIDATAS_EN_AREA : SQL_CANDIDATAS, ...valores);
   const ancestros = await ancestrosDe(prisma, filas.map((fila) => fila.id));
   return {
     candidatas: filas.map((fila) => ({
