@@ -5,6 +5,7 @@ import { sendEvolutionTextMessageWithReconnect } from "@/lib/evolution";
 import { prisma } from "@/lib/prisma";
 
 import {
+  avisosDeAprobacionPrendidos,
   enSilencioDeAvisos,
   leerEstadoDeAvisos,
   lineaAdmin,
@@ -44,6 +45,10 @@ import { dondeTableroVivo } from "./tableros-archivados";
   - Quien se asigna su propia tarjeta (responsable = quien la creó) no recibe "tarea nueva" ni el recordatorio de 24 horas:
     es él mismo quien la acaba de dictar (el dueño por voz). Sí le llegan lo URGENTE y lo que cae en ERROR o espera su sí.
   - Sin responsable, si el aviso de siempre al dueño ya le mandó esa misma tarjeta, este no sale (no duplicar).
+  - 23-nov-2026 (decisión del dueño): el "necesita" que va AL DUEÑO (sin responsable o con el dueño de responsable) no
+    sale por WhatsApp mientras el interruptor de aprobaciones (`avisosDeAprobacionPrendidos`, fila
+    `tablero:avisos-dueno:aprobaciones:<ws>` = "true") esté apagado: queda como alerta suya y la fila se anota YA_VISTO
+    para que el reloj no lo reintente. El "necesita" a otra persona del equipo y los demás tipos no cambian.
   - AvisoTarjetaEquipo también guarda los avisos "terminada" al dueño (avisos-de-terminadas.ts, 30-oct-2026). Esas filas
     NO son avisos al equipo: todas las consultas de acá (la revisión, el paso a YA_VISTO al prender y el resumen con su
     "último aviso" y "último fallo") ignoran el motivo "terminada" con `motivo: { not: "terminada" }`.
@@ -293,7 +298,10 @@ async function conocerAlNegocio(workspaceId: string) {
     return { ok: false, motivo: "no tiene número de avisos en Mi empresa → Equipo" };
   }
 
-  return { destinoDe, ownerId };
+  /** El primer nombre de la persona (el dueño, aunque no figure como miembro). */
+  const nombreDe = async (userId: string) => primerNombre(nombres.get(userId) ?? (userId === ownerId ? await nombreDeUsuario(userId) : null));
+
+  return { destinoDe, nombreDe, ownerId };
 }
 
 async function nombreDeUsuario(userId: string): Promise<string | null> {
@@ -421,6 +429,9 @@ export async function revisarAvisosDelEquipoDelNegocio(workspaceId: string, ahor
   const negocio = await conocerAlNegocio(workspaceId);
   const noche = enSilencioDeAvisos(ahora);
   let enviados = 0;
+  // El interruptor de aprobaciones se lee una vez por vuelta y solo si hace falta.
+  let aprobacionesPrendidas: boolean | null = null;
+  const avisarAprobacionesPorWhatsApp = async () => (aprobacionesPrendidas ??= await avisosDeAprobacionPrendidos(workspaceId));
 
   const anotar = async (aviso: AvisoAlEquipo, estado: string, detalle: string | null, extra: { numero?: string | null; userId?: string | null } = {}) => {
     try {
@@ -441,6 +452,16 @@ export async function revisarAvisosDelEquipoDelNegocio(workspaceId: string, ahor
     }
     if (!existente && aviso.cubierta) {
       await anotar(aviso, "YA_VISTO", "la dice el aviso urgente");
+      continue;
+    }
+    // El "necesita" al dueño con las aprobaciones apagadas: solo alerta, sin WhatsApp, y no se reintenta.
+    const alDueno = aviso.userId === null || aviso.userId === negocio.ownerId;
+    if (aviso.tipo === "necesita" && alDueno && negocio.ownerId && !(await avisarAprobacionesPorWhatsApp())) {
+      const sinLink = textoDelAviso(aviso, await negocio.nombreDe(negocio.ownerId), "").replace(/\s*https?:\/\/\S+$/, "");
+      await guardarAlertaDelAviso(workspaceId, aviso, negocio.ownerId, sinLink);
+      const detalle = "no salió por WhatsApp: quedó en la página de alertas (aprobaciones apagadas)";
+      if (existente) await prisma.avisoTarjetaEquipo.updateMany({ where: { id: existente.id, estado: "PENDIENTE" }, data: { estado: "YA_VISTO", detalle } });
+      else await anotar(aviso, "YA_VISTO", detalle);
       continue;
     }
     // De noche solo sale lo urgente; lo demás espera (sin anotar) y sale a las 7 a. m. si todavía aplica.
