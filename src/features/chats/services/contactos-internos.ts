@@ -22,7 +22,8 @@ import { prisma } from "@/lib/prisma";
  * aviso a "573001234567" son la misma persona.
  *
  * En frio son DOS consultas (la config de avisos y una sola SQL para etiquetas y telefonos), y por
- * un minuto ninguna: la bandeja pide la lista cada pocos segundos y esto cambia muy de vez en cuando.
+ * un minuto ninguna (`cacheDeInternos`): la bandeja pide la lista cada pocos segundos y esto cambia
+ * muy de vez en cuando. Desde la parte 4 la vista por defecto (clientes) la usa en cada pedido.
  */
 
 export type ContactosInternos = {

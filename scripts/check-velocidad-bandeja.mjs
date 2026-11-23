@@ -26,6 +26,8 @@ async function prueba(nombre, fn) {
 const pg = require("pg");
 const escenario = { userRole: "CLIENTE", memberRole: "OWNER" };
 const sqls = [];
+/** Los parametros de cada SQL de `sqls`, en el mismo orden (la clave de un `findUnique`, por ejemplo). */
+const parametros = [];
 
 function columnas(sql) {
   const m = /^SELECT (.*?) FROM "public"\."(\w+)"/s.exec(sql);
@@ -70,6 +72,7 @@ class PoolFalso extends pg.Pool {
   async query(q) {
     const text = typeof q === "string" ? q : q.text;
     sqls.push(text);
+    parametros.push(typeof q === "string" ? [] : (q.values ?? []));
     const info = columnas(text);
     if (!info) return { fields: [], rows: [], rowCount: 1 };
     return {
@@ -392,12 +395,13 @@ const { prisma } = cargar("@/lib/prisma");
 const logOriginal = console.log;
 async function pedir(url) {
   sqls.length = 0;
+  parametros.length = 0;
   console.log = () => {}; // las lineas [timing]
   try {
     const res = await GET(new Request(url));
     const cuerpo = await res.json();
     assert.equal(cuerpo.ok, true, JSON.stringify(cuerpo));
-    return { consultas: sqls.length, cuerpo, sqls: [...sqls] };
+    return { consultas: sqls.length, cuerpo, sqls: [...sqls], parametros: [...parametros] };
   } finally {
     console.log = logOriginal;
   }
@@ -414,6 +418,19 @@ await prueba("consultas: dueño, cache fria <= 11 y caliente <= 7 (antes eran 14
   assert.ok(caliente.consultas <= 7, `caliente: ${caliente.consultas}`);
   // Ya no se cuentan todas las conversaciones del negocio en cada pedido.
   assert.ok(!fria.sqls.some((s) => s.includes("_aggr_count_conversations")));
+  /*
+    Sin `grupo` la vista es la de los clientes (parte 4): los contactos internos se leen en frio con
+    DOS consultas (la config de avisos y la SQL de etiquetas y telefonos) y en caliente salen de la
+    memoria. El tope de arriba no se sube por esto.
+  */
+  const deInternos = (pedido) =>
+    pedido.sqls.filter(
+      (s, i) =>
+        s.includes(`'telefono' AS "tipo"`) ||
+        pedido.parametros[i].some((v) => typeof v === "string" && v.startsWith("agente-v3:avisos:")),
+    ).length;
+  assert.equal(deInternos(fria), 2, "en frio se leen la config de avisos y los internos");
+  assert.equal(deInternos(caliente), 0, "en caliente los internos salen de la memoria");
 });
 
 await prueba("consultas: asesora con linea elegida y scroll, caliente <= 7 (antes eran 17)", async () => {

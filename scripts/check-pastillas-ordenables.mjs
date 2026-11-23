@@ -324,8 +324,15 @@ await prueba("WHERE del canal viejo: no_leido entra como ids (sin lista, ninguno
 const WS = "ws_magilus";
 await db.exec(`
   CREATE TABLE "Contact" (
-    "id" text PRIMARY KEY, "workspaceId" text NOT NULL, "metadata" jsonb, "bloqueadoEn" timestamp(3), "crmStage" text
+    "id" text PRIMARY KEY, "workspaceId" text NOT NULL, "metadata" jsonb, "bloqueadoEn" timestamp(3), "crmStage" text,
+    "phoneNumber" text
   );
+  -- Desde la parte 4 de "sacar los avisos internos" la vista por defecto (clientes) lee los contactos
+  -- internos: estas tablas van vacias (aca nadie es del equipo ni proveedor y los numeros no cambian).
+  CREATE TABLE "WhatsAppChannel" ("id" text PRIMARY KEY, "workspaceId" text NOT NULL, "phoneNumber" text);
+  CREATE TABLE "Tag" ("id" text PRIMARY KEY, "workspaceId" text NOT NULL, "name" text NOT NULL, "slug" text NOT NULL);
+  CREATE TABLE "ContactTag" ("contactId" text NOT NULL, "tagId" text NOT NULL, "workspaceId" text NOT NULL);
+  CREATE TABLE "AppSetting" ("key" text PRIMARY KEY, "value" text NOT NULL);
   CREATE TABLE "Conversation" (
     "id" text PRIMARY KEY, "workspaceId" text NOT NULL, "channelId" text, "contactId" text NOT NULL,
     "assignedToUserId" text, "segundoAsesorId" text, "status" text NOT NULL, "lastMessageAt" timestamp(3)
