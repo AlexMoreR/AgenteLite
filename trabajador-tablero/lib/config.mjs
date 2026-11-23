@@ -334,6 +334,11 @@ export function completarConfig(datos, base = process.cwd()) {
         errores.push(`repos.${clave}.agente.maxEnParalelo: cuántas tarjetas de este proyecto a la vez, un entero de 1 a ${MAXIMO_EN_PARALELO}.`);
       }
     }
+    // El comando remoto (por ssh) que lee los logs del arranque de ESTE proyecto cuando una subida falla (23-nov-2026). Opcional;
+    // sin él se usa ssh.logs (el del contenedor del CRM). Gestión no corre en el contenedor del CRM: necesita el suyo.
+    if (repo.logsArranque !== undefined && (typeof repo.logsArranque !== "string" || !repo.logsArranque.trim())) {
+      errores.push(`repos.${clave}.logsArranque: el comando remoto que lee los logs del arranque del proyecto, un texto no vacío.`);
+    }
     try {
       repos[clave] = {
         clave,
@@ -351,6 +356,7 @@ export function completarConfig(datos, base = process.cwd()) {
         nube: nubeDelRepo(repo.nube, clave, errores),
         zonasQueSubenSolas,
         vigilancia,
+        logsArranque: typeof repo.logsArranque === "string" && repo.logsArranque.trim() ? repo.logsArranque.trim() : null,
         // "dueño/repo" en GitHub: la vigilancia de la rama en la nube lo usa (si falta, se saca del remoto).
         github: typeof repo.github === "string" && /^[\w.-]+\/[\w.-]+$/.test(repo.github) ? repo.github : null,
         ruta: path.resolve(base, repo.ruta),

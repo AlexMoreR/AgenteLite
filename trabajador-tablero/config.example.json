@@ -414,6 +414,7 @@
       },
       "subirSolo": true,
       "zonasProtegidas": {},
+      "logsArranque": "docker logs --since 10m --tail 400 CONTENEDOR_GESTION 2>&1",
       "subida": {
         "ciBuscar": [
           "gh",

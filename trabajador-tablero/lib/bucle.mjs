@@ -579,7 +579,10 @@ async function manejarFalla(args, tarjeta, hacer, error) {
 }
 
 async function repararLaFalla({ crm, config, registro, contexto, bitacora }, tarjeta, hacer, error, nota) {
-  const motivo = error instanceof Error ? error.message : String(error);
+  // Una subida que se deshizo trae su causa en sencillo (deshacerSubida, 23-nov-2026): el motivo y la causa empiezan con ella.
+  const sencilla = typeof error?.reversion?.sencilla === "string" ? error.reversion.sencilla.trim() : "";
+  const mensaje = error instanceof Error ? error.message : String(error);
+  const motivo = sencilla && !mensaje.startsWith(sencilla) ? `${sencilla}\n${mensaje}` : mensaje;
   const textoLog = bitacora.join("\n");
   // 1. El error completo y el log, ANTES de diagnosticar.
   const rutaLog = registro.guardarIntento?.({
@@ -601,7 +604,10 @@ async function repararLaFalla({ crm, config, registro, contexto, bitacora }, tar
   }
 
   nota.diagnostico = diagnostico;
-  const intento = { etapa: hacer, categoria: diagnostico.categoria, causa: enUnaLinea(diagnostico.causa) || sinCausa(hacer, tarjeta.intentos), error: diagnostico.error };
+  const causaDelIntento = enUnaLinea(diagnostico.causa) || sinCausa(hacer, tarjeta.intentos);
+  const intento = { etapa: hacer, categoria: diagnostico.categoria, causa: sencilla ? enUnaLinea(`${sencilla} ${causaDelIntento}`) : causaDelIntento, error: diagnostico.error };
+  // Lo que llega a la tarjeta (soltar, escalar) dice primero la causa en sencillo.
+  const causaParaLaTarjeta = sencilla ? `${sencilla} ${diagnostico.causa ?? ""}`.trim() : diagnostico.causa;
 
   // 2b. Tres causas distintas sin resolverlo: UNA fila en el registro del Coordinador para el CTO (nunca al dueño ni por WhatsApp).
   avisarAlCtoSiHaceFalta({ config, registro }, tarjeta, diagnostico);
@@ -662,7 +668,7 @@ async function repararLaFalla({ crm, config, registro, contexto, bitacora }, tar
   }
   if (decision.accion === "esperar") {
     if (decision.arreglo === "sin_claude") await arreglarSinClaude(contexto, tarjeta, diagnostico.categoria, registro);
-    await soltar(crm, registro, tarjeta, `${diagnostico.causa} Se reintenta después.`, intento);
+    await soltar(crm, registro, tarjeta, `${causaParaLaTarjeta} Se reintenta después.`, intento);
     return resultado;
   }
   if (decision.accion === "partir") {
@@ -712,7 +718,7 @@ async function repararLaFalla({ crm, config, registro, contexto, bitacora }, tar
   const resumen =
     diagnostico.categoria === "revision_no_paso" && Array.isArray(error?.paraElDueno) && error.paraElDueno.length === 2
       ? error.paraElDueno.join("\n")
-      : resumenDeEscalada({ tarjeta, intentos: tarjeta.ultimosIntentos, diagnostico, decision });
+      : resumenDeEscalada({ tarjeta, intentos: tarjeta.ultimosIntentos, diagnostico: { ...diagnostico, causa: causaParaLaTarjeta }, decision });
   try {
     await crm.error(tarjeta.id, resumen, error?.zonas, error?.reversion, { ...intento, resumen });
   } catch (otro) {

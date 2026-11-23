@@ -8,7 +8,10 @@ let entrada = "";
 for await (const pedazo of process.stdin) entrada += pedazo;
 if (process.env.SSH_FALSO_LOG) fs.appendFileSync(process.env.SSH_FALSO_LOG, `${JSON.stringify({ destino, remoto, entrada })}\n`);
 
-if (remoto.startsWith("logs-falso")) {
+if (remoto.startsWith("logs-falso") && process.env.SSH_FALSO_LOGS_ARRANQUE === "1") {
+  // 23-nov-2026: los logs de un arranque que falló por la migración (P3009) y el entrypoint que sale con error.
+  console.log("2026-11-23T10:00:00Z Error: P3009 migrate found failed migrations in the target database\n2026-11-23T10:00:01Z docker/entrypoint.sh: npx prisma migrate deploy exited with code 1");
+} else if (remoto.startsWith("logs-falso")) {
   // La vigilancia de 30 min: la 1ª lectura (antes de subir) trae un error viejo conocido; las siguientes, lo mismo y,
   // con SSH_FALSO_ERRORES=1, tres errores NUEVOS. SSH_FALSO_LOGS_FALLA=1: no se puede leer.
   const archivoConteo = `${process.env.SSH_FALSO_LOG ?? "ssh-falso"}.conteo-logs`;

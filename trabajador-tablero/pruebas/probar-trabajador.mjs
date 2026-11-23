@@ -29,7 +29,7 @@ import { CARPETA_DE_NOTAS, MANUAL, crearManualNocturno, horaEnBogota, leerEstado
 import { guionDeEnsayo, sqlParaEnsayo } from "../lib/ensayo.mjs";
 import { archivosConMarcas, enRebase, esRamaDelTrabajador, idCorto, nombreDeRama, pushDeRama, rebaseSobre, webDeGithub } from "../lib/git.mjs";
 import { esDeMigraciones, promptDeResolver, resolverChoque, respuestaDelChoque } from "../lib/resolver-choque.mjs";
-import { CAUSAS_PARA_AVISAR_AL_CTO, LARGO_MAXIMO_DEL_AVISO, PREFIJOS_DE_CAUSA, causaExterna, causasDistintas, decidir, diagnosticar, recortarAviso, resumenDeEscalada, textoDelAvisoDeReversion } from "../lib/diagnostico.mjs";
+import { CAUSAS_PARA_AVISAR_AL_CTO, LARGO_MAXIMO_DEL_AVISO, PREFIJOS_DE_CAUSA, causaDeLaSubidaFallida, causaExterna, causasDistintas, decidir, diagnosticar, recortarAviso, resumenDeEscalada, textoDelAvisoDeReversion } from "../lib/diagnostico.mjs";
 import {
   CONFIRMACION_REVISION_DE_NUEVO,
   buscarCorridaDelDespliegue,
@@ -2150,6 +2150,46 @@ await prueba("aviso de reversión al dueño: máximo 3 líneas y 500 caracteres 
   assert.ok(largo.length <= 500 && largo.split("\n").length === 3);
 });
 
+await prueba("causa de la subida fallida (23-nov-2026): código, arranque, pasajera y desconocida, con frase sencilla y hasta 8 líneas", () => {
+  const casos = [
+    ["codigo", { motivo: "Subió a main pero el CI falló", logs: "2026-11-23T10:00:00Z INFO listo\n2026-11-23T10:00:01Z ERROR TypeError: Cannot read properties of undefined (reading 'saldo')\n    at abonos.ts:12" }],
+    ["arranque", { motivo: "la versión nueva no arrancó", logs: "Error: P3009 migrate found failed migrations in the target database\ndocker/entrypoint.sh: line 12: npx prisma migrate deploy exited with code 1" }],
+    ["pasajera", { motivo: "Subió a main y el CI pasó, pero /api/version sigue diciendo \"nada\"", logs: "connect ETIMEDOUT 10.0.0.5:443\nHTTP 503 Service Unavailable" }],
+    ["desconocida", { motivo: "", logs: "" }],
+  ];
+  for (const [clase, entrada] of casos) {
+    const causa = causaDeLaSubidaFallida(entrada);
+    assert.equal(causa.clase, clase, `${clase}: ${JSON.stringify(causa)}`);
+    assert.ok(causa.sencilla.trim().length > 10, `${clase}: la frase sencilla no está vacía`);
+    assert.ok(!/TypeError|P3009|ETIMEDOUT|503|entrypoint/.test(causa.sencilla), `${clase}: sin palabras técnicas`);
+    assert.ok(Array.isArray(causa.lineas) && causa.lineas.length <= 8);
+  }
+  assert.ok(causaDeLaSubidaFallida(casos[0][1]).lineas.some((linea) => /TypeError/.test(linea)), "las líneas muestran el error");
+  assert.ok(causaDeLaSubidaFallida(casos[1][1]).lineas.some((linea) => /P3009/.test(linea)));
+  // Más de 8 líneas: solo 8.
+  assert.equal(causaDeLaSubidaFallida({ logs: Array.from({ length: 20 }, (_, i) => `ERROR TypeError número ${i}`).join("\n") }).lineas.length, 8);
+  // Falta una variable de entorno: arranque. Un error del programa le gana a un 503. La vigilancia con fallas nuevas: código.
+  assert.equal(causaDeLaSubidaFallida({ logs: "Error: Environment variable not found: DATABASE_URL" }).clase, "arranque");
+  assert.equal(causaDeLaSubidaFallida({ logs: "contestó 503\nReferenceError: x is not defined" }).clase, "codigo");
+  assert.equal(causaDeLaSubidaFallida({ motivo: "2 línea(s) de falla nueva(s) en los logs: [minuto 3] ERROR fallo al guardar", vigilancia: true }).clase, "codigo");
+  // El despliegue venció sin ningún error del código: pasajera. Con los logs del servidor sin leer (ssh caído): pasajera.
+  assert.equal(causaDeLaSubidaFallida({ motivo: "Subió a main pero el CI se pasó del tiempo: corrida en curso" }).clase, "pasajera");
+  assert.equal(causaDeLaSubidaFallida({ logs: "ssh: connect to host servidor port 22: Connection refused" }).clase, "pasajera");
+});
+
+await prueba("aviso de reversión y causa (23-nov-2026): con la frase sencilla, el Motivo es esa frase; sin ella, como antes", () => {
+  const motivo = "Se subió, no arrancó y se deshizo.\nDetalle técnico: Subió a main pero el CI falló: TypeError en abonos.ts";
+  const conSencilla = { commit: "602d0beb01d9", revert: "66918ed0e7db", ok: true, clase: "arranque", sencilla: "Faltó una configuración del servidor al arrancar.", lineas: [] };
+  const texto = textoDelAvisoDeReversion("Abonos", motivo, conSencilla);
+  assert.equal(texto.split("\n")[1], "Motivo: Faltó una configuración del servidor al arrancar.");
+  assert.ok(texto.length <= LARGO_MAXIMO_DEL_AVISO);
+  const sinSencilla = textoDelAvisoDeReversion("Abonos", motivo, { commit: "602d0beb01d9", revert: "66918ed0e7db", ok: true });
+  assert.match(sinSencilla.split("\n")[1], /^Motivo: Subió a main pero el CI falló: TypeError/);
+  // Con la clase "desconocida" la frase no dice nada: queda el detalle técnico.
+  const desconocida = textoDelAvisoDeReversion("Abonos", motivo, { ...conSencilla, clase: "desconocida", sencilla: "No se pudo saber la causa: los registros no muestran por qué falló." });
+  assert.match(desconocida.split("\n")[1], /^Motivo: Subió a main pero el CI falló: TypeError/);
+});
+
 await prueba("subida: la corrida que decide 'deshacer' es la del workflow de despliegue (workflowDespliegue), no la de revisión", () => {
   const buscar = ["gh", "run", "list", "--repo", "AlexMoreR/AgenteLite", "--commit", "{commit}", "--json", "databaseId", "--jq", ".[0].databaseId"];
   assert.deepEqual(buscarCorridaDelDespliegue(buscar, "docker-image.yml").slice(0, 5), ["gh", "run", "list", "--workflow", "docker-image.yml"]);
@@ -3858,6 +3898,91 @@ process.exit(real.status ?? 1);
     const arbol = execFileSync("git", ["--git-dir", REMOTO, "ls-tree", "--name-only", "main"], { encoding: "utf8" });
     assert.ok(!/^ya-en-main-3\.txt$/m.test(arbol), "se quitó lo de la tarea");
     assert.ok(/^otro-de-main-2\.txt$/m.test(arbol), "lo ajeno de main sigue");
+    sinRestos();
+  });
+
+  await prueba("subida que falla y se deshace (23-nov-2026): después de revertir lee los logs y la tarjeta trae la causa en sencillo", async () => {
+    const id = nueva("Abonos que no arrancan", "SUBIENDO", { plan: "El plan" });
+    const { rama, commit, base } = ramaEnElRemoto("causa-sencilla", "causa-sencilla.txt", "uno\n");
+    Object.assign(tarjetas.get(id), { resultado: { paso: true, rama, commit, base, subeSolo: true } });
+    const sshAntes = leerLog(LOGS.ssh).length;
+    const conCiQueFalla = crearConfig({}, { logsArranque: "logs-falso-arranque", subida: { ...config.repos.aizencrm.subida, ciEsperar: [node, falso("gh-falso.mjs"), "esperar-falla", "{run}"] } });
+    process.env.SSH_FALSO_LOGS_ARRANQUE = "1";
+    let resultado;
+    try {
+      resultado = await vuelta(conCiQueFalla);
+    } finally {
+      delete process.env.SSH_FALSO_LOGS_ARRANQUE;
+    }
+    assert.equal(resultado.ok, false);
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "ERROR");
+    assert.match(execFileSync("git", ["--git-dir", REMOTO, "log", "-1", "--format=%s", "main"], { encoding: "utf8" }), /^revert: deshacer /, "revirtió");
+    // Leyó los logs con el comando del repo (logsArranque), no con ssh.logs.
+    const leidas = leerLog(LOGS.ssh).slice(sshAntes).map((l) => l.remoto);
+    assert.ok(leidas.includes("logs-falso-arranque"), `leyó con logsArranque: ${leidas.join(", ")}`);
+    const error = llamadas.findLast((l) => l.accion === "error" && l.id === id).cuerpo;
+    assert.equal(error.reversion.ok, true);
+    assert.equal(error.reversion.clase, "arranque");
+    assert.match(error.reversion.sencilla, /actualización de la base de datos/);
+    assert.ok(error.reversion.lineas.some((linea) => /P3009/.test(linea)), "las líneas del log que lo muestran");
+    assert.match(t.resultado.error.motivo, /actualización de la base de datos al arrancar/, "el motivo de la tarjeta trae la frase sencilla");
+    const aviso = llamadas.findLast((l) => l.accion === "aviso" && l.cuerpo.tipo === "necesita" && /Abonos que no arrancan/.test(l.cuerpo.texto));
+    assert.match(aviso.cuerpo.texto.split("\n")[1], /^Motivo: Falló la actualización de la base de datos/, "el WhatsApp al dueño dice la causa en sencillo");
+    // El texto del error (lo que llega a los Detalles técnicos) trae la línea antes del "Detalle técnico".
+    assert.match(resultado.motivo, /Causa \(en sencillo\): Falló la actualización[^\n]*\nDetalle técnico:/);
+    sinRestos();
+  });
+
+  await prueba("subida que falla y se deshace, tarjeta moderna (23-nov-2026): la causa del intento empieza con la frase sencilla", async () => {
+    const id = nueva("Abonos modernos que no arrancan", "SUBIENDO", { plan: "El plan", moderno: true });
+    const { rama, commit, base } = ramaEnElRemoto("causa-sencilla-moderna", "causa-sencilla-moderna.txt", "tres\n");
+    Object.assign(tarjetas.get(id), { resultado: { paso: true, rama, commit, base, subeSolo: true } });
+    const conCiQueFalla = crearConfig({}, { logsArranque: "logs-falso-arranque", subida: { ...config.repos.aizencrm.subida, ciEsperar: [node, falso("gh-falso.mjs"), "esperar-falla", "{run}"] } });
+    process.env.SSH_FALSO_LOGS_ARRANQUE = "1";
+    let resultado;
+    try {
+      resultado = await vuelta(conCiQueFalla);
+    } finally {
+      delete process.env.SSH_FALSO_LOGS_ARRANQUE;
+    }
+    assert.equal(resultado.ok, false);
+    const sencilla = "Falló la actualización de la base de datos al arrancar la versión nueva.";
+    assert.ok(resultado.motivo.startsWith(sencilla), `el motivo empieza con la frase: ${resultado.motivo.slice(0, 120)}`);
+    const intento = tarjetas.get(id).intentosLista?.at(-1);
+    assert.ok(intento, "quedó el intento");
+    assert.ok(intento.causa.startsWith(sencilla), `la causa del intento empieza con la frase: ${intento.causa}`);
+    const error = llamadas.findLast((l) => l.accion === "error" && l.id === id);
+    if (error) assert.match(error.cuerpo.motivo, new RegExp(`^Qué falló: ${sencilla.slice(0, 40)}`), "el resumen al dueño empieza con la frase");
+    sinRestos();
+  });
+
+  await prueba("subida que falla y los logs no se pueden leer (23-nov-2026): igual se deshace y la causa queda sin logs", async () => {
+    const id = nueva("Abonos sin logs", "SUBIENDO", { plan: "El plan" });
+    const { rama, commit, base } = ramaEnElRemoto("causa-sin-logs", "causa-sin-logs.txt", "dos\n");
+    Object.assign(tarjetas.get(id), { resultado: { paso: true, rama, commit, base, subeSolo: true } });
+    const conCiQueFalla = crearConfig({}, { subida: { ...config.repos.aizencrm.subida, ciEsperar: [node, falso("gh-falso.mjs"), "esperar-falla", "{run}"] } });
+    process.env.SSH_FALSO_LOGS_FALLA = "1";
+    let resultado;
+    try {
+      // Una lectura antes, para que la de después de deshacer sea la que falla (ssh-falso falla desde la 2ª).
+      try {
+        execFileSync(node, [falso("ssh-falso.mjs"), "prueba@servidor-falso", "logs-falso"], { input: "", encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
+      } catch {
+        // Ya no era la 1ª lectura: esta también falla, como se quiere.
+      }
+      resultado = await vuelta(conCiQueFalla);
+    } finally {
+      delete process.env.SSH_FALSO_LOGS_FALLA;
+    }
+    assert.equal(resultado.ok, false);
+    assert.equal(tarjetas.get(id).estado, "ERROR");
+    assert.match(execFileSync("git", ["--git-dir", REMOTO, "log", "-1", "--format=%s", "main"], { encoding: "utf8" }), /^revert: deshacer /, "revirtió aunque no pudo leer los logs");
+    const error = llamadas.findLast((l) => l.accion === "error" && l.id === id).cuerpo;
+    assert.equal(error.reversion.ok, true);
+    // Sin logs del servidor ni ciDeRama.log en esta configuración: no hay de dónde sacar la causa.
+    assert.ok(["desconocida", "pasajera"].includes(error.reversion.clase), error.reversion.clase);
+    assert.match(resultado.motivo, /Causa \(en sencillo\): /);
     sinRestos();
   });
 
