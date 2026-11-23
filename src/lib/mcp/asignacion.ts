@@ -38,7 +38,7 @@ const INTERRUPTORES: Array<{ mcp: string; clave: keyof ConfigDeAsignacion; que: 
   {
     mcp: "clienta_pregunta_plata_o_entrega",
     clave: "clientaPreguntaPlataOEntrega",
-    que: "La clienta pregunta precio, pago, envío o contraentrega, o dice su ciudad (con las fotos ya mandadas).",
+    que: "La clienta escribe algo además del mensaje con el que entró (el texto del anuncio o de Marketplace no cuenta), con fotos o sin fotos.",
   },
   {
     mcp: "asesora_escribe",
@@ -154,7 +154,7 @@ export function cuandoSeAsigna(config: ConfigDeAsignacion): string {
   if (config.comoAntes) return "como antes: apenas la clienta responde la bienvenida";
   const partes = [
     config.agentePide ? "el agente pide asesora o pausa la IA" : null,
-    config.clientaPreguntaPlataOEntrega ? "la clienta pregunta precio, pago, envío o contraentrega, o dice su ciudad" : null,
+    config.clientaPreguntaPlataOEntrega ? "la clienta escribe algo además del mensaje con el que entró" : null,
     config.asesoraEscribe ? "una asesora escribe en el chat" : null,
   ].filter(Boolean);
   if (!partes.length) return "nunca sola: todos los interruptores apagados (solo a mano o por la regla de demora)";

@@ -435,6 +435,22 @@ await prueba("con crm:etapa-automatica:<negocio> en off no cambia nada", async (
   assert.equal(db.historial.length, 0);
 });
 
+await prueba("22-nov: con crm:etapa-automatica:barrido-ia:<negocio> en off la IA no lee nada, pero el Ganado de Gestión sigue", async () => {
+  db.settings.set(`crm:etapa-automatica:barrido-ia:${WS}`, "off");
+  respuestaIA = "CALIENTE";
+  const venta = nuevoContacto("v2", { phoneNumber: "573004445577", crmStage: "NEGOCIACION" });
+  nuevoChat("cv-v2", "v2");
+  nuevaVenta("G-v2", "3004445577");
+  const c = chatSinEtapa(1);
+  const r = await barrer();
+  assert.equal(r.leidosPorIA, 0);
+  assert.equal(preguntas.length, 0);
+  assert.equal(c.crmStage, "NUEVO");
+  assert.equal(r.ganados, 1);
+  assert.equal(venta.crmStage, "GANADO");
+  assert.equal(motor.claveInterruptorIaDelBarrido(WS), `crm:etapa-automatica:barrido-ia:${WS}`);
+});
+
 await prueba("el barrido no usa funciones de envío y el reloj lo llama cada 30 minutos en segundo plano", async () => {
   const fuente = fs.readFileSync(path.join(RAIZ, "src/features/crm/services/barrido-de-etapas.ts"), "utf8");
   assert.doesNotMatch(fuente, /sendText|enviar|evolution/i);

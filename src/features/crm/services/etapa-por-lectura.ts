@@ -6,6 +6,7 @@ import {
   claveInterruptorDescarteAutomatico,
   claveInterruptorEtapaAutomatica,
   claveInterruptorGanadoAutomatico,
+  claveInterruptorIaDelBarrido,
   etapaAutomaticaPrendida,
   etapaQueSePuedeLeer,
   moverEtapaAutomatica,
@@ -44,7 +45,7 @@ const ESPERA_IA_MS = 8_000;
 
 const SISTEMA = `Eres el clasificador del CRM de una tienda de mobiliario para estética (camillas, sillas, combos) en Colombia.
 Lees UN mensaje de un cliente por WhatsApp y contestas con UNA palabra:
-CALIENTE si quiere comprar ya: pregunta cómo pagar, pide datos para consignar, pide el total, elige color o modelo, dice su ciudad para el envío o manda sus datos.
+CALIENTE si quiere comprar ya: pregunta cómo pagar, pide datos para consignar, pide el total, elige color o modelo o manda sus datos. Decir solo su ciudad NO es CALIENTE.
 TIBIO si muestra interés pero lo deja para después, duda o lo va a pensar.
 FRIO si pregunta el precio o pide fotos.
 NADA si solo saluda, pregunta información general o no se sabe.
@@ -176,6 +177,8 @@ export type EstadoDeEtapaPorLectura = {
     /** El barrido corre si la etapa automática está prendida. */
     prendido: boolean | null;
     ganado_automatico_prendido: boolean | null;
+    /** La IA que lee los chats sin etapa (`crm:etapa-automatica:barrido-ia:<negocio>`, 22-11-2026). */
+    ia_prendida: boolean | null;
     chats_leidos_por_ia_hoy: number | null;
     ganados_de_gestion_hoy: number | null;
   };
@@ -222,10 +225,11 @@ export async function estadoDeEtapaPorLectura(
   const inicioDeLaSemana = new Date(inicioDeHoy.getTime() - (DIAS_DE_MEDICION - 1) * 86_400_000);
   const desde = new Date(ahora.getTime() - DIAS_DE_MEDICION * 86_400_000);
 
-  const [general, descarte, ganado, contador, calientes, sinEtapa, ganadosHoy] = await Promise.all([
+  const [general, descarte, ganado, iaDelBarrido, contador, calientes, sinEtapa, ganadosHoy] = await Promise.all([
     valorDe(claveInterruptorEtapaAutomatica(workspaceId)),
     valorDe(claveInterruptorDescarteAutomatico(workspaceId)),
     valorDe(claveInterruptorGanadoAutomatico(workspaceId)),
+    valorDe(claveInterruptorIaDelBarrido(workspaceId)),
     valorDe(claveContadorDeIA(workspaceId)),
     intentar("los calientes de la semana", () =>
       prisma.historialEtapa.findMany({
@@ -306,6 +310,7 @@ export async function estadoDeEtapaPorLectura(
     barrido: {
       prendido: etapaPrendida,
       ganado_automatico_prendido: etapaPrendida === false ? false : ganado === null ? null : !apagado(ganado),
+      ia_prendida: etapaPrendida === false ? false : iaDelBarrido === null ? null : !apagado(iaDelBarrido),
       chats_leidos_por_ia_hoy: leidosHoy,
       ganados_de_gestion_hoy: ganadosHoy,
     },

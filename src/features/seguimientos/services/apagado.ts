@@ -12,6 +12,9 @@ import { decidirApagado, type MensajeDelChat, type MotivoDeApagado, type TipoDeS
  */
 
 const MENSAJES_A_MIRAR = 40;
+
+/** Orígenes del historial de etapas que son del sistema, no de una persona (22-11-2026). */
+export const ORIGENES_DEL_SISTEMA = ["AUTOMATICO", "BOT", "SISTEMA"];
 export const PREFIJO_NOTA_APAGADOS = "Seguimientos apagados: ";
 
 export type RevisionDeApagado = { motivo: MotivoDeApagado; conversationId: string; channelId: string | null } | null;
@@ -56,9 +59,23 @@ export async function revisarApagadoDelChat(input: {
       origen: ((m.rawPayload as { source?: unknown } | null)?.source as string | undefined) ?? null,
     }));
 
+    // ¿Quién puso la etapa? Solo hace falta para un Caliente: el del sistema ya no apaga (22-11-2026).
+    let etapaPuestaPorElSistema = false;
+    if (charla.contact?.crmStage === "NEGOCIACION") {
+      const ultimo = await prisma.historialEtapa.findFirst({
+        where: { workspaceId: input.workspaceId, contactId: input.contactId },
+        orderBy: { creadoEn: "desc" },
+        select: { origen: true, etapaNueva: true },
+      });
+      etapaPuestaPorElSistema = Boolean(
+        ultimo && ultimo.etapaNueva === "NEGOCIACION" && ORIGENES_DEL_SISTEMA.includes(ultimo.origen),
+      );
+    }
+
     const motivo = decidirApagado({
       tipo: input.tipo,
       etapaCrm: charla.contact?.crmStage ?? null,
+      etapaPuestaPorElSistema,
       interruptorApagado: charla.seguimientosApagados,
       mensajes,
       inicioDeLaCharla: charla.startedAt,

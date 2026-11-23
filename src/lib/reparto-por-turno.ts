@@ -1,14 +1,19 @@
 import { prisma } from "@/lib/prisma";
+import { origenDeLinea } from "@/lib/origen-de-venta";
 import { autoAssignConversationToCollaborator } from "@/lib/reparto-de-leads";
 import {
   decidirSiElChatNecesitaAsesora,
   iaPausadaPorElChat,
   leerConfigDeAsignacion,
   notaDelAgentePideAsesor,
+  primerMensajeEsDeEntrada,
 } from "@/lib/reparto-cuando-lo-necesita";
 
 /**
  * EL REPARTO: la clienta recibe asesora cuando el chat la NECESITA (Alex, 11-nov-2026).
+ *
+ * Desde el 22-nov-2026 "la necesita" apenas la clienta escribe algo además del mensaje con el que
+ * entró (ver reparto-cuando-lo-necesita.ts), con fotos o sin fotos.
  *
  * Desde el 11-11-2026 decide la regla de reparto-cuando-lo-necesita.ts: nadie antes de que el bot
  * mande las fotos, y después solo si el agente pidió asesora o la clienta habla de precio, pago,
@@ -47,15 +52,19 @@ export async function repartirSiElTurnoLoAmerita(input: {
       select: {
         assignedToUserId: true,
         automationPaused: true,
-        contact: { select: { bloqueadoEn: true, excludedFromCrm: true } },
+        contact: { select: { bloqueadoEn: true, excludedFromCrm: true, metadata: true } },
       },
     }),
     prisma.whatsAppChannel.findUnique({
       where: { id: input.channelId },
-      select: { purpose: true },
+      select: { purpose: true, name: true, metadata: true },
     }),
   ]);
   if (!conversacion || conversacion.assignedToUserId || canal?.purpose !== "SALES") {
+    return { asignada: false };
+  }
+  // Un contacto bloqueado no se le pasa a nadie (desde el 22-11 cualquier mensaje asigna).
+  if (conversacion.contact?.bloqueadoEn) {
     return { asignada: false };
   }
 
@@ -74,6 +83,13 @@ export async function repartirSiElTurnoLoAmerita(input: {
     agentePidioAsesor: Boolean(notaDelAgentePideAsesor(mensajes)),
     // Un contacto bloqueado u oculto del CRM también tiene la IA pausada: eso no es pedir asesora.
     iaPausada: iaPausadaPorElChat(conversacion),
+    // Desde el 22-11: el mensaje con el que entró (texto del anuncio o de Marketplace) no asigna.
+    primerMensajeEsDeEntrada: primerMensajeEsDeEntrada({
+      metadataContacto: conversacion.contact?.metadata,
+      lineaEsMarketplace:
+        origenDeLinea({ channelId: input.channelId, nombre: canal.name, purpose: canal.purpose, metadata: canal.metadata }) ===
+        "MARKETPLACE",
+    }),
   });
   if (!decision.asignar) {
     return { asignada: false };

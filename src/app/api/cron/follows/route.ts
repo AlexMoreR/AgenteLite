@@ -12,6 +12,7 @@ import { rescatarMensajesSinDecidir } from "@/features/agente-v3/servicios/resca
 import { revisarListoParaPagar } from "@/features/listo-para-pagar/servicios/listo-para-pagar";
 import { revisarDemorasDeAsesoras } from "@/features/chats/services/demora-de-asesora";
 import { rescatarChatsHuerfanos } from "@/lib/rescate-de-chats-huerfanos";
+import { rescatarNuevoSinAsesoraUnaVez } from "@/lib/rescate-nuevo-sin-asesora";
 import { repartirChatsDeMadrugada } from "@/lib/reparto-de-madrugada";
 import { transcribirAudiosPendientes } from "@/lib/transcripcion-de-audios";
 import { sincronizarSiTocaHoy } from "@/lib/sincronizacion-gestion";
@@ -156,6 +157,13 @@ async function handleCron(request: Request) {
   } catch (error) {
     console.error("[cron/follows] rescate de huerfanos error", error);
   }
+
+  /*
+    Rescate de UNA sola vez (22-nov-2026): los chats en Nuevo sin asesora que sí escribieron, de los
+    últimos 10 días, entre Ingrid y María. Sin mensajes a las clientas ni avisos al celular. Después de la
+    primera vuelta solo lee su marca en AppSetting. Ver src/lib/rescate-nuevo-sin-asesora.ts.
+  */
+  await rescatarNuevoSinAsesoraUnaVez();
 
   /*
     Los chats que llegaron de madrugada sin nadie en línea: se reparten desde las 7:00 a las que

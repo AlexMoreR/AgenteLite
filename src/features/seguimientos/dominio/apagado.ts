@@ -8,7 +8,9 @@
  * Un seguimiento AUTOMÁTICO (el de un paso del embudo, el de un producto, el reloj V3, "Tras asesora",
  * "Inteligente") no sale, y los pendientes del contacto se cancelan, cuando:
  *  - el interruptor "Seguimientos automáticos" de ese chat está apagado (lo apaga la asesora);
- *  - el chat está en una etapa de venta o cierre del CRM (Negociación, Ganado);
+ *  - el chat está en una etapa de venta o cierre del CRM (Negociación, Ganado). Desde el 22-nov-2026 (Alex)
+ *    un Caliente (Negociación) que puso EL SISTEMA (etapa automática, el bot) ya no apaga: el sistema sube a
+ *    Caliente leyendo frases y una curiosa se quedaba sin seguimientos. El que pone una persona sí apaga;
  *  - el cliente ya confirmó la compra o el pago. Regla CONSERVADORA: es preferible dejar pasar un falso
  *    negativo que apagarle los seguimientos a quien no confirmó. Un "sí" suelto solo cuenta si lo último que
  *    dijo el negocio fue una pregunta de cierre o de pago;
@@ -44,6 +46,8 @@ export type HechosDeApagado = {
   tipo: TipoDeSeguimiento;
   /** `Contact.crmStage`. */
   etapaCrm: string | null;
+  /** El último cambio de etapa lo hizo el sistema (origen AUTOMATICO, BOT o SISTEMA en HistorialEtapa). */
+  etapaPuestaPorElSistema?: boolean;
   /** `Conversation.seguimientosApagados`. */
   interruptorApagado: boolean;
   mensajes: MensajeDelChat[];
@@ -57,7 +61,8 @@ export function decidirApagado(h: HechosDeApagado): MotivoDeApagado | null {
     return { codigo: "interruptor", texto: "los apagó la asesora en este chat" };
   }
   const etapa = h.etapaCrm ? ETAPAS_DE_VENTA[h.etapaCrm] : undefined;
-  if (etapa) {
+  const calienteDelSistema = h.etapaCrm === "NEGOCIACION" && h.etapaPuestaPorElSistema === true;
+  if (etapa && !calienteDelSistema) {
     return { codigo: "etapa_de_venta", texto: `el chat está en etapa de venta (${etapa})` };
   }
   if (clienteConfirmoCompra(h.mensajes, h.ahora)) {

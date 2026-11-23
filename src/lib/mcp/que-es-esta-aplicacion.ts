@@ -373,6 +373,20 @@ async function bandera(clave: string) {
   return fila?.value ?? null;
 }
 
+/** El rescate de una sola vez del 22-11-2026: si ya corrió y qué hizo (la marca en AppSetting). */
+async function estadoDelRescateNuevoSinAsesora(): Promise<string> {
+  try {
+    const marca = await bandera("rescate:nuevo-sin-asesora:2026-11-22");
+    if (!marca) return "pendiente: corre una sola vez en la próxima vuelta del reloj de cada minuto";
+    const valor = JSON.parse(marca) as { termino?: string; asignados?: number; porAsesora?: Record<string, number> };
+    if (!valor.termino) return "empezó y no terminó (ver los registros del servidor)";
+    const reparto = Object.entries(valor.porAsesora ?? {}).map(([quien, cuantos]) => `${quien} ${cuantos}`).join(", ");
+    return `ya corrió (${valor.termino}): ${valor.asignados ?? 0} chats asignados${reparto ? ` (${reparto})` : ""}; no vuelve a correr`;
+  } catch {
+    return "no se pudo leer";
+  }
+}
+
 /** La demora de la asesora (aviso a los 5 min y reasignación a los 10). Sin fila o JSON roto = apagada. */
 async function estadoDeLaDemoraDeAsesora(workspaceId: string) {
   const config = leerConfigDemoraDeTexto(await bandera(`${PREFIJO_CONFIG_DEMORA}${workspaceId}`));
@@ -687,9 +701,15 @@ function estadoDelBarrido(etapaAuto: string | null, lectura: EstadoDeEtapaPorLec
       : barrido?.ganado_automatico_prendido == null
         ? " (no se pudo leer su interruptor)"
         : "";
+  const ia =
+    barrido?.ia_prendida === false
+      ? " (APAGADA: crm:etapa-automatica:barrido-ia:<negocio> = off)"
+      : barrido?.ia_prendida == null
+        ? " (no se pudo leer su interruptor)"
+        : "";
   const numero = (n: number | null | undefined) => (n == null ? "?" : String(n));
   return (
-    `activa: cada 10 minutos pone Ganado desde las ventas de Gestión${ganado} y la IA lee hasta 20 chats sin etapa por vuelta (300 al día). ` +
+    `activa: cada 30 minutos pone Ganado desde las ventas de Gestión${ganado} y la IA lee hasta 20 chats sin etapa por vuelta (300 al día)${ia}. ` +
     `Hoy: ${numero(barrido?.chats_leidos_por_ia_hoy)} chats leídos por la IA y ${numero(barrido?.ganados_de_gestion_hoy)} Ganado de Gestión`
   );
 }
@@ -787,6 +807,8 @@ async function automatizaciones(
     // Cron cada minuto: aviso "Listo para pagar" sin respuesta humana en 5 min (en horario) → líder de ventas.
     listo_para_pagar: v3.hayLineasConV3 ? sinInterruptor : "no aplica: ninguna linea usa el Agente V3",
     rescate_de_chats_huerfanos: sinInterruptor,
+    // Una sola vez (22-11-2026): los chats en Nuevo sin asesora que escribieron, entre Ingrid y María.
+    rescate_nuevo_sin_asesora: await estadoDelRescateNuevoSinAsesora(),
     // Cron cada minuto: retoma los flujos mandados desde el chat que quedaron a medias (proceso caído).
     retomar_envios_de_flujo: sinInterruptor,
     // Cron cada minuto: push a la asesora si su chat de ventas lleva 5 min sin respuesta humana (7:00 a 23:00).

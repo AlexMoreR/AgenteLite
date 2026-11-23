@@ -429,6 +429,22 @@ export async function ganadoAutomaticoPrendido(workspaceId: string): Promise<boo
   return fila?.value?.trim().toLowerCase() !== "off";
 }
 
+/**
+ * Interruptor aparte para la IA del barrido (la que lee los chats sin etapa cada 30 min), 22-11-2026:
+ * `crm:etapa-automatica:barrido-ia:<negocio>` = `off`. Si no existe, está prendida.
+ */
+export function claveInterruptorIaDelBarrido(workspaceId: string): string {
+  return `crm:etapa-automatica:barrido-ia:${workspaceId}`;
+}
+
+export async function iaDelBarridoPrendida(workspaceId: string): Promise<boolean> {
+  const fila = await prisma.appSetting.findUnique({
+    where: { key: claveInterruptorIaDelBarrido(workspaceId) },
+    select: { value: true },
+  });
+  return fila?.value?.trim().toLowerCase() !== "off";
+}
+
 /** La marca del historial que deja cada Ganado de Gestión: "[gestion] cotización COT-123". */
 export function marcaDeGanadoPorGestion(cotizacion: string | null | undefined): string {
   const ref = cotizacion?.trim();

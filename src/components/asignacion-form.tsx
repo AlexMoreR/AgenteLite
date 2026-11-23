@@ -21,8 +21,8 @@ const INTERRUPTORES: Array<{ clave: keyof ConfigDeAsignacion; titulo: string; de
   },
   {
     clave: "clientaPreguntaPlataOEntrega",
-    titulo: "La clienta pregunta precio, pago, envío o contraentrega, o dice su ciudad",
-    detalle: "Solo después de que el bot mandó las fotos.",
+    titulo: "La clienta escribe algo además del mensaje con el que entró",
+    detalle: "Una pregunta, la ciudad, un «sí», un audio: con fotos o sin fotos. El texto del anuncio o de Marketplace no cuenta.",
   },
   {
     clave: "asesoraEscribe",

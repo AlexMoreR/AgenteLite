@@ -97,7 +97,7 @@ const prisma = {
     findUnique: async ({ where }) => ({ name: where.id, email: null }),
   },
   whatsAppChannel: {
-    findUnique: async ({ where }) => ({ id: where.id, purpose: where.id === "linea-admin" ? "ADMIN" : "SALES" }),
+    findUnique: async ({ where }) => ({ id: where.id, name: "Ventas 1", metadata: null, purpose: where.id === "linea-admin" ? "ADMIN" : "SALES" }),
   },
   message: {
     findMany: async ({ where, take }) =>
@@ -106,18 +106,20 @@ const prisma = {
       const m = estado.mensajes.filter((x) => cumpleMensaje(x, where)).sort(desc)[0];
       return m ? { ...m } : null;
     },
-    groupBy: async ({ where, _min, _max }) => {
+    groupBy: async ({ where, _min, _max, _count }) => {
       const grupos = new Map();
       for (const m of estado.mensajes.filter((x) => cumpleMensaje(x, where))) {
-        const g = grupos.get(m.conversationId) ?? { conversationId: m.conversationId, min: m.createdAt, max: m.createdAt };
+        const g = grupos.get(m.conversationId) ?? { conversationId: m.conversationId, min: m.createdAt, max: m.createdAt, n: 0 };
         if (m.createdAt < g.min) g.min = m.createdAt;
         if (m.createdAt > g.max) g.max = m.createdAt;
+        g.n += 1;
         grupos.set(m.conversationId, g);
       }
       return [...grupos.values()].map((g) => ({
         conversationId: g.conversationId,
         ...(_min ? { _min: { createdAt: g.min } } : {}),
         ...(_max ? { _max: { createdAt: g.max } } : {}),
+        ...(_count ? { _count: { _all: g.n } } : {}),
       }));
     },
   },
@@ -182,8 +184,9 @@ function chat(id, mensajes, extra = {}) {
     assignedToUserId: null,
     automationPaused: false,
     lastMessageAt: filas.at(-1)?.createdAt ?? AHORA,
-    channel: { purpose: "SALES" },
-    contact: { metadata: null, bloqueadoEn: null, excludedFromCrm: false },
+    channel: { purpose: "SALES", name: "Ventas 1", metadata: null },
+    // Como casi todos los chats de ventas: vino de un anuncio (el primer mensaje es el del anuncio).
+    contact: { metadata: { adCapturedAt: "2026-11-20T10:00:00Z" }, bloqueadoEn: null, excludedFromCrm: false },
     ...resto,
   });
   return id;
@@ -242,10 +245,22 @@ await prueba("hablaDePlataOEntrega: precio, pago, envío, contraentrega y ciudad
 const COMIENZO = [IN(ANUNCIO), BOT(BIENVENIDA), BOT(SERVICIOS)];
 const CON_FOTOS = [...COMIENZO, IN("estética facial"), FOTO(), BOT("¿Te comparto el precio?")];
 
-await prueba("'Para el combo de estética' NO asigna (ni antes ni después de las fotos)", async () => {
+await prueba("22-nov: el mensaje del anuncio solo NO asigna; cualquier cosa después SÍ (antes o después de las fotos)", async () => {
+  await porTurno(chat("c0", COMIENZO));
+  assert.deepEqual(estado.asignaciones, []);
   await porTurno(chat("c1", [...COMIENZO, IN("Para el combo de estética")]));
   await porTurno(chat("c2", [...CON_FOTOS, IN("Para el combo de estética")]));
-  assert.deepEqual(estado.asignaciones, []);
+  assert.deepEqual(estado.asignaciones, ["c1", "c2"]);
+});
+
+await prueba("22-nov: en un chat orgánico (sin anuncio) el primer mensaje ya asigna", async () => {
+  const organico = { metadata: null, bloqueadoEn: null, excludedFromCrm: false };
+  assert.equal((await porTurno(chat("o1", [IN("¿Cuánto vale la silla?")], { contact: organico }))).asignada, true);
+});
+
+await prueba("22-nov: un contacto bloqueado no se asigna", async () => {
+  const bloqueado = { metadata: null, bloqueadoEn: new Date(), excludedFromCrm: false };
+  assert.equal((await porTurno(chat("bl1", [...COMIENZO, IN("hola")], { contact: bloqueado }))).asignada, false);
 });
 
 await prueba("'cuánto vale', '¿hacen contraentrega?', 'cómo pago' y 'soy de Medellín' SÍ asignan (con las fotos mandadas)", async () => {
@@ -262,8 +277,8 @@ await prueba("la nota 'El agente pide un asesor' SÍ asigna, aunque no haya foto
 
 await prueba("la IA pausada asigna; la pausa de un bloqueo o de un contacto oculto del CRM no", async () => {
   assert.equal((await porTurno(chat("ia1", [...COMIENZO, IN("hola")], { automationPaused: true }))).asignada, true);
-  const bloqueado = { metadata: null, bloqueadoEn: new Date(), excludedFromCrm: true };
-  assert.equal((await porTurno(chat("ia2", [...COMIENZO, IN("hola")], { automationPaused: true, contact: bloqueado }))).asignada, false);
+  const oculto = { metadata: { adCapturedAt: "2026-11-20T10:00:00Z" }, bloqueadoEn: null, excludedFromCrm: true };
+  assert.equal((await porTurno(chat("ia2", [IN(ANUNCIO), BOT(BIENVENIDA)], { automationPaused: true, contact: oculto }))).asignada, false);
 });
 
 await prueba("con (b) apagado, 'cuánto vale' no asigna; con (a) apagado, la nota del agente no asigna", async () => {
@@ -272,7 +287,7 @@ await prueba("con (b) apagado, 'cuánto vale' no asigna; con (a) apagado, la not
   // (a) sigue prendido: la nota sí asigna.
   assert.equal((await porTurno(chat("b2", [...CON_FOTOS, IN("cuánto vale"), NOTA("El agente pide un asesor: x")]))).asignada, true);
   await configurar({ agentePide: false });
-  assert.equal((await porTurno(chat("a1", [...COMIENZO, IN("hola"), NOTA("El agente pide un asesor: x")], { automationPaused: true }))).asignada, false);
+  assert.equal((await porTurno(chat("a1", [...COMIENZO, NOTA("El agente pide un asesor: x")], { automationPaused: true }))).asignada, false);
   assert.equal((await porTurno(chat("a2", [...CON_FOTOS, IN("cuánto vale")]))).asignada, true);
 });
 
@@ -300,22 +315,23 @@ await prueba("la línea administrativa no reparte por turno", async () => {
 });
 
 // ── 4. El rescate respeta la regla ──────────────────────────────────────────────────────────────
-await prueba("rescate (48 h, el bot habló último): asigna lo que la regla pide y deja lo demás", async () => {
+await prueba("rescate (48 h, el bot habló último): desde el 22-11 asigna todo chat donde la clienta escribió algo más que el anuncio", async () => {
+  chat("r-solo", [IN(ANUNCIO), BOT(BIENVENIDA), BOT(SERVICIOS)]);
   chat("r-combo", [...COMIENZO, IN("Para el combo de estética"), BOT("¡Genial! ¿Te mando las fotos?")]);
   chat("r-precio", [...CON_FOTOS, IN("cuánto vale"), BOT("Te cuento…")]);
   chat("r-nota", [...COMIENZO, IN("Quiropodia"), NOTA("El agente pide un asesor: x"), BOT("Ya te paso con alguien")]);
   chat("r-ok", [...CON_FOTOS, IN("ok"), BOT("¡Perfecto!")]);
   await rescate.rescatarChatsHuerfanos(AHORA);
-  assert.deepEqual(estado.asignaciones.sort(), ["r-nota", "r-precio"]);
+  assert.deepEqual(estado.asignaciones.sort(), ["r-combo", "r-nota", "r-ok", "r-precio"]);
 });
 
-await prueba("rescate de los 30 min: un 'ok' sin respuesta del bot ya no se pasa a una asesora", async () => {
+await prueba("rescate de los 30 min: lo que escribió después del anuncio se pasa a una asesora, aunque el bot no haya contestado", async () => {
   chat("m-ok", [...CON_FOTOS, IN("ok gracias")], { terminaHaceMin: 40 });
   chat("m-combo", [...COMIENZO, IN("Para el combo de estética")], { terminaHaceMin: 40 });
   chat("m-precio", [...COMIENZO, IN("¿hacen contraentrega?")], { terminaHaceMin: 40, automationPaused: false });
   chat("m-fotos-precio", [...CON_FOTOS, IN("¿hacen contraentrega?")], { terminaHaceMin: 40 });
   await rescate.rescatarChatsHuerfanos(AHORA);
-  assert.deepEqual(estado.asignaciones, ["m-fotos-precio"]);
+  assert.deepEqual(estado.asignaciones.sort(), ["m-combo", "m-fotos-precio", "m-ok", "m-precio"]);
 });
 
 await prueba("rescate de los 30 min: si NUNCA le contestamos (el bot falló del todo), la red sigue", async () => {
@@ -439,6 +455,7 @@ const filas = CASOS.map((c) => ({
   "regla nueva": enQueMensaje(c.mensajes, {}),
 }));
 console.table(filas);
-// Lo que la tabla tiene que mostrar: la regla nueva nunca asigna antes que la vieja en el caso del combo.
-assert.equal(filas[0]["regla nueva"].startsWith("#8"), true);
-assert.equal(filas[4]["regla nueva"], "no se asigna");
+// Lo que la tabla tiene que mostrar (22-11): la regla nueva asigna apenas la clienta escribe algo más que
+// el anuncio, también en "Solo mira".
+assert.equal(filas[0]["regla nueva"].startsWith("#4"), true);
+assert.equal(filas[4]["regla nueva"].startsWith("#3"), true);

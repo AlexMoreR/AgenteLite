@@ -1,8 +1,14 @@
-// ¿El chat necesita asesora? (11-nov-2026). Correr: npm run test:reparto-cuando-lo-necesita
+// ¿El chat necesita asesora? (11-nov-2026; la (b) cambió el 22-nov-2026). Correr: npm run test:reparto-cuando-lo-necesita
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { chatNecesitaAsesora, hablaDePlataOEntrega, type MensajeDelReparto } from "./reparto-cuando-lo-necesita";
+import {
+  chatNecesitaAsesora,
+  decidirSiElChatNecesitaAsesora,
+  hablaDePlataOEntrega,
+  primerMensajeEsDeEntrada,
+  type MensajeDelReparto,
+} from "./reparto-cuando-lo-necesita";
 
 const t = (minuto: number) => new Date(Date.UTC(2026, 10, 12, 3, minuto));
 const cliente = (minuto: number, content: string): MensajeDelReparto => ({ direction: "INBOUND", type: "TEXT", content, createdAt: t(minuto) });
@@ -14,13 +20,52 @@ const nota = (minuto: number, content: string): MensajeDelReparto => ({ directio
 const ANUNCIO = "Hola, me interesa el COMBO de estética (camilla, escalera, silla y auxiliar)";
 const comienzo = [cliente(59, ANUNCIO), bot(60, "Bienvenid@ a *Magilus* 👑"), bot(60, "¿Qué servicios vas a ofrecer en tu espacio?")];
 
-test("el caso de Alex: 'estética facial' antes de las fotos NO asigna", () => {
-  assert.equal(chatNecesitaAsesora([...comienzo, cliente(61, "estética facial")]).asignar, false);
-  assert.equal(chatNecesitaAsesora([...comienzo, cliente(61, "estética facial")]).motivo, "sin_fotos");
+test("22-nov: el mensaje del anuncio solo NO asigna", () => {
+  assert.equal(chatNecesitaAsesora(comienzo).asignar, false);
+  assert.equal(chatNecesitaAsesora(comienzo).motivo, "sin_pedido");
+  assert.equal(chatNecesitaAsesora([cliente(59, ANUNCIO)]).asignar, false);
 });
 
-test("antes de las fotos, lo que escribe la clienta no asigna (ni preguntando precio)", () => {
-  assert.equal(chatNecesitaAsesora([...comienzo, cliente(61, "¿cuánto vale?")]).asignar, false);
+test("22-nov: cualquier cosa que escriba después del anuncio SÍ asigna, con fotos o sin fotos ('estética facial', un 'sí', el precio)", () => {
+  for (const frase of ["estética facial", "Sí", "ok", "¿cuánto vale?", "Donde estan ubicados", "Qué lindo 😍"]) {
+    const decision = chatNecesitaAsesora([...comienzo, cliente(61, frase)]);
+    assert.equal(decision.asignar, true, frase);
+    assert.equal(decision.motivo, "clienta_escribio", frase);
+  }
+  assert.equal(chatNecesitaAsesora([...comienzo, foto(62), cliente(63, "Sí")]).asignar, true);
+});
+
+test("22-nov: la pregunta en la misma ráfaga que el anuncio (antes de la bienvenida) también asigna", () => {
+  const decision = chatNecesitaAsesora([cliente(59, ANUNCIO), cliente(59, "Solo la camilla"), cliente(59, "Donde estan ubicados")]);
+  assert.equal(decision.asignar, true);
+  assert.equal(decision.detalle, "Solo la camilla");
+});
+
+test("22-nov: en un chat orgánico (no vino de anuncio ni de Marketplace) el primer mensaje ya cuenta", () => {
+  const decision = decidirSiElChatNecesitaAsesora({ mensajes: [cliente(59, "Hola, ¿cuánto vale la silla?")], primerMensajeEsDeEntrada: false });
+  assert.equal(decision.asignar, true);
+  assert.equal(chatNecesitaAsesora([cliente(59, "Hola, ¿cuánto vale la silla?")]).asignar, false, "sin dato, el primero es de entrada");
+});
+
+test("22-nov: un audio o una foto de la clienta también cuentan; una nota del sistema no", () => {
+  const audio: MensajeDelReparto = { direction: "INBOUND", type: "AUDIO", content: null, createdAt: t(61) };
+  assert.equal(chatNecesitaAsesora([...comienzo, audio]).asignar, true);
+  const notaEntrante: MensajeDelReparto = { direction: "INBOUND", type: "SYSTEM", content: "nota", createdAt: t(61) };
+  assert.equal(chatNecesitaAsesora([...comienzo, notaEntrante]).asignar, false);
+});
+
+test("22-nov: con el interruptor (b) apagado, lo que escribe la clienta no asigna", () => {
+  const decision = decidirSiElChatNecesitaAsesora({ mensajes: [...comienzo, cliente(61, "¿cuánto vale?")], config: { clientaPreguntaPlataOEntrega: false } });
+  assert.equal(decision.asignar, false);
+});
+
+test("primerMensajeEsDeEntrada: anuncio de Meta, Marketplace o la línea de Marketplace sí; orgánico no", () => {
+  assert.equal(primerMensajeEsDeEntrada({ metadataContacto: { adCapturedAt: "2026-11-20T10:00:00Z" } }), true);
+  assert.equal(primerMensajeEsDeEntrada({ metadataContacto: { source: "Meta Ads" } }), true);
+  assert.equal(primerMensajeEsDeEntrada({ metadataContacto: { origen: { canal: "marketplace" } } }), true);
+  assert.equal(primerMensajeEsDeEntrada({ metadataContacto: {}, lineaEsMarketplace: true }), true);
+  assert.equal(primerMensajeEsDeEntrada({ metadataContacto: { origen: { canal: "web" } } }), false);
+  assert.equal(primerMensajeEsDeEntrada({ metadataContacto: null }), false);
 });
 
 test("si el agente pide asesora, se asigna aunque no haya fotos (caso 'Quiropodia' del 11-11)", () => {
@@ -33,31 +78,10 @@ test("si el agente pide asesora, se asigna aunque no haya fotos (caso 'Quiropodi
   assert.equal(decision.motivo, "agente_pide_asesora");
 });
 
-test("con las fotos mandadas, 'sí' o 'qué lindo' no asignan", () => {
-  const conFotos = [...comienzo, cliente(61, "estética facial"), foto(62), bot(62, "¿Te comparto fotos?")];
-  assert.equal(chatNecesitaAsesora([...conFotos, cliente(63, "Sí")]).asignar, false);
-  assert.equal(chatNecesitaAsesora([...conFotos, cliente(63, "Qué lindo 😍")]).motivo, "sin_pedido");
-});
-
-test("con las fotos mandadas, precio, pago, envío, contraentrega o ciudad SÍ asignan", () => {
-  const conFotos = [...comienzo, foto(62)];
-  for (const frase of ["¿Cuánto vale?", "cuanto cuesta el combo", "Qué precio tiene", "¿hacen contraentrega?", "Cómo pago", "¿Hacen envíos?", "soy de Medellín", "Bogotá", "Estoy en cali", "¿Aceptan Nequi?"]) {
-    const decision = chatNecesitaAsesora([...conFotos, cliente(63, frase)]);
-    assert.equal(decision.asignar, true, frase);
-    assert.equal(decision.motivo, "plata_o_entrega", frase);
-  }
-});
-
 test("la nota 'El agente pide un asesor' con las fotos mandadas SÍ asigna", () => {
   const decision = chatNecesitaAsesora([...comienzo, foto(62), cliente(63, "ok"), nota(64, "El agente pide un asesor: que conteste una persona")]);
   assert.equal(decision.asignar, true);
   assert.equal(decision.motivo, "agente_pide_asesora");
-});
-
-test("si preguntó el precio en el primer mensaje, se asigna apenas llegan las fotos", () => {
-  const chat = [cliente(59, ANUNCIO), cliente(59, "Precio en Bogotá"), bot(60, "Bienvenid@"), cliente(61, "Podología?")];
-  assert.equal(chatNecesitaAsesora(chat).asignar, false);
-  assert.equal(chatNecesitaAsesora([...chat, foto(62)]).asignar, true);
 });
 
 test("frases que NO son plata ni ciudad", () => {
@@ -69,4 +93,5 @@ test("frases que NO son plata ni ciudad", () => {
 test("un mensaje borrado no cuenta", () => {
   const borrado: MensajeDelReparto = { ...cliente(63, "¿cuánto vale?"), borrado: true };
   assert.equal(chatNecesitaAsesora([...comienzo, foto(62), borrado]).asignar, false);
+  assert.equal(chatNecesitaAsesora([...comienzo, borrado]).asignar, false);
 });

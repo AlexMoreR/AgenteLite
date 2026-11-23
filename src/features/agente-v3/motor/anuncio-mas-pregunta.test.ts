@@ -30,6 +30,13 @@ const reglas: ReglaV3[] = [
     ],
   },
   {
+    id: "ubicacion",
+    nombre: "Pregunta dónde estamos",
+    activa: true,
+    cuando: { tipo: "frase", frases: ["donde estan ubicados", "donde quedan"] },
+    entonces: [{ tipo: "mensaje", texto: "Tenemos punto de venta en Cali y fábrica en Bogotá. ¿En qué ciudad estás?" }],
+  },
+  {
     id: "lavacabezas",
     nombre: "Pide el lavacabezas",
     activa: true,
@@ -126,4 +133,29 @@ test("la portatil fuera del primer mensaje: igual que antes (avisa y pausa, sin 
   const d = decidir({ libro, mensaje: "y la camilla portátil?", estado: { ...primerMensaje, esPrimerMensaje: false } });
   assert.equal(d.regla?.id, "portatil");
   assert.deepEqual(textos(d), ["¡Claro que sí! También manejamos camilla portátil. Una asesora te confirma el precio."]);
+});
+
+test("22-nov: el texto del anuncio y en la misma tanda una pregunta que NO pasa a asesora: se contesta en vez del paso 1", () => {
+  // Como llega del webhook: los mensajes de la tanda juntos, uno por línea (cv620ca084f4f7acb857e6524c).
+  const d = decidir({ libro, mensaje: `${ANUNCIO}\nGracias\nDonde estan ubicados`, estado: primerMensaje });
+  assert.equal(d.regla?.id, "anuncio");
+  assert.deepEqual(textos(d), [
+    "flujo:Bienvenida General",
+    "Tenemos punto de venta en Cali y fábrica en Bogotá. ¿En qué ciudad estás?",
+  ]);
+  assert.ok(!textos(d).includes("¿Qué servicios vas a ofrecer en tu espacio?"), "la pregunta del paso 1 no sale");
+  assert.equal(tipos(d).filter((t) => t === "activar_producto").length, 1, "el combo se activa una sola vez");
+  assert.match(d.porque, /en vez de la pregunta del paso/);
+});
+
+test("22-nov: el anuncio + solo cortesía en la tanda ('Buenas tardes', 'muchas gracias'): bienvenida y paso 1 como siempre", () => {
+  for (const extra of ["\nBuenas tardes", "\nHola buenos días\nmuchas gracias", " me interesa, más info por favor"]) {
+    const d = decidir({ libro, mensaje: `${ANUNCIO}${extra}`, estado: primerMensaje });
+    assert.deepEqual(textos(d), ["flujo:Bienvenida General", "¿Qué servicios vas a ofrecer en tu espacio?"], extra);
+  }
+});
+
+test("22-nov: el anuncio + algo que ninguna regla de frase entiende: bienvenida y paso 1 (no se inventa nada)", () => {
+  const d = decidir({ libro, mensaje: `${ANUNCIO}\nEs para mi hermana`, estado: primerMensaje });
+  assert.deepEqual(textos(d), ["flujo:Bienvenida General", "¿Qué servicios vas a ofrecer en tu espacio?"]);
 });

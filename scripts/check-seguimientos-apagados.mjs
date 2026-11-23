@@ -50,6 +50,14 @@ prueba("etapa de venta/cierre (Negociación, Ganado): no sale; Nuevo/Calificado/
 });
 
 /* ---- 4. La asesora escribió a mano (solo embudo / producto) ---- */
+prueba("22-nov: un Caliente que puso el sistema (etapa automática o bot) ya NO apaga; uno puesto a mano sí; Ganado siempre", () => {
+  assert.equal(decidir([IN(0, "Hola")], { etapaCrm: "NEGOCIACION", etapaPuestaPorElSistema: true }), null);
+  assert.equal(decidir([IN(0, "Hola")], { etapaCrm: "NEGOCIACION", etapaPuestaPorElSistema: false })?.codigo, "etapa_de_venta");
+  assert.equal(decidir([IN(0, "Hola")], { etapaCrm: "GANADO", etapaPuestaPorElSistema: true })?.codigo, "etapa_de_venta");
+  // Si el cliente confirmó la compra, se apaga igual aunque el Caliente sea del sistema.
+  assert.equal(decidir([IN(0, "ya te consigno")], { etapaCrm: "NEGOCIACION", etapaPuestaPorElSistema: true })?.codigo, "cliente_confirmo");
+});
+
 prueba("asesora escribió a mano en las últimas 24 h: no salen los del embudo ni por producto", () => {
   const charla = [IN(0, "Hola"), BOT(0.01, "Bienvenida"), ASESORA(2, "Hola, soy María, te cuento del combo")];
   assert.equal(decidir(charla, { ahora: mas(10) })?.codigo, "asesora_escribio");

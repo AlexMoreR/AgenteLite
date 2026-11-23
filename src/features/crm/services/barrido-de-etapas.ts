@@ -3,6 +3,7 @@ import {
   causaCorta,
   etapaAutomaticaPrendida,
   ganadoAutomaticoPrendido,
+  iaDelBarridoPrendida,
   marcaDeGanadoPorGestion,
   marcarGanadoPorGestion,
   moverEtapaAutomatica,
@@ -34,6 +35,8 @@ import type { CrmStage } from "@/features/crm/types";
  *    regla de no bajar lo puesto a mano, y queda con la nota "[ia]". Máximo 20 chats por vuelta y 300 al
  *    día por negocio. Un chat leído no se vuelve a leer hasta que el cliente escriba de nuevo
  *    (Contact.metadata.barridoIaLeidoHasta).
+ *
+ *    Interruptor propio (22-11-2026): `crm:etapa-automatica:barrido-ia:<negocio>` = `off`.
  *
  * Todo apagado con `crm:etapa-automatica:<negocio>` = `off`. NUNCA lanza: cada falla queda en el
  * registro con una causa corta.
@@ -74,7 +77,7 @@ const ESPERA_IA_MS = 8_000;
 
 const SISTEMA = `Eres el clasificador del CRM de una tienda de mobiliario para estética (camillas, sillas, combos) en Colombia.
 Lees los últimos mensajes de un chat de WhatsApp entre el cliente y la tienda y contestas con UNA palabra:
-CALIENTE si el cliente quiere comprar ya: pregunta cómo pagar, pide datos para consignar, pide el total, elige color o modelo, dice su ciudad o manda sus datos.
+CALIENTE si el cliente quiere comprar ya: pregunta cómo pagar, pide datos para consignar, pide el total, elige color o modelo o manda sus datos. Decir solo su ciudad NO es CALIENTE.
 TIBIO si muestra interés pero lo deja para después, duda o lo va a pensar.
 FRIO si pregunta el precio o pide fotos.
 NADA si solo saluda, pregunta información general o no se sabe.
@@ -362,9 +365,11 @@ export async function barrerEtapas(workspaceId: string, deps: Dependencias = {})
     console.info(`[barrido-de-etapas] Ganado de Gestión falló workspaceId=${workspaceId} causa=${causaCorta(falla)}`);
   }
   try {
-    const ia = await barrerConIA(db, workspaceId, ahora, deps.ia ?? iaReal);
-    resultado.leidosPorIA = ia.leidos;
-    resultado.movidosPorIA = ia.movidos;
+    if (await iaDelBarridoPrendida(workspaceId)) {
+      const ia = await barrerConIA(db, workspaceId, ahora, deps.ia ?? iaReal);
+      resultado.leidosPorIA = ia.leidos;
+      resultado.movidosPorIA = ia.movidos;
+    }
   } catch (falla) {
     console.info(`[barrido-de-etapas] la IA del barrido falló workspaceId=${workspaceId} causa=${causaCorta(falla)}`);
   }

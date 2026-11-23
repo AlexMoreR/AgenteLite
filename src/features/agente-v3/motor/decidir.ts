@@ -307,6 +307,41 @@ export function decidir(input: {
           .map(({ regla }) => ({ id: regla.id, nombre: regla.nombre })),
       };
     }
+
+    /*
+      Y SI LO QUE AGREGÓ NO PASA A UNA ASESORA (Alex, 22-nov-2026): se le contesta igual.
+
+      Caso real (cv620ca084f4f7acb857e6524c, 11-nov): el texto del anuncio, "Solo la camilla",
+      "Gracias" y "¿Dónde están ubicados?" en la misma tanda. El libro tiene regla para la ubicación y
+      para "solo la camilla", pero el bot mandó la bienvenida y la pregunta del paso 1 como si no
+      hubiera preguntado nada, y la clienta no volvió a escribir.
+
+      Ahora lo que agregó se decide como si fuera el mensaje siguiente, con la charla ya parada donde
+      la deja el anuncio (producto activo, paso, bienvenida enviada): sale la bienvenida y después esa
+      respuesta, EN VEZ de la pregunta del paso 1. Si lo que agregó es solo cortesía ("gracias",
+      "buenas tardes") o no encaja con ninguna regla de frase, todo sigue como antes.
+    */
+    const respuesta = loQueAgregoTieneRespuesta({ libro: input.libro, ganadora, loQueAgrego, estado: input.estado, saludo });
+    if (respuesta) {
+      const productosDeLaGanadora = new Set(
+        ganadora.entonces.flatMap((accion) => (accion.tipo === "activar_producto" ? [accion.productoId] : [])),
+      );
+      const accionesDeLaRespuesta = respuesta.acciones.filter(
+        (accion) => !(accion.tipo === "activar_producto" && productosDeLaGanadora.has(accion.productoId)),
+      );
+      const contestadas = respuesta.juntas?.length ? respuesta.juntas.map(({ nombre }) => `"${nombre}"`).join(", ") : `"${respuesta.regla?.nombre}"`;
+      return {
+        regla: ganadora,
+        saludo,
+        acciones: [...ganadora.entonces, ...accionesDeLaRespuesta],
+        porque: `Ganó "${ganadora.nombre}" porque ${comoSeLee(ganadora)} (llegó del anuncio). Como además escribió "${loQueAgrego.slice(0, 80)}", en vez de la pregunta del paso se le contesta con ${contestadas} en el mismo turno.`,
+        tambienEncajaban: ordenadas
+          .slice(1)
+          .filter(({ regla }) => regla.id !== respuesta.regla?.id)
+          .map(({ regla }) => ({ id: regla.id, nombre: regla.nombre })),
+        ...(respuesta.juntas?.length ? { juntas: respuesta.juntas } : {}),
+      };
+    }
   }
 
   /*
@@ -366,6 +401,67 @@ export function decidir(input: {
       : `Ganó "${ganadora.nombre}" porque ${comoSeLee(ganadora)}.`,
     tambienEncajaban: ordenadas.slice(1).map(({ regla }) => ({ id: regla.id, nombre: regla.nombre })),
   };
+}
+
+/** Lo que solo es cortesía: con esto el texto del anuncio sigue como si viniera solo. */
+const SOLO_CORTESIA = new RegExp(
+  `^(?:(?:${[
+    "hola",
+    "holi",
+    "buenas",
+    "buenos",
+    "buen",
+    "dia",
+    "dias",
+    "tardes",
+    "noches",
+    "muchas",
+    "mil",
+    "gracias",
+    "ok",
+    "okey",
+    "vale",
+    "listo",
+    "por",
+    "favor",
+    "porfa",
+    "porfavor",
+    "senora",
+    "senor",
+    "si",
+    "info",
+    "informacion",
+    "quiero",
+    "me",
+    "interesa",
+    "mas",
+  ].join("|")})(?: |$))+$`,
+);
+
+/**
+ * La respuesta a lo que la clienta agregó después del texto del anuncio, o null si no hay que
+ * contestar nada aparte (solo cortesía, o ninguna regla de frase encaja). Se decide como el mensaje
+ * siguiente, con el estado en que deja la charla la regla del anuncio. Solo valen reglas de frase
+ * no exactas (un "buenas tardes" exacto reenviaría la bienvenida) que no repitan un flujo ya enviado.
+ */
+function loQueAgregoTieneRespuesta(input: {
+  libro: LibroDeReglas;
+  ganadora: ReglaV3;
+  loQueAgrego: string;
+  estado: EstadoDeLaCharla;
+  saludo: Accion[];
+}): Decision | null {
+  const resto = normalizar(input.loQueAgrego).replace(/[^a-z0-9ñ ]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!resto || SOLO_CORTESIA.test(resto)) return null;
+  const despuesDelAnuncio = siguienteEstado(input.estado, [...input.saludo, ...input.ganadora.entonces]);
+  const respuesta = decidir({ libro: input.libro, mensaje: input.loQueAgrego, estado: despuesDelAnuncio });
+  const regla = respuesta.regla;
+  if (!regla || regla.id === input.ganadora.id) return null;
+  if (regla.cuando.tipo !== "frase" || regla.cuando.exacta) return null;
+  if (respuesta.acciones.length === 0) return null;
+  const yaEnviados = new Set(despuesDelAnuncio.flujosEnviados);
+  if (respuesta.acciones.some((accion) => accion.tipo === "flujo" && yaEnviados.has(accion.flujoId))) return null;
+  return respuesta;
 }
 
 /**

@@ -3,8 +3,9 @@
  *
  * Las asesoras no siempre ponen la etapa, y sin etapa el embudo, "Mi día" y los informes mienten. Con
  * cada mensaje del cliente el sistema decide una de cinco cosas:
- *  - CALIENTE (Negociación): pregunta cómo pagar, pide datos para consignar, pide el total, elige color,
- *    dice su ciudad para el envío o manda sus datos.
+ *  - CALIENTE (Negociación): pregunta cómo pagar, pide datos para consignar, pide el total, elige color
+ *    o manda sus datos. Desde el 22-nov-2026 (Alex) decir la ciudad YA NO es Caliente: el bot le
+ *    pregunta la ciudad a casi todas, y cualquier curiosa que contestaba quedaba Caliente.
  *  - TIBIO (Propuesta): lo deja para después ("más adelante", "lo pienso", "te confirmo", "voy en
  *    noviembre"). Lleva una fecha de recontacto: la que dijo el cliente o 3 días.
  *  - DESCARTADO (Perdido): SOLO con una frase clara (no le interesa, ya compró en otro lado, se
@@ -139,8 +140,6 @@ export function descarteClaro(texto: string | null | undefined): MotivoDeDescart
 /* ---------------------------------------------------------------------------------------------- */
 /* CALIENTE. */
 
-const CIUDAD =
-  /\b((soy|somos|vivo|vivimos) (de|en)|mi ciudad es|la ciudad es|(enviar|enviarlo|enviarla|envio|envia|envian|mandar|mandarlo|mandarla|despachar|despacharlo|despacharla|despacho|llega|llegan|llegaria|entregan) (a|para|hasta)|para (la ciudad de|el municipio de)) (?!(cuando|donde|tiempo|domicilio|casa|la casa|mi casa|la oficina|que|cual|ustedes|usted)\b)[a-z]{4,}/;
 const TOTAL = /\btotal\b/;
 const PIDE = /\b(cuanto|cual|seria|serian|queda|quedaria|sale|saldria|dame|deme|pasame|paseme|regalame|regaleme|dime|digame|mandame|enviame|me (dices|dice|das|da|pasas|pasa|regalas|regala|mandas|manda))\b/;
 const CUANTO_TODO = /\bcuanto (seria|es|queda|quedaria|me sale|sale|me queda) (todo|en total|con (el )?envio)\b/;
@@ -167,7 +166,7 @@ export function porQueCaliente(texto: string | null | undefined): string | null 
   if (colorElegido(original)) return "el cliente eligió color";
   if (tipos.has("acepta_precio")) return "el cliente dijo que lo quiere";
   if (tipos.has("direccion_fecha")) return "el cliente mandó su dirección";
-  if (CIUDAD.test(limpio)) return "el cliente dijo su ciudad para el envío";
+  // La ciudad sola ya no es Caliente (22-11-2026, Alex): el bot se la pregunta a casi todas.
   return null;
 }
 

@@ -194,20 +194,21 @@ prueba("respondioLaBienvenida con filas del rescate: solo bienvenida, o respuest
    (src/lib/reparto-cuando-lo-necesita.ts). Responder la bienvenida solo asigna con `comoAntes`. */
 const regla = cargar("src/lib/reparto-cuando-lo-necesita.ts", { "@/lib/prisma": { prisma: {} } });
 const COMO_ANTES = { comoAntes: true };
-prueba("regla nueva: un 'ok' o 'Masajes' tras la bienvenida ya NO asignan", () => {
+prueba("regla del 22-11: un 'ok' o 'Masajes' tras la bienvenida SÍ asignan; el anuncio solo no", () => {
   for (const texto of ["ok", "Masajes"]) {
     const mensajes = viejoAlNuevo(IN(ANUNCIO), BOT(BIENVENIDA), IN(texto));
-    assert.equal(regla.elChatNecesitaAsesora({ mensajes }), false, texto);
-    assert.equal(regla.elChatNecesitaAsesora({ mensajes, config: {} }), false, texto);
+    assert.equal(regla.elChatNecesitaAsesora({ mensajes }), true, texto);
+    assert.equal(regla.elChatNecesitaAsesora({ mensajes, config: {} }), true, texto);
   }
+  assert.equal(regla.elChatNecesitaAsesora({ mensajes: viejoAlNuevo(IN(ANUNCIO), BOT(BIENVENIDA)) }), false);
 });
 prueba("regla nueva con comoAntes prendido: un 'ok' tras la bienvenida asigna (como respondioLaBienvenida)", () => {
   const mensajes = viejoAlNuevo(IN(ANUNCIO), BOT(BIENVENIDA), IN("ok"));
   assert.equal(regla.elChatNecesitaAsesora({ mensajes, config: COMO_ANTES }), true);
   assert.equal(regla.elChatNecesitaAsesora({ mensajes: viejoAlNuevo(IN(ANUNCIO), BOT(BIENVENIDA)), config: COMO_ANTES }), false);
 });
-prueba("regla nueva: tras las fotos del bot, 'ok' no asigna y 'cuánto vale' sí", () => {
-  assert.equal(regla.elChatNecesitaAsesora({ mensajes: viejoAlNuevo(IN(ANUNCIO), BOT(BIENVENIDA), BOT("", "IMAGE"), IN("ok")) }), false);
+prueba("regla del 22-11: tras las fotos del bot, 'ok' y 'cuánto vale' asignan", () => {
+  assert.equal(regla.elChatNecesitaAsesora({ mensajes: viejoAlNuevo(IN(ANUNCIO), BOT(BIENVENIDA), BOT("", "IMAGE"), IN("ok")) }), true);
   assert.equal(regla.elChatNecesitaAsesora({ mensajes: viejoAlNuevo(IN(ANUNCIO), BOT(BIENVENIDA), BOT("", "IMAGE"), IN("cuánto vale")) }), true);
 });
 

@@ -8,8 +8,10 @@ import {
   iaPausadaPorElChat,
   leerConfigDeAsignacion,
   notaDelAgentePideAsesor,
+  primerMensajeEsDeEntrada,
   type ConfigDeAsignacion,
 } from "@/lib/reparto-cuando-lo-necesita";
+import { origenDeLinea } from "@/lib/origen-de-venta";
 
 /**
  * LA RED: un cliente esperando y sin nadie a cargo.
@@ -78,16 +80,41 @@ const SELECCION = {
   workspaceId: true,
   lastMessageAt: true,
   automationPaused: true,
-  channel: { select: { purpose: true } },
+  channel: { select: { purpose: true, name: true, metadata: true } },
   contact: { select: { metadata: true, bloqueadoEn: true, excludedFromCrm: true } },
 } as const;
+
+/** Desde el 22-11: ¿el primer mensaje de la clienta es el de entrada (anuncio o Marketplace) y no cuenta? */
+function entraPorAnuncioOMarketplace(conversacion: {
+  channelId: string | null;
+  channel: { purpose: string; name: string; metadata: unknown } | null;
+  contact: { metadata: unknown } | null;
+}): boolean {
+  return primerMensajeEsDeEntrada({
+    metadataContacto: conversacion.contact?.metadata,
+    lineaEsMarketplace: conversacion.channel
+      ? origenDeLinea({
+          channelId: conversacion.channelId,
+          nombre: conversacion.channel.name,
+          purpose: conversacion.channel.purpose,
+          metadata: conversacion.channel.metadata,
+        }) === "MARKETPLACE"
+      : false,
+  });
+}
 
 /**
  * Lee los últimos mensajes del chat y pregunta `elChatNecesitaAsesora` con los interruptores del
  * negocio. `pidioAsesora`: la nota del agente ya se vio en lote (puede estar más atrás de lo leído).
  */
 async function laReglaLoAsigna(
-  conversacion: { id: string; automationPaused: boolean; contact: { bloqueadoEn: Date | null; excludedFromCrm: boolean } | null },
+  conversacion: {
+    id: string;
+    automationPaused: boolean;
+    channelId: string | null;
+    channel: { purpose: string; name: string; metadata: unknown } | null;
+    contact: { bloqueadoEn: Date | null; excludedFromCrm: boolean; metadata: unknown } | null;
+  },
   config: ConfigDeAsignacion,
   pidioAsesora = false,
 ): Promise<boolean> {
@@ -102,6 +129,7 @@ async function laReglaLoAsigna(
     config,
     agentePidioAsesor: pidioAsesora || Boolean(notaDelAgentePideAsesor(mensajes)),
     iaPausada: iaPausadaPorElChat(conversacion),
+    primerMensajeEsDeEntrada: entraPorAnuncioOMarketplace(conversacion),
   });
 }
 
@@ -136,16 +164,17 @@ async function chatsQueRespondieronLaBienvenida(ahora: Date) {
   // Antes de leer cada chat, en lote: el primer mensaje nuestro, la primera foto nuestra, el último
   // de la clienta y la nota del agente. Con eso se descartan sin leerlos los que la regla nunca
   // asignaría, así se leen pocos chats por vuelta.
-  const [primerosNuestros, primerasFotos, ultimosDelCliente, conPedidoDelAgente] = await Promise.all([
+  const [primerosNuestros, mensajesDeLaClienta, ultimosDelCliente, conPedidoDelAgente] = await Promise.all([
     prisma.message.groupBy({
       by: ["conversationId"],
       where: { ...vigentes, direction: "OUTBOUND" },
       _min: { createdAt: true },
     }),
+    // Cuántos mensajes mandó la clienta (desde el 22-11 la regla es "escribió algo además del de entrada").
     prisma.message.groupBy({
       by: ["conversationId"],
-      where: { ...vigentes, direction: "OUTBOUND", type: { in: ["IMAGE", "VIDEO", "DOCUMENT"] } },
-      _min: { createdAt: true },
+      where: { ...vigentes, direction: "INBOUND" },
+      _count: { _all: true },
     }),
     prisma.message.groupBy({
       by: ["conversationId"],
@@ -160,7 +189,7 @@ async function chatsQueRespondieronLaBienvenida(ahora: Date) {
   ]);
   const pidioAsesora = new Set(conPedidoDelAgente.map((fila) => fila.conversationId));
   const primerNuestro = new Map(primerosNuestros.map((fila) => [fila.conversationId, fila._min.createdAt]));
-  const conFotos = new Set(primerasFotos.map((fila) => fila.conversationId));
+  const cuantosEscribio = new Map(mensajesDeLaClienta.map((fila) => [fila.conversationId, fila._count._all]));
   const ultimoDelCliente = new Map(ultimosDelCliente.map((fila) => [fila.conversationId, fila._max.createdAt]));
 
   // Los interruptores de cada negocio (con su minuto de memoria).
@@ -187,7 +216,8 @@ async function chatsQueRespondieronLaBienvenida(ahora: Date) {
       if (!nuestro || cliente <= nuestro) continue;
     } else {
       const porElAgente = config.agentePide && (pidioAsesora.has(conversacion.id) || iaPausada);
-      const porLaClienta = config.clientaPreguntaPlataOEntrega && conFotos.has(conversacion.id);
+      const minimo = entraPorAnuncioOMarketplace(conversacion) ? 2 : 1;
+      const porLaClienta = config.clientaPreguntaPlataOEntrega && (cuantosEscribio.get(conversacion.id) ?? 0) >= minimo;
       if (!porElAgente && !porLaClienta) continue;
     }
     if (leerMarcaExterior(conversacion.contact?.metadata)) {

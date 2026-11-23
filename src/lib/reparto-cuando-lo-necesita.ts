@@ -18,6 +18,13 @@ import { respondioLaBienvenida } from "./turno-con-contenido";
         fotos ya mandadas, asigna si pregunta precio, pago, envío o contraentrega, o dice su ciudad.
   La reasignación a los 10 minutos sin respuesta (demora-de-asesora) no cambia.
 
+  DESDE EL 22-NOV-2026 (Alex) la (b) es otra: se asigna apenas la clienta escribe CUALQUIER cosa
+  además del mensaje con el que entró (el texto del anuncio o el "¿sigue disponible?" de Marketplace),
+  con fotos o sin fotos: una pregunta, la ciudad, un "sí", un audio. En 30 días quedaron 216 chats en
+  Nuevo sin asesora que habían escrito precio, fotos o ubicación y nadie los tomó, porque preguntaban
+  el precio antes de las fotos o se callaban cuando el bot les pedía la ciudad. En un chat que no
+  vino de anuncio ni de Marketplace (orgánico, web) también cuenta el primer mensaje.
+
   Código puro (sin base): lo usan el reparto por turno (al entrar cada mensaje) y el rescate de
   chats sin asesora (cada minuto, así lo que pasó DESPUÉS del mensaje de la clienta —las fotos, la
   nota del agente— también se ve). Pruebas: npm run test:reparto-cuando-lo-necesita.
@@ -30,8 +37,8 @@ import { respondioLaBienvenida } from "./turno-con-contenido";
 /* ------------------------------------------------------------------------------------------------
    LOS INTERRUPTORES (T-772, parte 1): AppSetting `reparto:cuando:<workspaceId>`, valor en JSON.
    (a) agentePide: la nota "El agente pide un asesor" o la IA pausada asignan.
-   (b) clientaPreguntaPlataOEntrega: precio, pago, envío, contraentrega o ciudad asignan (con las
-       fotos ya mandadas, la regla del 11-11).
+   (b) clientaPreguntaPlataOEntrega: desde el 22-11 es "la clienta escribe algo además del mensaje
+       con el que entró" (el nombre de la clave se deja para no romper lo guardado ni el MCP).
    (c) asesoraEscribe: la asesora que escribe en un chat sin dueña se lo queda (conversation-claim.ts).
    comoAntes: la regla del 30-10 (asignar apenas responde la bienvenida) y nada más.
    Sin fila, con JSON roto o con la base caída: los valores por defecto (a, b y c prendidos).
@@ -122,7 +129,6 @@ export type MensajeDelReparto = {
   borrado?: boolean;
 };
 
-const TIPOS_DE_FOTOS = new Set(["IMAGE", "VIDEO", "DOCUMENT"]);
 const NOTA_PIDE_ASESOR = /^El agente pide un asesor\b/i;
 
 /*
@@ -242,10 +248,10 @@ function enOrden(mensajes: ReadonlyArray<MensajeDelReparto>): MensajeDelReparto[
 }
 
 export type DecisionDelReparto =
-  | { asignar: false; motivo: "sin_fotos" | "sin_pedido" | "sin_respuesta" }
+  | { asignar: false; motivo: "sin_pedido" | "sin_respuesta" }
   | {
       asignar: true;
-      motivo: "agente_pide_asesora" | "ia_pausada" | "plata_o_entrega" | "respondio_la_bienvenida";
+      motivo: "agente_pide_asesora" | "ia_pausada" | "clienta_escribio" | "respondio_la_bienvenida";
       detalle: string;
     };
 
@@ -275,7 +281,42 @@ export type EntradaDeLaRegla = {
   agentePidioAsesor?: boolean;
   /** La IA del chat está pausada (`automationPaused`). */
   iaPausada?: boolean;
+  /**
+   * El primer mensaje de la clienta es el de ENTRADA (texto del anuncio o de Marketplace) y no
+   * cuenta para asignar. Sin dato: sí (lo prudente). En un chat orgánico o de la web es false.
+   */
+  primerMensajeEsDeEntrada?: boolean;
 };
+
+/** Lo que manda la clienta y cuenta como "escribió": todo menos las notas y lo borrado. */
+const NO_CUENTA_COMO_ESCRIBIR = new Set(["SYSTEM"]);
+
+/**
+ * ¿El chat vino de un anuncio de Meta o de Marketplace? Entonces el primer mensaje de la clienta es
+ * el texto ya escrito del anuncio o el "¿sigue disponible?" y no cuenta. Lee lo mismo que
+ * origen-del-cliente.ts (Contact.metadata) y la línea: una línea de Marketplace también.
+ */
+export function primerMensajeEsDeEntrada(input: { metadataContacto: unknown; lineaEsMarketplace?: boolean }): boolean {
+  if (input.lineaEsMarketplace) return true;
+  const meta =
+    input.metadataContacto && typeof input.metadataContacto === "object" && !Array.isArray(input.metadataContacto)
+      ? (input.metadataContacto as Record<string, unknown>)
+      : {};
+  const texto = (valor: unknown) => (typeof valor === "string" ? valor.trim().toLowerCase() : "");
+  const origen = meta.origen && typeof meta.origen === "object" ? (meta.origen as Record<string, unknown>) : {};
+  return Boolean(texto(meta.adCapturedAt)) || texto(meta.source) === "meta ads" || texto(origen.canal) === "marketplace";
+}
+
+/** Los mensajes de la clienta que cuentan para "escribió algo además del de entrada". */
+export function mensajesQueCuentan(
+  mensajes: ReadonlyArray<MensajeDelReparto>,
+  primeroEsDeEntrada = true,
+): MensajeDelReparto[] {
+  const deLaClienta = enOrden(mensajes).filter(
+    (m) => m.direction === "INBOUND" && !NO_CUENTA_COMO_ESCRIBIR.has((m.type ?? "TEXT").toUpperCase()),
+  );
+  return primeroEsDeEntrada ? deLaClienta.slice(1) : deLaClienta;
+}
 
 /** La regla completa, con el motivo (para el log). */
 export function decidirSiElChatNecesitaAsesora(entrada: EntradaDeLaRegla): DecisionDelReparto {
@@ -299,17 +340,16 @@ export function decidirSiElChatNecesitaAsesora(entrada: EntradaDeLaRegla): Decis
     if (entrada.iaPausada) return { asignar: true, motivo: "ia_pausada", detalle: "" };
   }
 
-  const ordenados = enOrden(mensajes);
-  const primeraFoto = ordenados.findIndex(
-    (m) => m.direction === "OUTBOUND" && TIPOS_DE_FOTOS.has((m.type ?? "TEXT").toUpperCase()),
-  );
-  if (primeraFoto === -1) return { asignar: false, motivo: "sin_fotos" };
-
-  // (b) Cualquier mensaje de la clienta (también uno de antes de las fotos: "Precio en Bogotá" en el
-  // primer mensaje sigue pendiente de respuesta cuando llegan las fotos).
+  // (b) Desde el 22-11: la clienta escribió algo además del mensaje con el que entró, haya fotos o no.
   if (config.clientaPreguntaPlataOEntrega) {
-    const pedido = ordenados.find((m) => m.direction === "INBOUND" && hablaDePlataOEntrega(m.content));
-    if (pedido) return { asignar: true, motivo: "plata_o_entrega", detalle: (pedido.content ?? "").slice(0, 160) };
+    const [escribio] = mensajesQueCuentan(mensajes, entrada.primerMensajeEsDeEntrada ?? true);
+    if (escribio) {
+      return {
+        asignar: true,
+        motivo: "clienta_escribio",
+        detalle: (escribio.content ?? (escribio.type ?? "").toLowerCase()).slice(0, 160),
+      };
+    }
   }
 
   return { asignar: false, motivo: "sin_pedido" };

@@ -134,13 +134,18 @@ await prueba("frases reales de Caliente", async () => {
     "por nequi se puede?": "el cliente preguntó cómo consignar",
     "cuánto sería el total con envío": "el cliente pidió el total",
     "lo quiero en negro": "el cliente eligió color",
-    "Soy de Medellín": "el cliente dijo su ciudad para el envío",
     "Laura Gómez\nCC 1020304050\nCalle 10 # 20-30\nMedellín": "el cliente mandó sus datos",
   };
   for (const [texto, porque] of Object.entries(casos)) {
     const r = dominio.leerIntencionPorFrase(texto, CUANDO);
     assert.equal(r?.intencion, "CALIENTE", texto);
     assert.equal(r.porque, porque, texto);
+  }
+});
+
+await prueba("22-nov: decir la ciudad ya NO es Caliente (el bot se la pregunta a casi todas)", async () => {
+  for (const texto of ["Soy de Medellín", "vivo en Pereira", "para enviar a Cali", "Bogotá"]) {
+    assert.notEqual(dominio.leerIntencionPorFrase(texto, CUANDO)?.intencion, "CALIENTE", texto);
   }
 });
 
@@ -631,7 +636,7 @@ await prueba("el estado del barrido: prendido, Ganado, chats leídos y Ganado de
     { contactId: "c", etapaNueva: "GANADO", origen: "AUTOMATICO", nota: "[gestion] venta pagada", creadoEn: new Date("2026-11-03T14:00:00Z") },
   );
   let estado = await medir();
-  assert.deepEqual(estado.barrido, { prendido: true, ganado_automatico_prendido: true, chats_leidos_por_ia_hoy: 37, ganados_de_gestion_hoy: 1 });
+  assert.deepEqual(estado.barrido, { prendido: true, ganado_automatico_prendido: true, ia_prendida: true, chats_leidos_por_ia_hoy: 37, ganados_de_gestion_hoy: 1 });
   assert.match(estado.estado, /^activa/);
 
   // El contador de ayer no cuenta; el Ganado apagado se ve.
