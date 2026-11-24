@@ -191,6 +191,9 @@ const enVivo = cargar("src/features/tableros-inteligentes/services/coordinador-e
   "./trabajador": trabajadorFalso,
   "@/features/tableros-inteligentes/services/trabajador": trabajadorFalso,
   "./tableros": { linkDeLaTarjeta: (id) => `https://app.aizenbot.com/cliente/tablero-ia?tarjeta=${id}` },
+  // El servicio de alertas NO se carga acá (este prisma falso no tiene alertas): si quedara en la caché con él, prepararFeatures
+  // (más abajo, con su propio prisma falso) no podría guardar ninguna alerta.
+  "@/features/alertas/servicios/alertas": { registrarAlerta: async () => ({ id: null, creada: false, salioPorWhatsApp: false }), resolverAlertasPorClave: async () => 0 },
 });
 const contexto = { workspaceId: "ws1", claveId: "k1", nombre: "aizen1" };
 
@@ -560,6 +563,166 @@ await prueba("prepararFeaturesDeTodos: recorre los negocios con el id de Feature
   assert.match(bloque, /try \{[\s\S]*await prepararFeaturesDeTodos\(\);[\s\S]*\} catch \(error\) \{/);
   const mcp = fs.readFileSync(path.join(RAIZ, "src/lib/mcp/que-es-esta-aplicacion.ts"), "utf8");
   assert.match(mcp, /features_solas_tablero: await estadoDeFeaturesSolas\(workspaceId\)/);
+});
+
+/* ------------------------------------------------------------------ 6. parte 4: tarjetas quietas de Features (auto:quieta) */
+
+// avisos-al-dueno.ts ya quedó cargado con el prisma falso de Features (lo importa preparar-features.ts).
+const avisosDueno = cargar("src/features/tableros-inteligentes/services/avisos-al-dueno.ts");
+const reglasAlertas = cargar("src/features/alertas/dominio/reglas.ts");
+const servicioAlertas = cargar("src/features/alertas/servicios/alertas.ts");
+const MS_H = 3_600_000;
+const AHORA_Q = new Date("2026-11-24T15:00:00Z");
+const haceHoras = (h) => new Date(AHORA_Q.getTime() - h * MS_H);
+const situacionBase = (extra = {}) => ({ latidoEn: AHORA_Q.toISOString(), enCurso: [], enFila: 0, esperando: [], fueraPorLaVia: [], quietasDeFeatures: [], ...extra });
+const deFeatures = (datos) => ({ id: "t1", titulo: "Idea de Features", detalle: "", estado: "APROBADO", intentos: 0, zonaProtegida: [], enFeatures: true, entroEn: haceHoras(25), ...datos });
+const quietas = (situacion, ahora = AHORA_Q) => avisosDueno.calcularAvisos(situacion, ahora).filter((a) => a.clave.startsWith("auto:quieta:"));
+
+await prueba("calcularAvisos: una de Features en APROBADO creada hace 25 h y nunca tomada da auto:quieta:<id>:APROBADO con motivo, solo página y MEDIA", async () => {
+  const [aviso, ...otros] = quietas(situacionBase({ quietasDeFeatures: [deFeatures({})] }));
+  assert.equal(otros.length, 0);
+  assert.equal(aviso.clave, "auto:quieta:t1:APROBADO");
+  assert.equal(aviso.tipo, "quieta");
+  assert.equal(aviso.soloPagina, true, "solo la página: no sale por WhatsApp");
+  assert.equal(aviso.prioridad, "MEDIA");
+  const motivo = aviso.lineas.find((l) => l.startsWith("Motivo: "));
+  assert.ok(motivo && motivo.slice("Motivo: ".length).trim(), "con un motivo legible");
+  assert.match(motivo, /nadie la ha tomado todavía/);
+  assert.match(aviso.titulo, /lleva 25 h sin arrancar en Features/);
+});
+
+await prueba("calcularAvisos: a las 23 h, fuera de Features, ya tomada o en otro estado no da auto:quieta", async () => {
+  assert.equal(quietas(situacionBase({ quietasDeFeatures: [deFeatures({ entroEn: haceHoras(23) })] })).length, 0, "23 h");
+  assert.equal(quietas(situacionBase({ quietasDeFeatures: [deFeatures({ entroEn: haceHoras(24) })] })).length, 0, "justo 24 h no es 'más de 24 h'");
+  assert.equal(quietas(situacionBase({ quietasDeFeatures: [deFeatures({ enFeatures: false })] })).length, 0, "fuera de Features");
+  assert.equal(quietas(situacionBase({ quietasDeFeatures: [deFeatures({ intentos: 1 })] })).length, 0, "ya la tomaron");
+  for (const estado of ["PLAN_LISTO", "EN_CURSO", "HECHO", "ERROR"]) {
+    assert.equal(quietas(situacionBase({ quietasDeFeatures: [deFeatures({ estado })] })).length, 0, estado);
+  }
+  for (const estado of ["IDEA", "POR_APROBAR", "PLAN_APROBADO"]) {
+    assert.equal(quietas(situacionBase({ quietasDeFeatures: [deFeatures({ estado })] }))[0]?.clave, `auto:quieta:t1:${estado}`, estado);
+  }
+});
+
+await prueba("calcularAvisos: una POR_APROBAR de abonos con 25 h sale con 'espera tu sí' (el motivo de siempre)", async () => {
+  const tarjeta = deFeatures({ id: "t-abonos", estado: "POR_APROBAR", titulo: "Registrar los abonos de cada venta en Gestión" });
+  const [aviso] = quietas(situacionBase({ quietasDeFeatures: [tarjeta] }));
+  assert.equal(aviso.clave, "auto:quieta:t-abonos:POR_APROBAR");
+  assert.ok(aviso.lineas.some((l) => l.includes("espera tu sí")), aviso.lineas.join(" | "));
+  const deSiempre = avisosDueno.porQueNecesitaAlDueno({ ...tarjeta, plan: null, error: null });
+  assert.ok(deSiempre && aviso.lineas.some((l) => l.includes(deSiempre.slice(0, 40))), "el texto de porQueNecesitaAlDueno, sin cambiar");
+});
+
+await prueba("calcularAvisos: el motivo, en orden (pregunta, tu sí, dependencia, vía, caído, ocupado, nadie)", async () => {
+  const motivo = (tarjeta, extra = {}) => quietas(situacionBase({ quietasDeFeatures: [deFeatures(tarjeta)], ...extra }))[0].lineas[1];
+  assert.match(motivo({ preguntaAbierta: true, dependeDe: "Otra" }), /falta el repositorio y espera tu respuesta/);
+  assert.match(motivo({ dependeDe: "Arreglar la base" }), /depende de «Arreglar la base»/);
+  assert.match(
+    motivo({}, { fueraPorLaVia: [{ id: "t1", titulo: "Idea de Features", estado: "APROBADO", zonaProtegida: ["META_ADS"], via: "voz" }] }),
+    /aprobada por voz pero toca Meta Ads: apruébala en pantalla para que arranque/,
+  );
+  const caido = { latidoEn: haceHoras(1).toISOString() };
+  assert.match(motivo({}, caido), /el Coordinador está caído/);
+  assert.match(motivo({}, { enCurso: [{ id: "otra", titulo: "Otra", estado: "EN_CURSO", desde: haceHoras(0.5) }] }), /el Coordinador está ocupado con otras tareas/);
+  assert.match(motivo({}, { latidoEn: null }), /nadie la ha tomado todavía/);
+});
+
+await prueba("alertaYaNoAplica cierra la quieta al cambiar de estado o al tomarla; idDeTarjetaDeLaClave lee el id", async () => {
+  const { alertaYaNoAplica, idDeTarjetaDeLaClave } = reglasAlertas;
+  assert.equal(idDeTarjetaDeLaClave("auto:quieta:t1:APROBADO"), "t1");
+  assert.equal(alertaYaNoAplica("auto:quieta:t1:APROBADO", { estado: "PLAN_LISTO", borradoEn: null, intentos: 0 }), true, "cambió el estado");
+  assert.equal(alertaYaNoAplica("auto:quieta:t1:APROBADO", { estado: "APROBADO", borradoEn: null, intentos: 1 }), true, "la tomaron");
+  assert.equal(alertaYaNoAplica("auto:quieta:t1:APROBADO", { estado: "APROBADO", borradoEn: null, intentos: 0 }), false, "sigue quieta");
+  assert.equal(alertaYaNoAplica("auto:quieta:t1:APROBADO", { estado: "HECHO", borradoEn: null, intentos: 0 }), true, "terminó");
+  assert.equal(alertaYaNoAplica("auto:quieta:t1:APROBADO", null), true, "ya no existe");
+  assert.equal(alertaYaNoAplica("auto:quieta:t1:APROBADO", { estado: "APROBADO", borradoEn: new Date(), intentos: 0 }), true, "borrada");
+});
+
+await prueba("entradaAFeatures: el último 'mover' a Features o a una sub-área; si no hay, la creación", async () => {
+  const { entradaAFeatures } = reglasAlertas;
+  const creada = new Date("2026-11-01T00:00:00Z");
+  const ids = new Set([FEATURES, SUBAREA]);
+  assert.equal(entradaAFeatures(creada, [], ids).getTime(), creada.getTime());
+  const cambios = [
+    { despues: { padreId: SUBAREA }, creadoEn: new Date("2026-11-10T00:00:00Z") },
+    { despues: { padreId: FEATURES }, creadoEn: new Date("2026-11-20T00:00:00Z") },
+    { despues: { padreId: OTRA_AREA }, creadoEn: new Date("2026-11-22T00:00:00Z") },
+    { despues: { titulo: "otro" }, creadoEn: new Date("2026-11-23T00:00:00Z") },
+    { despues: null, creadoEn: new Date("2026-11-23T00:00:00Z") },
+  ];
+  assert.equal(entradaAFeatures(creada, cambios, ids).toISOString(), "2026-11-20T00:00:00.000Z");
+});
+
+// El prisma falso de Features aprende lo que lee leerQuietasDeFeatures (historial con `in`, alertas y conexiones) y el barrido.
+mundo.conexiones = [];
+const historialPorTarjeta = dbFeatures.historialTarjeta.findMany;
+dbFeatures.historialTarjeta.findMany = async (args) => {
+  if (!args.where.tarjetaId?.in) return historialPorTarjeta(args);
+  return mundo.historial.filter((f) => args.where.tarjetaId.in.includes(f.tarjetaId) && (!args.where.accion || f.accion === args.where.accion));
+};
+dbFeatures.alertaInterna.findMany = async ({ where }) =>
+  mundo.alertas.filter(
+    (a) =>
+      a.workspaceId === where.workspaceId &&
+      where.estado.in.includes(a.estado) &&
+      (where.clave?.startsWith ? a.clave.startsWith(where.clave.startsWith) : true) &&
+      (where.OR ? where.OR.some((o) => a.clave.startsWith(o.clave.startsWith)) : true),
+  );
+dbFeatures.alertaInterna.updateMany = async ({ where, data }) => {
+  const filas = mundo.alertas.filter((a) => (!where.id || a.id === where.id) && (!where.estado?.in || where.estado.in.includes(a.estado)));
+  for (const fila of filas) Object.assign(fila, data);
+  return { count: filas.length };
+};
+dbFeatures.conexionTarjeta = {
+  findMany: async ({ where }) =>
+    mundo.conexiones
+      .filter((c) => c.esDependencia && where.destinoId.in.includes(c.destinoId))
+      .map((c) => ({ ...c, origen: mundo.tarjetas.get(c.origenId) }))
+      .filter((c) => c.origen && !c.origen.borradoEn && c.origen.estado !== "HECHO")
+      .map((c) => ({ destinoId: c.destinoId, origen: { titulo: c.origen.titulo } })),
+};
+const consultaDePreparar = dbFeatures.$queryRawUnsafe;
+// Las aprobadas fuera por la vía (otra consulta) no hacen falta acá: lista vacía.
+dbFeatures.$queryRawUnsafe = async (texto, ...valores) => (texto === sql.SQL_POR_PREPARAR_EN_FEATURES ? consultaDePreparar(texto, ...valores) : []);
+
+await prueba("leerSituacion: sin id de Features no trae quietas; con el id trae las de Features sin tomar, con su entrada, pregunta y dependencia", async () => {
+  sembrar();
+  ajustes.delete("tablero:area-features:ws1");
+  assert.deepEqual((await avisosDueno.leerSituacion("ws1")).quietasDeFeatures, [], "sin id, nada");
+  assert.equal(quietas(await avisosDueno.leerSituacion("ws1"), AHORA_Q).length, 0);
+  ajustes.set("tablero:area-features:ws1", FEATURES);
+  // i-alerta se movió a la sub-área hace 2 h (vuelve a empezar la cuenta); i-mejorar depende de i-abonos; i-dos tiene una pregunta abierta.
+  mundo.historial.push({ tarjetaId: "i-alerta", accion: "editar", antes: { padreId: OTRA_AREA }, despues: { padreId: SUBAREA, movimiento: true }, creadoEn: haceHoras(2) });
+  mundo.conexiones.push({ origenId: "i-abonos", destinoId: "i-mejorar", esDependencia: true });
+  mundo.alertas.push({ id: "al-preg", workspaceId: "ws1", clave: "coord:necesita:i-dos:¿De qué sistema es?", estado: "NUEVA", veces: 1 });
+  const situacion = await avisosDueno.leerSituacion("ws1");
+  const porId = new Map(situacion.quietasDeFeatures.map((t) => [t.id, t]));
+  for (const id of ["i-alerta", "i-dos", "i-mejorar", "i-abonos", "i-madre", "i-madre-hija"]) assert.ok(porId.has(id), `trae ${id}`);
+  for (const id of ["i-fuera", "i-empezada", FEATURES, SUBAREA, OTRA_AREA]) assert.ok(!porId.has(id), `no trae ${id}`);
+  assert.equal(porId.get("i-alerta").entroEn.getTime(), haceHoras(2).getTime(), "el último mover a una sub-área");
+  assert.equal(porId.get("i-abonos").entroEn.getTime(), tarjeta("i-abonos").creadoEn.getTime(), "sin mover: la creación");
+  assert.equal(porId.get("i-mejorar").dependeDe, "Registrar los abonos de cada venta en Gestión");
+  assert.equal(porId.get("i-dos").preguntaAbierta, true);
+  const claves = quietas(situacion, AHORA_Q).map((a) => a.clave);
+  assert.ok(!claves.some((c) => c.startsWith("auto:quieta:i-alerta:")), "movida hace 2 h: todavía no");
+  assert.ok(claves.includes("auto:quieta:i-madre-hija:APROBADO"));
+  const lineas = (id) => quietas(situacion, AHORA_Q).find((a) => a.clave.startsWith(`auto:quieta:${id}:`)).lineas.join(" ");
+  assert.match(lineas("i-dos"), /falta el repositorio y espera tu respuesta/);
+  assert.match(lineas("i-mejorar"), /depende de «Registrar los abonos/);
+});
+
+await prueba("el barrido cierra la alerta quieta cuando la tarjeta cambia de estado y deja la que sigue igual", async () => {
+  sembrar();
+  mundo.alertas.push(
+    { id: "al-q1", workspaceId: "ws1", clave: "auto:quieta:i-alerta:IDEA", estado: "NUEVA", detalle: null, veces: 1 },
+    { id: "al-q2", workspaceId: "ws1", clave: "auto:quieta:i-abonos:IDEA", estado: "NUEVA", detalle: null, veces: 1 },
+  );
+  tarjeta("i-alerta").estado = "APROBADO";
+  assert.equal(await servicioAlertas.barrerAlertasDeTarjetas("ws1", AHORA_Q), 1);
+  assert.equal(mundo.alertas.find((a) => a.id === "al-q1").estado, "RESUELTA");
+  assert.equal(mundo.alertas.find((a) => a.id === "al-q2").estado, "NUEVA");
+  tarjeta("i-abonos").intentos = 1;
+  assert.equal(await servicioAlertas.barrerAlertasDeTarjetas("ws1", AHORA_Q), 1, "al tomarla (intentos > 0) también se cierra");
 });
 
 console.log(`\n${pruebas} pruebas OK`);

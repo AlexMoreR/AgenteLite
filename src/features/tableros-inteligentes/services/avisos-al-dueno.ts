@@ -1,4 +1,15 @@
-import { ORIGEN_COORDINADOR, esDeDineroMetaOClave, idDeTarjetaDeLaClave, textoDeVariasUrgentes, tituloDelTexto, type Prioridad } from "@/features/alertas/dominio/reglas";
+import {
+  ORIGEN_COORDINADOR,
+  entradaAFeatures,
+  esDeDineroMetaOClave,
+  ESTADOS_QUE_ESPERAN_ARRANCAR,
+  idDeTarjetaDeLaClave,
+  tarjetaQuieta,
+  textoDeVariasUrgentes,
+  tituloDelTexto,
+  type Prioridad,
+  type TarjetaParaQuieta,
+} from "@/features/alertas/dominio/reglas";
 import {
   barrerAlertasDeTarjetas,
   leerResponsableDeSistemas,
@@ -10,7 +21,7 @@ import {
 import { sendEvolutionTextMessageWithReconnect } from "@/lib/evolution";
 import { prisma } from "@/lib/prisma";
 
-import { ultimoLatido } from "./coordinador-en-vivo";
+import { leerAreaFeatures, ultimoLatido } from "./coordinador-en-vivo";
 import { tareaAprobadaPorElDueno } from "./aprobacion-automatica";
 import { porQueElPlanNuevoEsperaTuSi, porQueLaTareaEsperaTuSi } from "./reglas-riesgo";
 import { REPOS_DEL_TRABAJADOR, TOPE_INTENTOS_DE_SUBIDA, textoDeAprobarEnPantalla, zonasQueEsperanLaPantalla, zonasQueNoArrancanSolas } from "./reglas-trabajador";
@@ -78,6 +89,12 @@ import { linkDeHoy, linkDeLaTarjeta, linkDelCoordinador, pendientesDelDueno, tod
   de siempre (`auto:trabado:<id>:ERROR`). Es solo página: no sale ningún WhatsApp, ni al dueño ni a Emanuel, y no se toma como
   "falta una clave" aunque el log diga 401 o 403.
 
+  TARJETAS QUIETAS DE FEATURES (24-nov-2026, parte 4 de "Coordinador: tomar y desarrollar TODO lo que cuelga de Features"): una
+  tarjeta que cuelga de Features, que nadie tomó (intentos = 0), en IDEA, POR_APROBAR, APROBADO o PLAN_APROBADO, y que lleva más
+  de 24 h desde que entró a Features (el último "mover" a Features o a una sub-área; si no, su creación), deja una alerta MEDIA
+  `auto:quieta:<id>:<estado>` con el motivo en una línea (regla pura tarjetaQuieta, en alertas/dominio/reglas.ts). Es solo
+  página: no sale ningún WhatsApp. Se cierra sola en el barrido cuando cambia de estado o la toman. Sin id de Features, nada.
+
   Todo se guarda en AppSetting (sin tablas nuevas). El reloj del servidor (api/cron/follows) llama a
   revisarAvisosAlDueno cada minuto. Antes de este archivo el aviso del Coordinador devolvía 412 porque nadie
   guardaba el número en ninguna pantalla.
@@ -97,7 +114,7 @@ export const claveAvisosDeAprobacion = (workspaceId: string) => `${PREFIJO_AVISO
 /** El ajuste que usaba el aviso del Coordinador antes de que existiera la caja de Mi empresa. */
 const claveTelefonoViejo = (workspaceId: string) => `trabajador:aviso-telefono:${workspaceId}`;
 
-export const TIPOS_DE_AVISO = ["caido", "sin_trabajo", "trabado", "necesita", "limite", "aprobar_en_pantalla", "cupos"] as const;
+export const TIPOS_DE_AVISO = ["caido", "sin_trabajo", "trabado", "necesita", "limite", "aprobar_en_pantalla", "cupos", "quieta"] as const;
 export type TipoDeAviso = (typeof TIPOS_DE_AVISO)[number];
 
 /** Los avisos técnicos: los atiende Emanuel. Los que piden dinero, Meta Ads o una clave no están acá. */
@@ -395,7 +412,12 @@ export type SituacionDeSistemas = {
   esperando: TarjetaEsperando[];
   /** Aprobadas (y SUBIENDO pendientes, 31-oct) que el Coordinador no toma solo por la vía de su aprobación (28-oct-2026). */
   fueraPorLaVia?: TarjetaFueraPorLaVia[];
+  /** Las de Features que esperan arrancar (24-nov-2026): sin id de Features, vacía. */
+  quietasDeFeatures?: TarjetaDeFeatures[];
 };
+
+/** Una tarjeta de Features que espera arrancar, con lo que hace falta para el motivo (lo demás lo calcula calcularAvisos). */
+export type TarjetaDeFeatures = Omit<TarjetaParaQuieta, "esperaTuSi" | "viaQueNoArranca"> & { titulo: string; detalle: string; zonaProtegida: string[] };
 
 /** Una APROBADO / PLAN_APROBADO o SUBIENDO pendiente (sin candado) con zona que pide la pantalla y aprobada por voz u otra vía (SQL_FUERA_POR_LA_VIA). */
 export type TarjetaFueraPorLaVia = { id: string; titulo: string; estado: string; zonaProtegida: string[]; via: string };
@@ -426,7 +448,7 @@ const ES_UNA_SUBIDA_DESHECHA = /^\s*Se deshizo una subida/i;
  * en MEDIA: solo la página, no llegan al WhatsApp de Alexander (a Emanuel le siguen llegando).
  */
 export function prioridadDelAviso(tipo: TipoDeAviso, motivo?: string | null): Prioridad {
-  if (esAvisoTecnico(tipo)) return "MEDIA";
+  if (esAvisoTecnico(tipo) || tipo === "quieta") return "MEDIA";
   if (tipo === "necesita") {
     if (ES_UNA_SUBIDA_DESHECHA.test(motivo ?? "")) return "MEDIA";
     return esDeDineroMetaOClave(motivo ?? "") || ES_UNA_DUDA_DE_NEGOCIO.test(motivo ?? "") ? "URGENTE" : "ALTA";
@@ -613,7 +635,44 @@ export function calcularAvisos(situacionCompleta: SituacionDeSistemas, ahora: Da
       titulo: texto,
     });
   }
+
+  // 7. Quieta en Features (24-nov-2026): más de 24 h sin arrancar, con el motivo. Solo la página, MEDIA.
+  for (const tarjeta of situacion.quietasDeFeatures ?? []) {
+    const aviso = avisoDeQuieta(tarjeta, situacion, { caido, ocupado: situacion.enCurso.length > 0 }, ahora);
+    if (aviso) avisos.push(aviso);
+  }
   return avisos;
+}
+
+/**
+ * El aviso de una tarjeta de Features quieta (`auto:quieta:<id>:<estado>`), o null si no lo está. El "espera tu sí" sale de
+ * porQueNecesitaAlDueno (los mismos textos y reglas de siempre) y la aprobación por un canal que no arranca, de fueraPorLaVia.
+ */
+export function avisoDeQuieta(
+  tarjeta: TarjetaDeFeatures,
+  situacion: Pick<SituacionDeSistemas, "fueraPorLaVia">,
+  coordinador: { caido: boolean; ocupado: boolean },
+  ahora: Date,
+): AvisoCalculado | null {
+  const esperaTuSi =
+    tarjeta.estado === "POR_APROBAR"
+      ? porQueNecesitaAlDueno({ id: tarjeta.id, titulo: tarjeta.titulo, detalle: tarjeta.detalle, estado: tarjeta.estado, plan: null, zonaProtegida: tarjeta.zonaProtegida, error: null })
+      : null;
+  const fuera = (situacion.fueraPorLaVia ?? []).find((otra) => otra.id === tarjeta.id);
+  const zonas = fuera ? zonasQueEsperanLaPantalla(fuera.zonaProtegida, fuera.via) : [];
+  const viaQueNoArranca = fuera && zonas.length ? textoDeAprobarEnPantalla(tituloCorto(tarjeta.titulo), zonas, fuera.via) : null;
+  const quieta = tarjetaQuieta({ ...tarjeta, esperaTuSi, viaQueNoArranca }, coordinador, ahora);
+  if (!quieta) return null;
+  const titulo = `${entreComillas(tarjeta.titulo)} lleva ${quieta.horas} h sin arrancar en Features`;
+  return {
+    clave: quieta.clave,
+    tipo: "quieta",
+    lineas: [`⏳ ${titulo}.`, `Motivo: ${unaLinea(quieta.motivo, 160)}`],
+    link: linkDeLaTarjeta(tarjeta.id),
+    prioridad: prioridadDelAviso("quieta"),
+    titulo,
+    soloPagina: true,
+  };
 }
 
 /**
@@ -677,10 +736,83 @@ async function aprobadasFueraPorLaVia(workspaceId: string): Promise<TarjetaFuera
   }
 }
 
+/**
+ * Las tarjetas de Features que esperan arrancar (24-nov-2026): las que cuelgan del Área Features guardada por el latido (a
+ * cualquier profundidad, sin pasar por borradas; hasta 50 niveles), de un tipo con estados, sin archivar, en IDEA, POR_APROBAR,
+ * APROBADO o PLAN_APROBADO y con `intentos` = 0. Para cada una: cuándo entró a Features, si tiene una pregunta del Coordinador
+ * abierta y de qué tarjeta sin terminar depende. Sin id de Features, o si falla la lectura: lista vacía (los demás avisos siguen).
+ */
+export async function leerQuietasDeFeatures(workspaceId: string, tablero: Awaited<ReturnType<typeof dondeTableroVivo>>): Promise<TarjetaDeFeatures[]> {
+  try {
+    const area = await leerAreaFeatures(workspaceId);
+    if (!area) return [];
+    const idsDeFeatures = new Set<string>([area]);
+    const filas: {
+      id: string;
+      titulo: string;
+      detalle: string;
+      estado: string;
+      intentos: number;
+      creadoEn: Date;
+      zonaProtegida: string[];
+      archivadaEn: Date | null;
+      tipo: { usaEstados: boolean };
+    }[] = [];
+    let nivel = [area];
+    for (let n = 0; n < 50 && nivel.length; n += 1) {
+      const hijas = await prisma.tarjetaTablero.findMany({
+        where: { padreId: { in: nivel }, borradoEn: null, tablero },
+        select: { id: true, titulo: true, detalle: true, estado: true, intentos: true, creadoEn: true, zonaProtegida: true, archivadaEn: true, tipo: { select: { usaEstados: true } } },
+      });
+      nivel = hijas.map((hija) => hija.id).filter((id) => !idsDeFeatures.has(id));
+      for (const hija of hijas) {
+        if (idsDeFeatures.has(hija.id)) continue;
+        idsDeFeatures.add(hija.id);
+        filas.push(hija);
+      }
+    }
+    const esperan = filas.filter(
+      (fila) => fila.tipo.usaEstados && !fila.archivadaEn && fila.intentos === 0 && (ESTADOS_QUE_ESPERAN_ARRANCAR as readonly string[]).includes(fila.estado),
+    );
+    if (!esperan.length) return [];
+    const ids = esperan.map((fila) => fila.id);
+    const [cambios, preguntas, dependencias] = await Promise.all([
+      prisma.historialTarjeta.findMany({ where: { tarjetaId: { in: ids }, accion: "editar", deshechoEn: null }, select: { tarjetaId: true, despues: true, creadoEn: true } }),
+      prisma.alertaInterna.findMany({ where: { workspaceId, estado: { in: ["NUEVA", "VISTA"] }, clave: { startsWith: "coord:necesita:" } }, select: { clave: true } }),
+      prisma.conexionTarjeta.findMany({
+        where: { destinoId: { in: ids }, esDependencia: true, origen: { borradoEn: null, estado: { not: "HECHO" }, tipo: { usaEstados: true } } },
+        select: { destinoId: true, origen: { select: { titulo: true } } },
+      }),
+    ]);
+    const conPregunta = new Set(preguntas.map((alerta) => idDeTarjetaDeLaClave(alerta.clave)).filter((id): id is string => !!id));
+    const dependeDe = new Map<string, string>();
+    for (const conexion of dependencias) if (!dependeDe.has(conexion.destinoId)) dependeDe.set(conexion.destinoId, conexion.origen.titulo);
+    return esperan.map((fila) => ({
+      id: fila.id,
+      titulo: fila.titulo,
+      detalle: fila.detalle,
+      estado: fila.estado,
+      intentos: fila.intentos,
+      zonaProtegida: fila.zonaProtegida,
+      enFeatures: true,
+      entroEn: entradaAFeatures(
+        fila.creadoEn,
+        cambios.filter((cambio) => cambio.tarjetaId === fila.id),
+        idsDeFeatures,
+      ),
+      preguntaAbierta: conPregunta.has(fila.id),
+      dependeDe: dependeDe.get(fila.id) ?? null,
+    }));
+  } catch (error) {
+    console.warn("[avisos-al-dueno] no se pudo leer las tarjetas de Features", error instanceof Error ? error.message : String(error));
+    return [];
+  }
+}
+
 export async function leerSituacion(workspaceId: string): Promise<SituacionDeSistemas> {
   // Lo de un tablero archivado no avisa (tableros-archivados.ts).
   const alcance = { borradoEn: null, tablero: await dondeTableroVivo({ workspaceId }) };
-  const [latido, enCursoFilas, enFila, pendientes, fueraPorLaVia] = await Promise.all([
+  const [latido, enCursoFilas, enFila, pendientes, fueraPorLaVia, quietasDeFeatures] = await Promise.all([
     ultimoLatido(workspaceId),
     prisma.tarjetaTablero.findMany({
       // Solo las que ejecuta el Coordinador (con repo): una tarea humana que alguien dejó en EN_CURSO a mano no es
@@ -692,6 +824,8 @@ export async function leerSituacion(workspaceId: string): Promise<SituacionDeSis
     pendientesDelDueno(todoElNegocio(workspaceId)),
     // Las mismas condiciones que /tomar, menos la vía: si falla, no tumba los demás avisos.
     aprobadasFueraPorLaVia(workspaceId),
+    // Las de Features que esperan arrancar (nunca lanza).
+    leerQuietasDeFeatures(workspaceId, alcance.tablero),
   ]);
   // El latido NO cuenta como avance: se mide con el último cambio del historial, no con actualizadoEn.
   const ultimos = enCursoFilas.length
@@ -733,6 +867,7 @@ export async function leerSituacion(workspaceId: string): Promise<SituacionDeSis
       tareaAprobadaPorElDueno: tareasDelDueno.get(p.id) ?? false,
     })),
     fueraPorLaVia,
+    quietasDeFeatures,
   };
 }
 
