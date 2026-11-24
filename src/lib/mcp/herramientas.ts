@@ -86,6 +86,16 @@ import {
 } from "@/lib/mcp/asignacion";
 import { getFlowReply } from "@/lib/agent-product-flow";
 import { prisma } from "@/lib/prisma";
+import { leerLibro } from "@/features/agente-v3/servicios/almacen";
+import { lineaConV3 } from "@/features/seguimientos/dominio/motores-viejos";
+import {
+  ATIENDE_V3,
+  AVISO_INACTIVO,
+  FUENTE_REAL,
+  estadoDelAgente,
+  textoDeQuienAtiende,
+  usoDeLosAgentes,
+} from "@/lib/mcp/motores-viejos";
 import type { Prisma } from "@prisma/client";
 import { ORIGENES_DE_SEGUIMIENTO } from "@/features/seguimientos/dominio/seguimiento-que-escucha";
 import { parseWorkspaceBusinessConfig } from "@/lib/workspace-business-config";
@@ -114,7 +124,7 @@ const HERRAMIENTAS_DE_LECTURA = [
     name: "resumen_del_negocio",
     title: "Resumen del negocio",
     description:
-      "Datos del negocio (descripcion, ubicacion, contacto, redes), sus lineas de WhatsApp y sus agentes. Empezar por aca para conocer los ids.",
+      "Datos del negocio (descripcion, ubicacion, contacto, redes), sus lineas de WhatsApp con quien atiende cada una y sus agentes. Empezar por aca para conocer los ids. El que atiende a los clientes es el agente V3 (libro de reglas, ver v3_ver_reglas); un agente V1/V2 que ya no atiende ninguna linea sin V3 sale INACTIVO, no se usa.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     annotations: SOLO_LECTURA,
   },
@@ -122,7 +132,7 @@ const HERRAMIENTAS_DE_LECTURA = [
     name: "ver_agente",
     title: "Ver un agente",
     description:
-      "Configuracion completa de un agente: prompt principal, bienvenida, mensajes de respaldo, configuracion de entrenamiento, productos que conoce con su embudo e instrucciones, reglas del playbook y el diagrama (Agente V2) resumido. Es la fuente de lo que el agente DEBERIA decir.",
+      "MOTOR VIEJO, hoy no atiende: para saber qué dice el bot use v3_ver_reglas. Configuracion completa de un agente V1/V2: prompt principal, bienvenida, mensajes de respaldo, configuracion de entrenamiento, productos que conoce con su embudo e instrucciones, reglas del playbook y el diagrama (Agente V2) resumido. La respuesta empieza con estado y fuente_real: si el agente todavia atiende una linea sin V3, el estado lo dice.",
     inputSchema: {
       type: "object",
       properties: { agente_id: { type: "string", description: "Id del agente (ver resumen_del_negocio)" } },
@@ -396,7 +406,7 @@ function aNumero(valor: unknown) {
 }
 
 async function resumenDelNegocio(contexto: Contexto) {
-  const [negocio, canales, agentes] = await Promise.all([
+  const [negocio, canales, agentes, libro] = await Promise.all([
     prisma.workspace.findUnique({
       where: { id: contexto.workspaceId },
       select: { name: true, businessConfig: true },
@@ -404,15 +414,24 @@ async function resumenDelNegocio(contexto: Contexto) {
     prisma.whatsAppChannel.findMany({
       where: { workspaceId: contexto.workspaceId },
       orderBy: { createdAt: "asc" },
-      select: { id: true, name: true, provider: true, agent: { select: { id: true, name: true } } },
+      select: {
+        id: true,
+        name: true,
+        provider: true,
+        metadata: true,
+        agentId: true,
+        agent: { select: { id: true, name: true, status: true, isActive: true } },
+      },
     }),
     prisma.agent.findMany({
       where: { workspaceId: contexto.workspaceId },
       orderBy: { createdAt: "asc" },
       select: { id: true, name: true, agentType: true, status: true, isActive: true, updatedAt: true },
     }),
+    leerLibro(contexto.workspaceId),
   ]);
   const datos = parseWorkspaceBusinessConfig(negocio?.businessConfig);
+  const uso = usoDeLosAgentes(canales, agentes);
   return {
     negocio: negocio?.name ?? null,
     datos_del_negocio: {
@@ -427,20 +446,33 @@ async function resumenDelNegocio(contexto: Contexto) {
       correo: datos.contactEmail,
       redes: { instagram: datos.instagram, facebook: datos.facebook, tiktok: datos.tiktok, youtube: datos.youtube },
     },
+    agente_que_atiende: {
+      agente: "V3",
+      nombre: ATIENDE_V3,
+      version_del_libro: libro.version,
+      reglas: libro.reglas.length,
+      fuente_real: FUENTE_REAL,
+    },
     lineas_de_whatsapp: canales.map((canal) => ({
       id: canal.id,
       nombre: canal.name,
       tipo: canal.provider,
+      atiende: textoDeQuienAtiende(canal),
       agente: canal.agent ? { id: canal.agent.id, nombre: canal.agent.name } : null,
     })),
-    agentes: agentes.map((agente) => ({
-      id: agente.id,
-      nombre: agente.name,
-      version: agente.agentType,
-      estado: agente.status,
-      activo: agente.isActive,
-      actualizado: hora(agente.updatedAt),
-    })),
+    agentes: agentes.map((agente) => {
+      const seUsa = uso.get(agente.id)?.seUsa ?? false;
+      return {
+        id: agente.id,
+        nombre: agente.name,
+        version: agente.agentType,
+        se_usa: seUsa,
+        ...(seUsa ? {} : { aviso: AVISO_INACTIVO }),
+        estado: agente.status,
+        activo: agente.isActive,
+        actualizado: hora(agente.updatedAt),
+      };
+    }),
   };
 }
 
@@ -483,7 +515,7 @@ async function verAgente(args: Argumentos, contexto: Contexto) {
       trainingConfig: true,
       graph: true,
       updatedAt: true,
-      channels: { select: { id: true, name: true } },
+      channels: { select: { id: true, name: true, metadata: true } },
       knowledgeProducts: {
         select: {
           instructions: true,
@@ -523,15 +555,24 @@ async function verAgente(args: Argumentos, contexto: Contexto) {
       })
     : [];
 
+  const uso = usoDeLosAgentes(
+    agente.channels.map((linea) => ({ ...linea, agentId: agente.id, agent: agente })),
+    [agente],
+  ).get(agente.id);
+
   return {
+    // Primero lo que importa: si este motor viejo atiende a alguien hoy y dónde mirar lo que dice el bot.
+    estado: estadoDelAgente(uso),
+    fuente_real: FUENTE_REAL,
+    ...(uso?.seUsa ? {} : { aviso_motor_viejo: AVISO_INACTIVO }),
     id: agente.id,
     nombre: agente.name,
     version: agente.agentType,
-    estado: agente.status,
+    estado_en_la_base: agente.status,
     activo: agente.isActive,
     modelo: agente.model,
     actualizado: hora(agente.updatedAt),
-    lineas: agente.channels,
+    lineas: agente.channels.map((linea) => ({ id: linea.id, name: linea.name, con_v3: lineaConV3(linea.metadata) })),
     aviso:
       agente.agentType === "V2"
         ? "Agente V2: el prompt y los productos se generan al PUBLICAR el diagrama. Si el diagrama cambio y no se publico, lo que corre es el prompt de abajo, no el diagrama."

@@ -246,4 +246,55 @@ await prueba("--volver no revive un seguimiento que ya venció, y --workspace si
   assert.equal(otra.escrituras, 0);
 });
 
+await prueba("MCP: una línea con agenteV3 sale como 'Agente V3 (libro de reglas)' y un agente sin líneas sin V3 sale INACTIVO", async () => {
+  const mv = cargar("src/lib/mcp/motores-viejos.ts");
+  assert.equal(mv.ESTADO_INACTIVO, "INACTIVO, no se usa");
+  assert.equal(mv.FUENTE_REAL, "v3_ver_reglas");
+  assert.equal(mv.AVISO_INACTIVO, "INACTIVO, no se usa: el que atiende es el agente V3 (libro de reglas). La fuente real es v3_ver_reglas.");
+  assert.equal(mv.ATIENDE_V3, "Agente V3 (libro de reglas)");
+
+  const base = nuevaBase();
+  const agente = (id) => base.agentes.find((a) => a.id === id) ?? null;
+  const lineas = base.lineas.map((l) => ({ ...l, agent: agente(l.agentId) }));
+  const quien = Object.fromEntries(lineas.map((l) => [l.id, mv.quienAtiende(l)]));
+  assert.deepEqual(quien, { "linea-v3": "V3", "linea-v3b": "V3", "linea-sin-v3": "V1/V2", "linea-pausada": "personas" });
+  const atiende = Object.fromEntries(lineas.map((l) => [l.id, mv.textoDeQuienAtiende(l)]));
+  assert.equal(atiende["linea-v3"], "Agente V3 (libro de reglas)");
+  assert.equal(atiende["linea-sin-v3"], "Agente mixto (agente V1/V2, sin V3)");
+  assert.equal(atiende["linea-pausada"], "Agente pausado en pausa: la atienden solo personas");
+  assert.equal(mv.textoDeQuienAtiende({ metadata: {}, agent: null }), "sin agente: la atienden solo personas");
+
+  const uso = mv.usoDeLosAgentes(lineas, base.agentes);
+  // Activo pero solo con líneas V3: no se usa.
+  assert.equal(uso.get("ag-v2").seUsa, false);
+  assert.equal(mv.estadoDelAgente(uso.get("ag-v2")), "INACTIVO, no se usa");
+  // Atiende una línea sin V3: se usa y lo dice tal cual.
+  assert.equal(uso.get("ag-mixto").seUsa, true);
+  assert.deepEqual(uso.get("ag-mixto").lineasSinV3, [{ id: "linea-sin-v3", nombre: "Administrativa" }]);
+  assert.match(mv.estadoDelAgente(uso.get("ag-mixto")), /^ACTIVO: todavía atiende la línea sin V3 "Administrativa"/);
+  // En pausa: aunque tenga una línea sin V3, no atiende.
+  assert.equal(uso.get("ag-pausado").seUsa, false);
+  assert.equal(mv.estadoDelAgente(undefined), "INACTIVO, no se usa");
+});
+
+await prueba("MCP: resumen_del_negocio y ver_agente usan el cálculo, y ningún texto dice que el V3 no atiende", async () => {
+  const herramientas = fs.readFileSync(`${RAIZ}/src/lib/mcp/herramientas.ts`, "utf8");
+  const resumen = herramientas.slice(herramientas.indexOf("async function resumenDelNegocio"), herramientas.indexOf("function diagramaResumido"));
+  assert.match(resumen, /metadata: true/);
+  assert.match(resumen, /atiende: textoDeQuienAtiende\(canal\)/);
+  assert.match(resumen, /agente_que_atiende: \{\s*agente: "V3"/);
+  assert.match(resumen, /version_del_libro: libro\.version/);
+  assert.match(resumen, /se_usa: seUsa/);
+  assert.match(resumen, /aviso: AVISO_INACTIVO/);
+  const verAgente = herramientas.slice(herramientas.indexOf("async function verAgente"));
+  assert.match(verAgente.slice(verAgente.indexOf("return {")), /^return \{\s*\/\/[^\n]*\n\s*estado: estadoDelAgente\(uso\),\s*fuente_real: FUENTE_REAL,/);
+  assert.match(herramientas, /"MOTOR VIEJO, hoy no atiende: para saber qué dice el bot use v3_ver_reglas/);
+
+  for (const archivo of ["src/lib/mcp/herramientas.ts", "src/lib/mcp/agente-v3.ts", "src/app/api/mcp/route.ts"]) {
+    const fuente = fs.readFileSync(`${RAIZ}/${archivo}`, "utf8");
+    assert.doesNotMatch(fuente, /no atiende clientes todav[ií]a/i, archivo);
+    assert.doesNotMatch(fuente, /todav[ií]a NO atiende/i, archivo);
+  }
+});
+
 console.log(`\n${pruebas} pruebas ok`);

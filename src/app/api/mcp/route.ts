@@ -59,8 +59,10 @@ async function atender(pedido: Pedido, contexto: { workspaceId: string; userId: 
           "agente: crear una condicion con sus palabras, una caja de flujo, y conectarlas. Antes de cambiar " +
           "algo, leer siempre lo que hay hoy (ver_embudo_del_producto, ver_textos_del_agente, " +
           "ver_diagrama_del_agente) y decirle a la persona que se va a tocar. " +
-          "Aparte esta el AGENTE V3 (herramientas v3_*), que es el libro de reglas nuevo y todavia NO atiende " +
-          "clientes: se escribe y se prueba en el simulador. Si el libro esta vacio, llamar v3_empezar y hacer " +
+          "El que ATIENDE a los clientes es el AGENTE V3 (herramientas v3_*): lo que dice el bot sale de su libro de " +
+          "reglas (v3_ver_reglas), y cada regla se prueba en el simulador antes de cambiarla. El embudo por producto " +
+          "(ver_embudo_del_producto) y el diagrama del agente V2 (ver_agente, ver_diagrama_del_agente) son motores viejos " +
+          "inactivos: no corregir ahi lo que dice el bot. Si el libro esta vacio, llamar v3_empezar y hacer " +
           "esas preguntas de a una; nunca inventar productos, precios ni textos del negocio. " +
           "Los AGENTES DE AREA (Ventas, Marketing y Sistemas, corren en aizen1): agente_de_ventas, agente_de_marketing y agente_de_sistemas se leen por voz " +
           "(interruptor, resumen del dia, subagentes); numeros_de_marketing da las conversaciones por anuncio de origen. El Agente " +

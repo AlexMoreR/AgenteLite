@@ -12,14 +12,15 @@ import { decidir } from "@/features/agente-v3/motor/decidir";
 import { PASOS_DEL_EMBUDO, revisarLibro, type ReglaV3 } from "@/features/agente-v3/domain/reglas";
 
 /*
-  AGENTE V3 POR MCP: el libro de reglas se dicta hablando.
+  AGENTE V3 POR MCP: el libro de reglas se dicta hablando. Es el libro del agente que atiende a los
+  clientes en las líneas con el V3 (metadata.agenteV3 = true); el agente V1/V2 quedó como motor viejo.
 
   Es la forma de trabajo que pidió Alex (21-sep-2026): él manda una captura con el error y cuenta
   qué debería haber pasado; yo escribo o corrijo la regla. La pantalla del V3 queda para entrar a
   mirar lo que quedó, no para tener que armarlo a mano.
 
   Tres cosas que este archivo cuida:
-  1. NADA de esto toca al V2. El agente que vende hoy sigue igual hasta que el simulador convenza.
+  1. NADA de esto toca al V2 (motor viejo, en pausa en las líneas con V3): sus datos quedan como estaban.
   2. Todo cambio deja la versión anterior completa: volver atrás es una llamada.
   3. Se avisan los problemas (frases cortas, reglas que no hacen nada) sin bloquear: la decisión es
      de quien dicta la regla.
@@ -105,7 +106,7 @@ export const HERRAMIENTAS_MCP_V3 = [
     name: "v3_ver_reglas",
     title: "Ver el libro de reglas (V3)",
     description:
-      "El libro de reglas del agente V3: como habla el negocio y cada regla con su disparador, sus condiciones y lo que hace. El V3 no atiende clientes todavia: se escribe y se prueba en el simulador.",
+      "El libro de reglas del agente V3: como habla el negocio y cada regla con su disparador, sus condiciones y lo que hace. Es el libro del agente que atiende a los clientes: lo que dice el bot sale de aca. Antes de cambiar una regla, probarla en el simulador.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     annotations: SOLO_LECTURA,
   },
