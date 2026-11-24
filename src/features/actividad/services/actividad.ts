@@ -1,4 +1,7 @@
 import { prisma } from "@/lib/prisma";
+import { quedarseConLaMasReciente, type CandidataDeUltimaAccion, type UltimaAccion } from "./ultima-accion";
+
+export type { TipoDeUltimaAccion, UltimaAccion } from "./ultima-accion";
 
 /**
  * QUÉ HIZO CADA PERSONA: respuestas, asignaciones, cambios de etapa, llamadas.
@@ -114,6 +117,85 @@ export async function resumenDelEquipo(input: {
     persona.total = persona.respuestas + persona.asignaciones + persona.etapas + persona.llamadas;
   }
   return salida;
+}
+
+/** Hasta dónde se mira hacia atrás para la última acción, si no se dice otra cosa. */
+const DIAS_DE_ULTIMA_ACCION = 30;
+
+/**
+ * La última acción de cada persona del equipo: qué hizo (envió un mensaje, cambió una etapa,
+ * asignó, llamó), con qué cliente y cuándo.
+ *
+ * Tres consultas para todo el equipo —mensajes, notas de asignación/etapa y llamadas—, nunca una por
+ * persona. Cada una se queda con la fila más nueva de cada persona (DISTINCT ON ordenado por fecha)
+ * dentro del rango, y el contacto se busca después, solo para esas pocas filas. Siempre acotado por
+ * `desde` (30 días si no se pasa): sin el rango es la misma consulta que ya tardó 61 segundos.
+ */
+export async function ultimaAccionPorPersona(input: {
+  workspaceId: string;
+  desde?: Date;
+}): Promise<Map<string, UltimaAccion>> {
+  const { workspaceId } = input;
+  const desde = input.desde ?? new Date(Date.now() - DIAS_DE_ULTIMA_ACCION * 24 * 3_600_000);
+
+  type Fila = { userId: string; cuando: Date; cliente: string | null };
+
+  const [mensajes, notas, llamadas] = await Promise.all([
+    prisma.$queryRaw<Fila[]>`
+      SELECT u."userId", u."createdAt" AS cuando, coalesce(c."name", c."phoneNumber") AS cliente
+      FROM (
+        SELECT DISTINCT ON (m."rawPayload"->>'enviadoPorUserId')
+               m."rawPayload"->>'enviadoPorUserId' AS "userId", m."createdAt", m."contactId"
+        FROM "Message" m
+        WHERE m."workspaceId" = ${workspaceId}
+          AND m."createdAt" >= ${desde}
+          AND m."direction" = 'OUTBOUND' AND m."type" <> 'SYSTEM'
+          AND m."rawPayload"->>'enviadoPorUserId' IS NOT NULL
+        ORDER BY m."rawPayload"->>'enviadoPorUserId', m."createdAt" DESC
+      ) u
+      LEFT JOIN "Contact" c ON c."id" = u."contactId"
+    `,
+    prisma.$queryRaw<Array<Fila & { kind: string | null }>>`
+      SELECT u."userId", u.kind, u."createdAt" AS cuando, coalesce(c."name", c."phoneNumber") AS cliente
+      FROM (
+        SELECT DISTINCT ON (m."rawPayload"->>'actorUserId')
+               m."rawPayload"->>'actorUserId' AS "userId", m."rawPayload"->>'kind' AS kind,
+               m."createdAt", m."contactId"
+        FROM "Message" m
+        WHERE m."workspaceId" = ${workspaceId}
+          AND m."createdAt" >= ${desde}
+          AND m."type" = 'SYSTEM'
+          AND m."rawPayload"->>'actorUserId' IS NOT NULL
+          AND m."rawPayload"->>'kind' IN ('assigned', 'unassigned', 'stage_changed')
+        ORDER BY m."rawPayload"->>'actorUserId', m."createdAt" DESC
+      ) u
+      LEFT JOIN "Contact" c ON c."id" = u."contactId"
+    `,
+    prisma.$queryRaw<Fila[]>`
+      SELECT u."userId", u."calledAt" AS cuando, coalesce(c."name", c."phoneNumber") AS cliente
+      FROM (
+        SELECT DISTINCT ON (a."calledByUserId") a."calledByUserId" AS "userId", a."calledAt", a."contactId"
+        FROM "CallAttempt" a
+        WHERE a."workspaceId" = ${workspaceId}
+          AND a."calledAt" >= ${desde}
+          AND a."calledByUserId" IS NOT NULL
+        ORDER BY a."calledByUserId", a."calledAt" DESC
+      ) u
+      LEFT JOIN "Contact" c ON c."id" = u."contactId"
+    `,
+  ]);
+
+  const candidatas: CandidataDeUltimaAccion[] = [
+    ...mensajes.map((m) => ({ ...m, tipo: "mensaje" as const })),
+    ...notas.map((n) => ({
+      userId: n.userId,
+      cuando: n.cuando,
+      cliente: n.cliente,
+      tipo: n.kind === "stage_changed" ? ("etapa" as const) : ("asignacion" as const),
+    })),
+    ...llamadas.map((l) => ({ ...l, tipo: "llamada" as const })),
+  ];
+  return quedarseConLaMasReciente(candidatas);
 }
 
 /** El detalle de una persona: qué hizo, en orden, con el chat al que corresponde. */
