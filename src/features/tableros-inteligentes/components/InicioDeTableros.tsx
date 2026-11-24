@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { EllipsisVertical, Network, Pencil, Plus, Trash2 } from "lucide-react";
+import { EllipsisVertical, FolderTree, Network, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,7 @@ import {
   type CuentasDeTableros,
   type EdicionDeTablero,
 } from "./DialogoDeTablero";
+import { DialogoOrganizarAreas } from "./DialogoOrganizarAreas";
 import { ResumenDelDia } from "./ResumenDelDia";
 import { VistaDeHoy } from "./VistaDeHoy";
 import { TrabajosTerminados } from "./TrabajosTerminados";
@@ -75,6 +76,8 @@ export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar,
     [lista],
   );
   const [edicion, setEdicion] = useState<EdicionDeTablero | null>(null);
+  // «Organizar áreas» (24-nov-2026): el tablero cuya ventana está abierta, o null.
+  const [organizando, setOrganizando] = useState<{ id: string; nombre: string } | null>(null);
   // Las pestañas "Tableros", "Hoy", "Coordinador en vivo" y "Trabajos terminados" (solo el dueño o el ADMIN las ven).
   const [vista, setVista] = useState<VistaDelInicio>(puedeAdministrar ? vistaInicial : "tableros");
   const enHoy = puedeAdministrar && vista === "hoy";
@@ -224,6 +227,11 @@ export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar,
                           <Pencil />
                           Editar
                         </DropdownMenuItem>
+                        {/* «Organizar áreas» (24-nov-2026): lo ve quien ve «Editar». */}
+                        <DropdownMenuItem onClick={() => setOrganizando({ id: tablero.id, nombre: tablero.nombre })}>
+                          <FolderTree />
+                          Organizar áreas
+                        </DropdownMenuItem>
                         {cuentas.esDuenoDelNegocio ? (
                           <DropdownMenuItem variant="destructive" onClick={() => setEdicion({ ...edicionDelTablero, eliminar: true })}>
                             <Trash2 />
@@ -267,6 +275,7 @@ export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar,
         }}
       />
 
+      <DialogoOrganizarAreas tablero={organizando} alCerrar={() => setOrganizando(null)} />
     </div>
   );
 }
