@@ -10,6 +10,7 @@ import { coachOpusActivo, diasSaltados } from "@/features/coach/revision-opus/se
 import { prisma } from "@/lib/prisma";
 import postgresDeProduccion from "@/lib/postgres-produccion.json";
 import { CLAVE_ESTADO_ALERTA_CPU, leerEstadoAlertaCpu } from "@/lib/recibir-metrica-servidor";
+import { CLAVE_ULTIMO_CHEQUEO_NETMAGI, describirUltimoChequeoNetmagi, leerUltimoChequeoNetmagi } from "@/lib/recibir-estado-proxy-netmagi";
 import { aprobacionAutomaticaPrendida, aprobarPlanesSoloPrendido, aprobarTareasSoloPrendido } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
 import { featuresSolasPrendido } from "@/features/tableros-inteligentes/services/preparar-features";
 import { leerAreaFeatures } from "@/features/tableros-inteligentes/services/coordinador-en-vivo";
@@ -929,6 +930,10 @@ async function automatizaciones(
     agente_de_sistemas: await estadoDelAgenteDeSistemas(workspaceId).catch(() => "no se pudo leer"),
     // La llama el script del VPS cada minuto (no el reloj del CRM): CPU > 85 % en 5 fotos seguidas → WhatsApp al dueño.
     alerta_cpu_servidor: await estadoDeLaAlertaCpu().catch(() => "no se pudo leer"),
+    // La llama el chequeo de aizen1 (y la extensión NETMAGI): túnel SOCKS y cuentas mfN → alertas en /cliente/alertas, sin WhatsApp.
+    vigilancia_proxy_netmagi: await bandera(CLAVE_ULTIMO_CHEQUEO_NETMAGI)
+      .then((valor) => describirUltimoChequeoNetmagi(leerUltimoChequeoNetmagi(valor), new Date()))
+      .catch(() => "no se pudo leer"),
     recoger_errores_tablero: await estadoDeRecogerErrores(workspaceId).catch(() => "no se pudo leer"),
     recibo_de_caja: await estadoDelReciboDeCaja(workspaceId).catch(() => "no se pudo leer"),
     pago_a_proveedora: await estadoDelPagoAProveedora(workspaceId).catch(() => "no se pudo leer"),
