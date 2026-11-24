@@ -163,7 +163,7 @@ function withTransientRetry(client: PrismaClient) {
 /*
   Los errores y avisos de Prisma, en UNA linea `[prisma] {json}` cada uno (24-nov-2026).
 
-  Con `log: ["error", "warn"]` Prisma imprimia `prisma:error` y el mensaje entero (varias lineas) de
+  Con el log de consola de antes (niveles error y warn) Prisma imprimia `prisma:error` y el mensaje entero (varias lineas) de
   CADA consulta que fallaba, aunque el codigo la atrapara y la reintentara con withTransientRetry. La
   vigilancia de 30 minutos contaba esas lineas como falla nueva y deshizo subidas sanas. Ahora Prisma
   los entrega como eventos y aca se anotan resumidos (resumen-de-error.ts): un corte pasajero de la
