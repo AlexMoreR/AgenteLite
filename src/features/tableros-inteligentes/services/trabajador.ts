@@ -45,6 +45,10 @@ import {
   puedeRecoger,
   recogidaDelResultado,
   estadoTrasReparar,
+  detalleDeArregloDeSubida,
+  intentosDeSubida,
+  LINEA_SUBE_SOLO,
+  TOPE_INTENTOS_DE_SUBIDA,
   estrategiaDeEntrada,
   etapaDeEntrada,
   detalleDeLaParte,
@@ -1742,7 +1746,11 @@ async function pedirLimpieza(contexto: ContextoTrabajador, actual: FilaParaTraba
  *  3. Suelta esta sin ERROR ni intento gastado (PLANEANDO -> APROBADO; EN_CURSO y SUBIENDO -> PLAN_APROBADO), con la nota "Esperando a «X»".
  *     Vuelve sola cuando la otra llega a HECHO (el mecanismo de dependencia de siempre).
  * Si la otra ya está HECHO o la flecha haría un ciclo, no la suelta (soltada: false): el Coordinador sigue el camino de siempre.
- * -> { creada, tarjetaId, esperando, soltada, estado, link }
+ * Tipo "subida" (24-nov-2026, la subida se revirtió por un error de código o de arranque): el título empieza con "Arreglo de subida:";
+ * en el tablero de Features la tarjeta cuelga de Features (la regla Features la aprueba, la construye y la sube sola); el detalle lleva
+ * la causa, el log, el commit deshecho y el revert. La original vuelve a construir (PLAN_APROBADO, nunca a SUBIENDO) y el intento
+ * `subida_revertida` SÍ cuenta. Con TOPE_INTENTOS_DE_SUBIDA no crea nada: { agotado: true } y la original sigue en SUBIENDO.
+ * -> { creada, tarjetaId, esperando, soltada, estado, link } (+ agotado y subidas en "subida")
  */
 async function pedirCausaExterna(contexto: ContextoTrabajador, actual: FilaParaTrabajar, cuerpo: Record<string, unknown>, ahora: Date) {
   const causa = causaExternaDeEntrada(cuerpo);
@@ -1751,8 +1759,35 @@ async function pedirCausaExterna(contexto: ContextoTrabajador, actual: FilaParaT
   const etapa = etapaDeEntrada(cuerpo.etapa, estado);
   const categoria = categoriaDeEntrada(cuerpo.categoria) ?? "otra";
   const repo = (REPOS_DEL_TRABAJADOR as readonly string[]).includes(actual.repo ?? "") ? (actual.repo as string) : null;
+  const esSubida = causa.tipo === "subida";
+  // Arreglo de subida (24-nov-2026): el detalle lleva la causa, el log, el commit deshecho y el revert, y "sube solo a producción".
+  const detalleNuevo = esSubida ? detalleDeArregloDeSubida({ detalle: causa.detalle, lineas: causa.lineas, reversion: causa.reversion }) : causa.detalle;
 
   return prisma.$transaction(async (tx) => {
+    if (esSubida) {
+      // Tope: con esta, ¿ya son TOPE_INTENTOS_DE_SUBIDA subidas revertidas? Entonces no se crea nada: queda el intento (escalar) y la
+      // original sigue en SUBIENDO para que el Coordinador mande /error (queda en ERROR, en Alertas, sin WhatsApp).
+      const anteriores = await tx.intentoTarjeta.findMany({ where: { tarjetaId: actual.id }, select: { categoria: true } });
+      const subidas = intentosDeSubida(anteriores) + 1;
+      if (subidas >= TOPE_INTENTOS_DE_SUBIDA) {
+        await anotarIntento(
+          tx,
+          actual.id,
+          {
+            etapa,
+            categoria: "subida_revertida",
+            causa: causaDeEntrada(cuerpo.causa, causaDeEntrada(causa.detalle)),
+            error: errorDeIntentoDeEntrada(cuerpo.error),
+            accion: "escalar",
+            cuentaComoIntento: true,
+          },
+          ahora,
+        );
+        await anotarTrabajador(tx, contexto, actual.id, { estado }, { estado, nota: `subida revertida ${subidas} de ${TOPE_INTENTOS_DE_SUBIDA}: se agotó el tope, no se pide otro arreglo` });
+        await tocarTableros(tx, [actual.tableroId], ahora);
+        return { ok: true, agotado: true, creada: false, tarjetaId: null, esperando: null, soltada: false, estado, subidas, link: linkDeLaTarjeta(actual.id) };
+      }
+    }
     let origen: { id: string; titulo: string; estado: string } | null = null;
     let creada = false;
     if (causa.referencia) {
@@ -1771,7 +1806,9 @@ async function pedirCausaExterna(contexto: ContextoTrabajador, actual: FilaParaT
       if (abierta) {
         origen = abierta;
         if (abierta.id !== actual.id && !abierta.detalle.includes(causa.detalle)) {
-          await tx.tarjetaTablero.update({ where: { id: abierta.id }, data: { detalle: `${abierta.detalle.trimEnd()}\n\n${causa.detalle}`.slice(0, 20_000) } });
+          // En un arreglo de subida se agrega solo la causa nueva: la línea "sube solo a producción" ya está.
+          const agregado = esSubida ? detalleNuevo.replace(LINEA_SUBE_SOLO, "").trim() : causa.detalle;
+          await tx.tarjetaTablero.update({ where: { id: abierta.id }, data: { detalle: `${abierta.detalle.trimEnd()}\n\n${agregado}`.slice(0, 20_000) } });
           await anotarTrabajador(tx, contexto, abierta.id, {}, { nota: `la misma causa frenó también a «${actual.titulo}»` });
         }
       } else {
@@ -1786,7 +1823,7 @@ async function pedirCausaExterna(contexto: ContextoTrabajador, actual: FilaParaT
           ancestrosDeLaOriginal: [],
         });
         const nueva = await tx.tarjetaTablero.create({
-          data: { tableroId: actual.tableroId, titulo: causa.titulo, detalle: causa.detalle, area: madre.area, estado: "APROBADO", orden: madre.orden + 1, tipoId: madre.tipoId, padreId, repo, creadoPor: madre.creadoPor },
+          data: { tableroId: actual.tableroId, titulo: causa.titulo, detalle: detalleNuevo, area: madre.area, estado: "APROBADO", orden: madre.orden + 1, tipoId: madre.tipoId, padreId, repo, creadoPor: madre.creadoPor },
           select: { id: true, titulo: true, estado: true },
         });
         await tx.historialTarjeta.create({
@@ -1835,17 +1872,29 @@ async function pedirCausaExterna(contexto: ContextoTrabajador, actual: FilaParaT
       select: { titulo: true, estado: true },
     });
     const etiqueta = etiquetaEsperando(pendientes.map((tarjeta) => ({ titulo: tarjeta.titulo, estado: tarjeta.estado ?? "" }))) ?? `Esperando a «${origen.titulo}»`;
+    // Nunca vuelve a SUBIENDO: vuelve a la fila de construir y se reconstruye sobre el main nuevo (con el revert y el arreglo). Si
+    // volviera a SUBIENDO, ramaYaEnMain del Coordinador vería el commit viejo en main y no subiría nada.
     const vuelve = estadoTrasReparar(estado);
     const hecho = await tx.tarjetaTablero.updateMany({
       where: { id: actual.id, estado: actual.estado, borradoEn: null },
-      data: { estado: vuelve, trabajoVenceEn: null, intentos: Math.max(0, actual.intentos - 1) },
+      // Un arreglo de subida sí gasta el intento (cuenta); las demás causas no.
+      data: { estado: vuelve, trabajoVenceEn: null, ...(esSubida ? {} : { intentos: Math.max(0, actual.intentos - 1) }) },
     });
     if (hecho.count !== 1) throw new ErrorDelTrabajador("La tarjeta cambió mientras tanto.", 409);
-    await anotarTrabajador(tx, contexto, actual.id, { estado }, { estado: vuelve, nota: etiqueta, categoria });
+    await anotarTrabajador(tx, contexto, actual.id, { estado }, { estado: vuelve, nota: etiqueta, categoria: esSubida ? "subida_revertida" : categoria });
     await anotarIntento(
       tx,
       actual.id,
-      { etapa, categoria, causa: causaDeEntrada(cuerpo.causa, causaDeEntrada(etiqueta)), error: errorDeIntentoDeEntrada(cuerpo.error), accion: "esperar", cuentaComoIntento: false },
+      esSubida
+        ? {
+            etapa,
+            categoria: "subida_revertida",
+            causa: causaDeEntrada(cuerpo.causa, causaDeEntrada(causa.detalle)),
+            error: errorDeIntentoDeEntrada(cuerpo.error),
+            accion: "reparar",
+            cuentaComoIntento: true,
+          }
+        : { etapa, categoria, causa: causaDeEntrada(cuerpo.causa, causaDeEntrada(etiqueta)), error: errorDeIntentoDeEntrada(cuerpo.error), accion: "esperar", cuentaComoIntento: false },
       ahora,
     );
     await tocarTableros(tx, [actual.tableroId], ahora);
