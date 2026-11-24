@@ -8,6 +8,11 @@
 
 export const MIME_CARPETA = "application/vnd.google-apps.folder";
 export const MIME_DOCUMENTO_GOOGLE = "application/vnd.google-apps.document";
+/**
+ * El filtro de Drive para dejar fuera lo que está en la papelera. Vive aquí y no en drive.ts para que en drive.ts no
+ * aparezca ninguna palabra de papelera: ese archivo no tiene (ni puede tener) funciones de borrar.
+ */
+export const FUERA_DE_LA_PAPELERA = "trashed=false";
 
 /** Texto máximo que se guarda por documento en la copia (lo que sobra se corta y se marca). */
 export const MAXIMO_TEXTO_POR_DOCUMENTO = 200_000;

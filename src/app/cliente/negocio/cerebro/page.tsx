@@ -5,7 +5,7 @@ import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { prisma } from "@/lib/prisma";
 import { CerebroPantalla } from "@/features/cerebro/components/CerebroPantalla";
 import { ConexionCerebro } from "@/features/cerebro/components/ConexionCerebro";
-import { correoDeCuentaDeServicio, googleConfigurado, modoDelCerebro, tieneAccesoAlDrive } from "@/features/cerebro/services/conexion";
+import { correoDeCuentaDeServicio, googleConfigurado, modoDelCerebro, oauthConfigurado, tieneAccesoAlDrive } from "@/features/cerebro/services/conexion";
 import { arbolDelCerebro } from "@/features/cerebro/services/consultas";
 import { notasRecientes } from "@/features/cerebro/services/notas-por-crear";
 import { permisosDelCerebro } from "@/features/cerebro/services/permisos";
@@ -63,7 +63,11 @@ export default async function ClienteCerebroPage({ searchParams }: { searchParam
       <NegocioEquipoTabs />
 
       {error ? <p className="rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">{error}</p> : null}
-      {conectado ? <p className="rounded-lg border bg-muted px-3 py-2 text-sm">Google quedó conectado. Ahora elige la carpeta del cerebro.</p> : null}
+      {conectado ? (
+        <p className="rounded-lg border bg-muted px-3 py-2 text-sm">
+          {conexion?.carpetaId ? `Google quedó conectado. La carpeta del cerebro sigue igual: ${conexion.carpetaNombre ?? "la de antes"}.` : "Google quedó conectado. Ahora elige la carpeta del cerebro."}
+        </p>
+      ) : null}
 
       <ConexionCerebro
         puedeAdministrar={permisos.administrar}
@@ -71,6 +75,8 @@ export default async function ClienteCerebroPage({ searchParams }: { searchParam
         cuentaDeServicio={modoDelCerebro() === "cuenta-servicio" ? correoDeCuentaDeServicio() : null}
         cuenta={conexion?.cuentaGoogle ?? null}
         tienePermiso={tieneAccesoAlDrive(conexion)}
+        oauthListo={oauthConfigurado()}
+        permisoOAuth={Boolean(conexion?.tokenCifrado) && oauthConfigurado()}
         carpeta={conexion?.carpetaNombre ?? null}
         ultimoError={conexion?.ultimoError ?? null}
         miembros={miembros.map((miembro) => ({ userId: miembro.userId, nombre: miembro.user?.name?.trim() || miembro.user?.email || "Sin nombre" }))}

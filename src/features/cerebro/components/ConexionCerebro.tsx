@@ -23,6 +23,10 @@ type Props = {
   cuentaDeServicio: string | null;
   cuenta: string | null;
   tienePermiso: boolean;
+  /** Si el servidor tiene configurado el inicio de sesión con Google (OAuth). */
+  oauthListo: boolean;
+  /** Si ya está el permiso OAuth de la cuenta del negocio: con él el CRM crea las notas directo en el Drive. */
+  permisoOAuth: boolean;
   carpeta: string | null;
   ultimoError: string | null;
   miembros: Array<{ userId: string; nombre: string }>;
@@ -30,7 +34,19 @@ type Props = {
 };
 
 /** Conectar Google, elegir la carpeta del cerebro, desconectar y autorizar personas. Solo el dueño lo ve completo. */
-export function ConexionCerebro({ puedeAdministrar, googleListo, cuentaDeServicio, cuenta, tienePermiso, carpeta, ultimoError, miembros, autorizados }: Props) {
+export function ConexionCerebro({
+  puedeAdministrar,
+  googleListo,
+  cuentaDeServicio,
+  cuenta,
+  tienePermiso,
+  oauthListo,
+  permisoOAuth,
+  carpeta,
+  ultimoError,
+  miembros,
+  autorizados,
+}: Props) {
   const router = useRouter();
   const [pendiente, empezar] = useTransition();
   const [carpetas, setCarpetas] = useState<Array<{ id: string; nombre: string }> | null>(null);
@@ -38,6 +54,8 @@ export function ConexionCerebro({ puedeAdministrar, googleListo, cuentaDeServici
   const [elegida, setElegida] = useState("");
   const [lista, setLista] = useState(autorizados);
   const conCuentaDeServicio = Boolean(cuentaDeServicio);
+  // Solo con la cuenta de servicio (sin el permiso OAuth): se ven solo las carpetas compartidas con ella y no crea notas.
+  const soloCuentaDeServicio = conCuentaDeServicio && !permisoOAuth;
 
   const buscarCarpetas = (texto = filtro) =>
     empezar(async () => {
@@ -86,7 +104,10 @@ export function ConexionCerebro({ puedeAdministrar, googleListo, cuentaDeServici
     });
   };
 
-  const reconectar = !conCuentaDeServicio && (Boolean(ultimoError?.toLowerCase().includes("reconectar")) || (!tienePermiso && Boolean(cuenta)));
+  const pideReconectar = Boolean(ultimoError?.toLowerCase().includes("reconectar"));
+  const reconectar = !conCuentaDeServicio && (pideReconectar || (!tienePermiso && Boolean(cuenta)));
+  // Con la cuenta de servicio, el permiso OAuth es lo que deja crear notas nuevas en el Drive.
+  const pedirPermisoOAuth = conCuentaDeServicio && (!permisoOAuth || pideReconectar);
 
   return (
     <section className="space-y-4 rounded-xl border bg-card p-4">
@@ -94,7 +115,7 @@ export function ConexionCerebro({ puedeAdministrar, googleListo, cuentaDeServici
         <div>
           <h2 className="text-base font-semibold">Conexión con Google Drive</h2>
           <p className="text-sm text-muted-foreground">
-            {conCuentaDeServicio
+            {soloCuentaDeServicio
               ? `Conectado con la cuenta de servicio ${cuentaDeServicio}${carpeta ? ` · carpeta: ${carpeta}` : " · falta elegir la carpeta"}.`
               : tienePermiso
               ? `Conectado con ${cuenta ?? "la cuenta de Google"}${carpeta ? ` · carpeta: ${carpeta}` : " · falta elegir la carpeta"}.`
@@ -102,7 +123,12 @@ export function ConexionCerebro({ puedeAdministrar, googleListo, cuentaDeServici
           </p>
         </div>
         <div className="flex gap-2">
-          {conCuentaDeServicio ? null : !tienePermiso || reconectar ? (
+          {pedirPermisoOAuth ? (
+            <Button render={<a href="/api/cerebro/google/conectar" />} disabled={!oauthListo}>
+              <Plug />
+              Permitir que el CRM cree notas en Drive
+            </Button>
+          ) : conCuentaDeServicio ? null : !tienePermiso || reconectar ? (
             <Button render={<a href="/api/cerebro/google/conectar" />} disabled={!googleListo}>
               <Plug />
               {reconectar ? "Reconectar Google" : "Conectar Google"}
@@ -127,9 +153,16 @@ export function ConexionCerebro({ puedeAdministrar, googleListo, cuentaDeServici
           Google va a mostrar un aviso de &quot;app no verificada&quot;: es normal porque solo la usa tu negocio. Pulsa continuar.
         </p>
       ) : null}
+      {pedirPermisoOAuth ? (
+        <p className="text-sm text-muted-foreground">
+          {oauthListo
+            ? "Sin este permiso el CRM no puede crear notas nuevas en el Drive. Entra con la cuenta de Google de Magilus y pulsa Permitir. Si Google avisa que la app no está verificada, es normal: pulsa continuar."
+            : "Para crear notas en el Drive falta configurar en el servidor GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET y CEREBRO_CLAVE_CIFRADO."}
+        </p>
+      ) : null}
       {ultimoError ? <p className="text-sm text-destructive">Último error: {ultimoError}</p> : null}
 
-      {conCuentaDeServicio && carpetas && !carpetas.length ? (
+      {soloCuentaDeServicio && carpetas && !carpetas.length ? (
         <p className="rounded-lg border bg-muted px-3 py-2 text-sm">
           Todavía no hay ninguna carpeta compartida con la cuenta de servicio. En Google Drive, comparte la carpeta del cerebro
           (Magilus) con <strong>{cuentaDeServicio}</strong> como <strong>Editor</strong> y pulsa &quot;Buscar carpetas&quot;.
@@ -139,7 +172,7 @@ export function ConexionCerebro({ puedeAdministrar, googleListo, cuentaDeServici
       {tienePermiso && !reconectar ? (
         <div className="space-y-2">
           <p className="text-sm font-medium">{carpeta ? "Cambiar la carpeta del cerebro" : "Elige la carpeta del cerebro"}</p>
-          {conCuentaDeServicio ? (
+          {soloCuentaDeServicio ? (
             <p className="text-xs text-muted-foreground">Solo aparecen las carpetas que compartiste con {cuentaDeServicio}.</p>
           ) : null}
           <div className="flex flex-wrap gap-2">
@@ -149,7 +182,7 @@ export function ConexionCerebro({ puedeAdministrar, googleListo, cuentaDeServici
               Buscar carpetas
             </Button>
           </div>
-          {carpetas?.length || (carpetas && !conCuentaDeServicio) ? (
+          {carpetas?.length || (carpetas && !soloCuentaDeServicio) ? (
             <div className="flex flex-wrap gap-2">
               <NativeSelect value={elegida} onChange={(e) => setElegida(e.target.value)} className="max-w-xs">
                 <NativeSelectOption value="">{carpetas.length ? "Elige una carpeta" : "No hay carpetas con ese nombre"}</NativeSelectOption>

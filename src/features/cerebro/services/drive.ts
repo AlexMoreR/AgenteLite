@@ -1,4 +1,5 @@
 import {
+  FUERA_DE_LA_PAPELERA,
   MAXIMO_ARCHIVOS,
   MAXIMO_NIVELES,
   MIME_CARPETA,
@@ -69,7 +70,8 @@ const aMetadatos = (archivo: ArchivoCrudo): MetadatosDeArchivo => ({
   padreId: archivo.parents?.[0] ?? null,
 });
 
-export function crearClienteDeDrive(token: string, fetchFn: FetchDeDrive = fetch) {
+/** Las dos piezas comunes: pedir a Drive con el permiso (y explicar el error) y listar con una consulta, por páginas. */
+function conexionConDrive(token: string, fetchFn: FetchDeDrive) {
   const pedir = async (url: string, init: RequestInit = {}) => {
     const respuesta = await fetchFn(url, {
       ...init,
@@ -105,13 +107,19 @@ export function crearClienteDeDrive(token: string, fetchFn: FetchDeDrive = fetch
     return filas;
   }
 
+  return { pedir, listar };
+}
+
+export function crearClienteDeDrive(token: string, fetchFn: FetchDeDrive = fetch) {
+  const { pedir, listar } = conexionConDrive(token, fetchFn);
+
   return {
     /** Las carpetas del Drive para que el dueño elija la del cerebro (con filtro opcional por nombre). */
     async listarCarpetas(texto?: string, opciones: { soloCompartidas?: boolean } = {}) {
       const filtro = texto?.trim() ? ` and name contains '${texto.trim().replace(/['\\]/g, " ")}'` : "";
       // Con la cuenta de servicio: solo las carpetas que el dueño compartió con ella (no sus subcarpetas).
       const compartidas = opciones.soloCompartidas ? " and sharedWithMe" : "";
-      return listar(`mimeType='${MIME_CARPETA}' and trashed=false${compartidas}${filtro}`);
+      return listar(`mimeType='${MIME_CARPETA}' and ${FUERA_DE_LA_PAPELERA}${compartidas}${filtro}`);
     },
 
     async metadatos(driveId: string): Promise<MetadatosDeArchivo> {
@@ -127,7 +135,7 @@ export function crearClienteDeDrive(token: string, fetchFn: FetchDeDrive = fetch
       for (let profundidad = 0; nivel.length && profundidad < MAXIMO_NIVELES; profundidad += 1) {
         const siguiente: Array<{ id: string; ruta: string }> = [];
         for (const carpeta of nivel) {
-          const hijos = await listar(`'${carpeta.id}' in parents and trashed=false`);
+          const hijos = await listar(`'${carpeta.id}' in parents and ${FUERA_DE_LA_PAPELERA}`);
           for (const hijo of hijos) {
             if (archivos.length >= MAXIMO_ARCHIVOS) {
               truncado = true;
@@ -210,3 +218,22 @@ export function crearClienteDeDrive(token: string, fetchFn: FetchDeDrive = fetch
 }
 
 export type ClienteDeDrive = ReturnType<typeof crearClienteDeDrive>;
+
+/**
+ * En vivo, solo lectura: los archivos que se llaman exactamente así dentro de una carpeta (sin los de la papelera).
+ * Sirve para no crear un duplicado aunque la copia de la base todavía no lo tenga. Va aparte del cliente para que el
+ * cliente siga teniendo solo sus funciones de siempre.
+ */
+export function crearBuscadorDeDrive(token: string, fetchFn: FetchDeDrive = fetch) {
+  const { listar } = conexionConDrive(token, fetchFn);
+  return {
+    async buscarPorNombre(carpetaId: string, nombre: string): Promise<MetadatosDeArchivo[]> {
+      if (!/^[\w-]+$/.test(carpetaId)) throw new ErrorDeDrive("El id de la carpeta no es válido.", 400);
+      // En las consultas de Drive, la barra invertida y la comilla simple se escapan con barra invertida.
+      const escapado = nombre.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+      return listar(`name='${escapado}' and '${carpetaId}' in parents and ${FUERA_DE_LA_PAPELERA}`);
+    },
+  };
+}
+
+export type BuscadorDeDrive = ReturnType<typeof crearBuscadorDeDrive>;

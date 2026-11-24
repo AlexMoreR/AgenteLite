@@ -265,7 +265,7 @@ export const HERRAMIENTAS_MCP_AGENTES_DE_AREA = [
     name: "cerebro_anotar_aprendizaje",
     title: "Anotar un aprendizaje en el cerebro",
     description:
-      "Anota lo que descubriste (unas pocas líneas, con fecha) en el cerebro, SOLO en tu carpeta \"Aprendizajes de <área>\": el servidor lo AGREGA al final del archivo aprendizajes-AAAA-MM.md del mes (lo crea si falta). Nunca reemplaza ni borra, nunca escribe en \"Decisiones de Magilus\" ni en otra carpeta, y si la carpeta de aprendizajes no existe en el Drive no la crea: avisa para que el dueño la cree. Cada anotación queda en el registro de cambios del cerebro. Como máximo unas pocas líneas al día.",
+      "Anota lo que descubriste (unas pocas líneas, con fecha) en el cerebro, SOLO en tu carpeta \"Aprendizajes de <área>\": el servidor lo AGREGA al final del archivo aprendizajes-AAAA-MM.md del mes (lo crea si falta). Nunca reemplaza ni borra, nunca escribe en \"Decisiones de Magilus\" ni en otra carpeta, y si la carpeta de aprendizajes no existe en el Drive no la crea: avisa para que el dueño la cree. Cada anotación queda en el registro de cambios del cerebro y la respuesta trae el id y el link del archivo en el Drive. Si responde que falta el permiso de la cuenta de Google de Magilus, NO se guardó nada: pásale al dueño ese mensaje con el link tal cual. Como máximo unas pocas líneas al día.",
     inputSchema: {
       type: "object",
       properties: {
@@ -633,7 +633,7 @@ async function anotarEnElCerebro(args: Argumentos, contexto: Contexto) {
   const area = leerAreaDelCerebro(args);
   const resultado = await anotarAprendizaje({ workspaceId: contexto.workspaceId, userId: contexto.userId, area, texto: args.texto });
   return resultado.anotado
-    ? { ...resultado, nota: `Anotado por el ${ETIQUETA_DE_AGENTE[area]}. Solo se agregó al final; nada se reemplazó ni se borró.` }
+    ? { ok: true, ...resultado, nota: `Anotado por el ${ETIQUETA_DE_AGENTE[area]}. Solo se agregó al final; nada se reemplazó ni se borró.` }
     : resultado;
 }
 

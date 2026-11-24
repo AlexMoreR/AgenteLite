@@ -3,8 +3,8 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { buscarEnElCerebro, filasDelCerebro, leerDocumentoDelCerebro } from "@/features/cerebro/services/consultas";
 import type { DocumentoLeido, FilaDelCerebro } from "@/features/cerebro/services/consultas";
-import { driveDelNegocio } from "@/features/cerebro/services/conexion";
-import type { ClienteDeDrive } from "@/features/cerebro/services/drive";
+import { driveDelNegocio, enlaceParaConectarGoogle } from "@/features/cerebro/services/conexion";
+import type { BuscadorDeDrive, ClienteDeDrive } from "@/features/cerebro/services/drive";
 import { escribirConDependencias } from "@/features/cerebro/services/escribir";
 import type { DependenciasDeEscritura } from "@/features/cerebro/services/escribir";
 import type { PedazoDelCerebro } from "@/features/cerebro/services/reglas";
@@ -59,11 +59,16 @@ export type DependenciasDeLectura = {
   buscar(workspaceId: string, consulta: string, maximo: number): Promise<PedazoDelCerebro[]>;
 };
 
+type ModoDeEntrada = "oauth" | "cuenta-servicio";
+/** buscador: para preguntarle al Drive en vivo si el archivo ya existe antes de crearlo. */
+type ConexionParaAnotar = { drive: ClienteDeDrive; carpetaRaizId: string; modo?: ModoDeEntrada; buscador?: BuscadorDeDrive };
+
 export type DependenciasDeAnotar = {
   conectado(workspaceId: string): Promise<boolean>;
   filas(workspaceId: string): Promise<FilaDelCerebro[]>;
-  drive(workspaceId: string): Promise<{ drive: ClienteDeDrive; carpetaRaizId: string }>;
-  puertos(datos: { workspaceId: string; userId: string; area: Area; carpetaRaizId: string; drive: ClienteDeDrive }): DependenciasDeEscritura;
+  /** modo: con qué entró al Drive ("oauth" = la cuenta del negocio, que sí puede crear archivos). */
+  drive(workspaceId: string): Promise<ConexionParaAnotar>;
+  puertos(datos: { workspaceId: string; userId: string; area: Area } & ConexionParaAnotar): DependenciasDeEscritura;
   hoy(): string;
 };
 
@@ -171,7 +176,7 @@ export async function leerCerebroDelArea(workspaceId: string, pedido: PedidoDeLe
 /* ── Anotar un aprendizaje ── */
 
 export type ResultadoDeAnotar =
-  | { anotado: true; area: Area; archivo: string; ruta: string; accion: "crear" | "agregar"; link: string | null }
+  | { anotado: true; area: Area; id: string; archivo: string; ruta: string; accion: "crear" | "agregar"; link: string | null }
   | { anotado: false; area: Area; conectado: boolean; aviso: string };
 
 export async function anotarAprendizaje(
@@ -203,13 +208,13 @@ export async function anotarAprendizaje(
     return rechazo(`"${existente.ruta}" no es un texto .md que se pueda ampliar (¿es un Google Doc?). No se escribió nada: el dueño debe dejarlo como .md o borrarlo.`);
   }
 
-  let conexion: { drive: ClienteDeDrive; carpetaRaizId: string };
+  let conexion: ConexionParaAnotar;
   try {
     conexion = await deps.drive(workspaceId);
   } catch (fallo) {
     return { anotado: false, area, conectado: false, aviso: `${AVISO_NO_CONECTADO} (${fallo instanceof Error ? fallo.message : "sin acceso al Drive"})` };
   }
-  const puertos = deps.puertos({ workspaceId, userId, area, carpetaRaizId: conexion.carpetaRaizId, drive: conexion.drive });
+  const puertos = deps.puertos({ workspaceId, userId, area, ...conexion });
   const bloque = bloqueDeAprendizaje({ fecha: hoy, area, texto });
 
   if (existente) {
@@ -224,7 +229,7 @@ export async function anotarAprendizaje(
       { workspaceId, userId, origen: "MCP", modo: "agregar", driveId: existente.driveId, contenido: bloque, versionLeida: enDrive.versionDrive },
       puertos,
     );
-    return { anotado: true, area, archivo: resultado.nombre, ruta: resultado.ruta, accion: "agregar", link: resultado.linkDrive };
+    return { anotado: true, area, id: resultado.driveId, archivo: resultado.nombre, ruta: resultado.ruta, accion: "agregar", link: resultado.linkDrive };
   }
 
   const titulo = `# Aprendizajes de ${ETIQUETA_DE_AGENTE[area].replace("Agente de ", "")} — ${hoy.slice(0, 7)}`;
@@ -232,7 +237,7 @@ export async function anotarAprendizaje(
     { workspaceId, userId, origen: "MCP", modo: "crear", carpetaId: carpeta.driveId, nombre: archivo, contenido: `${titulo}\n\n${bloque}` },
     puertos,
   );
-  return { anotado: true, area, archivo: resultado.nombre, ruta: resultado.ruta, accion: "crear", link: resultado.linkDrive };
+  return { anotado: true, area, id: resultado.driveId, archivo: resultado.nombre, ruta: resultado.ruta, accion: "crear", link: resultado.linkDrive };
 }
 
 /* ── Marcar un dato que choca ── */
@@ -294,11 +299,14 @@ const dependenciasDeLectura: DependenciasDeLectura = {
 };
 
 /** Las mismas piezas que usa escribirEnElCerebro, pero el registro lleva el origen del agente (AGENTE_VENTAS...). */
-function puertosDeEscritura(datos: { workspaceId: string; userId: string; area: Area; carpetaRaizId: string; drive: ClienteDeDrive }): DependenciasDeEscritura {
-  const { workspaceId } = datos;
+function puertosDeEscritura(datos: { workspaceId: string; userId: string; area: Area } & ConexionParaAnotar): DependenciasDeEscritura {
+  const { workspaceId, buscador } = datos;
   return {
     drive: datos.drive,
     carpetaRaizId: datos.carpetaRaizId,
+    ...(buscador ? { buscarEnVivo: (carpetaId: string, nombre: string) => buscador.buscarPorNombre(carpetaId, nombre) } : {}),
+    // Sin el permiso OAuth, crear el archivo del mes no queda en espera: el error lleva el link para darlo.
+    ...(datos.modo === "oauth" ? {} : { enlaceParaConectar: () => enlaceParaConectarGoogle() }),
     copiaDe: (driveId) =>
       prisma.cerebroDocumento.findUnique({
         where: { workspaceId_driveId: { workspaceId, driveId } },
@@ -360,9 +368,9 @@ const dependenciasDeAnotar: DependenciasDeAnotar = {
   conectado: async (workspaceId) => Boolean(await carpetaElegida(workspaceId)),
   filas: filasDelCerebro,
   drive: async (workspaceId) => {
-    const { drive, conexion } = await driveDelNegocio(workspaceId);
+    const { drive, buscador, conexion, modo } = await driveDelNegocio(workspaceId);
     if (!conexion.carpetaId) throw new Error("Falta elegir la carpeta del cerebro en Mi empresa → Cerebro.");
-    return { drive, carpetaRaizId: conexion.carpetaId };
+    return { drive, buscador, carpetaRaizId: conexion.carpetaId, modo };
   },
   puertos: puertosDeEscritura,
   hoy: () => hoyEnBogota(),
