@@ -4050,11 +4050,11 @@ process.exit(real.status ?? 1);
   });
 
   /** Sube una tarjeta moderna que el CI hace fallar; los logs de arranque los da ssh-falso con SSH_FALSO_LOGS_ARRANQUE=`logs`. */
-  const subidaQueFalla = async (titulo, nombre, logs, extra = {}) => {
+  const subidaQueFalla = async (titulo, nombre, logs, extra = {}, extraConfig = {}) => {
     const id = nueva(titulo, "SUBIENDO", { plan: "El plan", moderno: true, ...extra });
     const { rama, commit, base } = ramaEnElRemoto(nombre, `${nombre}.txt`, `${nombre}\n`);
     Object.assign(tarjetas.get(id), { resultado: { paso: true, rama, commit, base, subeSolo: true } });
-    const conCiQueFalla = crearConfig({}, { logsArranque: "logs-falso-arranque", subida: { ...config.repos.aizencrm.subida, ciEsperar: [node, falso("gh-falso.mjs"), "esperar-falla", "{run}"] } });
+    const conCiQueFalla = crearConfig({}, { logsArranque: "logs-falso-arranque", subida: { ...config.repos.aizencrm.subida, ciEsperar: [node, falso("gh-falso.mjs"), "esperar-falla", "{run}"] } }, extraConfig);
     const avisos = llamadas.filter((l) => l.accion === "aviso").length;
     process.env.SSH_FALSO_LOGS_ARRANQUE = logs;
     let resultado;
@@ -4148,6 +4148,74 @@ process.exit(real.status ?? 1);
     assert.match(error.motivo, /^Qué se intentó: se subió «Editar compra agotada» 3 veces/);
     assert.equal(tarjetas.get(id).estado, "ERROR");
     assert.deepEqual(avisosNuevos(), [], "sin WhatsApp");
+    sinRestos();
+  });
+
+  // Bitácora de incidentes (24-nov-2026): cada subida que falla deja su entrada en <carpetaTrabajo>/incidentes/<repo>.md y una
+  // línea en la bóveda. La bitácora solo anota: lo de la tarjeta (arreglo, reintento, Alertas) pasa igual aunque falle.
+  const INCIDENTES = path.join(T, "trabajo", "incidentes", "aizencrm.md");
+  const BITACORA_EN_BOVEDA = ["06 Tecnología", "Bitácora de incidentes.md"];
+  const entradaDe = (texto, titulo) => texto.split(/\n(?=### )/).find((bloque) => bloque.includes(` ${titulo}\n`)) ?? "";
+
+  await prueba("bitácora: una subida deshecha deja su entrada en incidentes/aizencrm.md y su línea en la bóveda de prueba", async () => {
+    const boveda = fs.mkdtempSync(path.join(T, "boveda-bitacora-"));
+    const { id } = await subidaQueFalla("Bitácora compra que rompe", "bitacora-typeerror", "typeerror", {}, { boveda: { ruta: boveda } });
+    const entrada = entradaDe(fs.readFileSync(INCIDENTES, "utf8"), "Bitácora compra que rompe");
+    assert.ok(entrada, "quedó la entrada en la carpeta de trabajo");
+    assert.match(entrada, new RegExp(`^### \\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2} · ${idCorto(id)} Bitácora compra que rompe`, "m"));
+    assert.match(entrada, new RegExp(`<!-- incidente:${idCorto(id)}:`));
+    assert.match(entrada, /^- Repo: aizencrm \(commit [0-9a-f]{10}\)$/m);
+    assert.match(entrada, /^- Qué falló: no arrancó$/m);
+    assert.match(entrada, /^- Causa: El cambio tiene un error en el programa/m);
+    assert.match(entrada, /^- Cómo se resolvió: tarjeta 'Arreglo de subida'$/m);
+    assert.match(entrada, /^- Regla: /m);
+    assert.match(entrada, /TypeError: Cannot read properties of undefined/, "con las líneas del error");
+    const enBoveda = fs.readFileSync(path.join(boveda, ...BITACORA_EN_BOVEDA), "utf8");
+    assert.match(enBoveda, new RegExp(`^- [^\\n]*${idCorto(id)} Bitácora compra que rompe · repo aizencrm[^\\n]*qué falló: no arrancó[^\\n]*cómo se resolvió: tarjeta 'Arreglo de subida'`, "m"));
+    const t = tarjetas.get(id);
+    const arreglo = [...tarjetas.values()].find((otra) => t.dependeDe?.includes(otra.id));
+    arreglo.estado = "HECHO";
+    t.estado = "HECHO";
+    sinRestos();
+  });
+
+  await prueba("bitácora: con una bóveda que no existe, la subida deshecha igual crea «Arreglo de subida» y la entrada local queda", async () => {
+    const { id, resultado } = await subidaQueFalla("Bitácora sin bóveda", "bitacora-sin-boveda", "typeerror", {}, { boveda: { ruta: path.join(T, "boveda-que-no-existe") } });
+    assert.equal(resultado.accion, "esperar");
+    assert.equal(resultado.causaExterna, "subida");
+    const t = tarjetas.get(id);
+    const arreglo = [...tarjetas.values()].find((otra) => t.dependeDe?.includes(otra.id));
+    assert.ok(arreglo, "se creó la tarjeta del arreglo aunque la bóveda falló");
+    assert.match(arreglo.titulo, /^Arreglo de subida: /);
+    assert.equal(t.estado, "PLAN_APROBADO");
+    assert.match(entradaDe(fs.readFileSync(INCIDENTES, "utf8"), "Bitácora sin bóveda"), /^- Cómo se resolvió: tarjeta 'Arreglo de subida'$/m);
+    assert.ok(!fs.existsSync(path.join(T, "boveda-que-no-existe")), "no se inventó la bóveda");
+    arreglo.estado = "HECHO";
+    t.estado = "HECHO";
+    sinRestos();
+  });
+
+  await prueba("bitácora: un ensayo de migraciones que falla antes de subir también deja su entrada (y la tarjeta se repara como siempre)", async () => {
+    const boveda = fs.mkdtempSync(path.join(T, "boveda-ensayo-"));
+    const id = nueva("Bitácora migración que no corre", "SUBIENDO", { plan: "El plan", moderno: true });
+    const { rama, commit, base } = ramaEnElRemoto("bitacora-ensayo", "prisma/migrations/20261124000000_bitacora/migration.sql", "SELECT FALLA_PGLITE;\n");
+    Object.assign(tarjetas.get(id), { resultado: { paso: true, rama, commit, base, subeSolo: true } });
+    // main avanza: así la subida vuelve a verificar y ensaya la migración.
+    await cambiarMainAntes("bitacora-ensayo-ajeno.txt", "ajeno\n");
+    const mainAntes = shaDe("main");
+    const resultado = await vuelta(crearConfig({}, {}, { boveda: { ruta: boveda } }));
+    assert.equal(resultado.ok, false);
+    assert.match(resultado.motivo, /El ensayo de la migración falló/);
+    assert.equal(shaDe("main"), mainAntes, "no se subió nada");
+    assert.equal(resultado.accion, "reparar", "la decisión de siempre");
+    const entrada = entradaDe(fs.readFileSync(INCIDENTES, "utf8"), "Bitácora migración que no corre");
+    assert.ok(entrada, "quedó la entrada del ensayo");
+    assert.match(entrada, /^- Qué falló: falló el ensayo de migraciones$/m);
+    assert.match(entrada, /^- Causa: El ensayo de la migración falló/m);
+    assert.match(entrada, /^- Cómo se resolvió: la tarjeta vuelve a la fila para repararla$/m);
+    assert.match(entrada, /falló 20261124000000_bitacora/, "con el detalle técnico");
+    assert.match(fs.readFileSync(path.join(boveda, ...BITACORA_EN_BOVEDA), "utf8"), /Bitácora migración que no corre · repo aizencrm · qué falló: falló el ensayo de migraciones/);
+    tarjetas.get(id).estado = "HECHO";
     sinRestos();
   });
 

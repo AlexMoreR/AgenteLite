@@ -4,7 +4,9 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { agenteDelRepo } from "./agentes.mjs";
+import { BITACORA_POR_DEFECTO } from "./bitacora.mjs";
 import { MODELOS_POR_DEFECTO, cambiosDeModeloConFecha } from "./modelos.mjs";
+import { problemaDeRuta } from "./notas-boveda.mjs";
 import { GRACIA_SERVER_ACTION_MIN } from "./zonas.mjs";
 
 /** Lo que Claude puede usar al CONSTRUIR (acceptEdits): editar dentro del worktree y correr pruebas. */
@@ -507,6 +509,13 @@ export function completarConfig(datos, base = process.cwd()) {
   boveda.cadaSegundos = Number(boveda.cadaSegundos);
   if (!Number.isFinite(boveda.cadaSegundos) || boveda.cadaSegundos < 10) errores.push("boveda.cadaSegundos: segundos, 10 o más.");
 
+  // La bitácora de incidentes (24-nov-2026, bitacora.mjs): cada subida que falla deja una línea en `rutaEnBoveda` (dentro de la
+  // bóveda; sin boveda.ruta solo queda la copia de <carpetaTrabajo>/incidentes). `entradasEnPrompt`: cuántas lee quien construye.
+  const bitacora = { ...BITACORA_POR_DEFECTO, ...(datos.bitacora ?? {}) };
+  if (problemaDeRuta(bitacora.rutaEnBoveda)) errores.push(`bitacora.rutaEnBoveda: la ruta del archivo .md dentro de la bóveda, por ejemplo "${BITACORA_POR_DEFECTO.rutaEnBoveda}" (${problemaDeRuta(bitacora.rutaEnBoveda)}).`);
+  bitacora.entradasEnPrompt = Number(bitacora.entradasEnPrompt);
+  if (!Number.isInteger(bitacora.entradasEnPrompt) || bitacora.entradasEnPrompt < 0) errores.push("bitacora.entradasEnPrompt: cuántas entradas, un entero de 0 o más.");
+
   const auto = { ...AUTOACTUALIZAR_POR_DEFECTO, ...(datos.autoactualizar ?? {}) };
   if (typeof auto.activo !== "boolean") errores.push("autoactualizar.activo: true o false.");
   auto.cadaMinutos = Number(auto.cadaMinutos);
@@ -642,6 +651,7 @@ export function completarConfig(datos, base = process.cwd()) {
     limites,
     manual: { activo: manual.activo, hora: manual.hora, repo: manual.repo },
     boveda: { ruta: typeof boveda.ruta === "string" ? path.resolve(base, boveda.ruta.trim()) : null, cadaSegundos: boveda.cadaSegundos },
+    bitacora: { rutaEnBoveda: bitacora.rutaEnBoveda, entradasEnPrompt: bitacora.entradasEnPrompt },
     autoactualizar: { activo: auto.activo, cadaMinutos: auto.cadaMinutos, rama: auto.rama, remoto: auto.remoto },
     colaPesada: { maximo: colaPesada.maximo, esperaMaximaMinutos: colaPesada.esperaMaximaMinutos },
     medir: { activo: medir.activo, puntosGrande: medir.puntosGrande, puntosDudosa: medir.puntosDudosa, consultaHaiku: medir.consultaHaiku },

@@ -28,6 +28,7 @@
 // cola en aizen1 (config.colaPesada.maximo, 1 por defecto), así 3 sesiones no compilan a la vez en un i3 de 2 núcleos.
 import { agenteDelRepo, anotarLeccion, leccionDe, tresLineasDe } from "./agentes.mjs";
 import { crearAjusteDeCupos, motivoDelSemaforo, semaforoDeLaCarga } from "./ajuste-de-cupos.mjs";
+import { anotarIncidente } from "./bitacora.mjs";
 import { candidatasQueChocan, huellaDeTarjeta, motivoDeChoque } from "./choques.mjs";
 import { crearColaPesada } from "./cola.mjs";
 import { debePartirAntes, ordenarCandidatas, partesSinAlcanceNuevo } from "./reparto.mjs";
@@ -52,6 +53,7 @@ import {
 } from "./diagnostico.mjs";
 import {
   ErrorDeEtapa,
+  MOTIVO_ENSAYO,
   construir,
   diagnosticarConClaude,
   entornoSeguro,
@@ -587,7 +589,42 @@ async function manejarFalla(args, tarjeta, hacer, error) {
           : "Pasó al dueño con un resumen de la falla (ERROR).";
     anotarLaLeccion(args.config, args.registro, tarjeta, { resultado: "fallo", etapa: hacer, diagnostico: nota.diagnostico, arreglo });
   }
+  // Bitácora de incidentes (24-nov-2026): el ensayo de migraciones falló antes de subir. Solo anota: no cambia la decisión.
+  if (error?.categoria === "migracion" && String(error?.message ?? "").startsWith(MOTIVO_ENSAYO)) anotarElEnsayoQueFallo(args, tarjeta, error, salida);
   return salida;
+}
+
+/** Lo que se decidió con un ensayo de migraciones que falló, en palabras sencillas (para la bitácora). */
+const DECISION_DEL_ENSAYO = {
+  reparar: "la tarjeta vuelve a la fila para repararla",
+  partir: "la tarea se partió en partes más chicas",
+  escalar: "pasó al dueño con un resumen de la falla (ERROR)",
+  esperar: "se soltó y se reintenta después",
+};
+
+/** Anota en la bitácora un ensayo de migraciones que falló. Nunca lanza. */
+function anotarElEnsayoQueFallo({ config, registro }, tarjeta, error, salida) {
+  try {
+    // Las líneas del error son el detalle técnico (lo que dijo psql o PGlite), sin la frase de arriba.
+    const lineasDelError = String(error.message)
+      .split(/\r?\n/)
+      .slice(1)
+      .map((linea) => linea.replace(/^Detalle técnico:\s*/, "").trim())
+      .filter(Boolean);
+    anotarIncidente({
+      config,
+      registro,
+      tarjeta,
+      repo: tarjeta.repo,
+      queFallo: "ensayo",
+      causa: MOTIVO_ENSAYO,
+      lineasDelError,
+      comoSeResolvio: DECISION_DEL_ENSAYO[salida?.accion] ?? `decisión: ${salida?.accion ?? "sin decisión"}`,
+      clase: "codigo",
+    });
+  } catch (otro) {
+    registro.aviso(`bitácora: no se pudo anotar el ensayo que falló (${String(otro?.message ?? otro).split("\n")[0]})`);
+  }
 }
 
 async function repararLaFalla({ crm, config, registro, contexto, bitacora }, tarjeta, hacer, error, nota) {
@@ -627,7 +664,7 @@ async function repararLaFalla({ crm, config, registro, contexto, bitacora }, tar
   // 2b'. Subida deshecha (24-nov-2026, parte 3): producción ya volvió a la versión anterior. Se pide el arreglo, se reintenta o, a
   // la 3.ª, queda en Alertas. La URGENTE (reversion.ok false) sigue el camino de siempre.
   if (error?.reversion?.ok === true) {
-    return resolverLaSubidaDeshecha({ crm, registro }, tarjeta, hacer, error, { diagnostico, intento, motivo, causaParaLaTarjeta });
+    return resolverLaSubidaDeshecha({ crm, config, registro }, tarjeta, hacer, error, { diagnostico, intento, motivo, causaParaLaTarjeta });
   }
 
   // 2c. Causa externa (31-oct-2026): la falla no es de la tarea. Se pide la tarjeta que la arregla y esta espera a esa, sin
@@ -754,7 +791,34 @@ async function repararLaFalla({ crm, config, registro, contexto, bitacora }, tar
  *     subida_revertida, que queda solo en Alertas (sin WhatsApp).
  * Si el CRM falla o no suelta la tarjeta: el WhatsApp de antes y /error de siempre (nunca peor que hoy). Nunca lanza.
  */
-async function resolverLaSubidaDeshecha({ crm, registro }, tarjeta, hacer, error, { diagnostico, intento, motivo, causaParaLaTarjeta }) {
+async function resolverLaSubidaDeshecha({ crm, config, registro }, tarjeta, hacer, error, datos) {
+  // Bitácora de incidentes (24-nov-2026): primero se decide y se hace (arreglo, reintento o Alertas); después se anota. Si la
+  // bitácora falla, lo de la tarjeta ya pasó igual.
+  const como = {};
+  const salida = await decidirLaSubidaDeshecha({ crm, registro }, tarjeta, hacer, error, datos, como);
+  try {
+    const reversion = error.reversion;
+    anotarIncidente({
+      config,
+      registro,
+      tarjeta,
+      repo: tarjeta.repo,
+      commit: reversion.commit ? String(reversion.commit).slice(0, 10) : null,
+      // La 1.ª línea de la vigilancia empieza con "Revertida:" (deshacerSubida); la del despliegue, no.
+      queFallo: /^Revertida:/.test(String(error?.message ?? "")) ? "vigilancia" : "no_arranco",
+      causa: datos.causaParaLaTarjeta || datos.diagnostico?.causa,
+      lineasDelError: Array.isArray(reversion.lineas) ? reversion.lineas : [],
+      comoSeResolvio: como.valor ?? "no registrado",
+      clase: reversion.clase ?? "desconocida",
+    });
+  } catch (otro) {
+    registro.aviso(`bitácora: no se pudo anotar la subida deshecha (${String(otro?.message ?? otro).split("\n")[0]})`);
+  }
+  return salida;
+}
+
+/** Lo de siempre con la subida deshecha (ver arriba). `como.valor` queda con lo que se decidió, para la bitácora. */
+async function decidirLaSubidaDeshecha({ crm, registro }, tarjeta, hacer, error, { diagnostico, intento, motivo, causaParaLaTarjeta }, como) {
   const reversion = error.reversion;
   const sencilla = enUnaLinea(typeof reversion.sencilla === "string" && reversion.sencilla.trim() ? reversion.sencilla : FRASES_DE_LA_CAUSA.desconocida, 200);
   const decision = decidir({ diagnostico, tarjeta, etapa: hacer, reversion });
@@ -765,6 +829,7 @@ async function resolverLaSubidaDeshecha({ crm, registro }, tarjeta, hacer, error
 
   // Lo de siempre cuando el CRM no responde: el WhatsApp de la reversión y /error con el resumen (como antes de la parte 3).
   const comoAntes = async (porQue) => {
+    como.valor = "pasó a ERROR por el camino de siempre (aviso y resumen al dueño)";
     registro.aviso(`subida deshecha: ${porQue}; sigue el camino de siempre (aviso y ERROR)`);
     await avisarReversion(crm, registro, tarjeta, motivo, reversion);
     const resumen = resumenDeEscalada({ tarjeta, intentos: tarjeta.ultimosIntentos, diagnostico: { ...diagnostico, causa: causaParaLaTarjeta }, decision });
@@ -778,6 +843,7 @@ async function resolverLaSubidaDeshecha({ crm, registro }, tarjeta, hacer, error
 
   // La 3.ª (o el CRM dijo `agotado`): queda en ERROR con 3 líneas, solo en Alertas.
   const agotar = async (veces) => {
+    como.valor = "alertas";
     const resumen = [
       enUnaLinea(`Qué se intentó: se subió «${tarjeta.titulo}» ${veces} veces y cada vez se deshizo; producción volvió a la versión anterior.`, 240),
       enUnaLinea(`Causa: ${sencilla}`, 240),
@@ -815,6 +881,7 @@ async function resolverLaSubidaDeshecha({ crm, registro }, tarjeta, hacer, error
       });
       if (respuesta?.agotado) return agotar(Number(respuesta.subidas) || TOPE_INTENTOS_DE_SUBIDA);
       if (respuesta?.soltada) {
+        como.valor = "arreglo";
         registro.info(`${nota} (${respuesta.creada ? "creé" : "reusé"} la tarjeta; "${tarjeta.titulo}": ${respuesta.esperando ?? "esperando"})`);
         return { ...resultado, accion: "esperar", causaExterna: "subida", esperando: respuesta.esperando ?? `Esperando a «${externa.titulo}»` };
       }
@@ -827,6 +894,7 @@ async function resolverLaSubidaDeshecha({ crm, registro }, tarjeta, hacer, error
   // Pasajera: se suelta (SUBIENDO sigue en SUBIENDO) y se reintenta en la vuelta siguiente, sin crear arreglo.
   const nota = enUnaLinea(`${sencilla} Se reintenta en la vuelta siguiente, sin crear arreglo (subida ${subidas} de ${TOPE_INTENTOS_DE_SUBIDA}).`, 200);
   if (await soltar(crm, registro, tarjeta, nota, { ...deSubida, causa: nota })) {
+    como.valor = "reintento";
     registro.info(`subida deshecha por una falla pasajera: "${tarjeta.titulo}" se reintenta en la vuelta siguiente`);
     return { ...resultado, accion: "esperar" };
   }

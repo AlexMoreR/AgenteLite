@@ -55,6 +55,10 @@
     "ruta": null,
     "cadaSegundos": 60
   },
+  "bitacora": {
+    "rutaEnBoveda": "06 Tecnología/Bitácora de incidentes.md",
+    "entradasEnPrompt": 15
+  },
   "limites": {
     "cpuPorciento": 85,
     "memoriaPorciento": 85,

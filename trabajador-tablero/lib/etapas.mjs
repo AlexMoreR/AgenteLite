@@ -517,7 +517,7 @@ export function motorDelPlan(plan) {
 /** La revisión no se come el tiempo de construir: como mucho esto. */
 const REVISAR_MAXIMO_MINUTOS = 20;
 
-const MOTIVO_ENSAYO ="El ensayo de la migración falló: la migración no corre bien en la base. No se subió nada.";
+export const MOTIVO_ENSAYO = "El ensayo de la migración falló: la migración no corre bien en la base. No se subió nada.";
 
 const REGLAS_DE_ZONAS =
   "No toques Meta Ads (anuncios, campañas, píxel), el bot de ventas (el agente que atiende WhatsApp) ni el libro del agente V3.";
