@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { detectarOrigenWeb } from "@/lib/origen-de-venta";
+import { leerMarcaExterior } from "@/features/seguimiento-inteligente/dominio/exterior";
 
 /*
   ORIGEN WEB: los clientes que escriben desde el botón de WhatsApp de la página magilus.com.
@@ -150,7 +151,7 @@ export async function registrarOrigenWeb(input: {
   ARREGLO DE UNA SOLA VEZ (parte 4): los chats web que la línea administrativa ocultó antes de que
   existiera registrarOrigenWeb. Busca los contactos ocultos del CRM (excludedFromCrm), no bloqueados,
   cuyo PRIMER mensaje entrante por una línea Admin de Evolution es del 16-sep-2026 en adelante y dice
-  "vengo de magilus.com". A cada uno lo deja visible con el origen y la etiqueta "Web", igual que en vivo.
+  "vengo de magilus.com". Salta a los marcados como de fuera de Colombia. A cada uno lo deja visible con el origen y la etiqueta "Web", igual que en vivo.
 
   Lo llama el reloj de cada minuto (api/cron/follows). Al terminar deja la marca `arreglo_chats_web_60d`
   en AppSetting con { fecha, cantidad, contactIds } y desde ahí no vuelve a hacer nada. No borra nada,
@@ -207,6 +208,8 @@ export async function arreglarChatsWebViejos(ahora = new Date()): Promise<Result
           select: { metadata: true, bloqueadoEn: true, excludedFromCrm: true },
         });
         if (!contacto || contacto.bloqueadoEn || !contacto.excludedFromCrm) continue;
+        // Un cliente de fuera de Colombia se ocultó a propósito (no se le escribe): sigue oculto.
+        if (leerMarcaExterior(contacto.metadata)) continue;
 
         await marcarComoClienteWeb({
           workspaceId: primero.workspaceId,

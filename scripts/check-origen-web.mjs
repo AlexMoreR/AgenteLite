@@ -26,6 +26,7 @@ function cargar(rutaRelativa, requireFalso) {
 }
 
 const origenDeVenta = cargar("src/lib/origen-de-venta.ts", require);
+const exterior = cargar("src/features/seguimiento-inteligente/dominio/exterior.ts", require);
 
 class PrismaClientKnownRequestError extends Error {}
 
@@ -74,6 +75,7 @@ function cargarOrigenWeb(prisma) {
     if (nombre === "@/lib/prisma") return { prisma };
     if (nombre === "@prisma/client") return { Prisma: { PrismaClientKnownRequestError } };
     if (nombre === "@/lib/origen-de-venta") return origenDeVenta;
+    if (nombre === "@/features/seguimiento-inteligente/dominio/exterior") return exterior;
     return require(nombre);
   });
 }
@@ -244,12 +246,14 @@ await prueba("arreglo de chats web: deja visibles y con etiqueta Web solo a los 
       { id: "web2", metadata: { origen: { canal: "marketplace" }, crmOrigin: "marketplace" }, bloqueadoEn: null, excludedFromCrm: true },
       { id: "otro", metadata: null, bloqueadoEn: null, excludedFromCrm: true },
       { id: "bloq", metadata: null, bloqueadoEn: new Date(), excludedFromCrm: true },
+      { id: "exterior", metadata: { fueraDeColombia: { en: "2026-10-01", prefijo: "+1" } }, bloqueadoEn: null, excludedFromCrm: true },
     ],
     primeros: [
       { contactId: "web1", createdAt: fecha, content: WEB },
       { contactId: "web2", createdAt: fecha, content: WEB },
       { contactId: "otro", createdAt: fecha, content: "Buenas, una factura" },
       { contactId: "bloq", createdAt: fecha, content: WEB },
+      { contactId: "exterior", createdAt: fecha, content: WEB },
     ],
   });
   const mod = cargarOrigenWeb(prisma);
@@ -267,6 +271,8 @@ await prueba("arreglo de chats web: deja visibles y con etiqueta Web solo a los 
   assert.equal(estado.contactos.web2.metadata.crmOrigin, "marketplace");
   assert.equal(estado.contactos.otro.excludedFromCrm, true);
   assert.equal(estado.contactos.bloq.excludedFromCrm, true);
+  // El de fuera de Colombia se ocultó a propósito: sigue oculto.
+  assert.equal(estado.contactos.exterior.excludedFromCrm, true);
   for (const data of estado.updates) assert.ok(!("crmStage" in data) && !("assignedToUserId" in data));
   assert.equal(estado.etiquetas.length, 1);
   assert.equal(estado.etiquetas[0].slug, "web");
