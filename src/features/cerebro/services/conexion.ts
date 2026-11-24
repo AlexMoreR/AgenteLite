@@ -1,13 +1,19 @@
 import { prisma } from "@/lib/prisma";
+import { getPublicBaseUrl } from "@/lib/app-url";
 import { cifrar, descifrar, firmarEstado, verificarEstado } from "./cifrado";
-import { crearClienteDeDrive, type ClienteDeDrive } from "./drive";
+import { crearBuscadorDeDrive, crearClienteDeDrive, type BuscadorDeDrive, type ClienteDeDrive } from "./drive";
 import { cuentaDeServicioConfigurada, datosDeCuentaDeServicio, tokenDeCuentaDeServicio } from "./cuenta-servicio";
+import { MIME_CARPETA } from "./reglas";
 
 /*
-  CEREBRO: la conexión con Google de cada negocio. Dos caminos (ver modoDelCerebro):
-  - CUENTA DE SERVICIO (si GOOGLE_SERVICE_ACCOUNT_EMAIL y _PRIVATE_KEY están): el dueño comparte la carpeta
-    con ese correo como Editor (permiso drive: lee y escribe textos, nunca borra). Es el camino preferido: no vence.
-  - OAuth (lo de abajo), si no hay cuenta de servicio.
+  CEREBRO: la conexión con Google de cada negocio. Dos caminos:
+  - OAuth con la cuenta de Google del negocio (Magilus): si el dueño ya dio el permiso ("Permitir que el CRM cree
+    notas en Drive"), driveDelNegocio entra SIEMPRE con él. Es el único que puede crear archivos nuevos en un Drive
+    personal: los archivos quedan a nombre de la cuenta del negocio.
+  - CUENTA DE SERVICIO (si GOOGLE_SERVICE_ACCOUNT_EMAIL y _PRIVATE_KEY están): solo de respaldo, mientras falte el
+    permiso OAuth o si ese permiso falla. Lee y reemplaza textos, pero Google no la deja crear archivos nuevos en un
+    Drive personal (no tiene espacio propio): crear pide el permiso OAuth (ver enlaceParaConectarGoogle).
+  modoDelCerebro dice qué está configurado en el servidor; el camino que se usó de verdad lo devuelve driveDelNegocio.
 
   Quién inicia sesión en Google es siempre el dueño, en su navegador: el CRM nunca ve la contraseña.
   Se guarda solo el permiso de larga duración (refresh token), cifrado. Se pide el permiso "drive"
@@ -45,6 +51,14 @@ export const correoDeCuentaDeServicio = () => datosDeCuentaDeServicio()?.correo 
 export function tieneAccesoAlDrive(conexion: { tokenCifrado: string | null } | null | undefined): boolean {
   if (modoDelCerebro() === "cuenta-servicio") return true;
   return Boolean(conexion?.tokenCifrado);
+}
+
+/**
+ * El link para que el dueño dé el permiso OAuth (entra con la cuenta de Google del negocio y pulsa Permitir).
+ * Va en los mensajes de error cuando falta el permiso para crear notas. Sin dirección pública configurada, la ruta sola.
+ */
+export function enlaceParaConectarGoogle(origen: string = getPublicBaseUrl()) {
+  return `${origen.replace(/\/+$/, "")}/api/cerebro/google/conectar`;
 }
 
 /** La dirección de regreso de Google, según el sitio desde donde entra el dueño. */
@@ -108,9 +122,14 @@ export async function terminarInicioDeSesion(datos: { codigo: string; estado: st
     .catch(() => ({}) as { email?: string });
   const correo = (perfil as { email?: string }).email ?? null;
   const tokenCifrado = cifrar(token.refresh_token);
-  // Si cambia la cuenta de Google, la carpeta elegida antes ya no sirve: se vuelve a elegir.
-  const previa = await prisma.cerebroConexion.findUnique({ where: { workspaceId: estado.workspaceId }, select: { cuentaGoogle: true } });
+  // Si cambia la cuenta (por ejemplo, de la cuenta de servicio a la de Magilus), la carpeta elegida se conserva
+  // solo si la cuenta nueva la puede abrir; si no, se vuelve a elegir.
+  const previa = await prisma.cerebroConexion.findUnique({
+    where: { workspaceId: estado.workspaceId },
+    select: { cuentaGoogle: true, carpetaId: true },
+  });
   const mismaCuenta = Boolean(previa?.cuentaGoogle) && previa?.cuentaGoogle === correo;
+  const conservarCarpeta = mismaCuenta || (previa?.carpetaId ? await puedeAbrirLaCarpeta(token.access_token, previa.carpetaId) : false);
   await prisma.cerebroConexion.upsert({
     where: { workspaceId: estado.workspaceId },
     create: { workspaceId: estado.workspaceId, cuentaGoogle: correo, tokenCifrado, conectadoPor: estado.userId },
@@ -119,10 +138,19 @@ export async function terminarInicioDeSesion(datos: { codigo: string; estado: st
       tokenCifrado,
       conectadoPor: estado.userId,
       ultimoError: null,
-      ...(mismaCuenta ? {} : { carpetaId: null, carpetaNombre: null }),
+      ...(conservarCarpeta ? {} : { carpetaId: null, carpetaNombre: null }),
     },
   });
   return { workspaceId: estado.workspaceId, correo };
+}
+
+/** ¿Con este permiso se puede abrir la carpeta (y es una carpeta)? Cualquier fallo cuenta como que no. */
+async function puedeAbrirLaCarpeta(tokenDeAcceso: string, carpetaId: string): Promise<boolean> {
+  try {
+    return (await crearClienteDeDrive(tokenDeAcceso).metadatos(carpetaId)).tipo === MIME_CARPETA;
+  } catch {
+    return false;
+  }
 }
 
 export type ConexionDelCerebro = NonNullable<Awaited<ReturnType<typeof leerConexion>>>;
@@ -131,44 +159,60 @@ export function leerConexion(workspaceId: string) {
   return prisma.cerebroConexion.findUnique({ where: { workspaceId } });
 }
 
-/** El cliente de Drive del negocio, o un error claro si no está conectado o el permiso se perdió. */
+/** Guarda el último error de la conexión (para la pantalla y la alerta). Si no se puede guardar, no importa. */
+async function anotarError(workspaceId: string, mensaje: string) {
+  await prisma.cerebroConexion.update({ where: { workspaceId }, data: { ultimoError: mensaje.slice(0, 500) } }).catch(() => undefined);
+}
+
+/**
+ * El cliente de Drive del negocio, o un error claro si no está conectado o el permiso se perdió.
+ * Primero el permiso OAuth guardado (la cuenta del negocio); la cuenta de servicio queda de respaldo.
+ */
 export async function driveDelNegocio(
   workspaceId: string,
-): Promise<{ drive: ClienteDeDrive; conexion: ConexionDelCerebro; modo: "cuenta-servicio" | "oauth" }> {
-  if (modoDelCerebro() === "cuenta-servicio") {
+): Promise<{ drive: ClienteDeDrive; buscador: BuscadorDeDrive; conexion: ConexionDelCerebro; modo: "cuenta-servicio" | "oauth" }> {
+  const guardada = await leerConexion(workspaceId);
+  const hayRespaldo = cuentaDeServicioConfigurada();
+  const google = datosDeGoogle();
+
+  if (guardada?.tokenCifrado && oauthConfigurado() && google) {
+    try {
+      const token = await pedirToken({
+        client_id: google.clientId,
+        client_secret: google.clientSecret,
+        refresh_token: descifrar(guardada.tokenCifrado),
+        grant_type: "refresh_token",
+      });
+      return { drive: crearClienteDeDrive(token.access_token), buscador: crearBuscadorDeDrive(token.access_token), conexion: guardada, modo: "oauth" };
+    } catch (fallo) {
+      const mensaje = fallo instanceof Error ? fallo.message : MENSAJE_RECONECTAR;
+      await anotarError(workspaceId, mensaje);
+      // Sin respaldo, el error sube. Con la cuenta de servicio se sigue leyendo y reemplazando mientras se reconecta.
+      if (!hayRespaldo) throw new Error(mensaje);
+    }
+  }
+
+  if (hayRespaldo) {
     // Con la cuenta de servicio no hay permiso que guardar, solo la carpeta: la fila se crea si no existe.
     const conexion =
-      (await leerConexion(workspaceId)) ??
+      guardada ??
       (await prisma.cerebroConexion.upsert({
         where: { workspaceId },
         create: { workspaceId, cuentaGoogle: correoDeCuentaDeServicio() },
         update: {},
       }));
     try {
-      return { drive: crearClienteDeDrive(await tokenDeCuentaDeServicio()), conexion, modo: "cuenta-servicio" };
+      const token = await tokenDeCuentaDeServicio();
+      return { drive: crearClienteDeDrive(token), buscador: crearBuscadorDeDrive(token), conexion, modo: "cuenta-servicio" };
     } catch (fallo) {
       const mensaje = fallo instanceof Error ? fallo.message : "Google no aceptó la cuenta de servicio.";
-      await prisma.cerebroConexion.update({ where: { workspaceId }, data: { ultimoError: mensaje.slice(0, 500) } }).catch(() => undefined);
+      await anotarError(workspaceId, mensaje);
       throw new Error(mensaje);
     }
   }
-  const conexion = await leerConexion(workspaceId);
-  if (!conexion?.tokenCifrado) throw new Error("El cerebro no está conectado a Google Drive.");
-  const google = datosDeGoogle();
-  if (!google) throw new Error("Falta configurar Google en el servidor.");
-  try {
-    const token = await pedirToken({
-      client_id: google.clientId,
-      client_secret: google.clientSecret,
-      refresh_token: descifrar(conexion.tokenCifrado),
-      grant_type: "refresh_token",
-    });
-    return { drive: crearClienteDeDrive(token.access_token), conexion, modo: "oauth" };
-  } catch (fallo) {
-    const mensaje = fallo instanceof Error ? fallo.message : MENSAJE_RECONECTAR;
-    await prisma.cerebroConexion.update({ where: { workspaceId }, data: { ultimoError: mensaje.slice(0, 500) } }).catch(() => undefined);
-    throw new Error(mensaje);
-  }
+
+  if (!guardada?.tokenCifrado) throw new Error("El cerebro no está conectado a Google Drive.");
+  throw new Error("Falta configurar Google en el servidor.");
 }
 
 export async function elegirCarpeta(workspaceId: string, carpetaId: string, carpetaNombre: string) {

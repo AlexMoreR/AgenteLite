@@ -983,4 +983,240 @@ await prueba("consultas, MCP y pantalla: lo ignorado no se lista, no se busca, n
   assert.match(pantalla, /en el cerebro/);
 });
 
+/* ── Crear directo en el Drive con el permiso OAuth de la cuenta Magilus (sin nota en espera para aizen1) ── */
+
+const { crearBuscadorDeDrive } = cargar("src/features/cerebro/services/drive.ts");
+
+// Un Drive de mentira por fetch: cuenta cada creación y responde la búsqueda por nombre con lo que ya "existe".
+function driveDeMentira({ existentes = [], carpetas = {} } = {}) {
+  const pedidos = [];
+  const fetchFalso = async (url, init = {}) => {
+    const texto = String(url);
+    pedidos.push({ url: texto, metodo: init.method ?? "GET", auth: init.headers?.Authorization });
+    if (texto.includes("/upload/drive/v3/files?uploadType=multipart")) {
+      return new Response(JSON.stringify({ id: "creado1", name: "Decisiones de Magilus.md", mimeType: "text/markdown", version: "1", webViewLink: "https://drive/creado1", parents: ["raiz"] }), { status: 200 });
+    }
+    if (texto.includes("/files?q=")) {
+      const q = new URL(texto).searchParams.get("q");
+      return new Response(JSON.stringify({ files: existentes.filter((e) => q.includes(`name='${e.name}'`) && q.includes(`'${e.parents[0]}' in parents`)) }), { status: 200 });
+    }
+    const id = decodeURIComponent(texto.split("/files/")[1]?.split("?")[0] ?? "");
+    if (carpetas[id]) return new Response(JSON.stringify({ id, ...carpetas[id] }), { status: 200 });
+    return new Response(JSON.stringify({ error: { code: 404 } }), { status: 404 });
+  };
+  const creaciones = () => pedidos.filter((p) => p.metodo === "POST" && p.url.includes("/upload/"));
+  return { fetchFalso, pedidos, creaciones };
+}
+
+function depsConDrive(token, fetchFalso) {
+  const llamadas = { copias: [], registros: [], encoladas: [] };
+  const buscador = crearBuscadorDeDrive(token, fetchFalso);
+  const deps = {
+    drive: crearClienteDeDrive(token, fetchFalso),
+    buscarEnVivo: (carpetaId, nombre) => buscador.buscarPorNombre(carpetaId, nombre),
+    carpetaRaizId: "raiz",
+    copiaDe: async () => null,
+    hermanoConNombre: async () => false,
+    carpetaDelCerebro: async () => null,
+    guardarCopia: async (d) => void llamadas.copias.push(d),
+    registrar: async (c) => void llamadas.registros.push(c),
+    encolarNotaNueva: async (nota) => {
+      llamadas.encoladas.push(nota);
+      return { id: "no-debia" };
+    },
+  };
+  return { deps, llamadas };
+}
+
+await prueba("conexión: con el permiso OAuth guardado entra con él aunque haya cuenta de servicio (queda de respaldo)", async () => {
+  const VARIABLES = ["GOOGLE_SERVICE_ACCOUNT_EMAIL", "GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "CEREBRO_CLAVE_CIFRADO"];
+  const antes = Object.fromEntries(VARIABLES.map((v) => [v, process.env[v]]));
+  const prismaAntes = nada.prisma;
+  const fetchOriginal = globalThis.fetch;
+  try {
+    Object.assign(process.env, ENTORNO_SA, { GOOGLE_OAUTH_CLIENT_ID: "id", GOOGLE_OAUTH_CLIENT_SECRET: "secreto", CEREBRO_CLAVE_CIFRADO: "una-clave-de-prueba-larga" });
+    const conexion = cargar("src/features/cerebro/services/conexion.ts", { "@/lib/prisma": nada });
+    const fila = { workspaceId: "ws1", cuentaGoogle: "magilus@gmail.com", tokenCifrado: cifrado.cifrar("refresh-de-magilus"), carpetaId: "raiz", ultimoError: null };
+    const actualizaciones = [];
+    nada.prisma = {
+      cerebroConexion: {
+        findUnique: async () => fila,
+        upsert: async () => assert.fail("con OAuth no se crea la fila de la cuenta de servicio"),
+        update: async ({ data }) => void actualizaciones.push(data),
+      },
+    };
+    const tokens = [];
+    globalThis.fetch = async (url, init = {}) => {
+      if (String(url).startsWith("https://oauth2.googleapis.com/token")) {
+        const cuerpo = new URLSearchParams(String(init.body));
+        tokens.push(cuerpo.get("grant_type"));
+        if (cuerpo.get("grant_type") === "refresh_token") {
+          assert.equal(cuerpo.get("refresh_token"), "refresh-de-magilus");
+          return new Response(JSON.stringify({ access_token: "tok-magilus" }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ access_token: "tok-sa", expires_in: 3600 }), { status: 200 });
+      }
+      return new Response("{}", { status: 200 });
+    };
+    servicio.olvidarTokenDeCuentaDeServicio();
+    const { modo } = await conexion.driveDelNegocio("ws1");
+    assert.equal(modo, "oauth");
+    assert.deepEqual(tokens, ["refresh_token"], "no se pidió el permiso de la cuenta de servicio");
+
+    // Si el permiso OAuth se perdió, sigue con la cuenta de servicio y deja el error para reconectar.
+    tokens.length = 0;
+    globalThis.fetch = async (url, init = {}) => {
+      const cuerpo = new URLSearchParams(String(init.body));
+      tokens.push(cuerpo.get("grant_type") ?? "jwt");
+      if (cuerpo.get("grant_type") === "refresh_token") return new Response(JSON.stringify({ error: "invalid_grant" }), { status: 400 });
+      return new Response(JSON.stringify({ access_token: "tok-sa", expires_in: 3600 }), { status: 200 });
+    };
+    const respaldo = await conexion.driveDelNegocio("ws1");
+    assert.equal(respaldo.modo, "cuenta-servicio");
+    assert.match(actualizaciones.at(-1).ultimoError, /reconectar/);
+
+    assert.equal(conexion.enlaceParaConectarGoogle("https://crm.ejemplo.com/"), "https://crm.ejemplo.com/api/cerebro/google/conectar");
+  } finally {
+    globalThis.fetch = fetchOriginal;
+    nada.prisma = prismaAntes;
+    for (const v of VARIABLES) {
+      if (antes[v] === undefined) delete process.env[v];
+      else process.env[v] = antes[v];
+    }
+    servicio.olvidarTokenDeCuentaDeServicio();
+  }
+});
+
+await prueba("conectar con la cuenta Magilus: la carpeta ya elegida NO se borra si esa cuenta la puede abrir", async () => {
+  const VARIABLES = ["GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "CEREBRO_CLAVE_CIFRADO"];
+  const antes = Object.fromEntries(VARIABLES.map((v) => [v, process.env[v]]));
+  const prismaAntes = nada.prisma;
+  const fetchOriginal = globalThis.fetch;
+  try {
+    Object.assign(process.env, { GOOGLE_OAUTH_CLIENT_ID: "id", GOOGLE_OAUTH_CLIENT_SECRET: "secreto", CEREBRO_CLAVE_CIFRADO: "una-clave-de-prueba-larga" });
+    const conexion = cargar("src/features/cerebro/services/conexion.ts", { "@/lib/prisma": nada });
+    const guardados = [];
+    let previa;
+    nada.prisma = { cerebroConexion: { findUnique: async () => previa, upsert: async ({ update }) => void guardados.push(update) } };
+    let carpetaVisible = true;
+    globalThis.fetch = async (url) => {
+      const texto = String(url);
+      if (texto.startsWith("https://oauth2.googleapis.com/token")) return new Response(JSON.stringify({ access_token: "tok-magilus", refresh_token: "r" }), { status: 200 });
+      if (texto.includes("userinfo")) return new Response(JSON.stringify({ email: "magilus@gmail.com" }), { status: 200 });
+      if (texto.includes("/files/carpeta-magilus")) {
+        return carpetaVisible
+          ? new Response(JSON.stringify({ id: "carpeta-magilus", name: "Magilus 1.0", mimeType: reglas.MIME_CARPETA }), { status: 200 })
+          : new Response("{}", { status: 404 });
+      }
+      return new Response("{}", { status: 404 });
+    };
+    const entrar = () =>
+      conexion.terminarInicioDeSesion({ codigo: "c", estado: cifrado.firmarEstado({ workspaceId: "ws1", userId: "u1" }), origen: "https://crm.ejemplo.com", userIdActual: "u1" });
+    previa = { cuentaGoogle: "finanzas@proyecto-falso.iam.gserviceaccount.com", carpetaId: "carpeta-magilus" };
+    await entrar();
+    assert.equal("carpetaId" in guardados.at(-1), false, "la carpeta se conserva");
+    assert.equal(guardados.at(-1).cuentaGoogle, "magilus@gmail.com");
+    carpetaVisible = false;
+    await entrar();
+    assert.equal(guardados.at(-1).carpetaId, null, "si la cuenta nueva no la abre, se vuelve a elegir");
+  } finally {
+    globalThis.fetch = fetchOriginal;
+    nada.prisma = prismaAntes;
+    for (const v of VARIABLES) {
+      if (antes[v] === undefined) delete process.env[v];
+      else process.env[v] = antes[v];
+    }
+  }
+});
+
+await prueba("(a) con OAuth, crear llama a Drive UNA sola vez, deja la copia al día y no deja CerebroNotaPorCrear", async () => {
+  const falso = driveDeMentira();
+  const { deps, llamadas } = depsConDrive("tok-magilus", falso.fetchFalso);
+  const resultado = await escribirConDependencias({ ...pedidoBase, modo: "crear", driveId: undefined, nombre: "Decisiones de Magilus", contenido: "Primera decisión" }, deps);
+  assert.equal(falso.creaciones().length, 1, "una sola creación");
+  assert.ok(falso.pedidos.every((p) => p.auth === "Bearer tok-magilus"));
+  const busqueda = new URL(falso.pedidos[0].url).searchParams.get("q");
+  assert.equal(busqueda, "name='Decisiones de Magilus.md' and 'raiz' in parents and trashed=false", "antes de crear se pregunta en vivo");
+  assert.equal(resultado.driveId, "creado1");
+  assert.equal(resultado.linkDrive, "https://drive/creado1");
+  assert.equal(resultado.pendiente, undefined);
+  assert.equal(llamadas.encoladas.length, 0, "nada en espera para aizen1");
+  assert.equal(llamadas.copias.length, 1, "la fila queda al día en la copia");
+  assert.equal(llamadas.copias[0].driveId, "creado1");
+  assert.equal(llamadas.registros[0].driveId, "creado1");
+  // Y escribirEnElCerebro ya no deja pedidos en CerebroNotaPorCrear; el MCP no devuelve nota_id.
+  const escribirTs = fs.readFileSync(path.join(RAIZ, "src/features/cerebro/services/escribir.ts"), "utf8");
+  assert.ok(!/cerebroNotaPorCrear/.test(escribirTs), "escribir.ts no crea CerebroNotaPorCrear");
+  const mcpTs = fs.readFileSync(path.join(RAIZ, "src/lib/mcp/cerebro.ts"), "utf8");
+  assert.ok(!/nota_id/.test(mcpTs), "cerebro_escribir no devuelve nota_id");
+});
+
+await prueba("(b) si en el Drive ya hay un archivo con ese nombre en esa carpeta, NO crea otro (aunque la copia no lo tenga)", async () => {
+  const falso = driveDeMentira({ existentes: [{ id: "ya1", name: "Decisiones de Magilus.md", mimeType: "text/markdown", parents: ["raiz"] }] });
+  const { deps, llamadas } = depsConDrive("tok", falso.fetchFalso);
+  await assert.rejects(
+    () => escribirConDependencias({ ...pedidoBase, modo: "crear", driveId: undefined, nombre: "Decisiones de Magilus", contenido: "Otra" }, deps),
+    /Ya existe "Decisiones de Magilus\.md".*id ya1/,
+  );
+  assert.equal(falso.creaciones().length, 0);
+  assert.equal(llamadas.copias.length + llamadas.registros.length + llamadas.encoladas.length, 0);
+  // La comilla del nombre no rompe la consulta.
+  await crearBuscadorDeDrive("tok", falso.fetchFalso).buscarPorNombre("raiz", "O'Neil.md");
+  assert.equal(new URL(falso.pedidos.at(-1).url).searchParams.get("q"), "name='O\\'Neil.md' and 'raiz' in parents and trashed=false");
+  await assert.rejects(() => crearBuscadorDeDrive("tok", falso.fetchFalso).buscarPorNombre("x' or '1", "a.md"), /no es válido/);
+});
+
+await prueba("crear en una carpeta que la copia no tiene: se confirma en vivo que cuelga de la carpeta del cerebro", async () => {
+  const carpetas = {
+    sub: { name: "Bitácoras", mimeType: reglas.MIME_CARPETA, parents: ["seo"] },
+    seo: { name: "SEO Magilus", mimeType: reglas.MIME_CARPETA, parents: ["raiz"] },
+    ajena: { name: "Fotos", mimeType: reglas.MIME_CARPETA, parents: ["otra-raiz"] },
+  };
+  const falso = driveDeMentira({ carpetas });
+  const { deps } = depsConDrive("tok", falso.fetchFalso);
+  const resultado = await escribirConDependencias({ ...pedidoBase, modo: "crear", driveId: undefined, carpetaId: "sub", nombre: "Bitácora 2026-11", contenido: "Nota" }, deps);
+  assert.equal(resultado.ruta, "SEO Magilus/Bitácoras/Bitácora 2026-11.md");
+  assert.equal(falso.creaciones().length, 1);
+  await assert.rejects(
+    () => escribirConDependencias({ ...pedidoBase, modo: "crear", driveId: undefined, carpetaId: "ajena", nombre: "Otra", contenido: "x" }, deps),
+    /no está dentro del cerebro/,
+  );
+  await assert.rejects(
+    () => escribirConDependencias({ ...pedidoBase, modo: "crear", driveId: undefined, carpetaId: "no-existe", nombre: "Otra", contenido: "x" }, deps),
+    /no está dentro del cerebro/,
+  );
+  assert.equal(falso.creaciones().length, 1, "fuera del cerebro no se crea nada");
+});
+
+await prueba("sin el permiso OAuth, si la cuenta de servicio no puede crear: error claro con el link de conectar, nada en espera", async () => {
+  const { deps, llamadas } = depsConDrive("tok-sa", async (url) =>
+    String(url).includes("/files?q=") ? new Response(JSON.stringify({ files: [] }), { status: 200 }) : sinEspacioDeGoogle(),
+  );
+  deps.enlaceParaConectar = () => "https://crm.ejemplo.com/api/cerebro/google/conectar";
+  await assert.rejects(
+    () => escribirConDependencias({ ...pedidoBase, modo: "crear", driveId: undefined, nombre: "Decisiones de Magilus", contenido: "x" }, deps),
+    (fallo) => {
+      assert.match(fallo.message, /Entra a https:\/\/crm\.ejemplo\.com\/api\/cerebro\/google\/conectar/);
+      assert.match(fallo.message, /cuenta de Google de Magilus/);
+      return true;
+    },
+  );
+  assert.equal(llamadas.encoladas.length, 0, "no se deja CerebroNotaPorCrear");
+  assert.equal(llamadas.registros.length, 0);
+});
+
+await prueba("(c) drive.ts no tiene nada de papelera ni de borrar (trash / DELETE)", () => {
+  const driveTs = fs.readFileSync(path.join(RAIZ, "src/features/cerebro/services/drive.ts"), "utf8");
+  assert.ok(!/trash|DELETE/.test(driveTs), "drive.ts no puede contener trash ni DELETE");
+});
+
+await prueba("pantalla: sin el permiso OAuth se ofrece 'Permitir que el CRM cree notas en Drive'; con él, 'Conectado con' la cuenta", () => {
+  const pantalla = fs.readFileSync(path.join(RAIZ, "src/features/cerebro/components/ConexionCerebro.tsx"), "utf8");
+  assert.match(pantalla, /Permitir que el CRM cree notas en Drive/);
+  assert.match(pantalla, /href="\/api\/cerebro\/google\/conectar"/);
+  assert.match(pantalla, /`Conectado con \$\{cuenta/);
+  const pagina = fs.readFileSync(path.join(RAIZ, "src/app/cliente/negocio/cerebro/page.tsx"), "utf8");
+  assert.match(pagina, /permisoOAuth=\{Boolean\(conexion\?\.tokenCifrado\) && oauthConfigurado\(\)\}/);
+});
+
 console.log(`\n${pruebas} pruebas del cerebro: OK`);
