@@ -13,6 +13,7 @@ import { revisarListoParaPagar } from "@/features/listo-para-pagar/servicios/lis
 import { revisarDemorasDeAsesoras } from "@/features/chats/services/demora-de-asesora";
 import { rescatarChatsHuerfanos } from "@/lib/rescate-de-chats-huerfanos";
 import { rescatarNuevoSinAsesoraUnaVez } from "@/lib/rescate-nuevo-sin-asesora";
+import { arreglarChatsWebViejos } from "@/lib/origen-web";
 import { repartirChatsDeMadrugada } from "@/lib/reparto-de-madrugada";
 import { transcribirAudiosPendientes } from "@/lib/transcripcion-de-audios";
 import { sincronizarSiTocaHoy } from "@/lib/sincronizacion-gestion";
@@ -165,6 +166,18 @@ async function handleCron(request: Request) {
     primera vuelta solo lee su marca en AppSetting. Ver src/lib/rescate-nuevo-sin-asesora.ts.
   */
   await rescatarNuevoSinAsesoraUnaVez();
+
+  /*
+    Arreglo de UNA sola vez (parte 4 de los chats web): los chats de la página web de los últimos 60 días
+    que la línea Admin dejó ocultos se muestran en el CRM con la etiqueta "Web". No manda mensajes ni toca
+    etapa o asesora. Después de la primera vuelta solo lee su marca `arreglo_chats_web_60d` en AppSetting.
+    En su propio try/catch: un error acá no frena los seguimientos. Ver src/lib/origen-web.ts.
+  */
+  try {
+    await arreglarChatsWebViejos();
+  } catch (error) {
+    console.error("[cron/follows] arreglo de chats web viejos error", error);
+  }
 
   /*
     Los chats que llegaron de madrugada sin nadie en línea: se reparten desde las 7:00 a las que
