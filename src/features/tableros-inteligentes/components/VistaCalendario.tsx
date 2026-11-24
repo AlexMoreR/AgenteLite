@@ -54,16 +54,18 @@ export function VistaCalendario({ tarjetas, tipos, alAbrir }: Props) {
 
   const chip = (tarjeta: TarjetaVista) => {
     const conEstado = usaEstados.get(tarjeta.tipoId) ?? true;
+    // Un Área (tipo sin estados) no muestra su código «T-n», ni en el title.
+    const codigo = conEstado ? tarjeta.codigo : "";
     return (
       <button
         key={tarjeta.id}
         type="button"
         onClick={() => alAbrir(tarjeta.id)}
-        title={`${tarjeta.codigo} ${tarjeta.titulo}`.trim()}
+        title={`${codigo} ${tarjeta.titulo}`.trim()}
         className="flex w-full min-w-0 items-center gap-1 rounded border bg-card px-1.5 py-1 text-left text-xs hover:bg-muted"
       >
         {conEstado ? <span className={cn("size-2 shrink-0 rounded-full", COLOR_DEL_ESTADO[tarjeta.estado].punto)} aria-hidden /> : null}
-        {tarjeta.codigo ? <span className="shrink-0 tabular-nums text-muted-foreground">{tarjeta.codigo}</span> : null}
+        {codigo ? <span className="shrink-0 tabular-nums text-muted-foreground">{codigo}</span> : null}
         <span className="truncate">{tarjeta.titulo}</span>
       </button>
     );

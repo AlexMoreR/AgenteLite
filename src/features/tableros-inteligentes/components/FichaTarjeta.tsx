@@ -365,7 +365,8 @@ export function FichaTarjeta({
                 ) : null}
               </div>
               <SheetTitle className="text-lg leading-snug">
-                {tarjeta.codigo ? (
+                {/* Un Área (tipo sin estados) no muestra su código «T-n». */}
+                {usaEstados && tarjeta.codigo ? (
                   <span className="mr-2 align-middle text-xs font-medium tabular-nums text-zinc-500 dark:text-zinc-400">
                     {tarjeta.codigo}
                   </span>

@@ -231,7 +231,8 @@ function construirNodos(
       position: posiciones.get(id) ?? { x: 0, y: 0 },
       data: {
         titulo: tarjeta.titulo,
-        codigo: tarjeta.codigo,
+        // Un Área (tipo sin estados) no muestra su código «T-n»: le llega vacío al nodo.
+        codigo: tipo?.usaEstados === false ? "" : tarjeta.codigo,
         hijas: hijas.get(id) ?? 0,
         contadores: contadores.get(id) ?? contadoresEnCero(),
         esNivel: centros.has(id),

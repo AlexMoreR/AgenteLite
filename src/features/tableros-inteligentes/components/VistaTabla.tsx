@@ -200,9 +200,11 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
 
   const celda = (fila: FilaDeTabla<TarjetaVista>, columna: ClaveDeColumnaDeLaTabla) => {
     const { tarjeta } = fila;
+    // Un Área (tipo sin estados) no muestra su código «T-n», ni en lo que lee el lector de pantalla.
+    const codigo = fila.usaEstados ? tarjeta.codigo : "";
     switch (columna) {
       case "codigo":
-        return <span className="tabular-nums text-muted-foreground">{tarjeta.codigo || "—"}</span>;
+        return <span className="tabular-nums text-muted-foreground">{codigo || "—"}</span>;
       case "titulo":
         // Un botón de verdad: con teclado o lector de pantalla también se abre la tarjeta.
         return (
@@ -219,7 +221,7 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
           <>
             <input
               key={`${tarjeta.id}-${tarjeta.area ?? ""}-${revision}`}
-              aria-label={`Área de ${tarjeta.codigo || tarjeta.titulo}`}
+              aria-label={`Área de ${codigo || tarjeta.titulo}`}
               className={CELDA_EDITABLE}
               list="tablero-ia-areas"
               defaultValue={tarjeta.area ?? ""}
@@ -247,7 +249,7 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
         return (
           <select
             key={`${tarjeta.id}-${tarjeta.prioridad}-${revision}`}
-            aria-label={`Prioridad de ${tarjeta.codigo || tarjeta.titulo}`}
+            aria-label={`Prioridad de ${codigo || tarjeta.titulo}`}
             className={cn("w-full rounded-full border px-2 py-0.5 text-xs font-medium", COLOR_DE_PRIORIDAD[tarjeta.prioridad])}
             defaultValue={tarjeta.prioridad}
             onChange={(evento) => {
@@ -267,7 +269,7 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
         return (
           <select
             key={`${tarjeta.id}-${tarjeta.responsableId ?? ""}-${revision}`}
-            aria-label={`Responsable de ${tarjeta.codigo || tarjeta.titulo}`}
+            aria-label={`Responsable de ${codigo || tarjeta.titulo}`}
             className={CELDA_EDITABLE}
             defaultValue={tarjeta.responsableId ?? ""}
             onChange={(evento) => void asignar(tarjeta.id, evento.target.value || null)}
@@ -289,7 +291,7 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
           <input
             key={`${tarjeta.id}-${dia}-${revision}`}
             type="date"
-            aria-label={`Fecha de ${tarjeta.codigo || tarjeta.titulo}`}
+            aria-label={`Fecha de ${codigo || tarjeta.titulo}`}
             title={tarjeta.fecha ? DIA.format(new Date(tarjeta.fecha)) : "Sin fecha"}
             className={CELDA_EDITABLE}
             defaultValue={dia}
