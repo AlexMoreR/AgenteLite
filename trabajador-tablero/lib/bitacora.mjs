@@ -7,7 +7,9 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { idCorto } from "./git.mjs";
+import { crearWorktree, git, idCorto, pushARamaBase, quitarWorktree } from "./git.mjs";
+import { INTENTOS_POR_NOCHE, horaEnBogota } from "./manual-nocturno.mjs";
+import { fechaBogota } from "./motores.mjs";
 import { escribirNotaEnLaBoveda } from "./notas-boveda.mjs";
 
 export const RUTA_EN_BOVEDA_POR_DEFECTO = "06 Tecnología/Bitácora de incidentes.md";
@@ -196,17 +198,23 @@ export function anotarIncidente({ config, registro, fecha = fechaDeLaBitacora(),
 /** El archivo de la bitácora dentro de cada repo (lo que ya se sabe y viaja con el código). */
 export const BITACORA_DEL_REPO = path.join("docs", "incidentes.md");
 
-/** Las entradas de un texto de bitácora: solo las que traen su clave estable. -> [{ clave, regla, causa }] */
-export function entradasDeLaBitacora(texto) {
+/** Los bloques "### ..." de un texto de bitácora que traen su clave estable. -> [{ clave, bloque }] */
+export function bloquesDeLaBitacora(texto) {
   return String(texto ?? "")
     .split(/^(?=### )/m)
     .map((bloque) => {
       const clave = bloque.match(/<!-- incidente:[^\n]*?-->/)?.[0];
-      if (!bloque.startsWith("### ") || !clave) return null;
-      const campo = (nombre) => bloque.match(new RegExp(`^- ${nombre}:[ \\t]*(.*)$`, "m"))?.[1]?.trim() ?? "";
-      return { clave, regla: campo("Regla"), causa: campo("Causa") };
+      return bloque.startsWith("### ") && clave ? { clave, bloque } : null;
     })
     .filter(Boolean);
+}
+
+/** Las entradas de un texto de bitácora: solo las que traen su clave estable. -> [{ clave, regla, causa }] */
+export function entradasDeLaBitacora(texto) {
+  return bloquesDeLaBitacora(texto).map(({ clave, bloque }) => {
+    const campo = (nombre) => bloque.match(new RegExp(`^- ${nombre}:[ \\t]*(.*)$`, "m"))?.[1]?.trim() ?? "";
+    return { clave, regla: campo("Regla"), causa: campo("Causa") };
+  });
 }
 
 /** El texto de un archivo, o "" si no existe o no se puede leer. */
@@ -266,3 +274,162 @@ export const INCIDENTES_CONOCIDOS = Object.freeze([
     clase: "desconocida",
   }),
 ]);
+
+// EL PASO DE LA NOCHE (parte 3): una vez al día, pasada la hora del manual (config.manual.hora, Bogotá), el Coordinador pasa a
+// docs/incidentes.md de cada repo (aizencrm y gestion) las entradas de <carpetaTrabajo>/incidentes/<repo>.md que todavía no
+// están (por la clave estable), y sube el cambio a la rama base sin forzar. No usa Claude: solo copia texto. Mismo esquema que
+// el manual de la noche (lib/manual-nocturno.mjs): estado diario, una copia aparte de cada repo y hasta 3 intentos por noche.
+
+/** Los repos que llevan la bitácora en su docs/incidentes.md. */
+export const REPOS_DE_LA_BITACORA = Object.freeze(["aizencrm", "gestion"]);
+
+export const rutaDelEstadoDeLaBitacora = (carpetaTrabajo) => path.join(carpetaTrabajo, "bitacora-nocturna.json");
+
+export function leerEstadoDeLaBitacora(carpetaTrabajo) {
+  try {
+    return JSON.parse(fs.readFileSync(rutaDelEstadoDeLaBitacora(carpetaTrabajo), "utf8").replace(/^﻿/, ""));
+  } catch {
+    return null;
+  }
+}
+
+function guardarEstadoDeLaBitacora(carpetaTrabajo, estado) {
+  fs.mkdirSync(carpetaTrabajo, { recursive: true });
+  const ruta = rutaDelEstadoDeLaBitacora(carpetaTrabajo);
+  fs.writeFileSync(`${ruta}.tmp`, `${JSON.stringify(estado, null, 2)}\n`);
+  fs.renameSync(`${ruta}.tmp`, ruta);
+  return estado;
+}
+
+/** El encabezado de docs/incidentes.md cuando el repo todavía no lo tiene. */
+export const encabezadoDeLaBitacoraDelRepo = (repo) =>
+  [
+    `# Bitácora de incidentes: ${nombreDeArchivoDelRepo(repo)}`,
+    "",
+    "Qué es: cada vez que una subida de este repo falla (no arrancó, la vigilancia de 30 min la deshizo o falló el ensayo de",
+    "migraciones), queda una entrada acá con qué falló, la causa, cómo se resolvió y la regla que deja. El Coordinador la anota en",
+    `su carpeta de trabajo (\`incidentes/${nombreDeArchivoDelRepo(repo)}.md\`) y de noche la pasa a este archivo, sin repetir las que`,
+    "ya están (por la clave estable que lleva cada entrada en un comentario). Antes de planear y de construir, las últimas",
+    "entradas van en las instrucciones como «Incidentes ya vistos en este repo: no los repitas».",
+    "",
+  ].join("\n");
+
+/** Las entradas que se pasan al repo: las conocidas de antes de la bitácora (solo las de ese repo) y las de la carpeta local. */
+export function entradasParaElRepo({ carpetaTrabajo, repo }) {
+  const conocidas = INCIDENTES_CONOCIDOS.filter((incidente) => incidente.repo === repo).map((incidente) => {
+    const bloque = armarEntrada(incidente);
+    return { clave: bloque.match(/<!-- incidente:[^\n]*?-->/)[0], bloque };
+  });
+  return [...conocidas, ...bloquesDeLaBitacora(leerSiSePuede(rutaDeIncidentes(carpetaTrabajo, repo)))];
+}
+
+/**
+ * El texto nuevo de docs/incidentes.md: `antes` (o el encabezado, si no existe) más las entradas cuya clave no está.
+ * -> { texto, nuevas } (nuevas = 0: no hay nada que agregar).
+ */
+export function juntarBitacora(antes, entradas, repo) {
+  const base = antes ?? encabezadoDeLaBitacoraDelRepo(repo);
+  const vistas = new Set();
+  const nuevas = entradas.filter(({ clave }) => {
+    if (base.includes(clave) || vistas.has(clave)) return false;
+    vistas.add(clave);
+    return true;
+  });
+  if (!nuevas.length) return { texto: base, nuevas: 0 };
+  const cuerpo = nuevas.map(({ bloque }) => `${bloque.trimEnd()}\n`).join("\n");
+  return { texto: `${base.trimEnd()}\n\n${cuerpo}`, nuevas: nuevas.length };
+}
+
+/**
+ * crearBitacoraNocturna({ config, registro, avisar?, entorno?, ahora? }) -> { revisar(planificador) }
+ *   revisar() mira si toca pasar la bitácora y, si toca, la pasa repo por repo. Devuelve { hizo, motivo, repos }. Nunca lanza.
+ *   Recibe `entorno` como el manual (trabajador.mjs lo pasa), pero no lo usa: este paso no corre Claude.
+ */
+export function crearBitacoraNocturna({ config, registro, avisar = async () => undefined, ahora = () => new Date() }) {
+  const aviso = async (texto) => {
+    try {
+      await avisar(texto);
+    } catch (error) {
+      registro?.aviso?.(`bitácora de la noche: no se pudo avisar (${primeraLinea(error)})`);
+    }
+  };
+
+  /** Pasa la bitácora de un repo. -> { nuevas, subio } ; lanza si git falla (lo atrapa revisar). */
+  async function pasarUnRepo(clave, repo) {
+    const entradas = entradasParaElRepo({ carpetaTrabajo: config.carpetaTrabajo, repo: clave });
+    if (!entradas.length) return { nuevas: 0, subio: false };
+    const carpeta = path.join(config.carpetaTrabajo, "wt", `bitacora-nocturna-${nombreDeArchivoDelRepo(clave)}`);
+    try {
+      await git(repo.ruta, ["fetch", repo.remoto]);
+      await crearWorktree(repo, carpeta, `${repo.remoto}/${repo.ramaBase}`, null);
+      const archivo = path.join(carpeta, BITACORA_DEL_REPO);
+      const antes = fs.existsSync(archivo) ? fs.readFileSync(archivo, "utf8") : null;
+      const { texto, nuevas } = juntarBitacora(antes, entradas, clave);
+      if (!nuevas) return { nuevas: 0, subio: false };
+      fs.mkdirSync(path.dirname(archivo), { recursive: true });
+      fs.writeFileSync(archivo, texto);
+      const relativo = BITACORA_DEL_REPO.split(path.sep).join("/");
+      await git(carpeta, ["add", "--", relativo]);
+      await git(carpeta, ["commit", "-m", `docs(incidentes): pasa ${nuevas} entrada(s) de la bitácora de incidentes`], { identidad: config.git });
+      await pushARamaBase(carpeta, repo.remoto, repo.ramaBase);
+      return { nuevas, subio: true };
+    } finally {
+      await quitarWorktree(repo, carpeta);
+    }
+  }
+
+  return {
+    async revisar(planificador) {
+      try {
+        const repos = REPOS_DE_LA_BITACORA.filter((clave) => config.repos?.[clave] && config.repos[clave].activo !== false);
+        if (!repos.length) return { hizo: false, motivo: "sin_repo" };
+        const fecha = ahora();
+        const hora = config.manual?.hora ?? 23;
+        if (horaEnBogota(fecha) < hora) return { hizo: false, motivo: "antes_de_la_hora" };
+        const hoy = fechaBogota(fecha);
+        const estado = leerEstadoDeLaBitacora(config.carpetaTrabajo);
+        const deHoy = estado?.dia === hoy ? estado : { dia: hoy, hecho: false, intentos: 0, listos: [] };
+        if (deHoy.hecho || deHoy.intentos >= INTENTOS_POR_NOCHE) return { hizo: false, motivo: deHoy.hecho ? "ya_hecho" : "sin_intentos" };
+        if ((planificador?.corriendo?.() ?? 0) > 0) return { hizo: false, motivo: "subiendo" };
+
+        const intento = deHoy.intentos + 1;
+        registro?.info?.(`bitácora de la noche: paso las entradas nuevas a ${BITACORA_DEL_REPO} (intento ${intento} de ${INTENTOS_POR_NOCHE})`);
+        const listos = new Set(Array.isArray(deHoy.listos) ? deHoy.listos : []);
+        const resultados = {};
+        const fallos = [];
+        for (const clave of repos.filter((uno) => !listos.has(uno))) {
+          try {
+            resultados[clave] = await pasarUnRepo(clave, config.repos[clave]);
+            listos.add(clave);
+            if (resultados[clave].subio) registro?.info?.(`bitácora de la noche: pasé ${resultados[clave].nuevas} entrada(s) a ${clave} y la subí a ${config.repos[clave].ramaBase}`);
+          } catch (error) {
+            resultados[clave] = { nuevas: 0, subio: false, error: primeraLinea(error) };
+            fallos.push(`${clave}: ${primeraLinea(error)}`);
+            registro?.aviso?.(`bitácora de la noche: no se subió nada a ${clave} (intento ${intento} de ${INTENTOS_POR_NOCHE}): ${primeraLinea(error)}`);
+          }
+        }
+        const hecho = repos.every((clave) => listos.has(clave));
+        try {
+          guardarEstadoDeLaBitacora(config.carpetaTrabajo, { dia: hoy, hecho, intentos: intento, listos: [...listos], repos: resultados, ...(fallos.length ? { error: fallos.join(" | ") } : {}) });
+        } catch (error) {
+          registro?.aviso?.(`bitácora de la noche: no se pudo guardar el estado (${primeraLinea(error)})`);
+        }
+        const subidos = Object.entries(resultados).filter(([, r]) => r.subio);
+        if (subidos.length) {
+          await aviso(`Bitácora de la noche: pasé ${subidos.map(([clave, r]) => `${r.nuevas} entrada(s) a ${clave}`).join(" y ")} (${BITACORA_DEL_REPO}).`);
+        }
+        if (fallos.length) {
+          await aviso(
+            `Bitácora de la noche: no se pudo (${fallos.join(" | ")}). Las entradas siguen en la carpeta de trabajo.${intento < INTENTOS_POR_NOCHE ? " Lo intento otra vez." : " Se acabaron los intentos de esta noche."}`,
+          );
+          return { hizo: false, motivo: "fallo", error: fallos.join(" | "), repos: resultados };
+        }
+        if (!subidos.length) registro?.info?.("bitácora de la noche: no hay entradas nuevas");
+        return { hizo: true, repos: resultados };
+      } catch (error) {
+        registro?.aviso?.(`bitácora de la noche: ${primeraLinea(error)}`);
+        return { hizo: false, motivo: "fallo", error: primeraLinea(error) };
+      }
+    },
+  };
+}
