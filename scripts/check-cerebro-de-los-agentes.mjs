@@ -374,8 +374,9 @@ await prueba("pasado el tope de espera, se contesta con la copia y la sincroniza
   const ahora = 1_000_000_000;
   let soltar;
   let vueltas = 0;
+  let ultima = ahora - 3 * 60_000;
   const rapida = consultas.crearSincronizacionRapida({
-    conexion: async () => ({ carpetaId: "raiz", ultimaSincronizacion: new Date(ahora - 3 * 60_000) }),
+    conexion: async () => ({ carpetaId: "raiz", ultimaSincronizacion: new Date(ultima) }),
     sincronizar: () => {
       vueltas += 1;
       return new Promise((listo) => (soltar = listo));
@@ -386,9 +387,17 @@ await prueba("pasado el tope de espera, se contesta con la copia y la sincroniza
   const primera = await rapida("ws");
   assert.equal(primera.sincronizo, true);
   assert.match(primera.aviso, /tardó más de/);
-  const mientras = rapida("ws"); // la que sigue corriendo: se espera esa, no arranca otra
+  // Mientras sigue corriendo, la siguiente llamada (p. ej. filasDelCerebro dentro de la misma respuesta) no vuelve a esperar.
+  const antes = Date.now();
+  const mientras = await rapida("ws");
+  assert.match(mientras.aviso, /tardó más de/);
+  assert.ok(Date.now() - antes < 15, "contesta al instante con la copia");
+  assert.equal(vueltas, 1, "no arranca otra");
   soltar({ ok: true });
-  assert.equal((await mientras).aviso, null);
+  ultima = ahora; // la sincronización de verdad deja la fecha en la base
+  await new Promise((listo) => setTimeout(listo, 0));
+  const despues = await rapida("ws"); // ya terminó bien: no hay aviso ni otra vuelta
+  assert.equal(despues.aviso, null);
   assert.equal(vueltas, 1);
   assert.equal(consultas.COPIA_VIEJA_MS, 2 * 60_000);
   assert.equal(consultas.TOPE_SINCRONIZACION_RAPIDA_MS, 20_000);

@@ -40,16 +40,24 @@ const avisoDeCopia = (motivo: string) => `El Drive no respondió (${motivo}); es
 
 /**
  * Arma la sincronización rápida. Un candado en memoria por negocio: si ya corre una, las demás llamadas la esperan
- * en vez de arrancar otra. Si el Drive falla, no se reintenta hasta que pasen COPIA_VIEJA_MS (se repite el aviso).
+ * en vez de arrancar otra. Si el Drive falla o se pasa del tope, no se vuelve a esperar hasta que pasen COPIA_VIEJA_MS
+ * (se repite el aviso al instante), así una misma respuesta nunca espera más de un tope.
  * Nunca falla: cualquier error queda en `aviso` y se sigue con la copia.
  */
-export function crearSincronizacionRapida(deps: DependenciasRapidas) {
-  const estados = new Map<string, { enCurso: Promise<string | null> | null; intentoEn: number; aviso: string | null }>();
+type EstadoRapido = { enCurso: Promise<string | null> | null; intentoEn: number; aviso: string | null };
 
-  const esperar = async (enCurso: Promise<string | null>): Promise<ResultadoRapido> => {
+export function crearSincronizacionRapida(deps: DependenciasRapidas) {
+  const estados = new Map<string, EstadoRapido>();
+
+  const esperar = async (estado: EstadoRapido, enCurso: Promise<string | null>): Promise<ResultadoRapido> => {
     let reloj: ReturnType<typeof setTimeout> | undefined;
     const tope = new Promise<string>((listo) => {
-      reloj = setTimeout(() => listo(avisoDeCopia(`tardó más de ${Math.max(1, Math.ceil(deps.tope / 1000))} segundos`)), deps.tope);
+      reloj = setTimeout(() => {
+        const aviso = avisoDeCopia(`tardó más de ${Math.max(1, Math.ceil(deps.tope / 1000))} segundos`);
+        // La sincronización sigue sola; mientras tanto las demás llamadas contestan con la copia sin esperar.
+        if (estado.enCurso) estado.aviso = aviso;
+        listo(aviso);
+      }, deps.tope);
     });
     try {
       return { sincronizo: true, aviso: await Promise.race([enCurso, tope]) };
@@ -60,8 +68,8 @@ export function crearSincronizacionRapida(deps: DependenciasRapidas) {
 
   return async function sincronizacionRapida(workspaceId: string): Promise<ResultadoRapido> {
     const previo = estados.get(workspaceId);
-    if (previo?.enCurso) return esperar(previo.enCurso);
     if (previo?.aviso && deps.ahora() - previo.intentoEn < COPIA_VIEJA_MS) return { sincronizo: false, aviso: previo.aviso };
+    if (previo?.enCurso) return esperar(previo, previo.enCurso);
     try {
       const conexion = await deps.conexion(workspaceId);
       if (!conexion?.carpetaId) return { sincronizo: false, aviso: null };
@@ -71,20 +79,22 @@ export function crearSincronizacionRapida(deps: DependenciasRapidas) {
       return { sincronizo: false, aviso: avisoDeCopia(fallo instanceof Error ? fallo.message : "error") };
     }
     // Pudo arrancar otra mientras se leía la conexión: se espera esa.
-    const otra = estados.get(workspaceId)?.enCurso;
-    if (otra) return esperar(otra);
-    const estado = { enCurso: null as Promise<string | null> | null, intentoEn: deps.ahora(), aviso: null as string | null };
-    estado.enCurso = Promise.resolve()
+    const otro = estados.get(workspaceId);
+    if (otro?.enCurso) return esperar(otro, otro.enCurso);
+    const estado: EstadoRapido = { enCurso: null, intentoEn: deps.ahora(), aviso: null };
+    const enCurso = Promise.resolve()
       .then(() => deps.sincronizar(workspaceId))
       .then((resultado) => (resultado.ok ? null : avisoDeCopia(resultado.error || "error")))
       .catch((fallo: unknown) => avisoDeCopia(fallo instanceof Error ? fallo.message : "error"))
       .then((aviso) => {
+        // Terminó (aunque fuera después del tope): queda su resultado; si salió bien, ya no hay aviso.
         estado.aviso = aviso;
         estado.enCurso = null;
         return aviso;
       });
+    estado.enCurso = enCurso;
     estados.set(workspaceId, estado);
-    return esperar(estado.enCurso);
+    return esperar(estado, enCurso);
   };
 }
 
