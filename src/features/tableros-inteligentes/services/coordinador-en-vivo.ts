@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { registrarAlerta, resolverAlertasPorClave } from "@/features/alertas/servicios/alertas";
 
 import {
   type CargaDelLatido,
@@ -176,13 +177,49 @@ export async function leerAreaFeatures(negocioId: string): Promise<string | null
   }
 }
 
+/** La clave de la alerta "la sesión de Claude en aizen1 se venció" (una sola abierta a la vez). */
+export const CLAVE_ALERTA_SESION_CLAUDE = "coordinador:sesion-claude";
+
+/**
+ * Sesión de Claude del Coordinador (parte 4, 24-nov-2026): al vencerse deja UNA alerta ALTA en /cliente/alertas (nunca
+ * sale por WhatsApp: no lleva `enviar`) y al volver la pasa a Resuelta. Solo actúa en el cambio de estado; si ya hay una
+ * abierta, `refrescar: false` hace que no se cree otra ni se toque.
+ */
+async function avisarSesionClaude(workspaceId: string, antesVencida: boolean, ahoraVencida: boolean, ahora: Date) {
+  if (!antesVencida && ahoraVencida) {
+    await registrarAlerta({
+      workspaceId,
+      clave: CLAVE_ALERTA_SESION_CLAUDE,
+      prioridad: "ALTA",
+      titulo: "La sesión de Claude en aizen1 se venció",
+      detalle: "La sesión de Claude en aizen1 se venció. Abre una terminal en aizen1 y ejecuta: claude auth login",
+      origen: "Coordinador",
+      refrescar: false,
+    });
+  } else if (antesVencida && !ahoraVencida) {
+    await resolverAlertasPorClave(workspaceId, CLAVE_ALERTA_SESION_CLAUDE, ahora);
+  }
+}
+
 /** POST /latido: guarda el último latido de esta clave. Un cuerpo que no es un objeto es un 400. */
 export async function guardarLatido(contexto: ContextoTrabajador, cuerpo: unknown, ahora = new Date()) {
   const latido = latidoDeEntrada(cuerpo, ahora, HOST_DEL_CRM);
   if (!latido) throw new ErrorDelTrabajador("El latido tiene que ser un objeto JSON.", 400);
   const key = claveDelLatido(contexto.workspaceId, contexto.claveId);
+  // El latido anterior (antes de pisarlo), para saber si la sesión de Claude acaba de vencerse o de volver. Si no se
+  // puede leer, no se toca ninguna alerta (null = no se sabe).
+  const anteriorVencida = await prisma.appSetting
+    .findUnique({ where: { key }, select: { value: true } })
+    .then((fila) => latidoGuardado(fila?.value, HOST_DEL_CRM)?.sesionClaude?.vencida === true)
+    .catch(() => null);
   const value = JSON.stringify(latido);
   await prisma.appSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+  // La alerta de la sesión de Claude vencida: si falla, el latido sigue.
+  if (anteriorVencida !== null) {
+    await avisarSesionClaude(contexto.workspaceId, anteriorVencida, latido.sesionClaude?.vencida === true, ahora).catch((error) =>
+      console.warn("[coordinador-en-vivo] no se pudo avisar la sesión de Claude", error instanceof Error ? error.message : String(error)),
+    );
+  }
   // El Área Features del Coordinador (la usan /candidatas y /tomar si el pedido no la trae): si falla, el latido sigue.
   await guardarAreaFeatures(contexto.workspaceId, cuerpo).catch((error) =>
     console.warn("[coordinador-en-vivo] no se pudo guardar el área Features", error instanceof Error ? error.message : String(error)),

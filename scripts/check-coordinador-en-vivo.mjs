@@ -11,7 +11,7 @@ import { cargar } from "./supervisor-cargar.mjs";
 
 /* ------------------------------------------------------------------ falsos */
 
-const estado = { ajustes: new Map(), tarjetas: [], historial: [], intentos: [], claves: new Map() };
+const estado = { ajustes: new Map(), tarjetas: [], historial: [], intentos: [], claves: new Map(), alertas: [] };
 
 const coincide = (valor, filtro) => {
   if (filtro && typeof filtro === "object" && !(filtro instanceof Date)) {
@@ -65,6 +65,21 @@ const prismaFalso = {
         .filter((f) => f.creadoEn >= where.creadoEn.gte && f.creadoEn < where.creadoEn.lt)
         .sort((a, b) => a.creadoEn - b.creadoEn)
         .map((f) => ({ tarjetaId: f.tarjetaId, creadoEn: f.creadoEn, despues: f.despues, tarjeta: { titulo: f.titulo } })),
+  },
+  // Las alertas internas (la de la sesión de Claude vencida): lo justo que usan registrarAlerta y resolverAlertasPorClave.
+  alertaInterna: {
+    findFirst: async ({ where }) => [...estado.alertas].reverse().find((a) => Object.entries(where).every(([campo, valor]) => coincide(a[campo] ?? null, valor))) ?? null,
+    create: async ({ data }) => {
+      const fila = { id: `al${estado.alertas.length + 1}`, estado: "NUEVA", salioPorWhatsApp: false, veces: 1, resueltaEn: null, ...data };
+      estado.alertas.push(fila);
+      return fila;
+    },
+    update: async ({ where, data }) => Object.assign(estado.alertas.find((a) => a.id === where.id), data),
+    updateMany: async ({ where, data }) => {
+      const cuales = estado.alertas.filter((a) => Object.entries(where).every(([campo, valor]) => coincide(a[campo] ?? null, valor)));
+      for (const a of cuales) Object.assign(a, data);
+      return { count: cuales.length };
+    },
   },
   intentoTarjeta: {
     findMany: async ({ where }) =>
@@ -122,6 +137,7 @@ async function prueba(nombre, fn) {
   estado.historial.length = 0;
   estado.intentos.length = 0;
   estado.claves.clear();
+  estado.alertas.length = 0;
   await fn();
   pruebas += 1;
   console.log(`ok - ${nombre}`);
@@ -689,6 +705,56 @@ await prueba("sesión de Claude vencida: ver_coordinador la dice primero y manda
     assert.ok(!textoNormal.includes("sesión de Claude vencida"));
     assert.match(textoNormal, /^Coordinador en línea\./);
     assert.match(textoNormal, /Uso de Claude: sesión 42 % · semana 63 % \(la pausa se activa al 80 %\)\./);
+  }
+  estado.ajustes.clear();
+});
+
+await prueba("sesión de Claude vencida (parte 4): cinco latidos vencidos dejan UNA alerta en /cliente/alertas sin WhatsApp; al volver queda Resuelta", async () => {
+  const vencidaLatido = { tareas: [], sesionClaude: { vencida: true, desde: vencidaDesde, revisadaEn: vencidaDesde } };
+  await servicio.guardarLatido(contexto, { tareas: [], sesionClaude: { vencida: false } }, hace(2));
+  assert.equal(estado.alertas.length, 0, "con la sesión bien no hay alerta");
+  for (let i = 0; i < 5; i += 1) await servicio.guardarLatido(contexto, vencidaLatido, new Date(AHORA.getTime() + i * 15_000));
+  assert.equal(estado.alertas.length, 1, "una sola alerta, no una por latido");
+  const [alerta] = estado.alertas;
+  assert.equal(alerta.clave, "coordinador:sesion-claude");
+  assert.equal(alerta.workspaceId, "ws1");
+  assert.equal(alerta.estado, "NUEVA");
+  assert.equal(alerta.prioridad, "ALTA");
+  assert.equal(alerta.origen, "Coordinador");
+  assert.equal(alerta.destinatarioId, null, "es del negocio, sin destinatario");
+  assert.equal(alerta.salioPorWhatsApp, false, "nunca sale por WhatsApp");
+  assert.equal(alerta.titulo, "La sesión de Claude en aizen1 se venció");
+  assert.equal(alerta.detalle, "La sesión de Claude en aizen1 se venció. Abre una terminal en aizen1 y ejecuta: claude auth login");
+  assert.equal(alerta.veces, 1, "los latidos siguientes no la tocan");
+
+  const volvio = new Date(AHORA.getTime() + 5 * 60_000);
+  await servicio.guardarLatido(contexto, { tareas: [], sesionClaude: { vencida: false } }, volvio);
+  assert.equal(estado.alertas.length, 1);
+  assert.equal(alerta.estado, "RESUELTA", "al volver la sesión, la alerta se cierra sola");
+  assert.equal(alerta.resueltaEn.toISOString(), volvio.toISOString());
+
+  // Se vuelve a vencer: alerta nueva (la anterior ya está resuelta). Un primer latido ya vencido también la crea.
+  await servicio.guardarLatido(contexto, vencidaLatido, new Date(volvio.getTime() + 60_000));
+  assert.equal(estado.alertas.filter((a) => a.estado === "NUEVA").length, 1);
+  estado.ajustes.clear();
+  estado.alertas.length = 0;
+  await servicio.guardarLatido(contexto, vencidaLatido, AHORA);
+  assert.equal(estado.alertas.length, 1, "el primer latido de la clave ya vencido deja la alerta");
+  // Con la alerta abierta y otra clave del Coordinador que también la ve vencida: no se crea otra.
+  await servicio.guardarLatido({ ...contexto, claveId: "k2" }, vencidaLatido, AHORA);
+  assert.equal(estado.alertas.length, 1, "si ya hay una abierta con esa clave, no se crea otra");
+
+  // Si las alertas fallan, el latido sigue.
+  const original = prismaFalso.alertaInterna.findFirst;
+  prismaFalso.alertaInterna.findFirst = async () => {
+    throw new Error("base caída");
+  };
+  try {
+    estado.ajustes.clear();
+    const respuesta = await servicio.guardarLatido(contexto, vencidaLatido, AHORA);
+    assert.equal(respuesta.recibidoEn, AHORA.toISOString());
+  } finally {
+    prismaFalso.alertaInterna.findFirst = original;
   }
   estado.ajustes.clear();
 });
