@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { buscarEnElCerebro, filasDelCerebro, leerDocumentoDelCerebro } from "@/features/cerebro/services/consultas";
+import { buscarEnElCerebro, filasDelCerebro, leerDocumentoDelCerebro, sincronizacionRapida } from "@/features/cerebro/services/consultas";
 import { escribirEnElCerebro } from "@/features/cerebro/services/escribir";
 import { MAXIMO_ESCRITURA, TEXTO_DEL_ESTADO_DE_NOTA } from "@/features/cerebro/services/reglas";
 import { notasRecientes } from "@/features/cerebro/services/notas-por-crear";
@@ -8,7 +8,8 @@ import { tieneAccesoAlDrive } from "@/features/cerebro/services/conexion";
 /*
   CEREBRO por el MCP: cerebro_listar, cerebro_leer, cerebro_buscar y cerebro_escribir.
 
-  El cerebro es una carpeta de Google Drive (la copia en la base se sincroniza cada hora y con el botón).
+  El cerebro es una carpeta de Google Drive (la copia en la base se sincroniza cada hora y con el botón; además,
+  listar y buscar primero bajan lo que cambió si la copia tiene más de 2 minutos).
   Las tres primeras solo leen. cerebro_escribir es la única que modifica el Drive; nunca borra nada. Crear y
   agregar no piden la frase del dueño (Claude anota cada decisión apenas se toma, en "Decisiones de Magilus");
   reemplazar todo un documento sí la pide. Ver features/cerebro/services/escribir.ts.
@@ -27,7 +28,7 @@ export const HERRAMIENTAS_MCP_CEREBRO = [
     name: "cerebro_listar",
     title: "Listar el cerebro",
     description:
-      "El cerebro es la base de conocimiento del negocio: lo que ya está decidido (decisiones, políticas, reglas, precios, aprendizajes), en una carpeta de Google Drive. Esto lista sus carpetas y documentos con el id de cada uno (y `documentos_en_el_cerebro`: cuántos documentos tiene, sin contar carpetas ni lo ignorado), la ruta, la fecha de la última modificación en el Drive y cuándo se sincronizó por última vez. Consúltalo antes de preguntar o suponer algo que quizá ya esté decidido.",
+      "El cerebro es la base de conocimiento del negocio: lo que ya está decidido (decisiones, políticas, reglas, precios, aprendizajes), en una carpeta de Google Drive. Esto lista sus carpetas y documentos con el id de cada uno (y `documentos_en_el_cerebro`: cuántos documentos tiene, sin contar carpetas ni lo ignorado), la ruta, la fecha de la última modificación en el Drive y cuándo se sincronizó por última vez. Consúltalo antes de preguntar o suponer algo que quizá ya esté decidido. Si la copia tiene más de 2 minutos, primero trae lo que cambió en el Drive; si el Drive no responde, contesta con la copia y lo dice en `aviso_drive`.",
     inputSchema: {
       type: "object",
       properties: {
@@ -56,7 +57,7 @@ export const HERRAMIENTAS_MCP_CEREBRO = [
   {
     name: "cerebro_buscar",
     title: "Buscar en el cerebro",
-    description: "Busca por texto en los nombres y en el contenido de los documentos del cerebro. Devuelve los mejores con un fragmento de donde coincide.",
+    description: "Busca por texto en los nombres y en el contenido de los documentos del cerebro. Devuelve los mejores con un fragmento de donde coincide. Si la copia tiene más de 2 minutos, primero trae lo que cambió en el Drive; si el Drive no responde, contesta con la copia y lo dice en `aviso_drive`.",
     inputSchema: {
       type: "object",
       properties: {
@@ -109,6 +110,16 @@ async function conectado(workspaceId: string) {
   return conexion?.carpetaId && tieneAccesoAlDrive(conexion) ? conexion : null;
 }
 
+/**
+ * Antes de listar o buscar: la sincronización rápida. Si sincronizó, se vuelve a leer la conexión para que
+ * `ultima_sincronizacion` sea la nueva. `aviso_drive` solo sale cuando se contesta con la copia porque el Drive no respondió.
+ */
+async function alDia(workspaceId: string, conexion: NonNullable<Awaited<ReturnType<typeof conectado>>>) {
+  const { sincronizo, aviso } = await sincronizacionRapida(workspaceId);
+  const actual = sincronizo && !aviso ? ((await conectado(workspaceId)) ?? conexion) : conexion;
+  return { conexion: actual, avisoDrive: aviso ? { aviso_drive: aviso } : {} };
+}
+
 export async function ejecutarHerramientaMcpCerebro(nombre: string, args: Argumentos, contexto: Contexto): Promise<unknown> {
   const conexion = await conectado(contexto.workspaceId);
   if (!conexion) return { conectado: false, aviso: NO_CONECTADO };
@@ -116,6 +127,7 @@ export async function ejecutarHerramientaMcpCerebro(nombre: string, args: Argume
   switch (nombre) {
     case "cerebro_listar": {
       const carpeta = texto(args.carpeta).toLowerCase();
+      const { conexion: alDiaConexion, avisoDrive } = await alDia(contexto.workspaceId, conexion);
       // filasDelCerebro ya deja fuera lo ignorado (.git, .obsidian, export-dudas, .png); enDrive = false es "ya no está" o ignorado.
       const vigentes = (await filasDelCerebro(contexto.workspaceId)).filter((fila) => fila.enDrive);
       const documentosEnElCerebro = vigentes.filter((fila) => !fila.esCarpeta).length;
@@ -125,9 +137,10 @@ export async function ejecutarHerramientaMcpCerebro(nombre: string, args: Argume
       );
       return {
         conectado: true,
-        carpeta_del_cerebro: conexion.carpetaNombre,
-        ultima_sincronizacion: conexion.ultimaSincronizacion?.toISOString() ?? null,
-        ...(conexion.ultimoError ? { ultimo_error: conexion.ultimoError } : {}),
+        carpeta_del_cerebro: alDiaConexion.carpetaNombre,
+        ultima_sincronizacion: alDiaConexion.ultimaSincronizacion?.toISOString() ?? null,
+        ...(alDiaConexion.ultimoError ? { ultimo_error: alDiaConexion.ultimoError } : {}),
+        ...avisoDrive,
         documentos_en_el_cerebro: documentosEnElCerebro,
         total: filas.length,
         documentos: filas.slice(0, 400).map((fila) => ({
@@ -175,10 +188,12 @@ export async function ejecutarHerramientaMcpCerebro(nombre: string, args: Argume
       const consulta = texto(args.texto);
       if (!consulta) throw new Error("Falta texto para buscar.");
       const maximo = Math.min(20, Math.max(1, Number(args.maximo) || 8));
+      const { conexion: alDiaConexion, avisoDrive } = await alDia(contexto.workspaceId, conexion);
       const resultados = await buscarEnElCerebro(contexto.workspaceId, consulta, maximo);
       return {
         conectado: true,
-        ultima_sincronizacion: conexion.ultimaSincronizacion?.toISOString() ?? null,
+        ultima_sincronizacion: alDiaConexion.ultimaSincronizacion?.toISOString() ?? null,
+        ...avisoDrive,
         total: resultados.length,
         resultados: resultados.map((r) => ({ id: r.driveId, ruta: r.ruta, fragmento: r.fragmento })),
         ...(resultados.length ? {} : { aviso: "No hay nada en el cerebro con esas palabras. No inventes: pregúntale al dueño." }),
