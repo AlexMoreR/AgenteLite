@@ -8,7 +8,13 @@ let entrada = "";
 for await (const pedazo of process.stdin) entrada += pedazo;
 if (process.env.SSH_FALSO_LOG) fs.appendFileSync(process.env.SSH_FALSO_LOG, `${JSON.stringify({ destino, remoto, entrada })}\n`);
 
-if (remoto.startsWith("logs-falso") && process.env.SSH_FALSO_LOGS_ARRANQUE === "1") {
+if (remoto.startsWith("logs-falso") && process.env.SSH_FALSO_LOGS_ARRANQUE === "typeerror") {
+  // 24-nov-2026 (parte 3): un error del programa al arrancar la versión nueva.
+  console.log("2026-11-24T10:00:00Z TypeError: Cannot read properties of undefined (reading 'compra')\n2026-11-24T10:00:01Z    at editarCompra (src/compras.ts:12:3)");
+} else if (remoto.startsWith("logs-falso") && process.env.SSH_FALSO_LOGS_ARRANQUE === "503") {
+  // 24-nov-2026 (parte 3): una falla pasajera (el servidor ocupado), sin error del programa.
+  console.log("2026-11-24T10:00:00Z GET /api/version HTTP 503 Service Unavailable\n2026-11-24T10:00:05Z upstream ocupado, se reintenta");
+} else if (remoto.startsWith("logs-falso") && process.env.SSH_FALSO_LOGS_ARRANQUE === "1") {
   // 23-nov-2026: los logs de un arranque que falló por la migración (P3009) y el entrypoint que sale con error.
   console.log("2026-11-23T10:00:00Z Error: P3009 migrate found failed migrations in the target database\n2026-11-23T10:00:01Z docker/entrypoint.sh: npx prisma migrate deploy exited with code 1");
 } else if (remoto.startsWith("logs-falso")) {

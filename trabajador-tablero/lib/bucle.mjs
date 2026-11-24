@@ -33,13 +33,16 @@ import { crearColaPesada } from "./cola.mjs";
 import { debePartirAntes, ordenarCandidatas, partesSinAlcanceNuevo } from "./reparto.mjs";
 import {
   CAUSAS_PARA_AVISAR_AL_CTO,
+  FRASES_DE_LA_CAUSA,
   TOPE_DE_REPARACIONES,
+  TOPE_INTENTOS_DE_SUBIDA,
   causaExterna,
   causasDistintas,
   decidir,
   diagnosticar,
   enUnaLinea,
   estrategiaDeLaCausa,
+  intentosDeSubida,
   queCambiaFrenteAlAnterior,
   recortarAviso,
   resumenDeEscalada,
@@ -296,7 +299,9 @@ export async function procesar({ crm, config, registro: registroBase, motores = 
       return { ok: false, motivo, limiteDeUso: true, motor: error.motor ?? null };
     }
     registro.error(`"${tarjeta.titulo}" (${hacer}) falló: ${motivo}`);
-    if (error?.reversion) await avisarReversion(crm, registro, tarjeta, motivo, error.reversion);
+    // 24-nov-2026 (parte 3): con un CRM que repara, la subida que se deshizo bien se resuelve sola (arreglo, reintento o Alertas):
+    // sin WhatsApp. La que no se pudo deshacer (URGENTE) y la de un CRM viejo avisan como siempre.
+    if (error?.reversion) await avisarReversion(crm, registro, tarjeta, motivo, error.reversion, { seResuelveSola: conReparaciones });
     if (conReparaciones) return manejarFalla({ crm, config, registro, contexto, bitacora }, tarjeta, hacer, error);
     // Un CRM viejo (sin reparaciones): igual queda escrita la lección de la falla.
     anotarLaLeccion(config, registro, tarjeta, {
@@ -356,8 +361,15 @@ async function avisarQueNecesita(crm, registro, config, tarjeta, hacer, necesita
 /**
  * Subió y hubo que deshacerlo: aviso de tipo "necesita" al dueño (WhatsApp por la línea Admin) con el motivo y los
  * commits. Si el aviso no sale, queda en el registro y la tarjeta sigue su camino.
+ * 24-nov-2026 (parte 3): con `seResuelveSola` y la reversión hecha (reversion.ok), NO hay WhatsApp: solo una línea en el registro
+ * (la tarjeta pide su arreglo, se reintenta o, a la 3.ª, queda en Alertas). La URGENTE (ok false) avisa siempre.
  */
-async function avisarReversion(crm, registro, tarjeta, motivo, reversion) {
+async function avisarReversion(crm, registro, tarjeta, motivo, reversion, { seResuelveSola = false } = {}) {
+  if (seResuelveSola && reversion?.ok === true) {
+    const corto = (sha) => String(sha ?? "?").slice(0, 10);
+    registro.info(`se deshizo la subida de "${tarjeta.titulo}" (commit ${corto(reversion.commit)}, revert ${corto(reversion.revert)}): sin WhatsApp, el Coordinador la resuelve solo`);
+    return;
+  }
   // Máximo 3 líneas y 500 caracteres (el CRM rechaza los más largos); el detalle completo queda en el tablero.
   const texto = textoDelAvisoDeReversion(tarjeta.titulo, motivo, reversion);
   try {
@@ -612,6 +624,12 @@ async function repararLaFalla({ crm, config, registro, contexto, bitacora }, tar
   // 2b. Tres causas distintas sin resolverlo: UNA fila en el registro del Coordinador para el CTO (nunca al dueño ni por WhatsApp).
   avisarAlCtoSiHaceFalta({ config, registro }, tarjeta, diagnostico);
 
+  // 2b'. Subida deshecha (24-nov-2026, parte 3): producción ya volvió a la versión anterior. Se pide el arreglo, se reintenta o, a
+  // la 3.ª, queda en Alertas. La URGENTE (reversion.ok false) sigue el camino de siempre.
+  if (error?.reversion?.ok === true) {
+    return resolverLaSubidaDeshecha({ crm, registro }, tarjeta, hacer, error, { diagnostico, intento, motivo, causaParaLaTarjeta });
+  }
+
   // 2c. Causa externa (31-oct-2026): la falla no es de la tarea. Se pide la tarjeta que la arregla y esta espera a esa, sin
   // reparar, sin ERROR y sin gastar intento. Si el CRM falla o no la suelta, sigue el camino de siempre (nunca peor que hoy).
   const externa = causaExterna(diagnostico, { reversion: error?.reversion ?? null, repo: tarjeta.repo, tarjeta });
@@ -725,6 +743,94 @@ async function repararLaFalla({ crm, config, registro, contexto, bitacora }, tar
     registro.error(`no se pudo avisar el error al CRM: ${otro.message}`);
   }
   return { ...resultado, accion: "escalar" };
+}
+
+/**
+ * SUBIDA DESHECHA QUE SE RESUELVE SOLA (24-nov-2026, parte 3 de «si una subida falla, diagnosticar, arreglar y reintentar solo»).
+ * La subida ya se deshizo (reversion.ok: producción volvió a la versión anterior) y trae su causa en sencillo (deshacerSubida).
+ *   - arreglo_de_subida (código o arranque): /causa-externa tipo "subida" crea «Arreglo de subida: …» y esta espera a esa.
+ *   - esperar (pasajera): /soltar con categoria subida_revertida, sin arreglo: se reintenta en la vuelta siguiente.
+ *   - la 3.ª subida deshecha (lo cuenta el Coordinador o el CRM responde `agotado`): /error con 3 líneas y categoria
+ *     subida_revertida, que queda solo en Alertas (sin WhatsApp).
+ * Si el CRM falla o no suelta la tarjeta: el WhatsApp de antes y /error de siempre (nunca peor que hoy). Nunca lanza.
+ */
+async function resolverLaSubidaDeshecha({ crm, registro }, tarjeta, hacer, error, { diagnostico, intento, motivo, causaParaLaTarjeta }) {
+  const reversion = error.reversion;
+  const sencilla = enUnaLinea(typeof reversion.sencilla === "string" && reversion.sencilla.trim() ? reversion.sencilla : FRASES_DE_LA_CAUSA.desconocida, 200);
+  const decision = decidir({ diagnostico, tarjeta, etapa: hacer, reversion });
+  const resultado = { ok: false, motivo, zonas: error?.zonas ?? [], categoria: diagnostico.categoria, accion: decision.accion };
+  const deSubida = { ...intento, categoria: "subida_revertida" };
+  const subidas = intentosDeSubida(tarjeta.ultimosIntentos) + 1;
+  registro.info(`subida deshecha (${reversion.clase ?? "sin clase"}): ${sencilla} — decisión: ${decision.accion} (${decision.motivo})`);
+
+  // Lo de siempre cuando el CRM no responde: el WhatsApp de la reversión y /error con el resumen (como antes de la parte 3).
+  const comoAntes = async (porQue) => {
+    registro.aviso(`subida deshecha: ${porQue}; sigue el camino de siempre (aviso y ERROR)`);
+    await avisarReversion(crm, registro, tarjeta, motivo, reversion);
+    const resumen = resumenDeEscalada({ tarjeta, intentos: tarjeta.ultimosIntentos, diagnostico: { ...diagnostico, causa: causaParaLaTarjeta }, decision });
+    try {
+      await crm.error(tarjeta.id, resumen, error?.zonas, reversion, { ...intento, resumen });
+    } catch (otro) {
+      registro.error(`no se pudo avisar el error al CRM: ${otro.message}`);
+    }
+    return { ...resultado, accion: "escalar" };
+  };
+
+  // La 3.ª (o el CRM dijo `agotado`): queda en ERROR con 3 líneas, solo en Alertas.
+  const agotar = async (veces) => {
+    const resumen = [
+      enUnaLinea(`Qué se intentó: se subió «${tarjeta.titulo}» ${veces} veces y cada vez se deshizo; producción volvió a la versión anterior.`, 240),
+      enUnaLinea(`Causa: ${sencilla}`, 240),
+      enUnaLinea("Qué decisión se necesita: mirar la causa (Detalles técnicos) y decir si se arregla a mano, se cambia lo pedido o se cierra; después tocar Reintentar.", 240),
+    ].join("\n");
+    try {
+      await crm.error(tarjeta.id, resumen, error?.zonas, reversion, { ...deSubida, resumen });
+      registro.info(`subida deshecha ${veces} de ${TOPE_INTENTOS_DE_SUBIDA}: "${tarjeta.titulo}" queda en ERROR, solo en Alertas (sin WhatsApp)`);
+    } catch (otro) {
+      registro.error(`no se pudo avisar el error al CRM: ${otro.message}`);
+    }
+    return { ...resultado, accion: "escalar" };
+  };
+
+  if (decision.accion === "escalar") {
+    // La 3.ª subida deshecha va a Alertas; una tarjeta de causa escala como siempre.
+    return decision.agotado ? agotar(subidas) : comoAntes(decision.motivo);
+  }
+
+  if (decision.accion === "arreglo_de_subida") {
+    const externa = causaExterna(diagnostico, { reversion, repo: tarjeta.repo, tarjeta });
+    if (externa?.tipo !== "subida") return comoAntes("no se pudo armar la tarjeta del arreglo");
+    // Cabe en las 200 letras de la causa del intento: la frase sencilla y el título, recortados, y la frase final entera.
+    const nota = `${enUnaLinea(sencilla, 75)} Se creó el arreglo «${enUnaLinea(externa.titulo, 70)}» y después se reintenta esta.`;
+    try {
+      const respuesta = await crm.causaExterna(tarjeta.id, {
+        tipo: "subida",
+        titulo: externa.titulo,
+        detalle: externa.detalle,
+        lineas: externa.lineas,
+        reversion: { ok: true, commit: reversion.commit, revert: reversion.revert },
+        repo: tarjeta.repo,
+        ...deSubida,
+        causa: nota,
+      });
+      if (respuesta?.agotado) return agotar(Number(respuesta.subidas) || TOPE_INTENTOS_DE_SUBIDA);
+      if (respuesta?.soltada) {
+        registro.info(`${nota} (${respuesta.creada ? "creé" : "reusé"} la tarjeta; "${tarjeta.titulo}": ${respuesta.esperando ?? "esperando"})`);
+        return { ...resultado, accion: "esperar", causaExterna: "subida", esperando: respuesta.esperando ?? `Esperando a «${externa.titulo}»` };
+      }
+      return comoAntes("el CRM no dejó esperando la tarjeta al arreglo");
+    } catch (otro) {
+      return comoAntes(`no se pudo pedir el arreglo al CRM (${otro.message})`);
+    }
+  }
+
+  // Pasajera: se suelta (SUBIENDO sigue en SUBIENDO) y se reintenta en la vuelta siguiente, sin crear arreglo.
+  const nota = enUnaLinea(`${sencilla} Se reintenta en la vuelta siguiente, sin crear arreglo (subida ${subidas} de ${TOPE_INTENTOS_DE_SUBIDA}).`, 200);
+  if (await soltar(crm, registro, tarjeta, nota, { ...deSubida, causa: nota })) {
+    registro.info(`subida deshecha por una falla pasajera: "${tarjeta.titulo}" se reintenta en la vuelta siguiente`);
+    return { ...resultado, accion: "esperar" };
+  }
+  return comoAntes("el CRM no dejó soltar la tarjeta");
 }
 
 /**

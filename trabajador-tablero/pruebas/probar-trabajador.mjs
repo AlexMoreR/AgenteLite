@@ -1538,9 +1538,11 @@ await prueba("31-oct causa externa: causaExterna reconoce vigilancia, main roto,
     { categoria: "otra", causa: "Revertida: 1 línea nueva", error: "Revertida: 1 línea(s) de falla nueva(s) en los logs: [minuto 4] error: 'fetch failed'\nSubió sola, la vigilancia de 30 min vio la falla y se deshizo." },
     { reversion: { ok: true, commit: "a", revert: "b" }, repo: "aizencrm", tarjeta: { titulo: "Chats nuevos" } },
   );
-  assert.equal(vigilancia.tipo, "vigilancia");
-  assert.equal(vigilancia.titulo, "Vigilancia: la vigilancia de 30 min revirtió una subida (aizencrm)");
-  assert.match(vigilancia.detalle, /Chats nuevos[\s\S]*\[minuto 4\] error: 'fetch failed'/);
+  // 24-nov-2026 (parte 3): la reversión de la vigilancia ya no crea «Vigilancia: …»: pide «Arreglo de subida: …» (tipo subida).
+  assert.equal(vigilancia.tipo, "subida");
+  assert.equal(vigilancia.titulo, "Arreglo de subida: error: 'fetch failed' (aizencrm)");
+  assert.match(vigilancia.detalle, /Chats nuevos/);
+  assert.match(vigilancia.lineas, /\[minuto 4\] error: 'fetch failed'/);
   // La reversión que no se pudo hacer sigue siendo URGENTE (camino de siempre).
   assert.equal(causaExterna({ categoria: "otra", causa: "x", error: "Revertida: x" }, { reversion: { ok: false }, repo: "aizencrm", tarjeta: { titulo: "T" } }), null);
   // Lint y pruebas que ya fallan en main sin el cambio.
@@ -1558,7 +1560,7 @@ await prueba("31-oct causa externa: causaExterna reconoce vigilancia, main roto,
     assert.equal(servidor?.titulo, "Servidor: el servidor, el SSH o la base no responde (aizencrm)", texto);
   }
   // Una tarjeta de causa nunca crea otra (no se forma una cadena).
-  for (const titulo of ["Vigilancia: x", "Main roto: x", "Servidor: x"]) {
+  for (const titulo of ["Vigilancia: x", "Main roto: x", "Servidor: x", "Arreglo de subida: x"]) {
     assert.equal(causaExterna({ categoria: "otra", causa: "x", error: "ECONNREFUSED" }, { repo: "aizencrm", tarjeta: { titulo } }), null, titulo);
   }
   assert.equal(causaExterna({ categoria: "no_compila", causa: "error TS2322", error: "error TS2322" }, { repo: "aizencrm" }), null);
@@ -1570,6 +1572,46 @@ await prueba("31-oct causa externa: causaExterna reconoce vigilancia, main roto,
   assert.deepEqual(reglas.causaExternaDeEntrada({ tipo: "servidor", titulo: " Servidor:  caído ", detalle: "d" }), { tipo: "servidor", titulo: "Servidor: caído", detalle: "d", referencia: null });
   assert.deepEqual(reglas.TRANSICIONES_DEL_TRABAJADOR["causa-externa"].desde, ["PLANEANDO", "EN_CURSO", "SUBIENDO"]);
   assert.ok(reglas.ACCIONES_DEL_TRABAJADOR.includes("causa-externa"));
+});
+
+await prueba("24-nov parte 3: decidir con una subida deshecha: arreglo, esperar, tope de 3, URGENTE y tarjeta de arreglo escalan", () => {
+  const diagnostico = { categoria: "otra", causa: "Se subió, no arrancó y se deshizo", error: "Se subió, no arrancó y se deshizo." };
+  const conClase = (clase, extra = {}) => decidir({ diagnostico, tarjeta: { titulo: "Editar compra", reparaciones: 0, ultimosIntentos: [] }, etapa: "subir", reversion: { ok: true, commit: "a", revert: "b", clase }, ...extra });
+  for (const clase of ["codigo", "arranque"]) assert.deepEqual([conClase(clase).accion, conClase(clase).cuenta], ["arreglo_de_subida", true], clase);
+  for (const clase of ["pasajera", "desconocida"]) assert.deepEqual([conClase(clase).accion, conClase(clase).cuenta], ["esperar", true], clase);
+  // Desconocida pero con un error de código (la vigilancia vio fallas nuevas, o no compila): arreglo.
+  const vigilada = decidir({ diagnostico: { categoria: "otra", causa: "x", error: "Revertida: [minuto 3] error nuevo" }, tarjeta: { ultimosIntentos: [] }, etapa: "subir", reversion: { ok: true, clase: "desconocida" } });
+  assert.equal(vigilada.accion, "arreglo_de_subida");
+  assert.equal(decidir({ diagnostico: { categoria: "no_compila", causa: "x", error: "x" }, tarjeta: { ultimosIntentos: [] }, etapa: "subir", reversion: { ok: true, clase: "desconocida" } }).accion, "arreglo_de_subida");
+  // Con 2 subidas deshechas antes (arreglo o espera), la de ahora es la 3.ª: escala (agotado).
+  const previos = [{ categoria: "subida_revertida", accion: "reparar" }, { categoria: "limite_claude", accion: "esperar" }, { categoria: "subida_revertida", accion: "esperar" }];
+  const tope = decidir({ diagnostico, tarjeta: { ultimosIntentos: previos }, etapa: "subir", reversion: { ok: true, clase: "codigo" } });
+  assert.deepEqual([tope.accion, tope.agotado], ["escalar", true]);
+  assert.equal(decidir({ diagnostico, tarjeta: { ultimosIntentos: previos.slice(0, 2) }, etapa: "subir", reversion: { ok: true, clase: "codigo" } }).accion, "arreglo_de_subida", "con 1 antes todavía se pide el arreglo");
+  // URGENTE (no se pudo deshacer): escala como hoy.
+  const urgente = decidir({ diagnostico, tarjeta: { ultimosIntentos: [] }, etapa: "subir", reversion: { ok: false, commit: "a", revert: null } });
+  assert.deepEqual([urgente.accion, urgente.agotado], ["escalar", undefined]);
+  // Una tarjeta «Arreglo de subida: …» no pide otra (no se forma una cadena).
+  const deArreglo = decidir({ diagnostico, tarjeta: { titulo: "Arreglo de subida: TypeError (gestion)", ultimosIntentos: [] }, etapa: "subir", reversion: { ok: true, clase: "codigo" } });
+  assert.equal(deArreglo.accion, "escalar");
+  assert.equal(deArreglo.agotado, undefined);
+});
+
+await prueba("24-nov parte 3: causaExterna de una subida deshecha por el código da tipo subida con título corto, causa sencilla y líneas; la pasajera da null", () => {
+  const reversion = { ok: true, commit: "c42a476", revert: "78913af", clase: "codigo", sencilla: "El cambio tiene un error en el programa y la versión nueva falló al usarse.", lineas: ["2026-11-24T10:00:00Z TypeError: x is undefined", "at editar (a.ts:1)"] };
+  const externa = causaExterna({ categoria: "otra", causa: "Se subió, no arrancó", error: "Se subió, no arrancó y se deshizo." }, { reversion, repo: "gestion", tarjeta: { titulo: "Editar compra" } });
+  assert.equal(externa.tipo, "subida");
+  assert.equal(externa.titulo, "Arreglo de subida: TypeError: x is undefined (gestion)");
+  assert.match(externa.detalle, /«Editar compra»[\s\S]*Causa: El cambio tiene un error en el programa/);
+  assert.equal(externa.lineas, "2026-11-24T10:00:00Z TypeError: x is undefined\nat editar (a.ts:1)");
+  // El título nunca pasa de 200 letras y lo acepta el CRM.
+  const larga = causaExterna({ categoria: "otra", causa: "x", error: "x" }, { reversion: { ...reversion, lineas: ["TypeError: " + "x".repeat(400)] }, repo: "gestion", tarjeta: { titulo: "T" } });
+  assert.ok(larga.titulo.length <= 200 && larga.titulo.endsWith("(gestion)"), larga.titulo);
+  assert.equal(typeof reglas.causaExternaDeEntrada({ ...larga, repo: "gestion" }), "object");
+  // La pasajera no pide arreglo: el bucle la suelta.
+  assert.equal(causaExterna({ categoria: "otra", causa: "x", error: "HTTP 503" }, { reversion: { ...reversion, clase: "pasajera" }, repo: "gestion", tarjeta: { titulo: "T" } }), null);
+  assert.equal(reglas.PREFIJO_DE_ARREGLO_DE_SUBIDA, "Arreglo de subida:");
+  assert.equal(reglas.TOPE_INTENTOS_DE_SUBIDA, 3);
 });
 
 await prueba("31-oct causa externa: causasDistintas cuenta los intentos sin las esperas más la falla de ahora, sin repetir", () => {
@@ -2938,6 +2980,16 @@ const servidor = http.createServer(async (pedido, respuesta) => {
     // (choque) espera a esa. Pone la flecha y suelta la original sin ERROR ni intento: PLANEANDO -> APROBADO, EN_CURSO y SUBIENDO -> PLAN_APROBADO.
     const causa = reglas.causaExternaDeEntrada(cuerpo);
     if (typeof causa === "string") return contestar(400, { ok: false, error: causa });
+    // Tipo "subida" (24-nov-2026, como el CRM de la parte 2): tope de TOPE_INTENTOS_DE_SUBIDA contando los intentos subida_revertida.
+    const esSubida = causa.tipo === "subida";
+    if (esSubida) {
+      const subidas = reglas.intentosDeSubida(tarjeta.intentosLista ?? []) + 1;
+      if (subidas >= reglas.TOPE_INTENTOS_DE_SUBIDA) {
+        anotarIntento(tarjeta, { ...cuerpo, categoria: "subida_revertida" }, "escalar", true);
+        return contestar(200, { ok: true, agotado: true, creada: false, tarjetaId: null, esperando: null, soltada: false, estado: tarjeta.estado, subidas });
+      }
+      causa.detalle = reglas.detalleDeArregloDeSubida({ detalle: causa.detalle, lineas: causa.lineas, reversion: causa.reversion });
+    }
     let origen = causa.referencia
       ? [...tarjetas.values()].find((t) => t.id !== id && (t.id === causa.referencia || t.titulo.toLowerCase() === causa.referencia.toLowerCase()))
       : [...tarjetas.values()].find((t) => t.titulo === causa.titulo && !["HECHO", "FALLIDO"].includes(t.estado));
@@ -2951,8 +3003,14 @@ const servidor = http.createServer(async (pedido, respuesta) => {
     if (!origen || origen.estado === "HECHO") return contestar(200, { ok: true, creada, tarjetaId: origen?.id ?? null, esperando: null, soltada: false, estado: tarjeta.estado });
     tarjeta.dependeDe = [...new Set([...(tarjeta.dependeDe ?? []), origen.id])];
     const esperando = `Esperando a «${origen.titulo}»`;
-    anotarIntento(tarjeta, { etapa: cuerpo.etapa, categoria: cuerpo.categoria ?? "otra", causa: cuerpo.causa ?? esperando, error: cuerpo.error }, "esperar", false);
-    Object.assign(tarjeta, { estado: reglas.estadoTrasReparar(tarjeta.estado), venceEn: null, intentos: Math.max(0, tarjeta.intentos - 1), esperando });
+    if (esSubida) {
+      // Un arreglo de subida sí gasta el intento (cuenta) y deja la fila subida_revertida.
+      anotarIntento(tarjeta, { etapa: cuerpo.etapa, categoria: "subida_revertida", causa: cuerpo.causa ?? esperando, error: cuerpo.error }, "reparar", true);
+      Object.assign(tarjeta, { estado: reglas.estadoTrasReparar(tarjeta.estado), venceEn: null, esperando });
+    } else {
+      anotarIntento(tarjeta, { etapa: cuerpo.etapa, categoria: cuerpo.categoria ?? "otra", causa: cuerpo.causa ?? esperando, error: cuerpo.error }, "esperar", false);
+      Object.assign(tarjeta, { estado: reglas.estadoTrasReparar(tarjeta.estado), venceEn: null, intentos: Math.max(0, tarjeta.intentos - 1), esperando });
+    }
     return contestar(200, { ok: true, creada, tarjetaId: origen.id, esperando, soltada: true, estado: tarjeta.estado });
   }
   if (accion === "revisar_de_nuevo") {
@@ -3542,13 +3600,13 @@ process.exit(real.status ?? 1);
     sinRestos();
   });
 
-  await prueba("31-oct causa externa: una reversión de la vigilancia crea la tarjeta 'Vigilancia: …' y deja la original esperando, sin ERROR ni intento", async () => {
+  await prueba("24-nov parte 3: una reversión de la vigilancia por un error del programa crea «Arreglo de subida: …», la original espera a esa y no sale WhatsApp", async () => {
     reiniciarLogs();
     const id = nueva("Bot que rompe [solas-bot-moderno]", "PLAN_APROBADO", { plan: "El plan", moderno: true });
     assert.equal((await vuelta(configSolas())).ok, true);
     assert.equal(tarjetas.get(id).estado, "SUBIENDO");
-    const intentosAntes = tarjetas.get(id).intentos;
     const antes = shaDe("main");
+    const avisosAntes = llamadas.filter((l) => l.accion === "aviso").length;
     process.env.SSH_FALSO_ERRORES = "1";
     let resultado;
     try {
@@ -3559,31 +3617,30 @@ process.exit(real.status ?? 1);
     assert.equal(resultado.ok, false);
     assert.equal(resultado.accion, "esperar");
     g(REPO, "fetch", "origin");
-    assert.notEqual(shaDe("main"), antes, "la reversión se hizo igual que siempre");
+    assert.notEqual(shaDe("main"), antes, "la reversión se hizo igual que siempre (producción vuelve primero a la versión anterior)");
     const t = tarjetas.get(id);
-    const causa = [...tarjetas.values()].find((otra) => otra.titulo === "Vigilancia: la vigilancia de 30 min revirtió una subida (aizencrm)");
-    assert.ok(causa, "se creó la tarjeta de la causa");
+    const causa = [...tarjetas.values()].find((otra) => otra.titulo.startsWith("Arreglo de subida:") && otra.titulo.endsWith("(aizencrm)") && otra.estado !== "HECHO");
+    assert.ok(causa, "se creó la tarjeta del arreglo");
+    assert.ok(causa.titulo.length <= 200);
     assert.match(causa.detalle, /Bot que rompe/);
-    assert.match(causa.detalle, /\[minuto \d+\]/, "el detalle trae las líneas del log");
-    assert.equal(t.estado, "PLAN_APROBADO", "la original vuelve a la fila (se reconstruye cuando la otra llegue a HECHO)");
+    assert.match(causa.detalle, /Líneas del log:[\s\S]*Unhandled rejection/, "el detalle trae las líneas del log");
+    assert.match(causa.detalle, /Al terminar: sube solo a producción$/);
+    assert.equal(t.estado, "PLAN_APROBADO", "la original vuelve a construir (se reintenta cuando el arreglo llegue a HECHO)");
     assert.deepEqual(t.dependeDe, [causa.id]);
     assert.equal(t.esperando, `Esperando a «${causa.titulo}»`);
-    assert.equal(t.intentos, intentosAntes, "no gasta intento (el /tomar de la subida se devuelve)");
-    assert.equal(t.intentosLista.at(-1).accion, "esperar");
-    assert.equal(t.intentosLista.at(-1).cuentaComoIntento, false);
+    assert.deepEqual([t.intentosLista.at(-1).categoria, t.intentosLista.at(-1).cuentaComoIntento], ["subida_revertida", true], "cuenta como intento de subida");
+    assert.match(t.intentosLista.at(-1).causa, /Se creó el arreglo «Arreglo de subida: [^»]+» y después se reintenta esta/);
     assert.equal(llamadas.some((l) => ["error", "reparar"].includes(l.accion) && l.id === id), false, "ni ERROR ni reparación");
-    assert.ok(llamadas.some((l) => l.accion === "aviso" && l.cuerpo.tipo === "necesita" && /Bot que rompe/.test(l.cuerpo.texto)), "el aviso de reversión de siempre no cambia");
-    assert.equal(candidatasDelFalso().some((c) => c.id === id), false, "no se toma mientras la otra no esté HECHO");
+    assert.equal(llamadas.filter((l) => l.accion === "aviso").length, avisosAntes, "sin WhatsApp: la reversión se resuelve sola");
+    assert.equal(candidatasDelFalso().some((c) => c.id === id), false, "no se toma mientras el arreglo no esté HECHO");
     // Otra tarjeta frenada por la misma causa: el título es el mismo, así que se reusa la tarjeta abierta (tope: 1 abierta por causa).
     const otraId = nueva("Bot que rompe 2 [solas-bot-moderno-2]", "SUBIENDO", { plan: "El plan", moderno: true, venceEn: Date.now() + 60_000 });
-    const misma = causaExterna({ categoria: "otra", causa: "Revertida", error: "Revertida: [minuto 2] error: x\nla vigilancia de 30 min vio la falla" }, { reversion: { ok: true }, repo: "aizencrm", tarjeta: tarjetas.get(otraId) });
-    assert.equal(misma.titulo, causa.titulo);
-    const respuesta = await crm.causaExterna(otraId, { ...misma, repo: "aizencrm", etapa: "subir", categoria: "otra", causa: "Revertida" });
+    const respuesta = await crm.causaExterna(otraId, { tipo: "subida", titulo: causa.titulo, detalle: "Se deshizo la subida de «Bot que rompe 2».", repo: "aizencrm", etapa: "subir", categoria: "subida_revertida", causa: "Revertida" });
     assert.deepEqual([respuesta.creada, respuesta.soltada, respuesta.tarjetaId, respuesta.estado], [false, true, causa.id, "PLAN_APROBADO"]);
     assert.equal([...tarjetas.values()].filter((otra) => otra.titulo === causa.titulo).length, 1, "una sola tarjeta por causa");
     assert.deepEqual(tarjetas.get(otraId).dependeDe, [causa.id]);
     assert.match(causa.detalle, /Bot que rompe 2/, "le agrega el detalle nuevo");
-    // Cuando la causa llega a HECHO, la original vuelve sola a la fila.
+    // Cuando el arreglo llega a HECHO, la original vuelve sola a la fila.
     causa.estado = "HECHO";
     assert.ok(candidatasDelFalso().some((c) => c.id === id));
     Object.assign(t, { estado: "HECHO" });
@@ -3608,8 +3665,8 @@ process.exit(real.status ?? 1);
     assert.equal(resultado.ok, false);
     const t = tarjetas.get(id);
     if (t.moderno) {
-      // 31-oct-2026 (causa externa): con un CRM nuevo no va a ERROR; espera a la tarjeta «Vigilancia: …», que lleva el motivo.
-      const causa = [...tarjetas.values()].find((otra) => otra.titulo === "Vigilancia: la vigilancia de 30 min revirtió una subida (aizencrm)" && otra.estado !== "HECHO");
+      // 24-nov-2026 (parte 3): con un CRM nuevo no va a ERROR; espera a la tarjeta «Arreglo de subida: …», que lleva el motivo.
+      const causa = [...tarjetas.values()].find((otra) => otra.titulo.startsWith("Arreglo de subida:") && t.dependeDe?.includes(otra.id));
       assert.equal(t.estado, "PLAN_APROBADO");
       assert.deepEqual(t.dependeDe, [causa.id]);
       assert.match(causa.detalle, patron);
@@ -3622,8 +3679,14 @@ process.exit(real.status ?? 1);
     g(REPO, "fetch", "origin");
     assert.match(g(REPO, "log", "--format=%s", "-8", "origin/main"), /^revert: deshacer [0-9a-f]{10} \(la vigilancia de 30 min vio una falla\)/m);
     assert.equal(g(REPO, "merge-base", "--is-ancestor", antes, "origin/main"), "", "el commit subido sigue en la historia de main (sin force-push)");
-    // La reversión avisa al dueño: tipo "necesita", con el motivo y los commits.
     const nuevos = llamadas.filter((l) => l.accion === "aviso").slice(avisos);
+    // 24-nov-2026 (parte 3): con un CRM nuevo la reversión se resuelve sola, sin WhatsApp; el CRM viejo avisa como siempre.
+    if (t.moderno) {
+      assert.equal(nuevos.length, 0, "sin WhatsApp en una reversión que se resuelve sola");
+      sinRestos();
+      return;
+    }
+    // La reversión avisa al dueño: tipo "necesita", con el motivo y los commits.
     assert.equal(nuevos.length, 1, "un solo aviso por reversión");
     assert.equal(nuevos[0].cuerpo.tipo, "necesita");
     assert.equal(nuevos[0].cuerpo.tarjetaId, id, "lleva el id de la tarjeta");
@@ -3637,7 +3700,7 @@ process.exit(real.status ?? 1);
     await cortaPorEnvios("SSH_FALSO_ENVIOS", /suben mucho los envíos de mensajes: 2 por minuto antes de subir y 20 ahora/, "Bot que repite mensajes [solas-bot]");
   });
 
-  await prueba("zonas que suben solas: si los envíos fallan, la vigilancia deshace y avisa (tarjeta moderna: espera a «Vigilancia: …», 31-oct)", async () => {
+  await prueba("zonas que suben solas: si los envíos fallan, la vigilancia deshace (tarjeta moderna: espera a «Arreglo de subida: …», sin WhatsApp, 24-nov)", async () => {
     await cortaPorEnvios("SSH_FALSO_ENVIOS_FALLIDOS", /suben los envíos de mensajes que fallan: 0 por minuto antes de subir y 1 ahora/, "Bot que falla al enviar [solas-bot] [moderno]");
   });
 
@@ -3983,6 +4046,149 @@ process.exit(real.status ?? 1);
     // Sin logs del servidor ni ciDeRama.log en esta configuración: no hay de dónde sacar la causa.
     assert.ok(["desconocida", "pasajera"].includes(error.reversion.clase), error.reversion.clase);
     assert.match(resultado.motivo, /Causa \(en sencillo\): /);
+    sinRestos();
+  });
+
+  /** Sube una tarjeta moderna que el CI hace fallar; los logs de arranque los da ssh-falso con SSH_FALSO_LOGS_ARRANQUE=`logs`. */
+  const subidaQueFalla = async (titulo, nombre, logs, extra = {}) => {
+    const id = nueva(titulo, "SUBIENDO", { plan: "El plan", moderno: true, ...extra });
+    const { rama, commit, base } = ramaEnElRemoto(nombre, `${nombre}.txt`, `${nombre}\n`);
+    Object.assign(tarjetas.get(id), { resultado: { paso: true, rama, commit, base, subeSolo: true } });
+    const conCiQueFalla = crearConfig({}, { logsArranque: "logs-falso-arranque", subida: { ...config.repos.aizencrm.subida, ciEsperar: [node, falso("gh-falso.mjs"), "esperar-falla", "{run}"] } });
+    const avisos = llamadas.filter((l) => l.accion === "aviso").length;
+    process.env.SSH_FALSO_LOGS_ARRANQUE = logs;
+    let resultado;
+    try {
+      resultado = await vuelta(conCiQueFalla);
+    } finally {
+      delete process.env.SSH_FALSO_LOGS_ARRANQUE;
+    }
+    assert.match(execFileSync("git", ["--git-dir", REMOTO, "log", "-1", "--format=%s", "main"], { encoding: "utf8" }), /^revert: deshacer /, "producción vuelve primero a la versión anterior");
+    return { id, rama, commit, resultado, avisosNuevos: () => llamadas.filter((l) => l.accion === "aviso").slice(avisos) };
+  };
+
+  await prueba("24-nov parte 3: una subida deshecha por un TypeError crea «Arreglo de subida: …» y la original queda esperando, sin WhatsApp ni ERROR", async () => {
+    const { id, resultado, avisosNuevos } = await subidaQueFalla("Editar compra que rompe", "parte3-typeerror", "typeerror");
+    assert.equal(resultado.ok, false);
+    assert.equal(resultado.accion, "esperar");
+    assert.equal(resultado.causaExterna, "subida");
+    const t = tarjetas.get(id);
+    const arreglo = [...tarjetas.values()].find((otra) => t.dependeDe?.includes(otra.id));
+    assert.ok(arreglo, "se creó la tarjeta del arreglo");
+    assert.equal(arreglo.titulo, "Arreglo de subida: TypeError: Cannot read properties of undefined (reading 'compra') (aizencrm)");
+    assert.match(arreglo.detalle, /Editar compra que rompe[\s\S]*error en el programa/, "el detalle trae la causa sencilla");
+    assert.match(arreglo.detalle, /Líneas del log:\n[^\n]*TypeError/, "y las líneas del log");
+    assert.match(arreglo.detalle, /Commit deshecho: [0-9a-f]{40} · Revert: [0-9a-f]{40}/);
+    const pedido = llamadas.findLast((l) => l.accion === "causa-externa" && l.id === id).cuerpo;
+    assert.deepEqual([pedido.tipo, pedido.categoria], ["subida", "subida_revertida"]);
+    assert.equal(t.estado, "PLAN_APROBADO", "la original vuelve a construir y espera al arreglo");
+    assert.equal(t.esperando, `Esperando a «${arreglo.titulo}»`);
+    assert.match(t.intentosLista.at(-1).causa, /^El cambio tiene un error en el programa[^»]*Se creó el arreglo «Arreglo de subida: [^»]+» y después se reintenta esta\.$/);
+    assert.equal(llamadas.some((l) => ["error", "reparar", "soltar"].includes(l.accion) && l.id === id), false, "ni ERROR, ni reparación, ni soltar");
+    assert.deepEqual(avisosNuevos(), [], "sin WhatsApp");
+    arreglo.estado = "HECHO";
+    t.estado = "HECHO";
+    sinRestos();
+  });
+
+  await prueba("24-nov parte 3: una subida deshecha por un 503 se suelta sin arreglo y en la vuelta siguiente deshace el revert y sube (no toma el atajo ramaYaEnMain)", async () => {
+    const { id, rama, avisosNuevos, resultado } = await subidaQueFalla("Editar compra con servidor ocupado", "parte3-503", "503");
+    assert.equal(resultado.ok, false);
+    assert.equal(resultado.accion, "esperar");
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "SUBIENDO", "se suelta: sigue en SUBIENDO para reintentar en la vuelta siguiente");
+    assert.equal(t.dependeDe, undefined, "sin tarjeta de arreglo");
+    assert.equal(llamadas.some((l) => ["causa-externa", "error", "reparar"].includes(l.accion) && l.id === id), false, "ni arreglo, ni ERROR, ni reparación");
+    const soltada = llamadas.findLast((l) => l.accion === "soltar" && l.id === id).cuerpo;
+    assert.equal(soltada.categoria, "subida_revertida");
+    assert.match(soltada.motivo, /^Fue una falla pasajera[\s\S]*Se reintenta en la vuelta siguiente, sin crear arreglo \(subida 1 de 3\)/);
+    assert.deepEqual([t.intentosLista.at(-1).categoria, t.intentosLista.at(-1).accion], ["subida_revertida", "esperar"]);
+    assert.deepEqual(avisosNuevos(), [], "sin WhatsApp");
+    // La vuelta siguiente: lo de la rama está en main pero revertido, así que NO vale como subido: deshace el revert y sube.
+    const revert = shaDe("main");
+    const otra = await vuelta();
+    assert.equal(otra.ok, true, otra.motivo);
+    assert.equal(tarjetas.get(id).estado, "HECHO", tarjetas.get(id).resultado?.error?.motivo);
+    assert.ok(!dijoYaEnMain(rama), "no tomó el atajo de 'ya estaba en main'");
+    assert.match(execFileSync("git", ["--git-dir", REMOTO, "log", "-1", "--format=%B", "main"], { encoding: "utf8" }), new RegExp(`This reverts commit ${revert}`), "main deshizo el revert con un commit nuevo");
+    const arbol = execFileSync("git", ["--git-dir", REMOTO, "ls-tree", "--name-only", "main"], { encoding: "utf8" });
+    assert.ok(/^parte3-503\.txt$/m.test(arbol), "lo de la tarea volvió a main");
+    sinRestos();
+  });
+
+  await prueba("24-nov parte 3: a la 3.ª subida deshecha se llama /error con 3 líneas y categoría subida_revertida (solo Alertas), sin WhatsApp", async () => {
+    const previos = [1, 2].map((numero) => ({ numero, etapa: "subir", categoria: "subida_revertida", causa: "Se deshizo la subida", error: null, accion: numero === 1 ? "reparar" : "esperar", cuentaComoIntento: numero === 1 }));
+    const { id, resultado, avisosNuevos } = await subidaQueFalla("Editar compra que no sube", "parte3-tope", "typeerror", { intentosLista: previos });
+    assert.equal(resultado.ok, false);
+    assert.equal(resultado.accion, "escalar");
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "ERROR");
+    const error = llamadas.findLast((l) => l.accion === "error" && l.id === id).cuerpo;
+    assert.equal(error.categoria, "subida_revertida");
+    assert.equal(error.reversion.ok, true);
+    const lineas = error.motivo.split("\n");
+    assert.equal(lineas.length, 3, error.motivo);
+    assert.match(lineas[0], /^Qué se intentó: se subió «Editar compra que no sube» 3 veces/);
+    assert.match(lineas[1], /^Causa: El cambio tiene un error en el programa/);
+    assert.match(lineas[2], /^Qué decisión se necesita: /);
+    assert.equal(llamadas.some((l) => l.accion === "causa-externa" && l.id === id), false, "con el tope ya no se pide otro arreglo");
+    assert.deepEqual(avisosNuevos(), [], "sin WhatsApp: queda solo en Alertas");
+    sinRestos();
+  });
+
+  await prueba("24-nov parte 3: si el CRM responde `agotado` (lleva otras subidas que el Coordinador no vio) también va a /error, sin WhatsApp", async () => {
+    // El CRM cuenta 2 subidas revertidas viejas; al Coordinador solo le llegan los últimos intentos (aquí ninguno de subida).
+    const viejos = [1, 2].map((numero) => ({ numero, etapa: "subir", categoria: "subida_revertida", causa: "vieja", error: null, accion: "esperar", cuentaComoIntento: false }));
+    const relleno = [3, 4, 5, 6, 7, 8].map((numero) => ({ numero, etapa: "construir", categoria: "limite_claude", causa: "espera", error: null, accion: "esperar", cuentaComoIntento: false }));
+    const { id, resultado, avisosNuevos } = await subidaQueFalla("Editar compra agotada", "parte3-agotado", "typeerror", { intentosLista: [...viejos, ...relleno] });
+    assert.equal(resultado.accion, "escalar");
+    assert.ok(llamadas.some((l) => l.accion === "causa-externa" && l.id === id), "pidió el arreglo y el CRM dijo agotado");
+    const error = llamadas.findLast((l) => l.accion === "error" && l.id === id).cuerpo;
+    assert.equal(error.categoria, "subida_revertida");
+    assert.match(error.motivo, /^Qué se intentó: se subió «Editar compra agotada» 3 veces/);
+    assert.equal(tarjetas.get(id).estado, "ERROR");
+    assert.deepEqual(avisosNuevos(), [], "sin WhatsApp");
+    sinRestos();
+  });
+
+  await prueba("24-nov parte 3: una reversión URGENTE (no se pudo deshacer solo) sigue escalando y avisando por WhatsApp como hoy", async () => {
+    // La rama tiene 2 commits y en main entraron separados por uno ajeno: no se sabe deshacer sin tocar lo ajeno (URGENTE).
+    g(REPO, "pull", "--quiet", "--ff-only", "origin", "main");
+    const base = g(REPO, "rev-parse", "HEAD");
+    const rama = "tablero/parte3-urgente";
+    g(REPO, "checkout", "--quiet", "-b", rama);
+    archivo("parte3-urgente-1.txt", "uno\n");
+    g(REPO, "add", "-A");
+    g(REPO, "commit", "--quiet", "-m", "urgente 1");
+    const primero = g(REPO, "rev-parse", "HEAD");
+    archivo("parte3-urgente-2.txt", "dos\n");
+    g(REPO, "add", "-A");
+    g(REPO, "commit", "--quiet", "-m", "urgente 2");
+    const commit = g(REPO, "rev-parse", "HEAD");
+    g(REPO, "push", "--quiet", "origin", rama);
+    g(REPO, "checkout", "--quiet", "main");
+    g(REPO, "branch", "--quiet", "-D", rama);
+    // -x: el commit de main siempre tiene otro sha (sin -x, en el mismo segundo saldría igual a `primero`).
+    g(REPO, "cherry-pick", "-x", primero);
+    archivo("parte3-ajeno.txt", "ajeno\n");
+    g(REPO, "add", "-A");
+    g(REPO, "commit", "--quiet", "-m", "ajeno en medio");
+    g(REPO, "cherry-pick", "-x", commit);
+    g(REPO, "push", "--quiet", "origin", "main");
+    const id = nueva("Editar compra urgente", "SUBIENDO", { plan: "El plan", moderno: true, resultado: { paso: true, rama, commit, base, subeSolo: true } });
+    const avisos = llamadas.filter((l) => l.accion === "aviso").length;
+    const conCiQueFalla = crearConfig({}, { subida: { ...config.repos.aizencrm.subida, ciEsperar: [node, falso("gh-falso.mjs"), "esperar-falla", "{run}"] } });
+    const resultado = await vuelta(conCiQueFalla);
+    assert.equal(resultado.ok, false);
+    assert.equal(resultado.accion, "escalar", resultado.motivo);
+    assert.equal(tarjetas.get(id).estado, "ERROR");
+    const error = llamadas.findLast((l) => l.accion === "error" && l.id === id).cuerpo;
+    assert.equal(error.reversion.ok, false);
+    assert.notEqual(error.categoria, "subida_revertida", "no va como subida agotada");
+    assert.equal(llamadas.some((l) => l.accion === "causa-externa" && l.id === id), false, "no pide arreglo");
+    const nuevos = llamadas.filter((l) => l.accion === "aviso").slice(avisos);
+    assert.equal(nuevos.length, 1, "el WhatsApp de siempre");
+    assert.match(nuevos[0].cuerpo.texto, /^URGENTE: no se pudo deshacer/);
     sinRestos();
   });
 

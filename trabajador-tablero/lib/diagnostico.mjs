@@ -377,10 +377,47 @@ export function esLaMismaCausa(diagnostico, anterior) {
 /** El comienzo del título de cada tarjeta de causa: una tarjeta que ya es de causa nunca crea otra (no se forma una cadena). */
 export const PREFIJOS_DE_CAUSA = { vigilancia: "Vigilancia:", main_roto: "Main roto:", servidor: "Servidor:" };
 
-/** ¿La tarjeta ya es una tarjeta de causa? (su título empieza con "Vigilancia:", "Main roto:" o "Servidor:") */
+/**
+ * El comienzo del título de la tarjeta que arregla una subida deshecha (24-nov-2026, parte 3). Va aparte de PREFIJOS_DE_CAUSA:
+ * esa lista tiene que ser igual a PREFIJOS_DE_CAUSA_EXTERNA del CRM (lo exige probar-trabajador.mjs); es el mismo
+ * PREFIJO_DE_ARREGLO_DE_SUBIDA de reglas-trabajador.ts.
+ */
+export const PREFIJO_DE_ARREGLO_DE_SUBIDA = "Arreglo de subida:";
+
+/** Cuántas subidas deshechas aguanta una tarjeta (igual a TOPE_INTENTOS_DE_SUBIDA de reglas-trabajador.ts): con la 3.ª se escala. */
+export const TOPE_INTENTOS_DE_SUBIDA = 3;
+
+/** ¿La tarjeta ya es una tarjeta de causa? (su título empieza con "Vigilancia:", "Main roto:", "Servidor:" o "Arreglo de subida:") */
 export function esTarjetaDeCausa(tarjeta) {
   const titulo = String(tarjeta?.titulo ?? "").trim();
-  return Object.values(PREFIJOS_DE_CAUSA).some((prefijo) => titulo.startsWith(prefijo));
+  return [...Object.values(PREFIJOS_DE_CAUSA), PREFIJO_DE_ARREGLO_DE_SUBIDA].some((prefijo) => titulo.startsWith(prefijo));
+}
+
+/** Cuántas subidas deshechas lleva la tarjeta: sus intentos con categoría `subida_revertida` (como intentosDeSubida del CRM). */
+export function intentosDeSubida(intentos) {
+  return (intentos ?? []).filter((intento) => intento?.categoria === "subida_revertida").length;
+}
+
+/** ¿La deshizo la vigilancia de 30 min? (la 1.ª línea empieza con "Revertida:" o el texto lo dice). */
+function esDeLaVigilancia(texto) {
+  return /^\s*Revertida:/.test(texto) || /vigilancia de 30 min/i.test(texto);
+}
+
+/** Categorías del diagnóstico que dicen que el error es del código (aunque los logs no lo muestren). */
+const ERROR_DE_CODIGO = ["no_compila", "fallan_pruebas", "lint", "migracion"];
+
+/**
+ * Qué se hace con una subida que se deshizo bien (reversion.ok), según su causa (24-nov-2026, parte 3). Pura.
+ *   "arreglo": la clase es codigo o arranque, o no se supo pero hay un error de código (la vigilancia vio fallas nuevas, o el
+ *              diagnóstico es de compilación o pruebas): se pide la tarjeta «Arreglo de subida: …» y después se reintenta esta.
+ *   "esperar": la clase es pasajera, o no se supo y no hay error de código: se suelta y se reintenta en la vuelta siguiente.
+ */
+export function queHacerConLaSubidaDeshecha(diagnostico, reversion) {
+  const clase = reversion?.clase;
+  if (clase === "codigo" || clase === "arranque") return "arreglo";
+  if (clase === "pasajera") return "esperar";
+  const conErrorDeCodigo = esDeLaVigilancia(String(diagnostico?.error ?? "")) || ERROR_DE_CODIGO.includes(diagnostico?.categoria);
+  return conErrorDeCodigo ? "arreglo" : "esperar";
 }
 
 /** Lo que dice el texto cuando lint o pruebas ya fallaban en main sin el cambio. */
@@ -406,8 +443,9 @@ function lineasDeLaCausa(texto, regla) {
  *   reversion    { ok, commit, revert } si la etapa subió y se revirtió (o null)
  *   repo         la clave del repo de la tarjeta ("aizencrm", "gestion")
  *   tarjeta      la tarjeta que falló ({ titulo })
- * tipo: "vigilancia" | "main_roto" | "choque" | "servidor". En "choque" no hay tarjeta nueva: `referencia` es la otra tarjeta.
- * null si la reversión no se pudo hacer (sigue siendo URGENTE) o si la tarjeta ya es de causa.
+ * tipo: "subida" | "main_roto" | "choque" | "servidor". En "choque" no hay tarjeta nueva: `referencia` es la otra tarjeta. En
+ * "subida" (una subida que se deshizo bien, por el código o el arranque) también trae `lineas` (las del log, una por línea).
+ * null si la reversión no se pudo hacer (sigue siendo URGENTE), si la tarjeta ya es de causa o si la subida deshecha fue pasajera.
  */
 export function causaExterna(diagnostico, { reversion = null, repo = "", tarjeta = null } = {}) {
   if (!diagnostico) return null;
@@ -418,17 +456,22 @@ export function causaExterna(diagnostico, { reversion = null, repo = "", tarjeta
   const deLa = repo ? ` (${repo})` : "";
   const nombre = enUnaLinea(tarjeta?.titulo ?? "otra tarjeta", 120);
 
-  if (reversion?.ok && (/^\s*Revertida:/.test(texto) || /vigilancia de 30 min/i.test(texto))) {
-    const lineas = String(texto)
-      .split(/\r?\n/)
-      .map((linea) => linea.trim())
-      .filter((linea) => /\[minuto \d+\]|error|fall/i.test(linea))
-      .slice(0, 8)
-      .map((linea) => `- ${recortar(linea, 300)}`);
+  // 24-nov-2026 (parte 3): una subida que se deshizo bien. Si es del código o del arranque (o la deshizo la vigilancia), se pide la
+  // tarjeta «Arreglo de subida: …» (tipo "subida" del CRM, con su tope de 3); si es pasajera, null: el bucle la suelta sin arreglo.
+  if (reversion?.ok) {
+    if (queHacerConLaSubidaDeshecha(diagnostico, reversion) !== "arreglo") return null;
+    const vigilancia = esDeLaVigilancia(texto);
+    const delLog = (Array.isArray(reversion.lineas) ? reversion.lineas : []).map((linea) => String(linea ?? "").trim()).filter(Boolean);
+    const lineas = (delLog.length ? delLog : texto.split(/\r?\n/).map((linea) => linea.trim()).filter((linea) => /\[minuto \d+\]|error|fall/i.test(linea))).slice(0, 8);
+    const sencilla = enUnaLinea(causaDeLaReversion(texto, reversion) || diagnostico.causa, 300);
+    // La causa corta del título: la primera línea del log que la muestra (sin la marca del minuto) o, si no hay, la frase sencilla.
+    const corta = (lineas[0] ?? "").replace(/^.*?\[minuto \d+\]\s*/i, "").replace(/^Revertida:\s*/i, "").replace(/^\[?\d{4}-\d{2}-\d{2}[T ][\d:.,]+Z?\]?\s*/, "").trim() || sencilla.replace(/[.:\s]+$/, "");
+    const espacio = 200 - PREFIJO_DE_ARREGLO_DE_SUBIDA.length - 1 - deLa.length;
     return {
-      tipo: "vigilancia",
-      titulo: `${PREFIJOS_DE_CAUSA.vigilancia} la vigilancia de 30 min revirtió una subida${deLa}`,
-      detalle: [`La vigilancia de 30 min revirtió la subida de «${nombre}». Causa: ${enUnaLinea(causaDeLaReversion(texto) || diagnostico.causa, 300)}`, "Líneas del log:", ...lineas].join("\n"),
+      tipo: "subida",
+      titulo: `${PREFIJO_DE_ARREGLO_DE_SUBIDA} ${enUnaLinea(corta, espacio)}${deLa}`,
+      detalle: [`${vigilancia ? "La vigilancia de 30 min deshizo" : "Se deshizo"} la subida de «${nombre}»; producción volvió a la versión anterior. Causa: ${sencilla}`, `Arréglalo para que «${nombre}» se pueda volver a subir.`].join("\n"),
+      lineas: lineas.map((linea) => recortar(linea, 300)).join("\n"),
     };
   }
 
@@ -526,7 +569,7 @@ function reparacionesSeguidasCon(intentos, categoria) {
 
 /**
  * Qué hacer con la falla. Devuelve { accion, cuenta, estrategia?, motivo, causa?, queCambia?, mismaCausa? }.
- *   accion      "reparar" | "partir" | "esperar" | "escalar"
+ *   accion      "reparar" | "partir" | "esperar" | "escalar" | "arreglo_de_subida" (solo con una subida deshecha; no va al historial)
  *   cuenta      si cuenta como una de las 3 reparaciones (reparar y escalar sí; esperar y partir no)
  *   estrategia  "opus" cuando la 2ª reparación seguida con la misma categoría cambia de modelo; "nube" si se verifica otra vez en la nube
  *   arreglo     "sin_claude": el Coordinador lo arregla solo (cierra procesos, limpia la carpeta, espera al PC);
@@ -538,7 +581,8 @@ function reparacionesSeguidasCon(intentos, categoria) {
  * Entradas: { diagnostico, tarjeta, etapa, config, archivosCambiados, reversion, modeloConstruir, verificarEnNube }
  *   tarjeta: reparaciones, topeReparaciones, esperasSeguidas, esParte, ultimosIntentos (como llegan de /tomar)
  *   archivosCambiados: cuántos archivos llevaba cambiados el intento que falló (o undefined)
- *   reversion: la etapa subió a main y tuvo que revertir -> siempre escala
+ *   reversion: la etapa subió a main y tuvo que revertir -> URGENTE (ok false), una tarjeta de causa o la 3.ª subida deshecha
+ *              escalan; si no, "arreglo_de_subida" (código o arranque) o "esperar" (pasajera), y las dos cuentan como intento de subida
  *   verificarEnNube: lo que verificó la nube cambió al subir (la reparación se verifica otra vez en la nube)
  */
 export function decidir(entrada = {}) {
@@ -561,7 +605,18 @@ function decidirSinCausa({ diagnostico, tarjeta = {}, etapa, config = {}, archiv
   const esParte = tarjeta.esParte === true;
   const minimoDeArchivos = config.partir?.archivosMinimos ?? 8;
 
-  if (reversion) return { accion: "escalar", cuenta: true, motivo: "falló después de subir a main y se revirtió: lo ve el dueño" };
+  // 24-nov-2026 (parte 3): una subida que se deshizo ya no escala siempre. La que NO se pudo deshacer (URGENTE) escala como antes.
+  if (reversion) {
+    if (reversion.ok !== true) return { accion: "escalar", cuenta: true, motivo: "falló después de subir a main y no se pudo deshacer (URGENTE): lo ve el dueño" };
+    // Una tarjeta de causa (también «Arreglo de subida: …») no pide otra: no se forma una cadena.
+    if (esTarjetaDeCausa(tarjeta)) return { accion: "escalar", cuenta: true, motivo: "se deshizo la subida de una tarjeta de causa: no se pide otra, lo ve el dueño" };
+    const subidas = intentosDeSubida(intentos) + 1;
+    if (subidas >= TOPE_INTENTOS_DE_SUBIDA) return { accion: "escalar", cuenta: true, agotado: true, motivo: `se deshizo la subida ${subidas} veces (tope ${TOPE_INTENTOS_DE_SUBIDA}): queda en Alertas` };
+    if (queHacerConLaSubidaDeshecha(diagnostico, reversion) === "arreglo") {
+      return { accion: "arreglo_de_subida", cuenta: true, motivo: `se deshizo la subida por un error del programa o del arranque: se pide el arreglo y después se reintenta (subida ${subidas} de ${TOPE_INTENTOS_DE_SUBIDA})` };
+    }
+    return { accion: "esperar", cuenta: true, motivo: `se deshizo la subida por una falla pasajera: se reintenta en la vuelta siguiente, sin arreglo (subida ${subidas} de ${TOPE_INTENTOS_DE_SUBIDA})` };
+  }
 
   if (categoria === "limite_claude") return { accion: "esperar", cuenta: false, motivo: "límite de uso de Claude: se espera su reinicio" };
   // Con tope (como el PC y la carpeta): una tarjeta que corta al Coordinador cada vez no puede esperar para siempre; pasado el tope cuenta como reparación.
