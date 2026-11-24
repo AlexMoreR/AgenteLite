@@ -118,6 +118,7 @@
     "test:aprobacion-heredada-via": "node scripts/check-aprobacion-heredada-via.mjs",
     "test:tablero-features": "node scripts/check-tablero-features.mjs",
     "test:features-auto-aprobar": "node scripts/check-features-auto-aprobar.mjs",
+    "test:arreglo-de-subida": "node scripts/check-arreglo-de-subida.mjs",
     "test:tablero-archivar-al-terminar": "npx tsx --test src/features/tableros-inteligentes/services/archivar-al-terminar.test.ts",
     "test:tablero-archivadas-migracion": "node scripts/check-tablero-archivadas-migracion.mjs",
     "test:coordinador-en-vivo": "node scripts/check-coordinador-en-vivo.mjs",

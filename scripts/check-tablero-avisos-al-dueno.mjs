@@ -410,6 +410,34 @@ await prueba("alertas: con un teléfono de Sistemas válido, el caído y la trab
   assert.ok(estado.alertas.every((a) => a.prioridad === "MEDIA"));
 });
 
+await prueba("arreglo de subida (24-nov): ERROR por subida_revertida queda SOLO en Alertas, sin WhatsApp al dueño ni a Emanuel", async () => {
+  guardarNumero();
+  assert.deepEqual(await avisos.guardarConfigDeSistemas("ws1", { telefono: "573114445566" }), { ok: true });
+  // Con "solo urgentes" apagado, lo de siempre saldría al dueño: esto no.
+  estado.ajustes.set("alertas:solo-urgentes:ws1", "false");
+  estado.enFila = 1;
+  estado.esperando = [
+    esperando({
+      id: "s1",
+      titulo: "Bandeja más rápida",
+      estado: "ERROR",
+      resultado: { error: { motivo: "No se pudo subir tras 3 intentos.", categoria: "subida_revertida", causa: "la app no arranca: HTTP 401 del servidor" } },
+    }),
+  ];
+  assert.deepEqual(await avisos.revisarAvisosAlDueno(DIA), { enviados: 0 });
+  assert.equal(estado.enviados.length, 0, "ningún WhatsApp");
+  assert.equal(estado.alertas.length, 1);
+  assert.equal(estado.alertas[0].clave, "auto:trabado:s1:ERROR");
+  assert.equal(estado.alertas[0].titulo, '"Bandeja más rápida" no se pudo subir tras 3 intentos');
+  assert.match(estado.alertas[0].detalle, /Causa: la app no arranca: HTTP 401 del servidor/);
+  assert.match(estado.alertas[0].detalle, /Decide: arreglarla a mano, cambiar la tarea o dejarla en Fallido/);
+  // Aunque diga 401, no es "falta una clave" (no hay alerta auto:necesita).
+  assert.ok(!estado.alertas.some((a) => a.clave.startsWith("auto:necesita:")));
+  // La vuelta siguiente tampoco manda nada.
+  await avisos.revisarAvisosAlDueno(new Date(DIA.getTime() + 60_000));
+  assert.equal(estado.enviados.length, 0);
+});
+
 await prueba("aprobada por voz con META_ADS: una alerta Alta del Coordinador por tarjeta, con el link; CHATS y LIBRO_V3 por voz no (31-oct)", async () => {
   const base = { latidoEn: DIA.toISOString(), enCurso: [], enFila: 2, esperando: [] };
   const fuera = [

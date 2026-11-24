@@ -21,6 +21,12 @@ import {
   causaConEstrategia,
   causaDeEntrada,
   causaExternaDeEntrada,
+  detalleDeArregloDeSubida,
+  intentosDeSubida,
+  LINEA_SUBE_SOLO,
+  seAgotoElTopeDeSubida,
+  TOPE_INTENTOS_DE_SUBIDA,
+  type CausaExternaPedida,
   destinoDelResultado,
   TEXTO_APROBACION_HEREDADA,
   aprobacionDelDuenoEnElHistorial,
@@ -95,7 +101,7 @@ import {
   porQueUnSupuestoEsDeNegocio,
   riesgoDelPlan,
 } from "./reglas-riesgo";
-import { decisionDelCoordinador, esDeFeatures, gastoDeVerdadEnMetaAds, registroDeAprobacionFeatures } from "./reglas-features";
+import { TABLERO_DE_FEATURES_ID, TARJETA_AREA_FEATURES_ID, decisionDelCoordinador, esDeFeatures, gastoDeVerdadEnMetaAds, registroDeAprobacionFeatures } from "./reglas-features";
 import {
   tarjetaEsDeFeatures,
   anotarAprobacionAutomatica,
@@ -1701,6 +1707,7 @@ async function pedirLimpieza(contexto: ContextoTrabajador, actual: FilaParaTraba
 async function pedirCausaExterna(contexto: ContextoTrabajador, actual: FilaParaTrabajar, cuerpo: Record<string, unknown>, ahora: Date) {
   const causa = causaExternaDeEntrada(cuerpo);
   if (typeof causa === "string") throw new ErrorDelTrabajador(causa, 400);
+  if (causa.tipo === "subida") return pedirArregloDeSubida(contexto, actual, causa, cuerpo, ahora);
   const estado = actual.estado as EstadoTarjetaTablero;
   const etapa = etapaDeEntrada(cuerpo.etapa, estado);
   const categoria = categoriaDeEntrada(cuerpo.categoria) ?? "otra";
@@ -1796,6 +1803,139 @@ async function pedirCausaExterna(contexto: ContextoTrabajador, actual: FilaParaT
     );
     await tocarTableros(tx, [actual.tableroId], ahora);
     return { ok: true, creada, tarjetaId: origen.id, esperando: etiqueta, soltada: true, estado: vuelve, link: linkDeLaTarjeta(actual.id) };
+  });
+}
+
+/**
+ * /causa-externa con tipo "subida" (24-nov-2026): la subida se revirtió por un error de código o de arranque. En una transacción:
+ *  1. Tope: cuenta las subidas revertidas de la original (intentosDeSubida). Si con esta ya son TOPE_INTENTOS_DE_SUBIDA o más,
+ *     anota el intento (subida_revertida, escalar) y responde `agotado: true` sin crear nada: la original sigue donde estaba y el
+ *     Coordinador manda /error (sale en Alertas, sin WhatsApp: avisos-al-dueno.ts).
+ *  2. Crea la tarjeta "Arreglo de subida: …" (o reusa la abierta con ese título) en APROBADO con la aprobación heredada y el repo
+ *     de la original. En el tablero de Features cuelga de la tarjeta Área Features: la regla Features la aprueba, construye y sube.
+ *  3. Pone la flecha de dependencia (arreglo -> original), sin ciclos.
+ *  4. La original vuelve a la fila de construir (estadoTrasReparar, como /reparar), NUNCA a SUBIENDO: se reconstruye sobre el main
+ *     nuevo, que ya trae el revert y el arreglo (si volviera a SUBIENDO, ramaYaEnMain vería el commit viejo y no subiría nada).
+ *     El intento queda con categoría subida_revertida y sí cuenta.
+ * -> { agotado, creada, tarjetaId, esperando, soltada, estado, intentosDeSubida, link }
+ */
+async function pedirArregloDeSubida(
+  contexto: ContextoTrabajador,
+  actual: FilaParaTrabajar,
+  causa: CausaExternaPedida,
+  cuerpo: Record<string, unknown>,
+  ahora: Date,
+) {
+  const estado = actual.estado as EstadoTarjetaTablero;
+  const etapa = etapaDeEntrada(cuerpo.etapa, estado);
+  const repo = (REPOS_DEL_TRABAJADOR as readonly string[]).includes(actual.repo ?? "") ? (actual.repo as string) : null;
+  const detalle = detalleDeArregloDeSubida({ detalle: causa.detalle, lineas: causa.lineas, reversion: causa.reversion });
+  const causaCorta = causaDeEntrada(cuerpo.causa, causaDeEntrada(causa.detalle));
+  const error = errorDeIntentoDeEntrada(cuerpo.error);
+  const enFeatures = actual.tableroId === TABLERO_DE_FEATURES_ID;
+
+  return prisma.$transaction(async (tx) => {
+    const previas = intentosDeSubida(await tx.intentoTarjeta.findMany({ where: { tarjetaId: actual.id }, select: { categoria: true } }));
+    const intentos = previas + 1;
+    if (seAgotoElTopeDeSubida(previas)) {
+      await anotarIntento(tx, actual.id, { etapa, categoria: "subida_revertida", causa: causaCorta, error, accion: "escalar", cuentaComoIntento: true }, ahora);
+      await anotarTrabajador(tx, contexto, actual.id, { estado }, { estado, nota: `subida deshecha ${intentos} de ${TOPE_INTENTOS_DE_SUBIDA}: se agotó el tope, no se pide otro arreglo`, categoria: "subida_revertida" });
+      await tocarTableros(tx, [actual.tableroId], ahora);
+      return { ok: true, agotado: true, creada: false, tarjetaId: null, esperando: null, soltada: false, estado, intentosDeSubida: intentos, link: linkDeLaTarjeta(actual.id) };
+    }
+
+    let creada = false;
+    let arreglo: { id: string; titulo: string; estado: string } | null = await tx.tarjetaTablero.findFirst({
+      where: { tableroId: actual.tableroId, borradoEn: null, titulo: causa.titulo, id: { not: actual.id }, estado: { notIn: ["HECHO", "FALLIDO"] } },
+      orderBy: { creadoEn: "asc" },
+      select: { id: true, titulo: true, estado: true, detalle: true },
+    });
+    if (arreglo) {
+      const abierta = arreglo as { id: string; titulo: string; estado: string; detalle: string };
+      if (!abierta.detalle.includes(causa.detalle)) {
+        // El detalle nuevo va antes de la línea final, que queda una sola vez.
+        const sinFinal = abierta.detalle.replace(new RegExp(`\\s*${LINEA_SUBE_SOLO}\\s*$`), "").trimEnd();
+        await tx.tarjetaTablero.update({ where: { id: abierta.id }, data: { detalle: `${sinFinal.slice(0, 20_000 - detalle.length - 2)}\n\n${detalle}` } });
+        await anotarTrabajador(tx, contexto, abierta.id, {}, { nota: `la misma subida deshecha frenó también a «${actual.titulo}»` });
+      }
+    } else {
+      const madre = await tx.tarjetaTablero.findFirst({ where: { id: actual.id }, select: { tipoId: true, area: true, creadoPor: true, orden: true } });
+      if (!madre) throw new ErrorDelTrabajador("La tarjeta cambió mientras tanto.", 409);
+      arreglo = await tx.tarjetaTablero.create({
+        data: {
+          tableroId: actual.tableroId,
+          titulo: causa.titulo,
+          detalle,
+          area: madre.area,
+          estado: "APROBADO",
+          orden: madre.orden + 1,
+          tipoId: madre.tipoId,
+          repo,
+          creadoPor: madre.creadoPor,
+          // Regla Features: lo que cuelga de la tarjeta Área Features se aprueba, se construye y sube solo.
+          ...(enFeatures ? { padreId: TARJETA_AREA_FEATURES_ID } : {}),
+        },
+        select: { id: true, titulo: true, estado: true },
+      });
+      await tx.historialTarjeta.create({
+        data: {
+          tarjetaId: arreglo.id,
+          quien: quienEs(contexto),
+          origen: "TRABAJADOR",
+          accion: "crear",
+          despues: {
+            titulo: causa.titulo,
+            estado: "APROBADO",
+            ...(enFeatures ? { padreId: TARJETA_AREA_FEATURES_ID } : {}),
+            nota: `arreglo de la subida deshecha de «${actual.titulo}» (${intentos} de ${TOPE_INTENTOS_DE_SUBIDA})`,
+          } as Prisma.InputJsonValue,
+        },
+      });
+      await tx.historialTarjeta.create({
+        data: {
+          tarjetaId: arreglo.id,
+          quien: quienEs(contexto),
+          origen: "TRABAJADOR",
+          accion: "aprobar",
+          antes: { estado: "APROBADO" } as Prisma.InputJsonValue,
+          despues: { estado: "APROBADO", momento: "tarea", como: "heredada", heredadaDe: actual.id, ...(await viaHeredadaDe(tx, actual.id)) } as Prisma.InputJsonValue,
+        },
+      });
+      creada = true;
+    }
+
+    const origen = arreglo;
+    const sinSoltar = { ok: true, agotado: false, creada, tarjetaId: origen.id, esperando: null, soltada: false, estado, intentosDeSubida: previas, link: linkDeLaTarjeta(actual.id) };
+    const dependencias = await tx.conexionTarjeta.findMany({ where: { tableroId: actual.tableroId, esDependencia: true }, select: { origenId: true, destinoId: true } });
+    if (!dependencias.some((flecha) => flecha.origenId === origen.id && flecha.destinoId === actual.id)) {
+      if (dependenciaHaceCiclo(dependencias, origen.id, actual.id)) {
+        await tocarTableros(tx, [actual.tableroId], ahora);
+        return sinSoltar;
+      }
+      await tx.conexionTarjeta.create({ data: { tableroId: actual.tableroId, origenId: origen.id, destinoId: actual.id, esDependencia: true } });
+      dependencias.push({ origenId: origen.id, destinoId: actual.id });
+      await anotarTrabajador(tx, contexto, actual.id, { estado }, { estado, nota: `depende de «${origen.titulo}» (arreglo de subida)` });
+    }
+    const deQuien = dependencias.filter((flecha) => flecha.destinoId === actual.id).map((flecha) => flecha.origenId);
+    const pendientes = await tx.tarjetaTablero.findMany({
+      where: { id: { in: deQuien }, borradoEn: null, tipo: { usaEstados: true } },
+      select: { titulo: true, estado: true },
+    });
+    const etiqueta = etiquetaEsperando(pendientes.map((tarjeta) => ({ titulo: tarjeta.titulo, estado: tarjeta.estado ?? "" }))) ?? `Esperando a «${origen.titulo}»`;
+    // A la fila de construir, nunca a SUBIENDO. El intento cuenta: no se descuenta `intentos`.
+    const vuelve = estadoTrasReparar(estado);
+    const hecho = await tx.tarjetaTablero.updateMany({ where: { id: actual.id, estado: actual.estado, borradoEn: null }, data: { estado: vuelve, trabajoVenceEn: null } });
+    if (hecho.count !== 1) throw new ErrorDelTrabajador("La tarjeta cambió mientras tanto.", 409);
+    await anotarTrabajador(
+      tx,
+      contexto,
+      actual.id,
+      { estado },
+      { estado: vuelve, nota: `subida deshecha ${intentos} de ${TOPE_INTENTOS_DE_SUBIDA}: se reconstruye cuando suba el arreglo. ${etiqueta}`, categoria: "subida_revertida" },
+    );
+    await anotarIntento(tx, actual.id, { etapa, categoria: "subida_revertida", causa: causaCorta, error, accion: "reparar", cuentaComoIntento: true }, ahora);
+    await tocarTableros(tx, [actual.tableroId], ahora);
+    return { ok: true, agotado: false, creada, tarjetaId: origen.id, esperando: etiqueta, soltada: true, estado: vuelve, intentosDeSubida: intentos, link: linkDeLaTarjeta(actual.id) };
   });
 }
 
