@@ -4189,6 +4189,10 @@ process.exit(real.status ?? 1);
     const nuevos = llamadas.filter((l) => l.accion === "aviso").slice(avisos);
     assert.equal(nuevos.length, 1, "el WhatsApp de siempre");
     assert.match(nuevos[0].cuerpo.texto, /^URGENTE: no se pudo deshacer/);
+    // main queda como si alguien lo hubiera revisado a mano: sin lo de esta prueba (las que siguen parten de un main limpio).
+    g(REPO, "pull", "--quiet", "--ff-only", "origin", "main");
+    g(REPO, "revert", "--no-edit", `${base}..HEAD`);
+    g(REPO, "push", "--quiet", "origin", "main");
     sinRestos();
   });
 
