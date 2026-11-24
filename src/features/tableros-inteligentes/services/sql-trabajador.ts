@@ -196,11 +196,6 @@ WHERE m."tableroId" = $1
 LIMIT 1`;
 
 /**
- * Las madres de cada tarjeta (10-nov-2026, T-737): $1 = ids (text[]). Una fila por tarjeta con madre viva: `ancestros` va de la
- * madre más cercana a la más lejana (sube por padreId, sin las borradas, hasta 50 niveles). El Coordinador lo usa para trabajar
- * solo las tarjetas que cuelgan de un Área (trabajador-tablero/lib/area-permitida.mjs). Solo lee.
- */
-/**
  * Al arrancar (24-nov-2026): las tarjetas que creó el Coordinador (su historial tiene "crear" con origen TRABAJADOR) y quedaron
  * sueltas, sin padre, en el tablero de Features, pasan a colgar del Área Features. No toca el estado ni nada más; las que ya
  * tienen padre no entran, así que repetirlo no cambia nada. Si el Área no está (borrada o de otro negocio), no mueve ninguna.
@@ -227,6 +222,11 @@ WHERE t."tableroId" = $4
   )
 RETURNING t."id", t."estado"::text AS "estado"`;
 
+/**
+ * Las madres de cada tarjeta (10-nov-2026, T-737): $1 = ids (text[]). Una fila por tarjeta con madre viva: `ancestros` va de la
+ * madre más cercana a la más lejana (sube por padreId, sin las borradas, hasta 50 niveles). El Coordinador lo usa para trabajar
+ * solo las tarjetas que cuelgan de un Área (trabajador-tablero/lib/area-permitida.mjs). Solo lee.
+ */
 export const SQL_ANCESTROS = `
 WITH RECURSIVE sube AS (
   SELECT c."id" AS "origen", m."id" AS "ancestro", m."padreId" AS "siguiente", 1 AS "nivel"
