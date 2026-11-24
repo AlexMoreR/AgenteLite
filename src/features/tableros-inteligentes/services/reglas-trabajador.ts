@@ -75,7 +75,7 @@ import {
 import { type AreaDeAlerta, leerAreaDeAlerta, tocaDineroOMetaAds } from "@/features/alertas/dominio/reglas";
 import { type ModelosDelResultado, esLinkDeSesion, modelosDeEntrada } from "./modelos-del-coordinador";
 import { archivosDeEntrada, migracionDestructivaDeEntrada, porQueElPlanEsperaTuSi, porQueLaTareaEsperaTuSi } from "./reglas-riesgo";
-import { COMO_REGLA_FEATURES, FEATURES_AUTO_APROBAR, VIA_REGLA_FEATURES } from "./reglas-features";
+import { COMO_REGLA_FEATURES, FEATURES_AUTO_APROBAR, TABLERO_DE_FEATURES_ID, TARJETA_AREA_FEATURES_ID, VIA_REGLA_FEATURES } from "./reglas-features";
 
 /* ───────────────────────────────────────────────────────────────────── repos ── */
 
@@ -1769,6 +1769,34 @@ export function puedePartir(datos: { yaPartida: boolean; esParte: boolean }): Ve
   if (datos.yaPartida) return "La tarjeta ya está partida.";
   if (datos.esParte) return "Esta tarjeta ya es una parte de otra: no se parte más (repárala o escálala).";
   return null;
+}
+
+/** Las tarjetas que el Coordinador crea solo (24-nov-2026): una causa externa, la limpieza de main o una parte de una tarjeta partida. */
+export type TarjetaDelCoordinador = "causa-externa" | "limpieza" | "parte";
+
+/**
+ * De quién cuelga una tarjeta que crea el Coordinador solo (pedido del dueño, 23-nov-2026: "que lo meta a Features"). Nunca queda
+ * suelta en la vista principal: en el tablero de Features cuelga del Área Features, por su id fijo (nunca por el nombre).
+ *  - causa externa y limpieza: de Features.
+ *  - parte: si la original ya está dentro de Features (`ancestrosDeLaOriginal` la nombra), la regla de siempre (`padreDeLaParte`:
+ *    de la original o del padre de la original); si no, de Features.
+ *  - en otro tablero (ahí no está Features): una parte sigue la regla de siempre y las otras cuelgan del padre de la original;
+ *    solo queda sin padre si la original tampoco tenía.
+ * `padreDeLaParte` es el padre que la parte tendría con la regla de siempre (solo cuenta con `caso` "parte").
+ */
+export function padreDeTarjetaDelCoordinador(datos: {
+  caso: TarjetaDelCoordinador;
+  tableroId: string;
+  idDeLaOriginal: string;
+  padreDeLaOriginal: string | null;
+  ancestrosDeLaOriginal: readonly string[];
+  padreDeLaParte?: string | null;
+}): string | null {
+  const deSiempre = datos.caso === "parte" ? (datos.padreDeLaParte ?? datos.padreDeLaOriginal) : datos.padreDeLaOriginal;
+  if (datos.tableroId !== TABLERO_DE_FEATURES_ID) return deSiempre ?? null;
+  const dentroDeFeatures = datos.idDeLaOriginal === TARJETA_AREA_FEATURES_ID || datos.ancestrosDeLaOriginal.includes(TARJETA_AREA_FEATURES_ID);
+  if (datos.caso === "parte" && dentroDeFeatures && deSiempre) return deSiempre;
+  return TARJETA_AREA_FEATURES_ID;
 }
 
 /**

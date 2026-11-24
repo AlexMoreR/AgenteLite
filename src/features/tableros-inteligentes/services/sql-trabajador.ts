@@ -200,6 +200,33 @@ LIMIT 1`;
  * madre más cercana a la más lejana (sube por padreId, sin las borradas, hasta 50 niveles). El Coordinador lo usa para trabajar
  * solo las tarjetas que cuelgan de un Área (trabajador-tablero/lib/area-permitida.mjs). Solo lee.
  */
+/**
+ * Al arrancar (24-nov-2026): las tarjetas que creó el Coordinador (su historial tiene "crear" con origen TRABAJADOR) y quedaron
+ * sueltas, sin padre, en el tablero de Features, pasan a colgar del Área Features. No toca el estado ni nada más; las que ya
+ * tienen padre no entran, así que repetirlo no cambia nada. Si el Área no está (borrada o de otro negocio), no mueve ninguna.
+ * $1 = workspaceId, $2 = ahora, $3 = id del Área Features, $4 = id del tablero de Features.
+ */
+export const SQL_SUELTAS_DEL_COORDINADOR_A_FEATURES = `
+WITH f AS (
+  SELECT a."id"
+  FROM "TarjetaTablero" a
+  JOIN "TableroInteligente" b ON b."id" = a."tableroId"
+  WHERE a."id" = $3 AND a."tableroId" = $4 AND a."borradoEn" IS NULL AND b."workspaceId" = $1
+)
+UPDATE "TarjetaTablero" t
+SET "padreId" = f."id",
+    "actualizadoEn" = ${AHORA}
+FROM f
+WHERE t."tableroId" = $4
+  AND t."padreId" IS NULL
+  AND t."borradoEn" IS NULL
+  AND t."id" <> f."id"
+  AND EXISTS (
+    SELECT 1 FROM "HistorialTarjeta" h
+    WHERE h."tarjetaId" = t."id" AND h."accion" = 'crear' AND h."origen" = 'TRABAJADOR'
+  )
+RETURNING t."id", t."estado"::text AS "estado"`;
+
 export const SQL_ANCESTROS = `
 WITH RECURSIVE sube AS (
   SELECT c."id" AS "origen", m."id" AS "ancestro", m."padreId" AS "siguiente", 1 AS "nivel"
