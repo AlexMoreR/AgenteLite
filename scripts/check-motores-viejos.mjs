@@ -297,4 +297,119 @@ await prueba("MCP: resumen_del_negocio y ver_agente usan el cálculo, y ningún 
   }
 });
 
+/* ---------------------------------------------------------------------------------------------- */
+// Las herramientas del MCP que leen motores viejos, con datos de mentira.
+
+function prismaDelMcp(base) {
+  const agenteCompleto = (id) => {
+    const fila = base.agentes.find((a) => a.id === id);
+    if (!fila) return null;
+    const channels = base.lineas.filter((l) => l.agentId === id).map(({ id: lineaId, name, metadata }) => ({ id: lineaId, name, metadata }));
+    return { ...fila, graph: fila.graph ?? { nodes: [{ id: "agent-root", type: "agent", data: { prompt: "Hola" } }], edges: [] }, channels };
+  };
+  return {
+    agent: {
+      findFirst: async ({ where }) => (base.agentes.some((a) => a.id === where.id && a.workspaceId === where.workspaceId) ? agenteCompleto(where.id) : null),
+    },
+    productPlaybook: {
+      findFirst: async ({ where }) =>
+        where.productId === "prod-combo" && where.workspaceId === "ws-1"
+          ? { id: "pb-combo", product: { id: "prod-combo", name: "COMBO CAMILLA DIVAN" } }
+          : null,
+    },
+    productFunnelStage: {
+      findMany: async () => [
+        {
+          id: "paso-1",
+          stage: "PRESENTACION",
+          goal: "Saludar",
+          script: "Pedir el nombre del cliente",
+          stuckAfterMessages: null,
+          followUps: [
+            { id: "seg-15m", timeType: "MINUTES", timeValue: 15, content: "¿Seguís ahí?", flowId: null, isActive: true },
+            { id: "seg-1d", timeType: "DAYS", timeValue: 1, content: "Te escribo de nuevo", flowId: null, isActive: true },
+            { id: "seg-24h", timeType: "HOURS", timeValue: 24, content: "Un día después", flowId: null, isActive: true },
+            { id: "seg-3d-apagado", timeType: "DAYS", timeValue: 3, content: "Apagado", flowId: null, isActive: false },
+          ],
+        },
+      ],
+    },
+  };
+}
+
+const mocksDelMcp = (base) => ({
+  "@/lib/prisma": { prisma: prismaDelMcp(base) },
+  "@/app/actions/agent-v2-actions": { publicarAgenteV2: async () => ({ ok: true }) },
+  "@/lib/mcp/cambios": { anotarCambioMcp: async () => ({ id: "c-1" }), deshacerCambioMcp: async () => ({ ok: true }), listarCambiosMcp: async () => [] },
+  "@/features/embudo/servicios/versiones": {
+    asegurarVersionInicialProtegido: async () => {},
+    leerVersion: async () => null,
+    listarVersiones: async () => [],
+    registrarVersionProtegido: async () => {},
+  },
+  "@/features/flows/services/getCreatedFlowItems": { getCreatedFlowItems: async () => [] },
+});
+
+const baseDelMcp = nuevaBase();
+const escritura = cargar("src/lib/mcp/escritura.ts", mocksDelMcp(baseDelMcp));
+const diagrama = cargar("src/lib/mcp/diagrama-del-agente.ts", mocksDelMcp(baseDelMcp));
+const contextoDelMcp = { workspaceId: "ws-1", userId: "u-1" };
+
+await prueba("MCP: las descripciones de ver_agente, ver_embudo_del_producto, ver_textos_del_agente y ver_diagrama_del_agente apuntan a v3_ver_reglas", async () => {
+  const herramientas = fs.readFileSync(`${RAIZ}/src/lib/mcp/herramientas.ts`, "utf8");
+  const verAgente = herramientas.slice(herramientas.indexOf('name: "ver_agente"'));
+  assert.match(verAgente.slice(0, 600), /description:\s*"MOTOR VIEJO, hoy no atiende: para saber qué dice el bot use v3_ver_reglas/);
+  const descripcion = (lista, nombre) => lista.find((h) => h.name === nombre).description;
+  for (const [lista, nombre] of [
+    [escritura.HERRAMIENTAS_MCP_ESCRITURA, "ver_embudo_del_producto"],
+    [escritura.HERRAMIENTAS_MCP_ESCRITURA, "ver_textos_del_agente"],
+    [diagrama.HERRAMIENTAS_MCP_DIAGRAMA, "ver_diagrama_del_agente"],
+  ]) {
+    assert.match(descripcion(lista, nombre), /^MOTOR VIEJO, hoy no atiende: para saber qué dice el bot use v3_ver_reglas/, nombre);
+  }
+  // Las que escriben no cambian.
+  for (const nombre of ["editar_paso_del_embudo", "editar_texto_del_agente", "crear_seguimiento_del_paso"]) {
+    assert.doesNotMatch(descripcion(escritura.HERRAMIENTAS_MCP_ESCRITURA, nombre), /v3_ver_reglas/, nombre);
+  }
+  assert.doesNotMatch(descripcion(diagrama.HERRAMIENTAS_MCP_DIAGRAMA, "crear_condicion_en_el_agente"), /v3_ver_reglas/);
+});
+
+await prueba("MCP: ver_embudo_del_producto trae primero estado INACTIVO y fuente_real, y marca los seguimientos de día 1 en adelante", async () => {
+  const respuesta = await escritura.ejecutarHerramientaMcpEscritura("ver_embudo_del_producto", { producto_id: "prod-combo" }, contextoDelMcp);
+  assert.deepEqual(Object.keys(respuesta).slice(0, 2), ["estado", "fuente_real"]);
+  assert.equal(respuesta.estado, "INACTIVO, no se usa");
+  assert.equal(respuesta.fuente_real, "v3_ver_reglas");
+  assert.match(respuesta.que_se_usa, /guion, el objetivo y el pitch \(ProductPlaybook\) no se usan/);
+  assert.match(respuesta.que_se_usa, /dia 1 en adelante/);
+  const lo = Object.fromEntries(respuesta.pasos[0].seguimientos.map((s) => [s.seguimiento_id, s.lo_manda_el_v3]));
+  assert.deepEqual(lo, { "seg-15m": false, "seg-1d": true, "seg-24h": true, "seg-3d-apagado": false });
+  // El resto del embudo sigue saliendo igual, para poder editarlo.
+  assert.equal(respuesta.pasos[0].guion, "Pedir el nombre del cliente");
+  assert.equal(respuesta.producto.nombre, "COMBO CAMILLA DIVAN");
+});
+
+await prueba("MCP: ver_textos_del_agente y ver_diagrama_del_agente dicen INACTIVO si el agente no atiende una línea sin V3, y si atiende lo dicen tal cual", async () => {
+  for (const [modulo, ejecutar, nombre] of [
+    [escritura, "ejecutarHerramientaMcpEscritura", "ver_textos_del_agente"],
+    [diagrama, "ejecutarHerramientaMcpDiagrama", "ver_diagrama_del_agente"],
+  ]) {
+    const inactivo = await modulo[ejecutar](nombre, { agente_id: "ag-v2" }, contextoDelMcp);
+    assert.deepEqual(Object.keys(inactivo).slice(0, 2), ["estado", "fuente_real"], nombre);
+    assert.equal(inactivo.estado, "INACTIVO, no se usa", nombre);
+    assert.equal(inactivo.fuente_real, "v3_ver_reglas", nombre);
+    assert.match(inactivo.aviso_motor_viejo, /La fuente real es v3_ver_reglas/, nombre);
+    assert.equal(inactivo.agente.id, "ag-v2", nombre);
+
+    const pausado = await modulo[ejecutar](nombre, { agente_id: "ag-pausado" }, contextoDelMcp);
+    assert.equal(pausado.estado, "INACTIVO, no se usa", nombre);
+
+    const mixto = await modulo[ejecutar](nombre, { agente_id: "ag-mixto" }, contextoDelMcp);
+    assert.match(mixto.estado, /^ACTIVO: todavía atiende la línea sin V3 "Administrativa"/, nombre);
+    assert.equal(mixto.fuente_real, "v3_ver_reglas", nombre);
+    assert.equal(mixto.aviso_motor_viejo, undefined, nombre);
+
+    await assert.rejects(modulo[ejecutar](nombre, { agente_id: "ag-de-otro" }, contextoDelMcp), /no existe en este negocio/, nombre);
+  }
+});
+
 console.log(`\n${pruebas} pruebas ok`);
