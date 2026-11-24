@@ -3,6 +3,7 @@ import { personaQueAprueba } from "@/features/tableros-inteligentes/services/tab
 import { motivoNoEsDueno, textoDeConfirmacionParaCerebro } from "@/features/tableros-inteligentes/services/reglas-trabajador";
 import { ErrorDeDrive, esErrorSinEspacio, type ClienteDeDrive } from "./drive";
 import { driveDelNegocio, enlaceParaConectarGoogle } from "./conexion";
+import { encolarNotaParaAizen1, notasEnAizen1Prendidas } from "./notas-por-crear";
 import { permisosDelCerebro } from "./permisos";
 import {
   AVISO_NOTA_EN_AIZEN1,
@@ -34,8 +35,8 @@ import {
     atrasada) y, si la carpeta no está en la copia, se confirma en vivo que cuelga de la carpeta del cerebro.
   - Crear con la cuenta de servicio en un Drive personal da 403 storageQuotaExceeded (no tiene espacio propio). Desde el
     CRM ya NO se deja nota en espera para aizen1: es un error claro con el link para dar el permiso OAuth
-    (enlaceParaConectar). escribirConDependencias aún acepta encolarNotaNueva (CerebroNotaPorCrear, notas-por-crear.ts),
-    pero escribirEnElCerebro ya no lo pasa.
+    (enlaceParaConectar). Solo si alguien prende a mano el interruptor `cerebro:notas-en-aizen1` (notas-por-crear.ts,
+    apagado por defecto), sin OAuth la nota vuelve a quedar PENDIENTE para aizen1 (encolarNotaNueva), como respaldo.
 */
 
 export type OrigenDeEscritura = "MCP" | "PANTALLA" | "TABLERO";
@@ -345,8 +346,24 @@ export async function escribirEnElCerebro(pedido: PedidoDeEscritura): Promise<Re
         update: ficha,
       });
     },
-    // Sin el permiso OAuth, crear no se deja en espera para aizen1: el error lleva el link para darlo.
-    ...(modo === "oauth" ? {} : { enlaceParaConectar: () => enlaceParaConectarGoogle() }),
+    // Sin el permiso OAuth, crear no se deja en espera para aizen1: el error lleva el link para darlo. Solo con el
+    // interruptor de aizen1 prendido a mano (respaldo) la nota queda PENDIENTE para que la cree aizen1.
+    ...(modo !== "oauth" && (await notasEnAizen1Prendidas())
+      ? {
+          encolarNotaNueva: (nota: { ruta: string; contenido: string }) =>
+            encolarNotaParaAizen1({
+              workspaceId,
+              ruta: nota.ruta,
+              contenido: nota.contenido,
+              userId: pedido.userId,
+              quienNombre: persona.nombre,
+              origen: pedido.origen,
+              tarjetaId: pedido.tarjetaId,
+            }),
+        }
+      : modo !== "oauth"
+        ? { enlaceParaConectar: () => enlaceParaConectarGoogle() }
+        : {}),
     registrar: async (cambio) => {
       try {
         await prisma.cerebroCambio.create({

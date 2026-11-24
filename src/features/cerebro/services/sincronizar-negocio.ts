@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { almacenDeLaBase } from "./almacen";
 import { driveDelNegocio, modoDelCerebro } from "./conexion";
+import { crearNotasPendientesEnDrive } from "./notas-por-crear";
 import { sincronizarConAlmacen, type ResultadoDeSincronizacion } from "./sincronizar";
 
 /** Sincroniza el cerebro de un negocio con su Drive (el botón "Sincronizar ahora" y la vuelta de cada hora). */
@@ -18,7 +19,8 @@ export async function sincronizarElCerebro(workspaceId: string): Promise<Resulta
 
 /**
  * La vuelta de cada hora (la llama el reloj del servidor). Sin ninguna conexión es UNA consulta y sale.
- * Un negocio que falla no frena a los demás.
+ * Un negocio que falla no frena a los demás. Antes de sincronizar, el CRM crea en el Drive las notas que quedaron
+ * PENDIENTES (así el archivo nuevo entra a la copia en esta misma vuelta); si eso falla, se sincroniza igual.
  */
 export async function sincronizarCerebroDeTodos() {
   const conexiones = await prisma.cerebroConexion.findMany({
@@ -29,6 +31,11 @@ export async function sincronizarCerebroDeTodos() {
   let bien = 0;
   let mal = 0;
   for (const { workspaceId } of conexiones) {
+    try {
+      await crearNotasPendientesEnDrive(workspaceId);
+    } catch (fallo) {
+      console.error("[cerebro] notas pendientes error", fallo instanceof Error ? fallo.message : fallo);
+    }
     const resultado = await sincronizarElCerebro(workspaceId);
     if (resultado.ok) bien += 1;
     else mal += 1;

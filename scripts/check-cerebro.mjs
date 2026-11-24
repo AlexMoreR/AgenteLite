@@ -1219,4 +1219,199 @@ await prueba("pantalla: sin el permiso OAuth se ofrece 'Permitir que el CRM cree
   assert.match(pagina, /permisoOAuth=\{Boolean\(conexion\?\.tokenCifrado\) && oauthConfigurado\(\)\}/);
 });
 
+/* ── Parte 2: interruptor cerebro:notas-en-aizen1 (apagado por defecto) y el CRM crea las notas PENDIENTES ── */
+
+/** Un Drive de mentira con carpetas y archivos de verdad en memoria: lista por nombre y padre, baja, crea y reemplaza. */
+function driveDeNotas(archivos = []) {
+  const pedidos = [];
+  let siguiente = 1;
+  const fetchFalso = async (url, init = {}) => {
+    const texto = String(url);
+    const metodo = init.method ?? "GET";
+    pedidos.push({ url: texto, metodo });
+    if (metodo === "POST" && texto.includes("/upload/drive/v3/files?uploadType=multipart")) {
+      const cuerpo = String(init.body);
+      const meta = JSON.parse(cuerpo.split("\r\n")[3]);
+      const contenido = cuerpo.split("\r\n").slice(7, -1).join("\r\n");
+      const nuevo = { id: `nuevo${siguiente++}`, name: meta.name, mimeType: "text/markdown", parents: meta.parents, texto: contenido };
+      archivos.push(nuevo);
+      return new Response(JSON.stringify({ ...nuevo, texto: undefined, version: "1" }), { status: 200 });
+    }
+    if (metodo === "PATCH" && texto.includes("/upload/drive/v3/files/")) {
+      const id = decodeURIComponent(texto.split("/files/")[1].split("?")[0]);
+      const archivo = archivos.find((a) => a.id === id);
+      archivo.texto = String(init.body);
+      return new Response(JSON.stringify({ ...archivo, texto: undefined, version: "2" }), { status: 200 });
+    }
+    if (texto.includes("/files?q=")) {
+      const q = new URL(texto).searchParams.get("q");
+      const hallados = archivos.filter((a) => q.includes(`name='${a.name}'`) && q.includes(`'${a.parents[0]}' in parents`));
+      return new Response(JSON.stringify({ files: hallados.map((a) => ({ ...a, texto: undefined })) }), { status: 200 });
+    }
+    if (texto.includes("alt=media")) {
+      const id = decodeURIComponent(texto.split("/files/")[1].split("?")[0]);
+      return new Response(archivos.find((a) => a.id === id)?.texto ?? "", { status: 200 });
+    }
+    return new Response(JSON.stringify({ error: { code: 404 } }), { status: 404 });
+  };
+  const creaciones = () => pedidos.filter((p) => p.metodo === "POST" && p.url.includes("/upload/"));
+  return { fetchFalso, pedidos, archivos, creaciones };
+}
+
+/** Una base de mentira: AppSetting (el interruptor) y CerebroNotaPorCrear. */
+function baseDeNotas({ interruptor = null, pendientes = [] } = {}) {
+  const filas = pendientes.map((n, i) => ({ id: `n${i + 1}`, workspaceId: "ws", estado: "PENDIENTE", motivo: null, creadoEn: new Date(2026, 10, 20 + i), ...n }));
+  const consultas = { appSetting: 0, notas: 0 };
+  const prisma = {
+    appSetting: {
+      findUnique: async ({ where }) => {
+        consultas.appSetting += 1;
+        assert.equal(where.key, "cerebro:notas-en-aizen1");
+        return interruptor === null ? null : { value: interruptor };
+      },
+    },
+    cerebroNotaPorCrear: {
+      findMany: async ({ where, take }) => {
+        consultas.notas += 1;
+        return filas.filter((f) => f.workspaceId === where.workspaceId && f.estado === where.estado).slice(0, take);
+      },
+      updateMany: async ({ where, data }) => {
+        const fila = filas.find((f) => f.id === where.id && f.workspaceId === where.workspaceId && f.estado === where.estado);
+        if (!fila) return { count: 0 };
+        Object.assign(fila, data);
+        return { count: 1 };
+      },
+    },
+  };
+  return { prisma, filas, consultas };
+}
+
+async function conBase(base, fn) {
+  const prismaAntes = nada.prisma;
+  const enlaceAntes = nada.enlaceParaConectarGoogle;
+  nada.prisma = base.prisma;
+  nada.enlaceParaConectarGoogle = () => "https://crm.ejemplo.com/api/cerebro/google/conectar";
+  try {
+    return await fn();
+  } finally {
+    nada.prisma = prismaAntes;
+    nada.enlaceParaConectarGoogle = enlaceAntes;
+  }
+}
+
+const conectarCon = (falso, modo = "oauth", carpetaId = "raiz") => async () => ({
+  drive: crearClienteDeDrive("tok", falso.fetchFalso),
+  buscador: crearBuscadorDeDrive("tok", falso.fetchFalso),
+  conexion: { carpetaId },
+  modo,
+});
+
+await prueba("interruptor cerebro:notas-en-aizen1 apagado (sin fila): notas-por-crear devuelve [] sin mirar la tabla", async () => {
+  const base = baseDeNotas({ pendientes: [{ ruta: "a.md", contenido: "x" }] });
+  await conBase(base, async () => {
+    assert.deepEqual(await notas.notasPendientesParaElTrabajador("ws"), []);
+    assert.equal(base.consultas.notas, 0, "con el interruptor apagado no se consulta CerebroNotaPorCrear");
+    assert.equal(await notas.notasEnAizen1Prendidas(), false);
+  });
+  for (const valor of ["0", "off", "apagada", "", "no"]) assert.equal(notas.interruptorPrendido(valor), false, valor);
+  for (const valor of ["1", "true", "prendida", " Prendida "]) assert.equal(notas.interruptorPrendido(valor), true, valor);
+  // Prendido a mano: vuelve lo de antes (respaldo).
+  const prendida = baseDeNotas({ interruptor: "1", pendientes: [{ ruta: "a.md", contenido: "x" }] });
+  await conBase(prendida, async () => {
+    assert.equal((await notas.notasPendientesParaElTrabajador("ws")).length, 1);
+  });
+  assert.equal(notas.CLAVE_NOTAS_EN_AIZEN1, "cerebro:notas-en-aizen1");
+});
+
+await prueba("una nota PENDIENTE se crea en el Drive (una sola vez, en su carpeta) y queda CREADA", async () => {
+  const falso = driveDeNotas([{ id: "ventas", name: "Ventas", mimeType: reglas.MIME_CARPETA, parents: ["raiz"] }]);
+  const base = baseDeNotas({ pendientes: [{ ruta: "Ventas/2026-11-20-guion.md", contenido: "Guion nuevo\n" }] });
+  const resultado = await conBase(base, () => notas.crearNotasPendientesEnDrive("ws", conectarCon(falso)));
+  assert.deepEqual(resultado, { revisadas: 1, creadas: 1, agregadas: 0, errores: 0 });
+  assert.equal(falso.creaciones().length, 1, "una sola creación");
+  const creado = falso.archivos.find((a) => a.name === "2026-11-20-guion.md");
+  assert.deepEqual(creado.parents, ["ventas"]);
+  assert.equal(creado.texto, "Guion nuevo\n");
+  assert.equal(base.filas[0].estado, "CREADA");
+  assert.ok(base.filas[0].creadaEn instanceof Date);
+  // Una segunda vuelta no la vuelve a crear: ya no está PENDIENTE (y sin pendientes no se conecta a Google).
+  const otra = await conBase(base, () => notas.crearNotasPendientesEnDrive("ws", async () => assert.fail("sin pendientes no se conecta")));
+  assert.equal(otra.saltado, "sin notas pendientes");
+  assert.equal(falso.creaciones().length, 1);
+});
+
+await prueba("si el archivo ya existe en la carpeta, se agrega al final (como aizen1) y no se crea un segundo", async () => {
+  const falso = driveDeNotas([{ id: "dec1", name: "Decisiones de Magilus.md", mimeType: "text/markdown", parents: ["raiz"], texto: "### 2026-11-01\nPrimera\n" }]);
+  const base = baseDeNotas({ pendientes: [{ ruta: "Decisiones de Magilus.md", contenido: "### 2026-11-20\nSegunda\n" }] });
+  const resultado = await conBase(base, () => notas.crearNotasPendientesEnDrive("ws", conectarCon(falso)));
+  assert.deepEqual(resultado, { revisadas: 1, creadas: 0, agregadas: 1, errores: 0 });
+  assert.equal(falso.creaciones().length, 0, "no se crea un segundo archivo");
+  assert.equal(falso.archivos.filter((a) => a.name === "Decisiones de Magilus.md").length, 1);
+  assert.equal(falso.archivos[0].texto, "### 2026-11-01\nPrimera\n\n---\n\n### 2026-11-20\nSegunda\n");
+  assert.equal(base.filas[0].estado, "CREADA");
+  assert.equal(notas.agregarComoAizen1("", "x"), "x\n");
+  assert.equal(notas.agregarComoAizen1("a", "x"), "a\n\n---\n\nx\n");
+  assert.equal(notas.agregarComoAizen1("a\n\n", "x"), "a\n\n---\n\nx\n");
+});
+
+await prueba("sin carpeta, ruta mala, Google Doc o 403 sin espacio: la nota queda ERROR con su motivo y las demás siguen", async () => {
+  const falso = driveDeNotas([
+    { id: "doc", name: "Precios.md", mimeType: reglas.MIME_DOCUMENTO_GOOGLE, parents: ["raiz"] },
+  ]);
+  const base = baseDeNotas({
+    pendientes: [
+      { ruta: "No existe/x.md", contenido: "a" },
+      { ruta: "../fuera.md", contenido: "b" },
+      { ruta: "Precios.md", contenido: "c" },
+      { ruta: "Buena.md", contenido: "d" },
+    ],
+  });
+  const resultado = await conBase(base, () => notas.crearNotasPendientesEnDrive("ws", conectarCon(falso)));
+  assert.deepEqual(resultado, { revisadas: 4, creadas: 1, agregadas: 0, errores: 3 });
+  assert.equal(base.filas[0].estado, "ERROR");
+  assert.match(base.filas[0].motivo, /No está la carpeta "No existe"/);
+  assert.match(base.filas[1].motivo, /La ruta no sirve/);
+  assert.match(base.filas[2].motivo, /Google Doc/);
+  assert.equal(base.filas[3].estado, "CREADA");
+
+  // La cuenta de servicio no puede crear (403 storageQuotaExceeded): ERROR con el link para dar el permiso.
+  const sinEspacio = async (url, init = {}) =>
+    String(url).includes("/files?q=") ? new Response(JSON.stringify({ files: [] }), { status: 200 }) : init.method === "POST" ? sinEspacioDeGoogle() : new Response("{}", { status: 404 });
+  const base403 = baseDeNotas({ pendientes: [{ ruta: "Nota.md", contenido: "x" }] });
+  await conBase(base403, () => notas.crearNotasPendientesEnDrive("ws", conectarCon({ fetchFalso: sinEspacio }, "cuenta-servicio")));
+  assert.equal(base403.filas[0].estado, "ERROR");
+  assert.match(base403.filas[0].motivo, /Entra a https:\/\/crm\.ejemplo\.com\/api\/cerebro\/google\/conectar/);
+  assert.match(base403.filas[0].motivo, /quedó guardado en la base/);
+});
+
+await prueba("no hace nada si el interruptor está prendido sin OAuth, si falta la carpeta o si no hay conexión", async () => {
+  const falso = driveDeNotas();
+  const prendida = baseDeNotas({ interruptor: "prendida", pendientes: [{ ruta: "a.md", contenido: "x" }] });
+  const r1 = await conBase(prendida, () => notas.crearNotasPendientesEnDrive("ws", conectarCon(falso, "cuenta-servicio")));
+  assert.match(r1.saltado, /las crea aizen1/);
+  const sinCarpeta = baseDeNotas({ pendientes: [{ ruta: "a.md", contenido: "x" }] });
+  const r2 = await conBase(sinCarpeta, () => notas.crearNotasPendientesEnDrive("ws", conectarCon(falso, "oauth", null)));
+  assert.match(r2.saltado, /carpeta/);
+  const r3 = await conBase(sinCarpeta, () => notas.crearNotasPendientesEnDrive("ws", async () => { throw new Error("Hay que reconectar Google"); }));
+  assert.match(r3.saltado, /sin conexión/);
+  assert.equal(falso.creaciones().length, 0);
+  assert.equal(prendida.filas[0].estado, "PENDIENTE");
+  assert.equal(sinCarpeta.filas[0].estado, "PENDIENTE", "sin conexión la nota sigue PENDIENTE para la próxima vuelta");
+});
+
+await prueba("la ruta GET, escribir, la vuelta de cada hora y el MCP leen el interruptor; el POST no cambió", () => {
+  const leer = (ruta) => fs.readFileSync(path.join(RAIZ, ruta), "utf8");
+  const ruta = leer("src/app/api/trabajador/cerebro/notas-por-crear/route.ts");
+  assert.match(ruta, /if \(!\(await notasEnAizen1Prendidas\(\)\)\) return NextResponse\.json\(\{ ok: true, notas: \[\] \}/);
+  assert.match(ruta, /const resultado = await marcarNotaPorCrear\(contexto\.workspaceId, cuerpo\);/);
+  const escribirTs = leer("src/features/cerebro/services/escribir.ts");
+  assert.match(escribirTs, /modo !== "oauth" && \(await notasEnAizen1Prendidas\(\)\)/);
+  const sincronizar = leer("src/features/cerebro/services/sincronizar-negocio.ts");
+  assert.match(sincronizar, /await crearNotasPendientesEnDrive\(workspaceId\);/);
+  assert.ok(sincronizar.indexOf("crearNotasPendientesEnDrive(workspaceId)") < sincronizar.indexOf("await sincronizarElCerebro(workspaceId)"), "las notas van antes de sincronizar");
+  const queEs = leer("src/lib/mcp/que-es-esta-aplicacion.ts");
+  assert.match(queEs, /cerebro_notas_en_aizen1: await bandera\(CLAVE_NOTAS_EN_AIZEN1\)/);
+  assert.match(queEs, /"apagada: el CRM crea las notas directo/);
+});
+
 console.log(`\n${pruebas} pruebas del cerebro: OK`);
