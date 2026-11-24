@@ -166,7 +166,7 @@ export async function resolverAlertasPorClave(workspaceId: string, clave: string
   }
 }
 
-export type FiltroDeAlertas ={ estado?: EstadoDeAlerta | "ABIERTAS" | "TODAS"; prioridad?: Prioridad | null };
+export type FiltroDeAlertas = { estado?: EstadoDeAlerta | "ABIERTAS" | "TODAS"; prioridad?: Prioridad | null };
 
 /**
  * Quién mira la página. Sin responsable de Sistemas configurado: el jefe (dueño o administrador) ve las del negocio y
