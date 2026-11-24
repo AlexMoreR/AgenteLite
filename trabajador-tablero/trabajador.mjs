@@ -16,6 +16,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { crmDelArea, filtroDeArea } from "./lib/area-permitida.mjs";
+import { crearBitacoraNocturna } from "./lib/bitacora.mjs";
 import { aplicarVersion, crearVigilanteDeVersion, marcarActualizacionOk, raizDelRepo } from "./lib/autoactualizar.mjs";
 import { crearPlanificador, crearRevisorDeNuevo, queTomarEsperandoVersion, unaVuelta } from "./lib/bucle.mjs";
 import { entornoSeguro, partirTarea } from "./lib/etapas.mjs";
@@ -125,6 +126,8 @@ if (config.autoactualizar.activo) {
 }
 // El manual de la noche: junta las notas de docs/cambios-pendientes/ en el manual una vez al día (lib/manual-nocturno.mjs).
 const manualNocturno = crearManualNocturno({ config, registro, avisar: (texto) => crm.aviso(texto), entorno: entornoSeguro() });
+// La bitácora de la noche (24-nov-2026, lib/bitacora.mjs): pasa los incidentes anotados a docs/incidentes.md de aizencrm y gestion.
+const bitacoraNocturna = crearBitacoraNocturna({ config, registro, avisar: (texto) => crm.aviso(texto), entorno: entornoSeguro() });
 // Los errores viejos (26-oct-2026): una vez al día, y la primera vez que arranca, se recogen las tarjetas en ERROR (lib/recoger-errores.mjs).
 const recogedor = crearRecogedor({
   crm,
@@ -148,6 +151,7 @@ const MINUTO = 60_000;
 const TOPES = {
   llenar: 15 * MINUTO,
   "manual de la noche": 30 * MINUTO,
+  "bitacora de la noche": 15 * MINUTO,
   "recoger errores": 30 * MINUTO,
   "rescate de tarjetas por revisar": 10 * MINUTO,
   // Lleva build y pruebas: pasado el tope sigue por su cuenta (en vuelo, no se lanza otra) y la vuelta no lo espera.
@@ -163,7 +167,7 @@ const tareas = crearTareasConTope({ registro, antes: (nombre, topeMs) => marca.o
 const conTope = (nombre, fn) => tareas.correr(nombre, fn, { topeMs: TOPES[nombre] });
 const primeraLinea = (error) => String(error?.message ?? error).split("\n")[0];
 /** Mientras corre el trabajo de noche o el recogedor no se toman tarjetas (ninguna subida empieza a la vez). */
-const trabajoLargoEnVuelo = () => tareas.algunaEnVuelo("manual de la noche", "recoger errores");
+const trabajoLargoEnVuelo = () => tareas.algunaEnVuelo("manual de la noche", "bitacora de la noche", "recoger errores");
 
 // Versión nueva del Coordinador (antes: `await actualizarCuandoSeaPosible`, que dejaba el bucle mudo hasta que
 // terminaran TODAS, también las de la nube): ahora la vuelta sigue (rescate, notas, marca de vida) sin tomar tarjetas
@@ -190,6 +194,12 @@ while (!parar) {
   if (!pendiente && !planificador.pausadoPorUso() && !planificador.pausadoPorSesion?.() && !tareas.enVuelo("llenar") && !trabajoLargoEnVuelo()) {
     const r = await conTope("manual de la noche", () => manualNocturno.revisar(planificador));
     if (r.error) registro.aviso(`manual de la noche: ${primeraLinea(r.error)}`);
+  }
+  if (parar) break;
+  if (!pendiente && !tareas.enVuelo("llenar") && !trabajoLargoEnVuelo()) {
+    // No usa Claude: solo git (copia texto), corre también en la pausa por uso. No corre con una tarjeta en curso.
+    const r = await conTope("bitacora de la noche", () => bitacoraNocturna.revisar(planificador));
+    if (r.error) registro.aviso(`bitácora de la noche: ${primeraLinea(r.error)}`);
   }
   if (parar) break;
   if (!pendiente && !planificador.pausadoPorUso() && !planificador.pausadoPorSesion?.() && !tareas.enVuelo("llenar") && !trabajoLargoEnVuelo()) {
@@ -232,7 +242,7 @@ while (!parar) {
     }
   }
   if (pendiente) {
-    const ocupado = planificador.corriendo() > 0 || tareas.algunaEnVuelo("llenar", "manual de la noche", "recoger errores", "revisar de nuevo por revisar");
+    const ocupado = planificador.corriendo() > 0 || tareas.algunaEnVuelo("llenar", "manual de la noche", "bitacora de la noche", "recoger errores", "revisar de nuevo por revisar");
     if (!ocupado) {
       const r = await conTope("aplicar la versión nueva", () =>
         aplicarVersion({

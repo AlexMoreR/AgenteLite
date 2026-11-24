@@ -758,7 +758,7 @@ Pruebas: `pruebas/probar-autoactualizar.mjs` (repos git temporales y un Coordina
 
 El 27-oct el Coordinador quedó ~25 min mudo con el proceso vivo (esperaba a las tarjetas de la nube para autoactualizarse). Ahora:
 
-- **Cada trabajo de la vuelta tiene tope** (`lib/vuelta.mjs`): llenar 15 min, manual de la noche y recoger errores 30 min, rescate 10, revisar de nuevo 2 (sigue por su cuenta), notas 5, autoactualizar 10. Si se pasa, se anota "lleva más de … sin terminar" y la vuelta sigue; no se vuelve a lanzar hasta que termine (nunca dos `llenar` a la vez). Cada pedido al CRM tiene además un tope duro propio (`crm.mjs`), aunque el fetch no respete la señal.
+- **Cada trabajo de la vuelta tiene tope** (`lib/vuelta.mjs`): llenar 15 min, manual de la noche y recoger errores 30 min, bitácora de la noche 15, rescate 10, revisar de nuevo 2 (sigue por su cuenta), notas 5, autoactualizar 10. Si se pasa, se anota "lleva más de … sin terminar" y la vuelta sigue; no se vuelve a lanzar hasta que termine (nunca dos `llenar` a la vez). Cada pedido al CRM tiene además un tope duro propio (`crm.mjs`), aunque el fetch no respete la señal.
 - **Marca de vida**: `<carpetaTrabajo>/vivo.json` con `pid`, `ultimaVuelta` (la última vuelta completa) y `ocupadoEn`/`ocupadoHasta` (qué hace y hasta cuándo puede tardar sin estar colgado).
 - **Perro guardián** (`lanzador.mjs`): cada 30 s lee la marca; si max(`ultimaVuelta`, `ocupadoHasta`) tiene más de `perroGuardianMinutos` (config, 10 por defecto; 0 = apagado), mata el proceso con sus hijos y lo arranca de nuevo, con una línea en `logs/lanzador.log` y en el log del día. Solo vigila un Coordinador que ya escribió su marca (una versión vieja sin marca no se reinicia por eso). El lanzador nuevo empieza a vigilar cuando la tarea de Windows lo arranca otra vez.
 
@@ -778,6 +778,53 @@ Una vez al día, pasada la hora de la noche (`manual: { activo, hora, repo }` en
 6. avisa en el panel (`crm.aviso`). Si la subida falla (main cambió), reintenta en una vuelta siguiente, hasta 3 veces por noche. El día hecho queda en `<carpetaTrabajo>/manual-nocturno.json`.
 
 Pruebas: en `pruebas/probar-trabajador.mjs` (con el Claude falso).
+
+## Bitácora de incidentes (24-nov-2026)
+
+Cada falla de subida queda anotada para que la próxima sesión no la repita (`lib/bitacora.mjs`).
+
+**Cuándo se anota.** Cuando una subida falla y el Coordinador ya decidió qué hacer (`lib/bucle.mjs`): la versión nueva no
+arrancó, la vigilancia de 30 min la deshizo o falló el ensayo de migraciones. La entrada trae fecha (Bogotá), tarjeta, repo,
+qué falló, la causa (si no se sabe: "causa no registrada", nunca se inventa), cómo se resolvió (reintento, tarjeta "Arreglo de
+subida" o aviso en Alertas), la regla que deja, hasta 8 líneas del error y una clave estable `<!-- incidente:<tarjeta>:<fecha> -->`
+con la que no se repite.
+
+**Dónde queda.**
+
+1. `<carpetaTrabajo>/incidentes/<repo>.md`: la entrada completa, al final del archivo (nunca se reescribe).
+2. La bóveda del cerebro, `06 Tecnología/Bitácora de incidentes.md` (o la ruta de `bitacora.rutaEnBoveda`): una línea resumida.
+   Solo con `boveda.ruta` puesta; si la bóveda falla, lo local queda igual.
+3. `docs/incidentes.md` de cada repo (aizencrm y gestion): lo pasa el paso de la noche.
+
+**El paso de la noche.** Una vez al día, pasada la hora del manual (`manual.hora`, 23 h de Bogotá por defecto), el bucle llama a
+`crearBitacoraNocturna(...).revisar(planificador)`. No corre si hay alguna tarjeta en curso (`planificador.corriendo() > 0`), ni
+mientras corre el manual o el recogedor. Por cada repo (aizencrm y gestion, los que estén en `repos`):
+
+1. trae lo último de la rama base y abre una copia aparte (`<carpetaTrabajo>/wt/bitacora-nocturna-<repo>`);
+2. lee `docs/incidentes.md`; si no existe, lo crea con su encabezado. Para gestion entra también T-875 (Gestión no arrancó,
+   commit c42a476), que pasó antes de que existiera la bitácora (`INCIDENTES_CONOCIDOS`);
+3. agrega al final solo las entradas de `<carpetaTrabajo>/incidentes/<repo>.md` cuya clave no está ya en el archivo;
+4. si no hay nada nuevo, no hace commit; si hay, hace el commit "docs(incidentes): pasa N entrada(s) de la bitácora de
+   incidentes" y lo sube a la rama base sin forzar.
+
+No usa Claude: solo copia texto. Si git falla, no sube nada de ese repo, lo anota en el registro, avisa en el panel y lo reintenta
+en una vuelta siguiente, hasta 3 veces por noche; el repo que ya quedó no se repite. El estado del día queda en
+`<carpetaTrabajo>/bitacora-nocturna.json`. Tope de la vuelta: 15 min ("bitacora de la noche").
+
+**El bloque "Incidentes ya vistos".** Las instrucciones de planear y construir (en aizen1 y en la nube, `lib/etapas.mjs`) llevan
+las últimas entradas del repo: primero las de `docs/incidentes.md` y después las de la carpeta local que todavía no están ahí,
+una línea por entrada ("- regla — causa"), bajo «Incidentes ya vistos en este repo: no los repitas». Sin entradas, no va el bloque.
+
+**Configuración** (opcional, en `config.local.json`):
+
+```json
+"bitacora": { "rutaEnBoveda": "06 Tecnología/Bitácora de incidentes.md", "entradasEnPrompt": 15 }
+```
+
+`rutaEnBoveda`: el archivo de la bóveda donde va la línea resumida (dentro de la bóveda, sin `..`). `entradasEnPrompt`: cuántas
+entradas van en el bloque (0 = ninguna).
+
+Pruebas: `pruebas/probar-bitacora.mjs` (con un repo git de prueba y su remoto bare local).
 
 ## Notas nuevas del cerebro en la bóveda (26-oct-2026)
 
@@ -809,6 +856,7 @@ agotado se suelta sin usar Claude, el respaldo de Claude) y la alerta de uso de 
 - `lib/autoactualizar.mjs`: mirar si main trae código nuevo, esperar las tarjetas, `pull --ff-only`, probar el arranque, revertir y el estado `actualizacion.json`.
 - `lib/notas-boveda.mjs`: crea en la bóveda local las notas nuevas del cerebro que pidió el CRM.
 - `lib/manual-nocturno.mjs`: el manual de la noche (juntar `docs/cambios-pendientes/` en el manual y subirlo a main una vez al día).
+- `lib/bitacora.mjs`: la bitácora de incidentes (anotar cada subida que falla, el bloque "Incidentes ya vistos" y el paso de la noche que la pasa a `docs/incidentes.md` de cada repo).
 - `lib/bucle.mjs`: el planificador (varias a la vez) y una vuelta (tomar, la etapa con latido, avisar el resultado o el error).
 - `lib/choques.mjs`: qué tarjetas no pueden ir a la vez (zona, módulo, cola de subida).
 - `lib/recursos.mjs`: CPU y memoria del PC (y memoria en GB y disco libre para el latido).
