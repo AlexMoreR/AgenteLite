@@ -76,6 +76,7 @@ import { commitsDeLaRama, esOrquestador, esTareaGrande, nombreDelProyecto, pregu
 import { datosDelLatidoDeConstruir } from "./latido.mjs";
 import { crearPausaPorUso } from "./pausa-uso.mjs";
 import { crearMedidor, faltanRecursos, leerCarga } from "./recursos.mjs";
+import { crearPausaPorSesion } from "./sesion-claude.mjs";
 import { crearGuardiaSinLatido } from "./sin-latido.mjs";
 
 const ETAPAS = { planear, construir, subir };
@@ -1078,6 +1079,8 @@ export function crearPlanificador({
   procesarTarjeta = procesar,
   // El reloj (las pruebas de la alarma de cupos sin usar lo adelantan).
   ahora = () => Date.now(),
+  // 24-nov-2026: la pausa por sesión de Claude vencida (sesion-claude.mjs): con la sesión vencida no se toma ninguna tarjeta.
+  pausaSesion = crearPausaPorSesion({ config, registro, ahora, entorno: entornoSeguro() }),
   // La memoria y el disco de aizen1 en GB (recursos.mjs: leerCarga), para el semáforo; las pruebas la cambian.
   leerCargaDelPc = leerCarga,
   // El ajuste automático del cupo de la nube (ajuste-de-cupos.mjs); undefined = el de la configuración.
@@ -1137,6 +1140,8 @@ export function crearPlanificador({
   // Terminó una sesión mientras no se esperaba: la próxima espera no duerme.
   let cupoNuevo = false;
   let ultimoAviso = "";
+  // Si ya se anotó "En pausa: sesión de Claude vencida" en esta pausa (una sola línea por pausa).
+  let pausaSesionAvisada = false;
   let ultimoSinMotor = "";
   // La hora de vuelta de la pausa de la que ya se avisó al dueño por WhatsApp (0 = ninguna): un aviso por pausa.
   let limiteAvisadoHasta = 0;
@@ -1484,7 +1489,7 @@ export function crearPlanificador({
       const corriendo = ocupadas().length + ocupadasEnNube().length;
       const cupos = cuposDisponibles();
       cuposVistos = { cupos, enFila: enFila.length, corriendo };
-      const pasa = enFila.length > 0 && corriendo < cupos && !pausaUso.pausado() && etapasSinMotor().length === 0 && !pcEspera;
+      const pasa = enFila.length > 0 && corriendo < cupos && !pausaUso.pausado() && !pausaSesion.vencida() && etapasSinMotor().length === 0 && !pcEspera;
       if (!pasa) {
         cuposSinUsarDesde = null;
         cuposSinUsarAvisado = false;
@@ -1540,6 +1545,14 @@ export function crearPlanificador({
       return;
     }
     if (ultimoAviso === "pausa-uso") ultimoAviso = "";
+    // 24-nov-2026: con la sesión de Claude vencida cada tarjeta fallaría al instante y gastaría un intento: no se toma ninguna.
+    // El aviso sale UNA vez por pausa; el latido sigue saliendo (va aparte) y la revisión saca la pausa sola cuando vuelve.
+    if (await pausaSesion.revisar()) {
+      if (!pausaSesionAvisada) registro.aviso("En pausa: sesión de Claude vencida");
+      pausaSesionAvisada = true;
+      return;
+    }
+    pausaSesionAvisada = false;
     // Las que se soltaron en esta pasada porque no tenían dónde correr: no se vuelven a tomar hasta la próxima.
     const descartadas = new Map();
     for (;;) {
@@ -1747,6 +1760,8 @@ export function crearPlanificador({
         esperas: [...esperasDeFila.entries()].map(([tarjetaId, espera]) => ({ tarjetaId, motivo: espera.motivo, ...(espera.contra ? { contra: espera.contra } : {}) })),
         uso: motores.resumenDeUso(),
         pausaUso: pausaUso.resumen(),
+        // 24-nov-2026: la sesión de Claude: { vencida, desde, revisadaEn }.
+        sesionClaude: pausaSesion.resumen(),
         // 31-oct-2026: los puestos disponibles, cuántas esperan en fila y cuántas ocupan puesto (los máximos del día salen de acá).
         cupos: cuposVistos.cupos,
         enFila: cuposVistos.enFila,
@@ -1758,6 +1773,9 @@ export function crearPlanificador({
     /** Pausa por uso de Claude: ¿está pausado? (el trabajo de noche y el recogedor tampoco corren) y los ajustes del panel. */
     pausadoPorUso: () => pausaUso.pausado(),
     ajustarPausaUso: (ajustes) => pausaUso.ajustes(ajustes),
+    /** Pausa por sesión de Claude vencida: ¿está vencida? y el objeto entero (marcarVencida, esErrorDeSesion) para la parte 2. */
+    pausadoPorSesion: () => pausaSesion.vencida(),
+    pausaSesion,
     esperar: (ms) =>
       new Promise((resolver) => {
         if (cupoNuevo) {

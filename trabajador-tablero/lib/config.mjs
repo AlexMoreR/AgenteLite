@@ -679,6 +679,8 @@ export function completarConfig(datos, base = process.cwd()) {
     herramientasPermitidas: lista(datos.herramientasPermitidas).length ? datos.herramientasPermitidas : HERRAMIENTAS_PERMITIDAS,
     herramientasProhibidas: [...new Set([...HERRAMIENTAS_PROHIBIDAS, ...lista(datos.herramientasProhibidas)])],
     tiempos: { ...TIEMPOS_POR_DEFECTO, ...(datos.tiempos ?? {}) },
+    // 24-nov-2026 (lib/sesion-claude.mjs): con la sesión de Claude vencida, cada cuántos minutos se vuelve a revisar.
+    sesionClaude: { revisarMinutos: minutosPositivos(datos.sesionClaude?.revisarMinutos, 3) },
     // 18-nov-2026 (lib/sin-latido.mjs): cada cuánto se mira si las tarjetas tomadas siguen vivas y cuántos minutos sin señal es "sesión muerta".
     sinLatido: {
       revisarCadaMinutos: minutosPositivos(datos.sinLatido?.revisarCadaMinutos, 15),
