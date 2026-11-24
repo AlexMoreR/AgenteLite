@@ -8,6 +8,7 @@
 // Requiere las variables VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY y VAPID_SUBJECT.
 import webpush from "web-push";
 import { prisma } from "@/lib/prisma";
+import { queHacerConFallaDePush } from "@/lib/linea-de-falla";
 
 const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY?.trim() || "";
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY?.trim() || "";
@@ -104,14 +105,16 @@ async function deliverToSubscriptions(
             ? (error as { statusCode?: number }).statusCode
             : undefined;
         // 404/410 = suscripción caducada o revocada por el navegador → eliminarla.
-        if (statusCode === 404 || statusCode === 410) {
+        // Si no, UNA linea (linea-de-falla.ts): un corte de red pasajero (EAI_AGAIN, tiempo
+        // agotado) va como informativo y sin la palabra error; la vigilancia de 30 minutos lo
+        // contaba como falla nueva. Otra falla sigue como aviso con el texto corto.
+        const queHacer = queHacerConFallaDePush(subscription.endpoint, statusCode, error);
+        if (queHacer === "podar") {
           staleSubscriptionIds.push(subscription.id);
+        } else if (queHacer.nivel === "info") {
+          console.info(queHacer.linea);
         } else {
-          console.warn("[web-push] send_failed", {
-            endpoint: subscription.endpoint.slice(0, 48),
-            statusCode: statusCode ?? null,
-            error: error instanceof Error ? error.message : String(error),
-          });
+          console.warn(queHacer.linea);
         }
       }
     }),

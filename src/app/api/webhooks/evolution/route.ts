@@ -162,6 +162,27 @@ import { persistEvolutionHistorySync, syncEvolutionMessagesSince } from "@/lib/e
 import { persistChatMediaFromDataUrl } from "@/lib/chat-media-storage";
 import { dependenciasReales, recuperarArchivoDeWaha } from "@/lib/recuperar-archivo-de-waha";
 import { reabreAlLlegar } from "@/lib/chat-resuelto";
+import { lineaDeFalla } from "@/lib/linea-de-falla";
+
+/*
+  Registro de una falla atrapada en UNA linea (src/lib/linea-de-falla.ts). Un corte de red pasajero
+  (EAI_AGAIN, "The operation was aborted due to timeout") va como informativo, con la etiqueta
+  terminada en "corte" y sin la palabra error: la vigilancia de 30 minutos lo contaba como falla
+  nueva y deshacia subidas sanas. Una falla de verdad sale con el nivel de siempre y el texto corto.
+  Solo escribe la linea: no cambia que se hace despues de la falla.
+*/
+function registrarFalla(
+  etiqueta: string,
+  datos: Record<string, unknown>,
+  error: unknown,
+  nivel: "warn" | "error",
+  prefijo = "[EVOLUTION]",
+) {
+  const { linea, nivel: consola } = lineaDeFalla(prefijo, etiqueta, datos, error, nivel);
+  if (consola === "info") console.info(linea);
+  else if (consola === "warn") console.warn(linea);
+  else console.error(linea);
+}
 
 function mapChannelStatus(eventName: string | null, rawState: string | null) {
   const state = rawState?.toLowerCase() ?? "";
@@ -1000,11 +1021,10 @@ export async function POST(request: NextRequest) {
               },
             });
           } catch (error) {
-            console.error("[EVOLUTION] gap_sync_error", {
+            registrarFalla("gap_sync_error", {
               instanceName,
               channelId: gapChannel.id,
-              error: error instanceof Error ? error.message : String(error),
-            });
+            }, error, "error");
           }
         });
       }
@@ -1041,11 +1061,10 @@ export async function POST(request: NextRequest) {
           adjuntos: result.media,
         });
       } catch (error) {
-        console.error("[EVOLUTION] history_sync_error", {
+        registrarFalla("history_sync_error", {
           instanceName,
           channelId: historyChannel.id,
-          error: error instanceof Error ? error.message : String(error),
-        });
+        }, error, "error");
       }
     });
 
@@ -1168,10 +1187,9 @@ export async function POST(request: NextRequest) {
       }
     } catch (error) {
       // Si la busqueda falla se sigue con el LID: peor es no guardar el mensaje.
-      console.warn("[EVOLUTION] no se pudo resolver el LID contra una ficha existente", {
+      registrarFalla("no se pudo resolver el LID contra una ficha existente", {
         lid: lidEntrante,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      }, error, "warn");
     }
   }
   const callDirection = isCallEvent ? extractEvolutionCallDirection(payload) : null;
@@ -1268,7 +1286,7 @@ export async function POST(request: NextRequest) {
         data: { reactionEmoji: nextEmoji },
       })
       .catch((error) => {
-        console.error("[EVOLUTION] reaction_update_failed", error);
+        registrarFalla("reaction_update_failed", { targetExternalId: reaction.targetExternalId }, error, "error");
       });
 
     console.log("[EVOLUTION] reaction_received", {
@@ -1554,10 +1572,9 @@ export async function POST(request: NextRequest) {
           sourceApp: adLeadOrigin.sourceApp,
         });
       } catch (error) {
-        console.warn("[EVOLUTION] ad_origin_capture_failed", {
+        registrarFalla("ad_origin_capture_failed", {
           contactId: adOriginContactId,
-          error: error instanceof Error ? error.message : String(error),
-        });
+        }, error, "warn");
       }
     });
   }
@@ -1681,10 +1698,9 @@ export async function POST(request: NextRequest) {
             targetId: producto.productId,
           });
         } catch (error) {
-          console.warn("[EVOLUTION] product_auto_tag_failed", {
+          registrarFalla("product_auto_tag_failed", {
             conversationId: conversation.id,
-            error: error instanceof Error ? error.message : String(error),
-          });
+          }, error, "warn");
         }
       });
 
@@ -2118,10 +2134,9 @@ export async function POST(request: NextRequest) {
           workspaceId: channel.workspaceId,
         });
       } catch (error) {
-        console.error("[reparto-por-turno] fallo", {
+        registrarFalla("fallo", {
           conversationId: conversacionDelReparto,
-          error: error instanceof Error ? error.message : String(error),
-        });
+        }, error, "error", "[reparto-por-turno]");
       }
       /*
         Aviso a la clienta (12-nov-2026): si el chat pasó a una asesora en este turno, al final de lo
@@ -2142,10 +2157,9 @@ export async function POST(request: NextRequest) {
           externalIdDeEstePaso: mensajeDelReparto,
         });
       } catch (error) {
-        console.error("[reparto-aviso-a-la-clienta] fallo", {
+        registrarFalla("fallo", {
           conversationId: conversacionDelReparto,
-          error: error instanceof Error ? error.message : String(error),
-        });
+        }, error, "error", "[reparto-aviso-a-la-clienta]");
       }
     });
   }
@@ -2245,11 +2259,10 @@ export async function POST(request: NextRequest) {
               AND "externalId" = ${inboundExternalId}
           `;
         } catch (error) {
-          console.warn("[EVOLUTION] no se pudo soltar el base64 duplicado del payload", {
+          registrarFalla("no se pudo soltar el base64 duplicado del payload", {
             channelId: channel.id,
             externalId: inboundExternalId,
-            error: error instanceof Error ? error.message : String(error),
-          });
+          }, error, "warn");
         }
       } else {
         /*
@@ -2282,13 +2295,12 @@ export async function POST(request: NextRequest) {
       }
     } catch (error) {
       // No bloquear la ingesta: si falla, queda la resolucion perezosa como fallback.
-      console.warn("[EVOLUTION] media_persist_failed", {
+      registrarFalla("media_persist_failed", {
         conversationId: conversation.id,
         channelId: channel.id,
         externalId: inboundExternalId,
         messageType,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      }, error, "warn");
     }
   }
 
@@ -2325,10 +2337,9 @@ export async function POST(request: NextRequest) {
           console.log("[EVOLUTION] se unio la ficha del LID con la del telefono", { contactId, lid });
         }
       } catch (error) {
-        console.warn("[EVOLUTION] no se pudo anotar/unir el LID resuelto", {
+        registrarFalla("no se pudo anotar/unir el LID resuelto", {
           contactId,
-          error: error instanceof Error ? error.message : String(error),
-        });
+        }, error, "warn");
       }
     });
   }
@@ -2389,10 +2400,9 @@ export async function POST(request: NextRequest) {
           console.log("[EVOLUTION] se unio la ficha del LID con la del telefono", { contactId, lid });
         }
       } catch (error) {
-        console.warn("[EVOLUTION] no se pudo resolver el LID del telefono", {
+        registrarFalla("no se pudo resolver el LID del telefono", {
           contactId,
-          error: error instanceof Error ? error.message : String(error),
-        });
+        }, error, "warn");
       }
     });
   }
@@ -2425,10 +2435,9 @@ export async function POST(request: NextRequest) {
             },
           });
         } catch (error) {
-          console.warn("[EVOLUTION] no se pudo anotar el LID de la ficha", {
+          registrarFalla("no se pudo anotar el LID de la ficha", {
             contactId,
-            error: error instanceof Error ? error.message : String(error),
-          });
+          }, error, "warn");
         }
       });
     }
@@ -2458,10 +2467,9 @@ export async function POST(request: NextRequest) {
           data: { metadata: buildSnoozeMetadata(ficha.metadata, null) as Prisma.InputJsonValue },
         });
       } catch (error) {
-        console.warn("[EVOLUTION] no se pudo despertar el lead pospuesto", {
+        registrarFalla("no se pudo despertar el lead pospuesto", {
           contactId,
-          error: error instanceof Error ? error.message : String(error),
-        });
+        }, error, "warn");
       }
     });
   }
@@ -2502,10 +2510,9 @@ export async function POST(request: NextRequest) {
         });
         console.log("[EVOLUTION] telefono rescatado de la conversacion", { contactId });
       } catch (error) {
-        console.warn("[EVOLUTION] no se pudo rescatar el telefono de la conversacion", {
+        registrarFalla("no se pudo rescatar el telefono de la conversacion", {
           contactId,
-          error: error instanceof Error ? error.message : String(error),
-        });
+        }, error, "warn");
       }
     });
   }
@@ -2591,11 +2598,10 @@ export async function POST(request: NextRequest) {
           },
         });
       } catch (error) {
-        console.warn("[EVOLUTION] web_push_failed", {
+        registrarFalla("web_push_failed", {
           channelId: channel.id,
           conversationId: conversation.id,
-          error: error instanceof Error ? error.message : String(error),
-        });
+        }, error, "warn");
       }
     });
   }
@@ -2715,11 +2721,10 @@ export async function POST(request: NextRequest) {
               });
             }
       } catch (error) {
-        console.error("[EVOLUTION] owner_triggered_flow_failed", {
+        registrarFalla("owner_triggered_flow_failed", {
           conversationId: conversation.id,
           keyword: ownerTriggeredFlow.keyword,
-          error: error instanceof Error ? error.message : String(error),
-        });
+        }, error, "error");
       }
 
       return NextResponse.json({
@@ -2864,10 +2869,9 @@ export async function POST(request: NextRequest) {
         });
         await marcarRespuestaExteriorEnviada(contact.id);
       } catch (error) {
-        console.warn("[EVOLUTION] no se pudo responder al cliente de fuera de Colombia", {
+        registrarFalla("no se pudo responder al cliente de fuera de Colombia", {
           conversationId: conversation.id,
-          error: error instanceof Error ? error.message : String(error),
-        });
+        }, error, "warn");
       }
     }
     console.log("[EVOLUTION] v3_fuera_de_colombia", { conversationId: conversation.id, respondio: exteriorDelSeguimiento.responder });
@@ -2988,10 +2992,9 @@ export async function POST(request: NextRequest) {
             }),
         });
       } catch (error) {
-        console.warn("[EVOLUTION] v3_aviso_pausa_fallo", {
+        registrarFalla("v3_aviso_pausa_fallo", {
           conversationId: conversation.id,
-          error: error instanceof Error ? error.message : String(error),
-        });
+        }, error, "warn");
       }
     });
   }
@@ -3045,10 +3048,9 @@ export async function POST(request: NextRequest) {
         channelId: channel.id,
         workspaceId: channel.workspaceId,
       }).catch((error) => {
-        console.warn("[EVOLUTION] v3_asignar_fallo", {
+        registrarFalla("v3_asignar_fallo", {
           conversationId: conversation.id,
-          error: error instanceof Error ? error.message : String(error),
-        });
+        }, error, "warn");
       });
     };
 
@@ -3236,10 +3238,9 @@ export async function POST(request: NextRequest) {
         channelId: channel.id,
         workspaceId: channel.workspaceId,
       }).catch((error) => {
-        console.warn("[EVOLUTION] v3_asignar_fallo", {
+        registrarFalla("v3_asignar_fallo", {
           conversationId: conversation.id,
-          error: error instanceof Error ? error.message : String(error),
-        });
+        }, error, "warn");
       });
     };
     // Pausar la IA en este chat: la accion `pausar_ia` del libro y el redactor cuando pasa a una asesora.
@@ -3251,10 +3252,9 @@ export async function POST(request: NextRequest) {
         channelId: channel.id,
         workspaceId: channel.workspaceId,
       }).catch((error) => {
-        console.warn("[EVOLUTION] v3_asignar_fallo", {
+        registrarFalla("v3_asignar_fallo", {
           conversationId: conversation.id,
-          error: error instanceof Error ? error.message : String(error),
-        });
+        }, error, "warn");
       });
     };
     /*
@@ -3403,10 +3403,9 @@ export async function POST(request: NextRequest) {
           }),
       },
     }).catch((error) => {
-      console.error("[EVOLUTION] v3_error", {
+      registrarFalla("v3_error", {
         conversationId: conversation.id,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      }, error, "error");
       return null;
     });
 
@@ -3745,13 +3744,12 @@ export async function POST(request: NextRequest) {
             text: notifyHumanAction.message,
             delayMs: 0,
           }).catch((error) => {
-            console.warn("[EVOLUTION] human_notification_failed", {
+            registrarFalla("human_notification_failed", {
               conversationId: conversation.id,
               agentId: agent.id,
               phoneNumber,
               destinationPhoneNumber: notifyHumanAction.destinationPhoneNumber,
-              error: error instanceof Error ? error.message : String(error),
-            });
+            }, error, "warn");
             return null;
           })
         : null;
@@ -3782,10 +3780,9 @@ export async function POST(request: NextRequest) {
               channelId: channel.id,
             });
           } catch (error) {
-            console.warn("[EVOLUTION] cierre_no_marcado", {
+            registrarFalla("cierre_no_marcado", {
               conversationId: conversation.id,
-              error: error instanceof Error ? error.message : String(error),
-            });
+            }, error, "warn");
           }
         });
       }
@@ -3882,11 +3879,10 @@ export async function POST(request: NextRequest) {
             flowId: flujoDeBienvenida,
             includeOfficialApi: true,
           }).catch((error) => {
-            console.warn("[EVOLUTION] welcome_flow_failed", {
+            registrarFalla("welcome_flow_failed", {
               conversationId: conversation.id,
               flowId: flujoDeBienvenida,
-              error: error instanceof Error ? error.message : String(error),
-            });
+            }, error, "warn");
             return null;
           });
           if (saludo?.steps?.length) {
@@ -4081,10 +4077,9 @@ export async function POST(request: NextRequest) {
             });
           }
         } catch (error) {
-          console.error("[EVOLUTION] agent_v2_stage_follows_error", {
+          registrarFalla("agent_v2_stage_follows_error", {
             conversationId: conversation.id,
-            error: error instanceof Error ? error.message : String(error),
-          });
+          }, error, "error");
         }
       }
 
@@ -4134,10 +4129,9 @@ export async function POST(request: NextRequest) {
           }
 
         } catch (error) {
-          console.warn("[EVOLUTION] playbook_read_failed", {
+          registrarFalla("playbook_read_failed", {
             productId: productoDelPlaybook.productId,
-            error: error instanceof Error ? error.message : String(error),
-          });
+          }, error, "warn");
         }
       }
 
@@ -4552,12 +4546,11 @@ export async function POST(request: NextRequest) {
             });
           },
         }).catch((error) => {
-          console.warn("[EVOLUTION] repeat_escalation_failed", {
+          registrarFalla("repeat_escalation_failed", {
             conversationId: conversation.id,
             agentId: agent.id,
             phoneNumber,
-            error: error instanceof Error ? error.message : String(error),
-          });
+          }, error, "warn");
           return null;
         });
 
@@ -4786,7 +4779,12 @@ export async function POST(request: NextRequest) {
               state: recovery.state,
             });
           }
-          console.error(`[EVOLUTION] auto_reply_failed conversationId=${conversation.id} agentId=${agent.id} phone=${phoneNumber} instance=${channel.evolutionInstanceName} error=${errorMessage}`);
+          registrarFalla("auto_reply_failed", {
+            conversationId: conversation.id,
+            agentId: agent.id,
+            phone: phoneNumber,
+            instance: channel.evolutionInstanceName,
+          }, error, "error");
           await persistEvolutionMessage({
             data: {
               workspaceId: channel.workspaceId,
@@ -4821,13 +4819,12 @@ export async function POST(request: NextRequest) {
                 delay: responseDelayMs,
               });
             } catch (presenceError) {
-              console.warn("[EVOLUTION] presence_failed", {
+              registrarFalla("presence_failed", {
                 conversationId: conversation.id,
                 agentId: agent.id,
                 phoneNumber,
                 instanceName: channel.evolutionInstanceName,
-                error: presenceError instanceof Error ? presenceError.message : String(presenceError),
-              });
+              }, presenceError, "warn");
             }
 
             const sendText = async () => {
@@ -4924,9 +4921,12 @@ export async function POST(request: NextRequest) {
             });
           }
 
-          console.error(
-            `[EVOLUTION] auto_reply_failed conversationId=${conversation.id} agentId=${agent.id} phone=${phoneNumber} instance=${channel.evolutionInstanceName} error=${errorMessage}`,
-          );
+          registrarFalla("auto_reply_failed", {
+            conversationId: conversation.id,
+            agentId: agent.id,
+            phone: phoneNumber,
+            instance: channel.evolutionInstanceName,
+          }, error, "error");
 
           await persistEvolutionMessage({
             data: {
@@ -5009,10 +5009,9 @@ export async function POST(request: NextRequest) {
               agendados,
             });
           } catch (error) {
-            console.warn("[EVOLUTION] escalera_de_flujo_fallo", {
+            registrarFalla("escalera_de_flujo_fallo", {
               conversationId: conversation.id,
-              error: error instanceof Error ? error.message : String(error),
-            });
+            }, error, "warn");
           }
         });
       }
@@ -5043,10 +5042,9 @@ export async function POST(request: NextRequest) {
               agendados,
             });
           } catch (error) {
-            console.warn("[EVOLUTION] escalera_sin_responder_fallo", {
+            registrarFalla("escalera_sin_responder_fallo", {
               conversationId: conversation.id,
-              error: error instanceof Error ? error.message : String(error),
-            });
+            }, error, "warn");
           }
         });
       }
@@ -5061,23 +5059,21 @@ export async function POST(request: NextRequest) {
         contactId: contact.id,
       });
     } catch (summaryError) {
-      console.error("[EVOLUTION] contact_summary_failed", {
+      registrarFalla("contact_summary_failed", {
         conversationId: conversation.id,
         contactId: contact.id,
-        error: summaryError instanceof Error ? summaryError.message : String(summaryError),
-      });
+      }, summaryError, "error");
     }
   } else {
     // noop: channel without agent
   }
 
     } catch (error) {
-      console.error("[EVOLUTION] post_response_processing_failed", {
+      registrarFalla("post_response_processing_failed", {
         conversationId: conversation.id,
         contactId: contact.id,
         phoneNumber,
-        error: error instanceof Error ? error.stack || error.message : String(error),
-      });
+      }, error, "error");
     }
   });
 
