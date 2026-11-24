@@ -62,6 +62,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { DIAS_DE_LA_SEMANA, type HorarioSemanal, type ModoDelDia } from "@/lib/horario-de-reparto-dias";
+import type { LineasDeLaPersona } from "@/features/actividad/services/lineas-de-la-persona";
 import {
   clientAssignableModuleDefinitions,
   defaultClientEmployeeModuleKeys,
@@ -90,6 +91,8 @@ type EmployeeRow = {
   horario: HorarioSemanal;
   /** WhatsApp donde le llegan los avisos de sus chats. Vacío = no recibe. */
   whatsappDeAvisos: string;
+  /** Última conexión y última acción, ya en palabras (solo lo ven el dueño y los administradores). */
+  actividad: LineasDeLaPersona;
   invitedAtLabel: string;
   acceptedAtLabel: string;
 };
@@ -767,6 +770,13 @@ export function ClientTeamWorkspace({ employees }: ClientTeamWorkspaceProps) {
                       {employee.status === "pending" ? (
                         <span className="text-[11px] text-muted-foreground">{employee.invitedAtLabel}</span>
                       ) : null}
+                      <span className="max-w-64 text-[11px] leading-snug text-muted-foreground">
+                        {employee.actividad.conectadaAhora ? (
+                          <span className="mr-1 font-medium text-foreground">🟢 Conectada ahora ·</span>
+                        ) : null}
+                        {employee.actividad.conexion}
+                      </span>
+                      <span className="max-w-64 text-[11px] leading-snug text-muted-foreground">{employee.actividad.accion}</span>
                     </div>
                   </TableCell>
                   <TableCell className="align-top">

@@ -9,6 +9,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
+import { leerActividadDelEquipo, nombreDeLaRuta } from "@/lib/actividad-del-equipo";
 import { leerColaboradores, leerMonitores, leerPausadosDeReparto } from "@/lib/channel-collaborators";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import {
@@ -23,6 +24,8 @@ import { horarioSiempre, leerHorariosDeReparto } from "@/lib/horario-de-reparto"
 import { leerLiderDeVentasElegido, leerSupervisoras } from "@/lib/permisos-del-equipo";
 import { prisma } from "@/lib/prisma";
 import { leerConfigDeAvisos, numeroDeAvisosDe } from "@/features/agente-v3/servicios/avisos";
+import { ultimaAccionPorPersona } from "@/features/actividad/services/actividad";
+import { lineasDeLaPersona } from "@/features/actividad/services/lineas-de-la-persona";
 
 export const metadata: Metadata = {
   robots: {
@@ -45,6 +48,13 @@ function formatDate(value: Date | null) {
   }).format(value);
 }
 
+/** La "Última acción" mira hasta 30 días atrás; más viejo sale "Sin acciones en 30 días". */
+const DIAS_DE_ULTIMA_ACCION = 30;
+
+function haceDias(dias: number) {
+  return new Date(Date.now() - dias * 24 * 3_600_000);
+}
+
 /** "Prendida, 5 y 10 min" para el historial de la regla de demora. */
 function resumenDeDemora(estado: EstadoDelBoton) {
   return `${estado.activo ? "Prendida" : "Apagada"}, ${estado.minutosAviso} y ${estado.minutosReasignar} min`;
@@ -58,7 +68,18 @@ export default async function ClienteEquipoPage({ searchParams }: PageProps) {
 
   // Muestra empleados (AGENT/EMPLEADO) Y administradores (ADMIN) del negocio. El dueno
   // (OWNER) no se lista aqui: es el titular de la cuenta, no un miembro gestionable.
-  const [employees, canales, supervisoras, horarios, configDeAvisos, liderElegido, filaDemora, filaHistorialDemora] = await Promise.all([
+  const [
+    employees,
+    canales,
+    supervisoras,
+    horarios,
+    configDeAvisos,
+    liderElegido,
+    filaDemora,
+    filaHistorialDemora,
+    actividad,
+    ultimasAcciones,
+  ] = await Promise.all([
     prisma.workspaceMember.findMany({
       where: {
         workspaceId: access.workspaceId,
@@ -96,6 +117,13 @@ export default async function ClienteEquipoPage({ searchParams }: PageProps) {
     // La regla de demora de asesora: la misma fila que lee la regla, y su historial.
     prisma.appSetting.findUnique({ where: { key: claveConfigDemora(access.workspaceId) }, select: { value: true } }),
     prisma.appSetting.findUnique({ where: { key: claveHistorialDemora(access.workspaceId) }, select: { value: true } }),
+    // Última conexión y última acción de cada persona (solo lectura). Si fallan, la pantalla sale
+    // igual con "Sin registro todavía" / "Sin acciones en 30 días" en vez de romperse.
+    leerActividadDelEquipo(access.workspaceId).catch(() => ({}) as Awaited<ReturnType<typeof leerActividadDelEquipo>>),
+    ultimaAccionPorPersona({
+      workspaceId: access.workspaceId,
+      desde: haceDias(DIAS_DE_ULTIMA_ACCION),
+    }).catch(() => new Map() as Awaited<ReturnType<typeof ultimaAccionPorPersona>>),
   ]);
 
   const demora = estadoDelBotonDeTexto(filaDemora?.value);
@@ -132,6 +160,24 @@ export default async function ClienteEquipoPage({ searchParams }: PageProps) {
             : "recibe";
       return { channelId: canal.id, nombre: canal.name, estado, abierta: colaboradores.length === 0 };
     });
+
+  // Las dos líneas de debajo del nombre, ya en palabras y con la hora de Colombia.
+  const ahora = new Date();
+  const lineasDeActividadDe = (userId: string) => {
+    const latido = actividad[userId];
+    return lineasDeLaPersona({
+      latido: latido
+        ? {
+            cuando: latido.cuando,
+            // "Chats · Salón Rosa": la pantalla y, si estaba en un chat, cuál.
+            donde: latido.donde || nombreDeLaRuta(latido.ruta),
+            aparato: latido.dispositivo,
+          }
+        : null,
+      ultimaAccion: ultimasAcciones.get(userId) ?? null,
+      ahora,
+    });
+  };
 
   return (
     <section className="app-page flex flex-col gap-5 p-4 sm:p-6">
@@ -210,6 +256,7 @@ export default async function ClienteEquipoPage({ searchParams }: PageProps) {
             lineas: lineasDe(employee.user.id),
             horario: horarios[employee.user.id] ?? horarioSiempre(),
             whatsappDeAvisos: numeroDeAvisosDe(configDeAvisos, employee.user.id),
+            actividad: lineasDeActividadDe(employee.user.id),
             invitedAtLabel: `Invitado: ${formatDate(employee.invitedAt)}`,
             acceptedAtLabel: employee.acceptedAt ? `Aceptado: ${formatDate(employee.acceptedAt)}` : "Sin aceptar",
           };
