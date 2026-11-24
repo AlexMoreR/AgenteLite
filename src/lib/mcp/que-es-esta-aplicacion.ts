@@ -8,6 +8,7 @@ import { agenteActivo } from "@/features/agentes-de-area/servicios/config";
 import { leerUltimosResumenes } from "@/features/agentes-de-area/servicios/resumenes";
 import { coachOpusActivo, diasSaltados } from "@/features/coach/revision-opus/servicio";
 import { prisma } from "@/lib/prisma";
+import postgresDeProduccion from "@/lib/postgres-produccion.json";
 import { CLAVE_ESTADO_ALERTA_CPU, leerEstadoAlertaCpu } from "@/lib/recibir-metrica-servidor";
 import { aprobacionAutomaticaPrendida, aprobarPlanesSoloPrendido, aprobarTareasSoloPrendido } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
 import { featuresSolasPrendido } from "@/features/tableros-inteligentes/services/preparar-features";
@@ -238,6 +239,29 @@ async function versiones() {
     next_auth: de("next-auth"),
     base_ui: de("@base-ui/react"),
     node_del_servidor: process.version,
+  };
+}
+
+/**
+ * La version de Postgres que corre (SHOW server_version, solo lectura) contra la que esperan las pruebas
+ * (src/lib/postgres-produccion.json, que usa scripts/check-sql-version-postgres.mjs). Si las mayores no
+ * coinciden, avisa: las pruebas estarian dejando pasar (o frenando) SQL de otra version.
+ */
+async function versionDePostgres() {
+  const filas = await prisma.$queryRawUnsafe<{ server_version: string }[]>("SHOW server_version");
+  const enVivo = filas[0]?.server_version;
+  if (!enVivo) throw new Error("SHOW server_version no devolvio nada");
+  const mayorEnVivo = Number.parseInt(enVivo, 10);
+  const esperada = postgresDeProduccion.mayor;
+  return {
+    produccion_en_vivo: enVivo,
+    pruebas_esperan: esperada,
+    ...(postgresDeProduccion.provisional ? { provisional: "la version de src/lib/postgres-produccion.json es provisional: no se leyo de produccion" } : {}),
+    ...(mayorEnVivo !== esperada
+      ? {
+          aviso: `DIFERENCIA: produccion corre Postgres ${Number.isNaN(mayorEnVivo) ? enVivo : mayorEnVivo} y las pruebas esperan ${esperada}; actualizar src/lib/postgres-produccion.json`,
+        }
+      : {}),
   };
 }
 
@@ -942,8 +966,9 @@ async function queEsEstaAplicacion(contexto: Contexto) {
       ? { reglasSinRespuesta: enVivo.reglas_sin_respuesta_activas, hayLineasConV3: enVivo.hay_lineas_con_v3 }
       : { reglasSinRespuesta: 0, hayLineasConV3: false };
 
-  const [stack, modulos, datos, autos, arranque] = await Promise.all([
+  const [stack, postgres, modulos, datos, autos, arranque] = await Promise.all([
     seguro("versiones de package.json", versiones),
+    seguro("version de Postgres (SHOW server_version)", versionDePostgres),
     seguro("pantallas del build", async () => {
       const existentes = await pantallas();
       return {
@@ -967,6 +992,7 @@ async function queEsEstaAplicacion(contexto: Contexto) {
     que_es_y_que_resuelve: { fuente: FUENTE_ARCHIVO, texto: sin(seccion(archivo, "Qué es y qué resuelve")) },
     stack_y_despliegue: {
       versiones: { fuente: `${FUENTE_VIVO} (package.json)`, ...stack },
+      postgres: { fuente: `${FUENTE_VIVO} (SHOW server_version) contra src/lib/postgres-produccion.json`, ...postgres },
       descripcion: { fuente: FUENTE_ARCHIVO, texto: sin(seccion(archivo, "Stack y despliegue")) },
     },
     modulos,

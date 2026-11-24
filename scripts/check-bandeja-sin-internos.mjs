@@ -521,7 +521,7 @@ await prueba("internos: una config de avisos mal escrita no tumba la consulta (s
 await prueba("internos: la SQL no usa nada de Postgres 16 o mas nuevo (produccion tiene una menor)", async () => {
   const sql = internosMod.sqlContactosInternos(WS);
   const texto = sql.strings.join("?");
-  for (const prohibido of ["pg_input_", "IS JSON", "JSON_OBJECT", "JSON_ARRAY", "any_value", "::jsonb"]) {
+  for (const prohibido of ["pg_input_", "IS JSON", "JSON_OBJECT", "JSON_ARRAY", "any_value", "::jsonb"]) { // sql-version-ok: es la lista de lo prohibido, no SQL
     assert.ok(!texto.toUpperCase().includes(prohibido.toUpperCase()), `la SQL usa ${prohibido}`);
   }
   // Prisma.sql se come las barras invertidas de la plantilla: la SQL no debe depender de ninguna.
