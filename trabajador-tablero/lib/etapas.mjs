@@ -2340,14 +2340,32 @@ export async function subir(contexto, tarjeta) {
     // Construida en la nube con build y pruebas OK (nube.confiarEnResultado): aizen1 no compila ni prueba nada al subir.
     // Solo el ensayo de la migración (BEGIN…ROLLBACK) si main cambió, y subir. Si el rebase cambió algo además de .md
     // respecto del commit que verificó la nube, no se sube: se manda a verificar otra vez a la nube.
-    const confiarEnLaNube = tarjeta.resultado?.construidoEn === "nube" && config.nube?.confiarEnResultado !== false && Boolean(tarjeta.resultado?.commit);
+    let confiarEnLaNube = tarjeta.resultado?.construidoEn === "nube" && config.nube?.confiarEnResultado !== false && Boolean(tarjeta.resultado?.commit);
     let antes;
     let pruebas;
     let commit;
     // 1-nov-2026 (subida que se puede repetir sin daño): si todo lo de la rama ya está en main (un intento anterior lo subió
     // y se cayó esperando el despliegue, o la sesión lo juntó), no se empuja nada: se espera el despliegue del commit de
     // main que lo contiene, como siempre. Así un reintento no deshace en vacío ni vuelve a compilar lo que ya está arriba.
-    const yaEnMain = await ramaYaEnMain(carpeta, base, { baseDeLaTarjeta: tarjeta.resultado?.base });
+    let yaEnMain = await ramaYaEnMain(carpeta, base, { baseDeLaTarjeta: tarjeta.resultado?.base });
+    // 24-nov-2026 (parte 3): lo de la rama está en main pero DESHECHO (main tiene después un revert de ese commit): no vale como
+    // subido. La carpeta se pone sobre main, se deshace el revert y sigue lo de siempre (verificar, pruebas y push) en aizen1.
+    const revertido = yaEnMain ? await revertQueLoDeshace(carpeta, base, yaEnMain.commit) : null;
+    if (revertido) {
+      registro.info(`lo de la rama ${rama} está en ${repo.ramaBase} (${yaEnMain.commit.slice(0, 10)}) pero se deshizo (revert ${revertido.slice(0, 10)}): no vale como subido; se deshace el revert sobre ${repo.ramaBase}`);
+      await git(carpeta, ["reset", "--hard", base]);
+      const deshecho = await git(carpeta, ["revert", "--no-edit", revertido], { identidad: config.git, permitirFallo: true });
+      if (deshecho.codigo !== 0) {
+        await git(carpeta, ["revert", "--abort"], { permitirFallo: true });
+        throw new ErrorDeEtapa(
+          `Choca con lo nuevo de ${repo.ramaBase}: no se pudo deshacer el revert ${revertido.slice(0, 10)} de la subida anterior (${ultimasLineas(`${deshecho.errores}\n${deshecho.salida}`, 5)}). No se subió nada; hay que construir de nuevo desde ${repo.ramaBase}.`,
+          { categoria: "choca_con_main" },
+        );
+      }
+      yaEnMain = null;
+      // Lo que se sube ya no es lo que verificó la nube: se verifica y se prueba otra vez en aizen1.
+      confiarEnLaNube = false;
+    }
     if (yaEnMain) {
       ({ commit, antes } = yaEnMain);
       pruebas = [`✔ lo de la rama ya estaba en ${repo.ramaBase} (commit ${commit.slice(0, 10)}): no se vuelve a subir; se espera su despliegue`];
@@ -2768,6 +2786,35 @@ export async function ramaYaEnMain(carpeta, base, { baseDeLaTarjeta = null } = {
   // Seguro solo si esos commits están juntos en main (nada ajeno en medio) y sin merges.
   const juntos = antes && Number((await git(carpeta, ["rev-list", "--count", `${antes}..${commit}`])).salida.trim()) === iguales.length;
   return { commit, antes: juntos && (await sinMerges(antes, commit)) ? antes : null };
+}
+
+/** ¿El mensaje del commit dice que deshace `sha`? ("This reverts commit <sha>" de git o "revert: deshacer <sha corto>" del Coordinador). */
+function deshaceAlCommit(mensaje, sha) {
+  const buscado = String(sha ?? "").toLowerCase();
+  for (const encontrado of String(mensaje ?? "").matchAll(/This reverts commit ([0-9a-f]{7,40})|revert: deshacer ([0-9a-f]{7,40})/gi)) {
+    if (buscado.startsWith((encontrado[1] ?? encontrado[2]).toLowerCase())) return true;
+  }
+  return false;
+}
+
+/**
+ * ¿`commit` (ya en `base`) quedó deshecho por un revert posterior de main? (24-nov-2026, parte 3.) Sigue la cadena: el revert de
+ * `commit`, el revert de ese revert, … Con un número impar de reverts el contenido NO está en main y devuelve el sha del último (el
+ * que hay que deshacer para volver a subirlo); con cero o un número par, null (el contenido sí está en main). Solo lectura.
+ */
+export async function revertQueLoDeshace(carpeta, base, commit) {
+  const salida = (await git(carpeta, ["log", "--reverse", "-n", "2000", "--format=%H%x1f%B%x1e", `${commit}..${base}`], { permitirFallo: true })).salida ?? "";
+  let actual = commit;
+  const cadena = [];
+  for (const bloque of salida.split("\x1e")) {
+    const [sha, mensaje = ""] = bloque.trim().split("\x1f");
+    if (!/^[0-9a-f]{40}$/i.test(sha ?? "")) continue;
+    if (deshaceAlCommit(mensaje, actual)) {
+      cadena.push(sha);
+      actual = sha;
+    }
+  }
+  return cadena.length % 2 === 1 ? cadena.at(-1) : null;
 }
 
 /**
