@@ -165,7 +165,7 @@ function readString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function normalizeOriginLabel(value: string): CrmRecord["origin"] {
+export function normalizeOriginLabel(value: string): CrmRecord["origin"] {
   const normalized = value.trim().toLowerCase();
 
   if (/(marketplace|market place|market-place)/i.test(normalized)) {
@@ -174,6 +174,11 @@ function normalizeOriginLabel(value: string): CrmRecord["origin"] {
 
   if (/(recomendad|referid|referenc|sugerid)/i.test(normalized)) {
     return "RECOMENDADO";
+  }
+
+  // Chats que entran por el chat de la página web (crmOrigin: "web").
+  if (normalized === "web" || /(magilus\.com|p[aá]gina web)/i.test(normalized)) {
+    return "WEB";
   }
 
   if (/(facebook|meta ads|meta|ads)/i.test(normalized)) {

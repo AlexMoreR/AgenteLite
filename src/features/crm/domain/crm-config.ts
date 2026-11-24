@@ -95,6 +95,13 @@ export const CRM_ORIGIN_META: Record<CrmOrigin, CrmOriginMeta> = {
     borderClassName: "border-amber-200",
     backgroundClassName: "bg-amber-50",
   },
+  WEB: {
+    value: "WEB",
+    label: "Página web",
+    accentClassName: "text-violet-700",
+    borderClassName: "border-violet-200",
+    backgroundClassName: "bg-violet-50",
+  },
   GENERICO: {
     value: "GENERICO",
     label: "Generico",
