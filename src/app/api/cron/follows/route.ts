@@ -22,6 +22,7 @@ import { barrerSeguimientoInteligente } from "@/features/seguimiento-inteligente
 import { correrAutomatizacionesDelReloj } from "@/features/automatizaciones/servicio";
 import { procesarColaDeReuniones } from "@/features/reuniones/servicios/cola-de-reuniones";
 import { aprobarPlanesListosQueEsperan, aprobarSolasLasPendientes } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
+import { prepararFeaturesDeTodos } from "@/features/tableros-inteligentes/services/preparar-features";
 import { sincronizarCerebroDeTodos } from "@/features/cerebro/services/sincronizar-negocio";
 import { revisarAlertaDeConexion } from "@/features/cerebro/services/alerta-de-conexion";
 import { revisarAvisosAlDueno } from "@/features/tableros-inteligentes/services/avisos-al-dueno";
@@ -294,6 +295,13 @@ async function handleCron(request: Request) {
     Sin nada pendiente son un par de lecturas; en segundo plano.
   */
   after(async () => {
+    try {
+      // Features solas (24-nov-2026): prepara lo que cuelga de Features (Idea -> Tarea, repo por el texto, partir en dos o
+      // preguntar) y lo pasa a la aprobación de siempre. Interruptor tablero:features-solas:<negocio> (prendido sin fila).
+      await prepararFeaturesDeTodos();
+    } catch (error) {
+      console.error("[cron/follows] features solas del tablero error", error);
+    }
     try {
       await aprobarSolasLasPendientes();
     } catch (error) {

@@ -10,6 +10,8 @@ import { coachOpusActivo, diasSaltados } from "@/features/coach/revision-opus/se
 import { prisma } from "@/lib/prisma";
 import { CLAVE_ESTADO_ALERTA_CPU, leerEstadoAlertaCpu } from "@/lib/recibir-metrica-servidor";
 import { aprobacionAutomaticaPrendida, aprobarPlanesSoloPrendido, aprobarTareasSoloPrendido } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
+import { featuresSolasPrendido } from "@/features/tableros-inteligentes/services/preparar-features";
+import { leerAreaFeatures } from "@/features/tableros-inteligentes/services/coordinador-en-vivo";
 import { recogidaDelResultado } from "@/features/tableros-inteligentes/services/reglas-trabajador";
 import { dondeTableroVivo } from "@/features/tableros-inteligentes/services/tableros-archivados";
 import { avisosDeAprobacionPrendidos, avisosPrendidos, leerEstadoDeAvisos, sistemasPrendido, telefonoDeSistemasGuardado, telefonoGuardado } from "@/features/tableros-inteligentes/services/avisos-al-dueno";
@@ -527,6 +529,15 @@ async function estadoDeAprobarTareasSolo(workspaceId: string) {
     : `APAGADA: solo las de riesgo BAJO se aprueban solas, lo demás espera el sí del dueño (${esperando} en POR_APROBAR ahora)`;
 }
 
+/** Tablero IA: si "Features solas" (24-nov-2026) está prendido y si el CRM ya sabe cuál es el Área Features. */
+async function estadoDeFeaturesSolas(workspaceId: string) {
+  const [prendido, area] = await Promise.all([featuresSolasPrendido(workspaceId), leerAreaFeatures(workspaceId)]);
+  if (!prendido) return "APAGADA: interruptor tablero:features-solas:<negocio> en false; las tarjetas de Features esperan que alguien les ponga tipo Tarea y repo";
+  return area
+    ? "PRENDIDA: cada minuto pasa a Tarea las Ideas de Features, les pone el repo por el texto (o las parte en dos, o pregunta en Alertas) y las manda a la aprobación de siempre"
+    : "PRENDIDA, pero sin el id del Área Features: el Coordinador todavía no lo mandó en su latido, así que no hace nada";
+}
+
 /** Tablero IA: si "Aprobar planes solo" (regla del dueño 24-oct) está prendido y cuántos planes esperan su sí. */
 async function estadoDeAprobarPlanesSolo(workspaceId: string) {
   const [prendido, esperando] = await Promise.all([
@@ -869,6 +880,7 @@ async function automatizaciones(
     aprobacion_automatica_tablero: await estadoDeLaAprobacionAutomatica(workspaceId).catch(() => "no se pudo leer"),
     aprobar_tareas_solas_tablero: await estadoDeAprobarTareasSolo(workspaceId).catch(() => "no se pudo leer"),
     aprobar_planes_solo_tablero: await estadoDeAprobarPlanesSolo(workspaceId).catch(() => "no se pudo leer"),
+    features_solas_tablero: await estadoDeFeaturesSolas(workspaceId).catch(() => "no se pudo leer"),
     resumen_diario_tablero: await estadoDelResumenDiario(),
     avisos_al_dueno_tablero: await estadoDeAvisosAlDueno(workspaceId).catch(() => "no se pudo leer"),
     avisos_al_equipo_tablero: await estadoDeAvisosAlEquipo(workspaceId).catch(() => "no se pudo leer"),

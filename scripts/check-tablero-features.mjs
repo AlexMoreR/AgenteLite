@@ -130,6 +130,26 @@ await prueba("un id que no es un Área (o no existe) solo deja las ya empezadas"
   assert.deepEqual(await ids(sql.SQL_CANDIDATAS_EN_AREA, ["ws1", REPOS, FEATURES]), ["feat-sub"]);
 });
 
+await prueba("SQL_POR_PREPARAR_EN_FEATURES: las de Features (sub-áreas incluidas) en IDEA o POR_APROBAR sin empezar, la más vieja primero", async () => {
+  await db.exec(`
+    INSERT INTO "TipoTarjeta" ("id", "tableroId", "nombre", "requiereAprobacion", "usaEstados", "orden") VALUES ('idea', 'tab1', 'Idea', false, true, 1);
+    INSERT INTO "TarjetaTablero" ("id", "tableroId", "titulo", "estado", "creadoPor", "creadoEn", "actualizadoEn", "tipoId", "repo", "plan", "padreId", "intentos") VALUES
+      ('prep-idea', 'tab1', 'Idea vieja de SEO', 'IDEA', 'u-dueno', '2026-11-02 08:00:00', '2026-11-02 08:00:00', 'idea', NULL, NULL, '${SUBSUB}', 0),
+      ('prep-porapr', 'tab1', 'Tarea por aprobar', 'POR_APROBAR', 'u-dueno', '2026-11-03 08:00:00', '2026-11-03 08:00:00', 'tarea', NULL, NULL, '${FEATURES}', 0),
+      ('prep-empezada', 'tab1', 'Ya empezada', 'IDEA', 'u-dueno', '2026-11-01 08:00:00', '2026-11-01 08:00:00', 'idea', NULL, NULL, '${SUBAREA}', 1),
+      ('prep-aprobada', 'tab1', 'Ya aprobada', 'APROBADO', 'u-dueno', '2026-11-01 08:00:00', '2026-11-01 08:00:00', 'tarea', 'aizencrm', NULL, '${SUBAREA}', 0),
+      ('prep-fuera', 'tab1', 'Idea de Ventas', 'IDEA', 'u-dueno', '2026-11-01 08:00:00', '2026-11-01 08:00:00', 'idea', NULL, NULL, '${OTRA_AREA}', 0),
+      ('prep-archivada', 'tab1', 'Archivada', 'IDEA', 'u-dueno', '2026-11-01 08:00:00', '2026-11-01 08:00:00', 'idea', NULL, NULL, '${SUBAREA}', 0),
+      ('prep-borrada', 'tab1', 'Borrada', 'IDEA', 'u-dueno', '2026-11-01 08:00:00', '2026-11-01 08:00:00', 'idea', NULL, NULL, '${SUBAREA}', 0);
+    UPDATE "TarjetaTablero" SET "archivadaEn" = '2026-11-05 08:00:00' WHERE "id" = 'prep-archivada';
+    UPDATE "TarjetaTablero" SET "borradoEn" = '2026-11-05 08:00:00' WHERE "id" = 'prep-borrada';
+  `);
+  // Las sub-áreas (tipo Área, sin estados) no salen aunque estén en IDEA; tampoco las empezadas, aprobadas, de fuera, archivadas o borradas.
+  assert.deepEqual(await ids(sql.SQL_POR_PREPARAR_EN_FEATURES, [FEATURES, "ws1"]), ["prep-idea", "prep-porapr"]);
+  assert.deepEqual(await ids(sql.SQL_POR_PREPARAR_EN_FEATURES, [FEATURES, "ws2"]), [], "otro negocio no ve las de este");
+  assert.deepEqual(await ids(sql.SQL_POR_PREPARAR_EN_FEATURES, [OTRA_AREA, "ws1"]), ["prep-fuera"]);
+});
+
 await db.close();
 
 /* ------------------------------------------------------------------ 2. el id que llega (formato) */
@@ -205,6 +225,335 @@ await prueba("las rutas leen el id del pedido y, si no viene, el guardado; el se
   const servicio = leer("src/features/tableros-inteligentes/services/trabajador.ts");
   assert.match(servicio, /areaPermitidaId \? SQL_TOMAR_UNA_EN_AREA : SQL_TOMAR_UNA/);
   assert.match(servicio, /area \? SQL_CANDIDATAS_EN_AREA : SQL_CANDIDATAS/);
+});
+
+/* ------------------------------------------------------------------ 4. repoPorElTexto (puro) */
+
+const { repoPorElTexto } = cargar("src/features/tableros-inteligentes/services/repo-por-el-texto.ts");
+
+await prueba("repoPorElTexto: un lado, los dos sistemas, mayoría clara y la duda", async () => {
+  assert.equal(repoPorElTexto("Arreglar alerta del tablero", ""), "aizencrm");
+  assert.equal(repoPorElTexto("Que el BOT conteste en WhatsApp", null), "aizencrm");
+  assert.equal(repoPorElTexto("Órdenes de producción", "Que la proveedora vea sus pedidos en magilus.com"), "gestion");
+  assert.equal(repoPorElTexto("Cotizaciones", "Mostrar la COTIZACIÓN con tilde"), "gestion", "sin tildes ni mayúsculas");
+  assert.equal(repoPorElTexto("Cotizaciones en Gestión y aviso en el CRM", ""), "los-dos");
+  assert.equal(repoPorElTexto("Mejorar esto", ""), null, "sin ninguna palabra pregunta");
+  assert.equal(repoPorElTexto("", undefined), null);
+  assert.equal(repoPorElTexto("Ventas y pedidos", "que la asesora lo vea"), "gestion", "dos de Gestión contra uno del CRM: mayoría clara");
+  assert.equal(repoPorElTexto("La venta en el chat", ""), null, "uno y uno sin nombrar los sistemas: ante la duda, pregunta");
+  assert.equal(repoPorElTexto("Arreglar el botón de ordenar", "boton"), null, "'bot' no es 'botón' ni 'orden' es 'ordenar'");
+});
+
+/* ------------------------------------------------------------------ 5. prepararFeatures (prisma falso en memoria) */
+
+// Comparte las filas de AppSetting con el prisma del latido: leerAreaFeatures (ya cargado) lee de ahí.
+const mundo = { tarjetas: new Map(), historial: [], alertas: [], tipos: [], padres: new Set(), creadas: 0 };
+const DbNull = Symbol("DbNull");
+const conTipo = (t) => (t ? { ...t, tipo: mundo.tipos.find((k) => k.id === t.tipoId), tablero: { workspaceId: "ws1" } } : null);
+const cumple = (fila, where = {}) =>
+  Object.entries(where).every(([campo, esperado]) => {
+    if (campo === "tablero") return true;
+    const valor = fila[campo];
+    if (esperado instanceof Date) return valor instanceof Date && valor.getTime() === esperado.getTime();
+    if (esperado && typeof esperado === "object" && "in" in esperado) return esperado.in.includes(valor);
+    if (esperado && typeof esperado === "object" && "not" in esperado) return valor !== esperado.not;
+    if (esperado && typeof esperado === "object" && "isEmpty" in esperado) return ((valor ?? []).length === 0) === esperado.isEmpty;
+    return (valor ?? null) === esperado;
+  });
+const baja = (area) => {
+  const fuera = [];
+  let nivel = [area];
+  for (let n = 0; n < 50 && nivel.length; n += 1) {
+    nivel = [...mundo.tarjetas.values()].filter((t) => nivel.includes(t.padreId) && !t.borradoEn).map((t) => t.id);
+    fuera.push(...nivel);
+  }
+  return fuera;
+};
+const dbFeatures = {
+  appSetting: prismaFalso.appSetting,
+  $queryRawUnsafe: async (texto, area, negocio) => {
+    assert.equal(texto, sql.SQL_POR_PREPARAR_EN_FEATURES);
+    if (negocio !== "ws1") return [];
+    return baja(area)
+      .map((id) => conTipo(mundo.tarjetas.get(id)))
+      .filter((t) => !t.borradoEn && !t.archivadaEn && ["IDEA", "POR_APROBAR"].includes(t.estado) && t.intentos === 0 && t.tipo.usaEstados)
+      .sort((a, b) => a.creadoEn - b.creadoEn)
+      .map((t) => ({ id: t.id }));
+  },
+  tarjetaTablero: {
+    findFirst: async ({ where }) => conTipo([...mundo.tarjetas.values()].find((t) => cumple(t, where))),
+    findMany: async ({ where }) => [...mundo.tarjetas.values()].filter((t) => cumple(t, where)).map(conTipo),
+    count: async ({ where }) => [...mundo.tarjetas.values()].filter((t) => cumple(t, where)).length,
+    updateMany: async ({ where, data }) => {
+      const filas = [...mundo.tarjetas.values()].filter((t) => cumple(t, where));
+      for (const t of filas) Object.assign(t, data, { actualizadoEn: new Date(t.actualizadoEn.getTime() + 1000) });
+      return { count: filas.length };
+    },
+    create: async ({ data }) => {
+      mundo.creadas += 1;
+      const fila = { id: `hija-${mundo.creadas}`, intentos: 0, borradoEn: null, archivadaEn: null, plan: null, creadoEn: new Date(), actualizadoEn: new Date(), ...data };
+      mundo.tarjetas.set(fila.id, fila);
+      return { id: fila.id };
+    },
+  },
+  historialTarjeta: {
+    create: async ({ data }) => {
+      mundo.historial.push({ ...data, creadoEn: new Date() });
+      return data;
+    },
+    findMany: async ({ where, orderBy, take }) => {
+      const filas = mundo.historial.filter((f) => f.tarjetaId === where.tarjetaId && (!where.accion || f.accion === where.accion));
+      return (orderBy?.creadoEn === "desc" ? [...filas].reverse() : filas).slice(0, take ?? 1000);
+    },
+  },
+  tipoTarjeta: { findMany: async ({ where }) => mundo.tipos.filter((k) => k.tableroId === where.tableroId) },
+  tipoTarjetaPadre: {
+    findUnique: async ({ where }) => {
+      const { tipoId, tipoPadreId } = where.tipoId_tipoPadreId;
+      return mundo.padres.has(`${tipoId}|${tipoPadreId}`) ? { tipoId } : null;
+    },
+  },
+  tableroInteligente: { update: async () => ({}) },
+  alertaInterna: {
+    findFirst: async ({ where }) =>
+      mundo.alertas.find((a) => a.workspaceId === where.workspaceId && a.clave === where.clave && a.destinatarioId === where.destinatarioId && where.estado.in.includes(a.estado)) ?? null,
+    create: async ({ data }) => {
+      const fila = { id: `al-${mundo.alertas.length + 1}`, estado: "NUEVA", veces: 1, ...data };
+      mundo.alertas.push(fila);
+      return { id: fila.id };
+    },
+    update: async ({ where, data }) => {
+      const fila = mundo.alertas.find((a) => a.id === where.id);
+      fila.veces += 1;
+      Object.assign(fila, { ...data, veces: fila.veces });
+    },
+    updateMany: async () => ({ count: 0 }),
+  },
+  workspace: { findUnique: async () => ({ ownerId: "u-dueno" }) },
+  $transaction: async (fn) => fn(dbFeatures),
+};
+const enviadosPorWhatsApp = [];
+const preparar = cargar("src/features/tableros-inteligentes/services/preparar-features.ts", {
+  "@/lib/prisma": { prisma: dbFeatures },
+  "@prisma/client": { Prisma: { DbNull } },
+  "@/lib/evolution": { sendEvolutionTextMessageWithReconnect: async (datos) => void enviadosPorWhatsApp.push(datos) },
+  "./tableros": {
+    QUIEN_TRABAJADOR: "trabajador:",
+    linkDeLaTarjeta: (id) => `https://app.aizenbot.com/cliente/tablero-ia?tarjeta=${id}`,
+    linkDeHoy: () => "https://app.aizenbot.com/cliente/tablero-ia?vista=hoy",
+    linkDelCoordinador: () => "https://app.aizenbot.com/cliente/tablero-ia?vista=coordinador",
+    pendientesDelDueno: async () => [],
+    todoElNegocio: (workspaceId) => ({ workspaceId, soloDe: null }),
+  },
+});
+
+const T_VIEJA = new Date("2026-11-20T08:00:00Z");
+let orden = 0;
+function sembrar() {
+  mundo.tarjetas.clear();
+  mundo.historial.length = 0;
+  mundo.alertas.length = 0;
+  mundo.creadas = 0;
+  enviadosPorWhatsApp.length = 0;
+  mundo.tipos = [
+    { id: "k-area", tableroId: "tab1", nombre: "Área", requiereAprobacion: false, usaEstados: false, orden: 0 },
+    { id: "k-idea", tableroId: "tab1", nombre: "Idea", requiereAprobacion: false, usaEstados: true, orden: 1 },
+    { id: "k-tarea", tableroId: "tab1", nombre: "Tarea", requiereAprobacion: true, usaEstados: true, orden: 2 },
+  ];
+  mundo.padres = new Set(["k-idea|k-area", "k-tarea|k-idea", "k-tarea|k-area", "k-area|k-area"]);
+  const poner = (id, datos) => {
+    orden += 1;
+    mundo.tarjetas.set(id, {
+      id,
+      tableroId: "tab1",
+      titulo: id,
+      detalle: "",
+      estado: "IDEA",
+      repo: null,
+      intentos: 0,
+      tipoId: "k-idea",
+      padreId: SUBAREA,
+      area: null,
+      orden: 0,
+      zonaProtegida: [],
+      riesgo: null,
+      riesgoMotivo: null,
+      riesgoPor: null,
+      prioridad: "MEDIA",
+      creadoPor: "u-dueno",
+      plan: null,
+      borradoEn: null,
+      archivadaEn: null,
+      creadoEn: new Date(T_VIEJA.getTime() + orden * 60_000),
+      actualizadoEn: T_VIEJA,
+      ...datos,
+    });
+  };
+  poner(FEATURES, { titulo: "Features", tipoId: "k-area", padreId: null });
+  poner(SUBAREA, { titulo: "SEO Magilus", tipoId: "k-area", padreId: FEATURES });
+  poner(OTRA_AREA, { titulo: "Ventas", tipoId: "k-area", padreId: null });
+  poner("i-alerta", { titulo: "Arreglar alerta del tablero" });
+  poner("i-dos", { titulo: "Cotizaciones en Gestión y aviso en el CRM", detalle: "La cotización se guarda y la asesora recibe el aviso." });
+  poner("i-mejorar", { titulo: "Mejorar esto", padreId: FEATURES });
+  poner("i-abonos", { titulo: "Registrar los abonos de cada venta en Gestión" });
+  poner("i-madre", { titulo: "Idea grande del tablero" });
+  poner("i-madre-hija", { titulo: "Parte ya aprobada", tipoId: "k-tarea", repo: "aizencrm", estado: "APROBADO", padreId: "i-madre" });
+  poner("i-fuera", { titulo: "Arreglar el chat de ventas", padreId: OTRA_AREA });
+  poner("i-empezada", { titulo: "Arreglar el bot", intentos: 1 });
+}
+const tarjeta = (id) => mundo.tarjetas.get(id);
+const historialDe = (id) => mundo.historial.filter((f) => f.tarjetaId === id);
+const hijasDe = (id) => [...mundo.tarjetas.values()].filter((t) => t.padreId === id && !t.borradoEn);
+const AHORA_FEATURES = new Date("2026-11-24T15:00:00Z");
+
+// El id de Features ya guardado por el latido (parte 1) y "Aprobar tareas solo" sin fila (prendido, como en producción).
+ajustes.set("tablero:area-features:ws1", FEATURES);
+
+await prueba("prepararFeatures: 'Arreglar alerta del tablero' (Idea sin repo en una sub-área) queda Tarea, aizencrm y APROBADO", async () => {
+  sembrar();
+  const r = await preparar.prepararFeatures("ws1", AHORA_FEATURES);
+  const t = tarjeta("i-alerta");
+  assert.equal(t.tipoId, "k-tarea");
+  assert.equal(t.repo, "aizencrm");
+  assert.equal(t.estado, "APROBADO");
+  const filas = historialDe("i-alerta");
+  const editar = filas.find((f) => f.accion === "editar");
+  assert.ok(editar, "deja el 'editar'");
+  assert.deepEqual(editar.antes, { tipoId: "k-idea", repo: null, estado: "IDEA" });
+  assert.equal(editar.despues.tipoId, "k-tarea");
+  assert.equal(editar.despues.repo, "aizencrm");
+  assert.equal(editar.quien, preparar.QUIEN_FEATURES_SOLAS);
+  const aprobar = filas.find((f) => f.accion === "aprobar");
+  assert.ok(aprobar, "deja el 'aprobar'");
+  assert.equal(aprobar.despues.via, "automatica");
+  assert.equal(aprobar.despues.momento, "tarea");
+  assert.ok(r.aprobadas >= 1 && r.pasadasATarea >= 1);
+  assert.equal(enviadosPorWhatsApp.length, 0, "no manda WhatsApp");
+});
+
+await prueba("prepararFeatures: 'Cotizaciones en Gestión y aviso en el CRM' queda como madre y nacen dos Tareas hijas (gestion y aizencrm)", async () => {
+  sembrar();
+  await preparar.prepararFeatures("ws1", AHORA_FEATURES);
+  const madre = tarjeta("i-dos");
+  assert.equal(madre.tipoId, "k-idea", "la madre no cambia de tipo");
+  assert.equal(madre.repo, null, "ni de repo");
+  assert.equal(madre.estado, "IDEA", "ni de estado");
+  assert.equal(madre.actualizadoEn.getTime(), T_VIEJA.getTime(), "ni se edita");
+  const hijas = hijasDe("i-dos");
+  assert.deepEqual(hijas.map((h) => h.repo).sort(), ["aizencrm", "gestion"]);
+  for (const hija of hijas) {
+    assert.equal(hija.tipoId, "k-tarea");
+    assert.equal(hija.titulo, madre.titulo);
+    assert.ok(hija.detalle.startsWith(madre.detalle), "el mismo detalle");
+    assert.match(hija.detalle, hija.repo === "gestion" ? /PARTE DE GESTIÓN/ : /PARTE DEL CRM/, "con la aclaración de su parte");
+    assert.equal(hija.estado, "APROBADO", "y siguen la aprobación de siempre");
+    assert.ok(historialDe(hija.id).some((f) => f.accion === "crear" && f.despues.madreFeatures === "i-dos"));
+  }
+  // Otra vuelta: no se vuelve a partir (la madre es una Idea con hijas).
+  await preparar.prepararFeatures("ws1", AHORA_FEATURES);
+  assert.equal(hijasDe("i-dos").length, 2, "no se parte dos veces");
+});
+
+await prueba("prepararFeatures: una Tarea sin repo de los dos sistemas cuyas hijas no pueden colgar de ella tampoco se parte dos veces", async () => {
+  sembrar();
+  mundo.padres.delete("k-tarea|k-tarea");
+  mundo.tarjetas.get("i-dos").tipoId = "k-tarea";
+  mundo.tarjetas.get("i-dos").estado = "POR_APROBAR";
+  await preparar.prepararFeatures("ws1", AHORA_FEATURES);
+  const hermanas = [...mundo.tarjetas.values()].filter((t) => t.titulo === "Cotizaciones en Gestión y aviso en el CRM" && t.id !== "i-dos");
+  assert.equal(hermanas.length, 2);
+  assert.ok(hermanas.every((h) => h.padreId === SUBAREA), "cuelgan del mismo lugar que la original");
+  await preparar.prepararFeatures("ws1", AHORA_FEATURES);
+  assert.equal([...mundo.tarjetas.values()].filter((t) => t.titulo === "Cotizaciones en Gestión y aviso en el CRM").length, 3, "la marca en la madre lo impide");
+  assert.equal(tarjeta("i-dos").repo, null);
+  assert.equal(tarjeta("i-dos").estado, "POR_APROBAR");
+});
+
+await prueba("prepararFeatures: 'Mejorar esto' queda sin repo y sin arrancar, con la pregunta en el historial y la alerta coord:necesita abierta", async () => {
+  sembrar();
+  const r = await preparar.prepararFeatures("ws1", AHORA_FEATURES);
+  const t = tarjeta("i-mejorar");
+  assert.equal(t.repo, null);
+  assert.equal(t.estado, "IDEA");
+  assert.equal(t.tipoId, "k-idea");
+  const pregunta = historialDe("i-mejorar").filter((f) => typeof f.despues?.preguntaFeatures === "string");
+  assert.equal(pregunta.length, 1);
+  assert.match(pregunta[0].despues.nota, /El Coordinador pregunta/);
+  const alerta = mundo.alertas.filter((a) => a.clave.startsWith("coord:necesita:i-mejorar:"));
+  assert.equal(alerta.length, 1);
+  assert.equal(alerta[0].estado, "NUEVA");
+  assert.equal(alerta[0].origen, "Coordinador");
+  assert.equal(r.preguntadas, 1);
+  // Otra vuelta con el mismo texto: ni otra pregunta ni otra alerta.
+  await preparar.prepararFeatures("ws1", AHORA_FEATURES);
+  assert.equal(historialDe("i-mejorar").length, 1, "no repite la pregunta");
+  assert.equal(mundo.alertas.filter((a) => a.clave.startsWith("coord:necesita:i-mejorar:")).length, 1);
+  // El dueño edita el detalle: la vuelta siguiente lo vuelve a leer y la pone en marcha.
+  Object.assign(tarjeta("i-mejorar"), { detalle: "Es del chat del CRM: que cargue más rápido", actualizadoEn: new Date("2026-11-24T15:10:00Z") });
+  await preparar.prepararFeatures("ws1", AHORA_FEATURES);
+  assert.equal(tarjeta("i-mejorar").repo, "aizencrm");
+  assert.equal(tarjeta("i-mejorar").estado, "APROBADO");
+});
+
+await prueba("prepararFeatures: la que habla de abonos queda POR_APROBAR con la alerta auto:necesita:<id>:POR_APROBAR", async () => {
+  sembrar();
+  const r = await preparar.prepararFeatures("ws1", AHORA_FEATURES);
+  const t = tarjeta("i-abonos");
+  assert.equal(t.repo, "gestion");
+  assert.equal(t.tipoId, "k-tarea");
+  assert.equal(t.estado, "POR_APROBAR");
+  assert.ok(!historialDe("i-abonos").some((f) => f.accion === "aprobar"), "no se aprueba sola");
+  const alerta = mundo.alertas.find((a) => a.clave === "auto:necesita:i-abonos:POR_APROBAR");
+  assert.ok(alerta, "la alerta del sí del dueño");
+  assert.equal(alerta.estado, "NUEVA");
+  assert.match(alerta.detalle, /dinero de Gestión/);
+  assert.equal(r.esperanAlDueno, 1);
+  // Otra vuelta: la misma alerta, sin duplicar.
+  await preparar.prepararFeatures("ws1", AHORA_FEATURES);
+  assert.equal(mundo.alertas.filter((a) => a.clave === "auto:necesita:i-abonos:POR_APROBAR").length, 1);
+});
+
+await prueba("prepararFeatures: no toca una Idea con hijas, una de fuera de Features ni una ya empezada", async () => {
+  sembrar();
+  await preparar.prepararFeatures("ws1", AHORA_FEATURES);
+  for (const id of ["i-madre", "i-fuera", "i-empezada"]) {
+    assert.equal(tarjeta(id).tipoId, "k-idea", id);
+    assert.equal(tarjeta(id).repo, null, id);
+    assert.equal(tarjeta(id).estado, "IDEA", id);
+    assert.equal(historialDe(id).length, 0, id);
+  }
+  assert.equal(tarjeta("i-madre-hija").estado, "APROBADO");
+  for (const id of [FEATURES, SUBAREA, OTRA_AREA]) assert.equal(historialDe(id).length, 0, `el Área ${id} no se toca`);
+});
+
+await prueba("prepararFeatures: con el interruptor apagado (o sin el id de Features) no hace nada", async () => {
+  sembrar();
+  ajustes.set("tablero:features-solas:ws1", "false");
+  const r = await preparar.prepararFeatures("ws1", AHORA_FEATURES);
+  assert.equal(r.revisadas, 0);
+  assert.equal(mundo.historial.length, 0);
+  assert.equal(mundo.alertas.length, 0);
+  assert.equal(tarjeta("i-alerta").estado, "IDEA");
+  assert.equal(tarjeta("i-alerta").repo, null);
+  assert.equal(await preparar.featuresSolasPrendido("ws1"), false);
+  ajustes.delete("tablero:features-solas:ws1");
+  assert.equal(await preparar.featuresSolasPrendido("ws1"), true, "sin la fila está prendido");
+  // Sin el id guardado tampoco.
+  ajustes.delete("tablero:area-features:ws1");
+  assert.equal((await preparar.prepararFeatures("ws1", AHORA_FEATURES)).revisadas, 0);
+  assert.equal(mundo.historial.length, 0);
+  ajustes.set("tablero:area-features:ws1", FEATURES);
+});
+
+await prueba("prepararFeaturesDeTodos: recorre los negocios con el id de Features guardado; el cron la llama con su try/catch", async () => {
+  sembrar();
+  await preparar.prepararFeaturesDeTodos(AHORA_FEATURES);
+  assert.equal(tarjeta("i-alerta").estado, "APROBADO");
+  const cron = fs.readFileSync(path.join(RAIZ, "src/app/api/cron/follows/route.ts"), "utf8");
+  const bloque = cron.slice(cron.indexOf("await prepararFeaturesDeTodos()") - 400, cron.indexOf("await aprobarSolasLasPendientes()"));
+  assert.match(bloque, /try \{[\s\S]*await prepararFeaturesDeTodos\(\);[\s\S]*\} catch \(error\) \{/);
+  const mcp = fs.readFileSync(path.join(RAIZ, "src/lib/mcp/que-es-esta-aplicacion.ts"), "utf8");
+  assert.match(mcp, /features_solas_tablero: await estadoDeFeaturesSolas\(workspaceId\)/);
 });
 
 console.log(`\n${pruebas} pruebas OK`);
