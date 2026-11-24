@@ -91,6 +91,29 @@ const MAXIMO_EN_PARALELO = 5;
 export const PISO_VERSION_MINUTOS = 15;
 /** Cuánto se reintenta subida.urlArranque (/login) después de que /api/version diga el commit nuevo, antes de deshacer. */
 export const ARRANQUE_MINUTOS_POR_DEFECTO = 3;
+/**
+ * 24-nov-2026 (reversión falsa de T-902 y T-800): el comando remoto (por ssh, solo lectura) que lee las últimas líneas del log de
+ * /opt/crm/actualizar.sh antes de deshacer una subida que "no arrancó". Si no dice "listo: version <sha>" con el commit subido (o
+ * uno posterior), la versión nueva nunca llegó al servidor y la reversión es falsa.
+ */
+export const LOG_ACTUALIZAR_POR_DEFECTO = "tail -n 300 /var/log/crm-actualizar.log";
+
+/** subida.pisoVersionMinutos: un número de 0 en adelante; sin la clave (o inválido), PISO_VERSION_MINUTOS. */
+function pisoDeVersion(valor) {
+  if (valor === undefined || valor === null || valor === "") return PISO_VERSION_MINUTOS;
+  const minutos = Number(valor);
+  return Number.isFinite(minutos) && minutos >= 0 ? minutos : PISO_VERSION_MINUTOS;
+}
+
+/**
+ * subida.logActualizar: un texto = ese comando; null o "" = no se lee. Sin la clave, el de por defecto, pero solo para el
+ * proyecto que corre en el contenedor del CRM (sin logsArranque propio): ese log es del CRM y no dice nada de Gestión.
+ */
+function logActualizarDe(repo) {
+  const valor = repo.subida?.logActualizar;
+  if (valor === undefined) return repo.logsArranque ? null : LOG_ACTUALIZAR_POR_DEFECTO;
+  return typeof valor === "string" && valor.trim() ? valor.trim() : null;
+}
 
 /**
  * Tareas grandes y de desborde a la nube con `claude --cloud` (25-oct-2026, decisión del dueño). Reglas fijas, sin IA:
@@ -341,6 +364,9 @@ export function completarConfig(datos, base = process.cwd()) {
     if (repo.logsArranque !== undefined && (typeof repo.logsArranque !== "string" || !repo.logsArranque.trim())) {
       errores.push(`repos.${clave}.logsArranque: el comando remoto que lee los logs del arranque del proyecto, un texto no vacío.`);
     }
+    if (repo.subida?.logActualizar !== undefined && repo.subida.logActualizar !== null && typeof repo.subida.logActualizar !== "string") {
+      errores.push(`repos.${clave}.subida.logActualizar: el comando remoto que lee el log de actualizar.sh, un texto (o null para no leerlo).`);
+    }
     try {
       repos[clave] = {
         clave,
@@ -397,6 +423,10 @@ export function completarConfig(datos, base = process.cwd()) {
           urlArranque: typeof repo.subida?.urlArranque === "string" ? repo.subida.urlArranque : null,
           // Cuánto se reintenta urlArranque mientras el servidor cambia de contenedor (13-11-2026). Sin la línea, 3.
           arranqueMinutos: Number(repo.subida?.arranqueMinutos) > 0 ? Number(repo.subida.arranqueMinutos) : ARRANQUE_MINUTOS_POR_DEFECTO,
+          // 24-nov-2026: lo mínimo que se espera desde la subida antes de deshacer, aunque el reloj de la etapa ya se haya gastado
+          // (el CI tardó). Una reversión antes de este piso queda como "falsa" (no cuenta como falla del código).
+          pisoVersionMinutos: pisoDeVersion(repo.subida?.pisoVersionMinutos),
+          logActualizar: logActualizarDe(repo),
         },
       };
     } catch (error) {

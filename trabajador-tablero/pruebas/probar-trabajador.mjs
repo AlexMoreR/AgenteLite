@@ -3096,6 +3096,9 @@ const crearConfig = (tiempos = {}, delRepo = {}, extra = {}) =>
           urlVersion: `http://127.0.0.1:${PUERTO}/api/version`,
           campoVersion: "version",
           versionMinutos: 1,
+          // 24-nov-2026: sin el piso de 15 min de producción (las pruebas no esperan 15 min de verdad; el piso tiene su
+          // propia prueba en probar-fallas-repetidas.mjs).
+          pisoVersionMinutos: 0,
         },
         // Las pruebas de siempre mandan varias del mismo proyecto a la nube: sin tope propio (los cupos tienen las suyas).
         cuposNube: null,

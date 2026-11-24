@@ -358,7 +358,9 @@
         "urlVersion": "https://crm.magilus.com/api/version",
         "campoVersion": "version",
         "versionMinutos": 15,
-        "urlArranque": "https://crm.magilus.com/login"
+        "urlArranque": "https://crm.magilus.com/login",
+        "pisoVersionMinutos": 15,
+        "logActualizar": "tail -n 300 /var/log/crm-actualizar.log"
       }
     },
     "gestion": {
@@ -444,7 +446,8 @@
           "--exit-status"
         ],
         "ciMinutos": 20,
-        "workflowDespliegue": "docker-image.yml"
+        "workflowDespliegue": "docker-image.yml",
+        "pisoVersionMinutos": 15
       },
       "ciDeRama": {
         "activo": false,

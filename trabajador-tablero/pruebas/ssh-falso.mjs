@@ -8,6 +8,17 @@ let entrada = "";
 for await (const pedazo of process.stdin) entrada += pedazo;
 if (process.env.SSH_FALSO_LOG) fs.appendFileSync(process.env.SSH_FALSO_LOG, `${JSON.stringify({ destino, remoto, entrada })}\n`);
 
+// 24-nov-2026: el log de /opt/crm/actualizar.sh (subida.logActualizar). SSH_FALSO_LOG_ACTUALIZAR trae sus líneas; con "caido",
+// el ssh no responde. Sin la variable no imprime nada (como siempre).
+if (remoto.includes("crm-actualizar.log")) {
+  if (process.env.SSH_FALSO_LOG_ACTUALIZAR === "caido") {
+    console.error("ssh: connect to host servidor-falso port 22: Connection timed out");
+    process.exit(255);
+  }
+  if (process.env.SSH_FALSO_LOG_ACTUALIZAR) console.log(process.env.SSH_FALSO_LOG_ACTUALIZAR);
+  process.exit(0);
+}
+
 if (remoto.startsWith("logs-falso") && process.env.SSH_FALSO_LOGS_ARRANQUE === "typeerror") {
   // 24-nov-2026 (parte 3): un error del programa al arrancar la versión nueva.
   console.log("2026-11-24T10:00:00Z TypeError: Cannot read properties of undefined (reading 'compra')\n2026-11-24T10:00:01Z    at editarCompra (src/compras.ts:12:3)");

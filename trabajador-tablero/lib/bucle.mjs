@@ -807,11 +807,13 @@ async function repararLaFalla({ crm, config, registro, contexto, bitacora, pausa
  * La subida ya se deshizo (reversion.ok: producción volvió a la versión anterior) y trae su causa en sencillo (deshacerSubida).
  *   - arreglo_de_subida (código o arranque): /causa-externa tipo "subida" crea «Arreglo de subida: …» y esta espera a esa.
  *   - esperar (pasajera): /soltar con categoria subida_revertida, sin arreglo: se reintenta en la vuelta siguiente.
+ *   - esperar (falsa, 24-nov-2026): /soltar con la categoría del diagnóstico (NO subida_revertida, así no suma al tope): en la vuelta
+ *     siguiente subir() ve el revert (revertQueLoDeshace), lo deshace y sube el mismo commit.
  *   - la 3.ª subida deshecha (lo cuenta el Coordinador o el CRM responde `agotado`): /error con 3 líneas y categoria
  *     subida_revertida, que queda solo en Alertas (sin WhatsApp).
  * Si el CRM falla o no suelta la tarjeta: el WhatsApp de antes y /error de siempre (nunca peor que hoy). Nunca lanza.
  */
-async function resolverLaSubidaDeshecha({ crm, config, registro }, tarjeta, hacer, error, datos) {
+export async function resolverLaSubidaDeshecha({ crm, config, registro }, tarjeta, hacer, error, datos) {
   // Bitácora de incidentes (24-nov-2026): primero se decide y se hace (arreglo, reintento o Alertas); después se anota. Si la
   // bitácora falla, lo de la tarjeta ya pasó igual.
   const como = {};
@@ -909,6 +911,19 @@ async function decidirLaSubidaDeshecha({ crm, registro }, tarjeta, hacer, error,
     } catch (otro) {
       return comoAntes(`no se pudo pedir el arreglo al CRM (${otro.message})`);
     }
+  }
+
+  // Reversión falsa (24-nov-2026, T-902 y T-800): la versión nueva nunca llegó al servidor. Se suelta sin la categoría
+  // subida_revertida (no cuenta para el TOPE_INTENTOS_DE_SUBIDA, ni en el Coordinador ni en el CRM) y se sube el mismo commit.
+  if (reversion.clase === "falsa") {
+    const notaFalsa = enUnaLinea(`${sencilla} Reversión falsa: no cuenta como subida deshecha; se vuelve a subir el mismo commit en la vuelta siguiente.`, 200);
+    const categoria = intento.categoria === "subida_revertida" ? "otra" : intento.categoria;
+    if (await soltar(crm, registro, tarjeta, notaFalsa, { ...intento, categoria, causa: notaFalsa })) {
+      como.valor = "reintento (reversión falsa)";
+      registro.info(`reversión falsa de "${tarjeta.titulo}" (commit ${String(reversion.commit ?? "").slice(0, 10)}): se vuelve a subir el mismo commit en la vuelta siguiente`);
+      return { ...resultado, accion: "esperar", falsa: true };
+    }
+    return comoAntes("el CRM no dejó soltar la tarjeta");
   }
 
   // Pasajera: se suelta (SUBIENDO sigue en SUBIENDO) y se reintenta en la vuelta siguiente, sin crear arreglo.

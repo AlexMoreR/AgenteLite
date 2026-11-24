@@ -114,13 +114,19 @@ minuto y antes que cualquier otra tarjeta.
   - **pasa** con la primera respuesta por debajo de 500: 2xx, 3xx y también 4xx (la app contesta);
   - solo si **todos** los intentos dan nada o 5xx se vuelve a leer `/api/version` una última vez: si sigue diciendo el commit
     nuevo (o uno que lo incluye) **no se deshace** (queda un AVISO en el registro); si ya no, se deshace con el motivo
-    "…/login contestó nada / 502 durante 3 min (N intentos), y …/api/version ya no dice …";
+    "…/login contestó nada / 502 durante 3 min (N intentos), y …/api/version ya no dice …" (desde el 24-nov-2026, antes del
+    piso de 15 min desde la subida se sigue preguntando a `/api/version` cada 10 s);
   - el plazo nunca pasa de lo que le queda al reloj de la etapa; con el reloj gastado (o la tarjeta vencida en el CRM) se hace un
     intento y se decide con `/api/version`, sin reintentar.
-- **El plazo real de `/api/version` es min(`versionMinutos`, lo que le queda a la etapa subir)**, no `versionMinutos` solo.
-  El reloj es el de `tiempos.subirMinutos` (44 por defecto) y cuenta desde que se tomó la tarjeta: la verificación (instalar,
-  build, pruebas) y la espera del CI ya gastaron parte antes de empezar a mirar la versión. 10-nov-2026 (2 casos): el servidor
-  bajó la imagen ~12 min después de terminar el CI y el Coordinador ya se había rendido y deshecho, con `versionMinutos` en 45.
+- **El plazo de `/api/version` ya no sale del reloj de la etapa subir** (24-nov-2026, reversión falsa de T-902 y T-800). Antes
+  era min(`versionMinutos`, lo que le quedaba a la etapa): si el CI tardó, el reloj (`tiempos.subirMinutos`, 44) ya estaba gastado
+  y se deshacía a los ~2 min, antes de que el servidor bajara la imagen. Ahora se espera lo mayor entre `versionMinutos` desde
+  ahora y `subida.pisoVersionMinutos` (15) desde la subida, más `ciMinutos` si no se encontró la corrida del CI. Antes de
+  deshacer se lee otra vez `/api/version` y, por ssh (`ssh.destino`), `subida.logActualizar` (por defecto
+  `tail -n 300 /var/log/crm-actualizar.log`; solo lectura): si el log no dice `listo: version <sha>` con el commit subido o uno
+  posterior, o se iba a deshacer antes del piso, la reversión queda con clase **falsa**: no cuenta para el tope de subidas
+  deshechas ni pide arreglo, y en la vuelta siguiente se sube el mismo commit (`revertQueLoDeshace`). Sin ssh decide solo
+  `/api/version` con el piso. Las líneas del log van en la causa.
 - **Qué CI cuenta como "el despliegue"**: solo el workflow de `subida.workflowDespliegue` (p. ej. `"docker-image.yml"`, el que
   publica la imagen) más la comprobación de `/api/version`. Se le agrega `--workflow <archivo>` al `gh run list` de `ciBuscar`
   (o se usa `{workflow}` en el comando). Un workflow de revisión (p. ej. «CI tablero») que falle en el mismo commit no deshace

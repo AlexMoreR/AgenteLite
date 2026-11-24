@@ -27,6 +27,7 @@ import crypto from "node:crypto";
 
 import { agenteDelRepo, leccionesParaElPrompt, necesitoDe, textoDeIdentidad } from "./agentes.mjs";
 import { bloqueDeIncidentes, incidentesParaElPrompt } from "./bitacora.mjs";
+import { PISO_VERSION_MINUTOS } from "./config.mjs";
 import { MAXIMO_DE_PARTES, MINIMO_DE_PARTES, FRASES_DE_LA_CAUSA, causaDeLaSubidaFallida, enUnaLinea, esErrorDeSesionClaude, esLimiteDeUso, recortar, sinRuido } from "./diagnostico.mjs";
 import { ensayarMigraciones, migracionesNuevas } from "./ensayo.mjs";
 import {
@@ -2145,21 +2146,34 @@ async function comprobarArranque(contexto, urlArranque, plazoMs, reloj) {
   }
 }
 
+/** El piso de minutos de esperarVersion (subida.pisoVersionMinutos; sin la clave, PISO_VERSION_MINUTOS). */
+const pisoDeLaVersion = (repo) => {
+  const minutos = Number(repo.subida?.pisoVersionMinutos);
+  return Number.isFinite(minutos) && minutos >= 0 ? minutos : PISO_VERSION_MINUTOS;
+};
+
 /**
  * Espera que la URL de versión diga el commit nuevo, o uno posterior que lo incluya (= arrancó la versión nueva).
  *
- * El plazo real NO es versionMinutos: es min(versionMinutos, reloj.resta()). El reloj es el de la etapa subir
- * (tiempos.subirMinutos, 44 por defecto), que ya gastó la verificación y el CI antes de llegar acá. 10-nov-2026 (2 casos):
- * el servidor bajó la imagen ~12 min después de terminar el CI y el Coordinador ya se había rendido aunque versionMinutos
- * era 45. Ver README, "Si el despliegue falla después de subir".
+ * 24-nov-2026 (T-902 470c7f1 y T-800): el plazo YA NO sale de reloj.resta(). Ese reloj es el de toda la etapa subir
+ * (tiempos.subirMinutos, 44 por defecto): si el CI tardó, ya estaba gastado, resta() lanzaba al instante y la versión se
+ * deshacía a los ~2 min, antes de que el servidor bajara la imagen. Ahora se espera lo que sea mayor entre versionMinutos
+ * desde ahora y PISO_VERSION_MINUTOS (15) desde la subida (`subidoEn`), y a los dos se les suma el tiempo del CI si no se
+ * encontró su corrida. Nunca lanza por el reloj de la etapa; si la tarjeta vence en el CRM (contexto.senal) deja de esperar.
+ * Al rendirse lanza un ErrorDeEtapa con `esperandoVersion` = true: subir() revisa /api/version y el log de actualizar.sh
+ * (revisarAntesDeDeshacer) antes de deshacer. `ahora` y `esperar` se cambian solo en las pruebas (el reloj falso).
  */
-async function esperarVersion(contexto, repo, commit, reloj, { sinCi = false } = {}) {
+export async function esperarVersion(contexto, repo, commit, reloj, { sinCi = false, subidoEn = null, ahora = Date.now, esperar = dormir } = {}) {
   const { urlVersion, campoVersion, versionMinutos, urlArranque, arranqueMinutos, ciMinutos } = repo.subida;
   if (!urlVersion) return { version: null, texto: "versión: no configurada" };
+  const inicio = ahora();
+  const desde = Number.isFinite(subidoEn) ? subidoEn : inicio;
   // Si no se encontró la corrida del CI, el despliegue puede venir atrasado: se le da también el tiempo del CI
   // antes de decir "no arrancó" y deshacer (25-oct-2026).
-  const minutos = sinCi ? versionMinutos + (ciMinutos ?? 0) : versionMinutos;
-  const limite = Date.now() + Math.min(minutos * MINUTO, reloj.resta());
+  const extraCi = sinCi ? (ciMinutos ?? 0) : 0;
+  const piso = desde + (pisoDeLaVersion(repo) + extraCi) * MINUTO;
+  const limite = Math.max(piso, inicio + ((versionMinutos ?? 0) + extraCi) * MINUTO);
+  const noArranco = (texto) => Object.assign(new ErrorDeEtapa(texto), { esperandoVersion: true });
   let ultima = "";
   for (;;) {
     // El servidor puede estar reiniciando (null): se vuelve a preguntar.
@@ -2168,30 +2182,99 @@ async function esperarVersion(contexto, repo, commit, reloj, { sinCi = false } =
       ultima = leida;
       if (await versionIncluye(repo, ultima, commit)) break;
     }
-    if (Date.now() > limite) {
-      throw new ErrorDeEtapa(
-        `Subió a ${repo.ramaBase} y el CI pasó, pero ${urlVersion} sigue diciendo "${ultima || "nada"}" en vez de ${commit.slice(0, 10)}: la versión nueva no arrancó.`,
+    if (ahora() > limite || contexto.senal?.aborted) {
+      throw noArranco(
+        `Subió a ${repo.ramaBase} y el CI pasó, pero ${urlVersion} sigue diciendo "${ultima || "nada"}" en vez de ${commit.slice(0, 10)} después de ${duracion(ahora() - desde)} desde la subida: la versión nueva no arrancó.`,
       );
     }
-    await dormir(10_000);
+    await esperar(10_000);
   }
   if (urlArranque) {
     const arranque = await comprobarArranque(contexto, urlArranque, (arranqueMinutos ?? 3) * MINUTO, reloj);
     if (!arranque.ok) {
       const contesto = `contestó ${[...new Set(arranque.estados)].join(" / ")} durante ${duracion(arranque.ms)} (${arranque.intentos} intento${arranque.intentos === 1 ? "" : "s"})`;
       // Última pregunta a /api/version antes de deshacer: si sigue diciendo el commit nuevo (o uno que lo incluye), la
-      // app sigue sirviendo y no se deshace; queda el aviso en el registro.
-      const ahora = await leerVersion(urlVersion, campoVersion);
-      if (ahora !== null && (await versionIncluye(repo, ahora, commit))) {
-        contexto.registro?.aviso?.(`${urlArranque} ${contesto}, pero ${urlVersion} sigue diciendo ${ahora.slice(0, 10)}: no se deshace`);
-        return { version: ahora, texto: `versión ${ahora.slice(0, 10)}: ok (${urlArranque} ${contesto}; no se deshace)` };
+      // app sigue sirviendo y no se deshace; queda el aviso en el registro. Antes del piso se sigue preguntando.
+      let ahoraDice;
+      for (;;) {
+        ahoraDice = await leerVersion(urlVersion, campoVersion);
+        if (ahoraDice !== null && (await versionIncluye(repo, ahoraDice, commit))) {
+          contexto.registro?.aviso?.(`${urlArranque} ${contesto}, pero ${urlVersion} sigue diciendo ${ahoraDice.slice(0, 10)}: no se deshace`);
+          return { version: ahoraDice, texto: `versión ${ahoraDice.slice(0, 10)}: ok (${urlArranque} ${contesto}; no se deshace)` };
+        }
+        if (ahora() >= piso || contexto.senal?.aborted) break;
+        await esperar(10_000);
       }
-      throw new ErrorDeEtapa(
-        `La versión nueva arrancó pero ${urlArranque} ${contesto}, y ${urlVersion} ya no dice ${commit.slice(0, 10)} (dice "${ahora ?? "nada"}").`,
+      throw noArranco(
+        `La versión nueva arrancó pero ${urlArranque} ${contesto}, y ${urlVersion} ya no dice ${commit.slice(0, 10)} (dice "${ahoraDice ?? "nada"}").`,
       );
     }
   }
   return { version: ultima, texto: `versión ${ultima.slice(0, 10)}: ok` };
+}
+
+/** Los sha de las líneas "listo: version <sha>" del log de /opt/crm/actualizar.sh, del más nuevo al más viejo (máximo 5). */
+export function shasListosDelLog(lineas) {
+  const shas = [];
+  for (const linea of [...lineas].reverse()) {
+    for (const calce of String(linea).matchAll(/\blisto:\s*version\s+([0-9a-f]{7,40})\b/gi)) {
+      const sha = calce[1].toLowerCase();
+      if (!shas.includes(sha)) shas.push(sha);
+    }
+    if (shas.length >= 5) break;
+  }
+  return shas.slice(0, 5);
+}
+
+/**
+ * Antes de deshacer una subida que "no arrancó" (24-nov-2026): una última lectura de /api/version y las últimas líneas del log
+ * de actualizar.sh por ssh (subida.logActualizar, con el ssh.destino de siempre; solo lectura). Nunca lanza.
+ * -> { arranco: true, version } si /api/version ya dice el commit (no se deshace), o
+ *    { arranco: false, falsa, porQue, lineas, leyoElLog, minutos }:
+ *    falsa = pasaron menos de pisoVersionMinutos desde la subida, o el log se leyó y no dice "listo: version <sha>" con el commit
+ *    subido o uno posterior (la versión nueva nunca llegó al servidor). Sin log (ssh caído) decide solo /api/version con el piso.
+ */
+export async function revisarAntesDeDeshacer(contexto, repo, commit, { subidoEn = null, ahora = Date.now } = {}) {
+  const { config } = contexto;
+  const { urlVersion, campoVersion, logActualizar } = repo.subida ?? {};
+  const piso = pisoDeLaVersion(repo);
+  try {
+    const version = urlVersion ? await leerVersion(urlVersion, campoVersion) : null;
+    if (version && (await versionIncluye(repo, version, commit))) return { arranco: true, version };
+  } catch {
+    // Sin /api/version se decide con el log y el piso.
+  }
+  let lineas = null;
+  if (logActualizar && config.ssh?.destino) {
+    try {
+      const leido = await leerDelServidor(config, logActualizar, contexto.senal);
+      const todas = leido.salida.split(/\r?\n/).map((linea) => linea.trimEnd()).filter((linea) => linea.trim());
+      if (leido.ok && todas.length) lineas = todas;
+    } catch {
+      lineas = null;
+    }
+  }
+  const minutos = Number.isFinite(subidoEn) ? (ahora() - subidoEn) / MINUTO : Infinity;
+  const antesDelPiso = minutos < piso;
+  let conListo = false;
+  if (lineas) {
+    for (const sha of shasListosDelLog(lineas)) {
+      try {
+        if (await versionIncluye(repo, sha, commit)) {
+          conListo = true;
+          break;
+        }
+      } catch {
+        // Un sha que git no conoce no es el nuestro.
+      }
+    }
+  }
+  const porQue = antesDelPiso
+    ? `se iba a deshacer a los ${redondear(minutos)} min de la subida (menos de los ${piso} min del piso)`
+    : lineas && !conListo
+      ? `el log de actualizar.sh no dice "listo: version" con ${commit.slice(0, 10)} ni con una versión posterior: la versión nueva no llegó al servidor`
+      : null;
+  return { arranco: false, falsa: Boolean(porQue), porQue, lineas: lineas ? lineas.slice(-30) : [], leyoElLog: Boolean(lineas), minutos };
 }
 
 /* ─────────────────────────── vigilancia de 30 minutos (zonas que suben solas, 24-oct-2026) ── */
@@ -2496,15 +2579,27 @@ export async function subir(contexto, tarjeta) {
       }
     }
     if (!yaEnMain) registro.info(`subido a ${repo.ramaBase}: ${commit.slice(0, 10)} (${tarjeta.titulo})`);
+    // Desde acá corre el piso de esperarVersion (si ya estaba en main, desde ahora: se espera de más, nunca de menos).
+    const subidoEn = Date.now();
     let version;
     try {
       const ci = await esperarCi(contexto, repo, commit, carpeta, reloj);
-      const comprobada = await esperarVersion(contexto, repo, commit, reloj, { sinCi: !/: ok$/.test(ci) });
+      const comprobada = await esperarVersion(contexto, repo, commit, reloj, { sinCi: !/: ok$/.test(ci), subidoEn });
       version = comprobada.version;
       registro.info(`${ci}; ${comprobada.texto}`);
     } catch (error) {
-      // Se subió y no arrancó: se deshace lo subido para que producción vuelva a la versión anterior.
-      throw await deshacerOAvisar(contexto, repo, carpeta, { antes, commit, motivo: error instanceof Error ? error.message : String(error) });
+      let motivo = error instanceof Error ? error.message : String(error);
+      // 24-nov-2026: antes de deshacer por "no arrancó", /api/version otra vez y el log de actualizar.sh (revisarAntesDeDeshacer).
+      const previa = error?.esperandoVersion ? await revisarAntesDeDeshacer(contexto, repo, commit, { subidoEn }) : null;
+      if (previa?.arranco) {
+        version = previa.version;
+        registro.aviso(`${motivo.split("\n")[0]} — pero antes de deshacer ${repo.subida.urlVersion} ya dice ${String(version).slice(0, 10)}: no se deshace`);
+      } else {
+        if (previa?.lineas.length) motivo = `${motivo}\nLog de actualizar.sh (últimas ${previa.lineas.length} líneas):\n${previa.lineas.join("\n")}`;
+        if (previa?.falsa) motivo = `Reversión falsa: ${previa.porQue}.\n${motivo}`;
+        // Se subió y no arrancó: se deshace lo subido para que producción vuelva a la versión anterior.
+        throw await deshacerOAvisar(contexto, repo, carpeta, { antes, commit, motivo, previa });
+      }
     }
     let vigilancia = null;
     if (foto) {
@@ -2850,8 +2945,8 @@ export async function revertQueLoDeshace(carpeta, base, commit) {
  * Deshacer lo subido; si no se sabe con seguridad desde dónde (ramaYaEnMain sin `antes`), no se revierte nada a ciegas: el
  * error lo dice para revisarlo a mano.
  */
-async function deshacerOAvisar(contexto, repo, carpeta, { antes, commit, motivo, vigilancia = false }) {
-  if (antes) return deshacerSubida(contexto, repo, carpeta, { antes, commit, motivo, vigilancia });
+async function deshacerOAvisar(contexto, repo, carpeta, { antes, commit, motivo, vigilancia = false, previa = null }) {
+  if (antes) return deshacerSubida(contexto, repo, carpeta, { antes, commit, motivo, vigilancia, previa });
   contexto.registro.error(`URGENTE: ${commit.slice(0, 10)} ya estaba en ${repo.ramaBase}, falló y no se puede deshacer solo: ${motivo}`);
   return new ErrorDeEtapa(
     `URGENTE: no se pudo deshacer solo, revisar a mano. Lo de la tarea ya estaba en ${repo.ramaBase} (commit ${commit.slice(0, 10)}) junto con otros cambios o con merges, y ${vigilancia ? "la vigilancia vio una falla" : "el despliegue falló"}.\nDetalle técnico: ${motivo}`,
@@ -2859,7 +2954,7 @@ async function deshacerOAvisar(contexto, repo, carpeta, { antes, commit, motivo,
   );
 }
 
-async function deshacerSubida(contexto, repo, carpeta, { antes, commit, motivo, vigilancia = false }) {
+async function deshacerSubida(contexto, repo, carpeta, { antes, commit, motivo, vigilancia = false, previa = null }) {
   const { config, registro } = contexto;
   registro.error(`${vigilancia ? "la vigilancia de" : "el despliegue de"} ${commit.slice(0, 10)} ${vigilancia ? "vio una falla" : "falló"}; se deshace: ${motivo}`);
   try {
@@ -2874,7 +2969,12 @@ async function deshacerSubida(contexto, repo, carpeta, { antes, commit, motivo, 
     });
     registro.info(`deshecho: revert ${revert.slice(0, 10)} de ${commit.slice(0, 10)} en ${repo.ramaBase}`);
     // Recién ahora (producción ya vuelve a la versión anterior) se leen los logs para decir la causa en sencillo. Nunca lanza.
-    const causa = await causaDeLaSubida(contexto, repo, carpeta, { commit, motivo, vigilancia });
+    // 24-nov-2026: la reversión falsa (la versión nueva no llegó al servidor, o se deshizo antes del piso) no es falla del
+    // código: clase "falsa", con las últimas líneas del log de actualizar.sh como causa. El bucle sube el mismo commit otra vez.
+    const causa = previa?.falsa
+      ? { clase: "falsa", sencilla: FRASES_DE_LA_CAUSA.falsa, lineas: [previa.porQue, ...previa.lineas.slice(-7)].map((linea) => recortar(String(linea).trim(), 300)) }
+      : await causaDeLaSubida(contexto, repo, carpeta, { commit, motivo, vigilancia });
+    if (previa?.falsa) registro.info(`causa de la subida que falló: falsa — ${previa.porQue}`);
     const sencilla = `Causa (en sencillo): ${causa.sencilla}`;
     // La 1ª línea de la vigilancia sigue empezando con "Revertida:" (causaExterna la busca así): la sencilla va después.
     return new ErrorDeEtapa(
