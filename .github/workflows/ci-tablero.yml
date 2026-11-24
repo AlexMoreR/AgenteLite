@@ -78,5 +78,9 @@ jobs:
       - name: Build
         run: npm run build
 
+      # Con Docker del runner levanta postgres:<mayor>-alpine (la de src/lib/postgres-produccion.json); acá
+      # es obligatorio: sin Postgres real de la versión de producción, el paso falla.
       - name: Pruebas
+        env:
+          PRUEBAS_POSTGRES_OBLIGATORIO: "1"
         run: node scripts/correr-pruebas-ci.mjs

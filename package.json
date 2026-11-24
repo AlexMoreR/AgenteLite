@@ -9,6 +9,7 @@
     "lint": "eslint",
     "test": "node scripts/correr-pruebas-ci.mjs",
     "test:sql-version-postgres": "node scripts/check-sql-version-postgres.mjs",
+    "test:version-postgres-de-pruebas": "node scripts/check-version-postgres-de-pruebas.mjs",
     "test:commercial-stage": "node scripts/check-commercial-stage.mjs",
     "test:origen-ventas": "node scripts/check-origen-ventas.mjs",
     "test:origen-del-cliente": "node scripts/check-origen-del-cliente.mjs",
