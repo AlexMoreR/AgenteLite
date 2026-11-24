@@ -122,9 +122,9 @@ export function ConexionCerebro({
               : "Todavía no está conectado. El Drive es el original del cerebro."}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex w-full flex-wrap gap-2 sm:w-auto">
           {pedirPermisoOAuth ? (
-            <Button render={<a href="/api/cerebro/google/conectar" />} disabled={!oauthListo}>
+            <Button render={<a href="/api/cerebro/google/conectar" />} disabled={!oauthListo} className="h-auto min-h-8 whitespace-normal text-left">
               <Plug />
               Permitir que el CRM cree notas en Drive
             </Button>
