@@ -2,6 +2,7 @@
 // No toca el CRM real ni D:/Magilus.
 //   node trabajador-tablero/pruebas/probar-bitacora.mjs   (también corre dentro de npm run test:trabajador-tablero)
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -14,8 +15,10 @@ import {
   anotarIncidente,
   armarEntrada,
   bloqueDeIncidentes,
+  crearBitacoraNocturna,
   fechaDeLaBitacora,
   incidentesParaElPrompt,
+  leerEstadoDeLaBitacora,
   reglaPara,
   resumenDeUnaLinea,
   rutaDeIncidentes,
@@ -226,6 +229,117 @@ try {
     // Todo el archivo se lee: cada entrada sale en el prompt.
     const lineas = incidentesParaElPrompt({ raizDelRepo: RAIZ_DEL_REPO, carpetaTrabajo: path.join(T, "no-existe"), repo: "aizencrm" }).split("\n");
     assert.equal(lineas.length, bloques.length);
+  });
+
+  // Parte 3: el paso de la noche pasa la bitácora a docs/incidentes.md de cada repo (un repo git de prueba con un remoto bare local).
+  await prueba("bitácora de la noche: crea docs/incidentes.md, no duplica, entra T-875 en gestion y no corre con una subida en curso", async () => {
+    const N = fs.mkdtempSync(path.join(T, "noche-"));
+    const gn = (cwd, ...args) => execFileSync("git", ["-c", "user.name=P", "-c", "user.email=p@x.co", ...args], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+    const crearRepo = (nombre) => {
+      const remoto = path.join(N, `${nombre}.git`);
+      const ruta = path.join(N, nombre);
+      execFileSync("git", ["init", "--bare", "-b", "main", remoto], { stdio: "ignore" });
+      fs.mkdirSync(path.join(ruta, "src"), { recursive: true });
+      gn(ruta, "init", "-b", "main");
+      fs.writeFileSync(path.join(ruta, "src", "a.ts"), "// a\n");
+      gn(ruta, "add", "-A");
+      gn(ruta, "commit", "-m", "base");
+      gn(ruta, "remote", "add", "origin", remoto);
+      gn(ruta, "push", "-q", "-u", "origin", "main");
+      return { remoto, ruta };
+    };
+    const crm = crearRepo("aizencrm");
+    const ges = crearRepo("gestion");
+    const enRemoto = (remoto, archivo) => execFileSync("git", ["--git-dir", remoto, "show", `main:${archivo}`], { encoding: "utf8" });
+    const commits = (remoto) => execFileSync("git", ["--git-dir", remoto, "rev-list", "--count", "main"], { encoding: "utf8" }).trim();
+    const ultimoMensaje = (remoto) => execFileSync("git", ["--git-dir", remoto, "log", "-1", "--format=%s", "main"], { encoding: "utf8" }).trim();
+    const veces = (texto, parte) => texto.split(parte).length - 1;
+
+    const config = completarConfig(
+      {
+        urlCrm: "http://127.0.0.1:1",
+        claveTrabajador: "aizen_trab_prueba",
+        carpetaTrabajo: path.join(N, "trabajo"),
+        git: { nombre: "Trabajador de prueba", correo: "trabajador@x.co" },
+        repos: {
+          aizencrm: { subirSolo: false, ruta: crm.ruta, ramaBase: "main", remoto: "origin" },
+          gestion: { subirSolo: false, ruta: ges.ruta, ramaBase: "main", remoto: "origin" },
+        },
+      },
+      N,
+    );
+    const log = registro();
+    anotarIncidente({ config, registro: log, ...base });
+    anotarIncidente({ config, registro: log, ...base, fecha: "2026-11-24 15:00", causa: "segunda causa" });
+    const avisos = [];
+    let ahora = new Date("2026-11-25T03:00:00Z"); // 22:00 en Bogotá: antes de la hora del manual (23)
+    const noche = crearBitacoraNocturna({ config, registro: log, avisar: async (texto) => avisos.push(texto), entorno: process.env, ahora: () => ahora });
+    const libre = { corriendo: () => 0 };
+
+    assert.equal((await noche.revisar(libre)).motivo, "antes_de_la_hora");
+    ahora = new Date("2026-11-25T04:30:00Z"); // 23:30 en Bogotá
+    // Con una subida en curso no corre: no sube nada ni guarda estado.
+    assert.equal((await noche.revisar({ corriendo: () => 1 })).motivo, "subiendo");
+    assert.equal(commits(crm.remoto), "1");
+    assert.equal(commits(ges.remoto), "1");
+    assert.equal(leerEstadoDeLaBitacora(config.carpetaTrabajo), null);
+
+    // Primera corrida: crea docs/incidentes.md en los dos repos y agrega las entradas nuevas.
+    let resultado = await noche.revisar(libre);
+    assert.equal(resultado.hizo, true, JSON.stringify(resultado));
+    assert.equal(commits(crm.remoto), "2");
+    assert.match(ultimoMensaje(crm.remoto), /^docs\(incidentes\): /);
+    const textoCrm = enRemoto(crm.remoto, "docs/incidentes.md");
+    assert.match(textoCrm, /^# Bitácora de incidentes: aizencrm\n/);
+    assert.equal(veces(textoCrm, "<!-- incidente:ru2nd890:2026-11-24 14:05 -->"), 1);
+    assert.equal(veces(textoCrm, "<!-- incidente:ru2nd890:2026-11-24 15:00 -->"), 1);
+    assert.ok(textoCrm.indexOf("14:05") < textoCrm.indexOf("15:00"), "en el orden en que se anotaron");
+    assert.ok(!textoCrm.includes("T-875"), "T-875 es de gestion, no de aizencrm");
+    // gestion: sin entradas locales, entra T-875 (commit c42a476).
+    assert.equal(commits(ges.remoto), "2");
+    assert.match(ultimoMensaje(ges.remoto), /^docs\(incidentes\): /);
+    const textoGes = enRemoto(ges.remoto, "docs/incidentes.md");
+    assert.match(textoGes, /^# Bitácora de incidentes: gestion\n/);
+    assert.equal(veces(textoGes, "<!-- incidente:T-875:fecha no registrada -->"), 1);
+    assert.match(textoGes, /^- Repo: gestion \(commit c42a476\)$/m);
+    assert.match(avisos.at(-1), /Bitácora de la noche: pasé 2 entrada\(s\) a aizencrm y 1 entrada\(s\) a gestion/);
+    assert.equal(leerEstadoDeLaBitacora(config.carpetaTrabajo).hecho, true);
+    assert.equal(fs.existsSync(path.join(config.carpetaTrabajo, "wt", "bitacora-nocturna-aizencrm")), false, "no deja la copia aparte");
+    // El mismo día no se repite.
+    assert.equal((await noche.revisar(libre)).motivo, "ya_hecho");
+
+    // Segunda corrida (otro día), sin nada nuevo: no duplica ni hace commit.
+    ahora = new Date("2026-11-26T04:30:00Z");
+    resultado = await noche.revisar(libre);
+    assert.equal(resultado.hizo, true, JSON.stringify(resultado));
+    assert.equal(commits(crm.remoto), "2", "sin commit nuevo en aizencrm");
+    assert.equal(commits(ges.remoto), "2", "sin commit nuevo en gestion");
+    assert.equal(enRemoto(crm.remoto, "docs/incidentes.md"), textoCrm);
+    assert.equal(enRemoto(ges.remoto, "docs/incidentes.md"), textoGes);
+
+    // Otro día con una entrada nueva: solo entra esa, debajo de lo que ya estaba.
+    anotarIncidente({ config, registro: log, ...base, fecha: "2026-11-26 09:00", causa: "tercera causa" });
+    ahora = new Date("2026-11-27T04:30:00Z");
+    resultado = await noche.revisar(libre);
+    assert.equal(resultado.repos.aizencrm.nuevas, 1);
+    assert.equal(commits(crm.remoto), "3");
+    assert.equal(commits(ges.remoto), "2");
+    const textoCrm2 = enRemoto(crm.remoto, "docs/incidentes.md");
+    assert.ok(textoCrm2.startsWith(textoCrm.trimEnd()), "lo de antes queda igual");
+    assert.equal(veces(textoCrm2, "<!-- incidente:"), 3);
+
+    // Si git falla (el remoto desaparece), no lanza: avisa, cuenta el intento y para a los 3 intentos de la noche.
+    anotarIncidente({ config, registro: log, ...base, fecha: "2026-11-27 09:00", causa: "cuarta causa" });
+    fs.rmSync(crm.remoto, { recursive: true, force: true });
+    ahora = new Date("2026-11-28T04:30:00Z");
+    for (let i = 1; i <= 3; i += 1) {
+      resultado = await noche.revisar(libre);
+      assert.equal(resultado.motivo, "fallo", JSON.stringify(resultado));
+      assert.equal(leerEstadoDeLaBitacora(config.carpetaTrabajo).intentos, i);
+    }
+    assert.equal((await noche.revisar(libre)).motivo, "sin_intentos");
+    assert.ok(log.lineas.some((linea) => /^aviso: bitácora de la noche: no se subió nada a aizencrm/.test(linea)), log.lineas.join("\n"));
+    assert.deepEqual(leerEstadoDeLaBitacora(config.carpetaTrabajo).listos, ["gestion"], "gestion quedó lista y no se reintenta");
   });
 } finally {
   fs.rmSync(T, { recursive: true, force: true });
