@@ -70,6 +70,7 @@ import { crearEstadoDeMotores, crearVigilanteDeUso, motorDeLaEtapa, nombreDelMot
 import { commitsDeLaRama, esOrquestador, esTareaGrande, nombreDelProyecto, preguntaDelCommit, resultadoDelCommit, sesionFijaDe, sinAccesoALaNube, sinAccesoASesionesNuevas } from "./nube.mjs";
 import { datosDelLatidoDeConstruir } from "./latido.mjs";
 import { crearPausaPorUso } from "./pausa-uso.mjs";
+import { crearPausaPorSesion } from "./sesion-claude.mjs";
 import { crearMedidor, faltanRecursos, leerCarga } from "./recursos.mjs";
 import { crearGuardiaSinLatido } from "./sin-latido.mjs";
 
@@ -898,6 +899,8 @@ export function crearPlanificador({
   motores = crearEstadoDeMotores(config),
   pausaUso = crearPausaPorUso({ config, registro }),
   vigilante = crearVigilanteDeUso({ config, registro, estado: motores, entorno: entornoSeguro(), pausa: pausaUso }),
+  // 24-nov-2026 (sesion-claude.mjs): con la sesión de Claude vencida no se toma nada (cada tarjeta fallaría en cadena).
+  pausaSesion: pausaSesionDada = undefined,
   // La cola de pasos pesados se puede dar hecha (las pruebas la llenan a mano); undefined = la de la configuración.
   colaPesada: colaDada = undefined,
   // Lo que hace cada sesión (procesar); las pruebas del reparto lo cambian por uno falso que no corre etapas.
@@ -912,6 +915,9 @@ export function crearPlanificador({
   sinLatido: sinLatidoDado = undefined,
 }) {
   const max = config.maxParalelo;
+  const pausaSesion = pausaSesionDada ?? crearPausaPorSesion({ config, registro, ahora, entorno: entornoSeguro() });
+  // La línea "En pausa: sesión de Claude vencida" sale UNA vez por pausa (otros avisos del registro no la repiten).
+  let pausaSesionAnotada = false;
   // 31-oct-2026 (parte 4): durante 3 días el cupo de la nube de un proyecto baja solo en 1 si con varias a la vez chocan más.
   const ajusteCupos = ajusteDado ?? crearAjusteDeCupos({ config, registro, ahora, nombreDe: (clave) => nombreDelProyecto(config.repos[clave]) });
   /** El cupo de la nube que vale ahora para el proyecto (el configurado, o el que bajó el ajuste). null = sin tope propio. */
@@ -1310,7 +1316,7 @@ export function crearPlanificador({
       const corriendo = ocupadas().length + ocupadasEnNube().length;
       const cupos = cuposDisponibles();
       cuposVistos = { cupos, enFila: enFila.length, corriendo };
-      const pasa = enFila.length > 0 && corriendo < cupos && !pausaUso.pausado() && etapasSinMotor().length === 0 && !pcEspera;
+      const pasa = enFila.length > 0 && corriendo < cupos && !pausaUso.pausado() && !pausaSesion.vencida() && etapasSinMotor().length === 0 && !pcEspera;
       if (!pasa) {
         cuposSinUsarDesde = null;
         cuposSinUsarAvisado = false;
@@ -1366,6 +1372,13 @@ export function crearPlanificador({
       return;
     }
     if (ultimoAviso === "pausa-uso") ultimoAviso = "";
+    // 24-nov-2026: con la sesión de Claude vencida no se toma nada; el latido sigue saliendo (lo manda trabajador.mjs aparte).
+    if (await pausaSesion.revisar()) {
+      if (!pausaSesionAnotada) registro.info("En pausa: sesión de Claude vencida");
+      pausaSesionAnotada = true;
+      return;
+    }
+    pausaSesionAnotada = false;
     // Las que se soltaron en esta pasada porque no tenían dónde correr: no se vuelven a tomar hasta la próxima.
     const descartadas = new Map();
     for (;;) {
@@ -1573,6 +1586,8 @@ export function crearPlanificador({
         esperas: [...esperasDeFila.entries()].map(([tarjetaId, espera]) => ({ tarjetaId, motivo: espera.motivo, ...(espera.contra ? { contra: espera.contra } : {}) })),
         uso: motores.resumenDeUso(),
         pausaUso: pausaUso.resumen(),
+        // 24-nov-2026: la pausa por sesión de Claude vencida: { vencida, desde, revisadaEn }.
+        sesionClaude: pausaSesion.resumen(),
         // 31-oct-2026: los puestos disponibles, cuántas esperan en fila y cuántas ocupan puesto (los máximos del día salen de acá).
         cupos: cuposVistos.cupos,
         enFila: cuposVistos.enFila,
@@ -1584,6 +1599,9 @@ export function crearPlanificador({
     /** Pausa por uso de Claude: ¿está pausado? (el trabajo de noche y el recogedor tampoco corren) y los ajustes del panel. */
     pausadoPorUso: () => pausaUso.pausado(),
     ajustarPausaUso: (ajustes) => pausaUso.ajustes(ajustes),
+    /** Pausa por sesión de Claude vencida: ¿está en pausa? y el objeto (marcarVencida, esErrorDeSesion) para la parte 2. */
+    pausadoPorSesion: () => pausaSesion.vencida(),
+    pausaSesion,
     esperar: (ms) =>
       new Promise((resolver) => {
         if (cupoNuevo) {

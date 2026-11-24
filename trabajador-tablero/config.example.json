@@ -22,6 +22,7 @@
   "umbralClaude": 80,
   "pausaUso": { "activa": true, "umbral": 80, "cercaDesde": 70, "vigilarCercaMinutos": 2 },
   "vigilarUsoMinutos": 5,
+  "sesionClaude": { "revisarMinutos": 3 },
   "maxParalelo": 2,
   "nube": {
     "activa": true,
