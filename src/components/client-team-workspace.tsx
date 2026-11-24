@@ -62,7 +62,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { DIAS_DE_LA_SEMANA, type HorarioSemanal, type ModoDelDia } from "@/lib/horario-de-reparto-dias";
-import type { LineasDeLaPersona } from "@/features/actividad/services/lineas-de-la-persona";
+import type { LineasDeLaPersona as LineasDeActividad } from "@/features/actividad/services/lineas-de-la-persona";
 import {
   clientAssignableModuleDefinitions,
   defaultClientEmployeeModuleKeys,
@@ -92,7 +92,7 @@ type EmployeeRow = {
   /** WhatsApp donde le llegan los avisos de sus chats. Vacío = no recibe. */
   whatsappDeAvisos: string;
   /** Última conexión y última acción, ya en palabras (solo lo ven el dueño y los administradores). */
-  actividad: LineasDeLaPersona;
+  actividad: LineasDeActividad;
   invitedAtLabel: string;
   acceptedAtLabel: string;
 };
