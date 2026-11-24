@@ -149,7 +149,24 @@ export async function marcarSalioPorWhatsApp(workspaceId: string, clave: string)
   }
 }
 
-export type FiltroDeAlertas = { estado?: EstadoDeAlerta | "ABIERTAS" | "TODAS"; prioridad?: Prioridad | null };
+/**
+ * Pasa a RESUELTA las alertas abiertas (NUEVA o VISTA) de una clave, con su hora: para la fuente que sabe que el
+ * problema ya pasó (p. ej. la sesión de Claude del Coordinador volvió). Nunca lanza. Devuelve cuántas cerró.
+ */
+export async function resolverAlertasPorClave(workspaceId: string, clave: string, ahora = new Date()): Promise<number> {
+  try {
+    const hecho = await prisma.alertaInterna.updateMany({
+      where: { workspaceId, clave, estado: { in: ["NUEVA", "VISTA"] } },
+      data: { estado: "RESUELTA", resueltaEn: ahora },
+    });
+    return hecho.count;
+  } catch (error) {
+    console.warn("[alertas] no se pudieron resolver las alertas de la clave", { clave, error: error instanceof Error ? error.message : String(error) });
+    return 0;
+  }
+}
+
+export type FiltroDeAlertas ={ estado?: EstadoDeAlerta | "ABIERTAS" | "TODAS"; prioridad?: Prioridad | null };
 
 /**
  * Quién mira la página. Sin responsable de Sistemas configurado: el jefe (dueño o administrador) ve las del negocio y

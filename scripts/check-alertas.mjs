@@ -42,7 +42,9 @@ const falso = {
       return fila;
     },
     updateMany: async ({ where, data }) => {
-      for (const f of filas.filter((x) => coincide(x, where))) Object.assign(f, data);
+      const cuales = filas.filter((x) => coincide(x, where));
+      for (const f of cuales) Object.assign(f, data);
+      return { count: cuales.length };
     },
     findMany: async ({ where }) => filas.filter((f) => coincide(f, where)),
     groupBy: async ({ where }) => {
@@ -588,6 +590,31 @@ await prueba("quién ve qué: Emanuel (responsable) solo Sistemas, Alexander sol
   // Quitar al responsable: vuelve todo a verse junto.
   assert.deepEqual(await servicio.elegirResponsableDeSistemas(ws, true, null), { ok: true });
   assert.equal(await servicio.leerResponsableDeSistemas(ws), null);
+});
+
+await prueba("resolverAlertasPorClave: pasa a Resuelta las abiertas de esa clave (y solo de ese negocio) y dice cuántas", async () => {
+  filas.length = 0;
+  await servicio.registrarAlerta({ workspaceId: "wsS", clave: "coordinador:sesion-claude", prioridad: "ALTA", titulo: "Sesión vencida", origen: "Coordinador" });
+  await servicio.registrarAlerta({ workspaceId: "wsOtro", clave: "coordinador:sesion-claude", prioridad: "ALTA", titulo: "Sesión vencida", origen: "Coordinador" });
+  await servicio.registrarAlerta({ workspaceId: "wsS", clave: "otra:clave", prioridad: "MEDIA", titulo: "Otra", origen: "Coordinador" });
+  const ahora = new Date(2026, 10, 24, 9, 0);
+  assert.equal(await servicio.resolverAlertasPorClave("wsS", "coordinador:sesion-claude", ahora), 1);
+  const [mia, deOtro, otra] = filas;
+  assert.equal(mia.estado, "RESUELTA");
+  assert.equal(mia.resueltaEn, ahora);
+  assert.equal(deOtro.estado, "NUEVA", "la del otro negocio no se toca");
+  assert.equal(otra.estado, "NUEVA", "otra clave no se toca");
+  assert.equal(await servicio.resolverAlertasPorClave("wsS", "coordinador:sesion-claude", ahora), 0, "sin abiertas: 0");
+  // Nunca lanza.
+  const original = falso.alertaInterna.updateMany;
+  falso.alertaInterna.updateMany = async () => {
+    throw new Error("base caída");
+  };
+  try {
+    assert.equal(await servicio.resolverAlertasPorClave("wsS", "otra:clave"), 0);
+  } finally {
+    falso.alertaInterna.updateMany = original;
+  }
 });
 
 console.log(`\n${pruebas} pruebas ok`);
