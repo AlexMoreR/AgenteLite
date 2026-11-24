@@ -123,7 +123,8 @@ const mocks = {
     },
   },
   "./aprobacion-automatica": { tareaAprobadaPorElDueno: async (id) => estado.tareasDelDueno.has(id) },
-  "./coordinador-en-vivo": { ultimoLatido: async () => (estado.latido ? { recibidoEn: estado.latido } : null) },
+  // Sin el id de Features guardado: la alerta de las de Features sin arrancar no lee nada (check-tablero-features.mjs la prueba).
+  "./coordinador-en-vivo": { ultimoLatido: async () => (estado.latido ? { recibidoEn: estado.latido } : null), leerAreaFeatures: async () => null },
   "./tableros": {
     pendientesDelDueno: async () => estado.esperando,
     todoElNegocio: (workspaceId) => ({ workspaceId, soloDe: null }),

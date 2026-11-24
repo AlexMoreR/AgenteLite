@@ -1,4 +1,16 @@
-import { ORIGEN_COORDINADOR, esDeDineroMetaOClave, idDeTarjetaDeLaClave, textoDeVariasUrgentes, tituloDelTexto, type Prioridad } from "@/features/alertas/dominio/reglas";
+import {
+  ORIGEN_COORDINADOR,
+  alertaDeTarjetaQuieta,
+  entradaAFeatures,
+  esDeDineroMetaOClave,
+  ESTADOS_DE_TARJETA_QUIETA,
+  HORAS_PARA_DAR_POR_QUIETA,
+  idDeTarjetaDeLaClave,
+  textoDeVariasUrgentes,
+  tituloDelTexto,
+  type Prioridad,
+  type TarjetaQuietaDeFeatures,
+} from "@/features/alertas/dominio/reglas";
 import {
   barrerAlertasDeTarjetas,
   leerResponsableDeSistemas,
@@ -10,10 +22,10 @@ import {
 import { sendEvolutionTextMessageWithReconnect } from "@/lib/evolution";
 import { prisma } from "@/lib/prisma";
 
-import { ultimoLatido } from "./coordinador-en-vivo";
+import { leerAreaFeatures, ultimoLatido } from "./coordinador-en-vivo";
 import { tareaAprobadaPorElDueno } from "./aprobacion-automatica";
 import { porQueElPlanNuevoEsperaTuSi, porQueLaTareaEsperaTuSi } from "./reglas-riesgo";
-import { REPOS_DEL_TRABAJADOR, textoDeAprobarEnPantalla, zonasQueEsperanLaPantalla, zonasQueNoArrancanSolas } from "./reglas-trabajador";
+import { NOMBRE_DE_LA_ZONA, REPOS_DEL_TRABAJADOR, esZona, textoDeAprobarEnPantalla, zonasQueEsperanLaPantalla, zonasQueNoArrancanSolas } from "./reglas-trabajador";
 import { SQL_FUERA_POR_LA_VIA } from "./sql-trabajador";
 import { dondeTableroVivo } from "./tableros-archivados";
 import { tituloCorto } from "./resumen-corto";
@@ -73,6 +85,12 @@ import { linkDeHoy, linkDeLaTarjeta, linkDelCoordinador, pendientesDelDueno, tod
   `tablero:avisos-dueno:aprobaciones:<ws>` = "true". Lo de Emanuel, "Coordinador caído", "Se deshizo una subida" y el
   resumen de las 6 p. m. no cambian.
 
+  TARJETAS DE FEATURES QUE NO ARRANCAN (24-nov-2026): una tarjeta que cuelga de Features, nunca tomada (intentos = 0), en IDEA,
+  POR_APROBAR, APROBADO o PLAN_APROBADO y con más de 24 h desde que entró a Features deja la alerta `auto:quieta:<id>:<estado>`
+  con su motivo (falta el repo, espera tu sí, depende de otra, aprobada por un canal que no arranca, Coordinador caído u
+  ocupado). Va SOLO a /cliente/alertas (prioridad MEDIA): nunca sale por WhatsApp. Se cierra sola en el barrido cuando la
+  tarjeta cambia de estado o el Coordinador la toma (alertaYaNoAplica).
+
   Todo se guarda en AppSetting (sin tablas nuevas). El reloj del servidor (api/cron/follows) llama a
   revisarAvisosAlDueno cada minuto. Antes de este archivo el aviso del Coordinador devolvía 412 porque nadie
   guardaba el número en ninguna pantalla.
@@ -92,7 +110,7 @@ export const claveAvisosDeAprobacion = (workspaceId: string) => `${PREFIJO_AVISO
 /** El ajuste que usaba el aviso del Coordinador antes de que existiera la caja de Mi empresa. */
 const claveTelefonoViejo = (workspaceId: string) => `trabajador:aviso-telefono:${workspaceId}`;
 
-export const TIPOS_DE_AVISO = ["caido", "sin_trabajo", "trabado", "necesita", "limite", "aprobar_en_pantalla", "cupos"] as const;
+export const TIPOS_DE_AVISO = ["caido", "sin_trabajo", "trabado", "necesita", "limite", "aprobar_en_pantalla", "cupos", "quieta"] as const;
 export type TipoDeAviso = (typeof TIPOS_DE_AVISO)[number];
 
 /** Los avisos técnicos: los atiende Emanuel. Los que piden dinero, Meta Ads o una clave no están acá. */
@@ -386,6 +404,10 @@ export type SituacionDeSistemas = {
   esperando: TarjetaEsperando[];
   /** Aprobadas (y SUBIENDO pendientes, 31-oct) que el Coordinador no toma solo por la vía de su aprobación (28-oct-2026). */
   fueraPorLaVia?: TarjetaFueraPorLaVia[];
+  /** Las de Features sin arrancar con lo que se sabe de cada una (24-nov-2026). Sin el id de Features, vacía. */
+  quietasDeFeatures?: TarjetaQuietaDeFeatures[];
+  /** El último latido dice que el Coordinador está trabajando en otras tarjetas. */
+  coordinadorOcupado?: boolean;
 };
 
 /** Una APROBADO / PLAN_APROBADO o SUBIENDO pendiente (sin candado) con zona que pide la pantalla y aprobada por voz u otra vía (SQL_FUERA_POR_LA_VIA). */
@@ -409,6 +431,8 @@ const ES_UNA_SUBIDA_DESHECHA = /^\s*Se deshizo una subida/i;
  */
 export function prioridadDelAviso(tipo: TipoDeAviso, motivo?: string | null): Prioridad {
   if (esAvisoTecnico(tipo)) return "MEDIA";
+  // Una de Features que no arranca: solo la página (24-nov-2026).
+  if (tipo === "quieta") return "MEDIA";
   if (tipo === "necesita") {
     if (ES_UNA_SUBIDA_DESHECHA.test(motivo ?? "")) return "MEDIA";
     return esDeDineroMetaOClave(motivo ?? "") || ES_UNA_DUDA_DE_NEGOCIO.test(motivo ?? "") ? "URGENTE" : "ALTA";
@@ -462,6 +486,15 @@ const lista = (tarjetas: { titulo: string; estado: string }[]) => {
   const resto = tarjetas.length - dichas.length;
   return resto > 0 ? `${dichas.join(", ")} y ${resto} más` : dichas.join(", ");
 };
+
+/**
+ * ¿La tarjeta espera el sí del dueño (dinero, Meta Ads o V3)? El motivo de porQueNecesitaAlDueno, solo para POR_APROBAR; null
+ * si no lo espera. Lo usa la alerta de las tarjetas de Features que no arrancan.
+ */
+export function motivoDeEsperaTuSi(tarjeta: Pick<TarjetaEsperando, "id" | "titulo" | "detalle" | "estado" | "zonaProtegida">): string | null {
+  if (tarjeta.estado !== "POR_APROBAR") return null;
+  return porQueNecesitaAlDueno({ ...tarjeta, plan: null, error: null });
+}
 
 /**
  * El aviso "necesita tu decisión" de una tarjeta (`auto:necesita:<id>:<estado>`). Lo usa calcularAvisos y, para abrir la alerta
@@ -566,6 +599,21 @@ export function calcularAvisos(situacionCompleta: SituacionDeSistemas, ahora: Da
       titulo: texto,
     });
   }
+
+  // 7. De Features y sin arrancar hace más de 24 h (24-nov-2026): una alerta por tarjeta con su motivo, solo en la página.
+  const coordinador = { caido: caido || minutosSinSenales === null, ocupado: !!situacion.coordinadorOcupado };
+  for (const tarjeta of situacion.quietasDeFeatures ?? []) {
+    const quieta = alertaDeTarjetaQuieta(tarjeta, coordinador, ahora);
+    if (!quieta) continue;
+    avisos.push({
+      clave: quieta.clave,
+      tipo: "quieta",
+      lineas: [`⏳ ${quieta.titulo} (${quieta.horas} h).`, `Motivo: ${unaLinea(quieta.motivo, 160)}`],
+      link: linkDeLaTarjeta(tarjeta.id),
+      prioridad: prioridadDelAviso("quieta"),
+      titulo: `${quieta.titulo}: ${quieta.motivo}`,
+    });
+  }
   return avisos;
 }
 
@@ -613,7 +661,112 @@ async function aprobadasFueraPorLaVia(workspaceId: string): Promise<TarjetaFuera
   }
 }
 
-export async function leerSituacion(workspaceId: string): Promise<SituacionDeSistemas> {
+const MAXIMO_NIVELES_DE_FEATURES = 8;
+const MAXIMO_POR_NIVEL_DE_FEATURES = 500;
+
+/** "Libro V3, Meta Ads": las zonas que no arrancan con la vía de su aprobación; null si la vía alcanza. */
+function zonasFueraPorLaVia(tarjeta: TarjetaFueraPorLaVia | undefined): string | null {
+  if (!tarjeta) return null;
+  const zonas = zonasQueEsperanLaPantalla(tarjeta.zonaProtegida, tarjeta.via);
+  return zonas.length ? zonas.map((zona) => (esZona(zona) ? NOMBRE_DE_LA_ZONA[zona] : zona)).join(", ") : null;
+}
+
+/**
+ * Las tarjetas de Features (sub-áreas incluidas) que pueden estar quietas, con lo que se sabe para el motivo: cuándo entraron
+ * (historial), si hay una pregunta del Coordinador abierta, si esperan tu sí, de qué dependen y si su vía no las deja
+ * arrancar. Sin el id de Features no lee nada. Nunca lanza (si falla, no sale ninguna).
+ */
+async function leerQuietasDeFeatures(workspaceId: string, fueraPorLaVia: readonly TarjetaFueraPorLaVia[], ahora: Date): Promise<TarjetaQuietaDeFeatures[]> {
+  try {
+    const area = await leerAreaFeatures(workspaceId);
+    if (!area) return [];
+    const tablero = await dondeTableroVivo({ workspaceId });
+    // Todo lo que cuelga de Features (Features, sus sub-áreas y las madres de dentro): un "mover" a cualquiera de ellas es entrar.
+    const delArbol = new Set<string>([area]);
+    const candidatas: {
+      id: string;
+      titulo: string;
+      detalle: string;
+      estado: string;
+      intentos: number;
+      repo: string | null;
+      zonaProtegida: string[];
+      creadoEn: Date;
+      dependeDe: string | null;
+    }[] = [];
+    const limite = ahora.getTime() - HORAS_PARA_DAR_POR_QUIETA * MS_HORA;
+    let nivel = [area];
+    for (let n = 0; n < MAXIMO_NIVELES_DE_FEATURES && nivel.length; n += 1) {
+      const filas = await prisma.tarjetaTablero.findMany({
+        where: { padreId: { in: nivel }, borradoEn: null, archivadaEn: null, tablero },
+        take: MAXIMO_POR_NIVEL_DE_FEATURES,
+        select: {
+          id: true,
+          titulo: true,
+          detalle: true,
+          estado: true,
+          intentos: true,
+          repo: true,
+          zonaProtegida: true,
+          creadoEn: true,
+          tipo: { select: { usaEstados: true } },
+          entrantes: {
+            where: { esDependencia: true, origen: { borradoEn: null, estado: { not: "HECHO" }, tipo: { usaEstados: true } } },
+            take: 1,
+            select: { origen: { select: { titulo: true } } },
+          },
+        },
+      });
+      nivel = [];
+      for (const fila of filas) {
+        if (delArbol.has(fila.id)) continue;
+        delArbol.add(fila.id);
+        nivel.push(fila.id);
+        const quieta = fila.tipo.usaEstados && fila.intentos === 0 && (ESTADOS_DE_TARJETA_QUIETA as readonly string[]).includes(fila.estado);
+        // Entra después de crearse: si se creó hace menos de 24 h, todavía no puede llevar 24 h en Features.
+        if (!quieta || fila.creadoEn.getTime() >= limite) continue;
+        candidatas.push({ ...fila, dependeDe: fila.entrantes[0]?.origen.titulo ?? null });
+      }
+    }
+    if (!candidatas.length) return [];
+    const ids = candidatas.map((t) => t.id);
+    const [historial, preguntas] = await Promise.all([
+      prisma.historialTarjeta.findMany({
+        where: { tarjetaId: { in: ids }, accion: "editar", deshechoEn: null },
+        orderBy: { creadoEn: "desc" },
+        take: 2000,
+        select: { tarjetaId: true, accion: true, creadoEn: true, despues: true, deshechoEn: true },
+      }),
+      candidatas.some((t) => !t.repo)
+        ? prisma.alertaInterna.findMany({
+            where: { workspaceId, estado: { in: ["NUEVA", "VISTA"] }, clave: { startsWith: "coord:necesita:" } },
+            take: 2000,
+            select: { clave: true },
+          })
+        : Promise.resolve([] as { clave: string }[]),
+    ]);
+    const conPregunta = new Set(preguntas.map((alerta) => idDeTarjetaDeLaClave(alerta.clave)).filter((id): id is string => !!id));
+    const porLaVia = new Map(fueraPorLaVia.map((t) => [t.id, t]));
+    return candidatas.map((t) => ({
+      id: t.id,
+      titulo: t.titulo,
+      estado: t.estado,
+      intentos: t.intentos,
+      enFeatures: true,
+      entroEn: entradaAFeatures(historial.filter((fila) => fila.tarjetaId === t.id), delArbol, t.creadoEn),
+      repo: t.repo,
+      preguntaAbierta: conPregunta.has(t.id),
+      esperaTuSi: motivoDeEsperaTuSi(t),
+      dependeDe: t.dependeDe,
+      fueraPorLaVia: zonasFueraPorLaVia(porLaVia.get(t.id)),
+    }));
+  } catch (error) {
+    console.warn("[avisos-al-dueno] no se pudo leer las tarjetas de Features sin arrancar", error instanceof Error ? error.message : String(error));
+    return [];
+  }
+}
+
+export async function leerSituacion(workspaceId: string, ahora: Date = new Date()): Promise<SituacionDeSistemas> {
   // Lo de un tablero archivado no avisa (tableros-archivados.ts).
   const alcance = { borradoEn: null, tablero: await dondeTableroVivo({ workspaceId }) };
   const [latido, enCursoFilas, enFila, pendientes, fueraPorLaVia] = await Promise.all([
@@ -639,6 +792,8 @@ export async function leerSituacion(workspaceId: string): Promise<SituacionDeSis
   // Un solo sí (30-oct-2026): para cada plan listo, ¿el dueño aprobó la tarea? Las mismas reglas que usa el Coordinador al
   // aprobar el plan (la última aprobación de la tarea, con tareaAprobadaPorElDuenoEnElHistorial y de la cuenta dueña), para
   // no callar un aviso de un plan que en verdad sigue esperando. Si falla la lectura, se avisa como antes.
+  // Las de Features sin arrancar (24-nov-2026): sin el id de Features no lee nada.
+  const quietasDeFeatures = await leerQuietasDeFeatures(workspaceId, fueraPorLaVia, ahora);
   const tareasDelDueno = new Map(
     await Promise.all(
       pendientesFilas
@@ -667,6 +822,8 @@ export async function leerSituacion(workspaceId: string): Promise<SituacionDeSis
       tareaAprobadaPorElDueno: tareasDelDueno.get(p.id) ?? false,
     })),
     fueraPorLaVia,
+    quietasDeFeatures,
+    coordinadorOcupado: (latido?.tareas?.length ?? 0) > 0,
   };
 }
 
@@ -710,7 +867,7 @@ export async function revisarNegocio(workspaceId: string, ahora: Date): Promise<
     console.warn("[avisos-al-dueno] falló el barrido de alertas", error instanceof Error ? error.message : String(error));
   }
   if (!(await avisosPrendidos(workspaceId))) return { enviados: 0 };
-  const [situacion, estado] = await Promise.all([leerSituacion(workspaceId), leerEstadoDeAvisos(workspaceId)]);
+  const [situacion, estado] = await Promise.all([leerSituacion(workspaceId, ahora), leerEstadoDeAvisos(workspaceId)]);
   const calculados = calcularAvisos(situacion, ahora);
 
   // Un problema que ya no existe se olvida (si vuelve, se avisa de nuevo); lo del Coordinador (`coord:`) vence a las 24 horas.
@@ -732,6 +889,12 @@ export async function revisarNegocio(workspaceId: string, ahora: Date): Promise<
   for (const aviso of porAvisar) {
     const paraEmanuel = sistemas?.responsableId && esAvisoTecnico(aviso.tipo) ? { destinatarioId: sistemas.responsableId } : {};
     await registrarAlerta({ workspaceId, clave: aviso.clave, prioridad: aviso.prioridad, titulo: aviso.titulo, detalle: aviso.lineas.join("\n"), origen: ORIGEN_COORDINADOR, refrescar: false, ...paraEmanuel });
+  }
+  // De Features sin arrancar (24-nov-2026): solo la página, nunca por WhatsApp. Se anotan como avisadas.
+  if (porAvisar.some((aviso) => aviso.tipo === "quieta")) {
+    for (const aviso of porAvisar) if (aviso.tipo === "quieta") estado.avisados[aviso.clave] = ahora.toISOString();
+    porAvisar = porAvisar.filter((aviso) => aviso.tipo !== "quieta");
+    cambio = true;
   }
   // Aprobaciones sin WhatsApp (23-nov-2026): con el interruptor apagado quedan solo en la página y se anotan como avisadas.
   if (porAvisar.some((aviso) => esAvisoDeAprobacion(aviso.tipo)) && !(await avisosDeAprobacionPrendidos(workspaceId))) {

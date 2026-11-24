@@ -562,4 +562,151 @@ await prueba("prepararFeaturesDeTodos: recorre los negocios con el id de Feature
   assert.match(mcp, /features_solas_tablero: await estadoDeFeaturesSolas\(workspaceId\)/);
 });
 
+/* ------------------------------------------------------------------ 6. tarjetas de Features que no arrancan (auto:quieta) */
+
+const reglasDeAlertas = cargar("src/features/alertas/dominio/reglas.ts");
+// Un mundo chico para leerSituacion: Features, una sub-área y sus tarjetas, con el historial y las alertas abiertas.
+// avisos-al-dueno.ts ya quedó cargado (lo importa preparar-features.ts) con el prisma falso de la sección 5: se le cambian
+// las tablas que lee leerSituacion. El id de Features y el latido salen de los mismos AppSetting falsos (`ajustes`).
+const quietas = { tarjetas: [], historial: [], alertas: [], fueraPorLaVia: [] };
+Object.assign(dbFeatures, {
+  tarjetaTablero: {
+    findMany: async ({ where }) =>
+      where?.padreId?.in
+        ? quietas.tarjetas
+            .filter((t) => where.padreId.in.includes(t.padreId) && !t.borradoEn && !t.archivadaEn)
+            .map((t) => ({ entrantes: [], ...t, tipo: { usaEstados: t.usaEstados ?? true } }))
+        : [],
+    count: async () => 0,
+  },
+  historialTarjeta: {
+    groupBy: async () => [],
+    findMany: async ({ where }) => quietas.historial.filter((f) => where.tarjetaId.in.includes(f.tarjetaId) && f.accion === where.accion && !f.deshechoEn),
+  },
+  alertaInterna: {
+    findMany: async ({ where }) => quietas.alertas.filter((a) => where.estado.in.includes(a.estado) && a.clave.startsWith(where.clave.startsWith)),
+  },
+  $queryRawUnsafe: async () => quietas.fueraPorLaVia,
+});
+const avisos = cargar("src/features/tableros-inteligentes/services/avisos-al-dueno.ts");
+
+const AHORA_Q = new Date("2026-11-24T15:00:00Z");
+const haceHoras = (h) => new Date(AHORA_Q.getTime() - h * 3_600_000);
+const quieta = (datos) => ({
+  id: "q-1",
+  titulo: "Mejorar el filtro de alertas",
+  estado: "APROBADO",
+  intentos: 0,
+  enFeatures: true,
+  entroEn: haceHoras(25),
+  repo: "aizencrm",
+  preguntaAbierta: false,
+  esperaTuSi: null,
+  dependeDe: null,
+  fueraPorLaVia: null,
+  ...datos,
+});
+// El Coordinador en línea (latido de hace 1 min) y libre.
+const situacionQ = (lista, extra = {}) => ({ latidoEn: haceHoras(1 / 60).toISOString(), enCurso: [], enFila: 0, esperando: [], quietasDeFeatures: lista, ...extra });
+const quietasDe = (situacion, ahora = AHORA_Q) => avisos.calcularAvisos(situacion, ahora).filter((a) => a.tipo === "quieta");
+
+await prueba("calcularAvisos: una de Features creada hace 25 h y nunca tomada sale como auto:quieta:<id>:APROBADO con su motivo", async () => {
+  const [aviso, ...resto] = quietasDe(situacionQ([quieta()]));
+  assert.equal(resto.length, 0);
+  assert.equal(aviso.clave, "auto:quieta:q-1:APROBADO");
+  assert.equal(aviso.prioridad, "MEDIA", "solo la página");
+  assert.match(aviso.titulo, /"Mejorar el filtro de alertas" lleva más de 24 h en Features sin arrancar: nadie la ha tomado todavía/);
+  assert.match(aviso.lineas.join("\n"), /\(25 h\)[\s\S]*Motivo: nadie la ha tomado todavía/);
+  assert.equal(aviso.link, "https://app.aizenbot.com/cliente/tablero-ia?tarjeta=q-1");
+  assert.equal(reglasDeAlertas.idDeTarjetaDeLaClave(aviso.clave), "q-1", "la clave es de tarjeta: tiene área y la cierra el barrido");
+});
+
+await prueba("calcularAvisos: a las 23 h, ya tomada, en otro estado o de fuera de Features no sale", async () => {
+  assert.deepEqual(quietasDe(situacionQ([quieta({ entroEn: haceHoras(23) })])), []);
+  assert.deepEqual(quietasDe(situacionQ([quieta({ enFeatures: false })])), [], "de fuera de Features");
+  assert.deepEqual(quietasDe(situacionQ([quieta({ intentos: 1 })])), [], "ya la tomó el Coordinador");
+  for (const estado of ["PLANEANDO", "EN_CURSO", "POR_REVISAR", "HECHO", "ERROR", "PLAN_LISTO"]) assert.deepEqual(quietasDe(situacionQ([quieta({ estado })])), [], estado);
+  for (const estado of ["IDEA", "POR_APROBAR", "PLAN_APROBADO"]) assert.equal(quietasDe(situacionQ([quieta({ estado })]))[0]?.clave, `auto:quieta:q-1:${estado}`);
+  assert.deepEqual(quietasDe({ latidoEn: null, enCurso: [], enFila: 0, esperando: [] }), [], "sin la lista (sin id de Features), nada");
+});
+
+await prueba("el motivo: falta repo con pregunta, espera tu sí, depende de otra, canal que no arranca, Coordinador caído u ocupado", async () => {
+  const motivo = (datos, extra) => quietasDe(situacionQ([quieta(datos)], extra))[0].lineas[1];
+  assert.match(motivo({ repo: null, preguntaAbierta: true, estado: "IDEA" }), /falta el repositorio y espera tu respuesta/);
+  assert.match(motivo({ estado: "POR_APROBAR", esperaTuSi: "toca Meta Ads" }), /espera tu sí \(toca Meta Ads\)/);
+  assert.match(motivo({ dependeDe: "Parte 1 del tablero" }), /depende de «Parte 1 del tablero»/);
+  assert.match(motivo({ fueraPorLaVia: "Libro V3" }), /aprobada por un canal que no la deja arrancar \(Libro V3\)/);
+  assert.match(motivo({}, { latidoEn: haceHoras(1).toISOString() }), /Coordinador está caído/);
+  assert.match(motivo({}, { latidoEn: null }), /Coordinador está caído/, "sin latido nunca");
+  assert.match(motivo({}, { coordinadorOcupado: true }), /Coordinador está ocupado/);
+  assert.match(motivo({ repo: null }), /falta el repositorio$/);
+});
+
+await prueba("una POR_APROBAR de 'abonos' con 25 h sale con el motivo 'espera tu sí' (motivoDeEsperaTuSi)", async () => {
+  const tarjeta = { id: "q-abonos", titulo: "Registrar los abonos de cada venta en Gestión", detalle: "", estado: "POR_APROBAR", zonaProtegida: [] };
+  const motivo = avisos.motivoDeEsperaTuSi(tarjeta);
+  assert.ok(motivo, "espera el sí del dueño (dinero de Gestión)");
+  assert.equal(avisos.motivoDeEsperaTuSi({ ...tarjeta, estado: "APROBADO" }), null, "solo POR_APROBAR");
+  const [aviso] = quietasDe(situacionQ([quieta({ id: "q-abonos", titulo: tarjeta.titulo, estado: "POR_APROBAR", repo: "gestion", esperaTuSi: motivo })]));
+  assert.equal(aviso.clave, "auto:quieta:q-abonos:POR_APROBAR");
+  assert.match(aviso.titulo, /espera tu sí/);
+});
+
+await prueba("alertaYaNoAplica cierra auto:quieta cuando cambia el estado o el Coordinador la toma (intentos > 0)", async () => {
+  const clave = "auto:quieta:q-1:APROBADO";
+  assert.equal(reglasDeAlertas.alertaYaNoAplica(clave, { estado: "APROBADO", borradoEn: null, intentos: 0 }), false, "sigue igual: sigue abierta");
+  assert.equal(reglasDeAlertas.alertaYaNoAplica(clave, { estado: "PLANEANDO", borradoEn: null, intentos: 0 }), true, "cambió de estado");
+  assert.equal(reglasDeAlertas.alertaYaNoAplica(clave, { estado: "APROBADO", borradoEn: null, intentos: 1 }), true, "ya la tomaron");
+  assert.equal(reglasDeAlertas.alertaYaNoAplica(clave, { estado: "APROBADO", borradoEn: new Date() }), true, "borrada");
+  assert.equal(reglasDeAlertas.alertaYaNoAplica(clave, null), true, "no existe");
+  assert.equal(reglasDeAlertas.motivoCierraLaClave("CIERRE", clave, "q-1"), true, "al cerrar la tarjeta también");
+  assert.equal(reglasDeAlertas.motivoCierraLaClave("APROBACION", clave, "q-1"), false, "aprobar la cierra por el cambio de estado, en el barrido");
+});
+
+await prueba("entradaAFeatures: el último 'mover' (editar con padreId) a Features o una sub-área; sin él, la creación", async () => {
+  const delArbol = new Set([FEATURES, SUBAREA]);
+  const creado = haceHoras(100);
+  assert.equal(reglasDeAlertas.entradaAFeatures([], delArbol, creado).getTime(), creado.getTime());
+  const filas = [
+    { accion: "editar", creadoEn: haceHoras(50), despues: { padreId: FEATURES, movimiento: true } },
+    { accion: "editar", creadoEn: haceHoras(20), despues: { padreId: SUBAREA, movimiento: true } },
+    { accion: "editar", creadoEn: haceHoras(10), despues: { padreId: OTRA_AREA } },
+    { accion: "editar", creadoEn: haceHoras(5), despues: { padreId: SUBAREA }, deshechoEn: haceHoras(4) },
+    { accion: "estado", creadoEn: haceHoras(2), despues: { padreId: SUBAREA } },
+    { accion: "editar", creadoEn: haceHoras(1), despues: { titulo: "otro" } },
+  ];
+  assert.equal(reglasDeAlertas.entradaAFeatures(filas, delArbol, creado).getTime(), haceHoras(20).getTime());
+});
+
+await prueba("leerSituacion: lee las de Features (sub-áreas incluidas) con el historial y la pregunta abierta; sin id no lee nada", async () => {
+  ajustes.set("tablero:area-features:ws1", FEATURES);
+  const t = (id, datos) => ({ id, titulo: id, detalle: "", estado: "APROBADO", intentos: 0, repo: "aizencrm", zonaProtegida: [], creadoEn: haceHoras(25), padreId: SUBAREA, ...datos });
+  quietas.tarjetas = [
+    t(SUBAREA, { titulo: "SEO Magilus", estado: "IDEA", padreId: FEATURES, usaEstados: false, creadoEn: haceHoras(900) }),
+    t("q-vieja"),
+    t("q-movida", { creadoEn: haceHoras(500) }),
+    t("q-nueva", { creadoEn: haceHoras(23) }),
+    t("q-tomada", { intentos: 2 }),
+    t("q-sinrepo", { repo: null, estado: "IDEA" }),
+    t("q-depende", { entrantes: [{ origen: { titulo: "La parte 1" } }] }),
+    t("q-voz", { zonaProtegida: ["META_ADS"] }),
+    t("q-fuera", { padreId: OTRA_AREA }),
+  ];
+  quietas.historial = [{ tarjetaId: "q-movida", accion: "editar", creadoEn: haceHoras(10), despues: { padreId: SUBAREA, movimiento: true } }];
+  quietas.alertas = [{ clave: "coord:necesita:q-sinrepo:¿De qué sistema es?", estado: "NUEVA" }];
+  quietas.fueraPorLaVia = [{ id: "q-voz", titulo: "q-voz", estado: "APROBADO", zonaProtegida: ["META_ADS"], via: "voz" }];
+  const situacion = await avisos.leerSituacion("ws1", AHORA_Q);
+  const claves = quietasDe(situacion).map((a) => a.clave).sort();
+  assert.deepEqual(claves, ["auto:quieta:q-depende:APROBADO", "auto:quieta:q-sinrepo:IDEA", "auto:quieta:q-vieja:APROBADO", "auto:quieta:q-voz:APROBADO"]);
+  const porId = new Map(quietasDe(situacion).map((a) => [reglasDeAlertas.idDeTarjetaDeLaClave(a.clave), a.lineas[1]]));
+  assert.match(porId.get("q-sinrepo"), /falta el repositorio y espera tu respuesta/);
+  assert.match(porId.get("q-depende"), /depende de «La parte 1»/);
+  assert.match(porId.get("q-voz"), /canal que no la deja arrancar \(Meta Ads\)/);
+  assert.ok(!claves.some((c) => c.includes("q-movida")), "se movió a Features hace 10 h: todavía no");
+  // Sin el id de Features no sale nada.
+  ajustes.delete("tablero:area-features:ws1");
+  assert.deepEqual(quietasDe(await avisos.leerSituacion("ws1", AHORA_Q)), []);
+  assert.equal(enviadosPorWhatsApp.length, 0, "no manda WhatsApp");
+});
+
 console.log(`\n${pruebas} pruebas OK`);

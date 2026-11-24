@@ -196,16 +196,20 @@ export function leerAreaDeAlerta(valor: unknown): AreaDeAlerta | null {
 /** Cómo es el id de una tarjeta dentro de una clave: letras sin tilde, números, `_` o `-`. Un texto con espacios o tildes no es un id. */
 const RE_ID_DE_TARJETA = /^[A-Za-z0-9_-]+$/;
 
-/** El tipo de una clave de tarjeta (`auto:trabado`, `auto:necesita`, `auto:equipo` o `coord:necesita`); null si no es de tarjeta. */
+/** Los tipos de clave que son de una tarjeta (los lee el barrido de cada minuto y el cierre al terminar la tarjeta). */
+export const TIPOS_DE_CLAVE_DE_TARJETA = ["auto:necesita", "auto:trabado", "auto:equipo", "auto:quieta", "coord:necesita"] as const;
+
+/** El tipo de una clave de tarjeta (`auto:trabado`, `auto:necesita`, `auto:equipo`, `auto:quieta` o `coord:necesita`); null si no es de tarjeta. */
 function tipoDeClaveDeTarjeta(partes: readonly string[]): string | null {
   const tipo = `${partes[0]}:${partes[1]}`;
-  return tipo === "auto:trabado" || tipo === "auto:necesita" || tipo === "auto:equipo" || tipo === "coord:necesita" ? tipo : null;
+  return (TIPOS_DE_CLAVE_DE_TARJETA as readonly string[]).includes(tipo) ? tipo : null;
 }
 
 /**
  * El id de la tarjeta de una clave `auto:trabado:<tarjeta>:<estado>`, `auto:necesita:<tarjeta>:<estado>`,
- * `auto:equipo:<tarjeta>:<motivo>` (aviso al equipo) o `coord:necesita:<tarjeta>:<texto>` (pregunta del Coordinador);
- * null si no es de tarjeta. La clave vieja del Coordinador (`coord:necesita:<texto>`) no trae id: da null.
+ * `auto:quieta:<tarjeta>:<estado>` (de Features sin arrancar), `auto:equipo:<tarjeta>:<motivo>` (aviso al equipo) o
+ * `coord:necesita:<tarjeta>:<texto>` (pregunta del Coordinador); null si no es de tarjeta. La clave vieja del Coordinador
+ * (`coord:necesita:<texto>`) no trae id: da null.
  */
 export function idDeTarjetaDeLaClave(clave: string): string | null {
   const partes = String(clave ?? "").split(":");
@@ -270,12 +274,14 @@ const ESTADOS_DE_TARJETA = new Set(["IDEA", "POR_APROBAR", "APROBADO", "EN_CURSO
 const ESTADOS_YA_APROBADOS = new Set(["APROBADO", "PLAN_APROBADO", "PLANEANDO", "EN_CURSO", "SUBIENDO"]);
 const ESTADOS_CERRADOS = new Set(["HECHO", "FALLIDO"]);
 
-export type TarjetaDeLaAlerta = { estado: string; borradoEn: Date | string | null };
+/** `intentos` solo lo usa `auto:quieta` (sin él, no cierra por intentos). */
+export type TarjetaDeLaAlerta = { estado: string; borradoEn: Date | string | null; intentos?: number | null };
 
 /**
  * ¿La alerta de una tarjeta ya no aplica? Sí cuando la tarjeta no existe o está borrada, está en HECHO o FALLIDO, la clave
- * `auto:trabado|necesita:<id>:<ESTADO>` trae otro estado que el de hoy, o es una pregunta del Coordinador (`coord:necesita`)
- * y la tarjeta ya está aprobada o en curso. `terminada:` y las claves que no son de tarjeta nunca se cierran acá.
+ * `auto:trabado|necesita|quieta:<id>:<ESTADO>` trae otro estado que el de hoy, es una tarjeta quieta de Features que ya se tomó
+ * (`intentos > 0`), o es una pregunta del Coordinador (`coord:necesita`) y la tarjeta ya está aprobada o en curso.
+ * `terminada:` y las claves que no son de tarjeta nunca se cierran acá.
  */
 export function alertaYaNoAplica(clave: string, tarjeta: TarjetaDeLaAlerta | null): boolean {
   const texto = String(clave ?? "");
@@ -285,6 +291,8 @@ export function alertaYaNoAplica(clave: string, tarjeta: TarjetaDeLaAlerta | nul
   if (!tipo || !idDeTarjetaDeLaClave(texto)) return false;
   if (!tarjeta || tarjeta.borradoEn) return true;
   if (ESTADOS_CERRADOS.has(tarjeta.estado)) return true;
+  // Quieta en Features: se cierra cuando la tarjeta cambia de estado o el Coordinador ya la tomó.
+  if (tipo === "auto:quieta") return (partes[3] ?? "") !== tarjeta.estado || Number(tarjeta.intentos ?? 0) > 0;
   if (tipo === "auto:trabado" || tipo === "auto:necesita") {
     // Solo si el último tramo es un estado: `auto:necesita:<id>:VIA_PANTALLA` no lo es y sigue mientras la tarjeta esté abierta.
     const estadoDeLaClave = partes[3] ?? "";
@@ -292,6 +300,89 @@ export function alertaYaNoAplica(clave: string, tarjeta: TarjetaDeLaAlerta | nul
   }
   if (tipo === "coord:necesita") return ESTADOS_YA_APROBADOS.has(tarjeta.estado);
   return false;
+}
+
+/* ───────────── TARJETAS DE FEATURES QUE NO ARRANCAN (`auto:quieta:<id>:<estado>`, 24-nov-2026) ───────────── */
+
+/** Los estados en que una tarjeta de Features todavía no arrancó. */
+export const ESTADOS_DE_TARJETA_QUIETA = ["IDEA", "POR_APROBAR", "APROBADO", "PLAN_APROBADO"] as const;
+export const HORAS_PARA_DAR_POR_QUIETA = 24;
+
+/** Una fila del historial de la tarjeta (mover = "editar" con `despues.padreId`). */
+export type FilaDeHistorialParaFeatures = { accion: string; creadoEn: Date | string; despues: unknown; deshechoEn?: Date | string | null };
+
+/**
+ * Cuándo entró la tarjeta a Features: el último "mover" (un "editar" sin deshacer cuyo `despues.padreId` es Features o una
+ * de sus sub-áreas); si no hay ninguno, la fecha de creación.
+ */
+export function entradaAFeatures(historial: readonly FilaDeHistorialParaFeatures[], idsDeFeatures: ReadonlySet<string>, creadoEn: Date | string): Date {
+  let ultima: Date | null = null;
+  for (const fila of historial) {
+    if (fila.accion !== "editar" || fila.deshechoEn) continue;
+    const despues = fila.despues && typeof fila.despues === "object" && !Array.isArray(fila.despues) ? (fila.despues as { padreId?: unknown }) : null;
+    if (typeof despues?.padreId !== "string" || !idsDeFeatures.has(despues.padreId)) continue;
+    const cuando = new Date(fila.creadoEn);
+    if (Number.isFinite(cuando.getTime()) && (!ultima || cuando > ultima)) ultima = cuando;
+  }
+  return ultima ?? new Date(creadoEn);
+}
+
+/** Lo que se sabe de una tarjeta de Features para decir por qué no arranca. */
+export type TarjetaQuietaDeFeatures = {
+  id: string;
+  titulo: string;
+  estado: string;
+  intentos: number;
+  /** ¿Cuelga de Features (o de una sub-área)? */
+  enFeatures: boolean;
+  /** Cuándo entró a Features (`entradaAFeatures`). */
+  entroEn: Date | string;
+  repo: string | null;
+  /** Hay una pregunta del Coordinador (`coord:necesita:<id>:…`) abierta. */
+  preguntaAbierta: boolean;
+  /** El motivo por el que espera el sí del dueño (dinero, Meta Ads o V3); null si no lo espera. */
+  esperaTuSi: string | null;
+  /** El título de una dependencia sin terminar; null si no tiene. */
+  dependeDe: string | null;
+  /** Las zonas que no arrancan con la vía de su aprobación ("Libro V3"); null si la vía alcanza. */
+  fueraPorLaVia: string | null;
+};
+
+/** Cómo está el Coordinador según su último latido. */
+export type CoordinadorParaElMotivo = { caido: boolean; ocupado: boolean };
+
+export type AlertaDeTarjetaQuieta = { clave: string; titulo: string; motivo: string; horas: number };
+
+/** El motivo legible: lo primero que se sabe, en este orden. */
+export function motivoDeTarjetaQuieta(tarjeta: TarjetaQuietaDeFeatures, coordinador: CoordinadorParaElMotivo): string {
+  if (!tarjeta.repo && tarjeta.preguntaAbierta) return "falta el repositorio y espera tu respuesta a la pregunta del Coordinador";
+  if (tarjeta.estado === "POR_APROBAR" && tarjeta.esperaTuSi) return `espera tu sí (${tarjeta.esperaTuSi})`;
+  if (tarjeta.dependeDe) return `depende de «${tituloCorto(tarjeta.dependeDe, 60)}», que no ha terminado`;
+  if (tarjeta.fueraPorLaVia) return `está aprobada por un canal que no la deja arrancar (${tarjeta.fueraPorLaVia}): apruébala en pantalla`;
+  if (coordinador.caido) return "el Coordinador está caído (no da señales)";
+  if (coordinador.ocupado) return "el Coordinador está ocupado con otras tarjetas";
+  if (!tarjeta.repo) return "falta el repositorio";
+  return "nadie la ha tomado todavía";
+}
+
+/**
+ * ¿Sale la alerta "no arranca"? Solo si cuelga de Features, nunca se tomó (`intentos = 0`), está en IDEA, POR_APROBAR,
+ * APROBADO o PLAN_APROBADO y lleva más de 24 h desde que entró a Features. null si no sale.
+ */
+export function alertaDeTarjetaQuieta(tarjeta: TarjetaQuietaDeFeatures, coordinador: CoordinadorParaElMotivo, ahora: Date): AlertaDeTarjetaQuieta | null {
+  if (!tarjeta.enFeatures || Number(tarjeta.intentos) !== 0) return null;
+  if (!(ESTADOS_DE_TARJETA_QUIETA as readonly string[]).includes(tarjeta.estado)) return null;
+  if (!RE_ID_DE_TARJETA.test(tarjeta.id)) return null;
+  const desde = new Date(tarjeta.entroEn).getTime();
+  if (!Number.isFinite(desde)) return null;
+  const horas = (ahora.getTime() - desde) / 3_600_000;
+  if (!(horas > HORAS_PARA_DAR_POR_QUIETA)) return null;
+  return {
+    clave: `auto:quieta:${tarjeta.id}:${tarjeta.estado}`,
+    titulo: `"${tituloCorto(tarjeta.titulo, 60)}" lleva más de ${HORAS_PARA_DAR_POR_QUIETA} h en Features sin arrancar`,
+    motivo: motivoDeTarjetaQuieta(tarjeta, coordinador),
+    horas: Math.floor(horas),
+  };
 }
 
 /**

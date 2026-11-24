@@ -16,6 +16,7 @@ import {
   salePorWhatsApp,
   textoDeUrgente,
   tituloCorto,
+  TIPOS_DE_CLAVE_DE_TARJETA,
   type AreaDeAlerta,
   type EstadoDeAlerta,
   type MotivoDeCierre,
@@ -276,7 +277,7 @@ export async function cerrarAlertasDeTarjeta(workspaceId: string, tarjetaId: str
       where: {
         workspaceId,
         estado: { not: "RESUELTA" },
-        OR: ["auto:necesita", "auto:trabado", "auto:equipo", "coord:necesita"].map((tipo) => ({ clave: { startsWith: `${tipo}:${tarjetaId}:` } })),
+        OR: TIPOS_DE_CLAVE_DE_TARJETA.map((tipo) => ({ clave: { startsWith: `${tipo}:${tarjetaId}:` } })),
       },
       select: { id: true, clave: true, detalle: true },
     });
@@ -299,7 +300,6 @@ export async function cerrarAlertasDeTarjeta(workspaceId: string, tarjetaId: str
   }
 }
 
-const TIPOS_DE_CLAVE_DE_TARJETA = ["auto:necesita", "auto:trabado", "auto:equipo", "coord:necesita"];
 const PREFIJO_DEL_AVISO_VIEJO = "coord:necesita:";
 
 /** La marca de la limpieza única de las alertas viejas del Coordinador (30-oct-2026): con ella, no vuelve a correr. */
@@ -331,7 +331,8 @@ export async function barrerAlertasDeTarjetas(workspaceId: string, ahora = new D
     if (!conTarjeta.length) return 0;
     const tarjetas = await prisma.tarjetaTablero.findMany({
       where: { id: { in: [...new Set(conTarjeta.map((x) => x.tarjetaId))] }, tablero: { workspaceId } },
-      select: { id: true, estado: true, borradoEn: true },
+      // `intentos`: una de Features quieta (`auto:quieta`) se cierra cuando el Coordinador la toma.
+      select: { id: true, estado: true, borradoEn: true, intentos: true },
     });
     const porId = new Map(tarjetas.map((tarjeta) => [tarjeta.id, tarjeta]));
     let cerradas = 0;
