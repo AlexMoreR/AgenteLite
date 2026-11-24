@@ -167,7 +167,11 @@ function crmPorHttp(tarjetas) {
     peticiones.push({ metodo: opciones.method, ruta: direccion.pathname, query: Object.fromEntries(direccion.searchParams), cuerpo });
     const contestar = (datos) => ({ ok: true, status: 200, json: async () => ({ ok: true, ...datos }) });
     if (direccion.pathname.endsWith("/tablero/candidatas")) {
-      return contestar({ candidatas: fila.map(({ intentos: _intentos, ...tarjeta }) => ({ ...tarjeta, hacer: estadoAlTomar[tarjeta.estado]?.[1] ?? null })) });
+      return contestar({ candidatas: fila.map((tarjeta) => {
+        const sinIntentos = { ...tarjeta, hacer: estadoAlTomar[tarjeta.estado]?.[1] ?? null };
+        delete sinIntentos.intentos;
+        return sinIntentos;
+      }) });
     }
     if (direccion.pathname.endsWith("/tablero/tomar")) {
       const indice = fila.findIndex((tarjeta) => !(cuerpo?.excluir ?? []).includes(tarjeta.id));
