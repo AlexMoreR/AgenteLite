@@ -169,3 +169,5 @@ await prueba("GET /api/origen: llave, teléfono y respuesta sin datos del client
 });
 
 console.log(`\n${pruebas} pruebas de origen de ventas OK`);
+
+await import("./check-origen-web.mjs");
