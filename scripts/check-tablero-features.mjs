@@ -511,6 +511,12 @@ await prueba("prepararFeatures: la que habla de abonos queda POR_APROBAR con la 
   // Otra vuelta: la misma alerta, sin duplicar.
   await preparar.prepararFeatures("ws1", AHORA_FEATURES);
   assert.equal(mundo.alertas.filter((a) => a.clave === "auto:necesita:i-abonos:POR_APROBAR").length, 1);
+  assert.equal(alerta.veces, 1, "ni la refresca");
+  // El dueño la cierra y la tarjeta sigue esperando: la vuelta siguiente no la reabre (eso lo deciden los avisos de siempre).
+  alerta.estado = "RESUELTA";
+  await preparar.prepararFeatures("ws1", AHORA_FEATURES);
+  assert.equal(mundo.alertas.filter((a) => a.clave === "auto:necesita:i-abonos:POR_APROBAR" && a.estado !== "RESUELTA").length, 0, "no se reabre");
+  assert.equal(tarjeta("i-abonos").estado, "POR_APROBAR");
 });
 
 await prueba("prepararFeatures: no toca una Idea con hijas, una de fuera de Features ni una ya empezada", async () => {
