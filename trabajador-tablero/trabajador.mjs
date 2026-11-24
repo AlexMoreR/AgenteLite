@@ -186,12 +186,13 @@ while (!parar) {
   }
   if (parar) break;
   // Pausado por uso de Claude (26-oct-2026): el trabajo de noche usa Claude, así que no corre mientras dure la pausa.
-  if (!pendiente && !planificador.pausadoPorUso() && !tareas.enVuelo("llenar") && !trabajoLargoEnVuelo()) {
+  // 24-nov-2026 (parte 2): tampoco con la sesión de Claude vencida (sesion-claude.mjs).
+  if (!pendiente && !planificador.pausadoPorUso() && !planificador.pausadoPorSesion?.() && !tareas.enVuelo("llenar") && !trabajoLargoEnVuelo()) {
     const r = await conTope("manual de la noche", () => manualNocturno.revisar(planificador));
     if (r.error) registro.aviso(`manual de la noche: ${primeraLinea(r.error)}`);
   }
   if (parar) break;
-  if (!pendiente && !planificador.pausadoPorUso() && !tareas.enVuelo("llenar") && !trabajoLargoEnVuelo()) {
+  if (!pendiente && !planificador.pausadoPorUso() && !planificador.pausadoPorSesion?.() && !tareas.enVuelo("llenar") && !trabajoLargoEnVuelo()) {
     const r = await conTope("recoger errores", () => recogedor.revisar());
     if (r.error) registro.aviso(`recoger errores: ${primeraLinea(r.error)}`);
   }

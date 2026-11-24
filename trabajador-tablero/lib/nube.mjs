@@ -24,7 +24,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { archivosDelPlan } from "./choques.mjs";
-import { esLimiteDeUso } from "./diagnostico.mjs";
+import { esErrorDeSesionClaude, esLimiteDeUso } from "./diagnostico.mjs";
 import { ErrorDeEtapa, entornoSeguro } from "./etapas.mjs";
 import { urlDelRemoto, webDeGithub } from "./git.mjs";
 import { correr, ultimasLineas } from "./procesos.mjs";
@@ -356,7 +356,9 @@ function unaTerminal(contexto, pty, archivo, argumentos, { cwd, timeoutMs, antes
       const sinRepo = depuracion ? lineaSinRepo(leerSiHay(depuracion)) : null;
       if (sinRepo) return terminar(() => resolver({ sinRepo, link: null, via: "terminal-real", salida: sinColores(texto) }));
       return terminar(() =>
-        esLimiteDeUso(sinColores(texto))
+        esErrorDeSesionClaude(sinColores(texto))
+          ? resolver({ error: new ErrorDeEtapa(`La sesión de Claude está vencida al lanzar en la nube: ${ultimasLineas(sinColores(texto), 5)}`, { sinSesion: true, motor: "claude" }), salida: sinColores(texto) })
+          : esLimiteDeUso(sinColores(texto))
           ? resolver({ error: new ErrorDeEtapa(`Claude llegó a su límite de uso al lanzar en la nube: ${ultimasLineas(sinColores(texto), 5)}`, { limiteDeUso: true, motor: "claude" }), salida: sinColores(texto) })
           : fallo(`${porque}\n${ultimasLineas(sinColores(texto), 15)}`),
       );
@@ -491,6 +493,10 @@ async function lanzarConLaCli(contexto, { cwd, prompt, modelo = null, depuracion
   // Sin link pero con el log diciendo que no conectó el repo: es eso (no "sin terminal").
   const sinRepo = depuracion ? lineaSinRepo(leerSiHay(depuracion)) : null;
   if (sinRepo) return { link: null, via: "sin-terminal", salida: texto, modeloForzado: aceptaModelo, sinRepo };
+  // 24-nov-2026 (parte 2): la sesión de Claude de aizen1 vencida no es culpa de la tarjeta (se suelta y se pausa).
+  if (esErrorDeSesionClaude(texto)) {
+    throw new ErrorDeEtapa(`La sesión de Claude está vencida al lanzar en la nube: ${ultimasLineas(texto, 5)}`, { sinSesion: true, motor: "claude" });
+  }
   if (esLimiteDeUso(texto)) {
     throw new ErrorDeEtapa(`Claude llegó a su límite de uso al lanzar en la nube: ${ultimasLineas(texto, 5)}`, { limiteDeUso: true, motor: "claude" });
   }
@@ -618,6 +624,7 @@ async function mensajeASesionFija(contexto, repo, mensaje, { cwd }) {
   const texto = sinColores(`${resultado.salida}\n${resultado.errores}`);
   const datos = jsonDeLaSalida(resultado.salida);
   if (resultado.codigo === 0 && datos && datos.ok !== false && !datos.is_error) return { link: linkDeLaSesionFija(datos, id), texto };
+  if (esErrorDeSesionClaude(texto)) throw new ErrorDeEtapa(`La sesión de Claude está vencida al escribirle a la sesión fija: ${ultimasLineas(texto, 5)}`, { sinSesion: true, motor: "claude" });
   if (esLimiteDeUso(texto)) throw new ErrorDeEtapa(`Claude llegó a su límite de uso al escribirle a la sesión fija: ${ultimasLineas(texto, 5)}`, { limiteDeUso: true, motor: "claude" });
   const porQue = resultado.vencido ? `no contestó en ${config.nube.lanzarMinutos} min` : `salió con código ${resultado.codigo}${datos?.ok === false ? " (ok: false)" : ""}`;
   // Modo orquestador: la sesión del proyecto suele estar trabajando en otras tarjetas. Si está ocupada o no contestó, la

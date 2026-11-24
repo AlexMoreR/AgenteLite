@@ -201,7 +201,7 @@ export async function revisarConCuatro({ archivos, revisar, corregir, registro =
         try {
           return [revisor, veredictoDeLaRespuesta(await revisar(revisor, { vuelta, anterior: informes[revisor.clave] ?? null }))];
         } catch (error) {
-          if (error?.limiteDeUso) throw error;
+          if (error?.limiteDeUso || error?.sinSesion) throw error;
           registro?.aviso?.(`revisor de ${revisor.nombre} no respondió (no frena): ${String(error?.message ?? error).split("\n")[0]}`);
           return [revisor, { estado: "sin respuesta", cambios: [] }];
         }

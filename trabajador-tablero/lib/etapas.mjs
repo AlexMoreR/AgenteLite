@@ -26,7 +26,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 
 import { agenteDelRepo, leccionesParaElPrompt, necesitoDe, textoDeIdentidad } from "./agentes.mjs";
-import { MAXIMO_DE_PARTES, MINIMO_DE_PARTES, FRASES_DE_LA_CAUSA, causaDeLaSubidaFallida, enUnaLinea, esLimiteDeUso, recortar, sinRuido } from "./diagnostico.mjs";
+import { MAXIMO_DE_PARTES, MINIMO_DE_PARTES, FRASES_DE_LA_CAUSA, causaDeLaSubidaFallida, enUnaLinea, esErrorDeSesionClaude, esLimiteDeUso, recortar, sinRuido } from "./diagnostico.mjs";
 import { ensayarMigraciones, migracionesNuevas } from "./ensayo.mjs";
 import {
   ErrorDeGit,
@@ -92,7 +92,7 @@ import {
 } from "./zonas.mjs";
 
 export class ErrorDeEtapa extends Error {
-  constructor(message, { zonas = [], reversion = null, limiteDeUso = false, motor = null, categoria = null, archivosCambiados = null, esperaDeCola = false, verificarEnNube = false, paraElDueno = null } = {}) {
+  constructor(message, { zonas = [], reversion = null, limiteDeUso = false, motor = null, categoria = null, archivosCambiados = null, esperaDeCola = false, verificarEnNube = false, paraElDueno = null, sinSesion = false } = {}) {
     super(message);
     this.zonas = zonas;
     this.reversion = reversion;
@@ -112,6 +112,9 @@ export class ErrorDeEtapa extends Error {
     // 29-oct-2026: las 2 líneas para el dueño (por qué se paró / qué decisión necesita) cuando la revisión no pasó: el
     // bucle las manda tal cual como motivo del ERROR en vez del resumen de 3 líneas.
     this.paraElDueno = paraElDueno;
+    // 24-nov-2026 (parte 2): la sesión de Claude de aizen1 se venció. No es ERROR de la tarjeta: se suelta sin contar intento
+    // ni reparación y el Coordinador entra en pausa (sesion-claude.mjs) hasta que se entre otra vez (claude auth login).
+    this.sinSesion = sinSesion;
   }
 }
 
@@ -397,12 +400,19 @@ async function claude(contexto, argumentos, prompt, { cwd, timeoutMs, que }) {
   // cada sesión, encabezaba el error y escondía la causa real: el límite de uso o las tareas en segundo plano). No hace
   // daño: las herramientas van por --allowedTools en la línea de comando, no por .claude/settings.json.
   const cola = ultimasLineas(sinRuido(`${resultado.errores}\n${resultado.salida}`), 20);
+  // La sesión de Claude vencida (24-nov-2026, parte 2): no es culpa de la tarjeta; el bucle la suelta y pausa el Coordinador.
+  if (resultado.codigo !== 0 && esErrorDeSesionClaude(cola)) {
+    throw new ErrorDeEtapa(`La sesión de Claude está vencida al ${que}:\n${cola}`, { sinSesion: true, motor: "claude" });
+  }
   if (resultado.codigo !== 0) {
     throw new ErrorDeEtapa(`Claude falló al ${que} (código ${resultado.codigo}):\n${cola}`, { limiteDeUso: esLimiteDeUso(cola), motor: "claude" });
   }
   const texto = resultado.salida.trim();
   if (!texto) throw new ErrorDeEtapa(`Claude no contestó nada al ${que}.`);
-  // A veces sale con código 0 y solo el aviso del límite (un texto corto, no un plan ni un resumen).
+  // A veces sale con código 0 y solo el aviso (un texto corto, no un plan ni un resumen): la sesión vencida o el límite.
+  if (texto.length < 300 && esErrorDeSesionClaude(texto)) {
+    throw new ErrorDeEtapa(`La sesión de Claude está vencida al ${que}: ${texto}`, { sinSesion: true, motor: "claude" });
+  }
   if (texto.length < 300 && esLimiteDeUso(texto)) {
     throw new ErrorDeEtapa(`Claude llegó a su límite de uso al ${que}: ${texto}`, { limiteDeUso: true, motor: "claude" });
   }
@@ -1046,6 +1056,9 @@ async function construirLaParteDeLaNube(contexto, tarjeta, { repo, rama, base, r
       `la nube terminó: build=${resultado.build} tests=${resultado.tests} segundos=${resultado.segundos ?? "?"}${resultado.revision ? ` revision=${resultado.revision}${resultado.revisor ? ` revisor=${resultado.revisor}` : ""}` : ""}`,
     );
     if (!resultado.paso) {
+      if (esErrorDeSesionClaude(resultado.detalle)) {
+        throw new ErrorDeEtapa(`La sesión de Claude está vencida (nube): ${ultimasLineas(resultado.detalle, 5)}\nSesión de la nube: ${lanzado.link}`, { sinSesion: true, motor: "claude" });
+      }
       if (esLimiteDeUso(resultado.detalle)) {
         throw new ErrorDeEtapa(`Claude llegó a su límite de uso en la nube: ${ultimasLineas(resultado.detalle, 5)}`, { limiteDeUso: true, motor: "claude" });
       }
@@ -2577,7 +2590,7 @@ const PALABRAS_DE_RED = /ENOTFOUND|EAI_AGAIN|ECONNRESET|ETIMEDOUT|socket hang up
  */
 function esFallaDelEntorno(error, { deRed = false } = {}) {
   if (error instanceof ErrorDeGit) return true;
-  if (error?.esperaDeCola || error?.limiteDeUso) return true;
+  if (error?.esperaDeCola || error?.limiteDeUso || error?.sinSesion) return true;
   if (["pc_sobrecargado", "coordinador_cortado", "carpeta_trabada", "tiempo_agotado"].includes(error?.categoria)) return true;
   return deRed && PALABRAS_DE_RED.test(String(error?.message ?? error));
 }

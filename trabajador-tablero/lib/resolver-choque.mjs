@@ -19,7 +19,7 @@ export const VUELTAS_MAXIMAS = 5;
 
 /** Las fallas del PC, de la red o del Coordinador (no del choque): se relanzan para que el bucle las trate como siempre. */
 const CATEGORIAS_DEL_ENTORNO = ["coordinador_cortado", "pc_sobrecargado", "carpeta_trabada", "tiempo_agotado"];
-export const esFallaDelEntornoPorDefecto = (error) => Boolean(error?.limiteDeUso || error?.esperaDeCola || CATEGORIAS_DEL_ENTORNO.includes(error?.categoria));
+export const esFallaDelEntornoPorDefecto = (error) => Boolean(error?.limiteDeUso || error?.sinSesion || error?.esperaDeCola || CATEGORIAS_DEL_ENTORNO.includes(error?.categoria));
 
 /** ¿El archivo está en la carpeta de migraciones? (prisma/migrations/** por defecto). */
 export function esDeMigraciones(archivo, carpeta = "prisma/migrations") {
@@ -129,8 +129,8 @@ export async function resolverChoque({
     try {
       texto = await correrClaude(promptDeResolver({ tarjeta, ramaBase, conflicto: pendientes }), { cwd, timeoutMs: resta });
     } catch (error) {
-      // El límite de uso o la tarjeta vencida no son del choque: el bucle los trata como siempre.
-      if (error?.limiteDeUso || error?.categoria === "coordinador_cortado") {
+      // El límite de uso, la sesión de Claude vencida o la tarjeta vencida no son del choque: el bucle los trata como siempre.
+      if (error?.limiteDeUso || error?.sinSesion || error?.categoria === "coordinador_cortado") {
         await cancelarRebase(cwd);
         throw error;
       }

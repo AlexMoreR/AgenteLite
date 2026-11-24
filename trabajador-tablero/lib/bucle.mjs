@@ -138,7 +138,7 @@ export async function unaVuelta({ crm, config, registro }) {
   return { hizo: hacer, tarjetaId: tarjeta.id, ...resultado };
 }
 
-export async function procesar({ crm, config, registro: registroBase, motores = crearEstadoDeMotores(config), medidor = null, otrasSesiones = null, vivo = {}, lugar = "aizen1", puestoParaVerificar = null, colaPesada = null, etiqueta = "", alSoltarPuesto = null, alLatir = null }, tarjeta, hacer) {
+export async function procesar({ crm, config, registro: registroBase, motores = crearEstadoDeMotores(config), medidor = null, otrasSesiones = null, vivo = {}, lugar = "aizen1", puestoParaVerificar = null, colaPesada = null, etiqueta = "", alSoltarPuesto = null, alLatir = null, pausaSesion = null }, tarjeta, hacer) {
   const control = new AbortController();
   // Pausa por uso de Claude (pausa-uso.mjs): el planificador pide detener esta sesión con `vivo.detenerPorPausa()`.
   let pausadaPorUso = false;
@@ -287,6 +287,15 @@ export async function procesar({ crm, config, registro: registroBase, motores = 
       await soltar(crm, registro, tarjeta, `Espera en fila: ${motivo}`);
       return { ok: false, motivo, esperaDeCola: true };
     }
+    if (error?.sinSesion) {
+      // 24-nov-2026 (parte 2): la sesión de Claude de aizen1 se venció. No es culpa de la tarjeta: vuelve a la fila SIN ERROR,
+      // sin sumar intento ni gastar reparación, y el Coordinador entra en pausa (no toma más hasta que vuelva la sesión). Las
+      // tarjetas que ya corren no se cortan: si también chocan con la sesión vencida, caen aquí mismo.
+      registro.aviso(`"${tarjeta.titulo}" (${hacer}): la sesión de Claude está vencida; la suelto sin error ni intento`);
+      pausaSesion?.marcarVencida(motivo);
+      await soltar(crm, registro, tarjeta, MOTIVO_SIN_SESION);
+      return { ok: false, motivo, sinSesion: true };
+    }
     if (error?.limiteDeUso) {
       // No es culpa de la tarjeta: vuelve a esperar su turno, sin ERROR, y ese motor se pausa.
       const quien = error.motor ? `${nombreDelMotor(error.motor)} llegó a su límite de uso` : "Ningún motor disponible";
@@ -305,7 +314,7 @@ export async function procesar({ crm, config, registro: registroBase, motores = 
     // 24-nov-2026 (parte 3): con un CRM que repara, la subida que se deshizo bien se resuelve sola (arreglo, reintento o Alertas):
     // sin WhatsApp. La que no se pudo deshacer (URGENTE) y la de un CRM viejo avisan como siempre.
     if (error?.reversion) await avisarReversion(crm, registro, tarjeta, motivo, error.reversion, { seResuelveSola: conReparaciones });
-    if (conReparaciones) return manejarFalla({ crm, config, registro, contexto, bitacora }, tarjeta, hacer, error);
+    if (conReparaciones) return manejarFalla({ crm, config, registro, contexto, bitacora, pausaSesion }, tarjeta, hacer, error);
     // Un CRM viejo (sin reparaciones): igual queda escrita la lección de la falla.
     anotarLaLeccion(config, registro, tarjeta, {
       resultado: "fallo",
@@ -415,7 +424,7 @@ async function partirAntesDeConstruir({ crm, config, registro, contexto }, tarje
   try {
     partes = await partirTarea(contexto, tarjeta, { causa, error: "" });
   } catch (error) {
-    if (error?.limiteDeUso) throw error;
+    if (error?.limiteDeUso || error?.sinSesion) throw error;
     registro.aviso(`no se pudo partir antes de construir (${String(error?.message ?? error).split("\n")[0]}): se construye entera`);
     return 0;
   }
@@ -535,7 +544,7 @@ export async function medirAntesDePlanear({ crm, config, registro, contexto, par
       tamano = (await medirHaiku(contexto, tarjeta)) ?? "chica";
       registro.info(`consulta corta con Haiku: ${tamano}`);
     } catch (error) {
-      if (error?.limiteDeUso) throw error;
+      if (error?.limiteDeUso || error?.sinSesion) throw error;
       registro.aviso(`no se pudo consultar el tamaño (${String(error?.message ?? error).split("\n")[0]}): se planea como siempre`);
       tamano = "chica";
     }
@@ -546,7 +555,7 @@ export async function medirAntesDePlanear({ crm, config, registro, contexto, par
   try {
     partes = await partir(contexto, tarjeta, { causa, error: "" });
   } catch (error) {
-    if (error?.limiteDeUso) throw error;
+    if (error?.limiteDeUso || error?.sinSesion) throw error;
     registro.aviso(`no se pudo partir antes de planear (${String(error?.message ?? error).split("\n")[0]}): se planea entera`);
     return null;
   }
@@ -559,6 +568,9 @@ export async function medirAntesDePlanear({ crm, config, registro, contexto, par
   registro.info(`la tarea se partió en ${partes.length} partes (antes de planear): ${partes.map((parte) => parte.titulo).join(" | ")}`);
   return { ok: true, estado: "PLANEANDO", partes: partes.length };
 }
+
+/** El motivo con que se suelta una tarjeta cuando la sesión de Claude de aizen1 se venció (24-nov-2026, parte 2). */
+const MOTIVO_SIN_SESION = "En pausa: sesión de Claude vencida. Vuelve a la fila sola cuando se entre otra vez (claude auth login).";
 
 async function soltar(crm, registro, tarjeta, motivo, extra) {
   try {
@@ -628,7 +640,7 @@ function anotarElEnsayoQueFallo({ config, registro }, tarjeta, error, salida) {
   }
 }
 
-async function repararLaFalla({ crm, config, registro, contexto, bitacora }, tarjeta, hacer, error, nota) {
+async function repararLaFalla({ crm, config, registro, contexto, bitacora, pausaSesion = null }, tarjeta, hacer, error, nota) {
   // Una subida que se deshizo trae su causa en sencillo (deshacerSubida, 23-nov-2026): el motivo y la causa empiezan con ella.
   const sencilla = typeof error?.reversion?.sencilla === "string" ? error.reversion.sencilla.trim() : "";
   const mensaje = error instanceof Error ? error.message : String(error);
@@ -738,6 +750,13 @@ async function repararLaFalla({ crm, config, registro, contexto, bitacora }, tar
       registro.info(`la tarea se partió en ${partes.length} partes: ${partes.map((parte) => parte.titulo).join(" | ")}`);
       return { ...resultado, partes: partes.length };
     } catch (otro) {
+      // La sesión de Claude se venció al dividir: se suelta sin ERROR ni reparación y el Coordinador entra en pausa.
+      if (otro?.sinSesion) {
+        registro.aviso("la sesión de Claude se venció al partir: se suelta sin error ni intento");
+        pausaSesion?.marcarVencida(otro.message);
+        await soltar(crm, registro, tarjeta, MOTIVO_SIN_SESION);
+        return { ...resultado, accion: "esperar", categoria: "sin_sesion", sinSesion: true };
+      }
       if (otro?.limiteDeUso) {
         registro.aviso("el límite de uso llegó al partir: se suelta para reintentar después");
         await soltar(crm, registro, tarjeta, `${otro.message}`.slice(0, 500), { ...intento, categoria: "limite_claude", causa: enUnaLinea("Claude llegó al límite de uso al dividir la tarea") });
@@ -1375,6 +1394,8 @@ export function crearPlanificador({
           else cupoNuevo = true;
         },
         alLatir: () => sinLatido.latio(tarjeta.id),
+        // 24-nov-2026 (parte 2): si la tarjeta falla porque la sesión de Claude se venció, el Coordinador entra en pausa.
+        pausaSesion,
       },
       tarjeta,
       hacer,

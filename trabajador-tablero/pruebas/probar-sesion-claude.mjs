@@ -10,8 +10,9 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { crearPlanificador } from "../lib/bucle.mjs";
+import { crearPlanificador, procesar } from "../lib/bucle.mjs";
 import { completarConfig } from "../lib/config.mjs";
+import { esErrorDeSesionClaude } from "../lib/diagnostico.mjs";
 import { crearCrm } from "../lib/crm.mjs";
 import { armarLatido, crearLatido } from "../lib/latido.mjs";
 import { crearEstadoDeMotores } from "../lib/motores.mjs";
@@ -89,14 +90,30 @@ const rutas = () => pedidos.map((p) => p.ruta);
 const sinSesion = () => fs.writeFileSync(SIN_SESION, "vencida\n");
 const conSesion = () => fs.rmSync(SIN_SESION, { force: true });
 
+/** Un repo de verdad (remoto pelado + copia con un commit en main): planear corre el `claude` falso dentro de un worktree. */
+function crearRepo() {
+  const remoto = path.join(T, `remoto${numero}.git`);
+  const ruta = path.join(T, `repo${numero++}`);
+  const git = (cwd, ...args) => execFileSync("git", args, { cwd, stdio: "ignore" });
+  execFileSync("git", ["init", "--bare", "-b", "main", remoto], { stdio: "ignore" });
+  execFileSync("git", ["clone", remoto, ruta], { stdio: "ignore" });
+  git(ruta, "config", "user.email", "prueba@ejemplo.invalid");
+  git(ruta, "config", "user.name", "Prueba");
+  fs.writeFileSync(path.join(ruta, "LEEME.md"), "prueba\n");
+  git(ruta, "add", ".");
+  git(ruta, "commit", "--quiet", "-m", "inicio");
+  git(ruta, "push", "--quiet", "origin", "HEAD:main");
+  return ruta;
+}
+
 /** El planificador real con el CRM falso; `procesar` falso: la sesión termina enseguida sin pasos (aquí solo importa si toma). */
-function armar({ config = nuevaConfig(), reloj = crearReloj() } = {}) {
+function armar({ config = nuevaConfig(), reloj = crearReloj(), procesarTarjeta: dado = null } = {}) {
   const registro = registroFalso();
   const crm = crearCrm(config);
   const procesadas = [];
-  const procesarTarjeta = async (_opciones, tarjeta) => {
+  const procesarTarjeta = async (opciones, tarjeta, hacer) => {
     procesadas.push(tarjeta.id);
-    return { ok: true };
+    return dado ? dado(opciones, tarjeta, hacer) : { ok: true };
   };
   const planificador = crearPlanificador({
     crm,
@@ -163,6 +180,76 @@ try {
     assert.equal(planificador.pausaSesion.vencida(), true, "el objeto queda expuesto para la parte 2");
     assert.ok(!rutas().includes("/api/trabajador/tablero/tomar"), `no toma: ${rutas().join(", ")}`);
     assert.ok(!rutas().some((r) => /\/(error|reparar|soltar|partir)$/.test(r)), `ni error ni reparación: ${rutas().join(", ")}`);
+    assert.deepEqual(procesadas, []);
+    conSesion();
+  });
+
+  await prueba("esErrorDeSesionClaude (diagnostico.mjs) usa las mismas frases que esErrorDeSesion", async () => {
+    assert.equal(esErrorDeSesionClaude("OAuth session expired and could not be refreshed"), true);
+    assert.equal(esErrorDeSesionClaude("Not logged in · Please run /login"), true);
+    assert.equal(esErrorDeSesionClaude("Claude AI usage limit reached|1761210000"), false);
+    assert.equal(esErrorDeSesionClaude(undefined), false);
+  });
+
+  await prueba("(b) la sesión se vence a mitad de camino: la tarjeta se suelta sin ERROR, sin reparación ni intento, y el Coordinador queda en pausa", async () => {
+    conSesion();
+    const ruta = crearRepo();
+    const config = nuevaConfig({ repos: { aizencrm: { ruta, subirSolo: false, ramaBase: "main", remoto: "origin", verificar: [["true"]] } } });
+    const tarjeta = { id: "tarjeta-b1", titulo: "Algo chico", detalle: "Cambiar un texto.", repo: "aizencrm", hacer: "planear", plan: null, zonaProtegida: [], ultimosIntentos: [], intentos: 1, reparaciones: 0, topeReparaciones: 3 };
+    fila = [tarjeta];
+    pedidos.length = 0;
+    const resultados = [];
+    const { planificador, procesadas, registro } = armar({
+      config,
+      // Empieza con sesión (el planificador la revisó y la tomó); a mitad de camino la sesión se vence.
+      procesarTarjeta: async (opciones, unaTarjeta, hacer) => {
+        sinSesion();
+        const resultado = await procesar(opciones, unaTarjeta, hacer);
+        resultados.push(resultado);
+        return resultado;
+      },
+    });
+    await planificador.llenar();
+    await planificador.esperarTodas();
+    assert.deepEqual(procesadas, ["tarjeta-b1"], "la tomó con la sesión buena");
+    assert.equal(resultados.length, 1);
+    assert.equal(resultados[0].sinSesion, true, JSON.stringify(resultados[0]));
+    assert.equal(resultados[0].ok, false);
+    const soltadas = pedidos.filter((p) => p.ruta === "/api/trabajador/tablero/tarjeta-b1/soltar");
+    assert.equal(soltadas.length, 1, rutas().join(", "));
+    assert.match(soltadas[0].cuerpo.motivo, /sesión de Claude vencida/);
+    assert.deepEqual(Object.keys(soltadas[0].cuerpo), ["motivo"], "sin categoría ni causa: no cuenta como intento ni reparación");
+    assert.ok(!rutas().some((r) => /\/(error|reparar|partir|recoger)$/.test(r)), `sin crm.error ni reparación: ${rutas().join(", ")}`);
+    assert.equal(tarjeta.intentos, 1, "intentos iguales que antes");
+    assert.equal(tarjeta.reparaciones, 0, "reparaciones iguales que antes");
+    assert.equal(planificador.pausadoPorSesion(), true, "el Coordinador queda en pausa");
+    assert.ok(registro.lineas.some((l) => l.includes("PAUSA: la sesión de Claude está vencida")), registro.lineas.join("\n"));
+    // Ya en pausa: con 3 tarjetas nuevas en la fila no toma ninguna.
+    tresTarjetas();
+    pedidos.length = 0;
+    for (let vuelta = 0; vuelta < 3; vuelta += 1) await planificador.llenar();
+    await planificador.esperarTodas();
+    assert.ok(!rutas().includes("/api/trabajador/tablero/tomar"), `no toma más: ${rutas().join(", ")}`);
+    assert.deepEqual(procesadas, ["tarjeta-b1"]);
+    conSesion();
+  });
+
+  await prueba("(e) un reinicio con estado-sesion-claude.json guardado como vencido sigue en pausa y no toma", async () => {
+    sinSesion();
+    tresTarjetas();
+    pedidos.length = 0;
+    const config = nuevaConfig();
+    fs.mkdirSync(config.carpetaTrabajo, { recursive: true });
+    const desde = Date.parse("2026-11-24T11:00:00Z");
+    fs.writeFileSync(path.join(config.carpetaTrabajo, "estado-sesion-claude.json"), `${JSON.stringify({ vencida: true, desde, motivo: "OAuth session expired", revisadaEn: desde })}\n`);
+    const { planificador, procesadas, reloj } = armar({ config });
+    assert.equal(planificador.pausadoPorSesion(), true, "en pausa desde que arranca, antes de revisar");
+    for (let vuelta = 0; vuelta < 3; vuelta += 1) {
+      await planificador.llenar();
+      reloj.pasar(1);
+    }
+    assert.equal(planificador.pausadoPorSesion(), true);
+    assert.ok(!rutas().includes("/api/trabajador/tablero/tomar"), `no toma: ${rutas().join(", ")}`);
     assert.deepEqual(procesadas, []);
     conSesion();
   });

@@ -10,6 +10,7 @@
 // archivo" y el límite de uso de Claude. Si una etapa ya sabe la causa, lo dice en `error.categoria`
 // (ErrorDeEtapa) y acá no se adivina nada.
 import { esLimiteDeCodex } from "./motores.mjs";
+import { esErrorDeSesion } from "./sesion-claude.mjs";
 
 /** Las categorías (slugs): son las mismas del lado del CRM. */
 export const CATEGORIAS = [
@@ -86,6 +87,15 @@ const MODELO_NO_DISPONIBLE = /issue with the selected model|\bmodel\b[^\n]{0,60}
 
 export function esLimiteDeUso(texto) {
   return LIMITE_DE_USO.test(String(texto ?? "")) || MODELO_NO_DISPONIBLE.test(String(texto ?? ""));
+}
+
+/**
+ * ¿Lo que dijo Claude es que la sesión de aizen1 se venció ("OAuth session expired and could not be refreshed", "Not logged
+ * in"…)? 24-nov-2026 (parte 2): no es culpa de la tarjeta; se suelta sin ERROR y el Coordinador entra en pausa. Las frases
+ * son las mismas de sesion-claude.mjs (no se repite la lista).
+ */
+export function esErrorDeSesionClaude(texto) {
+  return esErrorDeSesion(texto);
 }
 
 /** Un texto recortado a `n` caracteres (con "…" si se cortó). */
