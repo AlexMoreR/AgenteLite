@@ -13,7 +13,7 @@ import path from "node:path";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import ts from "typescript";
-import { PGlite } from "@electric-sql/pglite";
+import { abrirBaseDePruebas } from "./lib/base-de-pruebas.mjs";
 
 const require = createRequire(import.meta.url);
 const raiz = path.resolve("src");
@@ -74,7 +74,7 @@ const CHATS = CONTACTOS.map((contacto) => ({
   },
 }));
 
-const db = new PGlite();
+const db = await abrirBaseDePruebas();
 await db.exec(`
   CREATE TABLE "Contact" ("id" text PRIMARY KEY, "workspaceId" text NOT NULL, "name" text, "phoneNumber" text NOT NULL);
   CREATE TABLE "Tag" ("id" text PRIMARY KEY, "workspaceId" text NOT NULL, "name" text NOT NULL, "slug" text NOT NULL);

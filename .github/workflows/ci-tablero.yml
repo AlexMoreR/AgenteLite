@@ -78,5 +78,9 @@ jobs:
       - name: Build
         run: npm run build
 
+      # Con Docker (lo trae ubuntu-latest) las pruebas de SQL corren en un Postgres real de la versión de
+      # producción; sin él, correr-pruebas-ci.mjs termina con error en vez de caer a PGlite.
       - name: Pruebas
+        env:
+          PRUEBAS_POSTGRES_OBLIGATORIO: "1"
         run: node scripts/correr-pruebas-ci.mjs
