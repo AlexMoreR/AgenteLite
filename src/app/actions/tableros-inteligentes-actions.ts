@@ -63,6 +63,16 @@ import {
 } from "@/features/tableros-inteligentes/services/archivadas";
 import type { MomentoDeAprobacion } from "@/features/tableros-inteligentes/services/reglas-trabajador";
 import {
+  borrarArea,
+  crearArea,
+  listarAreas,
+  moverArea,
+  ordenarArea,
+  renombrarArea,
+  type AreaVista,
+  type DireccionDeOrden,
+} from "@/features/tableros-inteligentes/services/areas";
+import {
   eliminarTablero,
   type QuienArchiva,
 } from "@/features/tableros-inteligentes/services/tableros-archivados";
@@ -290,6 +300,88 @@ export async function eliminarTableroAction(tableroId: string, confirmacion: str
     return { ok: true };
   } catch (fallo) {
     return { ok: false, error: mensaje(fallo, "No se pudo eliminar el tablero") };
+  }
+}
+
+/*
+  ── «Organizar áreas» (24-nov-2026): la lógica está en services/areas.ts. Crear, renombrar, mover y ordenar lo
+  hace quien edita ese tablero (el alcance de la sesión); borrar, el dueño del negocio o el ADMIN de la
+  plataforma, igual que «Eliminar tarjeta». Solo se borra un área vacía.
+*/
+
+const SOLO_EL_DUENO_BORRA_AREAS = "Solo el dueño del negocio o el administrador borran áreas.";
+
+/** Las áreas del tablero para la ventana, el tipo con que se crean (null si no hay) y si quien mira puede borrar. */
+export async function areasDelTableroAction(
+  tableroId: string,
+): Promise<
+  | { ok: true; areas: AreaVista[]; tipoArea: { id: string; nombre: string } | null; puedeBorrar: boolean }
+  | { ok: false; error: string }
+> {
+  const contexto = await contextoDePantalla();
+  try {
+    const access = await requireClientWorkspaceAccess("tableros_inteligentes");
+    const [{ areas, tipoArea }, quien] = await Promise.all([listarAreas(contexto, tableroId), quienArchiva(access)]);
+    return { ok: true, areas, tipoArea, puedeBorrar: quien.esDueno };
+  } catch (fallo) {
+    return { ok: false, error: mensaje(fallo, "No se pudieron leer las áreas") };
+  }
+}
+
+export async function crearAreaAction(
+  tableroId: string,
+  titulo: string,
+  padreId: string | null,
+): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  const contexto = await contextoDePantalla();
+  try {
+    const { tarjeta } = await crearArea(contexto, tableroId, titulo, padreId);
+    return { ok: true, id: tarjeta.id };
+  } catch (fallo) {
+    return { ok: false, error: mensaje(fallo, "No se pudo crear el área") };
+  }
+}
+
+export async function renombrarAreaAction(areaId: string, titulo: string): Promise<Resultado> {
+  const contexto = await contextoDePantalla();
+  try {
+    await renombrarArea(contexto, areaId, titulo);
+    return { ok: true };
+  } catch (fallo) {
+    const texto = mensaje(fallo, "No se pudo cambiar el nombre del área");
+    return texto === "No hay nada distinto para cambiar." ? { ok: true } : { ok: false, error: texto };
+  }
+}
+
+/** Mover un área: a otra madre (`padreId`, o null para la raíz) o un puesto entre sus hermanas (`direccion`). */
+export async function moverAreaAction(
+  areaId: string,
+  pedido: { padreId: string | null } | { direccion: DireccionDeOrden },
+): Promise<Resultado> {
+  const contexto = await contextoDePantalla();
+  try {
+    if (!pedido || typeof pedido !== "object" || !("direccion" in pedido || "padreId" in pedido)) {
+      return { ok: false, error: "Falta a dónde mover el área." };
+    }
+    if ("direccion" in pedido) await ordenarArea(contexto, areaId, pedido.direccion);
+    else await moverArea(contexto, areaId, pedido.padreId);
+    return { ok: true };
+  } catch (fallo) {
+    const texto = mensaje(fallo, "No se pudo mover el área");
+    return texto === "No hay nada distinto para cambiar." ? { ok: true } : { ok: false, error: texto };
+  }
+}
+
+/** Borrar un área vacía (dueño o ADMIN). Devuelve el cambio para el «Deshacer» (deshacerBorradoDeTarjetaAction). */
+export async function borrarAreaAction(areaId: string): Promise<{ ok: true; cambioId: string } | { ok: false; error: string }> {
+  const contexto = await contextoDePantalla();
+  try {
+    const access = await requireClientWorkspaceAccess("tableros_inteligentes");
+    if (!(await quienArchiva(access)).esDueno) return { ok: false, error: SOLO_EL_DUENO_BORRA_AREAS };
+    const borrada = await borrarArea(contexto, areaId);
+    return { ok: true, cambioId: borrada.cambioId };
+  } catch (fallo) {
+    return { ok: false, error: mensaje(fallo, "No se pudo borrar el área") };
   }
 }
 
