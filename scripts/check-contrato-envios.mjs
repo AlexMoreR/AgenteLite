@@ -5,24 +5,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import assert from "node:assert/strict";
-import { createRequire } from "node:module";
-import ts from "typescript";
+// ruta-de-envio.ts importa @/lib/resumen-de-error: se carga con el cargador que entiende los imports "@/".
+import { cargar } from "./supervisor-cargar.mjs";
 
-const require = createRequire(import.meta.url);
-const sourcePath = path.resolve("src/lib/chats/ruta-de-envio.ts");
-const transpiled = ts.transpileModule(fs.readFileSync(sourcePath, "utf8"), {
-  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-  fileName: sourcePath,
-});
-const mod = { exports: {} };
-new Function("exports", "require", "module", "__filename", "__dirname", transpiled.outputText)(
-  mod.exports,
-  require,
-  mod,
-  sourcePath,
-  path.dirname(sourcePath),
-);
-const { RUTAS_DE_ENVIO, elegirCampos, procesarPedido } = mod.exports;
+const { RUTAS_DE_ENVIO, elegirCampos, procesarPedido } = cargar("src/lib/chats/ruta-de-envio.ts");
 
 const congelados = JSON.parse(fs.readFileSync(path.resolve("src/lib/chats/contrato-envios.congelados.json"), "utf8"));
 
