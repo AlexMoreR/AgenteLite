@@ -460,7 +460,7 @@ export function armarRespuesta(entrada: EntradaArmado) {
 // ---------------------------------------------------------------------------------------------
 
 /** El rol de la persona DENTRO del negocio de la clave (null = no es miembro activo). */
-async function accesoDelMiembro(contexto: Contexto) {
+export async function accesoDelMiembro(contexto: Contexto) {
   const miembro = await prisma.workspaceMember.findFirst({
     where: { workspaceId: contexto.workspaceId, userId: contexto.userId, isActive: true },
     select: { role: true, user: { select: { role: true } }, workspace: { select: { ownerId: true } } },

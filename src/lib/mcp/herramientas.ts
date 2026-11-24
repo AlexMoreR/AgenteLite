@@ -70,6 +70,11 @@ import {
   esHerramientaDeVentasPorCampana,
 } from "@/lib/mcp/ventas-por-campana";
 import {
+  HERRAMIENTAS_MCP_ACTIVIDAD_DEL_EQUIPO,
+  ejecutarHerramientaMcpActividadDelEquipo,
+  esHerramientaDeActividadDelEquipo,
+} from "@/lib/mcp/actividad-del-equipo";
+import {
   HERRAMIENTAS_MCP_INSTRUCCIONES_DE_SEGUIMIENTO,
   ejecutarHerramientaMcpInstruccionesDeSeguimiento,
   esHerramientaDeInstruccionesDeSeguimiento,
@@ -1208,6 +1213,7 @@ export const HERRAMIENTAS_MCP = [
   ...HERRAMIENTAS_MCP_COMPARAR_EMBUDOS,
   ...HERRAMIENTAS_MCP_EMBUDO_POR_PASO,
   ...HERRAMIENTAS_MCP_VENTAS_POR_CAMPANA,
+  ...HERRAMIENTAS_MCP_ACTIVIDAD_DEL_EQUIPO,
   ...HERRAMIENTAS_MCP_REUNIONES,
   ...HERRAMIENTAS_MCP_ESCRITURA,
   ...HERRAMIENTAS_MCP_DIAGRAMA,
@@ -1243,6 +1249,9 @@ export async function ejecutarHerramientaMcp(nombre: string, args: Argumentos, c
   }
   if (esHerramientaDeVentasPorCampana(nombre)) {
     return ejecutarHerramientaMcpVentasPorCampana(nombre, args, contexto);
+  }
+  if (esHerramientaDeActividadDelEquipo(nombre)) {
+    return ejecutarHerramientaMcpActividadDelEquipo(nombre, args, contexto);
   }
   if (esHerramientaDeReuniones(nombre)) {
     return ejecutarHerramientaMcpReuniones(nombre, args, contexto);

@@ -91,6 +91,7 @@
     "test:conversiones-meta": "node scripts/check-conversiones-meta.mjs",
     "test:conversiones-meta-migracion": "node scripts/check-conversiones-meta-migracion.mjs",
     "test:mcp-ventas-por-campana": "node scripts/check-mcp-ventas-por-campana.mjs",
+    "test:mcp-actividad-del-equipo": "node scripts/check-mcp-actividad-del-equipo.mjs",
     "test:anti-bloqueo": "node scripts/check-anti-bloqueo.mjs",
     "test:motores-viejos": "node scripts/check-motores-viejos.mjs",
     "test:equipo-nombre": "node scripts/check-equipo-nombre.mjs",
