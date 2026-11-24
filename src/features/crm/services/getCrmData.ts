@@ -176,6 +176,12 @@ function normalizeOriginLabel(value: string): CrmRecord["origin"] {
     return "RECOMENDADO";
   }
 
+  // Página web: va antes de facebook/meta para que crmOrigin "web" (lo guarda el webhook web)
+  // no caiga en GENERICO ni lo atrape otra regla.
+  if (normalized === "web" || normalized.includes("magilus.com") || /p[aá]gina web/i.test(normalized)) {
+    return "WEB";
+  }
+
   if (/(facebook|meta ads|meta|ads)/i.test(normalized)) {
     return "FACEBOOK";
   }
