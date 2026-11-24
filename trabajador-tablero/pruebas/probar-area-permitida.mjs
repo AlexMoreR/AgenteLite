@@ -6,13 +6,17 @@
 // - una que llega de fuera igual (entre /candidatas y /tomar) se suelta sin trabajarla; un CRM viejo sin `ancestros` no da nada;
 // - sin la clave nada cambia: el mismo cliente del CRM, toma la primera de todo el tablero;
 // - configuración: las claves se leen, se validan y vienen en config.example.json.
+// - todo lo de Features (24-nov-2026): el id del área va en /candidatas, en /tomar y en el latido (CRM falso que registra las
+//   peticiones); una de fuera ya empezada (intentos > 0) no se suelta; una de fuera sin empezar, sí; sin la clave no va nada nuevo.
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { crmDelArea, filtroDeArea } from "../lib/area-permitida.mjs";
+import { areaPermitidaDeConfig, crmDelArea, filtroDeArea } from "../lib/area-permitida.mjs";
 import { completarConfig } from "../lib/config.mjs";
+import { crearCrm } from "../lib/crm.mjs";
+import { armarLatido, crearLatido } from "../lib/latido.mjs";
 
 const AQUI = path.dirname(fileURLToPath(import.meta.url));
 const FEATURES = "cmwbcu28700b732qmru2nd890";
@@ -142,6 +146,126 @@ await prueba("configuración: areaPermitidaId y tableroId se leen; sin ellas, nu
   const ejemplo = JSON.parse(fs.readFileSync(path.join(AQUI, "..", "config.example.json"), "utf8"));
   assert.equal(ejemplo.areaPermitidaId, FEATURES);
   assert.equal(ejemplo.tableroId, TABLERO);
+});
+
+// ---- Todo lo de Features (24-nov-2026): el id viaja al CRM y las de fuera ya empezadas no se sueltan ----
+
+/** Un CRM falso por HTTP: registra cada petición (ruta, query y cuerpo) y contesta como el CRM. */
+function fetchQueRegistra(candidatas = []) {
+  const peticiones = [];
+  const fetch = async (url, opciones = {}) => {
+    const direccion = new URL(url);
+    const cuerpo = opciones.body ? JSON.parse(opciones.body) : null;
+    peticiones.push({ metodo: opciones.method, ruta: direccion.pathname, query: Object.fromEntries(direccion.searchParams), cuerpo });
+    let datos = { ok: true };
+    if (direccion.pathname.endsWith("/candidatas")) datos = { ok: true, candidatas };
+    if (direccion.pathname.endsWith("/tomar")) datos = { ok: true, tarjeta: null, motivo: "nada" };
+    return { ok: true, status: 200, json: async () => datos };
+  };
+  return { fetch, peticiones };
+}
+
+/** Manda un latido del Coordinador con el crm dado y espera a que vuelva. */
+async function unLatido(crm, config) {
+  const latido = crearLatido({
+    crm,
+    config,
+    registro: registroMudo(),
+    planificador: { estado: () => ({ tareas: [], uso: null }) },
+    medidor: null,
+    cadaSegundos: 3600,
+    leer: () => null,
+  });
+  latido.parar();
+  // El primer latido sale solo al crear; se espera a que termine.
+  for (let i = 0; i < 50 && (await latido.latirYa()) === false; i += 1) await new Promise((listo) => setTimeout(listo, 5));
+}
+
+const CONFIG_HTTP = { urlCrm: "https://crm.prueba", claveTrabajador: "aizen_trab_prueba" };
+
+await prueba("con el área: el id de Features va en /candidatas (query), en /tomar (cuerpo) y en el latido", async () => {
+  const { fetch, peticiones } = fetchQueRegistra([DENTRO]);
+  const config = { ...CONFIG_HTTP, areaPermitidaId: FEATURES };
+  assert.equal(areaPermitidaDeConfig(config), FEATURES);
+  const crm = crearCrm(config, { fetch, timeoutMs: 1000 });
+  await crm.candidatas();
+  await crm.tomar({ maxParalelo: 2, excluir: ["x"] });
+  await unLatido(crm, config);
+  const candidatas = peticiones.find((p) => p.ruta === "/api/trabajador/tablero/candidatas");
+  assert.equal(candidatas.metodo, "POST");
+  assert.equal(candidatas.query.areaPermitidaId, FEATURES);
+  const tomar = peticiones.find((p) => p.ruta === "/api/trabajador/tablero/tomar");
+  assert.deepEqual(tomar.cuerpo, { maxParalelo: 2, excluir: ["x"], areaPermitidaId: FEATURES });
+  const latidos = peticiones.filter((p) => p.ruta === "/api/trabajador/latido");
+  assert.ok(latidos.length >= 1, "salió el latido");
+  assert.ok(latidos.every((p) => p.cuerpo.areaPermitidaId === FEATURES), "el latido lleva el id de Features");
+  // A través del envoltorio del área, igual: el id viaja en las dos llamadas de tomar().
+  peticiones.length = 0;
+  await crmDelArea(crm, config, registroMudo()).tomar({});
+  assert.equal(peticiones.find((p) => p.ruta.endsWith("/candidatas")).query.areaPermitidaId, FEATURES);
+  assert.equal(peticiones.find((p) => p.ruta.endsWith("/tomar")).cuerpo.areaPermitidaId, FEATURES);
+});
+
+await prueba("sin areaPermitidaId: no se manda nada nuevo (ni query, ni campo en /tomar, ni en el latido)", async () => {
+  const { fetch, peticiones } = fetchQueRegistra([FUERA]);
+  const crm = crearCrm(CONFIG_HTTP, { fetch, timeoutMs: 1000 });
+  assert.equal(areaPermitidaDeConfig(CONFIG_HTTP), null);
+  await crm.candidatas();
+  await crm.tomar({ maxParalelo: 1, excluir: [] });
+  await unLatido(crm, CONFIG_HTTP);
+  const candidatas = peticiones.find((p) => p.ruta.endsWith("/candidatas"));
+  assert.deepEqual(candidatas.query, {});
+  assert.deepEqual(peticiones.find((p) => p.ruta.endsWith("/tomar")).cuerpo, { maxParalelo: 1, excluir: [] });
+  const latido = peticiones.find((p) => p.ruta === "/api/trabajador/latido");
+  assert.equal("areaPermitidaId" in latido.cuerpo, false);
+  // armarLatido sin el id: las mismas claves de siempre.
+  const cuerpo = armarLatido({ estado: { tareas: [] }, medidor: null, carga: null });
+  assert.equal("areaPermitidaId" in cuerpo, false);
+  // El filtro local sigue apagado: una de fuera sin empezar pasa como siempre.
+  assert.equal(crmDelArea(crm, CONFIG_HTTP), crm);
+  assert.equal(filtroDeArea(CONFIG_HTTP).permite({ ...FUERA, intentos: 0 }), true);
+});
+
+await prueba("con el área: una de fuera ya empezada (PLAN_APROBADO o SUBIENDO, intentos > 0) no se suelta; una sin empezar, sí", async () => {
+  const PLAN_FUERA = { ...FUERA, id: "t-fuera-plan", estado: "PLAN_APROBADO", intentos: 1 };
+  const SUBIENDO_FUERA = { ...FUERA, id: "t-fuera-subiendo", estado: "SUBIENDO", intentos: 2 };
+  const NUEVA_FUERA = { ...FUERA, id: "t-fuera-nueva", estado: "APROBADO", intentos: 0 };
+  const filtro = filtroDeArea(CON_AREA);
+  assert.equal(filtro.permite(PLAN_FUERA), true);
+  assert.equal(filtro.permite(SUBIENDO_FUERA), true);
+  assert.equal(filtro.permite(NUEVA_FUERA), false);
+  assert.equal(filtro.permite(FUERA), false, "sin el dato de intentos cuenta como no empezada");
+
+  const falso = crmFalso([NUEVA_FUERA, PLAN_FUERA, SUBIENDO_FUERA]);
+  const crm = crmDelArea(falso, CON_AREA, registroMudo());
+  assert.deepEqual((await crm.candidatas()).candidatas.map((c) => c.id), ["t-fuera-plan", "t-fuera-subiendo"]);
+  const primera = await crm.tomar({ maxParalelo: 3 });
+  assert.equal(primera.tarjeta.id, "t-fuera-plan");
+  assert.deepEqual(falso.llamadas.tomar[0].excluir, ["t-fuera-nueva"], "solo la de fuera sin empezar va en excluir");
+  const segunda = await crm.tomar({ maxParalelo: 3 });
+  assert.equal(segunda.tarjeta.id, "t-fuera-subiendo");
+  assert.deepEqual(falso.llamadas.soltar, [], "ninguna empezada se suelta");
+  // Solo queda la nueva de fuera: no se toma ni se toca.
+  const tercera = await crm.tomar({ maxParalelo: 3 });
+  assert.equal(tercera.tarjeta, null);
+  assert.equal(tercera.motivo, "fuera_del_area");
+  assert.deepEqual(falso.fila.map((t) => t.id), ["t-fuera-nueva"]);
+
+  // Si /tomar devuelve una de fuera ya empezada (entre /candidatas y /tomar), se trabaja: no se suelta.
+  const otro = crmFalso([DENTRO]);
+  otro.tomar = async (opciones) => {
+    otro.llamadas.tomar.push(opciones);
+    return { tarjeta: SUBIENDO_FUERA, hacer: "subir" };
+  };
+  const respuesta = await crmDelArea(otro, CON_AREA, registroMudo()).tomar({});
+  assert.equal(respuesta.tarjeta.id, "t-fuera-subiendo");
+  assert.equal(respuesta.hacer, "subir");
+  assert.deepEqual(otro.llamadas.soltar, []);
+  // Y una de fuera sin empezar que llega igual, sí se suelta (como antes).
+  const tercero = crmFalso([DENTRO]);
+  tercero.tomar = async () => ({ tarjeta: NUEVA_FUERA, hacer: "planear" });
+  assert.equal((await crmDelArea(tercero, CON_AREA, registroMudo()).tomar({})).tarjeta, null);
+  assert.deepEqual(tercero.llamadas.soltar.map((s) => s.id), ["t-fuera-nueva"]);
 });
 
 console.log(`\n${pruebas} pruebas del área permitida, todas bien`);

@@ -7,10 +7,27 @@
 // manda en `excluir` las que están fuera, así el CRM no las toma. El CRM manda en cada tarjeta `tableroId` y `ancestros` (los ids
 // de sus madres, de la más cercana a la más lejana). Una tarjeta sin `ancestros` (un CRM viejo) cuenta como FUERA: con el área
 // configurada, sin saber de dónde cuelga no se toca.
+//
+// TODO LO DE FEATURES (24-nov-2026, parte 2): el CRM ya filtra solo cuando recibe `areaPermitidaId` (en /candidatas, /tomar y el
+// latido; crm.mjs y latido.mjs lo mandan con `areaPermitidaDeConfig`). Este filtro local queda de respaldo por si el CRM es viejo.
+// Una de fuera YA EMPEZADA (`intentos > 0`, p. ej. PLAN_APROBADO o SUBIENDO) no se suelta: se termina. Solo se descartan las de
+// fuera que nunca se empezaron (`intentos` = 0 o sin el dato).
 
-/** El filtro de la config: { activo, permite(tarjeta), texto }. Sin `areaPermitidaId` ni `tableroId`, `activo` es false y permite todo. */
+/** El id del Área configurada (`areaPermitidaId`), o null si no hay: lo usan crm.mjs y latido.mjs para mandárselo al CRM. */
+export function areaPermitidaDeConfig(config) {
+  const id = config?.areaPermitidaId;
+  return typeof id === "string" && id.trim() ? id.trim() : null;
+}
+
+/** Una tarjeta que ya se empezó (`intentos > 0`): aunque sea de fuera del área, se termina. */
+export const yaEmpezada = (tarjeta) => Number(tarjeta?.intentos) > 0;
+
+/**
+ * El filtro de la config: { activo, permite(tarjeta), texto }. Sin `areaPermitidaId` ni `tableroId`, `activo` es false y permite todo.
+ * Con el área, una de fuera pasa solo si ya está empezada (`intentos > 0`).
+ */
 export function filtroDeArea(config) {
-  const areaId = config?.areaPermitidaId ?? null;
+  const areaId = areaPermitidaDeConfig(config);
   const tableroId = config?.tableroId ?? null;
   const activo = Boolean(areaId || tableroId);
   const permite = (tarjeta) => {
@@ -18,7 +35,9 @@ export function filtroDeArea(config) {
     if (!tarjeta || typeof tarjeta !== "object") return false;
     if (tableroId && tarjeta.tableroId !== tableroId) return false;
     if (!areaId) return true;
-    return tarjeta.id === areaId || (Array.isArray(tarjeta.ancestros) && tarjeta.ancestros.includes(areaId));
+    if (tarjeta.id === areaId || (Array.isArray(tarjeta.ancestros) && tarjeta.ancestros.includes(areaId))) return true;
+    // De fuera del área: solo sigue si ya se empezó (se termina, no se suelta).
+    return yaEmpezada(tarjeta);
   };
   const texto = [areaId ? `el área ${areaId}` : null, tableroId ? `el tablero ${tableroId}` : null].filter(Boolean).join(" de ");
   return { activo, permite, texto };

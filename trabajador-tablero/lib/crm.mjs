@@ -20,6 +20,8 @@ const sinCausaDe = (datos) => `El Coordinador no supo la causa (etapa ${datos?.e
 // esParte, ultimosIntentos y ultimoError. Un CRM que no manda topeReparaciones es uno viejo: el bucle sigue
 // como antes (a la primera falla, /error).
 
+import { areaPermitidaDeConfig } from "./area-permitida.mjs";
+
 export class ErrorDelCrm extends Error {
   constructor(message, status) {
     super(message);
@@ -27,12 +29,18 @@ export class ErrorDelCrm extends Error {
   }
 }
 
-export function crearCrm({ urlCrm, claveTrabajador }, { fetch: miFetch = globalThis.fetch, timeoutMs = 30_000 } = {}) {
+export function crearCrm(config, { fetch: miFetch = globalThis.fetch, timeoutMs = 30_000 } = {}) {
   /*
     Tope duro (27-oct-2026): AbortSignal.timeout corta el fetch y la lectura del cuerpo, pero si algo no respeta la
     señal (un fetch reemplazado, un socket que se queda a medias) la promesa podría no volver nunca y colgar la vuelta.
     Por eso todo `pedir` (fetch + JSON) corre contra un reloj propio: a los timeoutMs + margen (5 s, o timeoutMs si es menor) falla con status 0.
   */
+  const { urlCrm, claveTrabajador } = config;
+  // Todo lo de Features (24-nov-2026): con `areaPermitidaId` en la config, va en la query de /candidatas y en el cuerpo de /tomar,
+  // y el CRM no da las de fuera del área que nunca se empezaron. Sin la clave no se manda nada nuevo.
+  const areaPermitidaId = areaPermitidaDeConfig(config);
+  const conArea = areaPermitidaId ? `?areaPermitidaId=${encodeURIComponent(areaPermitidaId)}` : "";
+
   function pedir(ruta, cuerpo, metodo = "POST") {
     let reloj;
     const margen = Math.min(5000, timeoutMs);
@@ -68,8 +76,8 @@ export function crearCrm({ urlCrm, claveTrabajador }, { fetch: miFetch = globalT
 
   return {
     /** { maxParalelo, excluir }: cuántas puede tener a la vez y cuáles no quiere ahora (chocan). */
-    tomar: (opciones) => pedir("/api/trabajador/tablero/tomar", opciones),
-    candidatas: () => pedir("/api/trabajador/tablero/candidatas"),
+    tomar: (opciones) => pedir("/api/trabajador/tablero/tomar", areaPermitidaId ? { ...opciones, areaPermitidaId } : opciones),
+    candidatas: () => pedir(`/api/trabajador/tablero/candidatas${conArea}`),
     /** Devuelve la tarjeta a la fila sin ERROR. `extra` { categoria, causa, error, etapa }: el CRM guarda un intento "esperar" que no cuenta. */
     soltar: (id, motivo, extra) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/soltar`, { motivo, ...limpio(extra) }),
     /**
