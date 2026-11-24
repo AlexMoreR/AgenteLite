@@ -464,6 +464,21 @@ const lista = (tarjetas: { titulo: string; estado: string }[]) => {
 };
 
 /**
+ * El aviso "necesita tu decisión" de una tarjeta (`auto:necesita:<id>:<estado>`). Lo usa calcularAvisos y, para abrir la alerta
+ * en la misma vuelta, la preparación de Features (preparar-features.ts): así la clave y el texto son siempre los mismos.
+ */
+export function avisoDeQueNecesita(tarjeta: Pick<TarjetaEsperando, "id" | "titulo" | "estado">, motivo: string): AvisoCalculado {
+  return {
+    clave: `auto:necesita:${tarjeta.id}:${tarjeta.estado}`,
+    tipo: "necesita",
+    lineas: [`👆 ${entreComillas(tarjeta.titulo)} necesita tu decisión (${QUE_NECESITA[tarjeta.estado] ?? "decidir"}).`, `Motivo: ${unaLinea(motivo, 120)}`],
+    link: linkDeLaTarjeta(tarjeta.id),
+    prioridad: prioridadDelAviso("necesita", motivo),
+    titulo: `${entreComillas(tarjeta.titulo)} necesita tu decisión`,
+  };
+}
+
+/**
  * Los avisos que hoy corresponden (sin mirar lo ya avisado, el silencio ni el interruptor). Una tarjeta FALLIDO ya está
  * cerrada (31-oct-2026): no avisa, para que el reloj no le vuelva a abrir la alerta cada 3 horas.
  */
@@ -533,16 +548,7 @@ export function calcularAvisos(situacionCompleta: SituacionDeSistemas, ahora: Da
 
   // Si ya avisa "sin trabajo", las mismas tarjetas no se avisan otra vez como "necesita".
   if (!sinTrabajo) {
-    for (const { tarjeta, motivo } of necesitan) {
-      avisos.push({
-        clave: `auto:necesita:${tarjeta.id}:${tarjeta.estado}`,
-        tipo: "necesita",
-        lineas: [`👆 ${entreComillas(tarjeta.titulo)} necesita tu decisión (${QUE_NECESITA[tarjeta.estado] ?? "decidir"}).`, `Motivo: ${unaLinea(motivo ?? "", 120)}`],
-        link: linkDeLaTarjeta(tarjeta.id),
-        prioridad: prioridadDelAviso("necesita", motivo),
-        titulo: `${entreComillas(tarjeta.titulo)} necesita tu decisión`,
-      });
-    }
+    for (const { tarjeta, motivo } of necesitan) avisos.push(avisoDeQueNecesita(tarjeta, motivo ?? ""));
   }
 
   // 6. Aprobada (o SUBIENDO pendiente, sin candado) pero fuera de la fila solo por la vía (voz con LIBRO_V3 / META_ADS): una
