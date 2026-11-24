@@ -365,7 +365,7 @@ export function FichaTarjeta({
                 ) : null}
               </div>
               <SheetTitle className="text-lg leading-snug">
-                {tarjeta.codigo ? (
+                {usaEstados && tarjeta.codigo ? (
                   <span className="mr-2 align-middle text-xs font-medium tabular-nums text-zinc-500 dark:text-zinc-400">
                     {tarjeta.codigo}
                   </span>

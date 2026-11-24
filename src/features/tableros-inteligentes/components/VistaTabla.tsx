@@ -162,6 +162,9 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
     alCambiar();
   };
 
+  // Las Áreas (tipo sin estados) no muestran el código T-n, ni en la celda ni en las etiquetas del lector de pantalla.
+  const codigoVisible = (fila: FilaDeTabla<TarjetaVista>) => (fila.usaEstados ? fila.tarjeta.codigo : "");
+
   const celdaDeEstado = (fila: FilaDeTabla<TarjetaVista>) => {
     const { tarjeta } = fila;
     if (!fila.usaEstados) return <span className="px-1.5 text-muted-foreground">—</span>;
@@ -179,7 +182,7 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
     return (
       <select
         key={`${tarjeta.id}-${tarjeta.estado}-${revision}`}
-        aria-label={`Estado de ${tarjeta.codigo || tarjeta.titulo}`}
+        aria-label={`Estado de ${codigoVisible(fila) || tarjeta.titulo}`}
         className={cn(CELDA_EDITABLE, "font-medium")}
         defaultValue={tarjeta.estado}
         disabled={cambiando === tarjeta.id}
@@ -202,7 +205,7 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
     const { tarjeta } = fila;
     switch (columna) {
       case "codigo":
-        return <span className="tabular-nums text-muted-foreground">{tarjeta.codigo || "—"}</span>;
+        return <span className="tabular-nums text-muted-foreground">{codigoVisible(fila) || "—"}</span>;
       case "titulo":
         // Un botón de verdad: con teclado o lector de pantalla también se abre la tarjeta.
         return (
@@ -219,7 +222,7 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
           <>
             <input
               key={`${tarjeta.id}-${tarjeta.area ?? ""}-${revision}`}
-              aria-label={`Área de ${tarjeta.codigo || tarjeta.titulo}`}
+              aria-label={`Área de ${codigoVisible(fila) || tarjeta.titulo}`}
               className={CELDA_EDITABLE}
               list="tablero-ia-areas"
               defaultValue={tarjeta.area ?? ""}
@@ -247,7 +250,7 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
         return (
           <select
             key={`${tarjeta.id}-${tarjeta.prioridad}-${revision}`}
-            aria-label={`Prioridad de ${tarjeta.codigo || tarjeta.titulo}`}
+            aria-label={`Prioridad de ${codigoVisible(fila) || tarjeta.titulo}`}
             className={cn("w-full rounded-full border px-2 py-0.5 text-xs font-medium", COLOR_DE_PRIORIDAD[tarjeta.prioridad])}
             defaultValue={tarjeta.prioridad}
             onChange={(evento) => {
@@ -267,7 +270,7 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
         return (
           <select
             key={`${tarjeta.id}-${tarjeta.responsableId ?? ""}-${revision}`}
-            aria-label={`Responsable de ${tarjeta.codigo || tarjeta.titulo}`}
+            aria-label={`Responsable de ${codigoVisible(fila) || tarjeta.titulo}`}
             className={CELDA_EDITABLE}
             defaultValue={tarjeta.responsableId ?? ""}
             onChange={(evento) => void asignar(tarjeta.id, evento.target.value || null)}
@@ -289,7 +292,7 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
           <input
             key={`${tarjeta.id}-${dia}-${revision}`}
             type="date"
-            aria-label={`Fecha de ${tarjeta.codigo || tarjeta.titulo}`}
+            aria-label={`Fecha de ${codigoVisible(fila) || tarjeta.titulo}`}
             title={tarjeta.fecha ? DIA.format(new Date(tarjeta.fecha)) : "Sin fecha"}
             className={CELDA_EDITABLE}
             defaultValue={dia}

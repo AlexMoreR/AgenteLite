@@ -220,6 +220,8 @@ export function VistaKanban({ tarjetas, tipos, alAbrir, alCambiar }: Props) {
               {lista.map((fila) => {
                 const { tarjeta } = fila;
                 const tipo = tipoPorId.get(tarjeta.tipoId);
+                // Las Áreas (tipo sin estados) no muestran el código T-n.
+                const codigo = fila.usaEstados ? tarjeta.codigo : "";
                 const destinos = destinosDelKanban(fila);
                 // Se arrastra a cualquier columna: si la regla no deja, sale el motivo. Las del Coordinador, no.
                 const seArrastra = !delCoordinador && columnaDelKanban(fila) !== null;
@@ -245,7 +247,7 @@ export function VistaKanban({ tarjetas, tipos, alAbrir, alCambiar }: Props) {
                     <button type="button" onClick={() => alAbrir(tarjeta.id)} className="block w-full text-left">
                       <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                         {tipo ? <IconoDeTipo icono={tipo.icono} color={tipo.color} className="size-3.5" /> : null}
-                        {tarjeta.codigo ? <span className="tabular-nums">{tarjeta.codigo}</span> : null}
+                        {codigo ? <span className="tabular-nums">{codigo}</span> : null}
                         {/* La prioridad con su color (21-nov-2026); Media no lleva etiqueta, para no recargar la vista. */}
                         {tarjeta.prioridad !== "MEDIA" ? (
                           <span
@@ -271,7 +273,7 @@ export function VistaKanban({ tarjetas, tipos, alAbrir, alCambiar }: Props) {
                     </button>
                     {seArrastra && destinos.length ? (
                       <select
-                        aria-label={`Mover ${tarjeta.codigo || tarjeta.titulo} a otra columna`}
+                        aria-label={`Mover ${codigo || tarjeta.titulo} a otra columna`}
                         className="mt-2 h-9 w-full rounded-md border bg-background px-2 text-xs text-muted-foreground"
                         value=""
                         disabled={cambiando === tarjeta.id}

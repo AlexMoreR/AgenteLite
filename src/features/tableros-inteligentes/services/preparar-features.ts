@@ -11,7 +11,7 @@ import { avisoDeQueNecesita, avisosPrendidos, claveDelAvisoDelCoordinador, porQu
 import { claveDelAreaFeatures, leerAreaFeatures } from "./coordinador-en-vivo";
 import { normalizar } from "./reglas-riesgo";
 import { repoPorElTexto } from "./repo-por-el-texto";
-import { SQL_POR_PREPARAR_EN_FEATURES } from "./sql-trabajador";
+import { SQL_POR_PREPARAR_EN_FEATURES } from "./sql-features";
 import { estaArchivado } from "./tableros-archivados";
 
 /*
