@@ -585,6 +585,9 @@ export function completarConfig(datos, base = process.cwd()) {
   for (const campo of ["cercaDesde", "vigilarCercaMinutos"]) {
     if (!Number.isFinite(Number(pausaUso[campo])) || Number(pausaUso[campo]) <= 0) errores.push(`pausaUso.${campo}: un número, más de 0.`);
   }
+  // 24-nov-2026 (sesion-claude.mjs): cada cuántos minutos se revisa la sesión de Claude mientras está vencida.
+  const sesionClaude = { revisarMinutos: 3, ...(datos.sesionClaude ?? {}) };
+  if (!Number.isFinite(Number(sesionClaude.revisarMinutos)) || Number(sesionClaude.revisarMinutos) <= 0) errores.push("sesionClaude.revisarMinutos: minutos, más de 0.");
   let comandoCodex = ["codex"];
   try {
     comandoCodex = comando(datos.comandoCodex, "comandoCodex") ?? ["codex"];
@@ -664,6 +667,7 @@ export function completarConfig(datos, base = process.cwd()) {
     pausaLimiteCodexMinutos,
     umbralClaude,
     pausaUso: { activa: pausaUso.activa, umbral: Number(pausaUso.umbral), cercaDesde: Number(pausaUso.cercaDesde), vigilarCercaMinutos: Number(pausaUso.vigilarCercaMinutos) },
+    sesionClaude: { revisarMinutos: Number(sesionClaude.revisarMinutos) },
     // Cada cuánto se mira el uso del plan de Claude (`claude -p /usage`). 0 = no se mira.
     vigilarUsoMinutos: datos.vigilarUsoMinutos === undefined ? 5 : Math.max(0, Number(datos.vigilarUsoMinutos) || 0),
     herramientasPermitidas: lista(datos.herramientasPermitidas).length ? datos.herramientasPermitidas : HERRAMIENTAS_PERMITIDAS,

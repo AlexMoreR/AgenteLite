@@ -73,6 +73,7 @@ import { crearEstadoDeMotores, crearVigilanteDeUso, motorDeLaEtapa, nombreDelMot
 import { commitsDeLaRama, esOrquestador, esTareaGrande, nombreDelProyecto, preguntaDelCommit, resultadoDelCommit, sesionFijaDe, sinAccesoALaNube, sinAccesoASesionesNuevas } from "./nube.mjs";
 import { datosDelLatidoDeConstruir } from "./latido.mjs";
 import { crearPausaPorUso } from "./pausa-uso.mjs";
+import { crearPausaPorSesion } from "./sesion-claude.mjs";
 import { crearMedidor, faltanRecursos, leerCarga } from "./recursos.mjs";
 import { crearGuardiaSinLatido } from "./sin-latido.mjs";
 
@@ -1016,6 +1017,8 @@ export function crearPlanificador({
   ajusteCupos: ajusteDado = undefined,
   // Las tarjetas sin señal más de 30 min (sin-latido.mjs); undefined = la del archivo de la carpeta de trabajo.
   sinLatido: sinLatidoDado = undefined,
+  // 24-nov-2026: la pausa por sesión de Claude vencida (sesion-claude.mjs); las pruebas la pueden dar hecha.
+  pausaSesion = crearPausaPorSesion({ config, registro, ahora, entorno: entornoSeguro() }),
 }) {
   const max = config.maxParalelo;
   // 31-oct-2026 (parte 4): durante 3 días el cupo de la nube de un proyecto baja solo en 1 si con varias a la vez chocan más.
@@ -1416,7 +1419,7 @@ export function crearPlanificador({
       const corriendo = ocupadas().length + ocupadasEnNube().length;
       const cupos = cuposDisponibles();
       cuposVistos = { cupos, enFila: enFila.length, corriendo };
-      const pasa = enFila.length > 0 && corriendo < cupos && !pausaUso.pausado() && etapasSinMotor().length === 0 && !pcEspera;
+      const pasa = enFila.length > 0 && corriendo < cupos && !pausaUso.pausado() && !pausaSesion.vencida() && etapasSinMotor().length === 0 && !pcEspera;
       if (!pasa) {
         cuposSinUsarDesde = null;
         cuposSinUsarAvisado = false;
@@ -1472,6 +1475,13 @@ export function crearPlanificador({
       return;
     }
     if (ultimoAviso === "pausa-uso") ultimoAviso = "";
+    // 24-nov-2026: con la sesión de Claude vencida cada tarjeta fallaría en cadena; no se toma nada hasta que vuelva.
+    await pausaSesion.revisar();
+    if (pausaSesion.vencida()) {
+      avisarUnaVez("pausa-sesion", "En pausa: sesión de Claude vencida");
+      return;
+    }
+    if (ultimoAviso === "pausa-sesion") ultimoAviso = "";
     // Las que se soltaron en esta pasada porque no tenían dónde correr: no se vuelven a tomar hasta la próxima.
     const descartadas = new Map();
     for (;;) {
@@ -1679,6 +1689,8 @@ export function crearPlanificador({
         esperas: [...esperasDeFila.entries()].map(([tarjetaId, espera]) => ({ tarjetaId, motivo: espera.motivo, ...(espera.contra ? { contra: espera.contra } : {}) })),
         uso: motores.resumenDeUso(),
         pausaUso: pausaUso.resumen(),
+        // 24-nov-2026: la pausa por sesión de Claude vencida { vencida, desde, revisadaEn }.
+        sesionClaude: pausaSesion.resumen(),
         // 31-oct-2026: los puestos disponibles, cuántas esperan en fila y cuántas ocupan puesto (los máximos del día salen de acá).
         cupos: cuposVistos.cupos,
         enFila: cuposVistos.enFila,
@@ -1690,6 +1702,9 @@ export function crearPlanificador({
     /** Pausa por uso de Claude: ¿está pausado? (el trabajo de noche y el recogedor tampoco corren) y los ajustes del panel. */
     pausadoPorUso: () => pausaUso.pausado(),
     ajustarPausaUso: (ajustes) => pausaUso.ajustes(ajustes),
+    /** 24-nov-2026: pausa por sesión de Claude vencida: ¿está en pausa? y el objeto entero (marcarVencida, esErrorDeSesion…). */
+    pausadoPorSesion: () => pausaSesion.vencida(),
+    pausaSesion,
     esperar: (ms) =>
       new Promise((resolver) => {
         if (cupoNuevo) {
