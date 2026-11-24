@@ -98,8 +98,9 @@ if (descripcion === null && !sesionFija) for await (const pedazo of process.stdi
 const titulo = (prompt.match(/^Tarea: (.*)$/m) ?? [])[1] ?? "";
 const modo = argumentos[argumentos.indexOf("--permission-mode") + 1];
 // Los revisores (29-oct-2026) se anotan aparte (CLAUDE_FALSO_LOG.revisores): así "la última llamada" sigue siendo la de construir.
+// Se guardan hasta 16000 letras del prompt: con los incidentes ya vistos (bitacora.mjs) la instrucción de la nube pasa de 8000.
 if (process.env.CLAUDE_FALSO_LOG && !prompt.startsWith("Eres un REVISOR DE ")) {
-  fs.appendFileSync(process.env.CLAUDE_FALSO_LOG, `${JSON.stringify({ argumentos, cwd: process.cwd(), titulo, modo, prompt: prompt.slice(0, 8000), terminal: Boolean(process.stdout.isTTY) })}\n`);
+  fs.appendFileSync(process.env.CLAUDE_FALSO_LOG, `${JSON.stringify({ argumentos, cwd: process.cwd(), titulo, modo, prompt: prompt.slice(0, 16000), terminal: Boolean(process.stdout.isTTY) })}\n`);
 }
 
 // La sesión fija: "session_MUERTA…" no responde (como una archivada o que no existe); "session_OCUPADA…" contesta que está
