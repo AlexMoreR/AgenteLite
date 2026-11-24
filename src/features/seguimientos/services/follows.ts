@@ -35,6 +35,7 @@ import { PREFIJO_FOLLOW_INTELIGENTE, revisarConvivencia } from "@/features/segui
 import { PREFIJO_FOLLOW_TRAS_ASESORA } from "@/features/seguimiento-inteligente/dominio/tras-asesora";
 import { tipoDeSeguimiento, type TipoDeSeguimiento } from "@/features/seguimientos/dominio/apagado";
 import { anotarSeguimientosApagados, revisarApagadoDelChat } from "@/features/seguimientos/services/apagado";
+import { seguimientoDelV2EnPausa } from "@/features/seguimientos/services/motores-viejos";
 import { revisarDiaSiguienteAlEnviar } from "@/features/seguimiento-inteligente/servicios/dia-siguiente-al-enviar";
 import { revisarAntesDeEnviar } from "@/features/seguimientos/dominio/seguimiento-que-escucha";
 import {
@@ -1626,6 +1627,15 @@ type DefinicionVigente = Parameters<typeof decidirTextoVigente>[0]["vigente"];
  * "no_aplica" = no se sabe de dónde salió: no se toca.
  */
 async function definicionVigenteDelFollow(follow: ClaimedFollowRow): Promise<DefinicionVigente | "no_aplica"> {
+  /*
+    Motores viejos (24-nov-2026): un "Sin responder …" o uno de una regla del diagrama del V2 (AGENT_NODE)
+    cuyo agente de línea está en pausa ya no tiene definición vigente (null = "seguimiento apagado"):
+    no sale. Los "Etapa …", los del V3 y los de una asesora no pasan por acá con este freno.
+  */
+  if (await seguimientoDelV2EnPausa(follow)) {
+    return null;
+  }
+
   if (follow.followRuleId) {
     const regla = (await listFollowRulesByWorkspace(follow.workspaceId)).find((fila) => fila.id === follow.followRuleId);
     if (!regla || !regla.isActive) {
@@ -1818,6 +1828,9 @@ async function revisarAntiBloqueoDelFollow(
         return { motivo, reprogramarPara: null, conversationId: null };
       }
     }
+  } else if (esAutomatico && (await seguimientoDelV2EnPausa(follow))) {
+    // Con la medida 4 apagada, el freno del V2 en pausa (el de definicionVigenteDelFollow) igual vale.
+    return { motivo: "seguimiento_apagado", reprogramarPara: null, conversationId: null };
   }
 
   // 3, 1 y 5: dueño, tope y espaciado (el horario ya se miró).
