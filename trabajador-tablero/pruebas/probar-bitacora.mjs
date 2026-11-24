@@ -13,12 +13,17 @@ import {
   SIN_CAUSA,
   anotarIncidente,
   armarEntrada,
+  bloqueDeIncidentes,
   fechaDeLaBitacora,
+  incidentesParaElPrompt,
   reglaPara,
   resumenDeUnaLinea,
   rutaDeIncidentes,
 } from "../lib/bitacora.mjs";
 import { completarConfig } from "../lib/config.mjs";
+import { promptDeConstruir, promptDelPlan } from "../lib/etapas.mjs";
+
+const RAIZ_DEL_REPO = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..", "..");
 
 let pruebas = 0;
 async function prueba(nombre, fn) {
@@ -146,6 +151,81 @@ try {
     assert.match(entrada, /^- Repo: gestion \(commit c42a476\)$/m);
     assert.match(entrada, /^- Qué falló: no arrancó$/m);
     assert.match(entrada, /^- Causa: causa no registrada$/m);
+  });
+
+  // Parte 2: el plan y la construcción leen los incidentes ya vistos.
+  const tarjetaDePrompt = { titulo: "Algo", tablero: "T", detalle: "d", intentos: 1 };
+  const repoDePrompt = { clave: "aizencrm", ruta: "/r/crm" };
+  const conLosIncidentes = (incidentes) => [promptDelPlan(tarjetaDePrompt, repoDePrompt, "claude", { incidentes }), promptDeConstruir(tarjetaDePrompt, repoDePrompt, "tablero/x", "claude", { incidentes })];
+
+  await prueba("con una entrada anotada, el plan y construir traen 'Incidentes ya vistos' y la regla de esa entrada", () => {
+    const carpetaTrabajo = path.join(T, "trabajo-p2a");
+    anotarIncidente({ config: { carpetaTrabajo }, ...base, causa: "ERROR: function pg_input_is_valid(text, unknown) does not exist" });
+    const incidentes = incidentesParaElPrompt({ raizDelRepo: path.join(T, "sin-repo"), carpetaTrabajo, repo: "aizencrm" });
+    assert.equal(incidentes.split("\n").length, 1, incidentes);
+    assert.match(incidentes, /^- No usar funciones de Postgres 16 que producción no tiene\. — ERROR: function pg_input_is_valid/);
+    for (const prompt of conLosIncidentes(incidentes)) {
+      assert.ok(prompt.includes("Incidentes ya vistos en este repo: no los repitas."), prompt);
+      assert.ok(prompt.includes("No usar funciones de Postgres 16 que producción no tiene."), prompt);
+      // Va justo después de las lecciones (o del contexto, si no hay lecciones) y antes de las instrucciones del plan.
+      assert.ok(prompt.indexOf("Incidentes ya vistos") > prompt.indexOf("Algo"));
+    }
+  });
+
+  await prueba("sin bitácora, ni el plan ni construir traen el bloque; incidentesParaElPrompt no lanza", () => {
+    const incidentes = incidentesParaElPrompt({ raizDelRepo: path.join(T, "no-existe"), carpetaTrabajo: path.join(T, "no-existe"), repo: "aizencrm" });
+    assert.equal(incidentes, "");
+    assert.equal(bloqueDeIncidentes(""), "");
+    assert.equal(bloqueDeIncidentes("  \n"), "");
+    for (const prompt of [...conLosIncidentes(incidentes), promptDelPlan(tarjetaDePrompt, repoDePrompt), promptDeConstruir(tarjetaDePrompt, repoDePrompt, "tablero/x")]) {
+      assert.ok(!prompt.includes("Incidentes ya vistos"), prompt);
+    }
+    assert.doesNotThrow(() => incidentesParaElPrompt());
+    assert.equal(incidentesParaElPrompt({ carpetaTrabajo: {}, raizDelRepo: 3, repo: null }), "");
+  });
+
+  await prueba("entran solo las últimas 15 líneas (o las de config.bitacora.entradasEnPrompt)", () => {
+    const carpetaTrabajo = path.join(T, "trabajo-p2c");
+    for (let i = 1; i <= 20; i += 1) {
+      anotarIncidente({ config: { carpetaTrabajo }, ...base, fecha: `2026-11-24 10:${String(i).padStart(2, "0")}`, causa: `causa número ${i}` });
+    }
+    const quince = incidentesParaElPrompt({ carpetaTrabajo, repo: "aizencrm" }).split("\n");
+    assert.equal(quince.length, 15);
+    assert.match(quince[0], /causa número 6$/, "las últimas: de la 6 a la 20");
+    assert.match(quince[14], /causa número 20$/);
+    assert.equal(incidentesParaElPrompt({ carpetaTrabajo, repo: "aizencrm", config: { bitacora: { entradasEnPrompt: 3 } } }).split("\n").length, 3);
+    assert.equal(incidentesParaElPrompt({ carpetaTrabajo, repo: "aizencrm", cuantas: 0 }), "");
+  });
+
+  await prueba("una entrada que está en docs/incidentes.md y en la carpeta local sale una sola vez", () => {
+    const raizDelRepo = path.join(T, "repo-p2d");
+    const carpetaTrabajo = path.join(T, "trabajo-p2d");
+    fs.mkdirSync(path.join(raizDelRepo, "docs"), { recursive: true });
+    fs.writeFileSync(path.join(raizDelRepo, "docs", "incidentes.md"), `# Bitácora de incidentes: aizencrm\n\n${armarEntrada({ ...base, causa: "la causa compartida" })}`);
+    anotarIncidente({ config: { carpetaTrabajo }, ...base, causa: "la causa compartida" });
+    anotarIncidente({ config: { carpetaTrabajo }, ...base, fecha: "2026-11-24 16:00", causa: "solo en la carpeta local" });
+    const lineas = incidentesParaElPrompt({ raizDelRepo, carpetaTrabajo, repo: "aizencrm" }).split("\n");
+    assert.equal(lineas.length, 2, lineas.join("\n"));
+    assert.equal(lineas.filter((texto) => texto.includes("la causa compartida")).length, 1);
+    assert.match(lineas[1], /solo en la carpeta local$/, "primero las del repo, después las locales nuevas");
+  });
+
+  await prueba("docs/incidentes.md del repo: T-819 y T-872 con Causa, Cómo se resolvió y Regla; una menciona pg_input_is_valid", () => {
+    const texto = fs.readFileSync(path.join(RAIZ_DEL_REPO, "docs", "incidentes.md"), "utf8");
+    const bloques = texto.split(/^(?=### )/m).filter((bloque) => bloque.startsWith("### "));
+    const de = (id) => bloques.filter((bloque) => new RegExp(`^### [^\\n]*· ${id} `).test(bloque));
+    for (const id of ["T-819", "T-872"]) {
+      assert.equal(de(id).length, 1, `una entrada de ${id}`);
+      const [bloque] = de(id);
+      assert.match(bloque, new RegExp(`^<!-- incidente:${id}:[^\\n]+ -->$`, "m"), `${id}: su clave estable`);
+      for (const campo of ["Repo", "Qué falló", "Causa", "Cómo se resolvió", "Regla"]) assert.match(bloque, new RegExp(`^- ${campo}: .+$`, "m"), `${id}: ${campo}`);
+    }
+    assert.ok([...de("T-819"), ...de("T-872")].some((bloque) => bloque.includes("pg_input_is_valid")));
+    // Las reversiones del 15, 19 y 24 de noviembre.
+    for (const commit of ["04411e38", "0879c1f3", "a682f50d", "e617aabf"]) assert.ok(texto.includes(`(commit ${commit})`), commit);
+    // Todo el archivo se lee: cada entrada sale en el prompt.
+    const lineas = incidentesParaElPrompt({ raizDelRepo: RAIZ_DEL_REPO, carpetaTrabajo: path.join(T, "no-existe"), repo: "aizencrm" }).split("\n");
+    assert.equal(lineas.length, bloques.length);
   });
 } finally {
   fs.rmSync(T, { recursive: true, force: true });

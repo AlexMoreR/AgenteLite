@@ -190,6 +190,65 @@ export function anotarIncidente({ config, registro, fecha = fechaDeLaBitacora(),
   return salida;
 }
 
+// LEER LA BITÁCORA ANTES DE PLANEAR Y CONSTRUIR (parte 2): las instrucciones de planear, construir y la nube llevan las
+// últimas entradas, para que la sesión no repita una falla que ya se vio en ese repo.
+
+/** El archivo de la bitácora dentro de cada repo (lo que ya se sabe y viaja con el código). */
+export const BITACORA_DEL_REPO = path.join("docs", "incidentes.md");
+
+/** Las entradas de un texto de bitácora: solo las que traen su clave estable. -> [{ clave, regla, causa }] */
+export function entradasDeLaBitacora(texto) {
+  return String(texto ?? "")
+    .split(/^(?=### )/m)
+    .map((bloque) => {
+      const clave = bloque.match(/<!-- incidente:[^\n]*?-->/)?.[0];
+      if (!bloque.startsWith("### ") || !clave) return null;
+      const campo = (nombre) => bloque.match(new RegExp(`^- ${nombre}:[ \\t]*(.*)$`, "m"))?.[1]?.trim() ?? "";
+      return { clave, regla: campo("Regla"), causa: campo("Causa") };
+    })
+    .filter(Boolean);
+}
+
+/** El texto de un archivo, o "" si no existe o no se puede leer. */
+const leerSiSePuede = (archivo) => {
+  try {
+    return archivo && fs.existsSync(archivo) ? fs.readFileSync(archivo, "utf8") : "";
+  } catch {
+    return "";
+  }
+};
+
+/**
+ * Los incidentes ya vistos en un repo, para las instrucciones: primero los de docs/incidentes.md de la copia del repo y después
+ * los de <carpetaTrabajo>/incidentes/<repo>.md que todavía no están en ese archivo (por la clave estable). Las últimas `cuantas`,
+ * una línea por entrada: "- Regla — causa". "" si no hay nada. Nunca lanza.
+ */
+export function incidentesParaElPrompt({ raizDelRepo = null, carpetaTrabajo = null, repo, config = null, cuantas = config?.bitacora?.entradasEnPrompt ?? BITACORA_POR_DEFECTO.entradasEnPrompt } = {}) {
+  try {
+    const n = Number(cuantas);
+    if (!Number.isInteger(n) || n <= 0) return "";
+    const delRepo = entradasDeLaBitacora(raizDelRepo ? leerSiSePuede(path.join(raizDelRepo, BITACORA_DEL_REPO)) : "");
+    const yaEstan = new Set(delRepo.map(({ clave }) => clave));
+    const locales = entradasDeLaBitacora(carpetaTrabajo ? leerSiSePuede(rutaDeIncidentes(carpetaTrabajo, repo)) : "").filter(({ clave }) => {
+      if (yaEstan.has(clave)) return false;
+      yaEstan.add(clave);
+      return true;
+    });
+    return [...delRepo, ...locales]
+      .slice(-n)
+      .map(({ regla, causa }) => `- ${linea(regla, 200) || "sin regla"} — ${linea(causa, 200) || SIN_CAUSA}`)
+      .join("\n");
+  } catch {
+    return "";
+  }
+}
+
+/** El bloque de las instrucciones con los incidentes ya vistos; "" si no hay. */
+export function bloqueDeIncidentes(texto) {
+  const limpio = String(texto ?? "").trim();
+  return limpio ? `Incidentes ya vistos en este repo: no los repitas.\n${limpio}` : "";
+}
+
 /**
  * Incidentes que pasaron antes de que existiera la bitácora. La parte 3 los escribe en el repo correspondiente.
  * T-875: Gestión no arrancó (commit c42a476). La causa no quedó en el historial de la tarjeta que tiene este repo: no se inventa.
