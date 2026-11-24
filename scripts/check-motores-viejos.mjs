@@ -18,7 +18,7 @@ async function prueba(nombre, fn) {
 // La base de mentira.
 
 function nuevaBase() {
-  return {
+  const base = {
     escrituras: 0,
     agentes: [
       // Atiende solo líneas con V3: se puede pausar.
@@ -48,6 +48,8 @@ function nuevaBase() {
     ],
     ajustes: new Map(),
   };
+  for (const follow of base.follows) follow.executeAt = new Date(Date.now() + 60 * 60 * 1000);
+  return base;
 }
 
 function prismaDe(base) {
@@ -105,6 +107,7 @@ function prismaDe(base) {
         for (const f of base.follows) {
           if (!ids.includes(f.id) || f.status !== where.status) continue;
           if (where.executionError !== undefined && f.executionError !== where.executionError) continue;
+          if (where.executeAt?.gt && !(f.executeAt > where.executeAt.gt)) continue;
           Object.assign(f, data);
           count += 1;
         }
@@ -205,7 +208,9 @@ await prueba("--aplicar pausa y cancela; con --volver status, isActive y los seg
   await correr({ prisma, argumentos: ["--aplicar"], log: silencio });
   assert.deepEqual(JSON.parse(base.ajustes.get("motores-viejos:respaldo:ws-1")).agentes, respaldo.agentes);
 
-  await correr({ prisma, argumentos: ["--volver"], log: silencio });
+  const avisos = [];
+  await correr({ prisma, argumentos: ["--volver"], log: (l) => avisos.push(l) });
+  assert.ok(avisos.some((l) => l.includes("2 seguimiento(s) quedaron como estaban")), avisos.join("\n"));
   assert.deepEqual(base.agentes.map((a) => ({ id: a.id, ...estadoDe(base, a.id) })), antes);
   assert.deepEqual(comoEstan(), followsAntes);
   assert.equal(base.ajustes.has("motores-viejos:respaldo:ws-1"), false);
@@ -220,6 +225,25 @@ await prueba("el script se niega a pausar un agente que atiende una línea sin V
   assert.ok(lineas.some((l) => l.includes('NO se pausa "Agente mixto"') && l.includes("Administrativa")), lineas.join("\n"));
   // Y el que ya estaba en pausa no entra al respaldo (no se toca).
   assert.ok(!JSON.parse(base.ajustes.get("motores-viejos:respaldo:ws-1")).agentes.some((a) => a.id === "ag-pausado"));
+});
+
+await prueba("--volver no revive un seguimiento que ya venció, y --workspace sin id no toca todos los negocios", async () => {
+  const base = nuevaBase();
+  const prisma = prismaDe(base);
+  await correr({ prisma, argumentos: ["--aplicar"], log: silencio });
+  followDe(base, "f-nodo").executeAt = new Date(Date.now() - 60 * 1000);
+  const avisos = [];
+  await correr({ prisma, argumentos: ["--volver"], log: (l) => avisos.push(l) });
+  assert.equal(followDe(base, "f-sin-responder").status, "PENDING");
+  assert.equal(followDe(base, "f-nodo").status, "CANCELLED");
+  assert.ok(avisos.some((l) => l.includes("1 siguen cancelados")), avisos.join("\n"));
+  assert.deepEqual(estadoDe(base, "ag-v2"), { status: "ACTIVE", isActive: true });
+
+  const otra = nuevaBase();
+  for (const argumentos of [["--aplicar", "--workspace"], ["--workspace", "--aplicar"]]) {
+    await assert.rejects(correr({ prisma: prismaDe(otra), argumentos, log: silencio }), /--workspace necesita/);
+  }
+  assert.equal(otra.escrituras, 0);
 });
 
 console.log(`\n${pruebas} pruebas ok`);

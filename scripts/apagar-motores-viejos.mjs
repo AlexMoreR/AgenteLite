@@ -11,6 +11,7 @@
 //   node scripts/apagar-motores-viejos.mjs --aplicar
 //   node scripts/apagar-motores-viejos.mjs --volver        (deja agentes y seguimientos como estaban)
 //   ... --workspace <id>                                   (solo ese negocio)
+// --volver no revive un seguimiento cuya hora ya pasó (saldría de golpe con un texto viejo): queda cancelado y se avisa.
 // Lee DATABASE_URL del entorno (o de .env).
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -32,7 +33,11 @@ const {
 export function leerArgumentos(argumentos) {
   const modo = argumentos.includes("--volver") ? "volver" : argumentos.includes("--aplicar") ? "aplicar" : "revisar";
   const indice = argumentos.indexOf("--workspace");
-  const workspaceId = indice >= 0 ? (argumentos[indice + 1] ?? null) : null;
+  const workspaceId = indice >= 0 ? (argumentos[indice + 1] ?? "") : null;
+  // "--workspace" sin id no puede caer en "todos los negocios".
+  if (workspaceId !== null && (!workspaceId.trim() || workspaceId.startsWith("--"))) {
+    throw new Error("--workspace necesita el id del negocio");
+  }
   return { modo, workspaceId };
 }
 
@@ -175,26 +180,41 @@ async function volver(prisma, workspaceId, log) {
     log("No hay respaldo de motores viejos: no hay nada que volver.");
     return;
   }
+  const ahora = new Date();
   for (const fila of respaldos) {
     const respaldo = leerRespaldo(fila.value);
+    let revividos = 0;
     await prisma.$transaction(async (tx) => {
       for (const agente of respaldo.agentes) {
         await tx.agent.update({ where: { id: agente.id }, data: { status: agente.status, isActive: agente.isActive } });
       }
       for (const follow of respaldo.follows) {
-        // Solo los que canceló este script (con su marca): si después se cancelaron por otra cosa, no se reviven.
-        await tx.follow.updateMany({
-          where: { id: follow.id, status: "CANCELLED", executionError: MARCA_CANCELADO_POR_MOTORES_VIEJOS },
+        /*
+          Solo los que canceló este script (con su marca): si después se cancelaron por otra cosa, no se
+          reviven. Y solo los que todavía no vencieron: uno vencido saldría de golpe con un texto viejo.
+        */
+        const { count } = await tx.follow.updateMany({
+          where: {
+            id: follow.id,
+            status: "CANCELLED",
+            executionError: MARCA_CANCELADO_POR_MOTORES_VIEJOS,
+            executeAt: { gt: ahora },
+          },
           data: {
             status: follow.status,
             cancelledAt: follow.cancelledAt ? new Date(follow.cancelledAt) : null,
             executionError: follow.executionError ?? null,
           },
         });
+        revividos += count;
       }
       await tx.appSetting.delete({ where: { key: fila.key } });
     });
-    log(`${fila.key}: ${respaldo.agentes.length} agente(s) y ${respaldo.follows.length} seguimiento(s) quedaron como estaban.`);
+    const quedan = respaldo.follows.length - revividos;
+    log(
+      `${fila.key}: ${respaldo.agentes.length} agente(s) y ${revividos} seguimiento(s) quedaron como estaban` +
+        (quedan ? `; ${quedan} siguen cancelados (ya vencieron o se cancelaron por otra cosa).` : "."),
+    );
   }
 }
 
