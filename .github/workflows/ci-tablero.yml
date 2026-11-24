@@ -80,3 +80,5 @@ jobs:
 
       - name: Pruebas
         run: node scripts/correr-pruebas-ci.mjs
+        env:
+          PRUEBAS_POSTGRES_OBLIGATORIO: "1"
