@@ -264,6 +264,9 @@ export async function marcarAlerta(workspaceId: string, id: string, nuevo: "VIST
   return true;
 }
 
+/** Las claves de alerta que son de una tarjeta (`auto:quieta`, 24-nov-2026: la de Features que no arranca). */
+const TIPOS_DE_CLAVE_DE_TARJETA = ["auto:necesita", "auto:trabado", "auto:quieta", "auto:equipo", "coord:necesita"];
+
 /**
  * Cierra solas las alertas abiertas de una tarjeta cuando el dueño la aprueba, responde la pregunta o la tarjeta se
  * cierra (HECHO, FALLIDO o borrada). Qué claves cierra cada motivo lo dice `motivoCierraLaClave`. Cada una queda
@@ -276,7 +279,7 @@ export async function cerrarAlertasDeTarjeta(workspaceId: string, tarjetaId: str
       where: {
         workspaceId,
         estado: { not: "RESUELTA" },
-        OR: ["auto:necesita", "auto:trabado", "auto:equipo", "coord:necesita"].map((tipo) => ({ clave: { startsWith: `${tipo}:${tarjetaId}:` } })),
+        OR: TIPOS_DE_CLAVE_DE_TARJETA.map((tipo) => ({ clave: { startsWith: `${tipo}:${tarjetaId}:` } })),
       },
       select: { id: true, clave: true, detalle: true },
     });
@@ -299,7 +302,6 @@ export async function cerrarAlertasDeTarjeta(workspaceId: string, tarjetaId: str
   }
 }
 
-const TIPOS_DE_CLAVE_DE_TARJETA = ["auto:necesita", "auto:trabado", "auto:equipo", "coord:necesita"];
 const PREFIJO_DEL_AVISO_VIEJO = "coord:necesita:";
 
 /** La marca de la limpieza única de las alertas viejas del Coordinador (30-oct-2026): con ella, no vuelve a correr. */
@@ -318,7 +320,7 @@ async function cerrarConLineaDelBarrido(alerta: { id: string; detalle: string | 
 
 /**
  * El barrido de cada minuto: cierra las alertas abiertas de una tarjeta que ya no aplican (`alertaYaNoAplica`): la tarjeta
- * avanzó, se cerró o se borró sin pasar por `cerrarAlertasDeTarjeta`. Lee todas sus tarjetas en una sola consulta, incluidas
+ * avanzó, se cerró, se borró sin pasar por `cerrarAlertasDeTarjeta` o, la de Features quieta, el Coordinador ya la tomó. Lee todas sus tarjetas en una sola consulta, incluidas
  * las borradas. Nunca lanza. Devuelve cuántas cerró.
  */
 export async function barrerAlertasDeTarjetas(workspaceId: string, ahora = new Date()): Promise<number> {
@@ -331,7 +333,7 @@ export async function barrerAlertasDeTarjetas(workspaceId: string, ahora = new D
     if (!conTarjeta.length) return 0;
     const tarjetas = await prisma.tarjetaTablero.findMany({
       where: { id: { in: [...new Set(conTarjeta.map((x) => x.tarjetaId))] }, tablero: { workspaceId } },
-      select: { id: true, estado: true, borradoEn: true },
+      select: { id: true, estado: true, borradoEn: true, intentos: true },
     });
     const porId = new Map(tarjetas.map((tarjeta) => [tarjeta.id, tarjeta]));
     let cerradas = 0;

@@ -246,6 +246,29 @@ WHERE c."id" IN (SELECT "id" FROM baja)
 ORDER BY c."creadoEn" ASC, c."numero" ASC
 LIMIT 100`;
 
+/**
+ * Todo lo que cuelga del Área Features de este negocio (sub-áreas, ideas y tareas, sin las borradas). Lo usa la alerta de
+ * las tarjetas de Features que no arrancan (avisos-al-dueno.ts): para saber si una tarjeta cuelga de Features y si un
+ * "mover" del historial la llevó a Features. $1 = id del Área Features, $2 = negocio.
+ */
+export const SQL_IDS_BAJO_FEATURES = `
+WITH RECURSIVE baja AS (
+  SELECT h."id", 1 AS "nivel"
+  FROM "TarjetaTablero" h
+  WHERE h."padreId" = $1::text AND h."borradoEn" IS NULL
+  UNION ALL
+  SELECT h."id", s."nivel" + 1
+  FROM baja s
+  JOIN "TarjetaTablero" h ON h."padreId" = s."id" AND h."borradoEn" IS NULL
+  WHERE s."nivel" < 50
+)
+SELECT c."id"
+FROM "TarjetaTablero" c
+JOIN "TableroInteligente" b ON b."id" = c."tableroId"
+WHERE c."id" IN (SELECT "id" FROM baja)
+  AND b."workspaceId" = $2
+LIMIT 5000`;
+
 /** ¿El trabajador ya tiene una tarjeta de este negocio (con el candado vigente)? */
 export const SQL_HAY_UNA_TRABAJANDO = `
 SELECT c."id"
