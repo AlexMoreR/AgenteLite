@@ -195,8 +195,12 @@ async function partirEnDos(tarjeta: Fila, tarea: Tipo): Promise<string[]> {
   });
 }
 
-/** Con tipo Tarea y repo: la aprobación de siempre; si espera al dueño, su alerta `auto:necesita` en la página. */
-async function ponerEnMarcha(negocioId: string, tarjetaId: string, conAvisos: boolean, resultado: ResultadoDePrepararFeatures) {
+/**
+ * Con tipo Tarea y repo: la aprobación de siempre; si espera al dueño, su alerta `auto:necesita` en la página. La alerta se
+ * abre solo si la tarjeta `recienLlegada` (esta vuelta la pasó a POR_APROBAR o la creó): una que ya esperaba la siguen los
+ * avisos de siempre (avisos-al-dueno.ts), así una alerta que el dueño cerró no se reabre en cada vuelta.
+ */
+async function ponerEnMarcha(negocioId: string, tarjetaId: string, recienLlegada: boolean, conAvisos: boolean, resultado: ResultadoDePrepararFeatures) {
   const aprobacion = await aprobarSolaLaTarea(tarjetaId);
   if (aprobacion.aprobada) {
     resultado.aprobadas += 1;
@@ -210,7 +214,7 @@ async function ponerEnMarcha(negocioId: string, tarjetaId: string, conAvisos: bo
   const motivo = porQueNecesitaAlDueno({ ...tarjeta, error: null });
   if (!motivo) return;
   resultado.esperanAlDueno += 1;
-  if (!conAvisos) return;
+  if (!conAvisos || !recienLlegada) return;
   const aviso = avisoDeQueNecesita(tarjeta, motivo);
   await registrarAlerta({ workspaceId: negocioId, clave: aviso.clave, prioridad: aviso.prioridad, titulo: aviso.titulo, detalle: aviso.lineas.join("\n"), origen: ORIGEN_COORDINADOR, refrescar: false });
 }
@@ -290,7 +294,7 @@ export async function prepararFeatures(negocioId: string, ahora: Date = new Date
         if (elegido === "los-dos") {
           const hijas = await partirEnDos(tarjeta, tarea);
           if (hijas.length) resultado.partidas += 1;
-          for (const hija of hijas) await ponerEnMarcha(negocioId, hija, conAvisos, resultado);
+          for (const hija of hijas) await ponerEnMarcha(negocioId, hija, true, conAvisos, resultado);
           continue;
         }
         repo = elegido;
@@ -315,6 +319,7 @@ export async function prepararFeatures(negocioId: string, ahora: Date = new Date
         antes.estado = tarjeta.estado;
         despues.estado = "POR_APROBAR";
       }
+      let recienLlegada = false;
       if (Object.keys(datos).length) {
         const hecho = await prisma.$transaction(async (tx) => {
           // Condicionado a lo que se leyó: si alguien la editó un instante antes, se deja para la vuelta siguiente.
@@ -328,10 +333,11 @@ export async function prepararFeatures(negocioId: string, ahora: Date = new Date
           return true;
         });
         if (!hecho) continue;
+        recienLlegada = tarjeta.estado !== "POR_APROBAR";
         if (esIdea) resultado.pasadasATarea += 1;
         if (!tarjeta.repo) resultado.conRepo += 1;
       }
-      await ponerEnMarcha(negocioId, tarjeta.id, conAvisos, resultado);
+      await ponerEnMarcha(negocioId, tarjeta.id, recienLlegada, conAvisos, resultado);
     } catch (error) {
       console.error("[preparar-features] no se pudo preparar la tarjeta", id, error instanceof Error ? error.message : String(error));
     }
