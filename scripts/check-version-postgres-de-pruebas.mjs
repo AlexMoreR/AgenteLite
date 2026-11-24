@@ -60,9 +60,9 @@ if (!url) {
     });
 
     if (mayor < 16) {
-      await prueba("pg_input_is_valid (Postgres 16) no existe en el Postgres de pruebas", async () => {
+      await prueba("pg_input_is_valid (Postgres 16) no existe en el Postgres de pruebas", async () => { // sql-version-ok: es la guardia, tiene que fallar
         await assert.rejects(
-          cliente.query("SELECT pg_input_is_valid('1', 'integer')"),
+          cliente.query("SELECT pg_input_is_valid('1', 'integer')"), // sql-version-ok: es la guardia, tiene que fallar
           /pg_input_is_valid/,
           "pg_input_is_valid funcionó: la base de pruebas no es como producción",
         );

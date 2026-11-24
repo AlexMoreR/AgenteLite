@@ -43,6 +43,15 @@ if (entorno.PRUEBAS_POSTGRES_URL?.trim()) {
   }
 }
 
+// Si cortan la corrida (Ctrl+C, timeout), el contenedor se apaga igual: como spawnSync bloquea, esto
+// corre apenas termina la prueba en curso. Con SIGKILL no hay aviso; el contenedor va con --rm y se
+// apaga con `docker stop <nombre>` (nombre postgres-de-pruebas-*).
+for (const senal of ["SIGINT", "SIGTERM"]) {
+  process.once(senal, () => {
+    apagar().finally(() => process.exit(1));
+  });
+}
+
 const fallaron = [];
 try {
   for (const nombre of pruebas) {
