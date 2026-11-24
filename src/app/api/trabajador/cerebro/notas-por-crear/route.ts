@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { ErrorDeNota, marcarNotaPorCrear, notasPendientesParaElTrabajador } from "@/features/cerebro/services/notas-por-crear";
+import { ErrorDeNota, marcarNotaPorCrear, notasEnAizen1Prendidas, notasPendientesParaElTrabajador } from "@/features/cerebro/services/notas-por-crear";
 import { SIN_CACHE, contextoDelPedido, respuestaDeError, sinClave } from "../../tablero/autenticar";
 
 export const dynamic = "force-dynamic";
@@ -9,6 +9,8 @@ export const dynamic = "force-dynamic";
   Notas NUEVAS del cerebro que crea aizen1 (la cuenta de servicio de Google no puede crear en un Drive personal).
   Misma clave que /api/trabajador/tablero/* (Bearer aizen_trab_...); la clave define el negocio.
   GET  -> { ok, notas: [{ id, ruta, contenido, creadoEn }] }: las PENDIENTES, las más viejas primero (máx. 20).
+       Con el interruptor `cerebro:notas-en-aizen1` apagado (por defecto) devuelve notas: [] y aizen1 no escribe nada:
+       las pendientes las crea el CRM directo en el Drive (crearNotasPendientesEnDrive, en la vuelta de cada hora).
   POST { id, estado: "CREADA" | "ERROR", motivo? } -> { ok, id, estado, ruta, cambio }. 400 datos, 404 no existe,
        409 ya quedó en el otro estado. Repetir la misma marca no falla (cambio: false).
   Ver src/features/cerebro/services/notas-por-crear.ts y trabajador-tablero/lib/notas-boveda.mjs.
@@ -25,6 +27,7 @@ export async function GET(request: Request) {
   const contexto = await contextoDelPedido(request);
   if (!contexto) return sinClave();
   try {
+    if (!(await notasEnAizen1Prendidas())) return NextResponse.json({ ok: true, notas: [] }, { headers: SIN_CACHE });
     const notas = await notasPendientesParaElTrabajador(contexto.workspaceId);
     return NextResponse.json({ ok: true, notas }, { headers: SIN_CACHE });
   } catch (fallo) {

@@ -1,8 +1,10 @@
 import { prisma } from "@/lib/prisma";
-import type { EstadoDeNota } from "./reglas";
+import { driveDelNegocio, enlaceParaConectarGoogle } from "./conexion";
+import { ErrorDeDrive, esErrorSinEspacio } from "./drive";
+import { MIME_CARPETA, problemaDeRutaDeNota, sePuedeEscribir, type EstadoDeNota } from "./reglas";
 
 /*
-  CEREBRO: las notas NUEVAS que crea aizen1.
+  CEREBRO: las notas NUEVAS que crea aizen1 (comportamiento VIEJO, hoy apagado por el interruptor de abajo).
 
   La cuenta de servicio de Google edita los archivos de la carpeta del cerebro, pero NO puede crear uno nuevo en un
   Drive personal (403 storageQuotaExceeded: no tiene espacio propio). Esa carpeta es la bóveda D:\Magilus de aizen1,
@@ -13,14 +15,39 @@ import type { EstadoDeNota } from "./reglas";
        ya existe, agrega al final) y la marca CREADA (o ERROR con motivo) por POST;
     3. Drive para escritorio sube el archivo a nombre del dueño y, desde la siguiente sincronización, el CRM lo edita.
   Nunca se borra un pedido: queda como registro.
+
+  Desde la parte 2 (24-nov-2026) aizen1 ya NO escribe en D:\Magilus: el interruptor `cerebro:notas-en-aizen1`
+  (AppSetting) está apagado por defecto (sin fila = apagado). Con él apagado:
+    - GET notas-por-crear devuelve la lista vacía y escribir.ts no deja pedidos nuevos (crea directo con OAuth o
+      avisa con el link para dar el permiso);
+    - las notas que quedaron PENDIENTES las crea el CRM en el Drive en la vuelta de cada hora
+      (crearNotasPendientesEnDrive, desde sincronizarCerebroDeTodos).
+  Prenderlo a mano ("1", "true" o "prendida") vuelve lo de antes SOLO como respaldo cuando falta el permiso OAuth.
 */
 
 export const MAXIMO_POR_VUELTA = 20;
 
+/** El interruptor de las notas por aizen1. Sin fila cuenta como apagado. */
+export const CLAVE_NOTAS_EN_AIZEN1 = "cerebro:notas-en-aizen1";
+
+/** ¿Este valor de la fila prende el interruptor? Solo "1", "true" o "prendida" (sin importar mayúsculas). */
+export const interruptorPrendido = (valor: string | null | undefined) =>
+  ["1", "true", "prendida"].includes(String(valor ?? "").trim().toLowerCase());
+
+/** ¿Las notas nuevas las crea aizen1? false por defecto (sin fila, o con cualquier otro valor). */
+export async function notasEnAizen1Prendidas(): Promise<boolean> {
+  const fila = await prisma.appSetting.findUnique({ where: { key: CLAVE_NOTAS_EN_AIZEN1 }, select: { value: true } });
+  return interruptorPrendido(fila?.value);
+}
+
 export type NotaParaElTrabajador = { id: string; ruta: string; contenido: string; creadoEn: string };
 
-/** Las pendientes del negocio de la clave, las más viejas primero (así una segunda nota a la misma ruta se agrega después). */
+/**
+ * Las pendientes del negocio de la clave, las más viejas primero (así una segunda nota a la misma ruta se agrega después).
+ * Con el interruptor apagado (lo normal) devuelve [] sin mirar la tabla: aizen1 no escribe nada.
+ */
 export async function notasPendientesParaElTrabajador(workspaceId: string, maximo = MAXIMO_POR_VUELTA): Promise<NotaParaElTrabajador[]> {
+  if (!(await notasEnAizen1Prendidas())) return [];
   const filas = await prisma.cerebroNotaPorCrear.findMany({
     where: { workspaceId, estado: "PENDIENTE" },
     orderBy: { creadoEn: "asc" },
@@ -28,6 +55,139 @@ export async function notasPendientesParaElTrabajador(workspaceId: string, maxim
     select: { id: true, ruta: true, contenido: true, creadoEn: true },
   });
   return filas.map((fila) => ({ ...fila, creadoEn: fila.creadoEn.toISOString() }));
+}
+
+/** Deja una nota PENDIENTE para que la cree aizen1 (solo con el interruptor prendido y sin el permiso OAuth). */
+export async function encolarNotaParaAizen1(datos: {
+  workspaceId: string;
+  ruta: string;
+  contenido: string;
+  userId: string;
+  quienNombre: string | null;
+  origen: string;
+  tarjetaId?: string | null;
+}): Promise<{ id: string }> {
+  return prisma.cerebroNotaPorCrear.create({
+    data: {
+      workspaceId: datos.workspaceId,
+      ruta: datos.ruta,
+      contenido: datos.contenido,
+      userId: datos.userId,
+      quienNombre: datos.quienNombre,
+      origen: datos.origen,
+      tarjetaId: datos.tarjetaId ?? null,
+    },
+    select: { id: true },
+  });
+}
+
+/** El separador cuando el archivo ya existía, igual que aizen1 (notas-boveda.mjs): línea en blanco, "---", línea en blanco. */
+export function agregarComoAizen1(antes: string, contenido: string): string {
+  const texto = String(contenido ?? "").replace(/\s+$/, "") + "\n";
+  const separador = !antes.trim() ? "" : antes.endsWith("\n\n") ? "---\n\n" : antes.endsWith("\n") ? "\n---\n\n" : "\n\n---\n\n";
+  return `${antes}${separador}${texto}`;
+}
+
+export type ResultadoDeNotasPendientes = {
+  revisadas: number;
+  creadas: number;
+  agregadas: number;
+  errores: number;
+  /** Por qué no se hizo nada (sin pendientes, interruptor prendido sin OAuth, sin carpeta, sin conexión). */
+  saltado?: string;
+};
+
+const motivoFaltaPermiso = (enlace: string) =>
+  `Google no deja crear la nota: falta el permiso de la cuenta de Google de Magilus (o venció, o la app está en "Prueba"). Entra a ${enlace} con esa cuenta y pulsa Permitir. El texto quedó guardado en la base.`;
+
+/**
+ * La vuelta de cada hora: toma las notas PENDIENTES (hasta MAXIMO_POR_VUELTA, las más viejas primero) y las crea directo
+ * en el Drive del negocio. Si ya hay un archivo con ese nombre en la carpeta (en vivo), le agrega el texto al final, igual
+ * que aizen1. Marca cada nota CREADA, o ERROR con el motivo; una que falla no frena a las demás. Nunca borra nada.
+ * No hace nada si el interruptor está prendido y no hay OAuth (esas notas son de aizen1) o si falta la carpeta.
+ * `conectar` se cambia por un Drive de mentira en las pruebas.
+ */
+export async function crearNotasPendientesEnDrive(
+  workspaceId: string,
+  conectar: typeof driveDelNegocio = driveDelNegocio,
+): Promise<ResultadoDeNotasPendientes> {
+  const resultado: ResultadoDeNotasPendientes = { revisadas: 0, creadas: 0, agregadas: 0, errores: 0 };
+  const pendientes = await prisma.cerebroNotaPorCrear.findMany({
+    where: { workspaceId, estado: "PENDIENTE" },
+    orderBy: { creadoEn: "asc" },
+    take: MAXIMO_POR_VUELTA,
+    select: { id: true, ruta: true, contenido: true },
+  });
+  // Sin pendientes (lo normal) no se pide permiso a Google.
+  if (!pendientes.length) return { ...resultado, saltado: "sin notas pendientes" };
+
+  let conexionDelDrive: Awaited<ReturnType<typeof driveDelNegocio>>;
+  try {
+    conexionDelDrive = await conectar(workspaceId);
+  } catch (fallo) {
+    // Sin conexión no se marca nada: las notas siguen PENDIENTES y se reintentan en la próxima vuelta.
+    return { ...resultado, saltado: `sin conexión con el Drive: ${fallo instanceof Error ? fallo.message : "error"}` };
+  }
+  const { drive, buscador, conexion, modo } = conexionDelDrive;
+  if (modo !== "oauth" && (await notasEnAizen1Prendidas())) return { ...resultado, saltado: "interruptor prendido sin OAuth: las crea aizen1" };
+  const raizId = conexion.carpetaId;
+  if (!raizId) return { ...resultado, saltado: "falta elegir la carpeta del cerebro" };
+
+  // La carpeta de cada ruta, buscada en vivo desde la raíz (así sirve aunque la copia vaya atrasada).
+  const carpetas = new Map<string, string | null>([["", raizId]]);
+  async function carpetaDe(rutaCarpeta: string): Promise<string | null> {
+    if (carpetas.has(rutaCarpeta)) return carpetas.get(rutaCarpeta) ?? null;
+    const partes = rutaCarpeta.split("/");
+    const padre = await carpetaDe(partes.slice(0, -1).join("/"));
+    const encontrada = padre ? (await buscador.buscarPorNombre(padre, partes.at(-1) ?? "")).find((a) => a.tipo === MIME_CARPETA) : undefined;
+    const id = encontrada?.driveId ?? null;
+    carpetas.set(rutaCarpeta, id);
+    return id;
+  }
+
+  async function marcar(id: string, estado: "CREADA" | "ERROR", motivo: string | null) {
+    // Solo si sigue PENDIENTE: dos vueltas (o un aviso viejo de aizen1) no se pisan.
+    await prisma.cerebroNotaPorCrear.updateMany({
+      where: { id, workspaceId, estado: "PENDIENTE" },
+      data: { estado, motivo: motivo?.slice(0, 1000) ?? null, ...(estado === "CREADA" ? { creadaEn: new Date() } : {}) },
+    });
+  }
+
+  for (const nota of pendientes) {
+    resultado.revisadas += 1;
+    try {
+      const problema = problemaDeRutaDeNota(nota.ruta);
+      if (problema) throw new Error(`La ruta no sirve: ${problema}`);
+      const partes = nota.ruta.split(/[\\/]/);
+      const nombre = partes.pop() ?? "";
+      const rutaCarpeta = partes.join("/");
+      const carpetaId = await carpetaDe(rutaCarpeta);
+      if (!carpetaId) throw new Error(`No está la carpeta "${rutaCarpeta}" en el Drive del cerebro; no se creó la nota.`);
+      const texto = String(nota.contenido ?? "").replace(/\s+$/, "") + "\n";
+      const existente = (await buscador.buscarPorNombre(carpetaId, nombre))[0];
+      if (existente) {
+        if (!sePuedeEscribir(existente.nombre, existente.tipo)) {
+          throw new Error(`Ya existe "${nombre}" en esa carpeta y no es un texto .md/.txt (por ejemplo un Google Doc): no se le agrega nada.`);
+        }
+        const antes = (await drive.leerTexto(existente.driveId, existente.nombre, existente.tipo)) ?? "";
+        await drive.reemplazarTexto(existente.driveId, agregarComoAizen1(antes, texto), existente.tipo);
+        resultado.agregadas += 1;
+      } else {
+        await drive.crearTexto(carpetaId, nombre, texto);
+        resultado.creadas += 1;
+      }
+      await marcar(nota.id, "CREADA", null);
+    } catch (fallo) {
+      resultado.errores += 1;
+      const motivo = esErrorSinEspacio(fallo) || (fallo instanceof ErrorDeDrive && fallo.estado === 401)
+        ? motivoFaltaPermiso(enlaceParaConectarGoogle())
+        : fallo instanceof Error
+          ? fallo.message
+          : "No se pudo crear la nota.";
+      await marcar(nota.id, "ERROR", motivo).catch(() => undefined);
+    }
+  }
+  return resultado;
 }
 
 export class ErrorDeNota extends Error {

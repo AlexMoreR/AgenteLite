@@ -18,6 +18,7 @@ import { avisosDeAprobacionPrendidos, avisosPrendidos, leerEstadoDeAvisos, siste
 import { resumenDeAvisosAlEquipo } from "@/features/tableros-inteligentes/services/avisos-al-equipo";
 import { MOTIVO_TERMINADA, terminadasPrendidas } from "@/features/tableros-inteligentes/services/avisos-de-terminadas";
 import { tieneAccesoAlDrive } from "@/features/cerebro/services/conexion";
+import { CLAVE_NOTAS_EN_AIZEN1, interruptorPrendido } from "@/features/cerebro/services/notas-por-crear";
 import { estadoDeEtapaPorLectura, type EstadoDeEtapaPorLectura } from "@/features/crm/services/etapa-por-lectura";
 import { claveModoDelRecibo, claveTelefonoDePrueba, modoDelRecibo, prefijoReciboEnviado, resumenDeEnvios, telefonoParaWhatsApp } from "@/lib/recibo-de-caja";
 import {
@@ -888,6 +889,14 @@ async function automatizaciones(
     alarma_cupos_sin_usar_tablero: await estadoDeLaAlarmaDeCupos(workspaceId).catch(() => "no se pudo leer"),
     archivar_terminadas_tablero: await estadoDelArchivado().catch(() => "no se pudo leer"),
     cerebro_sincronizacion: await estadoDelCerebro(workspaceId).catch(() => "no se pudo leer"),
+    // Interruptor cerebro:notas-en-aizen1 (sin fila = apagada): con él apagado el CRM crea las notas directo y aizen1 no escribe.
+    cerebro_notas_en_aizen1: await bandera(CLAVE_NOTAS_EN_AIZEN1)
+      .then((valor) =>
+        interruptorPrendido(valor)
+          ? "prendida (respaldo): sin el permiso OAuth las notas nuevas quedan PENDIENTES para que las cree aizen1"
+          : "apagada: el CRM crea las notas directo en el Drive y aizen1 no escribe nada",
+      )
+      .catch(() => "no se pudo leer"),
     origen_de_pauta: await estadoDeLaPauta(workspaceId).catch(() => "no se pudo leer"),
     // Corre en la misma corrida diaria de pauta (4 a. m.): un Purchase a Meta por cada venta de pauta con ctwa_clid y monto.
     conversiones_meta: await seguro("conversiones_meta", () => estadoDeConversionesMeta(workspaceId)),
