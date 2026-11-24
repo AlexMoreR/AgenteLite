@@ -1,0 +1,16 @@
+# Vigilante del túnel de aizen1 para NETMAGI (ver README.md de esta carpeta).
+# Va en el servidor 13.140.235.16. NO se instala solo. Lo dispara vigilante-tunel-netmagi.timer cada 5 minutos.
+# Solo lee (nc y curl) y avisa al CRM: nunca cambia la IP, el proxy ni la red.
+[Unit]
+Description=Vigilante del túnel de aizen1 (avisa al CRM si el proxy de NETMAGI falla)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# CRM_URL, CRON_SECRET, IP_ESPERADA y, si hace falta, PROXY_HOST y PROXY_PORT.
+EnvironmentFile=/etc/vigilante-tunel-netmagi.env
+Environment=ESTADO_DIR=/var/lib/vigilante-tunel-netmagi
+StateDirectory=vigilante-tunel-netmagi
+ExecStart=/bin/sh /opt/vigilante-tunel-netmagi/vigilante.sh
+NoNewPrivileges=true
