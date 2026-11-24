@@ -410,6 +410,31 @@ await prueba("alertas: con un teléfono de Sistemas válido, el caído y la trab
   assert.ok(estado.alertas.every((a) => a.prioridad === "MEDIA"));
 });
 
+await prueba("subida que no se pudo arreglar (24-nov): ERROR con subida_revertida queda SOLO en Alertas, sin WhatsApp al dueño ni a Emanuel", async () => {
+  guardarNumero();
+  assert.deepEqual(await avisos.guardarConfigDeSistemas("ws1", { telefono: "573114445566" }), { ok: true });
+  // Con "solo urgentes" apagado: sin la marca de solo página saldría al WhatsApp.
+  estado.ajustes.set("alertas:solo-urgentes:ws1", "false");
+  estado.latido = DIA.toISOString();
+  estado.enFila = 1;
+  const resultado = { error: { motivo: "No se pudo subir tras 3 intentos.", en: "SUBIENDO", categoria: "subida_revertida", causa: "La app no arrancó: 403 al leer la base" } };
+  estado.esperando = [esperando({ id: "e7", titulo: "Reporte de ventas", estado: "ERROR", resultado })];
+  assert.deepEqual(await avisos.revisarAvisosAlDueno(DIA), { enviados: 0 });
+  assert.equal(estado.enviados.length, 0, "ningún WhatsApp");
+  assert.equal(estado.alertas.length, 1);
+  const [alerta] = estado.alertas;
+  assert.equal(alerta.clave, "auto:trabado:e7:ERROR", "la misma clave: se cierra sola cuando sale de ERROR");
+  assert.equal(alerta.titulo, '"Reporte de ventas" no se pudo subir tras 3 intentos');
+  assert.match(alerta.detalle, /Causa: La app no arrancó: 403 al leer la base/);
+  assert.match(alerta.detalle, /Decide: arreglarla a mano, cambiar la tarea o dejarla en Fallido/);
+  assert.equal(alerta.destinatarioId ?? null, null, "sin destinatario: la ve el negocio");
+  assert.equal(alerta.salioPorWhatsApp, false);
+  // Un minuto después no se reintenta (quedó anotada como avisada) y sigue sin WhatsApp.
+  assert.deepEqual(await avisos.revisarAvisosAlDueno(new Date(DIA.getTime() + 60_000)), { enviados: 0 });
+  assert.equal(estado.enviados.length, 0);
+  assert.equal(estado.alertas.length, 1);
+});
+
 await prueba("aprobada por voz con META_ADS: una alerta Alta del Coordinador por tarjeta, con el link; CHATS y LIBRO_V3 por voz no (31-oct)", async () => {
   const base = { latidoEn: DIA.toISOString(), enCurso: [], enFila: 2, esperando: [] };
   const fuera = [

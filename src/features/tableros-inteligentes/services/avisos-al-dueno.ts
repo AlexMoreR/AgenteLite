@@ -13,7 +13,7 @@ import { prisma } from "@/lib/prisma";
 import { ultimoLatido } from "./coordinador-en-vivo";
 import { tareaAprobadaPorElDueno } from "./aprobacion-automatica";
 import { porQueElPlanNuevoEsperaTuSi, porQueLaTareaEsperaTuSi } from "./reglas-riesgo";
-import { REPOS_DEL_TRABAJADOR, textoDeAprobarEnPantalla, zonasQueEsperanLaPantalla, zonasQueNoArrancanSolas } from "./reglas-trabajador";
+import { REPOS_DEL_TRABAJADOR, TOPE_INTENTOS_DE_SUBIDA, textoDeAprobarEnPantalla, zonasQueEsperanLaPantalla, zonasQueNoArrancanSolas } from "./reglas-trabajador";
 import { SQL_FUERA_POR_LA_VIA } from "./sql-trabajador";
 import { dondeTableroVivo } from "./tableros-archivados";
 import { tituloCorto } from "./resumen-corto";
@@ -72,6 +72,12 @@ import { linkDeHoy, linkDeLaTarjeta, linkDelCoordinador, pendientesDelDueno, tod
   dueño y se anota como ya avisado para no reintentarlo cada minuto. El código no se borra: se vuelve a prender con la fila
   `tablero:avisos-dueno:aprobaciones:<ws>` = "true". Lo de Emanuel, "Coordinador caído", "Se deshizo una subida" y el
   resumen de las 6 p. m. no cambian.
+
+  SUBIDA QUE NO SE PUDO ARREGLAR (24-nov-2026): una tarjeta en ERROR cuyo error trae la categoría `subida_revertida` (el
+  Coordinador ya pidió TOPE_INTENTOS_DE_SUBIDA arreglos de subida y no alcanzó) deja la alerta «"X" no se pudo subir tras 3
+  intentos» con la causa sencilla y la decisión que se necesita. Usa la misma clave `auto:trabado:<id>:ERROR` (se cierra sola
+  cuando la tarjeta sale de ERROR), queda SOLO en la página (soloPagina, sin destinatario: la ve el negocio) y no sale ningún
+  WhatsApp, ni al dueño ni a Emanuel. Tampoco se toma como "falta una clave" aunque el log diga 401 o 403.
 
   Todo se guarda en AppSetting (sin tablas nuevas). El reloj del servidor (api/cron/follows) llama a
   revisarAvisosAlDueno cada minuto. Antes de este archivo el aviso del Coordinador devolvía 412 porque nadie
@@ -374,6 +380,8 @@ export type TarjetaEsperando = {
    * que solo tocaba dinero de Gestión ya no espera y no se avisa. Sin el campo, se avisa como antes.
    */
   tareaAprobadaPorElDueno?: boolean;
+  /** La causa sencilla si la tarjeta quedó en ERROR por `subida_revertida` con el tope agotado (causaDeSubidaRevertida); si no, null. */
+  subidaRevertida?: string | null;
 };
 export type SituacionDeSistemas = {
   /** Cuándo el CRM recibió el último latido del Coordinador (null = nunca ha dado señales). */
@@ -391,7 +399,16 @@ export type SituacionDeSistemas = {
 /** Una APROBADO / PLAN_APROBADO o SUBIENDO pendiente (sin candado) con zona que pide la pantalla y aprobada por voz u otra vía (SQL_FUERA_POR_LA_VIA). */
 export type TarjetaFueraPorLaVia = { id: string; titulo: string; estado: string; zonaProtegida: string[]; via: string };
 
-export type AvisoCalculado = { clave: string; tipo: TipoDeAviso; lineas: string[]; link: string; prioridad: Prioridad; titulo: string };
+export type AvisoCalculado = {
+  clave: string;
+  tipo: TipoDeAviso;
+  lineas: string[];
+  link: string;
+  prioridad: Prioridad;
+  titulo: string;
+  /** Solo la página de alertas (24-nov-2026): no sale por WhatsApp a nadie y se anota como ya avisado. */
+  soloPagina?: true;
+};
 
 /**
  * Una duda de negocio para el dueño (30-oct-2026): el plan tiene preguntas abiertas o el agente pidió una decisión
@@ -435,6 +452,8 @@ const PIDE_CLAVE_O_ACCESO = /\b(clave|claves|token|tokens|credencial\w*|contrase
 
 /** ¿Por qué esta tarjeta necesita al dueño de verdad (dinero, Meta Ads, una clave)? Null si no. */
 export function porQueNecesitaAlDueno(tarjeta: TarjetaEsperando): string | null {
+  // La subida que no se pudo arreglar tiene su propia alerta (solo página): un 401/403 del log no la vuelve "falta una clave".
+  if (tarjeta.estado === "ERROR" && tarjeta.subidaRevertida) return null;
   if (tarjeta.estado === "ERROR" || tarjeta.estado === "FALLIDO") {
     return tarjeta.error && PIDE_CLAVE_O_ACCESO.test(tarjeta.error) ? "falta una clave, un acceso o un permiso" : null;
   }
@@ -476,6 +495,43 @@ export function avisoDeQueNecesita(tarjeta: Pick<TarjetaEsperando, "id" | "titul
     prioridad: prioridadDelAviso("necesita", motivo),
     titulo: `${entreComillas(tarjeta.titulo)} necesita tu decisión`,
   };
+}
+
+/** Lo que tiene que decidir alguien cuando una subida no se pudo arreglar sola. */
+export const DECISION_DE_SUBIDA_REVERTIDA = "Decide: arreglarla a mano, cambiar la tarea o dejarla en Fallido";
+
+/**
+ * La alerta de una tarjeta que quedó en ERROR porque su subida se deshizo TOPE_INTENTOS_DE_SUBIDA veces (24-nov-2026). Misma clave
+ * que "quedó en error" (`auto:trabado:<id>:ERROR`), solo página y sin WhatsApp.
+ */
+export function avisoDeSubidaRevertida(tarjeta: Pick<TarjetaEsperando, "id" | "titulo">, causa: string): AvisoCalculado {
+  const titulo = `${entreComillas(tarjeta.titulo)} no se pudo subir tras ${TOPE_INTENTOS_DE_SUBIDA} intentos`;
+  return {
+    clave: `auto:trabado:${tarjeta.id}:ERROR`,
+    tipo: "trabado",
+    lineas: [`⚠️ ${titulo}.`, `Causa: ${unaLinea(causa, 120)}`, `${DECISION_DE_SUBIDA_REVERTIDA}.`],
+    link: linkDeLaTarjeta(tarjeta.id),
+    prioridad: prioridadDelAviso("trabado"),
+    titulo,
+    soloPagina: true,
+  };
+}
+
+/**
+ * La causa sencilla de una tarjeta que el Coordinador mandó a ERROR con la categoría `subida_revertida` (resultado.error.categoria),
+ * o null si el error es otro. Sin causa escrita usa la 1ª línea del motivo.
+ */
+export function causaDeSubidaRevertida(resultado: unknown): string | null {
+  if (!resultado || typeof resultado !== "object" || Array.isArray(resultado)) return null;
+  const error = (resultado as { error?: unknown }).error;
+  if (!error || typeof error !== "object" || Array.isArray(error)) return null;
+  const { categoria, causa, motivo } = error as { categoria?: unknown; causa?: unknown; motivo?: unknown };
+  if (categoria !== "subida_revertida") return null;
+  for (const valor of [causa, motivo]) {
+    const linea = typeof valor === "string" ? (valor.split(/\r?\n/).find((l) => l.trim()) ?? "").trim() : "";
+    if (linea) return linea;
+  }
+  return "la subida se deshizo y el Coordinador no dijo la causa";
 }
 
 /**
@@ -523,6 +579,10 @@ export function calcularAvisos(situacionCompleta: SituacionDeSistemas, ahora: Da
 
   for (const tarjeta of situacion.esperando) {
     if (tarjeta.estado !== "ERROR" || conCausaPropia.has(tarjeta.id)) continue;
+    if (tarjeta.subidaRevertida) {
+      avisos.push(avisoDeSubidaRevertida(tarjeta, tarjeta.subidaRevertida));
+      continue;
+    }
     avisos.push({
       clave: `auto:trabado:${tarjeta.id}:${tarjeta.estado}`,
       tipo: "trabado",
@@ -665,6 +725,7 @@ export async function leerSituacion(workspaceId: string): Promise<SituacionDeSis
       error: textoDelError(p.resultado),
       esperaPor: textoDeEsperaPor(p.resultado),
       tareaAprobadaPorElDueno: tareasDelDueno.get(p.id) ?? false,
+      subidaRevertida: p.estado === "ERROR" ? causaDeSubidaRevertida(p.resultado) : null,
     })),
     fueraPorLaVia,
   };
@@ -730,9 +791,17 @@ export async function revisarNegocio(workspaceId: string, ahora: Date): Promise<
   // ALERTAS: todo queda en la página (sin tocar lo ya abierto); con "solo urgentes", por WhatsApp salen solo las urgentes.
   const soloUrgentes = await soloUrgentesPrendido(workspaceId);
   for (const aviso of porAvisar) {
-    const paraEmanuel = sistemas?.responsableId && esAvisoTecnico(aviso.tipo) ? { destinatarioId: sistemas.responsableId } : {};
+    // Lo que es solo de la página no lleva destinatario: lo ve el negocio en /cliente/alertas.
+    const paraEmanuel = !aviso.soloPagina && sistemas?.responsableId && esAvisoTecnico(aviso.tipo) ? { destinatarioId: sistemas.responsableId } : {};
     await registrarAlerta({ workspaceId, clave: aviso.clave, prioridad: aviso.prioridad, titulo: aviso.titulo, detalle: aviso.lineas.join("\n"), origen: ORIGEN_COORDINADOR, refrescar: false, ...paraEmanuel });
   }
+  // Solo página (24-nov-2026, subida que no se pudo arreglar): no sale WhatsApp a nadie; se anota como avisado para no reintentarlo.
+  for (const aviso of porAvisar) {
+    if (!aviso.soloPagina) continue;
+    estado.avisados[aviso.clave] = ahora.toISOString();
+    cambio = true;
+  }
+  porAvisar = porAvisar.filter((aviso) => !aviso.soloPagina);
   // Aprobaciones sin WhatsApp (23-nov-2026): con el interruptor apagado quedan solo en la página y se anotan como avisadas.
   if (porAvisar.some((aviso) => esAvisoDeAprobacion(aviso.tipo)) && !(await avisosDeAprobacionPrendidos(workspaceId))) {
     for (const aviso of porAvisar) {
