@@ -26,6 +26,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 
 import { agenteDelRepo, leccionesParaElPrompt, necesitoDe, textoDeIdentidad } from "./agentes.mjs";
+import { bloqueDeIncidentes, incidentesParaElPrompt } from "./bitacora.mjs";
 import { MAXIMO_DE_PARTES, MINIMO_DE_PARTES, FRASES_DE_LA_CAUSA, causaDeLaSubidaFallida, enUnaLinea, esErrorDeSesionClaude, esLimiteDeUso, recortar, sinRuido } from "./diagnostico.mjs";
 import { ensayarMigraciones, migracionesNuevas } from "./ensayo.mjs";
 import {
@@ -637,6 +638,18 @@ function leccionesDelAgente(contexto, repo) {
   }
 }
 
+/**
+ * Los incidentes ya vistos en el repo (bitacora.mjs): docs/incidentes.md de la copia `raiz` (por defecto la carpeta del repo) y
+ * los anotados en carpetaTrabajo/incidentes/<repo>.md. "" si no hay o no se pueden leer.
+ */
+function incidentesDelRepo(contexto, repo, raiz = repo?.ruta) {
+  try {
+    return incidentesParaElPrompt({ raizDelRepo: raiz, carpetaTrabajo: contexto.config.carpetaTrabajo, repo: repo.clave, config: contexto.config });
+  } catch {
+    return "";
+  }
+}
+
 /** El cierre de construir (26-oct-2026): el resumen termina con 3 líneas fijas que el Coordinador manda al CRM con la subida. */
 const INSTRUCCION_DEL_RESUMEN =
   'Termina con un RESUMEN corto en español sencillo: qué cambiaste, qué archivos y cómo lo probaste. Las ÚLTIMAS 3 líneas de tu respuesta, en este orden y con estas palabras exactas al comienzo de cada una:\nQué se hizo: <una frase>\nQué se ve ahora: <una frase: lo que cambia para el dueño o las asesoras>\nQué revisar juntos: <una frase: lo que conviene mirar con el dueño>';
@@ -654,13 +667,14 @@ const INSTRUCCION_DEPENDE_DE =
 const INSTRUCCION_YA_HECHO =
   'Si lo pedido YA está hecho en main, escribe en una línea sola, al principio de la línea: "YA_ESTA_HECHO: <commit> — <motivo en una frase>" (el commit de main donde quedó, que el Coordinador comprueba con git).';
 
-export function promptDelPlan(tarjeta, repo, motor = "claude", { lecciones = "" } = {}) {
+export function promptDelPlan(tarjeta, repo, motor = "claude", { lecciones = "", incidentes = "" } = {}) {
   return [
     `${identidadDelAgente(repo)} Eres parte del Coordinador de Sistemas de Magilus. Tienes que escribir un PLAN para esta tarea del repositorio "${repo.clave}". ${
       motor === "codex" ? "Estás en modo de solo lectura" : "Estás en modo plan"
     }: NO cambies ningún archivo, solo lee el código y planea.`,
     contextoDeLaTarjeta(tarjeta),
     bloqueDeLecciones(lecciones),
+    bloqueDeIncidentes(incidentes),
     bloqueDeReparacion(tarjeta),
     [
       "Escribe el plan en español sencillo, para el dueño del negocio (no es programador), con estas partes:",
@@ -785,13 +799,14 @@ function fraseAlTerminar(repo) {
     .join("\n");
 }
 
-export function promptDeConstruir(tarjeta, repo, rama, motor = "claude", { patchAplicado = false, lecciones = "" } = {}) {
+export function promptDeConstruir(tarjeta, repo, rama, motor = "claude", { patchAplicado = false, lecciones = "", incidentes = "" } = {}) {
   const aprobadas = tarjeta.zonasAprobadas?.length ? tarjeta.zonasAprobadas.join(", ") : "ninguna";
   return [
     `${identidadDelAgente(repo)} Implementa EXACTAMENTE el plan que aprobó el dueño, en este repositorio ("${repo.clave}"). Estás en un worktree aparte, en la rama ${rama}.`,
     contextoDeLaTarjeta(tarjeta),
     `PLAN APROBADO:\n${tarjeta.plan}`,
     bloqueDeLecciones(lecciones),
+    bloqueDeIncidentes(incidentes),
     bloqueDeReparacion(tarjeta, { patchAplicado }),
     [
       "Reglas:",
@@ -850,7 +865,7 @@ export function laSesionSubeAMain(tarjeta, repo) {
   return !Object.keys(zonasTocadas(archivosDelPlan(plan), repo.zonasProtegidas ?? {})).length;
 }
 
-export function promptDeNube(tarjeta, repo, rama, { entorno = {}, modelo = null, lecciones = "", revision = true, modeloRevisar = "sonnet", modeloRevisarSeguridad = "opus", vueltasRevision = 2, sesionFija = false, orquestador = false } = {}) {
+export function promptDeNube(tarjeta, repo, rama, { entorno = {}, modelo = null, lecciones = "", incidentes = "", revision = true, modeloRevisar = "sonnet", modeloRevisarSeguridad = "opus", vueltasRevision = 2, sesionFija = false, orquestador = false } = {}) {
   const aprobadas = tarjeta.zonasAprobadas?.length ? tarjeta.zonasAprobadas.join(", ") : "ninguna";
   const pasos = [repo.instalar, ...(repo.verificar ?? []), ...(repo.pruebas ?? [])].filter(Boolean).map((comando) => `\`${comoTexto(comando)}\``);
   const variables = Object.entries(entorno).map(([nombre, valor]) => `export ${nombre}="${valor}"`);
@@ -883,6 +898,7 @@ export function promptDeNube(tarjeta, repo, rama, { entorno = {}, modelo = null,
       : 'Subir a main y a producción lo hace el Coordinador, nunca tú: las líneas "Al terminar: …" del plan son para él. Tú solo empujas tu rama.',
     `PLAN APROBADO:\n${subeLaSesion ? String(tarjeta.plan ?? "") : planParaLaNube(tarjeta.plan)}`,
     bloqueDeLecciones(lecciones),
+    bloqueDeIncidentes(incidentes),
     bloqueDeReparacion(tarjeta),
     modelo ? `MODELO PEDIDO: ${nombreDelModelo(modelo)} (construir se hace con ese modelo; no cambies a otro).` : "",
     "LO PRIMERO: lee el archivo CLAUDE.md de la raíz del repositorio y cumple sus REGLAS DE EJECUCIÓN (son obligatorias).",
@@ -1034,7 +1050,7 @@ async function construirLaParteDeLaNube(contexto, tarjeta, { repo, rama, base, r
     const modelo = modeloDelPaso(config, "construir", tarjeta);
     registro.info(`construir en la nube: modelo ${nombreDelModelo(modelo)}`);
     const conRevision = revisionActiva(config);
-    const prompt = promptDeNube(tarjeta, repo, rama, { entorno, modelo, lecciones: leccionesDelAgente(contexto, repo), revision: conRevision, modeloRevisar: modeloDelPaso(config, "revisar", tarjeta), modeloRevisarSeguridad: modeloDelPaso(config, "revisarSeguridad", tarjeta), vueltasRevision: vueltasDeRevision(config), sesionFija: Boolean(sesionFijaDe(repo)) && contexto.sesionNueva !== true, orquestador: contexto.orquestador === true && esOrquestador(repo) });
+    const prompt = promptDeNube(tarjeta, repo, rama, { entorno, modelo, lecciones: leccionesDelAgente(contexto, repo), incidentes: incidentesDelRepo(contexto, repo, carpeta), revision: conRevision, modeloRevisar: modeloDelPaso(config, "revisar", tarjeta), modeloRevisarSeguridad: modeloDelPaso(config, "revisarSeguridad", tarjeta), vueltasRevision: vueltasDeRevision(config), sesionFija: Boolean(sesionFijaDe(repo)) && contexto.sesionNueva !== true, orquestador: contexto.orquestador === true && esOrquestador(repo) });
     // 29-oct-2026: a la sesión fija del proyecto (repos.<repo>.nube.sesionFija) si la tiene; si no, `claude --cloud` con el
     // chequeo previo. La rama ya está en GitHub (pushDeRama de arriba) antes de lanzar: la sesión fija la baja con git fetch.
     const lanzado = await lanzarSesionDeLaNube(contexto, { repo, cwd: carpeta, prompt, modelo });
@@ -1374,7 +1390,7 @@ export async function planear(contexto, tarjeta) {
     if (modelo) {
       contexto.registro?.info?.(`plan: ${dificultad.dificil ? `tarea difícil (${dificultad.motivos.join("; ")})` : "tarea sencilla"} -> ${nombreDelModelo(modelo)}`);
     }
-    const texto = await correrMotor(contexto, motor, "planear", promptDelPlan(tarjeta, repo, motor, { lecciones: leccionesDelAgente(contexto, repo) }), {
+    const texto = await correrMotor(contexto, motor, "planear", promptDelPlan(tarjeta, repo, motor, { lecciones: leccionesDelAgente(contexto, repo), incidentes: incidentesDelRepo(contexto, repo, carpeta) }), {
       cwd: carpeta,
       timeoutMs: reloj.resta(),
       que: "escribir el plan",
@@ -1495,7 +1511,7 @@ export async function construir(contexto, tarjeta) {
     let resumenDelMotor;
     if (nube) resumenDelMotor = nube.resumen;
     else try {
-      resumenDelMotor = await correrMotor(contexto, motor, "construir", promptDeConstruir(tarjeta, repo, rama, motor, { patchAplicado, lecciones: leccionesDelAgente(contexto, repo) }), {
+      resumenDelMotor = await correrMotor(contexto, motor, "construir", promptDeConstruir(tarjeta, repo, rama, motor, { patchAplicado, lecciones: leccionesDelAgente(contexto, repo), incidentes: incidentesDelRepo(contexto, repo, carpeta) }), {
         cwd: carpeta,
         timeoutMs: reloj.resta(),
         que: "construir",
@@ -1513,7 +1529,7 @@ export async function construir(contexto, tarjeta) {
       await git(carpeta, ["reset", "--hard", baseSha]);
       await git(carpeta, ["clean", "-fd"]);
       motor = "claude";
-      resumenDelMotor = await correrMotor(contexto, motor, "construir", promptDeConstruir(tarjeta, repo, rama, motor, { patchAplicado: false, lecciones: leccionesDelAgente(contexto, repo) }), {
+      resumenDelMotor = await correrMotor(contexto, motor, "construir", promptDeConstruir(tarjeta, repo, rama, motor, { patchAplicado: false, lecciones: leccionesDelAgente(contexto, repo), incidentes: incidentesDelRepo(contexto, repo, carpeta) }), {
         cwd: carpeta,
         timeoutMs: reloj.resta(),
         que: "construir",
