@@ -50,6 +50,7 @@ import {
   detalleDeLaParte,
   linkDeEntrada,
   opcionesDeTomar,
+  padreDeTarjetaDelCoordinador,
   areaPermitidaDeEntrada,
   motivoDeEntrada,
   sinMotivoDelCoordinador,
@@ -95,7 +96,14 @@ import {
   porQueUnSupuestoEsDeNegocio,
   riesgoDelPlan,
 } from "./reglas-riesgo";
-import { decisionDelCoordinador, esDeFeatures, gastoDeVerdadEnMetaAds, registroDeAprobacionFeatures } from "./reglas-features";
+import {
+  TABLERO_DE_FEATURES_ID,
+  TARJETA_AREA_FEATURES_ID,
+  decisionDelCoordinador,
+  esDeFeatures,
+  gastoDeVerdadEnMetaAds,
+  registroDeAprobacionFeatures,
+} from "./reglas-features";
 import {
   tarjetaEsDeFeatures,
   anotarAprobacionAutomatica,
@@ -109,6 +117,7 @@ import {
 import {
   SQL_ANCESTROS,
   SQL_ARRANQUE,
+  SQL_SUELTAS_DEL_COORDINADOR_A_FEATURES,
   SQL_CANDADO_DEL_NEGOCIO,
   SQL_CANDIDATAS,
   SQL_CANDIDATAS_EN_AREA,
@@ -565,6 +574,9 @@ export async function tomarTarjeta(contexto: ContextoTrabajador, pedido: PedidoD
   });
 }
 
+/** La nota del historial cuando el arranque cuelga de Features una tarjeta suelta del Coordinador. */
+const NOTA_MOVIDA_A_FEATURES = "movida dentro de Features: el Coordinador no deja tarjetas sueltas";
+
 /**
  * POST /arranque: el Coordinador acaba de arrancar; lo que el negocio tenía en PLANEANDO, EN_CURSO o SUBIENDO con
  * candado lo tenía el proceso anterior, que murió. Vuelve a la fila (sin ERROR, sin gastar el intento) con su
@@ -585,8 +597,25 @@ export async function arranqueDelTrabajador(contexto: ContextoTrabajador, ahora 
         { estado: fila.estado, nota: "el Coordinador arrancó de nuevo: vuelve a la fila, sin error" },
       );
     }
-    await tocarTableros(tx, filas.map((fila) => fila.tableroId), ahora);
-    return { ok: true, sueltas: filas.map((fila) => fila.id) };
+    // Las que creó el Coordinador y quedaron sin padre pasan a colgar de Features, sin cambiarles el estado (24-nov-2026).
+    const movidas = await tx.$queryRawUnsafe<{ id: string; estado: string }[]>(
+      SQL_SUELTAS_DEL_COORDINADOR_A_FEATURES,
+      contexto.workspaceId,
+      iso,
+      TARJETA_AREA_FEATURES_ID,
+      TABLERO_DE_FEATURES_ID,
+    );
+    for (const movida of movidas) {
+      await anotarTrabajador(
+        tx,
+        contexto,
+        movida.id,
+        { estado: movida.estado, padreId: null },
+        { estado: movida.estado, padreId: TARJETA_AREA_FEATURES_ID, nota: NOTA_MOVIDA_A_FEATURES },
+      );
+    }
+    await tocarTableros(tx, [...filas.map((fila) => fila.tableroId), ...(movidas.length ? [TABLERO_DE_FEATURES_ID] : [])], ahora);
+    return { ok: true, sueltas: filas.map((fila) => fila.id), movidasAFeatures: movidas.map((fila) => fila.id) };
   });
 }
 
@@ -1411,7 +1440,8 @@ export async function accionDelTrabajador(
  * POST /:id/partir (desde EN_CURSO): la tarjeta es muy grande y el Coordinador la divide en 2 a 4 partes.
  * Crea una hija por parte (mismo tablero, tipo, repo, área, zona protegida y riesgo; PLAN_APROBADO, con el
  * detalle de la parte como plan), unidas en orden por flechas de dependencia (parte 1 -> parte 2 -> ...).
- * Cuelgan de la madre si su tipo lo permite y, si no, del mismo padre de la madre. Heredan la aprobación
+ * Cuelgan de la madre si su tipo lo permite y, si no, del mismo padre de la madre; en el tablero de Features, si la madre no
+ * está dentro de Features, cuelgan de Features (padreDeTarjetaDelCoordinador: nunca sueltas). Heredan la aprobación
  * (con zona protegida, /tomar exige una aprobación hecha en la pantalla). La madre queda EN_CURSO sin
  * candado (nadie la toma) y se cierra sola cuando terminan todas: HECHO, o FALLIDO si alguna falló (cerrarLaMadreSiToca).
  */
@@ -1459,7 +1489,15 @@ async function partirTarjeta(
         select: { tipoId: true },
       }),
     );
-    const padreId = puedeColgarDeLaMadre ? actual.id : madre.padreId;
+    // Nunca sueltas (24-nov-2026): en el tablero de Features, si la madre no está dentro de Features, las partes cuelgan de Features.
+    const padreId = padreDeTarjetaDelCoordinador({
+      caso: "parte",
+      tableroId: actual.tableroId,
+      idDeLaOriginal: actual.id,
+      padreDeLaOriginal: madre.padreId,
+      ancestrosDeLaOriginal: (await ancestrosDe(tx, [actual.id])).get(actual.id) ?? [],
+      padreDeLaParte: puedeColgarDeLaMadre ? actual.id : madre.padreId,
+    });
     // Con zona protegida, /tomar exige la vía de la última aprobación (CONDICION_DE_LA_VIA): las partes llevan la de la madre.
     const conZona = actual.zonaProtegida.length > 0;
     const viaDeLaMadre = await viaHeredadaDe(tx, actual.id);
@@ -1649,8 +1687,16 @@ async function pedirLimpieza(contexto: ContextoTrabajador, actual: FilaParaTraba
       await tocarTableros(tx, [actual.tableroId], ahora);
       return { ok: true, creada: false, agregados: nuevos.length, tarjetaId: abierta.id, link: linkDeLaTarjeta(abierta.id) };
     }
-    const origen = await tx.tarjetaTablero.findFirst({ where: { id: actual.id }, select: { tipoId: true, area: true, creadoPor: true, orden: true } });
+    const origen = await tx.tarjetaTablero.findFirst({ where: { id: actual.id }, select: { tipoId: true, area: true, creadoPor: true, orden: true, padreId: true } });
     if (!origen) throw new ErrorDelTrabajador("La tarjeta cambió mientras tanto.", 409);
+    // Nunca suelta (24-nov-2026): en el tablero de Features cuelga de Features.
+    const padreId = padreDeTarjetaDelCoordinador({
+      caso: "limpieza",
+      tableroId: actual.tableroId,
+      idDeLaOriginal: actual.id,
+      padreDeLaOriginal: origen.padreId,
+      ancestrosDeLaOriginal: [],
+    });
     const detalle = [
       `main de ${repo} ya trae errores que no son de ninguna tarea nueva: el Coordinador los encontró al verificar «${actual.titulo}» y dejó pasar la tarea porque no los empeoró.`,
       "Arréglalos sin cambiar lo que hace el sistema (solo lint, tipos o pruebas):",
@@ -1659,7 +1705,7 @@ async function pedirLimpieza(contexto: ContextoTrabajador, actual: FilaParaTraba
       .join("\n")
       .slice(0, 20_000);
     const nueva = await tx.tarjetaTablero.create({
-      data: { tableroId: actual.tableroId, titulo, detalle, area: origen.area, estado: "APROBADO", orden: origen.orden + 1, tipoId: origen.tipoId, repo, creadoPor: origen.creadoPor },
+      data: { tableroId: actual.tableroId, titulo, detalle, area: origen.area, estado: "APROBADO", orden: origen.orden + 1, tipoId: origen.tipoId, padreId, repo, creadoPor: origen.creadoPor },
       select: { id: true },
     });
     await tx.historialTarjeta.create({
@@ -1729,10 +1775,18 @@ async function pedirCausaExterna(contexto: ContextoTrabajador, actual: FilaParaT
           await anotarTrabajador(tx, contexto, abierta.id, {}, { nota: `la misma causa frenó también a «${actual.titulo}»` });
         }
       } else {
-        const madre = await tx.tarjetaTablero.findFirst({ where: { id: actual.id }, select: { tipoId: true, area: true, creadoPor: true, orden: true } });
+        const madre = await tx.tarjetaTablero.findFirst({ where: { id: actual.id }, select: { tipoId: true, area: true, creadoPor: true, orden: true, padreId: true } });
         if (!madre) throw new ErrorDelTrabajador("La tarjeta cambió mientras tanto.", 409);
+        // Nunca suelta (24-nov-2026): en el tablero de Features cuelga de Features (antes quedaba en la vista principal: T-819).
+        const padreId = padreDeTarjetaDelCoordinador({
+          caso: "causa-externa",
+          tableroId: actual.tableroId,
+          idDeLaOriginal: actual.id,
+          padreDeLaOriginal: madre.padreId,
+          ancestrosDeLaOriginal: [],
+        });
         const nueva = await tx.tarjetaTablero.create({
-          data: { tableroId: actual.tableroId, titulo: causa.titulo, detalle: causa.detalle, area: madre.area, estado: "APROBADO", orden: madre.orden + 1, tipoId: madre.tipoId, repo, creadoPor: madre.creadoPor },
+          data: { tableroId: actual.tableroId, titulo: causa.titulo, detalle: causa.detalle, area: madre.area, estado: "APROBADO", orden: madre.orden + 1, tipoId: madre.tipoId, padreId, repo, creadoPor: madre.creadoPor },
           select: { id: true, titulo: true, estado: true },
         });
         await tx.historialTarjeta.create({
