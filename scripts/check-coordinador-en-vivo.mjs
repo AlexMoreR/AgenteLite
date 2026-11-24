@@ -645,6 +645,54 @@ await prueba("pausa por uso: la respuesta del latido devuelve el interruptor; la
   estado.ajustes.clear();
 });
 
+/* ------------------------------------------------------------------ sesión de Claude vencida (24-nov-2026) */
+
+const vencidaDesde = Date.parse("2026-11-24T05:02:00.000Z"); // 12:02 a. m. en Bogotá; el Coordinador manda milisegundos
+
+await prueba("sesión de Claude: el latido la trae validada (ms o ISO); sin ella o inválida da null y no rompe nada", () => {
+  const vencida = reglas.latidoDeEntrada({ sesionClaude: { vencida: true, desde: vencidaDesde, revisadaEn: vencidaDesde + 180_000 } }, AHORA);
+  assert.deepEqual(vencida.sesionClaude, { vencida: true, desde: "2026-11-24T05:02:00.000Z", revisadaEn: "2026-11-24T05:05:00.000Z" });
+  // Lo guardado (con ISO) se vuelve a leer igual.
+  assert.deepEqual(reglas.latidoGuardado(JSON.stringify(vencida)).sesionClaude, vencida.sesionClaude);
+  assert.equal(reglas.latidoDeEntrada({ tareas: [] }, AHORA).sesionClaude, null, "un Coordinador viejo no la manda");
+  for (const mala of [null, "vencida", 1, [true], true]) assert.equal(reglas.latidoDeEntrada({ sesionClaude: mala }, AHORA).sesionClaude, null);
+  assert.deepEqual(reglas.sesionClaudeDeEntrada({ vencida: "true", desde: vencidaDesde }), { vencida: false, desde: null, revisadaEn: null }, "solo vencida === true cuenta");
+  assert.deepEqual(reglas.sesionClaudeDeEntrada({ vencida: true, desde: 1e20, revisadaEn: "no es fecha" }), { vencida: true, desde: null, revisadaEn: null }, "fechas raras se descartan sin lanzar");
+  assert.equal(reglas.textoDeSesionClaude(null), null);
+  assert.equal(reglas.textoDeSesionClaude({ vencida: false, desde: null, revisadaEn: null }), null);
+  assert.equal(reglas.textoDeSesionClaude(vencida.sesionClaude), "En pausa: sesión de Claude vencida desde las 12:02 a. m. Para volver: en aizen1, `claude auth login`");
+  assert.equal(reglas.textoDeSesionClaude({ vencida: true, desde: null, revisadaEn: null }), "En pausa: sesión de Claude vencida. Para volver: en aizen1, `claude auth login`");
+});
+
+await prueba("sesión de Claude vencida: ver_coordinador la dice primero y manda sobre el texto del uso", async () => {
+  estado.ajustes.clear();
+  await servicio.guardarLatido(
+    contexto,
+    { pausaUso: pausaDelLatido({ pausado: true, reiniciaEn: reinicioDePausa }), sesionClaude: { vencida: true, desde: vencidaDesde, revisadaEn: vencidaDesde } },
+    AHORA,
+  );
+  const vista = await servicio.vistaDelCoordinador("ws1", AHORA);
+  assert.equal(vista.sesionClaude.vencida, true);
+  assert.equal(vista.sesionClaude.desde, "2026-11-24T05:02:00.000Z");
+  assert.match(vista.sesionClaude.texto, /^En pausa: sesión de Claude vencida desde las 12:02 a\. m\./);
+  const texto = servicio.textoDelCoordinador(vista);
+  const lineas = texto.split("\n");
+  assert.match(lineas[0], /^En pausa: sesión de Claude vencida desde las 12:02 a\. m\. Para volver: en aizen1, `claude auth login`\.$/, "va al principio");
+  assert.ok(!texto.includes("Pausado por uso de Claude"), "manda sobre el texto del uso de Claude");
+
+  // Sin sesionClaude (Coordinador viejo) o con un valor inválido: todo sigue como antes.
+  for (const cuerpo of [{ pausaUso: pausaDelLatido() }, { pausaUso: pausaDelLatido(), sesionClaude: "vencida" }, { pausaUso: pausaDelLatido(), sesionClaude: { vencida: false, desde: vencidaDesde } }]) {
+    await servicio.guardarLatido(contexto, cuerpo, AHORA);
+    const normal = await servicio.vistaDelCoordinador("ws1", AHORA);
+    assert.deepEqual(normal.sesionClaude, { vencida: false, desde: null, texto: null });
+    const textoNormal = servicio.textoDelCoordinador(normal);
+    assert.ok(!textoNormal.includes("sesión de Claude vencida"));
+    assert.match(textoNormal, /^Coordinador en línea\./);
+    assert.match(textoNormal, /Uso de Claude: sesión 42 % · semana 63 % \(la pausa se activa al 80 %\)\./);
+  }
+  estado.ajustes.clear();
+});
+
 /* ------------------------------------------------------------------ la ruta */
 
 await prueba("POST /api/trabajador/latido: sin clave o con clave mala, 401; con clave buena guarda; GET no existe", async () => {

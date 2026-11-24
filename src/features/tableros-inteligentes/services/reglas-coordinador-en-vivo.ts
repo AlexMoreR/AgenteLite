@@ -215,6 +215,19 @@ export type PausaUsoDelLatido = {
   sinLeerDesde: string | null;
 };
 
+/**
+ * La sesión de Claude en aizen1 (24-nov-2026), como la cuenta el Coordinador en su latido: si está vencida (hay que volver a
+ * entrar con `claude auth login`), desde cuándo y cuándo la revisó por última vez. Mientras está vencida el Coordinador no toma
+ * tarjetas.
+ */
+export type SesionClaudeDelLatido = {
+  vencida: boolean;
+  /** Desde cuándo está vencida (ISO); null si no lo está o no se sabe. */
+  desde: string | null;
+  /** Cuándo la revisó por última vez (ISO), si se sabe. */
+  revisadaEn: string | null;
+};
+
 export type EsperaDelLatido = { tarjetaId: string; motivo: string };
 
 export type LatidoGuardado = {
@@ -226,6 +239,8 @@ export type LatidoGuardado = {
   uso: UsoDelLatido;
   /** La pausa por uso de Claude; null si el Coordinador es uno viejo que no la manda. */
   pausaUso: PausaUsoDelLatido | null;
+  /** La sesión de Claude en aizen1; null si el Coordinador es uno viejo que no la manda o llegó dañada. */
+  sesionClaude: SesionClaudeDelLatido | null;
   /** Lo que el Coordinador dejó en fila por chocar con lo que corre (tarjeta y motivo). */
   esperas: EsperaDelLatido[];
 };
@@ -362,6 +377,27 @@ function pausaUsoDeEntrada(valor: unknown): PausaUsoDelLatido | null {
   };
 }
 
+/** Una fecha que llega como ISO o como milisegundos (el Coordinador manda `Date.now()`), de vuelta a ISO; null si no sirve. */
+function fechaIsoOMilisegundos(valor: unknown): string | null {
+  if (typeof valor === "number") {
+    // Un número fuera del rango de Date (p. ej. 1e20) daría "Invalid Date" y toISOString() lanzaría: se descarta antes.
+    const fecha = new Date(valor);
+    return valor > 0 && Number.isFinite(fecha.getTime()) ? fecha.toISOString() : null;
+  }
+  return fechaIso(valor);
+}
+
+/** La sesión de Claude del latido, o null si no viene o no es un objeto. Solo `vencida === true` la da por vencida. */
+export function sesionClaudeDeEntrada(valor: unknown): SesionClaudeDelLatido | null {
+  if (!esObjeto(valor)) return null;
+  const vencida = valor.vencida === true;
+  return {
+    vencida,
+    desde: vencida ? fechaIsoOMilisegundos(valor.desde) : null,
+    revisadaEn: fechaIsoOMilisegundos(valor.revisadaEn),
+  };
+}
+
 /**
  * El latido como queda guardado, o null si el cuerpo no es un objeto. Recorta y valida todo: hasta
  * MAXIMO_DE_TAREAS tareas, textos cortos, porcentajes de 0 a 100 y links solo de claude.ai, github.com o del CRM.
@@ -387,6 +423,7 @@ export function latidoDeEntrada(cuerpo: unknown, ahora: Date, hostPropio: string
     carga: cargaDeEntrada(cuerpo.carga),
     uso: usoDeEntrada(cuerpo.uso),
     pausaUso: pausaUsoDeEntrada(cuerpo.pausaUso),
+    sesionClaude: sesionClaudeDeEntrada(cuerpo.sesionClaude),
     esperas,
   };
 }
@@ -567,6 +604,20 @@ export function textoDelUsoDeClaude(pausa: PausaUsoDelLatido | null, ajuste: Aju
   }
   if (!porcentajes) return { estado: "sin_dato", texto: "Uso de Claude: sin lectura todavía" };
   return { estado: ajuste.activa ? "normal" : "apagado", texto: `Uso de Claude: ${porcentajes}${ajuste.activa ? "" : " (la pausa está apagada)"}` };
+}
+
+/* ───────────────────────────────────────────────────────────────── sesión de Claude vencida ── */
+
+/**
+ * "En pausa: sesión de Claude vencida desde las 12:02 a. m. Para volver: en aizen1, `claude auth login`", o null si la sesión
+ * no está vencida. Cuando sale, manda sobre el texto del uso de Claude (el Coordinador está parado por esto, no por el uso).
+ */
+export function textoDeSesionClaude(sesion: SesionClaudeDelLatido | null): string | null {
+  if (!sesion?.vencida) return null;
+  const desde = horaDeBogotaTexto(sesion.desde)?.replace(/[\u00a0\u202f]/g, " ");
+  const primera = `En pausa: sesión de Claude vencida${desde ? ` desde las ${desde}` : ""}`;
+  // "12:02 a. m." ya termina en punto: no se repite.
+  return `${primera.endsWith(".") ? primera : `${primera}.`} Para volver: en aizen1, \`claude auth login\``;
 }
 
 /* ───────────────────────────────────────────────────────────────────────────── lo de HOY ── */

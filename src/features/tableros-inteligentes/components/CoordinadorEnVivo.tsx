@@ -175,7 +175,7 @@ function ListaDeFila({ items }: { items: ItemDeFila[] }) {
 }
 
 /** "Uso de Claude" (26-oct-2026): porcentaje de la sesión y la semana, el estado y el interruptor de la pausa (solo el dueño lo mueve). */
-function UsoDeClaude({ uso }: { uso: VistaDelCoordinador["usoDeClaude"] }) {
+function UsoDeClaude({ uso, sesionVencida }: { uso: VistaDelCoordinador["usoDeClaude"]; sesionVencida: boolean }) {
   const [ocupado, empezar] = useTransition();
   const cambiar = (cambios: { activa?: boolean; umbral?: number }, bien: string) =>
     empezar(async () => {
@@ -183,7 +183,8 @@ function UsoDeClaude({ uso }: { uso: VistaDelCoordinador["usoDeClaude"] }) {
       if (resultado.ok) toast.success(bien);
       else toast.error(resultado.error);
     });
-  const resaltado = uso.estado === "pausado" || uso.estado === "sin_lectura";
+  // Con la sesión de Claude vencida, ese aviso (arriba) manda: el uso no se resalta como motivo de la pausa.
+  const resaltado = !sesionVencida && (uso.estado === "pausado" || uso.estado === "sin_lectura");
   return (
     <div className="space-y-2">
       <p className={`rounded-xl border px-3 py-2 text-sm ${resaltado ? "border-amber-500/50 bg-amber-500/10 font-medium" : "bg-card"}`}>{uso.texto}</p>
@@ -236,6 +237,12 @@ function Contenido({ vista, ahora }: { vista: VistaDelCoordinador; ahora: number
           Coordinador en línea{vista.nombre ? ` (${vista.nombre})` : ""}
         </p>
       )}
+
+      {vista.sesionClaude?.texto ? (
+        <p role="status" className="rounded-xl border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm font-medium break-words">
+          {vista.sesionClaude.texto}
+        </p>
+      ) : null}
 
       <Bloque titulo="Ahora mismo" id="cev-ahora" atenuado={apagado}>
         {vista.tareas.length ? (
@@ -325,7 +332,7 @@ function Contenido({ vista, ahora }: { vista: VistaDelCoordinador; ahora: number
       </Bloque>
 
       <Bloque titulo="Uso de Claude" id="cev-uso" atenuado={apagado}>
-        <UsoDeClaude uso={vista.usoDeClaude} />
+        <UsoDeClaude uso={vista.usoDeClaude} sesionVencida={Boolean(vista.sesionClaude?.texto)} />
         {uso.limiteAlcanzado ? <p className="rounded-xl border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm font-medium">{uso.texto}</p> : null}
       </Bloque>
     </div>
