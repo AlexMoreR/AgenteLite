@@ -14,6 +14,92 @@ import {
 
 /* CEREBRO: lo que se lee. Casi todo sale de la copia en la base (rápido); leer un documento puede ir directo al Drive. */
 
+/* ── Sincronización rápida: antes de listar o buscar, si la copia está vieja, se baja lo que cambió en el Drive ── */
+
+/** Con la copia más vieja que esto, listar o buscar primero sincroniza. */
+export const COPIA_VIEJA_MS = 2 * 60_000;
+/** Lo máximo que se espera a la sincronización; pasado esto se contesta con la copia (la sincronización sigue sola). */
+export const TOPE_SINCRONIZACION_RAPIDA_MS = 20_000;
+
+export type ResultadoRapido = {
+  /** true si esta llamada esperó una sincronización (la suya o la que ya corría). */
+  sincronizo: boolean;
+  /** Si no se pudo traer lo último del Drive: por qué, para decirlo en la respuesta. null = la copia está al día. */
+  aviso: string | null;
+};
+
+export type DependenciasRapidas = {
+  /** La carpeta elegida y cuándo se sincronizó por última vez (null si no hay cerebro). */
+  conexion(workspaceId: string): Promise<{ carpetaId: string | null; ultimaSincronizacion: Date | null } | null>;
+  sincronizar(workspaceId: string): Promise<{ ok: boolean; error?: string }>;
+  ahora(): number;
+  tope: number;
+};
+
+const avisoDeCopia = (motivo: string) => `El Drive no respondió (${motivo}); esto es la copia de la última sincronización y puede faltar lo más nuevo.`;
+
+/**
+ * Arma la sincronización rápida. Un candado en memoria por negocio: si ya corre una, las demás llamadas la esperan
+ * en vez de arrancar otra. Si el Drive falla, no se reintenta hasta que pasen COPIA_VIEJA_MS (se repite el aviso).
+ * Nunca falla: cualquier error queda en `aviso` y se sigue con la copia.
+ */
+export function crearSincronizacionRapida(deps: DependenciasRapidas) {
+  const estados = new Map<string, { enCurso: Promise<string | null> | null; intentoEn: number; aviso: string | null }>();
+
+  const esperar = async (enCurso: Promise<string | null>): Promise<ResultadoRapido> => {
+    let reloj: ReturnType<typeof setTimeout> | undefined;
+    const tope = new Promise<string>((listo) => {
+      reloj = setTimeout(() => listo(avisoDeCopia(`tardó más de ${Math.max(1, Math.ceil(deps.tope / 1000))} segundos`)), deps.tope);
+    });
+    try {
+      return { sincronizo: true, aviso: await Promise.race([enCurso, tope]) };
+    } finally {
+      clearTimeout(reloj);
+    }
+  };
+
+  return async function sincronizacionRapida(workspaceId: string): Promise<ResultadoRapido> {
+    const previo = estados.get(workspaceId);
+    if (previo?.enCurso) return esperar(previo.enCurso);
+    if (previo?.aviso && deps.ahora() - previo.intentoEn < COPIA_VIEJA_MS) return { sincronizo: false, aviso: previo.aviso };
+    try {
+      const conexion = await deps.conexion(workspaceId);
+      if (!conexion?.carpetaId) return { sincronizo: false, aviso: null };
+      const ultima = conexion.ultimaSincronizacion?.getTime() ?? 0;
+      if (deps.ahora() - ultima < COPIA_VIEJA_MS) return { sincronizo: false, aviso: null };
+    } catch (fallo) {
+      return { sincronizo: false, aviso: avisoDeCopia(fallo instanceof Error ? fallo.message : "error") };
+    }
+    // Pudo arrancar otra mientras se leía la conexión: se espera esa.
+    const otra = estados.get(workspaceId)?.enCurso;
+    if (otra) return esperar(otra);
+    const estado = { enCurso: null as Promise<string | null> | null, intentoEn: deps.ahora(), aviso: null as string | null };
+    estado.enCurso = Promise.resolve()
+      .then(() => deps.sincronizar(workspaceId))
+      .then((resultado) => (resultado.ok ? null : avisoDeCopia(resultado.error || "error")))
+      .catch((fallo: unknown) => avisoDeCopia(fallo instanceof Error ? fallo.message : "error"))
+      .then((aviso) => {
+        estado.aviso = aviso;
+        estado.enCurso = null;
+        return aviso;
+      });
+    estados.set(workspaceId, estado);
+    return esperar(estado.enCurso);
+  };
+}
+
+/** La de verdad: la copia de la base y sincronizarElCerebro (solo baja lo que cambió). */
+export const sincronizacionRapida = crearSincronizacionRapida({
+  conexion: (workspaceId) => prisma.cerebroConexion.findUnique({ where: { workspaceId }, select: { carpetaId: true, ultimaSincronizacion: true } }),
+  sincronizar: async (workspaceId) => {
+    // Se carga al usarla: sincronizar-negocio trae el Drive y el almacén, que listar y buscar no necesitan si la copia está al día.
+    const { sincronizarElCerebro } = await import("./sincronizar-negocio");
+    return sincronizarElCerebro(workspaceId);
+  },
+  ahora: () => Date.now(),
+  tope: TOPE_SINCRONIZACION_RAPIDA_MS,
+});
+
 export type FilaDelCerebro = {
   driveId: string;
   padreId: string | null;
@@ -29,6 +115,8 @@ export type FilaDelCerebro = {
 };
 
 export async function filasDelCerebro(workspaceId: string): Promise<FilaDelCerebro[]> {
+  // Si la copia está vieja, primero baja lo que cambió (tope de 20 s); si el Drive falla, sigue con la copia.
+  await sincronizacionRapida(workspaceId);
   const filas = await prisma.cerebroDocumento.findMany({
     where: { workspaceId },
     orderBy: { ruta: "asc" },
@@ -135,6 +223,7 @@ export async function leerDocumentoDelCerebro(workspaceId: string, driveId: stri
 export async function buscarEnElCerebro(workspaceId: string, consulta: string, maximo = 10): Promise<PedazoDelCerebro[]> {
   const palabras = palabrasDeLaConsulta(consulta);
   if (!palabras.length) return [];
+  await sincronizacionRapida(workspaceId);
   const candidatos = await prisma.cerebroDocumento.findMany({
     where: {
       workspaceId,
