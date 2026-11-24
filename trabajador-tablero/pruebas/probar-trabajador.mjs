@@ -695,7 +695,7 @@ function repartoFalso(config, { medidor = sinMedirAqui, leerCargaDelPc = () => (
       sesionesFalsas.set(tarjeta.id, { opciones, terminar: (resultado = { ok: true }) => resolver(resultado) });
     });
   const registroFalso = { info: (texto) => lineas.push(texto), aviso: (texto) => lineas.push(texto), error: (texto) => lineas.push(texto) };
-  const planificador = crearPlanificador({ crm, config, registro: registroFalso, medidor, motores: crearEstadoDeMotores(config), vigilante: null, colaPesada: null, procesarTarjeta, leerCargaDelPc, ahora });
+  const planificador = crearPlanificador({ crm, config, registro: registroFalso, medidor, motores: crearEstadoDeMotores(config), vigilante: null, pausaSesion: null, colaPesada: null, procesarTarjeta, leerCargaDelPc, ahora });
   const agregar = (id, repo, hacer, archivo) => lista.push({ id, titulo: id, repo, hacer, plan: hacer === "planear" ? null : planConArchivo(archivo ?? `src/features/${id}/a.ts`), zonaProtegida: [] });
   const dondeEsta = (id) => planificador.estado().tareas.find((t) => t.tarjetaId === id)?.lugar ?? null;
   return { planificador, agregar, pedidos, soltadas, lineas, avisos, sesionesFalsas, dondeEsta };
@@ -825,7 +825,7 @@ function cuposSinUsarFalso({ config = configDeCupos(), medidor = sinMedirAqui } 
       opciones.vivo.lugar = opciones.lugar;
     });
   const registroFalso = { info: (texto) => lineas.push(texto), aviso: (texto) => lineas.push(texto), error: (texto) => lineas.push(texto) };
-  const planificador = crearPlanificador({ crm, config, registro: registroFalso, medidor, motores: crearEstadoDeMotores(config), pausaUso, vigilante: null, colaPesada: null, procesarTarjeta, ahora: () => minuto * 60_000 });
+  const planificador = crearPlanificador({ crm, config, registro: registroFalso, medidor, motores: crearEstadoDeMotores(config), pausaUso, vigilante: null, pausaSesion: null, colaPesada: null, procesarTarjeta, ahora: () => minuto * 60_000 });
   const agregar = (id, repo, hacer) => lista.push({ id, titulo: id, repo, hacer, plan: hacer === "planear" ? null : planConArchivo(`src/features/${id}/a.ts`), zonaProtegida: [] });
   /** Adelanta el reloj al minuto `m` y da una vuelta. */
   const vueltaEn = async (m) => {

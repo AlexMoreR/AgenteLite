@@ -70,6 +70,19 @@ if (argumentos[0] === "--trabajo-de-la-nube") {
   process.exit(0);
 }
 
+// La SESIÓN DE CLAUDE (24-nov-2026, sesion-claude.mjs): mientras exista el archivo de CLAUDE_FALSO_SIN_SESION, `auth status`
+// dice que no hay sesión y cualquier otra llamada sale con el error de la sesión vencida. Sin el archivo, `auth status` dice que sí.
+const sinSesion = Boolean(process.env.CLAUDE_FALSO_SIN_SESION) && fs.existsSync(process.env.CLAUDE_FALSO_SIN_SESION);
+if (argumentos[0] === "auth" && argumentos[1] === "status") {
+  if (process.env.CLAUDE_FALSO_LOG) fs.appendFileSync(`${process.env.CLAUDE_FALSO_LOG}.auth`, `${JSON.stringify({ sinSesion })}\n`);
+  console.log(JSON.stringify({ loggedIn: !sinSesion }));
+  process.exit(sinSesion ? 1 : 0);
+}
+if (sinSesion) {
+  console.error("OAuth session expired and could not be refreshed");
+  process.exit(1);
+}
+
 // `claude --cloud "<descripción>"` (la terminal real, 25-oct-2026): la instrucción llega como argumento justo después
 // de --cloud y NO por stdin (en una terminal real stdin nunca se cierra).
 const trasCloud = argumentos[argumentos.indexOf("--cloud") + 1];

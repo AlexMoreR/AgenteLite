@@ -303,6 +303,7 @@ await prueba("escoger: el planificador manda en `excluir` todas las libres menos
     medidor: { medir: () => ({ cpu: 10, memoria: 20 }), parar: () => undefined },
     motores: crearEstadoDeMotores(config),
     vigilante: null,
+    pausaSesion: null,
   });
   await planificador.llenar();
   assert.equal(pedidos.length, 1);
@@ -365,6 +366,7 @@ await prueba("agentes: el planificador no toma una segunda tarjeta del mismo age
       medidor: { medir: () => ({ cpu: 10, memoria: 20 }), parar: () => undefined },
       motores: crearEstadoDeMotores(config),
       vigilante: null,
+      pausaSesion: null,
     });
     return { planificador, tomadas };
   };
@@ -451,6 +453,7 @@ function montarOrquestador({ orquestador }) {
     medidor: { medir: () => ({ cpu: 10, memoria: 20 }), parar: () => undefined },
     motores: crearEstadoDeMotores(config),
     vigilante: null,
+    pausaSesion: null,
   });
   return { planificador, tomadas, soltadas, pedidos, config, carpeta, tarjetas };
 }

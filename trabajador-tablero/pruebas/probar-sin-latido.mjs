@@ -344,6 +344,7 @@ const planificadorDe = (crm, config, reloj, extra = {}) =>
     medidor: { medir: () => ({ cpu: 10, memoria: 20 }), parar: () => undefined },
     motores: crearEstadoDeMotores(config),
     vigilante: null,
+    pausaSesion: null,
     ahora: reloj.ahora,
     ...extra,
   });

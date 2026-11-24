@@ -664,6 +664,8 @@ export function completarConfig(datos, base = process.cwd()) {
     pausaLimiteCodexMinutos,
     umbralClaude,
     pausaUso: { activa: pausaUso.activa, umbral: Number(pausaUso.umbral), cercaDesde: Number(pausaUso.cercaDesde), vigilarCercaMinutos: Number(pausaUso.vigilarCercaMinutos) },
+    // 24-nov-2026 (sesion-claude.mjs): en pausa por sesión de Claude vencida, cada cuántos minutos se vuelve a mirar `claude auth status`.
+    sesionClaude: { revisarMinutos: Number(datos.sesionClaude?.revisarMinutos) > 0 ? Number(datos.sesionClaude.revisarMinutos) : 3 },
     // Cada cuánto se mira el uso del plan de Claude (`claude -p /usage`). 0 = no se mira.
     vigilarUsoMinutos: datos.vigilarUsoMinutos === undefined ? 5 : Math.max(0, Number(datos.vigilarUsoMinutos) || 0),
     herramientasPermitidas: lista(datos.herramientasPermitidas).length ? datos.herramientasPermitidas : HERRAMIENTAS_PERMITIDAS,
