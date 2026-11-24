@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { publicarAgenteV2 } from "@/app/actions/agent-v2-actions";
 import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
 import { anotarCambioMcp } from "@/lib/mcp/cambios";
+import { cabeceraDelAgente } from "@/lib/mcp/motores-viejos";
 import { prisma } from "@/lib/prisma";
 
 /*
@@ -61,7 +62,7 @@ export const HERRAMIENTAS_MCP_DIAGRAMA = [
     name: "ver_diagrama_del_agente",
     title: "Ver el diagrama del agente",
     description:
-      "Las cajas del agente V2 y como estan conectadas: id, tipo, que dice cada una y de donde sale cada linea. Es el mapa para saber donde enganchar algo nuevo. Hay que llamarla antes de crear o conectar.",
+      "MOTOR VIEJO, hoy no atiende: para saber qué dice el bot use v3_ver_reglas. Las cajas del agente V2 y como estan conectadas: id, tipo, que dice cada una y de donde sale cada linea. Es el mapa para saber donde enganchar algo nuevo. La respuesta empieza con estado y fuente_real: si el agente todavia atiende una linea sin V3, el estado lo dice. Hay que llamarla antes de crear o conectar.",
     inputSchema: {
       type: "object",
       properties: { agente_id: { type: "string" } },
@@ -290,7 +291,14 @@ export async function ejecutarHerramientaMcpDiagrama(
     const { agente, nodos, aristas } = await agenteDelNegocio(contexto, agenteId);
     const flujos = await getCreatedFlowItems({ workspaceId: contexto.workspaceId, includeOfficialApi: false });
     const titulo = new Map(flujos.map((flujo) => [flujo.id, flujo.title]));
+    // Solo para leer si el agente se usa: la busqueda de los que escriben no cambia.
+    const conLineas = await prisma.agent.findFirst({
+      where: { id: agente.id, workspaceId: contexto.workspaceId },
+      select: { id: true, status: true, isActive: true, channels: { select: { id: true, name: true, metadata: true } } },
+    });
     return {
+      // Primero lo que importa: si este motor viejo atiende a alguien hoy y donde mirar lo que dice el bot.
+      ...cabeceraDelAgente(conLineas),
       agente: { id: agente.id, nombre: agente.name },
       cajas: nodos.map((nodo) => ({
         nodo_id: nodo.id,

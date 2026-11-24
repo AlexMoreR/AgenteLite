@@ -8,6 +8,7 @@ import {
   registrarVersionProtegido,
 } from "@/features/embudo/servicios/versiones";
 import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
+import { ESTADO_INACTIVO, FUENTE_REAL, AVISO_INACTIVO, cabeceraDelAgente } from "@/lib/mcp/motores-viejos";
 
 /*
   Herramientas que ESCRIBEN (etapa 2 del plan MCP, Alex 18-sep-2026).
@@ -41,7 +42,7 @@ export const HERRAMIENTAS_MCP_ESCRITURA = [
     name: "ver_embudo_del_producto",
     title: "Ver el embudo de un producto",
     description:
-      "Los pasos del embudo de un producto (PRESENTACION, IDENTIFICACION, PRODUCTO, OBJECIONES, CIERRE) con su objetivo, su guion, el limite para avisar al asesor y los seguimientos de cada paso. Hay que llamarla antes de editar: devuelve los ids.",
+      "MOTOR VIEJO, hoy no atiende: para saber qué dice el bot use v3_ver_reglas. Los pasos del embudo de un producto (PRESENTACION, IDENTIFICACION, PRODUCTO, OBJECIONES, CIERRE) con su objetivo, su guion, el limite para avisar al asesor y los seguimientos de cada paso. El guion, el objetivo y el pitch no se usan; de cada paso el agente V3 solo manda los seguimientos de dia 1 en adelante. Hay que llamarla antes de editar: devuelve los ids.",
     inputSchema: {
       type: "object",
       properties: { producto_id: { type: "string", description: "Id del producto (ver listar_productos)" } },
@@ -105,7 +106,7 @@ export const HERRAMIENTAS_MCP_ESCRITURA = [
     name: "ver_textos_del_agente",
     title: "Ver los textos del agente",
     description:
-      "Los textos editables del diagrama de un agente V2, caja por caja: prompt principal, bienvenida, instrucciones y mensajes de cada nodo, con el id del nodo y el nombre del campo. Hay que llamarla antes de editar_texto_del_agente.",
+      "MOTOR VIEJO, hoy no atiende: para saber qué dice el bot use v3_ver_reglas. Los textos editables del diagrama de un agente V2, caja por caja: prompt principal, bienvenida, instrucciones y mensajes de cada nodo, con el id del nodo y el nombre del campo. La respuesta empieza con estado y fuente_real: si el agente todavia atiende una linea sin V3, el estado lo dice. Hay que llamarla antes de editar_texto_del_agente.",
     inputSchema: {
       type: "object",
       properties: { agente_id: { type: "string", description: "Id del agente (ver resumen_del_negocio)" } },
@@ -341,6 +342,25 @@ async function agenteDelNegocio(contexto: Contexto, agenteId: string) {
 }
 
 /*
+  Motores viejos (24-nov-2026): el embudo por producto ya no lo usa el que atiende (el agente V3). Del
+  embudo, el V3 solo agenda los seguimientos de cada paso que esperan 1 dia o mas (los de 15 min y 1 h los
+  manda su libro): ver agendarSeguimientoDeEtapa con desdeMinutos en el webhook.
+*/
+const MINUTOS_DESDE_LOS_QUE_MANDA_EL_V3 = 24 * 60;
+const MINUTOS_POR_UNIDAD: Record<string, number> = { MINUTES: 1, HOURS: 60, DAYS: 1440 };
+const QUE_SE_USA_DEL_EMBUDO =
+  "El guion, el objetivo y el pitch (ProductPlaybook) no se usan: lo que dice el bot esta en v3_ver_reglas. De cada paso, el agente V3 solo manda los seguimientos de dia 1 en adelante (lo_manda_el_v3).";
+
+/** El estado del agente para ver_textos_del_agente: solo se lee, no cambia la busqueda de los que escriben. */
+async function cabeceraDelAgenteDelNegocio(contexto: Contexto, agenteId: string) {
+  const agente = await prisma.agent.findFirst({
+    where: { id: agenteId, workspaceId: contexto.workspaceId },
+    select: { id: true, status: true, isActive: true, channels: { select: { id: true, name: true, metadata: true } } },
+  });
+  return cabeceraDelAgente(agente);
+}
+
+/*
   Los campos de un nodo que son TEXTO editable.
 
   Se listan por nombre y no se acepta cualquier campo: el `data` de un nodo guarda tambien ids,
@@ -401,6 +421,11 @@ export async function ejecutarHerramientaMcpEscritura(
         ),
       );
       return {
+        // Primero lo que importa: este embudo no es lo que dice el bot, y donde mirarlo.
+        estado: ESTADO_INACTIVO,
+        fuente_real: FUENTE_REAL,
+        aviso_motor_viejo: AVISO_INACTIVO,
+        que_se_usa: QUE_SE_USA_DEL_EMBUDO,
         producto: { id: producto.id, nombre: producto.name },
         pasos: pasos.map((paso) => ({
           etapa_id: paso.id,
@@ -417,6 +442,9 @@ export async function ejecutarHerramientaMcpEscritura(
               ? { flujo_id: seguimiento.flowId, titulo: nombreDeFlujo.get(seguimiento.flowId) ?? "(ya no existe)" }
               : null,
             activo: seguimiento.isActive,
+            lo_manda_el_v3:
+              seguimiento.isActive &&
+              seguimiento.timeValue * (MINUTOS_POR_UNIDAD[seguimiento.timeType] ?? 0) >= MINUTOS_DESDE_LOS_QUE_MANDA_EL_V3,
           })),
         })),
         nota: pasos.length === 0 ? "Este producto todavia no tiene embudo armado." : undefined,
@@ -503,6 +531,8 @@ export async function ejecutarHerramientaMcpEscritura(
       const grafo = agente.graph as { nodes?: NodoDelGrafo[] } | null;
       const nodos = Array.isArray(grafo?.nodes) ? grafo.nodes : [];
       return {
+        // Primero lo que importa: si este motor viejo atiende a alguien hoy y donde mirar lo que dice el bot.
+        ...(await cabeceraDelAgenteDelNegocio(contexto, agente.id)),
         agente: { id: agente.id, nombre: agente.name },
         nodos: nodos.map((nodo) => ({
           nodo_id: nodo.id,

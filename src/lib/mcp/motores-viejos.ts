@@ -67,6 +67,27 @@ export function usoDeLosAgentes(lineas: LineaParaCalcular[], agentes: AgentePara
   return uso;
 }
 
+/** Lo que el MCP quiere de un agente V1/V2 para saber si se usa: su estado y sus líneas. */
+export type AgenteConLineas = AgenteParaCalcular & { channels: { id: string; name: string; metadata: unknown }[] };
+
+/**
+ * Las primeras claves de la respuesta de una herramienta que lee un agente V1/V2 (ver_agente,
+ * ver_textos_del_agente, ver_diagrama_del_agente): estado, fuente_real y, si no se usa, el aviso.
+ */
+export function cabeceraDelAgente(agente: AgenteConLineas | null) {
+  const uso = agente
+    ? usoDeLosAgentes(
+        agente.channels.map((linea) => ({ ...linea, agentId: agente.id, agent: agente })),
+        [agente],
+      ).get(agente.id)
+    : undefined;
+  return {
+    estado: estadoDelAgente(uso),
+    fuente_real: FUENTE_REAL,
+    ...(uso?.seUsa ? {} : { aviso_motor_viejo: AVISO_INACTIVO }),
+  };
+}
+
 /** El texto de `estado` que muestra el MCP para un agente V1/V2. */
 export function estadoDelAgente(uso: UsoDelAgente | undefined): string {
   if (!uso?.seUsa) return ESTADO_INACTIVO;
