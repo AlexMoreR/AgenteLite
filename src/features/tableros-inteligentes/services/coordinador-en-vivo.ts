@@ -34,6 +34,7 @@ import {
   semaforoDeLaCarga,
   textoDelUso,
   textoDelUsoDeClaude,
+  textoDeSesionClaude,
 } from "./reglas-coordinador-en-vivo";
 import {
   NOMBRE_DE_LA_ZONA,
@@ -285,6 +286,11 @@ export type VistaDelCoordinador = {
    * y el interruptor y el umbral de la pausa (lo que el CRM tiene guardado).
    */
   usoDeClaude: { texto: string; estado: EstadoDelUsoDeClaude; activa: boolean; umbral: number; sesion: PausaUsoDelLatido["sesion"]; semana: PausaUsoDelLatido["semana"] };
+  /**
+   * La sesión de Claude en aizen1 (24-nov-2026), según el último latido. `texto` ("En pausa: sesión de Claude vencida desde…")
+   * sale solo si está vencida, y entonces manda sobre el texto del uso de Claude.
+   */
+  sesionClaude: { vencida: boolean; desde: string | null; texto: string | null };
 };
 
 const ESTADOS_EN_MARCHA = ["PLANEANDO", "EN_CURSO", "SUBIENDO"] as const;
@@ -583,6 +589,11 @@ export async function vistaDelCoordinador(workspaceId: string, ahora = new Date(
     hoy,
     uso: { ...uso, texto: textoDelUso(uso, ahora) },
     usoDeClaude: { ...textoDelUsoDeClaude(latido?.pausaUso ?? null, ajuste), activa: ajuste.activa, umbral: ajuste.umbral, sesion: latido?.pausaUso?.sesion ?? null, semana: latido?.pausaUso?.semana ?? null },
+    sesionClaude: {
+      vencida: latido?.sesionClaude?.vencida === true,
+      desde: latido?.sesionClaude?.desde ?? null,
+      texto: textoDeSesionClaude(latido?.sesionClaude ?? null),
+    },
   };
 }
 
@@ -601,6 +612,9 @@ const primeraEnMinuscula = (texto: string) => texto.charAt(0).toLowerCase() + te
 export function textoDelCoordinador(vista: VistaDelCoordinador): string {
   const ahora = new Date(vista.generadoEn).getTime();
   const lineas: string[] = [];
+  // La sesión de Claude vencida va primero: es lo que tiene parado al Coordinador y lo único que el dueño tiene que hacer.
+  const sesionVencida = vista.sesionClaude?.texto ?? null;
+  if (sesionVencida) lineas.push(`${sesionVencida}.`);
   if (vista.nunca) lineas.push("Coordinador apagado o sin conexión: todavía no ha mandado ningún latido.");
   else if (!vista.enLinea) {
     lineas.push(`Coordinador apagado o sin conexión: el último latido fue ${haceTexto(ahora - Date.parse(vista.ultimoLatidoEn ?? ""))}. Lo siguiente es el último dato conocido.`);
@@ -641,7 +655,8 @@ export function textoDelCoordinador(vista: VistaDelCoordinador): string {
   for (const trabajo of hoy.trabajos.slice(0, 10)) {
     lineas.push(`- «${trabajo.titulo}»: ${trabajo.resultado === "terminada" ? "terminó" : "falló"} en ${duracionTexto(trabajo.duracionMinutos)}${trabajo.reparaciones ? ` (${trabajo.reparaciones} reparación${trabajo.reparaciones === 1 ? "" : "es"})` : ""}.`);
   }
-  lineas.push(`${vista.usoDeClaude.texto}${vista.usoDeClaude.activa ? ` (la pausa se activa al ${vista.usoDeClaude.umbral} %)` : ""}.`);
+  // Con la sesión vencida, su línea (arriba) manda: el uso de Claude no se repite como motivo de la pausa.
+  if (!sesionVencida) lineas.push(`${vista.usoDeClaude.texto}${vista.usoDeClaude.activa ? ` (la pausa se activa al ${vista.usoDeClaude.umbral} %)` : ""}.`);
   lineas.push(`Límite de uso: ${vista.uso.texto}.`);
   return lineas.join("\n");
 }
