@@ -6,13 +6,19 @@
 // - una que llega de fuera igual (entre /candidatas y /tomar) se suelta sin trabajarla; un CRM viejo sin `ancestros` no da nada;
 // - sin la clave nada cambia: el mismo cliente del CRM, toma la primera de todo el tablero;
 // - configuración: las claves se leen, se validan y vienen en config.example.json.
+// Parte 2 de «tomar todo lo de Features» (24-nov-2026), con un CRM falso por HTTP que anota cada petición:
+// - el id de Features va en /candidatas (query), en /tomar (cuerpo) y en el latido;
+// - una de fuera ya empezada (intentos > 0: PLAN_APROBADO o SUBIENDO) no se suelta; una de fuera con intentos = 0 sí se descarta;
+// - sin `areaPermitidaId` no se manda nada nuevo y todo sigue igual.
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { crmDelArea, filtroDeArea } from "../lib/area-permitida.mjs";
+import { areaPermitidaIdDe, crmDelArea, empezadaAntesDeTomar, filtroDeArea, yaEmpezada } from "../lib/area-permitida.mjs";
 import { completarConfig } from "../lib/config.mjs";
+import { crearCrm } from "../lib/crm.mjs";
+import { crearLatido } from "../lib/latido.mjs";
 
 const AQUI = path.dirname(fileURLToPath(import.meta.url));
 const FEATURES = "cmwbcu28700b732qmru2nd890";
@@ -142,6 +148,171 @@ await prueba("configuración: areaPermitidaId y tableroId se leen; sin ellas, nu
   const ejemplo = JSON.parse(fs.readFileSync(path.join(AQUI, "..", "config.example.json"), "utf8"));
   assert.equal(ejemplo.areaPermitidaId, FEATURES);
   assert.equal(ejemplo.tableroId, TABLERO);
+});
+
+// ── Parte 2: el id de Features viaja al CRM, y las de fuera ya empezadas se terminan ──
+
+/**
+ * Un CRM falso por HTTP (un `fetch` de mentira) que anota cada petición: { metodo, ruta, query, cuerpo }. Hace lo que hace el CRM:
+ * /candidatas da la fila (sin `intentos`, como SQL_CANDIDATAS); /tomar da la primera que no esté en `excluir` y le SUMA 1 a
+ * `intentos` (SQL_TOMAR_UNA); /soltar le resta 1 y la devuelve a la fila; /latido contesta ok.
+ */
+function crmPorHttp(tarjetas) {
+  const fila = tarjetas.map((tarjeta) => ({ ...tarjeta }));
+  const peticiones = [];
+  const estadoAlTomar = { APROBADO: ["PLANEANDO", "planear"], PLAN_APROBADO: ["EN_CURSO", "construir"], SUBIENDO: ["SUBIENDO", "subir"] };
+  const fetch = async (url, opciones = {}) => {
+    const direccion = new URL(url);
+    const cuerpo = opciones.body ? JSON.parse(opciones.body) : null;
+    peticiones.push({ metodo: opciones.method, ruta: direccion.pathname, query: Object.fromEntries(direccion.searchParams), cuerpo });
+    const contestar = (datos) => ({ ok: true, status: 200, json: async () => ({ ok: true, ...datos }) });
+    if (direccion.pathname.endsWith("/tablero/candidatas")) {
+      return contestar({ candidatas: fila.map(({ intentos: _intentos, ...tarjeta }) => ({ ...tarjeta, hacer: estadoAlTomar[tarjeta.estado]?.[1] ?? null })) });
+    }
+    if (direccion.pathname.endsWith("/tablero/tomar")) {
+      const indice = fila.findIndex((tarjeta) => !(cuerpo?.excluir ?? []).includes(tarjeta.id));
+      if (indice < 0) return contestar({ tarjeta: null, motivo: "nada" });
+      const [tomada] = fila.splice(indice, 1);
+      const [estado, hacer] = estadoAlTomar[tomada.estado];
+      return contestar({ tarjeta: { ...tomada, antes: tomada.estado, estado, intentos: (tomada.intentos ?? 0) + 1 }, hacer });
+    }
+    const soltar = direccion.pathname.match(/\/tablero\/([^/]+)\/soltar$/);
+    if (soltar) {
+      const original = tarjetas.find((tarjeta) => tarjeta.id === decodeURIComponent(soltar[1]));
+      if (original) fila.push({ ...original });
+      return contestar({});
+    }
+    if (direccion.pathname === "/api/trabajador/latido") return contestar({});
+    return { ok: false, status: 404, json: async () => ({ ok: false, error: "no existe" }) };
+  };
+  return { fetch, peticiones, fila };
+}
+
+const CONFIG_HTTP = { urlCrm: "https://crm.test", claveTrabajador: "aizen_trab_prueba" };
+// De fuera de Features: una aprobada que nunca se empezó, y dos ya empezadas (con plan aprobado y subiendo).
+const FUERA_SIN_EMPEZAR = { ...FUERA, intentos: 0 };
+const FUERA_CON_PLAN = { id: "t-fuera-plan", tableroId: TABLERO, titulo: "Ventas: plan aprobado", estado: "PLAN_APROBADO", repo: "aizencrm", ancestros: ["area-ventas"], intentos: 1 };
+const FUERA_SUBIENDO = { id: "t-fuera-sube", tableroId: TABLERO, titulo: "Ventas: subiendo", estado: "SUBIENDO", repo: "aizencrm", ancestros: ["area-ventas"], intentos: 2 };
+
+await prueba("parte 2: el id de Features va en /candidatas (query), en /tomar (cuerpo) y en el latido", async () => {
+  const falso = crmPorHttp([{ ...DENTRO, intentos: 0 }]);
+  const config = { ...CONFIG_HTTP, ...CON_AREA };
+  const crm = crmDelArea(crearCrm(config, { fetch: falso.fetch }), config, registroMudo());
+  await crm.candidatas();
+  const tomada = await crm.tomar({ maxParalelo: 2, excluir: [] });
+  assert.equal(tomada.tarjeta.id, "t-dentro");
+  const latido = crearLatido({
+    crm,
+    config,
+    registro: registroMudo(),
+    planificador: { estado: () => ({ tareas: [], uso: null }) },
+    medidor: null,
+    cadaSegundos: 3600,
+    leer: () => null,
+  });
+  await latido.latirYa();
+  latido.parar();
+  const candidatas = falso.peticiones.filter((p) => p.ruta === "/api/trabajador/tablero/candidatas");
+  assert.ok(candidatas.length >= 2, "candidatas desde la lista y desde tomar");
+  for (const peticion of candidatas) {
+    assert.equal(peticion.metodo, "POST", "/candidatas es POST: el CRM contesta 405 a GET");
+    assert.equal(peticion.query.areaPermitidaId, FEATURES);
+  }
+  const [tomar] = falso.peticiones.filter((p) => p.ruta === "/api/trabajador/tablero/tomar");
+  assert.equal(tomar.cuerpo.areaPermitidaId, FEATURES);
+  assert.equal(tomar.cuerpo.maxParalelo, 2);
+  const latidos = falso.peticiones.filter((p) => p.ruta === "/api/trabajador/latido");
+  assert.ok(latidos.length >= 1);
+  assert.equal(latidos.at(-1).cuerpo.areaPermitidaId, FEATURES);
+  assert.equal(areaPermitidaIdDe(config), FEATURES);
+});
+
+await prueba("parte 2: una de fuera ya empezada (PLAN_APROBADO o SUBIENDO, intentos > 0) se toma y NO se suelta", async () => {
+  const falso = crmPorHttp([FUERA_SUBIENDO, FUERA_CON_PLAN]);
+  const config = { ...CONFIG_HTTP, ...CON_AREA };
+  const registro = registroMudo();
+  const crm = crmDelArea(crearCrm(config, { fetch: falso.fetch }), config, registro);
+  // /candidatas no trae `intentos`: las dos cuentan como empezadas por su estado y no se descartan.
+  assert.deepEqual((await crm.candidatas()).candidatas.map((t) => t.id), ["t-fuera-sube", "t-fuera-plan"]);
+  const primera = await crm.tomar({ maxParalelo: 3 });
+  assert.equal(primera.tarjeta.id, "t-fuera-sube");
+  assert.equal(primera.hacer, "subir");
+  const segunda = await crm.tomar({ maxParalelo: 3 });
+  assert.equal(segunda.tarjeta.id, "t-fuera-plan");
+  assert.equal(segunda.hacer, "construir");
+  assert.equal(falso.peticiones.filter((p) => p.ruta.endsWith("/soltar")).length, 0, "ninguna se suelta");
+  assert.equal(registro.avisos.length, 0);
+  // Las de errores y por revisar de fuera, con intentos > 0, también se terminan (recoger y rescatar).
+  const crmListas = crmDelArea(crmFalso([FUERA_CON_PLAN, FUERA_SIN_EMPEZAR]), CON_AREA, registroMudo());
+  assert.deepEqual((await crmListas.errores()).tarjetas.map((t) => t.id), ["t-fuera-plan"]);
+  assert.deepEqual((await crmListas.porRevisar()).tarjetas.map((t) => t.id), ["t-fuera-plan"]);
+});
+
+await prueba("parte 2: una de fuera con intentos = 0 se descarta (y si un CRM viejo la da igual, se suelta una sola vez)", async () => {
+  const falso = crmPorHttp([FUERA_SIN_EMPEZAR, { ...DENTRO, intentos: 0 }]);
+  const config = { ...CONFIG_HTTP, ...CON_AREA };
+  const crm = crmDelArea(crearCrm(config, { fetch: falso.fetch }), config, registroMudo());
+  assert.deepEqual((await crm.candidatas()).candidatas.map((t) => t.id), ["t-dentro"]);
+  const tomada = await crm.tomar({});
+  assert.equal(tomada.tarjeta.id, "t-dentro");
+  const tomar = falso.peticiones.find((p) => p.ruta.endsWith("/tablero/tomar"));
+  assert.ok(tomar.cuerpo.excluir.includes("t-fuera"), "la de fuera sin empezar va en excluir");
+  assert.equal(falso.peticiones.filter((p) => p.ruta.endsWith("/soltar")).length, 0);
+
+  // Un CRM viejo que ignora el filtro: una de fuera con plan aprobado a mano (intentos = 0) llega de /tomar con intentos = 1.
+  const aMano = { ...FUERA_CON_PLAN, id: "t-plan-a-mano", intentos: 0 };
+  const viejo = crmPorHttp([aMano, { ...DENTRO, intentos: 0 }]);
+  const registro = registroMudo();
+  const crmViejo = crmDelArea(crearCrm(config, { fetch: viejo.fetch }), config, registro);
+  const respuesta = await crmViejo.tomar({});
+  assert.equal(respuesta.tarjeta, null);
+  assert.equal(respuesta.motivo, "fuera_del_area");
+  assert.deepEqual(viejo.peticiones.filter((p) => p.ruta.endsWith("/soltar")).map((p) => p.ruta), ["/api/trabajador/tablero/t-plan-a-mano/soltar"]);
+  // En la vuelta siguiente ya va en excluir: se toma la de dentro y no se vuelve a soltar.
+  const otra = await crmViejo.tomar({});
+  assert.equal(otra.tarjeta.id, "t-dentro");
+  assert.ok(viejo.peticiones.filter((p) => p.ruta.endsWith("/tablero/tomar")).at(-1).cuerpo.excluir.includes("t-plan-a-mano"));
+  assert.equal(viejo.peticiones.filter((p) => p.ruta.endsWith("/soltar")).length, 1);
+
+  // Las reglas sueltas.
+  assert.equal(yaEmpezada({ estado: "APROBADO", intentos: 0 }), false);
+  assert.equal(yaEmpezada({ estado: "PLAN_APROBADO", intentos: 0 }), false);
+  assert.equal(yaEmpezada({ estado: "APROBADO", intentos: 2 }), true);
+  assert.equal(yaEmpezada({ estado: "SUBIENDO" }), true);
+  assert.equal(yaEmpezada({ estado: "APROBADO" }), false);
+  assert.equal(empezadaAntesDeTomar({ tarjeta: { intentos: 1 }, hacer: "construir" }), false);
+  assert.equal(empezadaAntesDeTomar({ tarjeta: { intentos: 2 }, hacer: "planear" }), true);
+  assert.equal(empezadaAntesDeTomar({ tarjeta: {}, hacer: "subir" }), true);
+  // De otro tablero, aunque esté empezada, no.
+  assert.equal(filtroDeArea(CON_AREA).permite({ ...FUERA_SUBIENDO, tableroId: "otro-tablero" }), false);
+});
+
+await prueba("parte 2: sin areaPermitidaId no se manda nada nuevo y todo sigue igual", async () => {
+  const falso = crmPorHttp([FUERA_SIN_EMPEZAR, FUERA_CON_PLAN, { ...DENTRO, intentos: 0 }]);
+  const cliente = crearCrm(CONFIG_HTTP, { fetch: falso.fetch });
+  const crm = crmDelArea(cliente, CONFIG_HTTP, registroMudo());
+  assert.equal(crm, cliente, "sin el área, el mismo cliente del CRM");
+  assert.equal((await crm.candidatas()).candidatas.length, 3);
+  const tomada = await crm.tomar({ maxParalelo: 1 });
+  assert.equal(tomada.tarjeta.id, "t-fuera", "toma la primera de todo el tablero");
+  const latido = crearLatido({
+    crm,
+    config: CONFIG_HTTP,
+    registro: registroMudo(),
+    planificador: { estado: () => ({ tareas: [], uso: null }) },
+    medidor: null,
+    cadaSegundos: 3600,
+    leer: () => null,
+  });
+  await latido.latirYa();
+  latido.parar();
+  for (const peticion of falso.peticiones) {
+    assert.deepEqual(peticion.query, {}, `${peticion.ruta} sin query`);
+    assert.equal(peticion.cuerpo && "areaPermitidaId" in peticion.cuerpo, false, `${peticion.ruta} sin areaPermitidaId`);
+  }
+  assert.deepEqual(falso.peticiones.find((p) => p.ruta.endsWith("/tablero/tomar")).cuerpo, { maxParalelo: 1 });
+  assert.equal(areaPermitidaIdDe({}), null);
+  assert.equal(areaPermitidaIdDe({ areaPermitidaId: null }), null);
 });
 
 console.log(`\n${pruebas} pruebas del área permitida, todas bien`);

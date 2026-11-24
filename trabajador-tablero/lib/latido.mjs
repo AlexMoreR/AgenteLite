@@ -5,6 +5,7 @@
 //     trabajando igual. Nunca lanza ni frena el bucle: el error se anota una vez por cambio.
 //   - Nunca hay dos latidos en vuelo: si el anterior no volvió, se salta el turno.
 //   - Si el CRM deja de recibirlo más de 2 minutos, el panel dice "Coordinador apagado o sin conexión".
+import { areaPermitidaIdDe } from "./area-permitida.mjs";
 import { leerCarga } from "./recursos.mjs";
 
 export const CADA_SEGUNDOS_DEL_LATIDO = 15;
@@ -24,7 +25,7 @@ export function datosDelLatidoDeConstruir({ lugar, linkSesion = null, orquestado
  * El cuerpo del latido: lo que da el planificador (`estado()`) más la carga del PC. `medidor` da CPU y memoria
  * en %, `carga` (leerCarga) memoria y disco en GB. Todo lo que no se pueda leer va en null.
  */
-export function armarLatido({ estado, medidor, carga, nombre = "aizen1" }) {
+export function armarLatido({ estado, medidor, carga, nombre = "aizen1", areaPermitidaId = null }) {
   let medida = null;
   try {
     medida = medidor?.medir() ?? null;
@@ -54,6 +55,9 @@ export function armarLatido({ estado, medidor, carga, nombre = "aizen1" }) {
     corriendo: Number.isInteger(estado.corriendo) ? estado.corriendo : null,
     // 31-oct-2026 (parte 4): el ajuste automático del cupo de la nube: { estado, desde, hasta, diasQuedan, repos: { <repo>: { cupo, … } } }.
     ajusteCupos: estado.ajusteCupos ?? null,
+    // 24-nov-2026 (Solo Features): el id del Área configurada; el CRM lo guarda y lo usa en /candidatas y /tomar si no vienen con él.
+    // Sin el área en la config, la clave no va (el latido sale igual que antes).
+    ...(areaPermitidaId ? { areaPermitidaId } : {}),
   };
 }
 
@@ -69,7 +73,7 @@ export function crearLatido({ crm, config, registro, planificador, medidor, cada
     if (enVuelo) return false;
     enVuelo = true;
     try {
-      const cuerpo = armarLatido({ estado: planificador.estado(), medidor, carga: leer(config.carpetaTrabajo) });
+      const cuerpo = armarLatido({ estado: planificador.estado(), medidor, carga: leer(config.carpetaTrabajo), areaPermitidaId: areaPermitidaIdDe(config) });
       const respuesta = await crm.latidoDelCoordinador(cuerpo);
       // El CRM devuelve el interruptor y el umbral de la pausa por uso (los que se cambian en el panel).
       if (respuesta?.pausaUso) planificador.ajustarPausaUso?.(respuesta.pausaUso);
