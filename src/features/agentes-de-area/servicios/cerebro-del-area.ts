@@ -1,8 +1,8 @@
 import type { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
-import { buscarEnElCerebro, filasDelCerebro, leerDocumentoDelCerebro } from "@/features/cerebro/services/consultas";
-import type { DocumentoLeido, FilaDelCerebro } from "@/features/cerebro/services/consultas";
+import { buscarEnElCerebro, filasDelCerebro, leerDocumentoDelCerebro, sincronizacionRapida } from "@/features/cerebro/services/consultas";
+import type { DocumentoLeido, FilaDelCerebro, ResultadoRapido } from "@/features/cerebro/services/consultas";
 import { driveDelNegocio, enlaceParaConectarGoogle } from "@/features/cerebro/services/conexion";
 import type { BuscadorDeDrive, ClienteDeDrive } from "@/features/cerebro/services/drive";
 import { escribirConDependencias } from "@/features/cerebro/services/escribir";
@@ -57,6 +57,8 @@ export type DependenciasDeLectura = {
   filas(workspaceId: string): Promise<FilaDelCerebro[]>;
   leer(workspaceId: string, driveId: string, enVivo: boolean): Promise<DocumentoLeido>;
   buscar(workspaceId: string, consulta: string, maximo: number): Promise<PedazoDelCerebro[]>;
+  /** La sincronización rápida del cerebro (si la copia tiene más de 2 minutos, baja lo que cambió en el Drive). */
+  sincronizar?(workspaceId: string): Promise<ResultadoRapido>;
 };
 
 type ModoDeEntrada = "oauth" | "cuenta-servicio";
@@ -99,6 +101,9 @@ const sinDecisiones = (fila: FilaDelCerebro) => !esDocumentoDeDecisiones(fila.ru
 export async function leerCerebroDelArea(workspaceId: string, pedido: PedidoDeLectura, deps: DependenciasDeLectura = dependenciasDeLectura) {
   const { area } = pedido;
   if (!(await deps.conectado(workspaceId))) return { conectado: false, area, aviso: AVISO_NO_CONECTADO };
+  // Antes de leer, lo último del Drive; si no respondió, se contesta con la copia y se dice en `aviso_drive`.
+  const avisoDrive = (await deps.sincronizar?.(workspaceId))?.aviso;
+  const conAviso = avisoDrive ? { aviso_drive: avisoDrive } : {};
 
   const propias = (await deps.filas(workspaceId)).filter((fila) => fila.enDrive && !fila.esCarpeta && fila.legible && puedeLeerElArea(area, fila.ruta));
   const carpetas = carpetasDeLectura(area);
@@ -115,6 +120,7 @@ export async function leerCerebroDelArea(workspaceId: string, pedido: PedidoDeLe
     return {
       conectado: true,
       area,
+      ...conAviso,
       documento: {
         id: documento.driveId,
         ruta: documento.ruta,
@@ -136,6 +142,7 @@ export async function leerCerebroDelArea(workspaceId: string, pedido: PedidoDeLe
     return {
       conectado: true,
       area,
+      ...conAviso,
       busqueda,
       carpetas_que_lee: carpetas,
       resultados: pedazos.slice(0, MAXIMO_RESULTADOS_DE_BUSQUEDA).map((pedazo) => ({ id: pedazo.driveId, ruta: pedazo.ruta, fragmento: pedazo.fragmento })),
@@ -164,6 +171,7 @@ export async function leerCerebroDelArea(workspaceId: string, pedido: PedidoDeLe
   return {
     conectado: true,
     area,
+    ...conAviso,
     carpetas_que_lee: carpetas,
     decisiones,
     ...(decisiones.length ? {} : { aviso_decisiones: `No hay documentos en "Decisiones de Magilus" (o no se pueden leer todavía).` }),
@@ -296,6 +304,7 @@ const dependenciasDeLectura: DependenciasDeLectura = {
   filas: filasDelCerebro,
   leer: leerDocumentoDelCerebro,
   buscar: buscarEnElCerebro,
+  sincronizar: sincronizacionRapida,
 };
 
 /** Las mismas piezas que usa escribirEnElCerebro, pero el registro lleva el origen del agente (AGENTE_VENTAS...). */

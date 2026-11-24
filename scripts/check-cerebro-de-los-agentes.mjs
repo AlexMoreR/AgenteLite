@@ -16,7 +16,20 @@ const MD = "text/markdown";
 const GOOGLE_DOC = "application/vnd.google-apps.document";
 const CARPETA = "application/vnd.google-apps.folder";
 
-const estado = { conectado: true, supervisor: true, filas: new Map(), archivosDrive: new Map(), cambios: [], alertas: new Map(), siguiente: 1, llamadasDeDrive: [] };
+const estado = {
+  conectado: true,
+  supervisor: true,
+  filas: new Map(),
+  archivosDrive: new Map(),
+  cambios: [],
+  alertas: new Map(),
+  siguiente: 1,
+  llamadasDeDrive: [],
+  // La sincronización rápida: cuándo fue la última, cuántas veces corrió y qué hace la de mentira.
+  ultimaSincronizacion: new Date(),
+  sincronizaciones: [],
+  alSincronizar: null,
+};
 
 const coincide = (fila, cond) => {
   for (const [campo, valor] of Object.entries(cond)) {
@@ -33,7 +46,10 @@ const coincide = (fila, cond) => {
 };
 
 const prisma = {
-  cerebroConexion: { findUnique: async () => (estado.conectado ? { carpetaId: "raiz", carpetaNombre: "Magilus", tokenCifrado: "x" } : null) },
+  cerebroConexion: {
+    findUnique: async () =>
+      estado.conectado ? { carpetaId: "raiz", carpetaNombre: "Magilus", tokenCifrado: "x", ultimaSincronizacion: estado.ultimaSincronizacion, ultimoError: null } : null,
+  },
   cerebroDocumento: {
     findMany: async ({ where }) => [...estado.filas.values()].filter((f) => coincide(f, where)),
     findUnique: async ({ where }) => estado.filas.get(where.workspaceId_driveId.driveId) ?? null,
@@ -116,13 +132,29 @@ const escribir = cargar("src/features/cerebro/services/escribir.ts", {
   "./conexion": nada,
   "./permisos": nada,
 });
-const consultas = cargar("src/features/cerebro/services/consultas.ts", { "@/lib/prisma": { prisma }, "./conexion": mocks["@/features/cerebro/services/conexion"] });
+// La sincronización de mentira: cuenta las vueltas; si no hay `alSincronizar`, deja la copia al día y listo.
+const sincronizarDeMentira = async (workspaceId) => {
+  estado.sincronizaciones.push(workspaceId);
+  const resultado = estado.alSincronizar ? await estado.alSincronizar(workspaceId) : { ok: true };
+  if (resultado.ok) estado.ultimaSincronizacion = new Date();
+  return resultado;
+};
+const consultas = cargar("src/features/cerebro/services/consultas.ts", {
+  "@/lib/prisma": { prisma },
+  "./conexion": mocks["@/features/cerebro/services/conexion"],
+  "./sincronizar-negocio": { sincronizarElCerebro: sincronizarDeMentira },
+});
 mocks["@/features/cerebro/services/consultas"] = consultas;
 mocks["@/features/cerebro/services/escribir"] = escribir;
 const dominio = cargar("src/features/agentes-de-area/dominio/cerebro-del-area.ts");
 const reglas = cargar("src/features/agentes-de-area/dominio/reglas.ts");
 const servicio = cargar("src/features/agentes-de-area/servicios/cerebro-del-area.ts", mocks);
 const mcp = cargar("src/lib/mcp/agentes-de-area.ts", mocks);
+const mcpCerebro = cargar("src/lib/mcp/cerebro.ts", {
+  ...mocks,
+  "@/features/cerebro/services/conexion": { ...mocks["@/features/cerebro/services/conexion"], tieneAccesoAlDrive: () => true },
+  "@/features/cerebro/services/notas-por-crear": { notasRecientes: async () => [] },
+});
 
 let pruebas = 0;
 const fallas = [];
@@ -173,6 +205,9 @@ function sembrar() {
   estado.cambios.length = 0;
   estado.alertas.clear();
   estado.llamadasDeDrive.length = 0;
+  estado.ultimaSincronizacion = new Date();
+  estado.sincronizaciones.length = 0;
+  estado.alSincronizar = null;
   for (const c of ["Ventas", "Precios", "Equipo", "Marketing", "Tecnología", "Finanzas", "Decisiones de Magilus", "Aprendizajes de Ventas", "Aprendizajes de Marketing"]) {
     agregar(`c-${c}`, c, { tipo: CARPETA });
   }
@@ -258,6 +293,115 @@ await prueba("con el cerebro desconectado, las tres herramientas lo dicen y no e
   // Marcar un dato viejo no necesita el Drive: es una alerta del Supervisor.
   const marca = await llamar("cerebro_marcar_dato_viejo", { area: "ventas", documento: "Precios/Lista de precios.md", lo_que_dice_el_cerebro: "$1.200.000", lo_que_dice_el_sistema: "$1.350.000", fuente: "crm" });
   assert.equal(marca.marcada, true);
+});
+
+/* ── La sincronización rápida antes de leer (cerebro_del_area, cerebro_listar y cerebro_buscar) ── */
+
+const hace = (minutos) => new Date(Date.now() - minutos * 60_000);
+const conOtroNegocio = (workspaceId) => ({ workspaceId, userId: "alex" });
+
+await prueba("con la copia vieja (más de 2 min) cerebro_del_area sincroniza UNA vez y ya ve lo que se acaba de guardar", async () => {
+  sembrar();
+  estado.ultimaSincronizacion = hace(3);
+  estado.alSincronizar = async () => {
+    agregar("d-nuevo", "Ventas/Recién guardado.md", { padre: "c-Ventas", texto: "Nuevo" });
+    return { ok: true };
+  };
+  const r = await llamar("cerebro_del_area", { area: "ventas" }, conOtroNegocio("ws-vieja"));
+  assert.equal(estado.sincronizaciones.length, 1);
+  assert.ok(rutasDe(r).includes("Ventas/Recién guardado.md"), "lo recién guardado ya sale");
+  assert.equal(r.aviso_drive, undefined);
+  await llamar("cerebro_del_area", { area: "ventas", busqueda: "nuevo" }, conOtroNegocio("ws-vieja"));
+  assert.equal(estado.sincronizaciones.length, 1, "con la copia al día no se vuelve a sincronizar");
+});
+
+await prueba("con la copia de hace menos de 2 minutos no se sincroniza", async () => {
+  sembrar();
+  estado.ultimaSincronizacion = hace(1);
+  await llamar("cerebro_del_area", { area: "ventas" }, conOtroNegocio("ws-fresca"));
+  assert.equal(estado.sincronizaciones.length, 0);
+});
+
+await prueba("dos llamadas a la vez sincronizan una sola vez (candado por negocio)", async () => {
+  sembrar();
+  estado.ultimaSincronizacion = hace(5);
+  estado.alSincronizar = () => new Promise((listo) => setTimeout(() => listo({ ok: true }), 30));
+  const [a, b] = await Promise.all([
+    llamar("cerebro_del_area", { area: "ventas" }, conOtroNegocio("ws-a-la-vez")),
+    mcpCerebro.ejecutarHerramientaMcpCerebro("cerebro_listar", {}, conOtroNegocio("ws-a-la-vez")),
+  ]);
+  assert.equal(estado.sincronizaciones.length, 1);
+  assert.equal(a.conectado, true);
+  assert.equal(b.conectado, true);
+});
+
+await prueba("si el Drive falla, contesta con la copia y el aviso, y no reintenta enseguida", async () => {
+  sembrar();
+  estado.ultimaSincronizacion = hace(10);
+  estado.alSincronizar = async () => ({ ok: false, error: "Drive caído" });
+  const negocio = conOtroNegocio("ws-falla");
+  const r = await llamar("cerebro_del_area", { area: "ventas" }, negocio);
+  assert.match(r.aviso_drive, /no respondió \(Drive caído\).*copia/);
+  assert.ok(rutasDe(r).includes("Ventas/Guion de cierre.md"), "lo de la copia sale igual");
+  const lista = await mcpCerebro.ejecutarHerramientaMcpCerebro("cerebro_listar", { carpeta: "Ventas" }, negocio);
+  assert.match(lista.aviso_drive, /Drive caído/);
+  assert.ok(lista.documentos.some((d) => d.ruta === "Ventas/Guion de cierre.md"));
+  const busca = await mcpCerebro.ejecutarHerramientaMcpCerebro("cerebro_buscar", { texto: "cierre" }, negocio);
+  assert.match(busca.aviso_drive, /Drive caído/);
+  assert.equal(busca.resultados[0].ruta, "Ventas/Guion de cierre.md");
+  assert.equal(estado.sincronizaciones.length, 1, "en los 2 minutos siguientes no se vuelve a pegar al Drive");
+});
+
+await prueba("si la sincronización se tira error, también contesta con la copia (nunca revienta la lectura)", async () => {
+  sembrar();
+  estado.ultimaSincronizacion = null;
+  estado.alSincronizar = async () => {
+    throw new Error("sin red");
+  };
+  const r = await mcpCerebro.ejecutarHerramientaMcpCerebro("cerebro_listar", {}, conOtroNegocio("ws-revienta"));
+  assert.match(r.aviso_drive, /sin red/);
+  assert.ok(r.total > 0);
+});
+
+await prueba("con el Drive al día, cerebro_listar no trae aviso_drive", async () => {
+  sembrar();
+  const r = await mcpCerebro.ejecutarHerramientaMcpCerebro("cerebro_listar", {}, conOtroNegocio("ws-al-dia"));
+  assert.equal(r.aviso_drive, undefined);
+  assert.equal(estado.sincronizaciones.length, 0);
+});
+
+await prueba("pasado el tope de espera, se contesta con la copia y la sincronización sigue sola", async () => {
+  const ahora = 1_000_000_000;
+  let soltar;
+  let vueltas = 0;
+  const rapida = consultas.crearSincronizacionRapida({
+    conexion: async () => ({ carpetaId: "raiz", ultimaSincronizacion: new Date(ahora - 3 * 60_000) }),
+    sincronizar: () => {
+      vueltas += 1;
+      return new Promise((listo) => (soltar = listo));
+    },
+    ahora: () => ahora,
+    tope: 20,
+  });
+  const primera = await rapida("ws");
+  assert.equal(primera.sincronizo, true);
+  assert.match(primera.aviso, /tardó más de/);
+  const mientras = rapida("ws"); // la que sigue corriendo: se espera esa, no arranca otra
+  soltar({ ok: true });
+  assert.equal((await mientras).aviso, null);
+  assert.equal(vueltas, 1);
+  assert.equal(consultas.COPIA_VIEJA_MS, 2 * 60_000);
+  assert.equal(consultas.TOPE_SINCRONIZACION_RAPIDA_MS, 20_000);
+});
+
+await prueba("listar, buscar y el árbol usan la sincronización rápida; leer un documento sigue en vivo", () => {
+  const texto = fs.readFileSync(path.join(RAIZ, "src/features/cerebro/services/consultas.ts"), "utf8");
+  const cuerpo = (nombre) => texto.slice(texto.indexOf(`export async function ${nombre}`), texto.indexOf("\n}\n", texto.indexOf(`export async function ${nombre}`)));
+  assert.match(cuerpo("filasDelCerebro"), /await sincronizacionRapida\(workspaceId\)/);
+  assert.match(cuerpo("buscarEnElCerebro"), /await sincronizacionRapida\(workspaceId\)/);
+  assert.match(cuerpo("arbolDelCerebro"), /filasDelCerebro\(workspaceId\)/);
+  assert.ok(!/sincronizacionRapida/.test(cuerpo("leerDocumentoDelCerebro")));
+  assert.match(texto, /import\("\.\/sincronizar-negocio"\)/, "usa la sincronización que ya existe");
 });
 
 /* ── Anotar un aprendizaje ── */
