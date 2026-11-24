@@ -118,6 +118,8 @@ import { buildProductPlaybookPrompt, getProductPlaybook } from "@/lib/product-pl
 import { reconocerProductoDelLead } from "@/lib/product-auto-tag";
 import { recordContactMatch } from "@/lib/contact-matches";
 import { detectarOrigenMarketplace, registrarOrigenMarketplace } from "@/lib/origen-marketplace";
+import { detectarOrigenWeb } from "@/lib/origen-de-venta";
+import { registrarOrigenWeb } from "@/lib/origen-web";
 import { leerMonitores, leerPausadosDeReparto } from "@/lib/channel-collaborators";
 import { filtrarPorHorario } from "@/lib/horario-de-reparto";
 import { filtrarEnLinea } from "@/lib/en-linea";
@@ -1472,7 +1474,9 @@ export async function POST(request: NextRequest) {
           phoneNumber,
           // Entro por un numero administrativo: nace fuera del CRM. Se decide al CREARLO y no
           // despues porque un proveedor no tiene que aparecer ni un minuto en el embudo.
-          ...(channel.purpose === "ADMIN" ? { excludedFromCrm: true } : {}),
+          // Excepcion: si el primer mensaje viene del boton de magilus.com ("vengo de magilus.com")
+          // es un cliente de la pagina web y no se oculta (registrarOrigenWeb le pone la etiqueta).
+          ...(channel.purpose === "ADMIN" && !detectarOrigenWeb(messageText) ? { excludedFromCrm: true } : {}),
           // Si el cliente llego identificado solo con un LID, ese "numero" NO se puede marcar.
           // Se deja anotado en la ficha para que el CRM diga "sin numero para llamar" en vez de
           // mostrarle a la asesora 15 digitos que no existen.
@@ -1593,6 +1597,20 @@ export async function POST(request: NextRequest) {
       contactoRecienCreado: !existingContact,
     };
     after(() => registrarOrigenMarketplace(datosOrigen));
+  }
+
+  // Origen WEB: el cliente llego por el boton de WhatsApp de magilus.com ("vengo de magilus.com").
+  // Si es su PRIMER mensaje, se etiqueta "Web", se guarda metadata.origen y la ficha queda visible
+  // en el CRM. No cambia etapa ni asesora y no manda nada. Ver src/lib/origen-web.ts.
+  if (!fromMe && !isCallEvent && detectarOrigenWeb(messageText)) {
+    const datosOrigenWeb = {
+      workspaceId: channel.workspaceId,
+      contactId: contact.id,
+      channelId: channel.id,
+      texto: messageText,
+      contactoRecienCreado: !existingContact,
+    };
+    after(() => registrarOrigenWeb(datosOrigenWeb));
   }
 
   let existingConversation = callFallbackConversation
