@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { horaDeLista } from "../src/lib/hora-de-lista";
+import { fechaYHoraDeBogota, horaDeLista } from "../src/lib/hora-de-lista";
 
 // "Ahora" = jueves 15-oct-2026, 7:40 p. m. en Bogotá (00:40 UTC del 16).
 const ahora = new Date("2026-10-16T00:40:00Z");
@@ -24,3 +24,11 @@ for (const [nombre, fecha, prueba] of casos) {
   ok++;
 }
 console.log(`${ok} pruebas de la hora en la lista de chats: OK`);
+
+// Fecha y hora exactas de Colombia (columna "Última vez" de Equipo → Actividad).
+assert.equal(fechaYHoraDeBogota(new Date("2026-11-24T20:42:00Z")), "24 nov 2026, 3:42 p. m.");
+// A las 00:05 UTC del 25 en Bogotá todavía es el 24 por la noche.
+assert.equal(fechaYHoraDeBogota(new Date("2026-11-25T00:05:00Z")), "24 nov 2026, 7:05 p. m.");
+assert.equal(fechaYHoraDeBogota(new Date("2026-01-03T14:00:00Z")), "3 ene 2026, 9:00 a. m.");
+assert.equal(fechaYHoraDeBogota(new Date("x")), "");
+console.log("4 pruebas de la fecha y hora de Bogotá: OK");

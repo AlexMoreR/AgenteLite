@@ -33,3 +33,18 @@ export function horaDeLista(fecha: Date, ahora: Date = new Date()): string {
   }
   return limpiar(fechaCorta.format(fecha));
 }
+
+const diaMesAnio = new Intl.DateTimeFormat("es-CO", { day: "numeric", month: "short", year: "numeric", timeZone: ZONA });
+const horaCorta = new Intl.DateTimeFormat("es-CO", { hour: "numeric", minute: "2-digit", timeZone: ZONA });
+
+/**
+ * La fecha y la hora exactas en Bogotá, para cuando "hace 3 h" no alcanza: "24 nov 2026, 3:42 p. m.".
+ * Se arma por partes porque es-CO escribe "24 de nov de 2026" y en una tabla sobran los "de".
+ */
+export function fechaYHoraDeBogota(fecha: Date): string {
+  if (Number.isNaN(fecha.getTime())) return "";
+  const partesDeFecha = Object.fromEntries(diaMesAnio.formatToParts(fecha).map((p) => [p.type, p.value]));
+  const mes = (partesDeFecha.month ?? "").replace(".", "");
+  const hora = horaCorta.format(fecha).replace(/[  ]/g, " ");
+  return `${partesDeFecha.day} ${mes} ${partesDeFecha.year}, ${hora}`;
+}
