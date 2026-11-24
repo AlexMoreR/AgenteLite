@@ -73,15 +73,20 @@ function conBase(url, nombre) {
 function borrarBaseYa(urlAdmin, nombre) {
   const codigo = `
     const pg = require("pg");
-    const [url, nombre] = process.argv.slice(1);
-    const cliente = new pg.Client({ connectionString: url });
+    const nombre = process.argv[1];
+    // La URL lleva la clave: llega por el entorno, no por la línea de comandos (que se ve en ps).
+    const cliente = new pg.Client({ connectionString: process.env.URL_ADMIN_PRUEBAS });
     cliente.connect()
       .then(() => cliente.query("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()", [nombre]))
       .then(() => cliente.query('DROP DATABASE IF EXISTS "' + nombre + '"'))
       .catch((error) => { console.error("No se pudo borrar la base de pruebas " + nombre + ": " + error.message); process.exitCode = 1; })
       .finally(() => cliente.end());
   `;
-  spawnSync(process.execPath, ["-e", codigo, urlAdmin, nombre], { stdio: ["ignore", "ignore", "inherit"], timeout: 30_000 });
+  spawnSync(process.execPath, ["-e", codigo, nombre], {
+    stdio: ["ignore", "ignore", "inherit"],
+    timeout: 30_000,
+    env: { ...process.env, URL_ADMIN_PRUEBAS: urlAdmin },
+  });
 }
 
 async function abrirPostgresReal(urlAdmin) {
