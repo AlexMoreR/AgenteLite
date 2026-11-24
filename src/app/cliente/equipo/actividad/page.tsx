@@ -10,7 +10,6 @@ import { formatoDeHoras, minutosEnRango } from "@/lib/en-linea-reglas";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { leerActividadDelEquipo } from "@/lib/actividad-del-equipo";
-import { fechaYHoraDeBogota } from "@/lib/hora-de-lista";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import { prisma } from "@/lib/prisma";
 import { eventosDePersona, resumenDelEquipo, type TipoDeActividad } from "@/features/actividad/services/actividad";
@@ -178,7 +177,6 @@ export default async function ActividadDelEquipoPage({ searchParams }: PageProps
                       {latido ? (
                         <span className="flex flex-wrap items-center gap-1.5">
                           <span className="text-foreground">{haceCuanto(latido.cuando)}</span>
-                          <span className="whitespace-nowrap">· {fechaYHoraDeBogota(new Date(latido.cuando))}</span>
                           <span>· {latido.donde}</span>
                           <Badge variant="secondary" className="text-[10px]">
                             {latido.dispositivo}
