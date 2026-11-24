@@ -138,6 +138,7 @@ export function CrmWorkspace({
           FACEBOOK: 0,
           MARKETPLACE: 0,
           RECOMENDADO: 0,
+          WEB: 0,
           GENERICO: 0,
         },
       ),
@@ -193,6 +194,7 @@ export function CrmWorkspace({
                 { label: "Facebook Ads", value: String(recordsByOrigin.FACEBOOK) },
                 { label: "Marketplace", value: String(recordsByOrigin.MARKETPLACE) },
                 { label: "Recomendado", value: String(recordsByOrigin.RECOMENDADO) },
+                { label: "Página web", value: String(recordsByOrigin.WEB) },
                 { label: "Generico", value: String(recordsByOrigin.GENERICO) },
               ]}
             />

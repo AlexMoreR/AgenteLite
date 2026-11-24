@@ -56,6 +56,7 @@ function getCrmRecordsByOrigin(data: CrmData) {
       FACEBOOK: 0,
       MARKETPLACE: 0,
       RECOMENDADO: 0,
+      WEB: 0,
       GENERICO: 0,
     },
   );
@@ -129,6 +130,7 @@ export function CrmReportCards({ data }: { data: CrmData }) {
           { label: "Facebook Ads", value: recordsByOrigin.FACEBOOK },
           { label: "Marketplace", value: recordsByOrigin.MARKETPLACE },
           { label: "Recomendado", value: recordsByOrigin.RECOMENDADO },
+          { label: "Página web", value: recordsByOrigin.WEB },
           { label: "Generico", value: recordsByOrigin.GENERICO },
         ]}
       />

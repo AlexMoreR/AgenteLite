@@ -6,7 +6,7 @@ export type CrmStage =
   | "GANADO"
   | "PERDIDO";
 
-export type CrmOrigin = "FACEBOOK" | "MARKETPLACE" | "RECOMENDADO" | "GENERICO";
+export type CrmOrigin = "FACEBOOK" | "MARKETPLACE" | "RECOMENDADO" | "WEB" | "GENERICO";
 
 export type CrmTag = {
   label: string;
