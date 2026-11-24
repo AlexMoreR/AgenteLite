@@ -133,6 +133,81 @@ describe("qué burbuja se retira al llegar el mensaje real", () => {
   });
 });
 
+/*
+  Lo retomado tras recargar a mitad del envio (reanudarEnviosGuardados) y lo que quedo en el almacen
+  mientras la asesora estaba en otro chat: el panel lo cruza con los mensajes del chat abierto
+  (fotosQueYaLlegaron) y lo retira con quitarFotos, que tambien borra lo guardado en el navegador.
+*/
+describe("retomado tras recargar y vuelta de otro chat", () => {
+  function retirarLasQueLlegaron(chat: string, mensajes: Parameters<typeof fotosQueYaLlegaron>[2]) {
+    quitarFotos(fotosQueYaLlegaron(leerFotos(), chat, mensajes));
+  }
+
+  it("retomado cuyo mensaje real ya existe → se retira", () => {
+    const porDireccion = foto({
+      conversationId: "chat-a",
+      clave: "k1",
+      subida: subida("/uploads/a.jpg"),
+      estado: "enviando",
+      retomada: true,
+    });
+    const porClave = foto({
+      conversationId: "chat-a",
+      clave: "k2",
+      subida: subida("/uploads/b.jpg"),
+      estado: "enviando",
+      retomada: true,
+    });
+    agregarFotos([porDireccion, porClave]);
+    retirarLasQueLlegaron("chat-a", [
+      { mediaUrl: "/uploads/a.jpg", rawPayload: null },
+      { mediaUrl: "https://gateway/b-grande.jpg", rawPayload: { clientMessageId: "k2" } },
+    ]);
+    assert.equal(leerFoto(porDireccion.id), null);
+    assert.equal(leerFoto(porClave.id), null);
+  });
+
+  it("retomado sin subida, con la clave en el mensaje real → se retira", () => {
+    const subiendo = foto({ conversationId: "chat-a", clave: "k1", subida: null, estado: "subiendo", retomada: true });
+    agregarFotos([subiendo]);
+    retirarLasQueLlegaron("chat-a", [{ mediaUrl: "https://gateway/x.jpg", rawPayload: { clientMessageId: "k1" } }]);
+    assert.equal(leerFoto(subiendo.id), null);
+  });
+
+  it("retomado sin subida y sin la clave en el chat → sigue para enviarse", () => {
+    const subiendo = foto({ conversationId: "chat-a", clave: "k1", subida: null, estado: "subiendo", retomada: true });
+    agregarFotos([subiendo]);
+    retirarLasQueLlegaron("chat-a", [{ mediaUrl: "https://gateway/x.jpg", rawPayload: { clientMessageId: "otra" } }]);
+    assert.equal(leerFoto(subiendo.id)?.estado, "subiendo");
+  });
+
+  it("una fallida retomada cuyo mensaje real sí salió se retira y no queda en rojo", () => {
+    const fallida = foto({
+      conversationId: "chat-a",
+      clave: "k1",
+      estado: "fallida",
+      motivo: "Quedó sin enviar al cerrar la pestaña.",
+      retomada: true,
+    });
+    agregarFotos([fallida]);
+    retirarLasQueLlegaron("chat-a", [{ mediaUrl: "/uploads/a.jpg", rawPayload: { clientMessageId: "k1" } }]);
+    assert.equal(leerFoto(fallida.id), null);
+    assert.equal(leerFotos().filter((una) => una.estado === "fallida").length, 0);
+  });
+
+  it("una enviada del chat A sigue mientras está abierto B y se retira al volver a A", () => {
+    const deA = foto({ conversationId: "chat-a", clave: "k1", subida: subida("/uploads/a.jpg"), estado: "enviada" });
+    agregarFotos([deA]);
+    const mensajesDeA = [{ mediaUrl: "/uploads/a.jpg", rawPayload: { clientMessageId: "k1" } }];
+    // En B: aunque B tuviera la misma dirección o clave, no se toca la de A.
+    retirarLasQueLlegaron("chat-b", mensajesDeA);
+    assert.ok(leerFoto(deA.id));
+    // Al volver a A, con su mensaje real ya en el chat, se retira en ese primer cruce.
+    retirarLasQueLlegaron("chat-a", mensajesDeA);
+    assert.equal(leerFoto(deA.id), null);
+  });
+});
+
 describe("cada chat ve solo sus burbujas", () => {
   it("filtra por chat", () => {
     const deA = foto({ conversationId: "chat-a" });
