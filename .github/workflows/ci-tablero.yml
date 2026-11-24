@@ -78,5 +78,10 @@ jobs:
       - name: Build
         run: npm run build
 
+      # Las pruebas de SQL corren contra un Postgres real de la versión de producción (contenedor
+      # postgres:<mayor>-alpine, ver scripts/levantar-postgres-de-pruebas.mjs). Acá es obligatorio:
+      # sin Docker el paso falla en vez de caer a PGlite.
       - name: Pruebas
+        env:
+          PRUEBAS_POSTGRES_OBLIGATORIO: "1"
         run: node scripts/correr-pruebas-ci.mjs
