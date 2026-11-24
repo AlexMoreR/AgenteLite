@@ -78,5 +78,9 @@ jobs:
       - name: Build
         run: npm run build
 
+      # Con PRUEBAS_POSTGRES_OBLIGATORIO=1 las pruebas de SQL corren en un Postgres real en Docker de la misma
+      # versión mayor que producción (src/lib/postgres-produccion.json); si no se puede levantar, el paso falla.
       - name: Pruebas
+        env:
+          PRUEBAS_POSTGRES_OBLIGATORIO: "1"
         run: node scripts/correr-pruebas-ci.mjs
