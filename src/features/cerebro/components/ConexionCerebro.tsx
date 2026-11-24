@@ -124,7 +124,7 @@ export function ConexionCerebro({
         </div>
         <div className="flex w-full flex-wrap gap-2 sm:w-auto">
           {pedirPermisoOAuth ? (
-            <Button render={<a href="/api/cerebro/google/conectar" />} disabled={!oauthListo} className="h-auto min-h-8 whitespace-normal text-left">
+            <Button render={<a href="/api/cerebro/google/conectar" />} disabled={!oauthListo} className="h-auto min-h-8 max-w-full shrink whitespace-normal text-left">
               <Plug />
               Permitir que el CRM cree notas en Drive
             </Button>
