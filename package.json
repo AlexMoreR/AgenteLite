@@ -112,6 +112,7 @@
     "test:tablero-mover-y-archivar": "node scripts/check-tablero-mover-y-archivar.mjs",
     "test:tablero-resumen-diario": "node scripts/check-tablero-resumen-diario.mjs",
     "test:tablero-avisos-al-dueno": "node scripts/check-tablero-avisos-al-dueno.mjs",
+    "test:arreglo-de-subida": "node scripts/check-arreglo-de-subida.mjs",
     "test:tablero-avisos-al-equipo": "node scripts/check-tablero-avisos-al-equipo.mjs",
     "test:tablero-avisos-de-terminadas": "node scripts/check-tablero-avisos-de-terminadas.mjs",
     "test:tablero-archivadas": "node scripts/check-tablero-archivadas.mjs",

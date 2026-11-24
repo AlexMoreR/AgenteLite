@@ -638,7 +638,45 @@ export function tituloDeLimpieza(repo: string): string {
 
 /** Los tipos de causa externa (31-oct-2026) y el comienzo fijo del título de su tarjeta. "choque" no crea tarjeta: espera a la otra. */
 export const PREFIJOS_DE_CAUSA_EXTERNA = { vigilancia: "Vigilancia:", main_roto: "Main roto:", servidor: "Servidor:" } as const;
-export type TipoDeCausaExterna = keyof typeof PREFIJOS_DE_CAUSA_EXTERNA | "choque";
+/**
+ * Arreglo de subida (24-nov-2026): la subida se revirtió por un error de código o de arranque y el Coordinador pide la tarjeta que
+ * lo arregla. Va aparte de PREFIJOS_DE_CAUSA_EXTERNA: esa lista tiene que ser igual a la de trabajador-tablero/lib/diagnostico.mjs
+ * (lo exige probar-trabajador.mjs) y el Coordinador se cambia en la parte 3.
+ */
+export const PREFIJO_DE_ARREGLO_DE_SUBIDA = "Arreglo de subida:";
+export type TipoDeCausaExterna = keyof typeof PREFIJOS_DE_CAUSA_EXTERNA | "choque" | "subida";
+
+/** Cuántas subidas revertidas aguanta una tarjeta: con la tercera ya no se pide arreglo y el Coordinador escala con /error. */
+export const TOPE_INTENTOS_DE_SUBIDA = 3;
+/** La línea final del detalle de un arreglo de subida (la lee el Coordinador: sube solo a producción). */
+export const LINEA_SUBE_SOLO = "Al terminar: sube solo a producción";
+const MAXIMO_LINEAS_DEL_LOG = 4000;
+
+/** Cuántas subidas revertidas lleva la tarjeta: los intentos con categoría `subida_revertida`. */
+export function intentosDeSubida(intentos: readonly { categoria: string }[]): number {
+  return intentos.filter((intento) => intento.categoria === "subida_revertida").length;
+}
+
+/**
+ * El detalle de la tarjeta "Arreglo de subida": la causa sencilla, las líneas del log, el commit deshecho y el revert y, al final y
+ * una sola vez, "Al terminar: sube solo a producción". Máximo 20.000 letras.
+ */
+export function detalleDeArregloDeSubida(datos: { detalle: string; lineas?: string | null; reversion?: ReversionDelTrabajador | null }): string {
+  const sinLaFinal = (texto: string) =>
+    texto
+      .split("\n")
+      .filter((linea) => linea.trim().replace(/\.$/, "").toLowerCase() !== LINEA_SUBE_SOLO.toLowerCase())
+      .join("\n")
+      .trim();
+  const partes = [sinLaFinal(datos.detalle)];
+  const lineas = sinLaFinal(datos.lineas ?? "");
+  if (lineas) partes.push(`Líneas del log:\n${lineas}`);
+  if (datos.reversion && (datos.reversion.commit || datos.reversion.revert)) {
+    partes.push(`Commit deshecho: ${datos.reversion.commit ?? "?"} · Revert: ${datos.reversion.revert ?? "?"}`);
+  }
+  const cuerpo = partes.filter(Boolean).join("\n\n").slice(0, 20_000 - LINEA_SUBE_SOLO.length - 2);
+  return `${cuerpo}\n\n${LINEA_SUBE_SOLO}`;
+}
 
 /**
  * Lo que manda el Coordinador en /causa-externa, validado: { tipo, titulo, detalle, referencia } o un texto con el problema.
@@ -647,7 +685,17 @@ export type TipoDeCausaExterna = keyof typeof PREFIJOS_DE_CAUSA_EXTERNA | "choqu
  */
 export function causaExternaDeEntrada(
   cuerpo: Record<string, unknown>,
-): { tipo: TipoDeCausaExterna; titulo: string; detalle: string; referencia: string | null } | string {
+):
+  | {
+      tipo: TipoDeCausaExterna;
+      titulo: string;
+      detalle: string;
+      referencia: string | null;
+      /** Solo en "subida": el commit deshecho y el revert, y las líneas del log (opcionales). */
+      reversion?: ReversionDelTrabajador | null;
+      lineas?: string | null;
+    }
+  | string {
   const tipo = cuerpo.tipo;
   const texto = (valor: unknown, n: number) => (typeof valor === "string" ? valor.trim().slice(0, n) : "");
   if (tipo === "choque") {
@@ -655,7 +703,16 @@ export function causaExternaDeEntrada(
     if (!referencia) return "Falta la referencia: el id o el título de la tarjeta con la que choca.";
     return { tipo, titulo: referencia, detalle: texto(cuerpo.detalle, 4000), referencia };
   }
-  if (typeof tipo !== "string" || !(tipo in PREFIJOS_DE_CAUSA_EXTERNA)) return "El tipo de causa externa no existe (vigilancia, main_roto, servidor o choque).";
+  if (tipo === "subida") {
+    const titulo = typeof cuerpo.titulo === "string" ? cuerpo.titulo.replace(/\s+/g, " ").trim() : "";
+    const prefijo = PREFIJO_DE_ARREGLO_DE_SUBIDA;
+    if (!titulo.startsWith(prefijo) || titulo.length <= prefijo.length || titulo.length > 200) return `El título de la tarjeta de arreglo tiene que empezar con "${prefijo}" (máximo 200 letras).`;
+    const detalle = texto(cuerpo.detalle, 4000);
+    if (!detalle) return "Falta el detalle de la causa.";
+    const lineas = typeof cuerpo.lineas === "string" ? cuerpo.lineas.replace(/\r\n/g, "\n").trim().slice(0, MAXIMO_LINEAS_DEL_LOG) : "";
+    return { tipo, titulo, detalle, referencia: null, reversion: reversionDeEntrada(cuerpo.reversion), lineas: lineas || null };
+  }
+  if (typeof tipo !== "string" || !(tipo in PREFIJOS_DE_CAUSA_EXTERNA)) return "El tipo de causa externa no existe (vigilancia, main_roto, servidor, subida o choque).";
   const prefijo = PREFIJOS_DE_CAUSA_EXTERNA[tipo as keyof typeof PREFIJOS_DE_CAUSA_EXTERNA];
   const titulo = typeof cuerpo.titulo === "string" ? cuerpo.titulo.replace(/\s+/g, " ").trim() : "";
   if (!titulo.startsWith(prefijo) || titulo.length <= prefijo.length || titulo.length > 200) return `El título de la tarjeta de causa tiene que empezar con "${prefijo}" (máximo 200 letras).`;
@@ -1599,6 +1656,9 @@ export const CATEGORIAS_DE_INTENTO = [
   // 31-oct-2026: lo nuevo de main y la tarea no encajan aunque el rebase no tuvo conflicto de texto. Siempre escala, no se
   // repara sola (diagnostico.mjs: SIN_REPARACION_AUTOMATICA).
   "choque_de_logica",
+  // 24-nov-2026: la subida se revirtió por un error de código o de arranque. Sí cuenta como intento; con TOPE_INTENTOS_DE_SUBIDA
+  // ya no se pide arreglo (causa-externa tipo "subida") y la tarjeta queda en ERROR, en la página de Alertas, sin WhatsApp.
+  "subida_revertida",
   "otra",
 ] as const;
 export type CategoriaDeIntento = (typeof CATEGORIAS_DE_INTENTO)[number];

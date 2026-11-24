@@ -1005,4 +1005,29 @@ await prueba("aprobaciones apagadas: 'Coordinador caído' y el límite de Claude
   assert.notEqual(deshecha.motivo, "no salió: quedó en la página de alertas");
 });
 
+await prueba("subida agotada (24-nov-2026): ERROR con categoría subida_revertida deja la alerta en la página y no manda WhatsApp, ni al dueño ni a Emanuel", async () => {
+  guardarNumero();
+  assert.deepEqual(await avisos.guardarConfigDeSistemas("ws1", { telefono: "573114445566" }), { ok: true });
+  estado.ajustes.set("alertas:solo-urgentes:ws1", "false");
+  estado.esperando = [
+    esperando({ id: "sub1", titulo: "Mejorar la bandeja", estado: "ERROR", resultado: { error: { motivo: "No arrancó: 403 en el contenedor", categoria: "subida_revertida", causa: "403" } } }),
+  ];
+  await avisos.revisarAvisosAlDueno(DIA);
+  assert.equal(estado.enviados.length, 0, "no sale ningún WhatsApp");
+  const alerta = estado.alertas.find((a) => a.clave === "auto:trabado:sub1:ERROR");
+  assert.ok(alerta, "queda la alerta con la clave de siempre");
+  assert.equal(alerta.titulo, '"Mejorar la bandeja" no se pudo subir tras 3 intentos');
+  assert.match(alerta.detalle, /Causa: No arrancó: 403 en el contenedor/);
+  assert.match(alerta.detalle, /Decide: arreglarla a mano, cambiar la tarea o dejarla en Fallido/);
+  assert.ok(!estado.alertas.some((a) => a.clave.startsWith("auto:necesita:sub1")), "un 403 no se toma como 'falta una clave'");
+  // La vuelta siguiente tampoco manda nada.
+  await avisos.revisarAvisosAlDueno(new Date(DIA.getTime() + 60_000));
+  assert.equal(estado.enviados.length, 0);
+  // Sin la categoría, la ERROR de siempre sí le llega a Emanuel.
+  estado.esperando = [esperando({ id: "otra1", titulo: "Otra", estado: "ERROR", resultado: { error: { motivo: "falló una prueba" } } })];
+  await avisos.revisarAvisosAlDueno(new Date(DIA.getTime() + 120_000));
+  assert.equal(estado.enviados.length, 1);
+  assert.equal(estado.enviados[0].phoneNumber, "573114445566");
+});
+
 console.log(`\n${pruebas} pruebas, todas bien`);
