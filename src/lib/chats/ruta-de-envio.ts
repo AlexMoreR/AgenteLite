@@ -8,7 +8,8 @@
   (monitoreo, firma, anti-bloqueo, repetidos de la nota de voz). Aca no se valida ni se convierte nada.
 
   Este archivo es puro (sin Next ni Prisma) para probarlo con Node: scripts/check-rutas-de-envio.mjs y
-  scripts/check-contrato-envios.mjs (con src/lib/chats/contrato-envios.congelados.json).
+  scripts/check-contrato-envios.mjs (con src/lib/chats/contrato-envios.congelados.json). Solo importa
+  resumen-de-error.ts, que tampoco usa la base; las pruebas lo cargan con scripts/supervisor-cargar.mjs.
 
   CONTRATO (las pestañas abiertas mandan el formato con el que se cargaron, de cualquier version):
   - Solo se AGREGAN campos OPCIONALES.
@@ -17,6 +18,8 @@
   - Si cambia la accion de abajo, su zod tiene que seguir aceptando los payloads congelados.
   Una ruta, una vez subida, no se borra.
 */
+
+import { esPasajera, resumenDeError } from "@/lib/resumen-de-error";
 
 export const RUTAS_DE_ENVIO = {
   // clientMessageId: agregado despues, opcional (un reintento con el mismo numero no sale dos veces).
@@ -118,11 +121,23 @@ export async function procesarPedido(pedido: {
       return { status: 403, cuerpo: { error: ERROR_NO_AUTORIZADO } };
     }
     // Lanzo en medio del envio: no se sabe si salio. La pantalla lo trata como cuando lanzaba la accion.
-    const registrar = pedido.alLanzar ?? ((mensaje: string, detalle: Record<string, unknown>) => console.error(mensaje, detalle));
-    registrar(`[chats/${pedido.nombre}] el envio lanzo un error`, {
-      conversationId: typeof entrada.conversationId === "string" ? entrada.conversationId.slice(0, 200) : null,
-      error: error instanceof Error ? error.message : String(error),
-    });
+    // El registro va en UNA linea (resumen-de-error.ts): el mensaje de Prisma trae saltos de linea y
+    // salia como `error: '\n' +`, que la vigilancia de 30 minutos contaba como falla nueva. Un corte
+    // pasajero de la base o de la red va como informativo y sin la palabra error.
+    const pasajera = esPasajera(error);
+    const { causa, codigo, texto } = resumenDeError(error);
+    const conversationId = typeof entrada.conversationId === "string" ? entrada.conversationId.slice(0, 200) : null;
+    const mensaje = pasajera
+      ? `[chats/${pedido.nombre}] el envio no salio (corte pasajero)`
+      : `[chats/${pedido.nombre}] el envio lanzo un error`;
+    const detalle: Record<string, unknown> = pasajera ? { conversationId, causa, codigo } : { conversationId, causa, codigo, error: texto };
+    const registrar =
+      pedido.alLanzar ??
+      ((linea: string, datos: Record<string, unknown>) => {
+        if (pasajera) console.info(`${linea} ${JSON.stringify(datos)}`);
+        else console.error(`${linea} ${JSON.stringify(datos)}`);
+      });
+    registrar(mensaje, detalle);
     return { status: 500, cuerpo: { error: ERROR_LANZO, lanzo: true } };
   }
 }

@@ -1,10 +1,11 @@
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, type Prisma } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Pool } from "pg";
 import { invalidarTrasEscritura } from "@/lib/cache-de-permisos";
 import { contarConsulta, registrarPoolParaMedir } from "@/lib/medicion-de-pedido";
 import { conDesarchivadoAlReabrir } from "@/features/tableros-inteligentes/services/archivar-al-terminar";
 import { operacionQueEscribeMensaje, sinArchivosEnMensaje } from "@/lib/mensaje-sin-archivos";
+import { lineaDeEventoDePrisma } from "@/lib/resumen-de-error";
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 const connectionString = process.env.DATABASE_URL;
@@ -159,13 +160,43 @@ function withTransientRetry(client: PrismaClient) {
   }) as unknown as PrismaClient;
 }
 
+/*
+  Los errores y avisos de Prisma, en UNA linea `[prisma] {json}` cada uno (24-nov-2026).
+
+  Con `log: ["error", "warn"]` Prisma imprimia `prisma:error` y el mensaje entero (varias lineas) de
+  CADA consulta que fallaba, aunque el codigo la atrapara y la reintentara con withTransientRetry. La
+  vigilancia de 30 minutos contaba esas lineas como falla nueva y deshizo subidas sanas. Ahora Prisma
+  los entrega como eventos y aca se anotan resumidos (resumen-de-error.ts): un corte pasajero de la
+  base va con console.info y sin la palabra error; lo demas, con console.error (o console.warn) y su
+  codigo y texto corto.
+
+  Se escuchan sobre el cliente BASE, antes de $extends: el cliente extendido no tiene $on.
+*/
+function anotarEventosDePrisma(client: PrismaClient<Prisma.PrismaClientOptions, "error" | "warn">) {
+  const anotar = (nivelDelEvento: "error" | "warn", evento: unknown) => {
+    try {
+      const { linea, nivel } = lineaDeEventoDePrisma(nivelDelEvento, evento);
+      if (nivel === "error") console.error(linea);
+      else if (nivel === "warn") console.warn(linea);
+      else console.info(linea);
+    } catch {
+      // Anotar nunca rompe una consulta.
+    }
+  };
+  client.$on("error", (evento) => anotar("error", evento));
+  client.$on("warn", (evento) => anotar("warn", evento));
+}
+
 function createPrismaClient() {
-  return withTransientRetry(
-    new PrismaClient({
-      adapter: new PrismaPg(createPool()),
-      log: ["error", "warn"],
-    }),
-  );
+  const client = new PrismaClient({
+    adapter: new PrismaPg(createPool()),
+    log: [
+      { emit: "event", level: "error" },
+      { emit: "event", level: "warn" },
+    ],
+  });
+  anotarEventosDePrisma(client);
+  return withTransientRetry(client as unknown as PrismaClient);
 }
 
 function resolvePrismaClient() {
