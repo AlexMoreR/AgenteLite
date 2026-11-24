@@ -10,6 +10,7 @@
 //                     [nada] no cambia nada; si no, escribe cambio-<algo>.txt.
 //   la revisión ("Eres el REVISOR"): no cambia nada. El choque con main ("Eres el RESOLVEDOR DE CHOQUES"): ver más abajo. `-p /usage`: el uso del plan (CLAUDE_FALSO_USO).
 // Anota cada llamada (argumentos y carpeta) en el archivo de CLAUDE_FALSO_LOG.
+//   `auth status`: {"loggedIn":true}; con el archivo de CLAUDE_FALSO_SIN_SESION, {"loggedIn":false} y todo lo demás falla.
 //   la NUBE (`-p --cloud`, 25-oct-2026): contesta con el link de la sesión y un proceso aparte (la "máquina de la
 //                     nube") trabaja en la rama: tras NUBE_FALSA_DEMORA_MS (2500) hace un commit con un archivo y deja el
 //                     commit vacío "resultado: build=OK tests=OK segundos=42". [nube-fallo] deja FALLO con 35 líneas de
@@ -68,6 +69,19 @@ if (argumentos[0] === "--trabajo-de-la-nube") {
     // Windows a veces tiene un archivo abierto.
   }
   process.exit(0);
+}
+
+// La SESIÓN VENCIDA (24-nov-2026, sesion-claude.mjs): mientras exista el archivo de CLAUDE_FALSO_SIN_SESION,
+// `auth status` contesta {"loggedIn":false} y cualquier otra llamada sale con código 1 y el error de OAuth. Sin el archivo,
+// `auth status` contesta {"loggedIn":true}. Va antes de leer stdin y del log (no cuenta como "la última llamada").
+const sinSesion = Boolean(process.env.CLAUDE_FALSO_SIN_SESION) && fs.existsSync(process.env.CLAUDE_FALSO_SIN_SESION);
+if (argumentos[0] === "auth" && argumentos[1] === "status") {
+  console.log(JSON.stringify({ loggedIn: !sinSesion, authMethod: sinSesion ? "none" : "claude.ai" }, null, 2));
+  process.exit(sinSesion ? 1 : 0);
+}
+if (sinSesion) {
+  console.error("OAuth session expired and could not be refreshed. Please run /login.");
+  process.exit(1);
 }
 
 // `claude --cloud "<descripción>"` (la terminal real, 25-oct-2026): la instrucción llega como argumento justo después
