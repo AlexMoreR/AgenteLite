@@ -1693,6 +1693,26 @@ async function pedirLimpieza(contexto: ContextoTrabajador, actual: FilaParaTraba
 }
 
 /**
+ * El historial de una tarjeta de causa recién creada (31-oct-2026; también el arreglo de subida, 24-nov-2026): "crear" y la
+ * aprobación heredada de `actual` (la tarjeta que frenó), con la vía de su última aprobación.
+ */
+async function anotarCausaCreada(tx: Tx, contexto: ContextoTrabajador, actual: { id: string }, tarjetaId: string, despuesDeCrear: Record<string, unknown>) {
+  await tx.historialTarjeta.create({
+    data: { tarjetaId, quien: quienEs(contexto), origen: "TRABAJADOR", accion: "crear", despues: despuesDeCrear as Prisma.InputJsonValue },
+  });
+  await tx.historialTarjeta.create({
+    data: {
+      tarjetaId,
+      quien: quienEs(contexto),
+      origen: "TRABAJADOR",
+      accion: "aprobar",
+      antes: { estado: "APROBADO" } as Prisma.InputJsonValue,
+      despues: { estado: "APROBADO", momento: "tarea", como: "heredada", heredadaDe: actual.id, ...(await viaHeredadaDe(tx, actual.id)) } as Prisma.InputJsonValue,
+    },
+  });
+}
+
+/**
  * POST /:id/causa-externa (31-oct-2026): la falla no es de la tarea (la vigilancia revirtió la subida, main ya trae lint o pruebas
  * rotas, choca con otra tarjeta, el servidor / SSH / base no responde). En una transacción:
  *  1. Busca una tarjeta abierta (ni HECHO ni FALLIDO) con ese título exacto en el mismo tablero y la reusa (le agrega el detalle nuevo):
@@ -1742,25 +1762,7 @@ async function pedirCausaExterna(contexto: ContextoTrabajador, actual: FilaParaT
           data: { tableroId: actual.tableroId, titulo: causa.titulo, detalle: causa.detalle, area: madre.area, estado: "APROBADO", orden: madre.orden + 1, tipoId: madre.tipoId, repo, creadoPor: madre.creadoPor },
           select: { id: true, titulo: true, estado: true },
         });
-        await tx.historialTarjeta.create({
-          data: {
-            tarjetaId: nueva.id,
-            quien: quienEs(contexto),
-            origen: "TRABAJADOR",
-            accion: "crear",
-            despues: { titulo: causa.titulo, estado: "APROBADO", nota: `causa externa que frenó a «${actual.titulo}»` } as Prisma.InputJsonValue,
-          },
-        });
-        await tx.historialTarjeta.create({
-          data: {
-            tarjetaId: nueva.id,
-            quien: quienEs(contexto),
-            origen: "TRABAJADOR",
-            accion: "aprobar",
-            antes: { estado: "APROBADO" } as Prisma.InputJsonValue,
-            despues: { estado: "APROBADO", momento: "tarea", como: "heredada", heredadaDe: actual.id, ...(await viaHeredadaDe(tx, actual.id)) } as Prisma.InputJsonValue,
-          },
-        });
+        await anotarCausaCreada(tx, contexto, actual, nueva.id, { titulo: causa.titulo, estado: "APROBADO", nota: `causa externa que frenó a «${actual.titulo}»` });
         origen = nueva;
         creada = true;
       }
@@ -1877,29 +1879,11 @@ async function pedirArregloDeSubida(
         },
         select: { id: true, titulo: true, estado: true },
       });
-      await tx.historialTarjeta.create({
-        data: {
-          tarjetaId: arreglo.id,
-          quien: quienEs(contexto),
-          origen: "TRABAJADOR",
-          accion: "crear",
-          despues: {
-            titulo: causa.titulo,
-            estado: "APROBADO",
-            ...(enFeatures ? { padreId: TARJETA_AREA_FEATURES_ID } : {}),
-            nota: `arreglo de la subida deshecha de «${actual.titulo}» (${intentos} de ${TOPE_INTENTOS_DE_SUBIDA})`,
-          } as Prisma.InputJsonValue,
-        },
-      });
-      await tx.historialTarjeta.create({
-        data: {
-          tarjetaId: arreglo.id,
-          quien: quienEs(contexto),
-          origen: "TRABAJADOR",
-          accion: "aprobar",
-          antes: { estado: "APROBADO" } as Prisma.InputJsonValue,
-          despues: { estado: "APROBADO", momento: "tarea", como: "heredada", heredadaDe: actual.id, ...(await viaHeredadaDe(tx, actual.id)) } as Prisma.InputJsonValue,
-        },
+      await anotarCausaCreada(tx, contexto, actual, arreglo.id, {
+        titulo: causa.titulo,
+        estado: "APROBADO",
+        ...(enFeatures ? { padreId: TARJETA_AREA_FEATURES_ID } : {}),
+        nota: `arreglo de la subida deshecha de «${actual.titulo}» (${intentos} de ${TOPE_INTENTOS_DE_SUBIDA})`,
       });
       creada = true;
     }
