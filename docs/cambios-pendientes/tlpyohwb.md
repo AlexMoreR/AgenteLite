@@ -1,2 +1,0 @@
-## Advertencias de operación
-- `coordinador_reversion_falsa`: antes de deshacer una subida que "no arrancó", el Coordinador espera al menos 15 min desde la subida (aunque el CI haya gastado el reloj de la etapa) y lee `/api/version` y `tail -n 300 /var/log/crm-actualizar.log` por SSH. Si el log no dice `listo: version <sha>` con el commit subido, o se deshizo antes de 15 min, la reversión es "falsa": no cuenta como falla del código ni suma al tope de 3 subidas, y en la vuelta siguiente se vuelve a subir el mismo commit.

@@ -1,2 +1,0 @@
-## Advertencias de operación
-- `arreglo_chats_web_60d`: arreglo de una sola vez (24-nov-2026) que corre en el reloj de cada minuto: los contactos ocultos del CRM cuyo primer mensaje en la línea Admin (desde el 16-sep-2026) vino del botón de magilus.com quedan visibles con la etiqueta "Web" y origen web. Deja en AppSetting `arreglo_chats_web_60d` la fecha, la cantidad y los contactIds; con esa clave no vuelve a correr (para repetirlo hay que borrarla). Esos chats ya cuentan en el tablero y los informes, y entran al público de envíos masivos.

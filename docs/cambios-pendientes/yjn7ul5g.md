@@ -1,2 +1,0 @@
-## Advertencias de operación
-- `coordinador_nube_sin_senal`: si la sesión de la nube no da señal, el Coordinador ya no pasa la tarjeta a ERROR: la reintenta en una sesión NUEVA de `claude --cloud` (rama -nube2, -nube3), aunque el proyecto tenga sesión fija o esté en modo orquestador, y nunca le vuelve a escribir a la sesión de un intento anterior. A la 3.ª vez sin señal queda en Alertas. Cada caso queda en la bitácora de incidentes con la línea «Qué se intentó: intento N de 3».
