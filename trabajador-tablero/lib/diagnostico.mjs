@@ -420,12 +420,14 @@ const ERROR_DE_CODIGO = ["no_compila", "fallan_pruebas", "lint", "migracion"];
  * Qué se hace con una subida que se deshizo bien (reversion.ok), según su causa (24-nov-2026, parte 3). Pura.
  *   "arreglo": la clase es codigo o arranque, o no se supo pero hay un error de código (la vigilancia vio fallas nuevas, o el
  *              diagnóstico es de compilación o pruebas): se pide la tarjeta «Arreglo de subida: …» y después se reintenta esta.
- *   "esperar": la clase es pasajera, o no se supo y no hay error de código: se suelta y se reintenta en la vuelta siguiente.
+ *   "esperar": la clase es pasajera o falsa (25-nov-2026: se deshizo antes de que el servidor bajara la imagen), o no se supo y no
+ *              hay error de código: se suelta y se reintenta en la vuelta siguiente.
  */
 export function queHacerConLaSubidaDeshecha(diagnostico, reversion) {
   const clase = reversion?.clase;
   if (clase === "codigo" || clase === "arranque") return "arreglo";
-  if (clase === "pasajera") return "esperar";
+  // 25-nov-2026: reversión falsa (se deshizo antes de que el servidor bajara la imagen): se espera y se sube el mismo commit.
+  if (clase === "pasajera" || clase === "falsa") return "esperar";
   const conErrorDeCodigo = esDeLaVigilancia(String(diagnostico?.error ?? "")) || ERROR_DE_CODIGO.includes(diagnostico?.categoria);
   return conErrorDeCodigo ? "arreglo" : "esperar";
 }
@@ -618,6 +620,8 @@ function decidirSinCausa({ diagnostico, tarjeta = {}, etapa, config = {}, archiv
   // 24-nov-2026 (parte 3): una subida que se deshizo ya no escala siempre. La que NO se pudo deshacer (URGENTE) escala como antes.
   if (reversion) {
     if (reversion.ok !== true) return { accion: "escalar", cuenta: true, motivo: "falló después de subir a main y no se pudo deshacer (URGENTE): lo ve el dueño" };
+    // 25-nov-2026: la reversión falsa no es falla del código: espera, no cuenta y no suma al tope de subidas.
+    if (reversion.clase === "falsa") return { accion: "esperar", cuenta: false, motivo: "se deshizo antes de que el servidor bajara la versión (reversión falsa): se sube el mismo commit en la vuelta siguiente, sin sumar al tope de subidas" };
     // Una tarjeta de causa (también «Arreglo de subida: …») no pide otra: no se forma una cadena.
     if (esTarjetaDeCausa(tarjeta)) return { accion: "escalar", cuenta: true, motivo: "se deshizo la subida de una tarjeta de causa: no se pide otra, lo ve el dueño" };
     const subidas = intentosDeSubida(intentos) + 1;
@@ -811,6 +815,7 @@ export const FRASES_DE_LA_CAUSA = {
   pasajera: "Fue una falla pasajera: la red, el servidor o GitHub no respondieron a tiempo. El cambio en sí puede estar bien.",
   vencio: "El servidor tardó demasiado en tomar la versión nueva, sin ningún error del programa: parece una falla pasajera.",
   desconocida: "No se pudo saber la causa: los registros no muestran por qué falló.",
+  falsa: "El servidor todavía no había terminado de bajar la versión nueva cuando se deshizo: no es una falla del cambio. Se vuelve a subir el mismo cambio.",
 };
 
 /** Las líneas del texto que calzan con `regla` (sin repetir), máximo 8 y de 300 caracteres cada una. */

@@ -358,6 +358,8 @@
         "urlVersion": "https://crm.magilus.com/api/version",
         "campoVersion": "version",
         "versionMinutos": 15,
+        "pisoMinutos": 15,
+        "logActualizar": "tail -n 300 /var/log/crm-actualizar.log",
         "urlArranque": "https://crm.magilus.com/login"
       }
     },

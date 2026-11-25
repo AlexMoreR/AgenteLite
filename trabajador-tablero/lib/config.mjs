@@ -89,6 +89,12 @@ const MOTORES_POR_DEFECTO = { planear: "claude", construir: "claude", revisar: "
 const MAXIMO_EN_PARALELO = 5;
 /** Lo mínimo que se espera a que /api/version diga el commit nuevo antes de decir "no arrancó" y deshacer. */
 export const PISO_VERSION_MINUTOS = 15;
+/**
+ * Lo que se lee del servidor (por ssh.destino) antes de deshacer una versión que "no arrancó" (25-nov-2026, T-902 y T-800):
+ * el log de /opt/crm/actualizar.sh. Si no dice "listo: version <sha>" con el commit subido (o uno que lo incluye), el
+ * servidor todavía no había bajado la imagen y la reversión es "falsa". Solo lectura: no se cambia nada en el servidor.
+ */
+export const LOG_ACTUALIZAR_POR_DEFECTO = "tail -n 300 /var/log/crm-actualizar.log";
 /** Cuánto se reintenta subida.urlArranque (/login) después de que /api/version diga el commit nuevo, antes de deshacer. */
 export const ARRANQUE_MINUTOS_POR_DEFECTO = 3;
 
@@ -394,6 +400,11 @@ export function completarConfig(datos, base = process.cwd()) {
           // Piso de 15 min (10-11-2026): el servidor nuevo del CRM tarda ~10 min en tomar la versión después
           // del CI. Con 8 el Coordinador se rendía antes y deshacía cambios que sí arrancaban.
           versionMinutos: Math.max(Number(repo.subida?.versionMinutos) || PISO_VERSION_MINUTOS, PISO_VERSION_MINUTOS),
+          // 25-nov-2026: lo mínimo desde la subida antes de deshacer por "no arrancó" (nunca menos de PISO_VERSION_MINUTOS) y
+          // el comando remoto que lee el log de actualizar.sh antes de deshacer.
+          pisoMinutos: Math.max(Number(repo.subida?.pisoMinutos) || PISO_VERSION_MINUTOS, PISO_VERSION_MINUTOS),
+          logActualizar:
+            typeof repo.subida?.logActualizar === "string" && repo.subida.logActualizar.trim() ? repo.subida.logActualizar.trim() : LOG_ACTUALIZAR_POR_DEFECTO,
           urlArranque: typeof repo.subida?.urlArranque === "string" ? repo.subida.urlArranque : null,
           // Cuánto se reintenta urlArranque mientras el servidor cambia de contenedor (13-11-2026). Sin la línea, 3.
           arranqueMinutos: Number(repo.subida?.arranqueMinutos) > 0 ? Number(repo.subida.arranqueMinutos) : ARRANQUE_MINUTOS_POR_DEFECTO,

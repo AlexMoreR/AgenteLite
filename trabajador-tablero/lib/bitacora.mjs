@@ -59,6 +59,8 @@ const REGLA_POR_CLASE = {
   codigo: "Correr build y pruebas completas antes de subir y corregir el error del programa, no el síntoma.",
   arranque: "Revisar el arranque (configuración, migraciones y entrypoint) antes de subir.",
   pasajera: "Es pasajera, se reintenta.",
+  // 25-nov-2026: se deshizo antes de que el servidor bajara la versión; no es del código y se sube el mismo commit.
+  falsa: "No es falla del código: el servidor no había bajado la versión nueva; se vuelve a subir el mismo commit.",
   desconocida: "Leer los registros completos del servidor y anotar la causa cuando se sepa.",
 };
 

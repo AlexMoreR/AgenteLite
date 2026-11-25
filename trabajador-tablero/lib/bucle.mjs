@@ -811,7 +811,7 @@ async function repararLaFalla({ crm, config, registro, contexto, bitacora, pausa
  *     subida_revertida, que queda solo en Alertas (sin WhatsApp).
  * Si el CRM falla o no suelta la tarjeta: el WhatsApp de antes y /error de siempre (nunca peor que hoy). Nunca lanza.
  */
-async function resolverLaSubidaDeshecha({ crm, config, registro }, tarjeta, hacer, error, datos) {
+export async function resolverLaSubidaDeshecha({ crm, config, registro }, tarjeta, hacer, error, datos) {
   // Bitácora de incidentes (24-nov-2026): primero se decide y se hace (arreglo, reintento o Alertas); después se anota. Si la
   // bitácora falla, lo de la tarjeta ya pasó igual.
   const como = {};
@@ -877,6 +877,19 @@ async function decidirLaSubidaDeshecha({ crm, registro }, tarjeta, hacer, error,
     }
     return { ...resultado, accion: "escalar" };
   };
+
+  // 25-nov-2026: reversión falsa (se deshizo antes de que el servidor bajara la versión). Se suelta SIN la categoría
+  // subida_revertida: no suma al TOPE_INTENTOS_DE_SUBIDA ni cuenta como intento. En la vuelta siguiente subir() ve el commit
+  // deshecho en main (revertQueLoDeshace), deshace el revert y sube el mismo commit.
+  if (reversion.clase === "falsa") {
+    const nota = enUnaLinea(`${sencilla} Se vuelve a subir el mismo commit en la vuelta siguiente (no suma al tope de subidas).`, 200);
+    if (await soltar(crm, registro, tarjeta, nota, { ...intento, causa: nota })) {
+      como.valor = "reintento del mismo commit (reversión falsa)";
+      registro.info(`reversión falsa: "${tarjeta.titulo}" se vuelve a subir con el mismo commit en la vuelta siguiente`);
+      return { ...resultado, accion: "esperar" };
+    }
+    return comoAntes("el CRM no dejó soltar la tarjeta");
+  }
 
   if (decision.accion === "escalar") {
     // La 3.ª subida deshecha va a Alertas; una tarjeta de causa escala como siempre.
