@@ -8,6 +8,7 @@ import {
   FOTOS_PARA_ALERTA_CONSULTAS,
   SEGUNDOS_CONSULTA_LENTA,
   TITULO_AVISO_CONSULTAS_LENTAS,
+  estadoTarjetaConsultas,
   evaluarConsultasLentas,
   resumirConsulta,
   resumirConsultas,
@@ -569,4 +570,38 @@ test("textoDeAlertaConsultas: título exacto y las consultas resumidas", () => {
   assert.match(texto, /Base de datos con consultas lentas/);
   assert.match(texto, /1\. Leyendo la tabla Message, hace 15 s \(base crm\)/);
   assert.doesNotMatch(texto, /573001234567/);
+});
+
+test("estadoTarjetaConsultas: roja con la lista, verde 'Ninguna' y gris 'Sin dato reciente' (borde de 5 min)", () => {
+  const ahora = new Date("2026-11-25T15:00:00Z");
+  const haceMin = (min: number) => new Date(ahora.getTime() - min * 60_000).toISOString();
+  const valor = (leidaEn: unknown, consultas: unknown) => JSON.stringify({ leidaEn, consultas, rachaDeFotos: 1, ultimoAvisoEn: null });
+  const una = { base: "crm", segundos: 23, resumen: "Leyendo la tabla Message, hace 23 s (base crm)" };
+
+  // Roja: hay consultas.
+  assert.deepEqual(estadoTarjetaConsultas(valor(haceMin(1), [una]), ahora), { tono: "rojo", consultas: [una] });
+  // Verde: la lista está vacía.
+  assert.deepEqual(estadoTarjetaConsultas(valor(haceMin(1), []), ahora), { tono: "verde", texto: "Ninguna" });
+  // Borde: 5 min justos todavía cuentan; un poco más ya es gris.
+  assert.equal(estadoTarjetaConsultas(valor(haceMin(5), []), ahora).tono, "verde");
+  assert.equal(estadoTarjetaConsultas(valor(haceMin(5), [una]), ahora).tono, "rojo");
+  const gris = { tono: "gris", texto: "Sin dato reciente" };
+  assert.deepEqual(estadoTarjetaConsultas(valor(new Date(ahora.getTime() - 5 * 60_000 - 1).toISOString(), [una]), ahora), gris);
+  assert.deepEqual(estadoTarjetaConsultas(valor(haceMin(30), []), ahora), gris);
+  // Gris: sin valor, valor roto, sin leidaEn o con fecha rota.
+  assert.deepEqual(estadoTarjetaConsultas(null, ahora), gris);
+  assert.deepEqual(estadoTarjetaConsultas(undefined, ahora), gris);
+  assert.deepEqual(estadoTarjetaConsultas("", ahora), gris);
+  assert.deepEqual(estadoTarjetaConsultas("{no es json", ahora), gris);
+  assert.deepEqual(estadoTarjetaConsultas("[]", ahora), gris);
+  assert.deepEqual(estadoTarjetaConsultas(valor(null, []), ahora), gris);
+  assert.deepEqual(estadoTarjetaConsultas(valor("no-es-fecha", []), ahora), gris);
+  assert.deepEqual(estadoTarjetaConsultas(JSON.stringify({ leidaEn: haceMin(1) }), ahora), gris);
+  // Filas rotas se saltan; si todas están rotas no se dice "Ninguna".
+  assert.deepEqual(estadoTarjetaConsultas(valor(haceMin(1), [{ base: "crm" }]), ahora), gris);
+  assert.deepEqual(estadoTarjetaConsultas(valor(haceMin(1), [{ base: "crm" }, una]), ahora), { tono: "rojo", consultas: [una] });
+  // Máximo 5 en la tarjeta.
+  const siete = Array.from({ length: 7 }, () => una);
+  const roja = estadoTarjetaConsultas(valor(haceMin(0), siete), ahora);
+  assert.equal(roja.tono === "rojo" && roja.consultas.length, 5);
 });
