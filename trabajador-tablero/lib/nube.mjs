@@ -656,17 +656,68 @@ export async function mandarASesionFija(contexto, { repo, cwd, prompt }) {
   return { link, via: "sesion-fija", salida: texto, modeloForzado: false };
 }
 
+/* ── la nube sin señal (25-nov-2026, parte 2 de «las 4 fallas repetidas»: T-921 volvió a la misma sesión) ── */
+
+const ID_DE_SESION = /session_[A-Za-z0-9_-]+/;
+const LINKS_DE_SESION = /https:\/\/claude\.ai\/code\/session_[A-Za-z0-9_-]+/g;
+
+/** El id "session_…" de un link de la nube (o de un id suelto), o null. */
+const idDeLaSesion = (link) => String(link ?? "").match(ID_DE_SESION)?.[0] ?? null;
+
+/** ¿La tarjeta ya tiene un intento en que la nube no dio señal (nube_sin_resultado)? Entonces el siguiente abre una sesión nueva. */
+export const tuvoNubeSinSenal = (tarjeta) => (tarjeta?.ultimosIntentos ?? []).some((intento) => intento?.categoria === "nube_sin_resultado");
+
+/**
+ * Los links de las sesiones de la nube que ya usaron los intentos anteriores de la tarjeta: los que traen sus causas (la de la
+ * nube termina con el link) y su último error. Ninguno se vuelve a usar. -> ["https://claude.ai/code/session_…"] sin repetir.
+ */
+export function linksDeIntentosAnteriores(tarjeta) {
+  const textos = [...(tarjeta?.ultimosIntentos ?? []).map((intento) => intento?.causa), tarjeta?.ultimoError, tarjeta?.reparacion?.causa, tarjeta?.reparacion?.error];
+  return [...new Set(textos.flatMap((texto) => String(texto ?? "").match(LINKS_DE_SESION) ?? []))];
+}
+
+/** ¿El link (o id) es de una sesión que ya usó un intento anterior? Se compara por el id de la sesión. */
+export function yaLaUsoUnIntento(link, anteriores) {
+  const id = idDeLaSesion(link);
+  return Boolean(id) && (anteriores ?? []).some((otro) => idDeLaSesion(otro) === id);
+}
+
+/**
+ * ¿Esta tarjeta tiene que abrir una sesión NUEVA de la nube aunque el proyecto tenga sesión fija o esté en modo orquestador?
+ * Sí si ya tuvo un intento en que la nube no dio señal, o si la sesión fija es la de un intento anterior (nunca se reusa una).
+ * Solo para esta tarjeta: las demás del proyecto siguen yendo a la sesión fija.
+ */
+export function abreSesionNueva(repo, tarjeta) {
+  const fija = sesionFijaDe(repo);
+  if (!fija) return false;
+  return tuvoNubeSinSenal(tarjeta) || yaLaUsoUnIntento(fija, linksDeIntentosAnteriores(tarjeta));
+}
+
 /**
  * Lanza la sesión de la nube de una tarjeta: a la sesión fija del proyecto si la tiene; si no, `claude --cloud` con el chequeo
  * previo. Si la nube no tiene acceso al repo (nube_sin_acceso_repo), marca el proyecto por config.nube.sinAccesoMinutos.
+ * 25-nov-2026: con `tarjeta`, nunca se le escribe a una sesión que ya usó un intento anterior, y si la nube ya no dio señal
+ * una vez, se abre SIEMPRE una sesión nueva con `claude --cloud` (abreSesionNueva).
  */
-export async function lanzarSesionDeLaNube(contexto, { repo, cwd, prompt, modelo = null }) {
+export async function lanzarSesionDeLaNube(contexto, { repo, cwd, prompt, modelo = null, tarjeta = null }) {
   // contexto.sesionNueva (31-oct-2026): la sesión fija ya está ocupada con otra tarea del proyecto; esta abre una nueva.
-  // En el modo orquestador nunca se abre una sesión nueva: todo va a la sesión fija.
-  const nueva = Boolean(sesionFijaDe(repo)) && contexto.sesionNueva === true && !esOrquestador(repo);
+  // En el modo orquestador nunca se abre una sesión nueva: todo va a la sesión fija (salvo abreSesionNueva, solo esta tarjeta).
+  const anteriores = linksDeIntentosAnteriores(tarjeta);
+  const porLaFalla = abreSesionNueva(repo, tarjeta);
+  const nueva = Boolean(sesionFijaDe(repo)) && ((contexto.sesionNueva === true && !esOrquestador(repo)) || porLaFalla);
+  if (porLaFalla) {
+    contexto.registro?.info?.(
+      `${tuvoNubeSinSenal(tarjeta) ? "la nube no dio señal en un intento anterior" : "la sesión fija ya la usó un intento anterior"}: abro una sesión nueva con claude --cloud (no le escribo a ${sesionFijaDe(repo)})`,
+    );
+  }
   try {
     if (sesionFijaDe(repo) && !nueva) return await mandarASesionFija(contexto, { repo, cwd, prompt });
-    return await lanzarEnNube(contexto, { cwd, prompt, modelo, repo });
+    const lanzado = await lanzarEnNube(contexto, { cwd, prompt, modelo, repo });
+    // `claude --cloud` siempre crea una sesión; si diera la de un intento anterior, no se le deja la tarea.
+    if (yaLaUsoUnIntento(lanzado?.link, anteriores)) {
+      throw new ErrorDeEtapa(`claude --cloud devolvió la sesión de un intento anterior (${lanzado.link}): no se reusa. Se reintenta con otra.`);
+    }
+    return lanzado;
   } catch (error) {
     if (error?.categoria === "nube_sin_acceso_repo" && nueva) {
       // Solo se dejan de abrir sesiones nuevas de este proyecto; la tarjeta vuelve a la fila sin gastar intento (espera,

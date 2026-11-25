@@ -62,7 +62,7 @@ import {
   textoParaLaNube,
 } from "./revisores.mjs";
 import { esLimiteDeCodex, nombreDelMotor } from "./motores.mjs";
-import { esOrquestador, esperarResultado, lanzarSesionDeLaNube, nombreDelProyecto, sesionFijaDe } from "./nube.mjs";
+import { abreSesionNueva, esOrquestador, esperarResultado, lanzarSesionDeLaNube, nombreDelProyecto, sesionFijaDe } from "./nube.mjs";
 import { archivosDelPlan } from "./choques.mjs";
 import { vigilarSesion } from "./atasco.mjs";
 import { cerrarProcesosEn, comoTexto, correr, detalleDeFalla, lineasQueFallaron, ultimasLineas } from "./procesos.mjs";
@@ -947,7 +947,7 @@ export function promptDeNube(tarjeta, repo, rama, { entorno = {}, modelo = null,
  * Una rama que no exista todavía en GitHub: tablero/<id>-<nombre>, o con -nube2, -nube3… si un intento anterior ya la
  * dejó (la de la nube no se rehace con --force: cada intento usa la suya).
  */
-async function ramaParaLaNube(repo, tarjeta) {
+export async function ramaParaLaNube(repo, tarjeta) {
   const principal = nombreDeRama(tarjeta);
   for (let n = 1; n <= 20; n += 1) {
     const rama = n === 1 ? principal : `${principal}-nube${n}`;
@@ -1057,7 +1057,7 @@ async function construirLaParteDeLaNube(contexto, tarjeta, { repo, rama, base, r
     const prompt = promptDeNube(tarjeta, repo, rama, { entorno, modelo, lecciones: leccionesDelAgente(contexto, repo), incidentes: incidentesDelRepo(contexto, repo, carpeta), revision: conRevision, modeloRevisar: modeloDelPaso(config, "revisar", tarjeta), modeloRevisarSeguridad: modeloDelPaso(config, "revisarSeguridad", tarjeta), vueltasRevision: vueltasDeRevision(config), sesionFija: Boolean(sesionFijaDe(repo)) && contexto.sesionNueva !== true, orquestador: contexto.orquestador === true && esOrquestador(repo) });
     // 29-oct-2026: a la sesión fija del proyecto (repos.<repo>.nube.sesionFija) si la tiene; si no, `claude --cloud` con el
     // chequeo previo. La rama ya está en GitHub (pushDeRama de arriba) antes de lanzar: la sesión fija la baja con git fetch.
-    const lanzado = await lanzarSesionDeLaNube(contexto, { repo, cwd: carpeta, prompt, modelo });
+    const lanzado = await lanzarSesionDeLaNube(contexto, { repo, cwd: carpeta, prompt, modelo, tarjeta });
     contexto.fase?.("construyendo", { lugar: "nube", linkSesion: lanzado.link });
     registro.info(`construyo en la nube: sesión ${lanzado.link}, rama ${rama} (${lanzado.via})`);
     let resultado;
@@ -1434,6 +1434,10 @@ export async function construir(contexto, tarjeta) {
   if (!tarjeta.plan) throw new ErrorDeEtapa("La tarjeta no tiene plan aprobado.");
   const repo = configDelRepo(contexto, tarjeta);
   const enNube = contexto.lugar === "nube";
+  // 25-nov-2026 (parte 2 de «las 4 fallas repetidas»): si la nube ya no dio señal en un intento de esta tarjeta (o la sesión fija
+  // es la de un intento anterior), esta tarjeta va a una sesión NUEVA de `claude --cloud`: sin la sesión fija ni el modo
+  // orquestador (su espera, su prompt), solo para ella. La rama sigue con su sufijo nuevo (-nube2, -nube3: ramaParaLaNube).
+  if (enNube && abreSesionNueva(repo, tarjeta)) contexto = { ...contexto, sesionNueva: true, orquestador: false };
   // En la nube el reloj de la espera es el de construirNubeMinutos; al volver, la verificación en aizen1 tiene el suyo.
   // Modo orquestador (1-nov-2026): la sesión del proyecto lleva varias a la vez y el CRM le da 24 h; el Coordinador espera lo mismo.
   const enOrquestador = enNube && contexto.orquestador === true;

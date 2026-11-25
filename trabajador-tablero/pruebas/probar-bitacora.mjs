@@ -80,6 +80,26 @@ try {
     assert.match(fechaDeLaBitacora(new Date("2026-11-24T19:05:00Z")), /^2026-11-24 14:05$/, "la hora de Bogotá");
   });
 
+  await prueba("(a2) 25-nov: la entrada trae la línea «- Qué se intentó:» y las claves nuevas de qué falló y cómo se resolvió", () => {
+    const entrada = armarEntrada({ ...base, queFallo: "nube_sin_senal", comoSeResolvio: "sesion_nueva", clase: "nube", queSeIntento: { numero: 2, de: 3, detalle: "nube_sin_resultado; sesión nueva" } });
+    const lineas = entrada.split("\n");
+    assert.match(entrada, /^- Qué se intentó: intento 2 de 3 \(nube_sin_resultado; sesión nueva\)$/m);
+    // Va entre la causa y cómo se resolvió.
+    assert.ok(lineas.findIndex((l) => l.startsWith("- Causa:")) < lineas.findIndex((l) => l.startsWith("- Qué se intentó:")));
+    assert.ok(lineas.findIndex((l) => l.startsWith("- Qué se intentó:")) < lineas.findIndex((l) => l.startsWith("- Cómo se resolvió:")));
+    assert.match(entrada, /^- Qué falló: la sesión de la nube no dio señal ni dejó su resultado$/m);
+    assert.match(entrada, /^- Cómo se resolvió: reintento en una sesión nueva de la nube/m);
+    assert.match(entrada, /^- Regla: Si la nube no da señal, se reintenta en una sesión nueva/m);
+    assert.match(resumenDeUnaLinea(entrada), / · qué se intentó: intento 2 de 3 \(nube_sin_resultado; sesión nueva\) · cómo se resolvió: /);
+    // Sin el dato, la línea igual está y no inventa un número.
+    assert.match(armarEntrada(base), /^- Qué se intentó: no registrado$/m);
+    assert.match(armarEntrada({ ...base, queSeIntento: { numero: 1 } }), /^- Qué se intentó: intento 1 de 3$/m);
+    const nuevas = { no_cambio_nada: "Claude terminó sin cambiar ningún archivo", fallan_pruebas: "fallaron las pruebas", reversion_falsa: "se deshizo antes de que el servidor bajara la versión nueva (reversión falsa)" };
+    for (const [clave, texto] of Object.entries(nuevas)) assert.ok(armarEntrada({ ...base, queFallo: clave }).includes(`- Qué falló: ${texto}\n`), clave);
+    const resueltas = { plan_nuevo: "se vuelve a planear la tarea", ya_en_main: "ya estaba hecho en main", resubir: "se vuelve a subir el mismo commit" };
+    for (const [clave, texto] of Object.entries(resueltas)) assert.ok(armarEntrada({ ...base, comoSeResolvio: clave }).includes(`- Cómo se resolvió: ${texto}\n`), clave);
+  });
+
   await prueba("(b) una causa con pg_input_is_valid da una regla que nombra Postgres 16", () => {
     assert.match(reglaPara('ERROR: function pg_input_is_valid(text, unknown) does not exist', "codigo"), /Postgres 16/);
     // También si está en las líneas del error y no en la causa.

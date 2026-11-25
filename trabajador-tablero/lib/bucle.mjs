@@ -37,6 +37,7 @@ import {
   FRASES_DE_LA_CAUSA,
   TOPE_DE_REPARACIONES,
   TOPE_INTENTOS_DE_SUBIDA,
+  causaConMarca,
   causaExterna,
   causasDistintas,
   decidir,
@@ -634,13 +635,64 @@ function anotarElEnsayoQueFallo({ config, registro }, tarjeta, error, salida) {
       lineasDelError,
       comoSeResolvio: DECISION_DEL_ENSAYO[salida?.accion] ?? `decisión: ${salida?.accion ?? "sin decisión"}`,
       clase: "codigo",
+      queSeIntento: { numero: (Number(tarjeta.reparaciones) || 0) + 1, de: Number(tarjeta.topeReparaciones) || TOPE_DE_REPARACIONES, detalle: "ensayo de migraciones antes de subir" },
     });
   } catch (otro) {
     registro.aviso(`bitácora: no se pudo anotar el ensayo que falló (${String(otro?.message ?? otro).split("\n")[0]})`);
   }
 }
 
-async function repararLaFalla({ crm, config, registro, contexto, bitacora, pausaSesion = null }, tarjeta, hacer, error, nota) {
+/**
+ * LAS FALLAS REPETIDAS EN LA BITÁCORA (25-nov-2026, parte 2 de «las 4 fallas repetidas»): la nube sin señal, Claude sin cambiar
+ * nada y las pruebas que fallan quedan anotadas con anotarIncidente (la reversión falsa se anota en resolverLaSubidaDeshecha).
+ * La categoría del diagnóstico -> la clave de QUE_FALLO de bitacora.mjs.
+ */
+const FALLAS_REPETIDAS = { nube_sin_resultado: "nube_sin_senal", no_cambio_nada: "no_cambio_nada", fallan_pruebas: "fallan_pruebas" };
+
+/** La clase de cada falla repetida (para la regla genérica de la bitácora). */
+const CLASE_DE_LA_FALLA = { nube_sin_senal: "nube", no_cambio_nada: "sin_cambios", fallan_pruebas: "codigo" };
+
+/** Cómo se resolvió, para la bitácora: una clave de COMO_SE_RESOLVIO o la frase de la decisión. */
+function comoSeResolvioLaFalla(salida) {
+  if (salida?.accion === "reparar" && salida.estrategia === "sesion_nueva") return "sesion_nueva";
+  if (salida?.accion === "reparar" && salida.estrategia) return `${DECISION_DEL_ENSAYO.reparar} (estrategia ${salida.estrategia})`;
+  return DECISION_DEL_ENSAYO[salida?.accion] ?? `decisión: ${salida?.accion ?? "sin decisión"}`;
+}
+
+/** Anota en la bitácora una de las fallas repetidas, ya decidida y hecha. Solo anota: no cambia la decisión. Nunca lanza. */
+function anotarLaFallaRepetida({ config, registro }, tarjeta, error, diagnostico, salida) {
+  const queFallo = FALLAS_REPETIDAS[diagnostico?.categoria];
+  // La subida deshecha (y su reversión falsa) ya se anota en resolverLaSubidaDeshecha; la causa externa no es de la tarea.
+  if (!queFallo || error?.reversion?.ok === true || salida?.causaExterna) return;
+  try {
+    const hechas = Number(tarjeta.reparaciones) || 0;
+    const tope = Number(tarjeta.topeReparaciones) || TOPE_DE_REPARACIONES;
+    const antes = tarjeta.reparacion?.estrategia ?? estrategiaDeLaCausa([...(tarjeta.ultimosIntentos ?? [])].reverse().find((intento) => intento?.accion === "reparar")?.causa);
+    anotarIncidente({
+      config,
+      registro,
+      tarjeta,
+      repo: tarjeta.repo,
+      queFallo,
+      causa: diagnostico.causa,
+      lineasDelError: String(diagnostico.error ?? "").split(/\r?\n/),
+      comoSeResolvio: comoSeResolvioLaFalla(salida),
+      clase: CLASE_DE_LA_FALLA[queFallo],
+      queSeIntento: { numero: hechas + 1, de: tope, detalle: `${diagnostico.categoria}${antes ? `, con la estrategia ${antes}` : ""}; ${salida?.decidido ?? `decisión: ${salida?.accion ?? "?"}`}` },
+    });
+  } catch (otro) {
+    registro.aviso(`bitácora: no se pudo anotar la falla (${String(otro?.message ?? otro).split("\n")[0]})`);
+  }
+}
+
+/** Repara la falla (repararSinAnotar) y, si es una de las fallas repetidas, la anota en la bitácora. */
+async function repararLaFalla(args, tarjeta, hacer, error, nota) {
+  const salida = await repararSinAnotar(args, tarjeta, hacer, error, nota);
+  anotarLaFallaRepetida(args, tarjeta, error, nota.diagnostico, salida);
+  return salida;
+}
+
+async function repararSinAnotar({ crm, config, registro, contexto, bitacora, pausaSesion = null }, tarjeta, hacer, error, nota) {
   // Una subida que se deshizo trae su causa en sencillo (deshacerSubida, 23-nov-2026): el motivo y la causa empiezan con ella.
   const sencilla = typeof error?.reversion?.sencilla === "string" ? error.reversion.sencilla.trim() : "";
   const mensaje = error instanceof Error ? error.message : String(error);
@@ -712,7 +764,7 @@ async function repararLaFalla({ crm, config, registro, contexto, bitacora, pausa
     verificarEnNube: Boolean(error?.verificarEnNube),
   });
   registro.info(`diagnóstico: ${diagnostico.categoria} — ${diagnostico.causa}; decisión: ${decision.accion} (${decision.motivo})${decision.estrategia === "nube" ? "; se verifica otra vez en la nube" : ""}`);
-  const resultado = { ok: false, motivo, zonas: error?.zonas ?? [], categoria: diagnostico.categoria, accion: decision.accion };
+  const resultado = { ok: false, motivo, zonas: error?.zonas ?? [], categoria: diagnostico.categoria, accion: decision.accion, estrategia: decision.estrategia, decidido: decision.motivo };
   // La causa nunca va vacía al CRM (30-oct-2026): si no se supo, se dice en qué etapa e intento (`intento`, arriba).
 
   // 4. Hacerlo.
@@ -771,7 +823,8 @@ async function repararLaFalla({ crm, config, registro, contexto, bitacora, pausa
   }
   if (decision.accion === "reparar") {
     // 160 + la marca (19) + lo que agrega el CRM (" (estrategia: opus)", 19) caben en sus 200 letras: la marca no se corta.
-    const causa = decision.estrategia ? `${enUnaLinea(intento.causa, 160)} [estrategia: ${decision.estrategia}]` : intento.causa;
+    // 25-nov-2026: con el link de la sesión de la nube en la causa, el link no se corta (causaConMarca).
+    const causa = decision.estrategia ? causaConMarca(intento.causa, decision.estrategia) : intento.causa;
     // Antes de reparar, la causa y qué cambia frente al intento anterior (el siguiente intento los recibe en su prompt).
     const queCambia = decision.queCambia ?? queCambiaFrenteAlAnterior(diagnostico, tarjeta.ultimosIntentos, decision.estrategia);
     registro.info(`CAUSA: ${intento.causa} | QUÉ CAMBIA: ${queCambia}`);
@@ -825,11 +878,13 @@ export async function resolverLaSubidaDeshecha({ crm, config, registro }, tarjet
       repo: tarjeta.repo,
       commit: reversion.commit ? String(reversion.commit).slice(0, 10) : null,
       // La 1.ª línea de la vigilancia empieza con "Revertida:" (deshacerSubida); la del despliegue, no.
-      queFallo: /^Revertida:/.test(String(error?.message ?? "")) ? "vigilancia" : "no_arranco",
+      // 25-nov-2026: la reversión falsa se anota como tal (no es que no arrancara): se vuelve a subir el mismo commit.
+      queFallo: reversion.clase === "falsa" ? "reversion_falsa" : /^Revertida:/.test(String(error?.message ?? "")) ? "vigilancia" : "no_arranco",
       causa: datos.causaParaLaTarjeta || datos.diagnostico?.causa,
       lineasDelError: Array.isArray(reversion.lineas) ? reversion.lineas : [],
       comoSeResolvio: como.valor ?? "no registrado",
       clase: reversion.clase ?? "desconocida",
+      queSeIntento: { numero: intentosDeSubida(tarjeta.ultimosIntentos) + 1, de: TOPE_INTENTOS_DE_SUBIDA, detalle: reversion.clase === "falsa" ? "subida; la reversión falsa no suma al tope" : "subida a producción" },
     });
   } catch (otro) {
     registro.aviso(`bitácora: no se pudo anotar la subida deshecha (${String(otro?.message ?? otro).split("\n")[0]})`);
@@ -884,7 +939,7 @@ async function decidirLaSubidaDeshecha({ crm, registro }, tarjeta, hacer, error,
   if (reversion.clase === "falsa") {
     const nota = enUnaLinea(`${sencilla} Se vuelve a subir el mismo commit en la vuelta siguiente (no suma al tope de subidas).`, 200);
     if (await soltar(crm, registro, tarjeta, nota, { ...intento, causa: nota })) {
-      como.valor = "reintento del mismo commit (reversión falsa)";
+      como.valor = "resubir";
       registro.info(`reversión falsa: "${tarjeta.titulo}" se vuelve a subir con el mismo commit en la vuelta siguiente`);
       return { ...resultado, accion: "esperar" };
     }

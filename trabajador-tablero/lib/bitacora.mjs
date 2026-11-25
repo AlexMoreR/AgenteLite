@@ -15,11 +15,15 @@ import { escribirNotaEnLaBoveda } from "./notas-boveda.mjs";
 export const RUTA_EN_BOVEDA_POR_DEFECTO = "06 Tecnología/Bitácora de incidentes.md";
 export const BITACORA_POR_DEFECTO = { rutaEnBoveda: RUTA_EN_BOVEDA_POR_DEFECTO, entradasEnPrompt: 15 };
 
-/** Qué falló: los tres casos que se anotan. */
+/** Qué falló: los casos que se anotan (25-nov-2026: también las 4 fallas repetidas del Coordinador). */
 export const QUE_FALLO = {
   no_arranco: "no arrancó",
   vigilancia: "la vigilancia de 30 min la deshizo",
   ensayo: "falló el ensayo de migraciones",
+  nube_sin_senal: "la sesión de la nube no dio señal ni dejó su resultado",
+  no_cambio_nada: "Claude terminó sin cambiar ningún archivo",
+  fallan_pruebas: "fallaron las pruebas",
+  reversion_falsa: "se deshizo antes de que el servidor bajara la versión nueva (reversión falsa)",
 };
 
 /** Cómo se resolvió: la decisión que se tomó en ese momento. */
@@ -27,7 +31,23 @@ export const COMO_SE_RESOLVIO = {
   reintento: "reintento por falla pasajera",
   arreglo: "tarjeta 'Arreglo de subida'",
   alertas: "aviso en Alertas a la 3.ª vez",
+  sesion_nueva: "reintento en una sesión nueva de la nube (nunca la de un intento anterior)",
+  plan_nuevo: "se vuelve a planear la tarea",
+  ya_en_main: "ya estaba hecho en main",
+  resubir: "se vuelve a subir el mismo commit",
 };
+
+/** De cuántos intentos se habla en la línea "Qué se intentó" (el tope de reparaciones del CRM). */
+export const INTENTOS_DE_LA_BITACORA = 3;
+
+/** La línea "- Qué se intentó: intento N de 3 (…)". `queSeIntento`: { numero, de?, detalle? } o null (no registrado). */
+function lineaDeQueSeIntento(queSeIntento) {
+  const numero = Number(queSeIntento?.numero);
+  if (!Number.isFinite(numero) || numero < 1) return "- Qué se intentó: no registrado";
+  const de = Number(queSeIntento?.de) > 0 ? Number(queSeIntento.de) : INTENTOS_DE_LA_BITACORA;
+  const detalle = linea(queSeIntento?.detalle, 200);
+  return `- Qué se intentó: intento ${Math.trunc(numero)} de ${Math.trunc(de)}${detalle ? ` (${detalle})` : ""}`;
+}
 
 /** Lo que se escribe cuando no hay causa: nunca se inventa una. */
 export const SIN_CAUSA = "causa no registrada";
@@ -61,10 +81,13 @@ const REGLA_POR_CLASE = {
   pasajera: "Es pasajera, se reintenta.",
   // 25-nov-2026: se deshizo antes de que el servidor bajara la versión; no es del código y se sube el mismo commit.
   falsa: "No es falla del código: el servidor no había bajado la versión nueva; se vuelve a subir el mismo commit.",
+  // 25-nov-2026 (parte 2 de «las 4 fallas repetidas»).
+  nube: "Si la nube no da señal, se reintenta en una sesión nueva; nunca en la misma sesión de un intento anterior.",
+  sin_cambios: "Si Claude no cambia nada, mirar si ya está en main o volver a planear con lo que falta, sin repetir lo mismo.",
   desconocida: "Leer los registros completos del servidor y anotar la causa cuando se sepa.",
 };
 
-/** La regla que deja el incidente. `causa`: el texto de la causa (y las líneas del error); `clase`: codigo, arranque, pasajera o desconocida. */
+/** La regla que deja el incidente. `causa`: el texto de la causa (y las líneas del error); `clase`: una de REGLA_POR_CLASE. */
 export function reglaPara(causa, clase) {
   const texto = String(causa ?? "");
   return PATRONES_CONOCIDOS.find(({ calza }) => calza(texto))?.regla ?? REGLA_POR_CLASE[clase] ?? REGLA_POR_CLASE.desconocida;
@@ -104,9 +127,9 @@ const lineasLimpias = (lineas) =>
 
 /**
  * La entrada en markdown. `queFallo`: una clave de QUE_FALLO (o un texto); `comoSeResolvio`: una clave de COMO_SE_RESOLVIO (o
- * un texto); `clase`: para la regla genérica; `commit`: opcional.
+ * un texto); `clase`: para la regla genérica; `commit`: opcional; `queSeIntento`: { numero, de?, detalle? } (25-nov-2026).
  */
-export function armarEntrada({ fecha, tarjeta, repo, queFallo, causa, lineasDelError, comoSeResolvio, clase = "desconocida", commit = null }) {
+export function armarEntrada({ fecha, tarjeta, repo, queFallo, causa, lineasDelError, comoSeResolvio, clase = "desconocida", commit = null, queSeIntento = null }) {
   const cuando = linea(fecha || "fecha no registrada", 40);
   const causaLimpia = linea(causa, 600) || SIN_CAUSA;
   const lineas = lineasLimpias(lineasDelError);
@@ -118,6 +141,7 @@ export function armarEntrada({ fecha, tarjeta, repo, queFallo, causa, lineasDelE
     `- Repo: ${linea(repo, 60) || "sin repo"}${commit ? ` (commit ${linea(commit, 40)})` : ""}`,
     `- Qué falló: ${QUE_FALLO[queFallo] ?? (linea(queFallo, 120) || "no registrado")}`,
     `- Causa: ${causaLimpia}`,
+    lineaDeQueSeIntento(queSeIntento),
     `- Cómo se resolvió: ${COMO_SE_RESOLVIO[comoSeResolvio] ?? (linea(comoSeResolvio, 200) || "no registrado")}`,
     `- Regla: ${regla}`,
   ];
@@ -128,7 +152,7 @@ export function armarEntrada({ fecha, tarjeta, repo, queFallo, causa, lineasDelE
   return `${partes.join("\n")}\n`;
 }
 
-/** La copia corta para el cerebro: una línea con fecha, tarjeta, repo, qué falló, causa, cómo se resolvió y regla. */
+/** La copia corta para el cerebro: una línea con fecha, tarjeta, repo, qué falló, causa, qué se intentó (si se sabe), cómo se resolvió y regla. */
 export function resumenDeUnaLinea(entrada) {
   const texto = String(entrada ?? "");
   const encabezado = texto.match(/^###\s+(.+)$/m)?.[1] ?? "";
@@ -138,6 +162,7 @@ export function resumenDeUnaLinea(entrada) {
     campo("Repo") && `repo ${linea(campo("Repo"), 80)}`,
     campo("Qué falló") && `qué falló: ${campo("Qué falló")}`,
     `causa: ${linea(campo("Causa"), 200) || SIN_CAUSA}`,
+    campo("Qué se intentó") && campo("Qué se intentó") !== "no registrado" && `qué se intentó: ${linea(campo("Qué se intentó"), 160)}`,
     campo("Cómo se resolvió") && `cómo se resolvió: ${linea(campo("Cómo se resolvió"), 120)}`,
     campo("Regla") && `regla: ${campo("Regla")}`,
   ].filter(Boolean);
