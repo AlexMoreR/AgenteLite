@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { PGlite } from "@electric-sql/pglite";
+import { abrirBaseDePruebas } from "./lib/base-de-pruebas.mjs";
 
 const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CARPETA = path.join(RAIZ, "prisma", "migrations");
@@ -27,7 +27,7 @@ const migraciones = fs
 assert.ok(migraciones.includes(NUEVA), `falta la migración ${NUEVA}`);
 
 const leer = (nombre) => fs.readFileSync(path.join(CARPETA, nombre, "migration.sql"), "utf8");
-const db = new PGlite();
+const db = await abrirBaseDePruebas();
 let pruebas = 0;
 async function prueba(nombre, fn) {
   await fn();
@@ -88,4 +88,5 @@ await prueba("se puede correr dos veces sin pisar lo de despues", async () => {
   assert.equal(total, 4);
 });
 
+await db.close();
 console.log(`\n${pruebas} pruebas ok`);

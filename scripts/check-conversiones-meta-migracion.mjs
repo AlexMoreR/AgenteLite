@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { PGlite } from "@electric-sql/pglite";
+import { abrirBaseDePruebas } from "./lib/base-de-pruebas.mjs";
 import { cargar } from "./supervisor-cargar.mjs";
 
 const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -60,7 +60,7 @@ await prueba("no hay DROP, ALTER, FOREIGN KEY, UPDATE ni DELETE", async () => {
   assert.deepEqual(riesgo.destructivoDelSql(texto), []);
 });
 
-const db = new PGlite();
+const db = await abrirBaseDePruebas();
 const filas = async (sql) => (await db.query(sql)).rows;
 for (const nombre of migraciones) {
   if (nombre === NUEVA) break;
