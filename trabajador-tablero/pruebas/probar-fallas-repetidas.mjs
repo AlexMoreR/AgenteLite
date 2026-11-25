@@ -1,5 +1,6 @@
 // Pruebas de las FALLAS REPETIDAS del Coordinador (25-nov-2026), parte 1: "no arrancó" y la reversión falsa (T-902 470c7f1,
-// T-800). Sin red de verdad, sin CRM y sin WhatsApp:
+// T-800). Parte 2: la nube sin señal se reintenta en una sesión nueva (T-921) y la bitácora anota las fallas repetidas.
+// Sin red de verdad, sin CRM y sin WhatsApp:
 //   node trabajador-tablero/pruebas/probar-fallas-repetidas.mjs   (también corre dentro de npm run test:trabajador-tablero)
 // El CRM falso es un servidor local que contesta /api/version; el git falso es un repo con su "origin" en una carpeta
 // temporal; el ssh falso imprime el log de actualizar.sh que pide la prueba; el reloj falso se adelanta con cada espera.
@@ -10,10 +11,13 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 
+import { rutaDeIncidentes } from "../lib/bitacora.mjs";
 import { resolverLaSubidaDeshecha } from "../lib/bucle.mjs";
 import { LOG_ACTUALIZAR_POR_DEFECTO, PISO_VERSION_MINUTOS, completarConfig } from "../lib/config.mjs";
-import { FRASES_DE_LA_CAUSA, TOPE_INTENTOS_DE_SUBIDA, causaExterna, decidir, queHacerConLaSubidaDeshecha } from "../lib/diagnostico.mjs";
-import { ErrorDeEtapa, esperarVersion, subir } from "../lib/etapas.mjs";
+import { FRASES_DE_LA_CAUSA, SIN_REPARACION_AUTOMATICA, TOPE_INTENTOS_DE_SUBIDA, causaConMarca, causaExterna, decidir, diagnosticar, estrategiaDeLaCausa, queHacerConLaSubidaDeshecha } from "../lib/diagnostico.mjs";
+import { ErrorDeEtapa, esperarVersion, ramaParaLaNube, subir } from "../lib/etapas.mjs";
+import { nombreDeRama } from "../lib/git.mjs";
+import { abreSesionNueva, lanzarSesionDeLaNube, sesionesDeIntentosAnteriores } from "../lib/nube.mjs";
 
 let pruebas = 0;
 async function prueba(nombre, fn) {
@@ -249,6 +253,11 @@ try {
     assert.equal(id, "t1");
     assert.notEqual(extra.categoria, "subida_revertida", "no suma al tope de subidas");
     assert.match(motivo, /mismo commit/);
+    // Parte 2: la bitácora la anota como reversion_falsa / resubir, con la línea "Qué se intentó".
+    const anotada = fs.readFileSync(rutaDeIncidentes(config.carpetaTrabajo, "aizencrm"), "utf8");
+    assert.match(anotada, /^- Qué falló: se deshizo antes de que el servidor bajara la versión \(reversión falsa\)$/m);
+    assert.match(anotada, /^- Cómo se resolvió: se vuelve a subir el mismo commit$/m);
+    assert.match(anotada, new RegExp(`^- Qué se intentó: intento ${TOPE_INTENTOS_DE_SUBIDA} de ${TOPE_INTENTOS_DE_SUBIDA} \\(no suma al tope de subidas`, "m"));
 
     // 3) De punta a punta con subir(): la 1.ª vuelta sube, el servidor no baja la imagen (su log no dice "listo" con el commit) y
     //    se deshace con clase "falsa"; la vuelta siguiente ve el commit deshecho en main (revertQueLoDeshace), deshace el revert y
@@ -285,6 +294,95 @@ try {
     assert.equal(g(REPO, "rev-parse", `${subida.commit}~1`), revert, "se subió encima del revert");
     assert.equal(g(REPO, "show", `${subida.commit}:a.txt`), "lo de la tarjeta", "es el mismo cambio de la tarjeta");
     assert.equal(g(REPO, "diff", subido, subida.commit, "--stat"), "", "el contenido es el mismo commit");
+  });
+
+  /* ── parte 2: la nube sin señal (T-921, la misma sesión fija session_01XuE6FdupseQWg3mMsf45er recibió el reintento) ── */
+  const FIJA = "session_01XuE6FdupseQWg3mMsf45er";
+  const NUEVA = "session_01NuevaDeLaPrueba2";
+  const CLAUDE_LOG = path.join(T, "claude-nube.log");
+  const CLAUDE = path.join(T, "claude-nube-falso.mjs");
+  // El claude falso: `-p <msg> --cloud <session_…>` es escribirle a una sesión que ya existe (contesta su JSON); `-p --cloud`
+  // sin id abre una sesión nueva e imprime su link (CLAUDE_FALSO_LINK, o NUEVA). Anota cada llamada.
+  fs.writeFileSync(
+    CLAUDE,
+    [
+      'import fs from "node:fs";',
+      "const args = process.argv.slice(2);",
+      `fs.appendFileSync(${JSON.stringify(CLAUDE_LOG)}, JSON.stringify(args) + "\\n");`,
+      'const i = args.indexOf("--cloud");',
+      'const id = /^session_/.test(args[i + 1] ?? "") ? args[i + 1] : null;',
+      'if (id) { console.log(JSON.stringify({ ok: true, session_id: id })); process.exit(0); }',
+      `console.log("Sesión creada: " + (process.env.CLAUDE_FALSO_LINK || "https://claude.ai/code/${NUEVA}") + " (lista)");`,
+    ].join("\n"),
+  );
+  const llamadasAClaude = () => (fs.existsSync(CLAUDE_LOG) ? fs.readFileSync(CLAUDE_LOG, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)) : []);
+  const aLaFija = () => llamadasAClaude().filter((args) => args.includes(FIJA));
+  const configNube = { ...config, nube: { ...config.nube, activa: true, comandoClaude: [process.execPath, CLAUDE], terminal: "sin-terminal", chequeoPrevio: false, lanzarMinutos: 1 } };
+  // Con sesión fija Y modo orquestador: lo de T-921.
+  const repoFijo = { ...repo, clave: "aizencrm", github: "prueba/repo", nube: { sesionFija: FIJA, orquestador: true } };
+  const errorSinSenal = (link) =>
+    new ErrorDeEtapa(`La sesión de la nube no dio señal (ni el commit "inicio:" ni ningún otro) en la rama tablero/t921-x en 20 min: se cortó la espera. Mírala: ${link}`, { categoria: "nube_sin_resultado" });
+
+  await prueba("nube sin señal: el reintento abre una sesión nueva", async () => {
+    // 1) Ya no va directo a ERROR: se repara con la estrategia sesion_nueva, y la marca deja el link entero.
+    assert.ok(!SIN_REPARACION_AUTOMATICA.includes("nube_sin_resultado"));
+    const diagnostico = diagnosticar({ error: errorSinSenal(`https://claude.ai/code/${FIJA}`), etapa: "construir" });
+    assert.equal(diagnostico.categoria, "nube_sin_resultado");
+    const decision = decidir({ diagnostico, tarjeta: { reparaciones: 0, ultimosIntentos: [] }, etapa: "construir" });
+    assert.deepEqual([decision.accion, decision.cuenta, decision.estrategia], ["reparar", true, "sesion_nueva"]);
+    const causa = causaConMarca(diagnostico.causa, decision.estrategia);
+    assert.ok(causa.length <= 160 + " [estrategia: sesion_nueva]".length, `cabe en las 200 del CRM con su cola: ${causa}`);
+    assert.ok(causa.includes(`https://claude.ai/code/${FIJA}`), `el link no se corta: ${causa}`);
+    assert.equal(estrategiaDeLaCausa(causa), "sesion_nueva");
+    // La 3.ª vez seguida queda la alerta (ERROR): 2 sesiones nuevas probadas.
+    const dos = [1, 2].map(() => ({ accion: "reparar", etapa: "construir", categoria: "nube_sin_resultado", causa }));
+    assert.equal(decidir({ diagnostico, tarjeta: { reparaciones: 2, ultimosIntentos: dos }, etapa: "construir" }).accion, "escalar");
+
+    // 2) El lanzamiento: con sesión fija y orquestador, la tarjeta que ya tuvo nube_sin_resultado abre una sesión nueva
+    //    (`claude -p --cloud` sin id) y no le escribe a la sesión fija.
+    const tarjeta = { id: "cmt921xx0001", titulo: "Coordinador nube sin señal", repo: "aizencrm", ultimosIntentos: [{ numero: 1, accion: "reparar", etapa: "construir", categoria: "nube_sin_resultado", causa }] };
+    const registro = registroFalso();
+    const lanzado = await lanzarSesionDeLaNube({ config: configNube, registro, orquestador: true }, { repo: repoFijo, cwd: T, prompt: "construye la tarjeta", tarjeta });
+    assert.equal(lanzado.link, `https://claude.ai/code/${NUEVA}`);
+    assert.equal(lanzado.via, "sin-terminal", "es `claude --cloud`, no la sesión fija");
+    assert.deepEqual(aLaFija(), [], "nada a la sesión fija");
+    assert.ok(registro.lineas.some((l) => /abro una sesión nueva con claude --cloud/.test(l)), registro.lineas.join("\n"));
+
+    // 3) La rama sigue con su sufijo nuevo: la del intento anterior ya está en GitHub -> -nube2.
+    const principal = nombreDeRama(tarjeta);
+    g(REPO, "push", "-q", "origin", `main:refs/heads/${principal}`);
+    const rama = await ramaParaLaNube(repoFijo, tarjeta);
+    assert.equal(rama, `${principal}-nube2`);
+  });
+
+  await prueba("nube sin señal: nunca reusa la sesión de un intento anterior", async () => {
+    const causaVieja = causaConMarca(diagnosticar({ error: errorSinSenal(`https://claude.ai/code/${FIJA}`), etapa: "construir" }).causa, "sesion_nueva");
+    const tarjeta = { id: "cmt921xx0002", titulo: "Otra", repo: "aizencrm", ultimosIntentos: [{ accion: "reparar", categoria: "nube_sin_resultado", causa: causaVieja }], ultimoError: `x\nSesión de la nube: https://claude.ai/code/${NUEVA}` };
+    // Los links de los intentos anteriores (causa y último error), y la fija es una de ellas.
+    assert.deepEqual(sesionesDeIntentosAnteriores(tarjeta).sort(), [FIJA, NUEVA].sort());
+    assert.deepEqual(abreSesionNueva({ orquestador: true }, repoFijo, tarjeta), { nueva: true, porque: "ya_usada" });
+    // Sin modo orquestador, solo con sesión fija, tampoco se le escribe.
+    assert.equal(abreSesionNueva({}, { ...repoFijo, nube: { sesionFija: FIJA, orquestador: false } }, tarjeta).nueva, true);
+
+    // Si `claude --cloud` devolviera la sesión de un intento anterior, no se sigue con ella (nube_sin_resultado: otra nueva).
+    const antes = aLaFija().length;
+    process.env.CLAUDE_FALSO_LINK = `https://claude.ai/code/${NUEVA}`;
+    try {
+      const error = await lanzarSesionDeLaNube({ config: configNube, registro: registroFalso() }, { repo: repoFijo, cwd: T, prompt: "p", tarjeta }).then(
+        () => assert.fail("no tenía que reusar la sesión"),
+        (e) => e,
+      );
+      assert.equal(error.categoria, "nube_sin_resultado", error.message);
+      assert.match(error.message, /no se reusa/);
+    } finally {
+      delete process.env.CLAUDE_FALSO_LINK;
+    }
+    assert.equal(aLaFija().length, antes, "nunca se le escribió a la sesión fija");
+
+    // Sin un intento nube_sin_resultado todo sigue como antes: va a la sesión fija (solo cambia esa tarjeta).
+    const normal = await lanzarSesionDeLaNube({ config: configNube, registro: registroFalso(), orquestador: true }, { repo: repoFijo, cwd: T, prompt: "p", tarjeta: { id: "t3", ultimosIntentos: [{ categoria: "no_compila", causa: "x" }] } });
+    assert.equal(normal.via, "sesion-fija");
+    assert.equal(normal.link, `https://claude.ai/code/${FIJA}`);
   });
 
   console.log(`\n${pruebas} pruebas OK`);

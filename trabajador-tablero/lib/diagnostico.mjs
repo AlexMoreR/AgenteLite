@@ -50,7 +50,9 @@ export const CATEGORIAS = [
  * Las categorías que NO se reparan solas (29-oct-2026, 62 % del uso semanal se fue en reintentos ciegos): van directo al
  * dueño con el link y la línea de qué necesita. Repetirlas no cambia nada hasta que alguien encuentre la causa.
  */
-export const SIN_REPARACION_AUTOMATICA = ["nube_sin_resultado", "nube_pregunta", "plan_con_preguntas", "revision_no_paso", "nube_sin_acceso_repo", "zona", "choque_de_logica"];
+// 25-nov-2026 (parte 2 de «arreglar solo las 4 fallas repetidas»): nube_sin_resultado salió de esta lista. Se repara sola con
+// la estrategia `sesion_nueva`: el reintento abre SIEMPRE una sesión nueva de la nube (nunca la de un intento anterior).
+export const SIN_REPARACION_AUTOMATICA = ["nube_pregunta", "plan_con_preguntas", "revision_no_paso", "nube_sin_acceso_repo", "zona", "choque_de_logica"];
 
 /**
  * Las que no son de la tarea (ya tienen su tope de esperas): no cuentan para "la misma causa 2 veces". El choque con main
@@ -229,6 +231,9 @@ function lineaClave(texto) {
 
 const LINK_DE_LA_NUBE = /https:\/\/claude\.ai\/code\/session_[A-Za-z0-9_-]+/;
 
+/** Las categorías cuya causa termina siempre con el link de la sesión (no se corta nunca). */
+const CON_EL_LINK = [...SIN_REPARACION_AUTOMATICA, "nube_sin_resultado"];
+
 /** La causa en una línea de máximo 200 que termina con el link de la sesión de la nube (si el texto trae uno). */
 function conElLink(frase, texto) {
   const link = String(texto ?? "").match(LINK_DE_LA_NUBE)?.[0];
@@ -248,7 +253,7 @@ function causaDe(categoria, titular, texto) {
   }
   if (categoria === "otra") return enUnaLinea(titular || CAUSA_BASE.otra);
   // La nube y el plan con preguntas: el link de la sesión no se corta nunca (es lo que el dueño abre para ver dónde se quedó).
-  if (SIN_REPARACION_AUTOMATICA.includes(categoria)) return conElLink(titular || CAUSA_BASE[categoria], texto);
+  if (CON_EL_LINK.includes(categoria)) return conElLink(titular || CAUSA_BASE[categoria], texto);
   // El titular de una sesión cortada por Claude no dice nada útil ("Claude falló al construir (código 1)"): se dice la causa.
   if (categoria === "sesion_atascada" && !/atascada|quieta/i.test(titular)) return enUnaLinea(CAUSA_BASE.sesion_atascada);
   if (!titular) return enUnaLinea(CAUSA_BASE[categoria]);
@@ -332,14 +337,32 @@ export const MISMA_CAUSA = "misma causa que el intento anterior, nada distinto q
  */
 // "nube" (26-oct-2026): lo que verificó la nube cambió al subir; la reparación se vuelve a construir y verificar en la nube.
 const MARCAS_DE_ESTRATEGIA = /\s*[[(]estrategia:[^\])]*(?:[\])]|$)/g;
-const ESTRATEGIA_MARCADA = /[[(]estrategia: (opus|partir|nube)\b/g;
+// "sesion_nueva" (25-nov-2026): la nube no dio señal; el reintento abre una sesión nueva. Va antes que "nube" en la lista.
+const ESTRATEGIA_MARCADA = /[[(]estrategia: (sesion_nueva|plan_nuevo|arreglo|opus|partir|nube)\b/g;
+
+/**
+ * La causa con la marca "[estrategia: X]" al final, de máximo 160 letras antes de la marca (lo que agrega el CRM cabe en sus
+ * 200). Si la causa termina con el link de la sesión de la nube, el link no se corta: se recorta el texto de antes.
+ */
+export function causaConMarca(causa, estrategia) {
+  const texto = String(causa ?? "");
+  if (!estrategia) return texto;
+  const link = texto.match(LINK_DE_LA_NUBE)?.[0];
+  const base = link ? `${enUnaLinea(texto.replace(LINK_DE_LA_NUBE, "").replace(/[\s—.:]+$/, ""), 160 - link.length - 3)} — ${link}` : enUnaLinea(texto, 160);
+  return `${base} [estrategia: ${estrategia}]`;
+}
+
+/** Todos los links de sesión de la nube (claude.ai/code/session_…) que aparecen en un texto, sin repetir. */
+export function linksDeSesion(texto) {
+  return [...new Set(String(texto ?? "").match(new RegExp(LINK_DE_LA_NUBE.source, "g")) ?? [])];
+}
 
 /** La causa sin las marcas de estrategia. */
 export function sinMarcaDeEstrategia(causa) {
   return String(causa ?? "").replace(MARCAS_DE_ESTRATEGIA, "").trim();
 }
 
-/** La estrategia que quedó marcada en la causa de un intento ("opus", "partir", "nube") o null (la última si hay varias). */
+/** La estrategia que quedó marcada en la causa de un intento ("opus", "partir", "nube", "sesion_nueva"…) o null (la última si hay varias). */
 export function estrategiaDeLaCausa(causa) {
   return [...String(causa ?? "").matchAll(ESTRATEGIA_MARCADA)].at(-1)?.[1] ?? null;
 }
@@ -537,6 +560,7 @@ const QUE_CAMBIA_POR_ESTRATEGIA = {
   opus: "se construye con un modelo más fuerte (Opus) en vez del de antes",
   nube: "lo que verificó la nube cambió al subir: se vuelve a construir y verificar en la nube",
   partir: "la tarea se divide en partes más chicas",
+  sesion_nueva: "la nube no dio señal: se abre una sesión nueva de la nube (nunca la de un intento anterior) con una rama nueva",
 };
 
 /**
@@ -600,8 +624,9 @@ function reparacionesSeguidasCon(intentos, categoria) {
 export function decidir(entrada = {}) {
   const decision = decidirSinCausa(entrada);
   if (decision.accion !== "reparar") return decision;
-  // Lo que verificó la nube ya no es lo que se subiría: la reparación va a la NUBE (nunca a compilar en aizen1).
-  if (entrada.verificarEnNube) decision.estrategia = "nube";
+  // Lo que verificó la nube ya no es lo que se subiría: la reparación va a la NUBE (nunca a compilar en aizen1). La sesión
+  // nueva (nube sin señal) ya es en la nube: no se cambia.
+  if (entrada.verificarEnNube && decision.estrategia !== "sesion_nueva") decision.estrategia = "nube";
   // Antes de reparar: la causa en una frase y qué cambia frente al intento anterior (va al prompt del siguiente intento).
   const { diagnostico, tarjeta = {}, etapa } = entrada;
   const causa = enUnaLinea(diagnostico?.causa) || sinCausa(etapa, tarjeta.intentos);
@@ -656,7 +681,7 @@ function decidirSinCausa({ diagnostico, tarjeta = {}, etapa, config = {}, archiv
     return { accion: "escalar", cuenta: true, motivo: `choca con main ${choques + 1} veces seguidas: main sigue cambiando lo mismo, lo ve el dueño` };
   }
 
-  // 29-oct-2026: la nube que no dejó resultado (o preguntó) y el plan con preguntas abiertas no se reparan solos.
+  // 29-oct-2026: la nube que preguntó y el plan con preguntas abiertas no se reparan solos (la nube sin resultado sí, desde el 25-nov).
   if (SIN_REPARACION_AUTOMATICA.includes(categoria)) {
     return { accion: "escalar", cuenta: true, motivo: `${categoria}: no se repara solo, lo ve el dueño (con el link)` };
   }
@@ -686,6 +711,13 @@ function decidirSinCausa({ diagnostico, tarjeta = {}, etapa, config = {}, archiv
   }
 
   if (reparaciones >= tope) return { accion: "escalar", cuenta: true, motivo: `ya se hicieron ${reparaciones} reparaciones` };
+
+  // 25-nov-2026 (parte 2): la nube sin señal se reintenta SIEMPRE en una sesión nueva (otra sesión es lo distinto que se
+  // prueba, aunque la causa se lea igual). Con TOPE_DE_FALLAS_IGUALES ya vistas escaló arriba: a la 3.ª queda en ERROR.
+  if (categoria === "nube_sin_resultado") {
+    const vez = intentos.filter((intento) => intento?.categoria === categoria).length + 1;
+    return { accion: "reparar", cuenta: true, estrategia: "sesion_nueva", motivo: `la nube no dio señal (vez ${vez} de ${TOPE_DE_FALLAS_IGUALES + 1}): se reintenta en una sesión nueva` };
+  }
 
   // La MISMA falla que el intento anterior: solo se repara si queda una estrategia distinta que probar, en este orden:
   // verificar otra vez en la nube (si eso es lo que cambió), Opus al construir (si no se usó), partir (si se puede).

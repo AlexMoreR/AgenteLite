@@ -1644,6 +1644,7 @@ export const CATEGORIAS_DE_INTENTO = [
   "sesion_atascada",
   // 29-oct-2026: la nube no dejó resultado (o no dio señal) / dejó un commit "pregunta:" / el plan tiene preguntas abiertas.
   // El Coordinador no las repara solas: van directo a ERROR con el link (diagnostico.mjs: SIN_REPARACION_AUTOMATICA).
+  // 25-nov-2026: nube_sin_resultado ya sí se repara sola, siempre en una sesión nueva de la nube (estrategia sesion_nueva).
   "nube_sin_resultado",
   "nube_pregunta",
   "plan_con_preguntas",
@@ -1716,14 +1717,21 @@ export function resumenDeEscalada(valor: unknown, porDefecto = "El Coordinador n
   return lineas.join("\n") || porDefecto;
 }
 
-/** La estrategia que sugiere el Coordinador al reparar: solo se anota ("opus" | "partir"); null si no vino o no es una. */
-export function estrategiaDeEntrada(valor: unknown): "opus" | "partir" | null {
+/**
+ * Las estrategias que el Coordinador puede sugerir al reparar (solo se anotan en la causa del intento). 25-nov-2026:
+ * además de opus y partir, sesion_nueva (la nube no dio señal: otra sesión nueva), plan_nuevo, arreglo y nube.
+ */
+export const ESTRATEGIAS_DE_REPARACION = ["opus", "partir", "sesion_nueva", "plan_nuevo", "arreglo", "nube"] as const;
+export type EstrategiaDeReparacion = (typeof ESTRATEGIAS_DE_REPARACION)[number];
+
+/** La estrategia que sugiere el Coordinador al reparar: solo se anota; null si no vino o no es una de ESTRATEGIAS_DE_REPARACION. */
+export function estrategiaDeEntrada(valor: unknown): EstrategiaDeReparacion | null {
   const limpia = typeof valor === "string" ? valor.trim().toLowerCase() : "";
-  return limpia === "opus" || limpia === "partir" ? limpia : null;
+  return (ESTRATEGIAS_DE_REPARACION as readonly string[]).includes(limpia) ? (limpia as EstrategiaDeReparacion) : null;
 }
 
 /** La causa con la estrategia anotada al final, sin pasar de 200 letras. */
-export function causaConEstrategia(causa: string, estrategia: "opus" | "partir" | null): string {
+export function causaConEstrategia(causa: string, estrategia: EstrategiaDeReparacion | null): string {
   if (!estrategia) return causa;
   const cola = ` (estrategia: ${estrategia})`;
   return `${causa.slice(0, MAXIMO_CAUSA_DEL_INTENTO - cola.length)}${cola}`;

@@ -20,11 +20,13 @@
 //                         dice que la app de GitHub no está en el repo (github_preflight_failed), ERROR enseguida.
 //                         Si falla (nube_sin_acceso_repo) deja una MARCA por repo (sinAccesoALaNube): durante
 //                         nube.sinAccesoMinutos las tarjetas siguientes de ese proyecto no se mandan a la nube.
+//                         25-nov-2026: una tarjeta que ya tuvo un intento nube_sin_resultado abre SIEMPRE una sesión
+//                         nueva (aunque haya sesión fija o modo orquestador) y nunca le escribe a la sesión de un intento anterior.
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { archivosDelPlan } from "./choques.mjs";
-import { esErrorDeSesionClaude, esLimiteDeUso } from "./diagnostico.mjs";
+import { esErrorDeSesionClaude, esLimiteDeUso, linksDeSesion } from "./diagnostico.mjs";
 import { ErrorDeEtapa, entornoSeguro } from "./etapas.mjs";
 import { urlDelRemoto, webDeGithub } from "./git.mjs";
 import { correr, ultimasLineas } from "./procesos.mjs";
@@ -656,17 +658,68 @@ export async function mandarASesionFija(contexto, { repo, cwd, prompt }) {
   return { link, via: "sesion-fija", salida: texto, modeloForzado: false };
 }
 
+/*
+ * NUBE SIN SEÑAL (25-nov-2026, parte 2 de «arreglar solo las 4 fallas repetidas»; T-921: el reintento volvió a mandar la tarea a
+ * la misma sesión fija, session_01XuE6FdupseQWg3mMsf45er, que ya no daba señal). Si la tarjeta ya tiene un intento
+ * nube_sin_resultado, el lanzamiento siguiente abre SIEMPRE una sesión nueva con `claude --cloud`, aunque el proyecto tenga sesión
+ * fija o esté en modo orquestador (solo esa tarjeta). Antes de escribirle a una sesión se compara contra los links de los intentos
+ * anteriores: nunca se reusa uno. La rama nueva (-nube2, -nube3) ya la da ramaParaLaNube (etapas.mjs).
+ */
+
+/** "session_…" de un link (o de un id suelto), para comparar sesiones; null si no hay. */
+export function idDeSesion(valor) {
+  return String(valor ?? "").match(/session_[A-Za-z0-9_-]+/)?.[0] ?? null;
+}
+
+/** ¿La tarjeta ya tuvo un intento en que la nube no dio señal (nube_sin_resultado)? */
+export const vieneDeNubeSinSenal = (tarjeta) => (tarjeta?.ultimosIntentos ?? []).some((intento) => intento?.categoria === "nube_sin_resultado");
+
+/**
+ * Las sesiones de la nube ("session_…") que ya usaron los intentos anteriores de la tarjeta: las de sus causas, la del último error
+ * y la de la construcción que guardó el CRM. Sin repetir.
+ */
+export function sesionesDeIntentosAnteriores(tarjeta) {
+  const textos = [...(tarjeta?.ultimosIntentos ?? []).map((intento) => intento?.causa), tarjeta?.ultimoError, tarjeta?.resultado?.construccion?.linkSesion];
+  return [...new Set(textos.flatMap((texto) => linksDeSesion(texto)).map(idDeSesion).filter(Boolean))];
+}
+
+/** ¿`link` (o id) es la sesión de un intento anterior? */
+export const esSesionDeUnIntentoAnterior = (link, usadas) => Boolean(idDeSesion(link)) && (usadas ?? []).includes(idDeSesion(link));
+
+/**
+ * ¿Este lanzamiento abre una sesión nueva en vez de escribirle a la sesión fija? -> { nueva, porque } (porque: "ocupada",
+ * "sin_senal", "ya_usada" o null). Sin sesión fija siempre se abre una nueva (`claude --cloud`) y `nueva` es false.
+ */
+export function abreSesionNueva(contexto, repo, tarjeta = null) {
+  const fija = sesionFijaDe(repo);
+  if (!fija) return { nueva: false, porque: null };
+  if (vieneDeNubeSinSenal(tarjeta)) {
+    return { nueva: true, porque: esSesionDeUnIntentoAnterior(fija, sesionesDeIntentosAnteriores(tarjeta)) ? "ya_usada" : "sin_senal" };
+  }
+  // contexto.sesionNueva (31-oct-2026): la sesión fija ya está ocupada con otra tarea del proyecto; esta abre una nueva.
+  // En el modo orquestador nunca se abre una sesión nueva (salvo la nube sin señal, arriba): todo va a la sesión fija.
+  return contexto?.sesionNueva === true && !esOrquestador(repo) ? { nueva: true, porque: "ocupada" } : { nueva: false, porque: null };
+}
+
 /**
  * Lanza la sesión de la nube de una tarjeta: a la sesión fija del proyecto si la tiene; si no, `claude --cloud` con el chequeo
  * previo. Si la nube no tiene acceso al repo (nube_sin_acceso_repo), marca el proyecto por config.nube.sinAccesoMinutos.
+ * `tarjeta` (25-nov-2026): con un intento nube_sin_resultado abre siempre una sesión nueva y nunca reusa la de un intento anterior.
  */
-export async function lanzarSesionDeLaNube(contexto, { repo, cwd, prompt, modelo = null }) {
-  // contexto.sesionNueva (31-oct-2026): la sesión fija ya está ocupada con otra tarea del proyecto; esta abre una nueva.
-  // En el modo orquestador nunca se abre una sesión nueva: todo va a la sesión fija.
-  const nueva = Boolean(sesionFijaDe(repo)) && contexto.sesionNueva === true && !esOrquestador(repo);
+export async function lanzarSesionDeLaNube(contexto, { repo, cwd, prompt, modelo = null, tarjeta = null }) {
+  const { nueva, porque } = abreSesionNueva(contexto, repo, tarjeta);
+  const usadas = vieneDeNubeSinSenal(tarjeta) ? sesionesDeIntentosAnteriores(tarjeta) : [];
+  if (porque === "sin_senal" || porque === "ya_usada") {
+    contexto.registro?.info?.(`nube sin señal en un intento anterior: abro una sesión nueva con claude --cloud (no le escribo a la sesión fija ${sesionFijaDe(repo)})`);
+  }
   try {
     if (sesionFijaDe(repo) && !nueva) return await mandarASesionFija(contexto, { repo, cwd, prompt });
-    return await lanzarEnNube(contexto, { cwd, prompt, modelo, repo });
+    const lanzado = await lanzarEnNube(contexto, { cwd, prompt, modelo, repo });
+    // Nunca se sigue con la sesión de un intento anterior (la nube no debería devolverla, pero si pasa no se le escribe).
+    if (esSesionDeUnIntentoAnterior(lanzado?.link, usadas)) {
+      throw new ErrorDeEtapa(`claude --cloud devolvió la sesión de un intento anterior (${lanzado.link}): no se reusa; la tarjeta se reintenta con otra sesión nueva.`, { categoria: "nube_sin_resultado" });
+    }
+    return lanzado;
   } catch (error) {
     if (error?.categoria === "nube_sin_acceso_repo" && nueva) {
       // Solo se dejan de abrir sesiones nuevas de este proyecto; la tarjeta vuelve a la fila sin gastar intento (espera,

@@ -35,8 +35,10 @@ import { debePartirAntes, ordenarCandidatas, partesSinAlcanceNuevo } from "./rep
 import {
   CAUSAS_PARA_AVISAR_AL_CTO,
   FRASES_DE_LA_CAUSA,
+  TOPE_DE_FALLAS_IGUALES,
   TOPE_DE_REPARACIONES,
   TOPE_INTENTOS_DE_SUBIDA,
+  causaConMarca,
   causaExterna,
   causasDistintas,
   decidir,
@@ -72,7 +74,7 @@ import { anotarAvisoAlCto } from "./notas-boveda.mjs";
 import { notaDeYaHecho } from "./revision-previa.mjs";
 import { modeloDelPaso, nombreDelModelo } from "./modelos.mjs";
 import { crearEstadoDeMotores, crearVigilanteDeUso, motorDeLaEtapa, nombreDelMotor, textoDelAvisoDeLimite } from "./motores.mjs";
-import { commitsDeLaRama, esOrquestador, esTareaGrande, nombreDelProyecto, preguntaDelCommit, resultadoDelCommit, sesionFijaDe, sinAccesoALaNube, sinAccesoASesionesNuevas } from "./nube.mjs";
+import { commitsDeLaRama, esOrquestador, esTareaGrande, nombreDelProyecto, preguntaDelCommit, resultadoDelCommit, sesionFijaDe, sinAccesoALaNube, sinAccesoASesionesNuevas, vieneDeNubeSinSenal } from "./nube.mjs";
 import { datosDelLatidoDeConstruir } from "./latido.mjs";
 import { crearPausaPorUso } from "./pausa-uso.mjs";
 import { crearMedidor, faltanRecursos, leerCarga } from "./recursos.mjs";
@@ -632,6 +634,7 @@ function anotarElEnsayoQueFallo({ config, registro }, tarjeta, error, salida) {
       queFallo: "ensayo",
       causa: MOTIVO_ENSAYO,
       lineasDelError,
+      queSeIntento: { numero: (Number(tarjeta.reparaciones) || 0) + 1, de: Number(tarjeta.topeReparaciones) || TOPE_DE_REPARACIONES, detalle: "ensayo de migraciones antes de subir" },
       comoSeResolvio: DECISION_DEL_ENSAYO[salida?.accion] ?? `decisión: ${salida?.accion ?? "sin decisión"}`,
       clase: "codigo",
     });
@@ -640,7 +643,55 @@ function anotarElEnsayoQueFallo({ config, registro }, tarjeta, error, salida) {
   }
 }
 
-async function repararLaFalla({ crm, config, registro, contexto, bitacora, pausaSesion = null }, tarjeta, hacer, error, nota) {
+/*
+  LAS 4 FALLAS REPETIDAS EN LA BITÁCORA (25-nov-2026, parte 2). Cada vez que falla por una de ellas, repararLaFalla deja una
+  entrada con anotarIncidente (la carpeta de trabajo y la línea en el cerebro; de noche pasa a docs/incidentes.md). La reversión
+  falsa se anota en resolverLaSubidaDeshecha. Solo anota: no cambia la decisión, y si la bitácora falla, la tarjeta ya siguió.
+*/
+
+/** La categoría del diagnóstico -> la clave de QUE_FALLO de la bitácora (solo las fallas repetidas que se anotan). */
+const FALLAS_REPETIDAS = { nube_sin_resultado: "nube_sin_senal", no_cambio_nada: "no_cambio_nada", fallan_pruebas: "fallan_pruebas" };
+
+/** Cómo se resolvió, según lo que se hizo (para la bitácora): una clave de COMO_SE_RESOLVIO o un texto. */
+function comoSeResolvioLaFalla(salida, estrategia) {
+  if (salida?.accion === "reparar") return estrategia === "sesion_nueva" ? "sesion_nueva" : `la tarjeta vuelve a la fila para repararla${estrategia ? ` (estrategia ${estrategia})` : ""}`;
+  if (salida?.accion === "escalar") return "pasó al dueño con un resumen de la falla (ERROR)";
+  if (salida?.causaExterna) return `espera a la tarjeta de la causa (${salida.causaExterna})`;
+  return DECISION_DEL_ENSAYO[salida?.accion] ?? `decisión: ${salida?.accion ?? "sin decisión"}`;
+}
+
+/** Anota en la bitácora una de las fallas repetidas (si es una). Nunca lanza. */
+function anotarLaFallaRepetida({ config, registro }, tarjeta, nota, salida) {
+  const queFallo = FALLAS_REPETIDAS[nota?.diagnostico?.categoria];
+  if (!queFallo) return;
+  try {
+    const categoria = nota.diagnostico.categoria;
+    // Intento N de 3: cuántas veces ya falló así la tarjeta (sus intentos) más esta; a la 3.ª queda la alerta.
+    const numero = (tarjeta.ultimosIntentos ?? []).filter((intento) => intento?.categoria === categoria).length + 1;
+    anotarIncidente({
+      config,
+      registro,
+      tarjeta,
+      repo: tarjeta.repo,
+      queFallo,
+      causa: nota.diagnostico.causa,
+      lineasDelError: String(nota.diagnostico.error ?? "").split(/\r?\n/).filter((linea) => /error|fall|not ok|✖|assert|NO_CAMBIE|señal|resultado/i.test(linea)),
+      queSeIntento: { numero, de: TOPE_DE_FALLAS_IGUALES + 1, detalle: nota.decision?.motivo ?? salida?.accion },
+      comoSeResolvio: comoSeResolvioLaFalla(salida, nota.decision?.estrategia),
+      clase: "codigo",
+    });
+  } catch (otro) {
+    registro.aviso(`bitácora: no se pudo anotar la falla repetida (${String(otro?.message ?? otro).split("\n")[0]})`);
+  }
+}
+
+async function repararLaFalla(args, tarjeta, hacer, error, nota) {
+  const salida = await repararLaFallaSinAnotar(args, tarjeta, hacer, error, nota);
+  anotarLaFallaRepetida(args, tarjeta, nota, salida);
+  return salida;
+}
+
+async function repararLaFallaSinAnotar({ crm, config, registro, contexto, bitacora, pausaSesion = null }, tarjeta, hacer, error, nota) {
   // Una subida que se deshizo trae su causa en sencillo (deshacerSubida, 23-nov-2026): el motivo y la causa empiezan con ella.
   const sencilla = typeof error?.reversion?.sencilla === "string" ? error.reversion.sencilla.trim() : "";
   const mensaje = error instanceof Error ? error.message : String(error);
@@ -711,7 +762,8 @@ async function repararLaFalla({ crm, config, registro, contexto, bitacora, pausa
     modeloConstruir,
     verificarEnNube: Boolean(error?.verificarEnNube),
   });
-  registro.info(`diagnóstico: ${diagnostico.categoria} — ${diagnostico.causa}; decisión: ${decision.accion} (${decision.motivo})${decision.estrategia === "nube" ? "; se verifica otra vez en la nube" : ""}`);
+  nota.decision = decision;
+  registro.info(`diagnóstico: ${diagnostico.categoria} — ${diagnostico.causa}; decisión: ${decision.accion} (${decision.motivo})${decision.estrategia === "nube" ? "; se verifica otra vez en la nube" : decision.estrategia === "sesion_nueva" ? "; se reintenta en una sesión nueva de la nube" : ""}`);
   const resultado = { ok: false, motivo, zonas: error?.zonas ?? [], categoria: diagnostico.categoria, accion: decision.accion };
   // La causa nunca va vacía al CRM (30-oct-2026): si no se supo, se dice en qué etapa e intento (`intento`, arriba).
 
@@ -771,7 +823,8 @@ async function repararLaFalla({ crm, config, registro, contexto, bitacora, pausa
   }
   if (decision.accion === "reparar") {
     // 160 + la marca (19) + lo que agrega el CRM (" (estrategia: opus)", 19) caben en sus 200 letras: la marca no se corta.
-    const causa = decision.estrategia ? `${enUnaLinea(intento.causa, 160)} [estrategia: ${decision.estrategia}]` : intento.causa;
+    // Con el link de la sesión de la nube (sesion_nueva), el link tampoco: el siguiente intento lo compara para no reusarlo.
+    const causa = causaConMarca(intento.causa, decision.estrategia);
     // Antes de reparar, la causa y qué cambia frente al intento anterior (el siguiente intento los recibe en su prompt).
     const queCambia = decision.queCambia ?? queCambiaFrenteAlAnterior(diagnostico, tarjeta.ultimosIntentos, decision.estrategia);
     registro.info(`CAUSA: ${intento.causa} | QUÉ CAMBIA: ${queCambia}`);
@@ -818,17 +871,24 @@ export async function resolverLaSubidaDeshecha({ crm, config, registro }, tarjet
   const salida = await decidirLaSubidaDeshecha({ crm, registro }, tarjeta, hacer, error, datos, como);
   try {
     const reversion = error.reversion;
+    const falsa = reversion.clase === "falsa";
     anotarIncidente({
       config,
       registro,
       tarjeta,
       repo: tarjeta.repo,
       commit: reversion.commit ? String(reversion.commit).slice(0, 10) : null,
-      // La 1.ª línea de la vigilancia empieza con "Revertida:" (deshacerSubida); la del despliegue, no.
-      queFallo: /^Revertida:/.test(String(error?.message ?? "")) ? "vigilancia" : "no_arranco",
+      // La 1.ª línea de la vigilancia empieza con "Revertida:" (deshacerSubida); la del despliegue, no. 25-nov-2026: la
+      // reversión falsa (parte 1) se anota como reversion_falsa / resubir.
+      queFallo: falsa ? "reversion_falsa" : /^Revertida:/.test(String(error?.message ?? "")) ? "vigilancia" : "no_arranco",
       causa: datos.causaParaLaTarjeta || datos.diagnostico?.causa,
       lineasDelError: Array.isArray(reversion.lineas) ? reversion.lineas : [],
-      comoSeResolvio: como.valor ?? "no registrado",
+      queSeIntento: {
+        numero: intentosDeSubida(tarjeta.ultimosIntentos) + 1,
+        de: TOPE_INTENTOS_DE_SUBIDA,
+        detalle: falsa ? "no suma al tope de subidas: se sube el mismo commit" : `subida deshecha (${reversion.clase ?? "sin clase"})`,
+      },
+      comoSeResolvio: falsa && como.valor === COMO_DE_LA_REVERSION_FALSA ? "resubir" : (como.valor ?? "no registrado"),
       clase: reversion.clase ?? "desconocida",
     });
   } catch (otro) {
@@ -836,6 +896,9 @@ export async function resolverLaSubidaDeshecha({ crm, config, registro }, tarjet
   }
   return salida;
 }
+
+/** Lo que queda en `como.valor` cuando la reversión falsa se soltó para volver a subir el mismo commit. */
+const COMO_DE_LA_REVERSION_FALSA = "reintento del mismo commit (reversión falsa)";
 
 /** Lo de siempre con la subida deshecha (ver arriba). `como.valor` queda con lo que se decidió, para la bitácora. */
 async function decidirLaSubidaDeshecha({ crm, registro }, tarjeta, hacer, error, { diagnostico, intento, motivo, causaParaLaTarjeta }, como) {
@@ -884,7 +947,7 @@ async function decidirLaSubidaDeshecha({ crm, registro }, tarjeta, hacer, error,
   if (reversion.clase === "falsa") {
     const nota = enUnaLinea(`${sencilla} Se vuelve a subir el mismo commit en la vuelta siguiente (no suma al tope de subidas).`, 200);
     if (await soltar(crm, registro, tarjeta, nota, { ...intento, causa: nota })) {
-      como.valor = "reintento del mismo commit (reversión falsa)";
+      como.valor = COMO_DE_LA_REVERSION_FALSA;
       registro.info(`reversión falsa: "${tarjeta.titulo}" se vuelve a subir con el mismo commit en la vuelta siguiente`);
       return { ...resultado, accion: "esperar" };
     }
@@ -1368,13 +1431,16 @@ export function crearPlanificador({
     const n = nube ? null : cupoLibre();
     const suRegistro = registroDeLaSesion(registro, nube ? `nube ${idCorto(tarjeta.id)}` : `s${n} ${idCorto(tarjeta.id)}`);
     suRegistro.info(`tomé "${tarjeta.titulo}" (${tarjeta.id}, ${tarjeta.repo}${nombreDeAgente(tarjeta)}) para ${hacer}${nube ? ` — se construye en la nube (${motivo})` : ""}`);
-    const vivo = { inicioEn: Date.now(), ...(nube && orquestador ? { orquestador: true } : {}) };
+    // 25-nov-2026 (parte 2): una tarjeta que ya tuvo un intento nube_sin_resultado no va a la sesión fija ni a la del
+    // orquestador: abre una sesión nueva (solo esa tarjeta; lanzarSesionDeLaNube lo vuelve a comprobar).
+    const sinSenal = nube && hacer === "construir" && vieneDeNubeSinSenal(tarjeta);
+    const vivo = { inicioEn: Date.now(), ...(nube && orquestador && !sinSenal ? { orquestador: true } : {}) };
     // 31-oct-2026 (parte 4): las otras del proyecto que ya construyen en la nube. Con la sesión fija ocupada, esta abre una
     // sesión nueva; y el ajuste de cupos anota si corre sola o acompañada.
     const companeras = nube && hacer === "construir" ? construyendoEnNube(tarjeta.repo) : [];
     // En el modo orquestador nunca se abre una sesión nueva ni cuenta para el ajuste de cupos: va a la sesión fija.
     if (nube && hacer === "construir" && !vivo.orquestador) {
-      if (sesionFijaOcupada(tarjeta.repo)) vivo.sesionNueva = true;
+      if (sesionFijaOcupada(tarjeta.repo) || (sinSenal && sesionFijaDe(config.repos[tarjeta.repo]))) vivo.sesionNueva = true;
       ajusteCupos.empezo(tarjeta.id, tarjeta.repo, companeras.length > 0, companeras.map((s) => s.tarjeta.id));
     }
     const sesion = { tarjeta, hacer, huella, vivo };

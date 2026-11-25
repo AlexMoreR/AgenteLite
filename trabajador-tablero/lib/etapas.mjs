@@ -62,7 +62,7 @@ import {
   textoParaLaNube,
 } from "./revisores.mjs";
 import { esLimiteDeCodex, nombreDelMotor } from "./motores.mjs";
-import { esOrquestador, esperarResultado, lanzarSesionDeLaNube, nombreDelProyecto, sesionFijaDe } from "./nube.mjs";
+import { abreSesionNueva, esOrquestador, esperarResultado, lanzarSesionDeLaNube, nombreDelProyecto, sesionFijaDe, vieneDeNubeSinSenal } from "./nube.mjs";
 import { archivosDelPlan } from "./choques.mjs";
 import { vigilarSesion } from "./atasco.mjs";
 import { cerrarProcesosEn, comoTexto, correr, detalleDeFalla, lineasQueFallaron, ultimasLineas } from "./procesos.mjs";
@@ -945,9 +945,9 @@ export function promptDeNube(tarjeta, repo, rama, { entorno = {}, modelo = null,
 
 /**
  * Una rama que no exista todavía en GitHub: tablero/<id>-<nombre>, o con -nube2, -nube3… si un intento anterior ya la
- * dejó (la de la nube no se rehace con --force: cada intento usa la suya).
+ * dejó (la de la nube no se rehace con --force: cada intento usa la suya). También la sesión nueva tras una nube sin señal.
  */
-async function ramaParaLaNube(repo, tarjeta) {
+export async function ramaParaLaNube(repo, tarjeta) {
   const principal = nombreDeRama(tarjeta);
   for (let n = 1; n <= 20; n += 1) {
     const rama = n === 1 ? principal : `${principal}-nube${n}`;
@@ -1054,10 +1054,12 @@ async function construirLaParteDeLaNube(contexto, tarjeta, { repo, rama, base, r
     const modelo = modeloDelPaso(config, "construir", tarjeta);
     registro.info(`construir en la nube: modelo ${nombreDelModelo(modelo)}`);
     const conRevision = revisionActiva(config);
-    const prompt = promptDeNube(tarjeta, repo, rama, { entorno, modelo, lecciones: leccionesDelAgente(contexto, repo), incidentes: incidentesDelRepo(contexto, repo, carpeta), revision: conRevision, modeloRevisar: modeloDelPaso(config, "revisar", tarjeta), modeloRevisarSeguridad: modeloDelPaso(config, "revisarSeguridad", tarjeta), vueltasRevision: vueltasDeRevision(config), sesionFija: Boolean(sesionFijaDe(repo)) && contexto.sesionNueva !== true, orquestador: contexto.orquestador === true && esOrquestador(repo) });
+    // 25-nov-2026 (parte 2): con un intento nube_sin_resultado la tarjeta abre una sesión nueva (no la fija ni la del orquestador).
+    const enSesionFija = Boolean(sesionFijaDe(repo)) && !abreSesionNueva(contexto, repo, tarjeta).nueva;
+    const prompt = promptDeNube(tarjeta, repo, rama, { entorno, modelo, lecciones: leccionesDelAgente(contexto, repo), incidentes: incidentesDelRepo(contexto, repo, carpeta), revision: conRevision, modeloRevisar: modeloDelPaso(config, "revisar", tarjeta), modeloRevisarSeguridad: modeloDelPaso(config, "revisarSeguridad", tarjeta), vueltasRevision: vueltasDeRevision(config), sesionFija: enSesionFija, orquestador: contexto.orquestador === true && esOrquestador(repo) && !vieneDeNubeSinSenal(tarjeta) });
     // 29-oct-2026: a la sesión fija del proyecto (repos.<repo>.nube.sesionFija) si la tiene; si no, `claude --cloud` con el
     // chequeo previo. La rama ya está en GitHub (pushDeRama de arriba) antes de lanzar: la sesión fija la baja con git fetch.
-    const lanzado = await lanzarSesionDeLaNube(contexto, { repo, cwd: carpeta, prompt, modelo });
+    const lanzado = await lanzarSesionDeLaNube(contexto, { repo, cwd: carpeta, prompt, modelo, tarjeta });
     contexto.fase?.("construyendo", { lugar: "nube", linkSesion: lanzado.link });
     registro.info(`construyo en la nube: sesión ${lanzado.link}, rama ${rama} (${lanzado.via})`);
     let resultado;

@@ -63,6 +63,17 @@ try {
     assert.match(entrada, /^- Causa: El cambio tiene un error en el programa/m);
     assert.match(entrada, /^- Cómo se resolvió: tarjeta 'Arreglo de subida'$/m);
     assert.match(entrada, /^- Regla: .+/m);
+    // 25-nov-2026 (parte 2): la línea "Qué se intentó" (intento N de 3); sin el dato, "no registrado" (no se inventa).
+    assert.match(entrada, /^- Qué se intentó: no registrado$/m);
+    const conIntento = armarEntrada({ ...base, queFallo: "nube_sin_senal", comoSeResolvio: "sesion_nueva", queSeIntento: { numero: 2, de: 3, detalle: "otra sesión nueva de la nube" } });
+    assert.match(conIntento, /^- Qué se intentó: intento 2 de 3 \(otra sesión nueva de la nube\)$/m);
+    assert.match(conIntento, /^- Qué falló: la sesión de la nube no dio señal$/m);
+    assert.match(conIntento, /^- Cómo se resolvió: reintento en una sesión nueva de la nube$/m);
+    assert.match(resumenDeUnaLinea(conIntento), / · qué se intentó: intento 2 de 3 \(otra sesión nueva de la nube\)$/);
+    // Las 4 fallas repetidas y sus decisiones.
+    assert.match(armarEntrada({ ...base, queFallo: "no_cambio_nada", comoSeResolvio: "plan_nuevo" }), /^- Qué falló: la sesión no cambió nada$\n(?:.*\n)*- Cómo se resolvió: se planea de nuevo$/m);
+    assert.match(armarEntrada({ ...base, queFallo: "fallan_pruebas", comoSeResolvio: "ya_en_main" }), /^- Qué falló: fallaron las pruebas$\n(?:.*\n)*- Cómo se resolvió: ya estaba en main: pasa a HECHO$/m);
+    assert.match(armarEntrada({ ...base, queFallo: "reversion_falsa", comoSeResolvio: "resubir" }), /^- Cómo se resolvió: se vuelve a subir el mismo commit$/m);
     assert.match(entrada, /```\nTypeError: Cannot read[^\n]*\nat editar \(a\.ts:1\)\n```/);
     // Los tres "Qué falló" y las tres decisiones.
     assert.match(armarEntrada({ ...base, queFallo: "vigilancia" }), /^- Qué falló: la vigilancia de 30 min la deshizo$/m);

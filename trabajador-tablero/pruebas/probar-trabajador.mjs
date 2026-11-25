@@ -1325,10 +1325,13 @@ await prueba("29-oct: la nube sin resultado, la nube que pregunta y el plan con 
   // Sin la categoría (un error que llega como texto), el mensaje igual se reconoce (y no como tiempo_agotado).
   assert.equal(diagnosticar({ error: new Error(`La sesión de la nube no dio señal (ni el commit "inicio:" ni ningún otro) en la rama r en 20 min: se cortó la espera. Mírala: ${LINK_PRUEBA}`), etapa: "construir" }).categoria, "nube_sin_resultado");
   assert.equal(diagnosticar({ error: new Error(`La sesión de la nube hizo una pregunta y paró: ¿Qué ruta usa el CRM?. Mírala: ${LINK_PRUEBA}`), etapa: "construir" }).categoria, "nube_pregunta");
-  for (const categoria of ["nube_sin_resultado", "nube_pregunta", "plan_con_preguntas"]) {
+  for (const categoria of ["nube_pregunta", "plan_con_preguntas"]) {
     const decision = decidir({ diagnostico: { categoria, causa: "x" }, tarjeta: { reparaciones: 0, ultimosIntentos: [] }, etapa: "construir" });
     assert.deepEqual([decision.accion, decision.cuenta], ["escalar", true], categoria);
   }
+  // 25-nov-2026 (parte 2): la nube sin resultado ya no va directo al dueño: se repara en una sesión nueva (a la 3.ª, ERROR).
+  const sinSenal = decidir({ diagnostico: { categoria: "nube_sin_resultado", causa: "x" }, tarjeta: { reparaciones: 0, ultimosIntentos: [] }, etapa: "construir" });
+  assert.deepEqual([sinSenal.accion, sinSenal.cuenta, sinSenal.estrategia], ["reparar", true, "sesion_nueva"]);
   const resumen = resumenDeEscalada({ tarjeta: {}, intentos: [], diagnostico: sinResultado });
   assert.match(resumen, new RegExp(LINK_PRUEBA.replace(/[.]/g, "\\.")));
   assert.match(resumen.split("\n")[2], /^Qué necesita de ti: Abrir el link de la sesión de la nube/);

@@ -15,11 +15,18 @@ import { escribirNotaEnLaBoveda } from "./notas-boveda.mjs";
 export const RUTA_EN_BOVEDA_POR_DEFECTO = "06 Tecnología/Bitácora de incidentes.md";
 export const BITACORA_POR_DEFECTO = { rutaEnBoveda: RUTA_EN_BOVEDA_POR_DEFECTO, entradasEnPrompt: 15 };
 
-/** Qué falló: los tres casos que se anotan. */
+/**
+ * Qué falló: los casos que se anotan. 25-nov-2026 (parte 2 de «arreglar solo las 4 fallas repetidas»): también las 4 fallas
+ * repetidas del Coordinador (la nube sin señal, no cambió nada, fallan las pruebas y la reversión falsa).
+ */
 export const QUE_FALLO = {
   no_arranco: "no arrancó",
   vigilancia: "la vigilancia de 30 min la deshizo",
   ensayo: "falló el ensayo de migraciones",
+  nube_sin_senal: "la sesión de la nube no dio señal",
+  no_cambio_nada: "la sesión no cambió nada",
+  fallan_pruebas: "fallaron las pruebas",
+  reversion_falsa: "se deshizo antes de que el servidor bajara la versión (reversión falsa)",
 };
 
 /** Cómo se resolvió: la decisión que se tomó en ese momento. */
@@ -27,7 +34,27 @@ export const COMO_SE_RESOLVIO = {
   reintento: "reintento por falla pasajera",
   arreglo: "tarjeta 'Arreglo de subida'",
   alertas: "aviso en Alertas a la 3.ª vez",
+  sesion_nueva: "reintento en una sesión nueva de la nube",
+  plan_nuevo: "se planea de nuevo",
+  ya_en_main: "ya estaba en main: pasa a HECHO",
+  resubir: "se vuelve a subir el mismo commit",
 };
+
+/** Cuántos intentos se dan por defecto antes de la alerta (la línea "Qué se intentó: intento N de 3"). */
+export const INTENTOS_POR_DEFECTO = 3;
+
+/**
+ * La línea "Qué se intentó": "intento N de 3 (lo que se probó)". `queSeIntento`: { numero, de?, detalle? } o un texto.
+ * Sin dato: "no registrado" (nunca se inventa).
+ */
+export function lineaQueSeIntento(queSeIntento) {
+  if (typeof queSeIntento === "string") return linea(queSeIntento, 240) || "no registrado";
+  const numero = Number(queSeIntento?.numero);
+  if (!Number.isInteger(numero) || numero <= 0) return "no registrado";
+  const de = Number.isInteger(Number(queSeIntento?.de)) && Number(queSeIntento.de) > 0 ? Number(queSeIntento.de) : INTENTOS_POR_DEFECTO;
+  const detalle = linea(queSeIntento?.detalle, 200);
+  return `intento ${numero} de ${de}${detalle ? ` (${detalle})` : ""}`;
+}
 
 /** Lo que se escribe cuando no hay causa: nunca se inventa una. */
 export const SIN_CAUSA = "causa no registrada";
@@ -81,10 +108,10 @@ export function fechaDeLaBitacora(fecha = new Date()) {
 }
 
 /** En una línea, sin saltos y de máximo `n` letras. */
-const linea = (texto, n = LARGO_DE_LINEA) => {
+function linea(texto, n = LARGO_DE_LINEA) {
   const limpio = String(texto ?? "").replace(/\s+/g, " ").trim();
   return limpio.length > n ? `${limpio.slice(0, n - 1)}…` : limpio;
-};
+}
 
 /** El id que va en el encabezado: "T-875" tal cual; un id del CRM, en corto (como las ramas). */
 const idDeLaTarjeta = (id) => (/^T-\d+$/.test(String(id ?? "")) ? String(id) : idCorto(id ?? "") || "sin-id");
@@ -104,9 +131,10 @@ const lineasLimpias = (lineas) =>
 
 /**
  * La entrada en markdown. `queFallo`: una clave de QUE_FALLO (o un texto); `comoSeResolvio`: una clave de COMO_SE_RESOLVIO (o
- * un texto); `clase`: para la regla genérica; `commit`: opcional.
+ * un texto); `queSeIntento`: { numero, de, detalle } para la línea "Qué se intentó" (lineaQueSeIntento); `clase`: para la regla
+ * genérica; `commit`: opcional.
  */
-export function armarEntrada({ fecha, tarjeta, repo, queFallo, causa, lineasDelError, comoSeResolvio, clase = "desconocida", commit = null }) {
+export function armarEntrada({ fecha, tarjeta, repo, queFallo, causa, lineasDelError, comoSeResolvio, queSeIntento = null, clase = "desconocida", commit = null }) {
   const cuando = linea(fecha || "fecha no registrada", 40);
   const causaLimpia = linea(causa, 600) || SIN_CAUSA;
   const lineas = lineasLimpias(lineasDelError);
@@ -118,6 +146,7 @@ export function armarEntrada({ fecha, tarjeta, repo, queFallo, causa, lineasDelE
     `- Repo: ${linea(repo, 60) || "sin repo"}${commit ? ` (commit ${linea(commit, 40)})` : ""}`,
     `- Qué falló: ${QUE_FALLO[queFallo] ?? (linea(queFallo, 120) || "no registrado")}`,
     `- Causa: ${causaLimpia}`,
+    `- Qué se intentó: ${lineaQueSeIntento(queSeIntento)}`,
     `- Cómo se resolvió: ${COMO_SE_RESOLVIO[comoSeResolvio] ?? (linea(comoSeResolvio, 200) || "no registrado")}`,
     `- Regla: ${regla}`,
   ];
@@ -140,6 +169,8 @@ export function resumenDeUnaLinea(entrada) {
     `causa: ${linea(campo("Causa"), 200) || SIN_CAUSA}`,
     campo("Cómo se resolvió") && `cómo se resolvió: ${linea(campo("Cómo se resolvió"), 120)}`,
     campo("Regla") && `regla: ${campo("Regla")}`,
+    // 25-nov-2026: al final, para no mover lo que ya leen las búsquedas de la bóveda.
+    campo("Qué se intentó") && `qué se intentó: ${linea(campo("Qué se intentó"), 160)}`,
   ].filter(Boolean);
   return `- ${partes.join(" · ")}`;
 }
