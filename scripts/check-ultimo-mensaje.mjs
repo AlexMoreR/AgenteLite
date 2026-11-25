@@ -7,7 +7,7 @@
  *
  * Sale con codigo 1 si alguna fila difiere.
  */
-import { PGlite } from "@electric-sql/pglite";
+import { abrirBaseDePruebas } from "./lib/base-de-pruebas.mjs";
 import { Prisma } from "@prisma/client";
 
 import { sqlPayloadDeMensajes, sqlUltimoMensajeDeChats } from "../src/lib/ultimo-mensaje-de-chats.ts";
@@ -20,7 +20,7 @@ function azar() {
 }
 const elegir = (lista) => lista[Math.floor(azar() * lista.length)];
 
-const db = new PGlite();
+const db = await abrirBaseDePruebas();
 await db.exec(`
   CREATE TABLE "Message" (
     "id" text PRIMARY KEY,

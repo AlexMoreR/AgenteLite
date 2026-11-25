@@ -1006,10 +1006,10 @@ await prueba("todo lo que reparte trabajo, avisa o resume filtra los tableros ar
 seccion("el Coordinador no toma tarjetas de un tablero archivado (PGlite, las consultas reales)");
 
 {
-  const { PGlite } = await import("@electric-sql/pglite");
+  const { abrirBaseDePruebas } = await import("./lib/base-de-pruebas.mjs");
   const sqlTrabajador = cargar("src/features/tableros-inteligentes/services/sql-trabajador.ts");
   const carpeta = path.join(RAIZ, "prisma", "migrations");
-  const db = new PGlite();
+  const db = await abrirBaseDePruebas();
   for (const nombre of fs.readdirSync(carpeta, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).sort()) {
     await db.exec(fs.readFileSync(path.join(carpeta, nombre, "migration.sql"), "utf8"));
   }

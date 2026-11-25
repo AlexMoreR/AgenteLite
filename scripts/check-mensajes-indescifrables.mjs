@@ -15,7 +15,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { PGlite } from "@electric-sql/pglite";
+import { abrirBaseDePruebas } from "./lib/base-de-pruebas.mjs";
 import { cargar, RAIZ } from "./supervisor-cargar.mjs";
 
 let pruebas = 0;
@@ -452,7 +452,7 @@ await prueba("schema.prisma tiene el modelo con las mismas columnas que la migra
 });
 
 await prueba("PGlite: todas las migraciones + la nueva (dos veces) y el único por (línea, id)", async () => {
-  const db = new PGlite();
+  const db = await abrirBaseDePruebas();
   for (const nombre of fs.readdirSync(CARPETA, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).sort()) {
     await db.exec(fs.readFileSync(path.join(CARPETA, nombre, "migration.sql"), "utf8"));
   }

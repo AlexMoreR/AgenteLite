@@ -5,7 +5,7 @@
 // Correr: npm run test:aprobacion-heredada-via
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { PGlite } from "@electric-sql/pglite";
+import { abrirBaseDePruebas } from "./lib/base-de-pruebas.mjs";
 import { cargar } from "./supervisor-cargar.mjs";
 
 const trabajo = cargar("src/features/tableros-inteligentes/services/reglas-trabajador.ts");
@@ -84,7 +84,7 @@ await prueba("laAprobacionDejaArrancar con la vía heredada: CHATS arranca con v
 });
 
 await prueba("SQL real (PGlite): VIA_DE_LA_ULTIMA_APROBACION y CONDICION_DE_LA_VIA coinciden con la versión TypeScript", async () => {
-  const db = new PGlite();
+  const db = await abrirBaseDePruebas();
   await db.exec(`
     CREATE TABLE "TarjetaTablero" ("id" text, "zonaProtegida" text[] NOT NULL);
     CREATE TABLE "HistorialTarjeta" ("id" serial PRIMARY KEY, "tarjetaId" text, "accion" text, "despues" jsonb, "creadoEn" timestamp, "deshechoEn" timestamp);

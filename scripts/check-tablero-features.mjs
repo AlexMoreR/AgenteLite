@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { PGlite } from "@electric-sql/pglite";
+import { abrirBaseDePruebas } from "./lib/base-de-pruebas.mjs";
 import { cargar } from "./supervisor-cargar.mjs";
 
 const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -28,7 +28,7 @@ const reglas = cargar("src/features/tableros-inteligentes/services/reglas-trabaj
 
 /* ------------------------------------------------------------------ 1. el SQL, en PGlite */
 
-const db = new PGlite();
+const db = await abrirBaseDePruebas();
 for (const nombre of fs.readdirSync(CARPETA, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).sort()) {
   try {
     await db.exec(fs.readFileSync(path.join(CARPETA, nombre, "migration.sql"), "utf8"));

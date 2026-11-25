@@ -4,11 +4,12 @@ import { createHash, randomBytes } from "node:crypto";
 import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 
 import { servirArchivoSubido } from "@/lib/archivos-subidos";
 
 import { migrarTanda, type BaseDeLaMigracion, type Dependencias } from "./migrar-tanda";
+import { abrirBaseDePruebas } from "../../../../scripts/lib/base-de-pruebas.mjs";
 
 /*
   La tanda de la migracion contra un Postgres embebido (PGlite) y una carpeta temporal como
@@ -16,7 +17,8 @@ import { migrarTanda, type BaseDeLaMigracion, type Dependencias } from "./migrar
   No toca ninguna base real ni ningun disco de produccion.
 */
 
-const db = new PGlite();
+// Se abre en before(): un Postgres real si viene PRUEBAS_POSTGRES_URL, si no PGlite (misma interfaz).
+let db: PGlite;
 let raiz = "";
 let progreso: string | null = null;
 let antesDelUpdate: ((sql: string, params: unknown[]) => Promise<void>) | null = null;
@@ -111,6 +113,7 @@ async function enDisco() {
 }
 
 before(async () => {
+  db = (await abrirBaseDePruebas()) as PGlite;
   raiz = await mkdtemp(path.join(tmpdir(), "migracion-"));
 });
 

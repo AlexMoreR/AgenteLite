@@ -16,7 +16,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import { randomBytes } from "node:crypto";
-import { PGlite } from "@electric-sql/pglite";
+import { abrirBaseDePruebas } from "./lib/base-de-pruebas.mjs";
 
 import { sqlPayloadSinArchivos, RUTAS_DE_ARCHIVO_CONOCIDAS } from "../src/lib/payload-sin-archivos.ts";
 import { SQL_PAYLOAD_SIN_ARCHIVOS, sqlPayloadDeMensajes } from "../src/lib/ultimo-mensaje-de-chats.ts";
@@ -63,7 +63,7 @@ await prueba("Mi Dia: recorta tambien la ruta de WAHA {evolution,data,base64}", 
 });
 
 await prueba("el recorte en SQL (PGlite): sin base64 en las pesadas, todo lo demas igual, las chicas intactas", async () => {
-  const db = new PGlite();
+  const db = await abrirBaseDePruebas();
   await db.exec(`CREATE TABLE "Message" ("id" text PRIMARY KEY, "rawPayload" jsonb)`);
   const b64 = randomBytes(120_000).toString("base64");
   const filas = {

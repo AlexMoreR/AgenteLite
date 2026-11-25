@@ -5,7 +5,7 @@
 // Correr: npm run test:features-auto-aprobar
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { PGlite } from "@electric-sql/pglite";
+import { abrirBaseDePruebas } from "./lib/base-de-pruebas.mjs";
 import { cargar } from "./supervisor-cargar.mjs";
 
 const f = cargar("src/features/tableros-inteligentes/services/reglas-features.ts");
@@ -190,7 +190,7 @@ await prueba("esReglaFeaturesConHerencia (TS): la última aprobación vigente (o
 });
 
 await prueba("SQL real (PGlite): CONDICION_DE_LA_VIA deja arrancar la regla en TODAS las zonas y nada más cambia", async () => {
-  const db = new PGlite();
+  const db = await abrirBaseDePruebas();
   await db.exec(`
     CREATE TABLE "TarjetaTablero" ("id" text, "zonaProtegida" text[] NOT NULL);
     CREATE TABLE "HistorialTarjeta" ("id" serial PRIMARY KEY, "tarjetaId" text, "accion" text, "despues" jsonb, "creadoEn" timestamp, "deshechoEn" timestamp);
@@ -228,7 +228,7 @@ await prueba("SQL real (PGlite): CONDICION_DE_LA_VIA deja arrancar la regla en T
 });
 
 await prueba("SQL_ANCESTROS (PGlite): sube por padreId a cualquier profundidad (la base del 'cuelga de Features')", async () => {
-  const db = new PGlite();
+  const db = await abrirBaseDePruebas();
   await db.exec(`CREATE TABLE "TarjetaTablero" ("id" text PRIMARY KEY, "padreId" text, "borradoEn" timestamp);`);
   const filas = [["raiz", null], [AREA, "raiz"], ["h1", AREA], ["h2", "h1"], ["h3", "h2"], ["suelta", null], ["otra", "suelta"]];
   for (const [id, padre] of filas) await db.query(`INSERT INTO "TarjetaTablero" VALUES ($1,$2,NULL)`, [id, padre]);

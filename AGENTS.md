@@ -39,7 +39,14 @@
 ## Notas actuales
 
 - Hay integración con Docker mediante `Dockerfile`, `docker-compose.portainer.yml` y `docker-publish.yml`.
-- No se ve una suite de tests automatizados configurada en `package.json`; el chequeo mínimo actual es `lint`.
+- Hay pruebas automatizadas: cada `test:*` de `package.json` es una. `npm test` (`scripts/correr-pruebas-ci.mjs`) las corre
+  todas menos `test:e2e` (que va contra producción) y al final lista las que fallaron; es lo que corre GitHub Actions («CI tablero»).
+- Las pruebas de SQL usan la misma versión mayor de Postgres que producción (`src/lib/postgres-produccion.json`). Con Docker,
+  `npm test` levanta `postgres:<mayor>-alpine`; sin Docker usan PGlite. Una prueba nueva de SQL abre su base con
+  `abrirBaseDePruebas()` de `scripts/lib/base-de-pruebas.mjs`, no con `new PGlite()`, y la cierra con `close()`.
+- `npm run test:sql-version-postgres`: chequeo estático, sin base; falla si el SQL usa algo de una versión de Postgres
+  más nueva que la de producción. Un falso positivo se salta con el comentario `sql-version-ok: <motivo>` en esa línea.
+- `npm run test:version-postgres-de-pruebas`: revisa que la base de pruebas sea de la versión mayor de producción.
 - `README.md` sigue siendo el de ejemplo de Next.js, así que no debe tomarse como documentación funcional del negocio.
 
 ## Expectativas al entregar cambios

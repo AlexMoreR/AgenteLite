@@ -15,7 +15,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
-import { PGlite } from "@electric-sql/pglite";
+import { abrirBaseDePruebas } from "./lib/base-de-pruebas.mjs";
 import { cargar, RAIZ } from "./supervisor-cargar.mjs";
 
 const CARPETA = path.join(RAIZ, "prisma", "migrations");
@@ -60,7 +60,7 @@ const Prisma = {
   join: (lista, sep = ", ") => new Sql(["", ...lista.slice(1).map(() => sep), ""], lista),
 };
 
-const db = new PGlite();
+const db = await abrirBaseDePruebas();
 const filas = async (sql, valores = []) => (await db.query(sql, valores)).rows;
 const consultas = [];
 const prismaDePrueba = {

@@ -682,6 +682,33 @@ está en `trabajador-tablero/plantillas/ci-tablero.yml` (se copia tal cual y se 
 `ciDeRama` = `{ activo, buscar, esperar, log, minutos }` (comandos con `{commit}` y `{run}`; ejemplo en `config.example.json`).
 Apagado, todo funciona como antes.
 
+### La versión de Postgres de las pruebas (25-nov-2026)
+
+Las pruebas de SQL corren en la **misma versión mayor de Postgres que producción**. La versión está escrita en un
+solo lugar: `src/lib/postgres-produccion.json` (`mayor`; hoy 15, marcada como provisional hasta leerla en producción).
+El porqué: la consulta de contactos internos de la Bandeja (Bandeja sin internos) usaba `pg_input_is_valid`, que es de
+Postgres 16. Las pruebas pasaban porque PGlite es Postgres 17, y en producción la consulta fallaba.
+
+Cada prueba abre su base con `abrirBaseDePruebas()` (`scripts/lib/base-de-pruebas.mjs`): con `PRUEBAS_POSTGRES_URL` crea
+una base al azar en ese Postgres real y la borra al cerrar; sin ella usa PGlite. `npm test` (`scripts/correr-pruebas-ci.mjs`)
+levanta `postgres:<mayor>-alpine` con Docker y pasa la URL a todas. Qué pasa en cada sitio:
+
+- **GitHub Actions («CI tablero»)**: Postgres real obligatorio (`PRUEBAS_POSTGRES_OBLIGATORIO=1`); sin Docker, falla.
+- **aizen1**: Postgres real si tiene Docker; si no, PGlite más el chequeo estático, y lo avisa ("sin Docker: SQL en PGlite + chequeo estático").
+- **La nube**: no hay Docker, así que PGlite más el chequeo estático. Lo que de verdad decide es «CI tablero».
+
+El chequeo estático es `npm run test:sql-version-postgres`: lee el SQL de `src/`, `prisma/migrations/` y `scripts/` y falla
+si usa algo de una versión mayor que la de producción (dice archivo, línea y desde qué versión). Para un falso positivo se
+pone en esa línea el comentario `sql-version-ok: <motivo>`, siempre con el motivo. `npm run test:version-postgres-de-pruebas`
+comprueba que el JSON sea válido y, con Postgres real, que la base de pruebas sea de esa mayor y no tenga `pg_input_is_valid`.
+
+Quedan en PGlite a propósito solo `trabajador-tablero/pruebas/probar-trabajador.mjs` (es el trabajador) y
+`scripts/check-velocidad-bandeja.mjs` (usa un pool falso, no una base).
+
+**Si cambia la versión de producción:** cambiar `mayor` en `src/lib/postgres-produccion.json` (y poner `provisional: false`) en una
+tarjeta. `scripts/levantar-postgres-de-pruebas.mjs` la lee de ahí y no tiene la versión escrita. El MCP `que_es_esta_aplicacion`
+lee la versión en vivo y avisa si no coincide.
+
 ### Actualizar aizen1 al flujo nuevo
 
 1. Traer el código nuevo (`git pull` en la copia del repo de donde corre el trabajador).

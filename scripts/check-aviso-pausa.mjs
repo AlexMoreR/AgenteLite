@@ -7,7 +7,7 @@
  *
  * Falla real que cubre: 13-10-2026 10:36, dos mensajes de la clienta con 2 s de diferencia -> dos acuses.
  */
-import { PGlite } from "@electric-sql/pglite";
+import { abrirBaseDePruebas } from "./lib/base-de-pruebas.mjs";
 
 import {
   enviarAvisoDePausaUnaVez,
@@ -16,7 +16,7 @@ import {
   sqlReclamarAvisoDePausa,
 } from "../src/features/agente-v3/motor/aviso-pausa.ts";
 
-const db = new PGlite();
+const db = await abrirBaseDePruebas();
 await db.exec(`
   CREATE TABLE "AppSetting" (
     "key" text PRIMARY KEY,
@@ -172,6 +172,7 @@ function verificar(nombre, ok, detalle = "") {
   verificar("  el siguiente mensaje si envia", envios2.length === 1);
 }
 
+await db.close();
 if (fallas > 0) {
   console.error(`\n${fallas} verificacion(es) fallaron.`);
   process.exit(1);

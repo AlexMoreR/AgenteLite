@@ -15,7 +15,7 @@ import path from "node:path";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import ts from "typescript";
-import { PGlite } from "@electric-sql/pglite";
+import { abrirBaseDePruebas } from "./lib/base-de-pruebas.mjs";
 
 const require = createRequire(import.meta.url);
 const raiz = path.resolve("src");
@@ -31,7 +31,7 @@ async function prueba(nombre, fn) {
 /* ------------------------------------------------------------------------------------------------
    1. La base de prueba (PGlite) con los chats armados a mano
 ------------------------------------------------------------------------------------------------ */
-const db = new PGlite();
+const db = await abrirBaseDePruebas();
 await db.exec(`
   CREATE TABLE "Contact" (
     "id" text PRIMARY KEY, "workspaceId" text NOT NULL, "excludedFromCrm" boolean NOT NULL DEFAULT false,

@@ -4,7 +4,7 @@
 // Correr: npm run test:coordinador-en-features
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { PGlite } from "@electric-sql/pglite";
+import { abrirBaseDePruebas } from "./lib/base-de-pruebas.mjs";
 import { cargar } from "./supervisor-cargar.mjs";
 
 const trabajo = cargar("src/features/tableros-inteligentes/services/reglas-trabajador.ts");
@@ -68,7 +68,7 @@ await prueba("en otro tablero (sin Features): el padre de la original, nunca vac
 });
 
 await prueba("SQL real (PGlite): el arranque cuelga de Features solo las sueltas del Coordinador, sin cambiar el estado, y repetirlo no cambia nada", async () => {
-  const db = new PGlite();
+  const db = await abrirBaseDePruebas();
   await db.exec(`
     CREATE TABLE "TableroInteligente" ("id" text PRIMARY KEY, "workspaceId" text);
     CREATE TABLE "TarjetaTablero" ("id" text PRIMARY KEY, "tableroId" text, "padreId" text, "estado" text, "borradoEn" timestamp, "actualizadoEn" timestamp);

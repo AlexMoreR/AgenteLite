@@ -16,7 +16,7 @@ import path from "node:path";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import ts from "typescript";
-import { PGlite } from "@electric-sql/pglite";
+import { abrirBaseDePruebas } from "./lib/base-de-pruebas.mjs";
 
 const require = createRequire(import.meta.url);
 const raiz = path.resolve("src");
@@ -34,7 +34,7 @@ async function prueba(nombre, fn) {
 ------------------------------------------------------------------------------------------------ */
 const { Prisma } = require("@prisma/client");
 
-const db = new PGlite();
+const db = await abrirBaseDePruebas();
 /** Las consultas crudas que llegaron a la base, para mirar que no abran el rawPayload. */
 const sqls = [];
 const ajustes = new Map();
@@ -589,4 +589,5 @@ await prueba("barra: la fila sale de pastillasDeLaFila y el menu trae mover y oc
   assert.match(barra, /clave === "sin_responder" \? assignedCounts\?\.sinResponder : assignedCounts\?\.noLeido/);
 });
 
+await db.close();
 console.log(`\n${pruebas} pruebas ok`);

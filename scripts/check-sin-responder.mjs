@@ -14,7 +14,7 @@
  * Sale con codigo 1 si algun caso da distinto de lo esperado.
  */
 import assert from "node:assert/strict";
-import { PGlite } from "@electric-sql/pglite";
+import { abrirBaseDePruebas } from "./lib/base-de-pruebas.mjs";
 import { Prisma } from "@prisma/client";
 
 import {
@@ -28,7 +28,7 @@ import {
 const DIAS = 60;
 const WS = "ws_magilus";
 
-const db = new PGlite();
+const db = await abrirBaseDePruebas();
 await db.exec(`
   CREATE TABLE "Message" (
     "id" text PRIMARY KEY,
