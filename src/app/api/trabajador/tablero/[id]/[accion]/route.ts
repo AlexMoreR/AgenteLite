@@ -16,10 +16,11 @@ export const dynamic = "force-dynamic";
                 construidoEn?, linkSesion?, segundosNube?, linkWorkflow?, verificadoEn? }   (construidoEn = "aizen1" | "nube")
                 EN_CURSO -> SUBIENDO pendiente (paso, subeSolo y sin zona protegida), ERROR (CHATS / BOT_VENTAS que no sube sola) o POR_REVISAR.
   - subida    { commit, version, linkCommit }     SUBIENDO -> HECHO.
-  - error     { motivo, categoria?, causa?, resumen?, error?, etapa?, zonaProtegida?, reversion? }
+  - error     { motivo, categoria?, causa?, resumen?, error?, etapa?, zonaProtegida?, reversion?, agotado? }
               PLANEANDO | EN_CURSO | SUBIENDO -> ERROR. reversion = { commit, revert, ok }: el despliegue
               falló después de subir y se hizo revert. Con `categoria`, `motivo` es el resumen de máximo
-              3 líneas para el dueño y queda un intento "escalar".
+              3 líneas para el dueño y queda un intento "escalar". `agotado: true` (con categoria): una falla
+              repetida tras 3 intentos distintos; deja una sola alerta, solo en la página.
   - soltar    { motivo, categoria?, causa?, error?, etapa? }   PLANEANDO -> APROBADO, EN_CURSO ->
               PLAN_APROBADO, SUBIENDO -> SUBIENDO pendiente, sin ERROR ni contar el intento (Claude llegó
               a su límite de uso, o choca con otra que corre). Con `categoria` queda un intento "esperar".

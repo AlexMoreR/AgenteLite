@@ -1030,4 +1030,37 @@ await prueba("subida agotada (24-nov-2026): ERROR con categoría subida_revertid
   assert.equal(estado.enviados[0].phoneNumber, "573114445566");
 });
 
+await prueba("falla repetida agotada (25-nov-2026): ERROR con nube_sin_resultado agotada deja UNA alerta solo página con la clave auto:trabado:<id>:ERROR", async () => {
+  reiniciar();
+  guardarNumero();
+  assert.deepEqual(await avisos.guardarConfigDeSistemas("ws1", { telefono: "573114445566" }), { ok: true });
+  estado.ajustes.set("alertas:solo-urgentes:ws1", "false");
+  const resumen = [
+    "Qué se intentó: «Bandeja nueva» se reintentó 3 veces de formas distintas (sesion_nueva, opus, plan_nuevo) y volvió a fallar.",
+    "Causa: La sesión de la nube no terminó ni dio señal, ni siquiera abriendo sesiones nuevas.",
+    "Qué decisión se necesita: Abrir el link de la sesión de la nube, ver dónde se quedó y, con la causa clara, tocar Reintentar.",
+  ].join("\n");
+  const agotada = { id: "nube1", titulo: "Bandeja nueva", estado: "ERROR", resultado: { error: { motivo: resumen, categoria: "nube_sin_resultado", causa: "La sesión de la nube no dio señal", agotado: true } } };
+  // La regla pura: la tarjeta agotada es "solo página" con la clave de siempre.
+  const [calculado] = avisos.calcularAvisos({ latidoEn: null, enCurso: [], enFila: 0, esperando: [{ ...esperando(agotada), error: resumen, categoriaDelError: "nube_sin_resultado", motivoDelError: resumen, errorAgotado: true }] }, DIA);
+  assert.equal(calculado.clave, "auto:trabado:nube1:ERROR");
+  assert.equal(calculado.soloPagina, true);
+  assert.equal(calculado.titulo, '"Bandeja nueva" sigue fallando tras 3 intentos distintos');
+  assert.match(calculado.lineas.join("\n"), /Causa: La sesión de la nube no terminó ni dio señal/);
+  // De punta a punta: queda la alerta y no sale ningún WhatsApp, ni ahora ni en la vuelta siguiente.
+  estado.esperando = [esperando(agotada)];
+  await avisos.revisarAvisosAlDueno(DIA);
+  await avisos.revisarAvisosAlDueno(new Date(DIA.getTime() + 60_000));
+  assert.equal(estado.enviados.length, 0, "no sale ningún WhatsApp");
+  assert.equal(estado.alertas.filter((a) => a.clave === "auto:trabado:nube1:ERROR").length, 1, "una sola alerta");
+  // Las otras dos fallas repetidas también, y sin `agotado` (o con otra categoría) sigue la ERROR de siempre.
+  for (const categoria of ["no_cambio_nada", "fallan_pruebas"]) {
+    assert.equal(avisos.esSubidaAgotada({ estado: "ERROR", categoriaDelError: categoria, errorAgotado: true }), true, categoria);
+  }
+  assert.equal(avisos.esSubidaAgotada({ estado: "ERROR", categoriaDelError: "nube_sin_resultado", errorAgotado: false }), false);
+  assert.equal(avisos.esSubidaAgotada({ estado: "ERROR", categoriaDelError: "lint", errorAgotado: true }), false);
+  assert.equal(avisos.errorAgotado({ error: { agotado: true } }), true);
+  assert.equal(avisos.errorAgotado({ error: { agotado: "true" } }), false);
+});
+
 console.log(`\n${pruebas} pruebas, todas bien`);

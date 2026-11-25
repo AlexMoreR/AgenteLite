@@ -591,14 +591,35 @@ etapa falla, el Coordinador (`lib/bucle.mjs`, `lib/diagnostico.mjs`):
 
 | Categoría | Qué pasó | Qué hace el Coordinador |
 |---|---|---|
-| `nube_sin_resultado` | la sesión de la nube no dejó `inicio:` ni ningún commit en `nube.sinSenalMinutos` (20), o no dejó `resultado:` en `nube.esperaMinutos` (120) | ERROR enseguida, con el link de la sesión; **no se repara sola** |
+| `nube_sin_resultado` | la sesión de la nube no dejó `inicio:` ni ningún commit en `nube.sinSenalMinutos` (20), o no dejó `resultado:` en `nube.esperaMinutos` (120) | desde el 25-nov-2026 es una de las **fallas repetidas** (abajo): se reintenta en una sesión nueva de la nube, con el link en la causa |
 | `nube_pregunta` | la sesión dejó el commit vacío `pregunta: <…>` (no pregunta en el chat) | ERROR enseguida con la pregunta y el link |
 | `nube_sin_acceso_repo` | `claude --cloud` no conectó el repo (log: "GitHub app is not installed" / `github_preflight_failed`) o la sesión fija no responde | ERROR enseguida ("la nube no tiene acceso al repo"); el proyecto no va a la nube en `nube.sinAccesoMinutos` (60); **no se repara sola** |
 | `revision_no_paso` | los 4 revisores (ver "La revisión de los 4") siguieron pidiendo cambios tras 2 correcciones | ERROR con el revisor, lo que pide y el link de la sesión; **no se repara sola** |
 | `plan_con_preguntas` | el plan aprobado SOLO trae "PREGUNTAS ABIERTAS:" o frases como "hay que confirmar", "antes de construir hay que", "lo que no revisé" (`lib/preguntas-abiertas.mjs`, espejo en `reglas-riesgo.ts`) | no se construye: ERROR + aviso "necesita"; si el dueño aprobó el plan tal cual, sí se construye |
 | `choca_con_main` | main cambió los mismos archivos mientras se construía (conflicto en el rebase, push rechazado, o lo que verificó la nube cambió) | se reconstruye desde el main más nuevo **sin gastar reparación** (`/reparar` con `cuenta: false`: intento "esperar" que no cuenta); al 4.º choque seguido (`TOPE_DE_CHOQUES_SEGUIDOS` = 3, igual en el CRM) escala |
 | `choque_de_logica` | lo nuevo de main y la tarea no encajan: la sesión que junta el choque contestó `CHOQUE_DE_LOGICA` o el conflicto está en una migración | ERROR enseguida; **no se repara sola** |
-| cualquier otra | la MISMA categoría ya falló 2 veces en la tarjeta (todos los intentos) | escala (salvo `limite_claude`, `pc_sobrecargado`, `carpeta_trabada`, `coordinador_cortado` y `choca_con_main`, que tienen su tope de esperas o de choques) |
+| cualquier otra | la MISMA categoría ya falló 2 veces en la tarjeta (todos los intentos, `TOPE_DE_FALLAS_IGUALES`) | escala (salvo `limite_claude`, `pc_sobrecargado`, `carpeta_trabada`, `coordinador_cortado` y `choca_con_main`, que tienen su tope de esperas o de choques, y las fallas repetidas de abajo) |
+
+**Las 4 fallas repetidas: una sola alerta, y solo tras 3 intentos distintos (25-nov-2026, `ESTRATEGIAS_DE_LAS_FALLAS` en
+`lib/diagnostico.mjs`).** La nube sin señal, Claude que no cambió nada, las pruebas que fallaron y la subida que no arrancó
+ya no escalan a la 2.ª falla igual. Usan el tope de 3 reparaciones del CRM (`puedeReparar`; la subida, su
+`TOPE_INTENTOS_DE_SUBIDA` de 3) y cada reparación prueba una estrategia **distinta**, marcada en la causa del intento:
+
+| Falla | Categoría | Estrategias, en orden |
+|---|---|---|
+| la nube no dio señal | `nube_sin_resultado` | `sesion_nueva` (siempre una sesión nueva, nunca la de antes) → `opus` → `plan_nuevo` |
+| no cambió nada (y no está en main) | `no_cambio_nada` | `plan_nuevo` (se vuelve a planear con el main de hoy) → `opus` → `nube` |
+| fallaron las pruebas | `fallan_pruebas` | `arreglo` (con el log completo) → `opus` → `nube` (se construye y verifica en la nube) |
+| subió y no arrancó | `subida_revertida` | «Arreglo de subida: …» o reintento (ver "Subida deshecha"); antes de deshacer espera el piso de 15 min y lee `/var/log/crm-actualizar.log` por SSH |
+
+- Si la estrategia que toca ya se probó **con la misma causa**, no cuenta como distinta: se pasa a la siguiente de la lista.
+- Al reparar unas pruebas que fallaron, el intento siguiente recibe la **ruta del log completo** del intento
+  (`intentos/<id>/…log`, que termina con la salida del comando que falló) y sus **últimas 30 líneas**, no solo la
+  primera línea que falló.
+- Los intentos intermedios **no crean alertas** (ni ERROR ni WhatsApp). La falla que llega después de 3 intentos distintos
+  escala UNA vez con `/error` y `agotado: true`, con un resumen de 3 líneas (qué se intentó, la causa en palabras sencillas y
+  la decisión). El CRM deja **una sola alerta** en /cliente/alertas, solo en la página y sin WhatsApp, con la clave
+  `auto:trabado:<id>:ERROR` (`esSubidaAgotada` y `avisoDeSubidaAgotada` en `avisos-al-dueno.ts`).
 
 Además: un plan con preguntas abiertas no se aprueba solo (queda PLAN_LISTO con el motivo), y una tarea cuyo plan
 toca **más de una parte del sistema** (`src/modules/X`, `src/features/X`, `src/app/<área>`, `scripts/X`, otro

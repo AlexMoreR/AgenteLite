@@ -1,0 +1,5 @@
+## Advertencias de operación
+- `subida_piso_15_min`: antes de deshacer una subida que no arrancó, el Coordinador espera al menos 15 minutos desde que subió (aunque el reloj de la etapa ya se haya gastado); si el servidor baja la versión en ese tiempo, no se deshace.
+- `log_crm_actualizar_por_ssh`: antes de deshacer, el Coordinador lee por SSH las últimas líneas de `/var/log/crm-actualizar.log` del servidor; si el log no dice "listo" con el commit nuevo, la reversión es falsa y se vuelve a subir el mismo commit.
+- `nube_sesion_nueva`: si la sesión de la nube no da señal, el reintento abre siempre una sesión nueva de la nube (nunca la de un intento anterior ni la sesión fija del proyecto).
+- `alerta_unica_fallas_repetidas`: la nube sin señal, "no cambió nada", las pruebas que fallan y la subida que no arranca se reintentan solas hasta 3 veces, cada vez con una estrategia distinta, sin avisar nada; recién con la falla siguiente queda UNA alerta en /cliente/alertas, solo en la página y sin WhatsApp (clave `auto:trabado:<id>:ERROR`).

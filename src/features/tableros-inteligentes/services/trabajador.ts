@@ -1381,6 +1381,9 @@ export async function accionDelTrabajador(
         en: estado,
         cuando: ahora.toISOString(),
         ...(categoria ? { categoria, causa } : {}),
+        // 25-nov-2026 (parte 4): una falla repetida que llegó a su tope (3 intentos distintos): avisos-al-dueno.ts deja una sola
+        // alerta, solo en la página (esSubidaAgotada).
+        ...(categoria && cuerpo.agotado === true ? { agotado: true } : {}),
         ...(reversion ? { reversion } : {}),
       };
       datos.resultado = { ...previo, error } as Prisma.InputJsonValue;

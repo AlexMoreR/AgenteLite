@@ -65,8 +65,52 @@ const CON_EL_LINK = [...SIN_REPARACION_AUTOMATICA, "nube_sin_resultado"];
  */
 const AJENAS_A_LA_TAREA = ["limite_claude", "pc_sobrecargado", "carpeta_trabada", "coordinador_cortado", "choca_con_main"];
 
-/** Con cuántas fallas previas de la MISMA categoría (en los intentos de la tarjeta) ya no se repara: se escala. */
+/**
+ * Con cuántas fallas previas de la MISMA categoría (en los intentos de la tarjeta) ya no se repara: se escala. 25-nov-2026
+ * (parte 4): no aplica a las fallas repetidas (ESTRATEGIAS_DE_LAS_FALLAS), que usan el tope de 3 reparaciones del CRM.
+ */
 export const TOPE_DE_FALLAS_IGUALES = 2;
+
+/**
+ * LAS FALLAS REPETIDAS (25-nov-2026, parte 4 de «las 4 fallas repetidas»): la nube sin señal, Claude sin cambiar nada y las
+ * pruebas que fallan ya no escalan a la 2.ª falla igual. Usan el tope de 3 reparaciones del CRM (puedeReparar) y cada
+ * reparación prueba una estrategia DISTINTA, en este orden. Si la estrategia ya se probó con la misma causa (esLaMismaCausa),
+ * no cuenta como distinta: se pasa a la siguiente. La 4.ª falla (tras 3 intentos distintos) escala UNA vez, `agotado`: queda
+ * una sola alerta en /cliente/alertas, sin WhatsApp. "No arrancó" (la subida deshecha) ya tiene su tope de 3 en
+ * TOPE_INTENTOS_DE_SUBIDA y su alerta única (categoría subida_revertida).
+ */
+export const ESTRATEGIAS_DE_LAS_FALLAS = {
+  nube_sin_resultado: ["sesion_nueva", "opus", "plan_nuevo"],
+  no_cambio_nada: ["plan_nuevo", "opus", "nube"],
+  fallan_pruebas: ["arreglo", "opus", "nube"],
+};
+
+/**
+ * La estrategia que toca para una falla repetida: la primera de su lista que no se probó ya con la misma causa (las reparaciones
+ * anteriores de la tarjeta llevan su estrategia marcada en la causa). null si no es una falla repetida o ya no queda ninguna.
+ */
+export function estrategiaParaLaFalla(diagnostico, intentos) {
+  const lista = ESTRATEGIAS_DE_LAS_FALLAS[diagnostico?.categoria];
+  if (!lista) return null;
+  const usadas = new Set(
+    (intentos ?? [])
+      .filter((intento) => intento?.accion === "reparar" && esLaMismaCausa(diagnostico, intento))
+      .map((intento) => estrategiaDeLaCausa(intento.causa))
+      .filter(Boolean),
+  );
+  return lista.find((estrategia) => !usadas.has(estrategia)) ?? null;
+}
+
+/** Las estrategias que ya probó la tarjeta con reparaciones de esta categoría (en orden, sin repetir): van al resumen del dueño. */
+export function estrategiasProbadas(intentos, categoria) {
+  const vistas = [];
+  for (const intento of intentos ?? []) {
+    if (intento?.accion !== "reparar" || intento.categoria !== categoria) continue;
+    const estrategia = estrategiaDeLaCausa(intento.causa);
+    if (estrategia && !vistas.includes(estrategia)) vistas.push(estrategia);
+  }
+  return vistas;
+}
 
 /** Las acciones del historial. */
 export const ACCIONES = ["reparar", "partir", "esperar", "escalar"];
@@ -379,7 +423,9 @@ export function causaParaComparar(causa) {
     .replace(/https?:\/\/\S+/g, "")
     .replace(/\d+/g, "#")
     .toLowerCase()
-    .replace(/[\s.…:;,]+/g, " ")
+    // 25-nov-2026: también el guion que separa la causa de su link ("… — https://…"), para que dos causas de la nube con link
+    // distinto cuenten como la misma.
+    .replace(/[\s.…:;,—–]+/g, " ")
     .trim();
 }
 
@@ -565,6 +611,7 @@ const QUE_CAMBIA_POR_ESTRATEGIA = {
   partir: "la tarea se divide en partes más chicas",
   sesion_nueva: "la nube no dio señal: se abre una sesión nueva de la nube (nunca la de un intento anterior)",
   plan_nuevo: "no cambió nada y no está en main: se vuelve a planear con el main de hoy (el plan viejo queda en los intentos)",
+  arreglo: "se corrige leyendo el log completo del intento anterior (su ruta y las últimas 30 líneas), no solo la primera línea",
 };
 
 /**
@@ -613,7 +660,10 @@ function reparacionesSeguidasCon(intentos, categoria) {
  *   cuenta      si cuenta como una de las 3 reparaciones (reparar y escalar sí; esperar y partir no)
  *   estrategia  "opus" cuando la 2ª reparación seguida con la misma categoría cambia de modelo; "nube" si se verifica otra vez en la nube;
  *               "sesion_nueva" cuando la nube no dio señal (el intento siguiente abre una sesión nueva de la nube);
- *               "plan_nuevo" cuando Claude no cambió nada y no está en main (se vuelve a planear con el main de hoy)
+ *               "plan_nuevo" cuando Claude no cambió nada y no está en main (se vuelve a planear con el main de hoy);
+ *               "arreglo" cuando fallaron las pruebas (el intento siguiente lee el log completo). Las fallas repetidas
+ *               (ESTRATEGIAS_DE_LAS_FALLAS) prueban una estrategia distinta en cada reparación
+ *   agotado     true cuando una falla repetida (o una subida deshecha) llegó a su tope: una sola alerta, solo en la página
  *   arreglo     "sin_claude": el Coordinador lo arregla solo (cierra procesos, limpia la carpeta, espera al PC);
  *               "reconstruir": choca con main, se construye otra vez desde el main más nuevo sin gastar reparación
  *   motivo      por qué, para el log
@@ -690,6 +740,10 @@ function decidirSinCausa({ diagnostico, tarjeta = {}, etapa, config = {}, archiv
   if (SIN_REPARACION_AUTOMATICA.includes(categoria)) {
     return { accion: "escalar", cuenta: true, motivo: `${categoria}: no se repara solo, lo ve el dueño (con el link)` };
   }
+  // 25-nov-2026 (parte 4): las fallas repetidas (nube sin señal, no cambió nada, pruebas) usan el tope de 3 reparaciones del
+  // CRM y cambian de estrategia en cada una; la falla que llega tras 3 intentos distintos escala UNA vez, `agotado`.
+  if (ESTRATEGIAS_DE_LAS_FALLAS[categoria]) return decidirLaFallaRepetida({ diagnostico, categoria, reparaciones, tope, intentos });
+
   // La MISMA causa ya falló TOPE_DE_FALLAS_IGUALES veces en la tarjeta (contando todos los intentos, no solo las
   // reparaciones): queda quieta en ERROR hasta que alguien encuentre la causa. Las ajenas a la tarea tienen su tope de esperas.
   if (!AJENAS_A_LA_TAREA.includes(categoria)) {
@@ -717,19 +771,6 @@ function decidirSinCausa({ diagnostico, tarjeta = {}, etapa, config = {}, archiv
 
   if (reparaciones >= tope) return { accion: "escalar", cuenta: true, motivo: `ya se hicieron ${reparaciones} reparaciones` };
 
-  // 25-nov-2026: la nube sin señal se reintenta en una sesión NUEVA (otra cada vez): no es repetir a ciegas aunque la causa sea
-  // la misma. Con 2 previas iguales ya escaló arriba (TOPE_DE_FALLAS_IGUALES): la alerta llega tras 3 intentos distintos.
-  if (categoria === "nube_sin_resultado") {
-    return { accion: "reparar", cuenta: true, estrategia: "sesion_nueva", motivo: `la nube no dio señal: se reintenta en una sesión nueva de la nube (${reparaciones + 1} de ${tope})` };
-  }
-
-  // 25-nov-2026 (parte 3): Claude no cambió nada y lo pedido no está en main (bucle.mjs ya lo buscó con yaEstaEnMain): construir
-  // otra vez con el mismo plan daría lo mismo. Se vuelve a planear con el main de hoy (el CRM la pasa a APROBADO). Con 2 previas
-  // iguales ya escaló arriba (TOPE_DE_FALLAS_IGUALES): la alerta llega tras 3 intentos distintos.
-  if (categoria === "no_cambio_nada") {
-    return { accion: "reparar", cuenta: true, estrategia: "plan_nuevo", motivo: `no cambió nada y no está en main: se vuelve a planear con el main de hoy (${reparaciones + 1} de ${tope})` };
-  }
-
   // La MISMA falla que el intento anterior: solo se repara si queda una estrategia distinta que probar, en este orden:
   // verificar otra vez en la nube (si eso es lo que cambió), Opus al construir (si no se usó), partir (si se puede).
   const anterior = AJENAS_A_LA_TAREA.includes(categoria) ? null : intentoAnterior(intentos);
@@ -755,6 +796,53 @@ function decidirSinCausa({ diagnostico, tarjeta = {}, etapa, config = {}, archiv
     if (etapa === "construir" && !yaEsOpus) return { accion: "reparar", cuenta: true, estrategia: "opus", motivo: `${categoria} otra vez: se repara con un modelo más fuerte (Opus)` };
   }
   return { accion: "reparar", cuenta: true, motivo: `${categoria}: se repara (${reparaciones + 1} de ${tope})` };
+}
+
+/** Lo que hace cada estrategia de una falla repetida, para el motivo del log. */
+const QUE_HACE_LA_FALLA = {
+  nube_sin_resultado: "la nube no dio señal",
+  no_cambio_nada: "no cambió nada y no está en main",
+  fallan_pruebas: "fallaron las pruebas",
+};
+
+/**
+ * Una falla repetida (ESTRATEGIAS_DE_LAS_FALLAS): con reparaciones por delante, la estrategia distinta que toca; con el tope del
+ * CRM gastado (o sin estrategia distinta que probar), escala UNA vez con `agotado` (una sola alerta, solo en la página).
+ */
+function decidirLaFallaRepetida({ diagnostico, categoria, reparaciones, tope, intentos }) {
+  const que = QUE_HACE_LA_FALLA[categoria];
+  if (reparaciones >= tope) {
+    return { accion: "escalar", cuenta: true, agotado: true, motivo: `${que} tras ${reparaciones} intentos distintos (tope ${tope}): una sola alerta, solo en la página` };
+  }
+  const estrategia = estrategiaParaLaFalla(diagnostico, intentos);
+  if (!estrategia) {
+    return { accion: "escalar", cuenta: true, agotado: true, mismaCausa: true, motivo: `${que}: ya se probaron todas sus estrategias con la misma causa; una sola alerta, solo en la página` };
+  }
+  return { accion: "reparar", cuenta: true, estrategia, motivo: `${que}: se reintenta con la estrategia ${estrategia} (${reparaciones + 1} de ${tope})` };
+}
+
+/** La causa de una falla repetida agotada, en palabras sencillas (va a la alerta del dueño). */
+export const FRASES_DE_LA_FALLA_AGOTADA = {
+  nube_sin_resultado: "La sesión de la nube no terminó ni dio señal, ni siquiera abriendo sesiones nuevas.",
+  no_cambio_nada: "Claude terminó sin cambiar nada, aunque se volvió a planear la tarea con lo último del sistema.",
+  fallan_pruebas: "Las pruebas siguen fallando después de corregir con el registro completo, con un modelo más fuerte y verificando en la nube.",
+};
+
+/**
+ * El resumen de 3 líneas de una falla repetida agotada (tras 3 intentos distintos): qué se intentó, la causa en palabras
+ * sencillas y la decisión que se necesita. Va en /error con `agotado: true`.
+ */
+export function resumenDeFallaAgotada({ tarjeta = {}, intentos, diagnostico } = {}) {
+  const categoria = diagnostico?.categoria ?? "otra";
+  const lista = intentos ?? tarjeta.ultimosIntentos ?? [];
+  const probadas = estrategiasProbadas(lista, categoria);
+  const veces = Math.max(probadas.length, Number(tarjeta.reparaciones) || 0);
+  const frase = FRASES_DE_LA_FALLA_AGOTADA[categoria] ?? CAUSA_BASE[categoria] ?? CAUSA_BASE.otra;
+  return [
+    enUnaLinea(`Qué se intentó: «${enUnaLinea(tarjeta.titulo ?? "la tarea", 80)}» se reintentó ${veces} ${veces === 1 ? "vez" : "veces"} de formas distintas${probadas.length ? ` (${probadas.join(", ")})` : ""} y volvió a fallar.`, 240),
+    enUnaLinea(`Causa: ${frase}`, 240),
+    enUnaLinea(`Qué decisión se necesita: ${NECESITA[categoria] ?? NECESITA.otra}`, 240),
+  ].join("\n");
 }
 
 /** Una frase de qué necesita el dueño, según la causa. */

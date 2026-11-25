@@ -34,6 +34,7 @@ import { crearColaPesada } from "./cola.mjs";
 import { debePartirAntes, ordenarCandidatas, partesSinAlcanceNuevo } from "./reparto.mjs";
 import {
   CAUSAS_PARA_AVISAR_AL_CTO,
+  ESTRATEGIAS_DE_LAS_FALLAS,
   FRASES_DE_LA_CAUSA,
   TOPE_DE_REPARACIONES,
   TOPE_INTENTOS_DE_SUBIDA,
@@ -46,8 +47,10 @@ import {
   estrategiaDeLaCausa,
   intentosDeSubida,
   queCambiaFrenteAlAnterior,
+  recortar,
   recortarAviso,
   resumenDeEscalada,
+  resumenDeFallaAgotada,
   sinCausa,
   sinMarcaDeEstrategia,
   textoDelAvisoDeReversion,
@@ -77,6 +80,7 @@ import { crearEstadoDeMotores, crearVigilanteDeUso, motorDeLaEtapa, nombreDelMot
 import { commitsDeLaRama, esOrquestador, esTareaGrande, nombreDelProyecto, preguntaDelCommit, resultadoDelCommit, sesionFijaDe, sinAccesoALaNube, sinAccesoASesionesNuevas } from "./nube.mjs";
 import { datosDelLatidoDeConstruir } from "./latido.mjs";
 import { crearPausaPorUso } from "./pausa-uso.mjs";
+import { ultimasLineas } from "./procesos.mjs";
 import { crearMedidor, faltanRecursos, leerCarga } from "./recursos.mjs";
 import { crearPausaPorSesion } from "./sesion-claude.mjs";
 import { crearGuardiaSinLatido } from "./sin-latido.mjs";
@@ -588,7 +592,7 @@ async function soltar(crm, registro, tarjeta, motivo, extra) {
  * Una etapa falló y el CRM entiende reparaciones: diagnosticar, decidir y hacerlo (ver el comentario de arriba).
  * Nunca lanza: lo que no se pueda avisar al CRM se anota en el log (la tarjeta venció por latido y el CRM la ve).
  */
-async function manejarFalla(args, tarjeta, hacer, error) {
+export async function manejarFalla(args, tarjeta, hacer, error) {
   const nota = {};
   const salida = await repararLaFalla(args, tarjeta, hacer, error, nota);
   // Queda escrita la lección cuando la tarjeta se repara, se parte o pasa al dueño (ERROR). Cuando solo espera, o se acabó el
@@ -700,12 +704,22 @@ async function repararSinAnotar({ crm, config, registro, contexto, bitacora, pau
   const mensaje = error instanceof Error ? error.message : String(error);
   const motivo = sencilla && !mensaje.startsWith(sencilla) ? `${sencilla}\n${mensaje}` : mensaje;
   const textoLog = bitacora.join("\n");
-  // 1. El error completo y el log, ANTES de diagnosticar.
-  const rutaLog = registro.guardarIntento?.({
-    tarjetaId: tarjeta.id,
-    etapa: hacer,
-    texto: [`Tarjeta: ${tarjeta.titulo} (${tarjeta.id})`, `Etapa: ${hacer}`, `Intento: ${tarjeta.intentos ?? "?"}, reparaciones: ${tarjeta.reparaciones ?? 0}`, "", "ERROR:", motivo, "", "LOG DE LA SESIÓN:", textoLog].join("\n"),
-  });
+  // 1. El error completo y el log, ANTES de diagnosticar. 25-nov-2026 (parte 4): si el comando que falló dejó su salida
+  // completa (las pruebas), va al final del log: así sus últimas 30 líneas son las de la falla.
+  const salidaDelComando = typeof error?.salida === "string" ? error.salida.trim() : "";
+  const textoGuardado = [
+    `Tarjeta: ${tarjeta.titulo} (${tarjeta.id})`,
+    `Etapa: ${hacer}`,
+    `Intento: ${tarjeta.intentos ?? "?"}, reparaciones: ${tarjeta.reparaciones ?? 0}`,
+    "",
+    "ERROR:",
+    motivo,
+    "",
+    "LOG DE LA SESIÓN:",
+    textoLog,
+    ...(salidaDelComando ? ["", "SALIDA DEL COMANDO QUE FALLÓ:", salidaDelComando] : []),
+  ].join("\n");
+  const rutaLog = registro.guardarIntento?.({ tarjetaId: tarjeta.id, etapa: hacer, texto: textoGuardado });
   if (rutaLog) registro.info(`guardé el log del intento en ${rutaLog}`);
 
   // 2. Diagnóstico: por reglas; una causa desconocida la lee una sesión corta de Claude (solo lectura).
@@ -842,8 +856,11 @@ async function repararSinAnotar({ crm, config, registro, contexto, bitacora, pau
     // Antes de reparar, la causa y qué cambia frente al intento anterior (el siguiente intento los recibe en su prompt).
     const queCambia = decision.queCambia ?? queCambiaFrenteAlAnterior(diagnostico, tarjeta.ultimosIntentos, decision.estrategia);
     registro.info(`CAUSA: ${intento.causa} | QUÉ CAMBIA: ${queCambia}`);
+    // 25-nov-2026 (parte 4): las pruebas que fallaron. El intento siguiente recibe la ruta del log completo y sus últimas 30
+    // líneas (antes solo veía la primera línea que falló, en la causa).
+    const errorParaElSiguiente = diagnostico.categoria === "fallan_pruebas" ? conElLogCompleto(intento.error, rutaLog, textoGuardado) : intento.error;
     try {
-      const respuesta = await crm.reparar(tarjeta.id, { ...intento, causa, estrategia: decision.estrategia });
+      const respuesta = await crm.reparar(tarjeta.id, { ...intento, causa, error: errorParaElSiguiente, estrategia: decision.estrategia });
       registro.info(`a reparar: la tarjeta vuelve a la fila${respuesta?.reparaciones ? ` (reparación ${respuesta.reparaciones} de ${tarjeta.topeReparaciones})` : ""}`);
       return resultado;
     } catch (otro) {
@@ -853,7 +870,21 @@ async function repararSinAnotar({ crm, config, registro, contexto, bitacora, pau
       }
       registro.aviso(`el CRM no deja reparar más (${otro.message}): se escala`);
       resultado.accion = "escalar";
+      // Una falla repetida que el CRM ya no deja reparar llegó a su tope: también es la alerta única.
+      if (ESTRATEGIAS_DE_LAS_FALLAS[diagnostico.categoria]) decision.agotado = true;
     }
+  }
+  // 25-nov-2026 (parte 4): una falla repetida tras 3 intentos distintos escala UNA vez con `agotado`: el CRM deja una sola
+  // alerta en /cliente/alertas, solo en la página (sin WhatsApp). Los intentos de antes no avisaron nada.
+  if (decision.agotado && ESTRATEGIAS_DE_LAS_FALLAS[diagnostico.categoria]) {
+    const resumen = resumenDeFallaAgotada({ tarjeta, intentos: tarjeta.ultimosIntentos, diagnostico });
+    try {
+      await crm.error(tarjeta.id, resumen, error?.zonas, error?.reversion, { ...intento, resumen, agotado: true });
+      registro.info(`${diagnostico.categoria} tras ${Number(tarjeta.reparaciones) || 0} intentos distintos: "${tarjeta.titulo}" queda en ERROR, una sola alerta solo en la página`);
+    } catch (otro) {
+      registro.error(`no se pudo avisar el error al CRM: ${otro.message}`);
+    }
+    return { ...resultado, accion: "escalar", agotado: true };
   }
   // Escalar: el resumen de máximo 3 líneas para el dueño; el detalle técnico queda en "Detalles técnicos".
   // 29-oct-2026: la revisión que no pasó trae sus 2 líneas para el dueño (por qué se paró / qué decisión necesita): van tal cual.
@@ -867,6 +898,25 @@ async function repararSinAnotar({ crm, config, registro, contexto, bitacora, pau
     registro.error(`no se pudo avisar el error al CRM: ${otro.message}`);
   }
   return { ...resultado, accion: "escalar" };
+}
+
+/** Lo que el CRM guarda del error de un intento (MAXIMO_ERROR_DEL_INTENTO de reglas-trabajador.ts). */
+const LARGO_DEL_ERROR_DEL_INTENTO = 6000;
+
+/**
+ * El error para el intento siguiente de unas pruebas que fallaron (25-nov-2026, parte 4): primero la ruta del log completo que
+ * guardó registro.guardarIntento y sus últimas 30 líneas, después el error de siempre. Cabe en las 6000 letras del CRM.
+ */
+export function conElLogCompleto(errorDelIntento, rutaLog, textoDelLog) {
+  const cola = ultimasLineas(String(textoDelLog ?? ""), 30);
+  const encabezado = [
+    rutaLog ? `Log completo del intento anterior (en aizen1): ${rutaLog}` : "",
+    cola ? `Últimas 30 líneas del log:\n${cola}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  if (!encabezado) return errorDelIntento;
+  return recortar(`${encabezado}${errorDelIntento ? `\n\nError:\n${errorDelIntento}` : ""}`, LARGO_DEL_ERROR_DEL_INTENTO);
 }
 
 /**

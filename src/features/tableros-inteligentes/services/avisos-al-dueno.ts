@@ -24,7 +24,7 @@ import { prisma } from "@/lib/prisma";
 import { leerAreaFeatures, ultimoLatido } from "./coordinador-en-vivo";
 import { tareaAprobadaPorElDueno } from "./aprobacion-automatica";
 import { porQueElPlanNuevoEsperaTuSi, porQueLaTareaEsperaTuSi } from "./reglas-riesgo";
-import { REPOS_DEL_TRABAJADOR, TOPE_INTENTOS_DE_SUBIDA, textoDeAprobarEnPantalla, zonasQueEsperanLaPantalla, zonasQueNoArrancanSolas } from "./reglas-trabajador";
+import { REPOS_DEL_TRABAJADOR, TOPE_DE_REPARACIONES, TOPE_INTENTOS_DE_SUBIDA, textoDeAprobarEnPantalla, zonasQueEsperanLaPantalla, zonasQueNoArrancanSolas } from "./reglas-trabajador";
 import { SQL_FUERA_POR_LA_VIA } from "./sql-trabajador";
 import { dondeTableroVivo } from "./tableros-archivados";
 import { tituloCorto } from "./resumen-corto";
@@ -88,6 +88,12 @@ import { linkDeHoy, linkDeLaTarjeta, linkDelCoordinador, pendientesDelDueno, tod
   TOPE_INTENTOS_DE_SUBIDA veces) deja su alerta «"X" no se pudo subir tras 3 intentos» con la causa y la decisión, con la clave
   de siempre (`auto:trabado:<id>:ERROR`). Es solo página: no sale ningún WhatsApp, ni al dueño ni a Emanuel, y no se toma como
   "falta una clave" aunque el log diga 401 o 403.
+
+  FALLAS REPETIDAS AGOTADAS (25-nov-2026, parte 4 de «las 4 fallas repetidas»): la nube sin señal (`nube_sin_resultado`), Claude
+  sin cambiar nada (`no_cambio_nada`) y las pruebas que fallaron (`fallan_pruebas`) se reintentan solas con 3 estrategias
+  distintas y no avisan nada mientras tanto. Si la 4.ª falla llega, el Coordinador la escala UNA vez con `agotado: true`: deja la
+  misma alerta única de la subida agotada («"X" sigue fallando tras 3 intentos distintos», la causa en sencillo y la decisión),
+  con la clave `auto:trabado:<id>:ERROR` y solo en la página (sin WhatsApp).
 
   TARJETAS QUIETAS DE FEATURES (24-nov-2026, parte 4 de "Coordinador: tomar y desarrollar TODO lo que cuelga de Features"): una
   tarjeta que cuelga de Features, que nadie tomó (intentos = 0), en IDEA, POR_APROBAR, APROBADO o PLAN_APROBADO, y que lleva más
@@ -400,6 +406,8 @@ export type TarjetaEsperando = {
   categoriaDelError?: string | null;
   /** El motivo que mandó el Coordinador en /error (resultado.error.motivo; si no, su causa), si lo hay. */
   motivoDelError?: string | null;
+  /** El Coordinador escaló una falla repetida tras 3 intentos distintos (resultado.error.agotado). */
+  errorAgotado?: boolean;
 };
 export type SituacionDeSistemas = {
   /** Cuándo el CRM recibió el último latido del Coordinador (null = nunca ha dado señales). */
@@ -499,18 +507,41 @@ export function porQueNecesitaAlDueno(tarjeta: TarjetaEsperando): string | null 
   return null;
 }
 
-/** ¿Es una tarjeta en ERROR porque se agotó el tope de subidas revertidas (categoría `subida_revertida`)? */
-export function esSubidaAgotada(tarjeta: Pick<TarjetaEsperando, "estado" | "categoriaDelError">): boolean {
-  return tarjeta.estado === "ERROR" && tarjeta.categoriaDelError === "subida_revertida";
+/** Las fallas repetidas que, si vienen agotadas (`agotado: true` en /error), dejan la misma alerta única (25-nov-2026, parte 4). */
+export const FALLAS_REPETIDAS_AGOTABLES = ["nube_sin_resultado", "no_cambio_nada", "fallan_pruebas"] as const;
+
+/**
+ * ¿Es una tarjeta en ERROR porque se agotó su tope? La subida revertida (categoría `subida_revertida`, siempre) o, desde el
+ * 25-nov-2026, una falla repetida (nube sin señal, no cambió nada, pruebas) que el Coordinador mandó con `agotado: true`.
+ */
+export function esSubidaAgotada(tarjeta: Pick<TarjetaEsperando, "estado" | "categoriaDelError" | "errorAgotado">): boolean {
+  if (tarjeta.estado !== "ERROR") return false;
+  if (tarjeta.categoriaDelError === "subida_revertida") return true;
+  return tarjeta.errorAgotado === true && (FALLAS_REPETIDAS_AGOTABLES as readonly string[]).includes(tarjeta.categoriaDelError ?? "");
+}
+
+/** La línea "Causa: …" del resumen de 3 líneas del Coordinador (sin el "Causa:"); null si no la trae. */
+function lineaDeLaCausa(texto: string | null | undefined): string | null {
+  const linea = String(texto ?? "")
+    .split(/\r?\n/)
+    .find((l) => /^\s*Causa:/i.test(l));
+  return linea ? linea.replace(/^\s*Causa:\s*/i, "").trim() || null : null;
 }
 
 /**
  * Subida agotada (24-nov-2026): tras TOPE_INTENTOS_DE_SUBIDA subidas revertidas la tarjeta queda en ERROR. Alerta en la página con
  * la causa y la decisión que se necesita; la misma clave de "quedó en error" (se cierra sola cuando sale de ERROR). Solo página.
+ * 25-nov-2026 (parte 4): también la falla repetida agotada; su título dice "sigue fallando tras 3 intentos distintos" y la causa
+ * es la línea "Causa:" (en sencillo) del resumen del Coordinador.
  */
-export function avisoDeSubidaAgotada(tarjeta: Pick<TarjetaEsperando, "id" | "titulo" | "estado" | "error" | "motivoDelError">): AvisoCalculado {
-  const titulo = `${entreComillas(tarjeta.titulo)} no se pudo subir tras ${TOPE_INTENTOS_DE_SUBIDA} intentos`;
-  const causa = tarjeta.motivoDelError ?? tarjeta.error ?? "sin causa escrita";
+export function avisoDeSubidaAgotada(
+  tarjeta: Pick<TarjetaEsperando, "id" | "titulo" | "estado" | "error" | "motivoDelError"> & Partial<Pick<TarjetaEsperando, "categoriaDelError">>,
+): AvisoCalculado {
+  const esSubida = !tarjeta.categoriaDelError || tarjeta.categoriaDelError === "subida_revertida";
+  const titulo = esSubida
+    ? `${entreComillas(tarjeta.titulo)} no se pudo subir tras ${TOPE_INTENTOS_DE_SUBIDA} intentos`
+    : `${entreComillas(tarjeta.titulo)} sigue fallando tras ${TOPE_DE_REPARACIONES} intentos distintos`;
+  const causa = (esSubida ? null : lineaDeLaCausa(tarjeta.motivoDelError ?? tarjeta.error)) ?? tarjeta.motivoDelError ?? tarjeta.error ?? "sin causa escrita";
   return {
     clave: `auto:trabado:${tarjeta.id}:${tarjeta.estado}`,
     tipo: "trabado",
@@ -707,6 +738,13 @@ export function categoriaDelError(resultado: unknown): string | null {
   return campoDelError(resultado, "categoria");
 }
 
+/** ¿El Coordinador marcó el error como agotado (resultado.error.agotado === true, 25-nov-2026)? */
+export function errorAgotado(resultado: unknown): boolean {
+  if (!resultado || typeof resultado !== "object" || Array.isArray(resultado)) return false;
+  const error = (resultado as { error?: unknown }).error;
+  return Boolean(error && typeof error === "object" && !Array.isArray(error) && (error as Record<string, unknown>).agotado === true);
+}
+
 /** El motivo (o, si no hay, la causa) que dejó el Coordinador en resultado.error; null si no hay. */
 export function motivoDelError(resultado: unknown): string | null {
   return campoDelError(resultado, "motivo") ?? campoDelError(resultado, "causa");
@@ -863,6 +901,7 @@ export async function leerSituacion(workspaceId: string): Promise<SituacionDeSis
       error: textoDelError(p.resultado),
       categoriaDelError: categoriaDelError(p.resultado),
       motivoDelError: motivoDelError(p.resultado),
+      errorAgotado: errorAgotado(p.resultado),
       esperaPor: textoDeEsperaPor(p.resultado),
       tareaAprobadaPorElDueno: tareasDelDueno.get(p.id) ?? false,
     })),

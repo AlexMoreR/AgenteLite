@@ -11,7 +11,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 
-import { procesar, resolverLaSubidaDeshecha } from "../lib/bucle.mjs";
+import { manejarFalla, procesar, resolverLaSubidaDeshecha } from "../lib/bucle.mjs";
 import { LOG_ACTUALIZAR_POR_DEFECTO, PISO_VERSION_MINUTOS, completarConfig } from "../lib/config.mjs";
 import {
   FRASES_DE_LA_CAUSA,
@@ -356,10 +356,12 @@ try {
     assert.ok(guardada.includes(LINK_FIJA), guardada);
     assert.equal(estrategiaDeLaCausa(guardada), "sesion_nueva");
     assert.ok(sinMarcaDeEstrategia(guardada).endsWith(LINK_FIJA));
-    // La 3.ª nube sin señal (2 previas en la tarjeta) sí va a Alertas: la alerta llega tras 3 intentos distintos.
+    // Parte 4: con la misma causa, la 2.ª reparación ya no repite sesion_nueva (pasa a la siguiente de su lista) y la alerta
+    // llega recién con la 4.ª falla, tras 3 intentos distintos (el tope de 3 reparaciones del CRM).
     const previa = { accion: "reparar", etapa: "construir", categoria: "nube_sin_resultado", causa: guardada };
-    assert.equal(decidir({ diagnostico, tarjeta: { reparaciones: 1, ultimosIntentos: [previa] }, etapa: "construir" }).estrategia, "sesion_nueva");
-    assert.equal(decidir({ diagnostico, tarjeta: { reparaciones: 2, ultimosIntentos: [previa, previa] }, etapa: "construir" }).accion, "escalar");
+    assert.equal(decidir({ diagnostico, tarjeta: { reparaciones: 1, ultimosIntentos: [previa] }, etapa: "construir" }).estrategia, "opus");
+    assert.equal(decidir({ diagnostico, tarjeta: { reparaciones: 2, ultimosIntentos: [previa, previa] }, etapa: "construir" }).accion, "reparar");
+    assert.equal(decidir({ diagnostico, tarjeta: { reparaciones: 3, ultimosIntentos: [previa, previa, previa] }, etapa: "construir" }).agotado, true);
 
     // 2) La tarjeta con ese intento: aunque el proyecto tenga sesión fija y modo orquestador, abre una sesión NUEVA con --cloud.
     const tarjeta = { id: "cmyjn7ul5g0000000000000", titulo: "Cambio que la nube no terminó", repo: "aizencrm", ultimosIntentos: [previa] };
@@ -539,11 +541,91 @@ try {
     assert.equal(reglas.estadoTrasReparar("EN_CURSO", "opus"), "PLAN_APROBADO");
     const texto = fs.readFileSync(path.join(carpeta, "incidentes", "aizencrm.md"), "utf8");
     assert.match(texto, /^- Cómo se resolvió: se vuelve a planear la tarea$/m);
-    // La 3.ª vez sin cambiar nada (2 previas en la tarjeta) va a Alertas: la alerta llega tras 3 intentos distintos.
+    // Parte 4: con la misma causa, plan_nuevo no se repite (sigue opus) y la alerta llega con la 4.ª falla, tras 3 intentos distintos.
     const previa = { accion: "reparar", etapa: "construir", categoria: "no_cambio_nada", causa: datos.causa };
     const diagnostico = { categoria: "no_cambio_nada", causa: "Claude terminó sin cambiar ningún archivo" };
-    assert.equal(decidir({ diagnostico, tarjeta: { reparaciones: 1, ultimosIntentos: [previa] }, etapa: "construir" }).estrategia, "plan_nuevo");
-    assert.equal(decidir({ diagnostico, tarjeta: { reparaciones: 2, ultimosIntentos: [previa, previa] }, etapa: "construir" }).accion, "escalar");
+    assert.equal(decidir({ diagnostico, tarjeta: { reparaciones: 1, ultimosIntentos: [previa] }, etapa: "construir" }).estrategia, "opus");
+    assert.equal(decidir({ diagnostico, tarjeta: { reparaciones: 2, ultimosIntentos: [previa, previa] }, etapa: "construir" }).accion, "reparar");
+    assert.equal(decidir({ diagnostico, tarjeta: { reparaciones: 3, ultimosIntentos: [previa, previa, previa] }, etapa: "construir" }).agotado, true);
+  });
+
+  /* ── parte 4: una sola alerta, y solo tras 3 intentos distintos ── */
+
+  await prueba("una sola alerta: error agotado solo tras 3 intentos distintos", async () => {
+    // El CRM falso: guarda los intentos como /reparar y /error (con la marca de estrategia que agrega el CRM) y lleva la cuenta.
+    const tarjeta = {
+      id: "cmyjn7ul5g7777777777777",
+      titulo: "Cambio cuyas pruebas siguen fallando",
+      repo: "aizencrm",
+      estado: "EN_CURSO",
+      plan: "Cambiar src/lib/algo.ts.",
+      topeReparaciones: 3,
+      reparaciones: 0,
+      intentos: 1,
+      ultimosIntentos: [],
+    };
+    const llamadas = [];
+    const crm = {
+      latido: async () => ({ ok: true }),
+      reparar: async (id, datos) => {
+        llamadas.push(["reparar", id, datos]);
+        if (tarjeta.reparaciones >= reglas.TOPE_DE_REPARACIONES) throw Object.assign(new Error("ya lleva 3 reparaciones"), { status: 409 });
+        const estrategia = reglas.estrategiaDeEntrada(datos.estrategia);
+        tarjeta.reparaciones += 1;
+        tarjeta.ultimosIntentos.push({ accion: "reparar", etapa: datos.etapa, categoria: datos.categoria, causa: reglas.causaConEstrategia(datos.causa, estrategia), error: datos.error });
+        tarjeta.estado = reglas.estadoTrasReparar("EN_CURSO", estrategia);
+        return { ok: true, estado: tarjeta.estado, reparaciones: tarjeta.reparaciones };
+      },
+      error: async (...args) => (llamadas.push(["error", ...args]), { ok: true }),
+      soltar: async (...args) => (llamadas.push(["soltar", ...args]), { ok: true }),
+      aviso: async (...args) => (llamadas.push(["aviso", ...args]), { ok: true }),
+      causaExterna: async (...args) => (llamadas.push(["causaExterna", ...args]), { ok: true }),
+    };
+    const carpeta = fs.mkdtempSync(path.join(T, "trabajo-agotado-"));
+    const conCarpeta = { ...config, carpetaTrabajo: carpeta, bitacora: { ...config.bitacora, activa: false } };
+    // Las mismas pruebas fallan 4 veces seguidas, con la misma causa (la salida completa del comando trae 40 líneas).
+    const salidaDePruebas = [...Array.from({ length: 39 }, (_, i) => `ok ${i + 1} - prueba ${i + 1}`), "not ok 40 - la bandeja suma mal los totales"].join("\n");
+    const fallaDePruebas = () => Object.assign(new ErrorDeEtapa("Fallaron las pruebas que ya existen. No se subió nada.\nnot ok 40 - la bandeja suma mal los totales"), { salida: salidaDePruebas });
+    // El registro guarda el log de cada intento en la carpeta (como registro.guardarIntento de registro.mjs).
+    const registro = {
+      ...registroFalso(),
+      guardarIntento: ({ tarjetaId, etapa, texto }) => {
+        const ruta = path.join(carpeta, `${tarjetaId}-${llamadas.length}-${etapa}.log`);
+        fs.writeFileSync(ruta, texto);
+        return ruta;
+      },
+    };
+    const salidas = [];
+    for (let vez = 1; vez <= 4; vez += 1) {
+      tarjeta.intentos = vez;
+      const args = { crm, config: conCarpeta, registro, contexto: { config: conCarpeta, registro }, bitacora: [`INFO intento ${vez}`] };
+      salidas.push(await manejarFalla(args, { ...tarjeta, ultimosIntentos: [...tarjeta.ultimosIntentos] }, "construir", fallaDePruebas()));
+      if (vez < 4) assert.ok(!llamadas.some(([que]) => que === "error" || que === "aviso"), `la falla ${vez} no crea alerta`);
+    }
+    // Exactamente 3 reparaciones (cada una con su estrategia, todas distintas) y 1 error agotado al final; ningún aviso.
+    const reparaciones = llamadas.filter(([que]) => que === "reparar");
+    const errores = llamadas.filter(([que]) => que === "error");
+    assert.equal(reparaciones.length, 3, JSON.stringify(llamadas.map(([que]) => que)));
+    assert.deepEqual(reparaciones.map(([, , datos]) => datos.estrategia), ["arreglo", "opus", "nube"], "3 estrategias distintas");
+    assert.equal(errores.length, 1);
+    assert.equal(llamadas.at(-1)[0], "error", "el error es lo último, ninguno antes");
+    assert.ok(!llamadas.some(([que]) => que === "aviso"), "sin WhatsApp");
+    assert.deepEqual(salidas.map((s) => s.accion), ["reparar", "reparar", "reparar", "escalar"]);
+    const [, id, resumen, , , extra] = errores[0];
+    assert.equal(id, tarjeta.id);
+    assert.equal(extra.agotado, true);
+    assert.equal(extra.categoria, "fallan_pruebas");
+    assert.ok(resumen.split("\n").length <= 3, resumen);
+    assert.match(resumen, /^Qué se intentó: .*3 veces de formas distintas \(arreglo, opus, nube\)/m);
+    assert.match(resumen, /^Causa: Las pruebas siguen fallando/m);
+    // El intento siguiente de las pruebas recibe la ruta del log completo y sus últimas 30 líneas (no solo la primera línea).
+    const [, , primera] = reparaciones[0];
+    const ruta = primera.error.match(/^Log completo del intento anterior \(en aizen1\): (.+)$/m)?.[1];
+    assert.ok(ruta && fs.existsSync(ruta), primera.error);
+    assert.match(fs.readFileSync(ruta, "utf8"), /not ok 40 - la bandeja suma mal los totales\s*$/, "el log guardado termina con la salida del comando");
+    assert.match(primera.error, /Últimas 30 líneas del log:\n/);
+    assert.match(primera.error, /ok 11 - prueba 11\n[\s\S]*not ok 40/, "trae las últimas 30 líneas de la salida");
+    assert.doesNotMatch(primera.error, /ok 10 - prueba 10\n/, "solo las últimas 30");
   });
 
   console.log(`\n${pruebas} pruebas OK`);
