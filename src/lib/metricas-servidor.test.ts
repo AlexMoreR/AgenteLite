@@ -490,6 +490,22 @@ test("resumirConsulta: nunca copia textos, números ni valores de $$", () => {
   assert.match(r, /Contact/);
 });
 
+test("resumirConsulta: las comillas raras no dejan pasar valores", () => {
+  const casos: Array<[string, string]> = [
+    [String.raw`UPDATE "Contact" SET name = E'Ana\' JOIN mariagomez' WHERE id = $1`, "mariagomez"],
+    [`SELECT "it's" FROM t WHERE a = 'x FROM juanperez'`, "juanperez"],
+    [`SELECT 1 FROM t WHERE a = 'x''s FROM juan'`, "juan"],
+    [String.raw`SELECT 1 FROM t WHERE a = U&'d\0061t FROM pepito'`, "pepito"],
+    [`SELECT 1 FROM t WHERE a = $tag$ FROM luisa $tag$`, "luisa"],
+    [`SELECT 1 FROM t /* FROM carlos */ WHERE b = 2`, "carlos"],
+  ];
+  for (const [sql, valor] of casos) {
+    const r = resumirConsulta(sql, "crm", 12);
+    assert.doesNotMatch(r, new RegExp(valor), sql);
+  }
+  assert.match(resumirConsulta(String.raw`UPDATE "Contact" SET name = E'Ana\' JOIN mariagomez' WHERE id = $1`, "crm", 12), /^Cambiando la tabla Contact,/);
+});
+
 test("resumirConsulta: leer con JOIN junta las tablas sin comillas ni esquema", () => {
   const r = resumirConsulta(
     `SELECT m.id FROM "public"."Message" m JOIN "public"."Conversation" c ON c.id = m."conversationId" WHERE m.id = $1`,

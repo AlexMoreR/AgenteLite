@@ -435,17 +435,32 @@ function nombreLimpio(valor: string): string {
     .slice(0, LARGO_MAXIMO_IDENTIFICADOR);
 }
 
+// Una sola pasada de izquierda a derecha, para que una comilla dentro de otra cosa no desfase el resto. En orden:
+// identificador entre comillas dobles (se conserva), comentarios, texto con $tag$, texto E'…' (con escapes \'),
+// texto '…' (también B'…', X'…' y U&'…') y números. Todo lo que no es identificador se quita.
+const PIEZAS_DEL_SQL = new RegExp(
+  [
+    String.raw`(?<ident>"(?:[^"]|"")*(?:"|$))`,
+    String.raw`\/\*[\s\S]*?(?:\*\/|$)`,
+    String.raw`--[^\n]*`,
+    String.raw`\$(?<tag>[A-Za-z_][\w]*)?\$[\s\S]*?(?:\$\k<tag>\$|$)`,
+    String.raw`(?<![\w$])[Ee]'(?:[^'\\]|\\[\s\S]|'')*(?:'|$)`,
+    String.raw`(?:(?<![\w$])(?:[BbXx]|[Uu]&))?'(?:[^']|'')*(?:'|$)`,
+    String.raw`(?<![\w$])\d+(?:\.\d+)?(?:[eE][+-]?\d+)?`,
+  ].join("|"),
+  "g",
+);
+
 /**
  * Quita del SQL los comentarios y todos los valores escritos (textos entre comillas simples, textos con $$ y
- * números), para que al buscar las tablas no se pueda colar ningún dato.
+ * números), para que al buscar las tablas no se pueda colar ningún dato. Los identificadores entre comillas
+ * dobles se dejan tal cual.
  */
 function sqlSinValores(texto: string): string {
-  return texto
-    .replace(/\/\*[\s\S]*?(?:\*\/|$)/g, " ")
-    .replace(/--[^\n]*/g, " ")
-    .replace(/\$([A-Za-z_]\w*)?\$[\s\S]*?(?:\$\1\$|$)/g, " ")
-    .replace(/[EeBbXxUu]?&?'(?:[^']|'')*(?:'|$)/g, " ")
-    .replace(/\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b/g, " ");
+  return texto.replace(PIEZAS_DEL_SQL, (pieza, ...resto) => {
+    const grupos = resto[resto.length - 1] as { ident?: string };
+    return grupos.ident !== undefined ? pieza : " ";
+  });
 }
 
 // Un nombre de tabla: "Message", public.users o "public"."Message". El último grupo es la tabla.
