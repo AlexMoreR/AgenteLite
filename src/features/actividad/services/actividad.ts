@@ -143,6 +143,11 @@ export async function ultimaAccionPorPersona(input: {
   workspaceId: string;
   userIds: string[];
   desde?: Date;
+  /**
+   * Si es true, un error (o el tope de 5 s) se lanza en vez de devolver un Map vacío. Lo usa la
+   * cache de `ultima-accion-en-cache.ts`, para no guardar 2 minutos un vacío que fue una falla.
+   */
+  lanzarSiFalla?: boolean;
 }): Promise<Map<string, UltimaAccion>> {
   const { workspaceId } = input;
   const userIds = [...new Set(input.userIds.filter(Boolean))];
@@ -224,6 +229,7 @@ export async function ultimaAccionPorPersona(input: {
       "[equipo] no se pudo leer la última acción por persona (¿pasó de 5 s?):",
       error instanceof Error ? error.message : error,
     );
+    if (input.lanzarSiFalla) throw error;
     return new Map();
   }
 }
