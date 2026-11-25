@@ -7,10 +7,16 @@
 import {
   MINUTOS_ENTRE_ALERTAS,
   MUESTRAS_PARA_ALERTA,
+  MUESTRAS_PARA_ALERTA_BASE,
+  TITULO_AVISO_BASE,
   UMBRAL_CPU_ALERTA,
+  UMBRAL_CPU_BASE_ALERTA,
+  cpuDeLaBase,
   cpuEfectivo,
   evaluarAlerta,
+  leerContenedores,
   textoDeAlerta,
+  textoDeAlertaBase,
   validarMuestra,
   type EstadoAlertaCpu,
   type MuestraServidor,
@@ -21,6 +27,9 @@ export const CLAVE_ESTADO_ALERTA_CPU = "servidor:alerta-cpu";
 /** Las fotos con más días que esto se borran en cada llamada (sin cron aparte). */
 export const DIAS_QUE_SE_GUARDAN = 7;
 export const TITULO_ALERTA_CPU = "Servidor con CPU alta";
+/** Estado del aviso de la base saturada: AppSetting `servidor:alerta-cpu-base` = {activa, ultimoEnvio}. */
+export const CLAVE_ESTADO_ALERTA_CPU_BASE = "servidor:alerta-cpu-base";
+export const TITULO_ALERTA_CPU_BASE = TITULO_AVISO_BASE;
 
 export type ResultadoDelAviso = { mandada: boolean; motivo: string | null };
 
@@ -34,6 +43,10 @@ export type PiezasDeMetrica = {
   ultimas: (cuantas: number) => Promise<Array<Pick<MuestraServidor, "cpuTotal" | "load1" | "nucleos">>>;
   leerEstado: () => Promise<string | null>;
   guardarEstado: (valor: string) => Promise<void>;
+  /** La lista de contenedores (el JSON guardado) de las últimas `cuantas` fotos, de la más nueva a la más vieja. */
+  ultimosContenedores: (cuantas: number) => Promise<unknown[]>;
+  leerEstadoBase: () => Promise<string | null>;
+  guardarEstadoBase: (valor: string) => Promise<void>;
   avisar: (pedido: { titulo: string; texto: string; ahora: Date }) => Promise<ResultadoDelAviso>;
   registrar: (mensaje: string) => void;
 };
@@ -62,11 +75,11 @@ function mismoEstado(a: EstadoAlertaCpu, b: EstadoAlertaCpu) {
 }
 
 /** Por qué no se avisó, en palabras sencillas. */
-function motivoSinAviso(ultimasCpu: number[]): string {
-  if (ultimasCpu.length === 0 || !(ultimasCpu[0] > UMBRAL_CPU_ALERTA)) return "CPU normal";
-  const recientes = ultimasCpu.slice(0, MUESTRAS_PARA_ALERTA);
-  if (recientes.length < MUESTRAS_PARA_ALERTA || !recientes.every((cpu) => cpu > UMBRAL_CPU_ALERTA)) {
-    return `CPU alta, pero todavía no hay ${MUESTRAS_PARA_ALERTA} fotos seguidas por encima de ${UMBRAL_CPU_ALERTA} %`;
+function motivoSinAviso(ultimasCpu: number[], umbral = UMBRAL_CPU_ALERTA, muestras = MUESTRAS_PARA_ALERTA): string {
+  if (ultimasCpu.length === 0 || !(ultimasCpu[0] > umbral)) return "CPU normal";
+  const recientes = ultimasCpu.slice(0, muestras);
+  if (recientes.length < muestras || !recientes.every((cpu) => cpu > umbral)) {
+    return `CPU alta, pero todavía no hay ${muestras} fotos seguidas por encima de ${umbral} %`;
   }
   return `ya se avisó hace menos de ${MINUTOS_ENTRE_ALERTAS} min`;
 }
@@ -111,7 +124,74 @@ export async function recibirMetricaServidor(
   }
 
   const alerta = await revisarAlerta(muestra, ahora, piezas);
-  return { status: 200, cuerpo: { ok: true, guardada: true, borradas, alerta } };
+  const alertaBase = await revisarAlertaBase(muestra, ahora, piezas);
+  return { status: 200, cuerpo: { ok: true, guardada: true, borradas, alerta, alertaBase } };
+}
+
+/**
+ * Aviso "Base de datos saturada": la CPU del contenedor de la base (grupo "Base", el que más usa) pasa de 200 %
+ * en las 3 últimas fotos. Usa el mismo `avisar` que la alerta de CPU y su propio estado. Nunca tumba la
+ * respuesta: si algo falla, solo lo dice en `alertaBase`.
+ */
+async function revisarAlertaBase(
+  muestra: MuestraServidor,
+  ahora: Date,
+  piezas: PiezasDeMetrica,
+): Promise<{ evaluada: boolean; mandada: boolean; motivo: string | null }> {
+  try {
+    let ultimasCpu: number[];
+    let estado: EstadoAlertaCpu;
+    try {
+      const [listas, guardado] = await Promise.all([
+        piezas.ultimosContenedores(MUESTRAS_PARA_ALERTA_BASE),
+        piezas.leerEstadoBase(),
+      ]);
+      // Una foto sin contenedor de la base cuenta como no saturada (0 %).
+      ultimasCpu = listas.map((lista) => cpuDeLaBase(leerContenedores(lista)) ?? 0);
+      estado = leerEstadoAlertaCpu(guardado);
+    } catch (error) {
+      piezas.registrar(`[metricas-servidor] no se pudo leer para el aviso de la base: ${mensajeDe(error)}`);
+      return { evaluada: false, mandada: false, motivo: "no se pudo leer las últimas fotos o el estado del aviso de la base" };
+    }
+
+    const { mandar, estadoNuevo } = evaluarAlerta({
+      ultimasCpu,
+      estado,
+      ahora,
+      umbral: UMBRAL_CPU_BASE_ALERTA,
+      muestras: MUESTRAS_PARA_ALERTA_BASE,
+    });
+
+    let resultado: ResultadoDelAviso = {
+      mandada: false,
+      motivo:
+        cpuDeLaBase(muestra.contenedores) === null
+          ? "la foto no trae el contenedor de la base"
+          : motivoSinAviso(ultimasCpu, UMBRAL_CPU_BASE_ALERTA, MUESTRAS_PARA_ALERTA_BASE),
+    };
+    if (mandar) {
+      try {
+        resultado = await piezas.avisar({ titulo: TITULO_ALERTA_CPU_BASE, texto: textoDeAlertaBase(muestra), ahora });
+      } catch (error) {
+        piezas.registrar(`[metricas-servidor] el aviso de la base falló: ${mensajeDe(error)}`);
+        resultado = { mandada: false, motivo: "el envío del aviso falló" };
+      }
+    }
+
+    // Igual que la alerta de CPU: se guarda aunque el envío no salga, para no reintentar cada minuto.
+    if (!mismoEstado(estado, estadoNuevo)) {
+      try {
+        await piezas.guardarEstadoBase(JSON.stringify(estadoNuevo));
+      } catch (error) {
+        piezas.registrar(`[metricas-servidor] no se pudo guardar el estado del aviso de la base: ${mensajeDe(error)}`);
+        return { evaluada: true, mandada: resultado.mandada, motivo: `${resultado.motivo ?? "mandada"}; no se pudo guardar el estado del aviso de la base` };
+      }
+    }
+    return { evaluada: true, mandada: resultado.mandada, motivo: resultado.motivo };
+  } catch (error) {
+    piezas.registrar(`[metricas-servidor] el aviso de la base falló: ${mensajeDe(error)}`);
+    return { evaluada: false, mandada: false, motivo: "no se pudo revisar el aviso de la base" };
+  }
 }
 
 async function revisarAlerta(

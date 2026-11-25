@@ -4,6 +4,8 @@ import test from "node:test";
 import type { MuestraServidor } from "./metricas-servidor";
 import {
   CLAVE_ESTADO_ALERTA_CPU,
+  CLAVE_ESTADO_ALERTA_CPU_BASE,
+  TITULO_ALERTA_CPU_BASE,
   leerEstadoAlertaCpu,
   recibirMetricaServidor,
   type PiezasDeMetrica,
@@ -66,6 +68,15 @@ function simular(opciones: { aviso?: ResultadoDelAviso; fallaGuardar?: boolean }
     leerEstado: async () => ajustes.get(CLAVE_ESTADO_ALERTA_CPU) ?? null,
     guardarEstado: async (valor) => {
       ajustes.set(CLAVE_ESTADO_ALERTA_CPU, valor);
+    },
+    ultimosContenedores: async (cuantas) =>
+      [...fotos]
+        .sort((a, b) => b.tomadaEn.getTime() - a.tomadaEn.getTime())
+        .slice(0, cuantas)
+        .map((f) => f.muestra.contenedores as unknown),
+    leerEstadoBase: async () => ajustes.get(CLAVE_ESTADO_ALERTA_CPU_BASE) ?? null,
+    guardarEstadoBase: async (valor) => {
+      ajustes.set(CLAVE_ESTADO_ALERTA_CPU_BASE, valor);
     },
     avisar: async (pedido) => {
       avisos.push({ titulo: pedido.titulo, texto: pedido.texto });
@@ -246,4 +257,101 @@ test("el estado guardado roto se lee como sin alerta", () => {
     activa: true,
     ultimoEnvio: "2026-11-11T10:00:00.000Z",
   });
+});
+
+// ---------------------------------------------------------------------------------------------------------
+// Aviso "Base de datos saturada".
+// ---------------------------------------------------------------------------------------------------------
+
+/** Una foto con el servidor tranquilo (CPU total 10 %) y Postgres en `cpuBase` %. */
+function fotoConBase(cpuBase: number): Record<string, unknown> {
+  return {
+    ...foto(10),
+    contenedores: [
+      { nombre: "crm-aizenbot_app.1", cpu: 30, memMb: 900, memLimiteMb: null },
+      { nombre: "crm-postgres", cpu: cpuBase, memMb: 1200, memLimiteMb: 4096 },
+    ],
+  };
+}
+
+const avisosDeLaBase = (s: ReturnType<typeof simular>) => s.avisos.filter((a) => a.titulo === TITULO_ALERTA_CPU_BASE);
+
+test("3 fotos con Postgres en 250 % → avisa \"Base de datos saturada\"", async () => {
+  const s = simular();
+  for (let i = 0; i < 2; i++) {
+    const r = await s.enviar(fotoConBase(250));
+    assert.equal((r.cuerpo.alertaBase as { mandada: boolean }).mandada, false);
+    s.avanzar(MINUTO);
+  }
+  const tercera = await s.enviar(fotoConBase(250));
+  assert.equal(tercera.status, 200);
+  assert.deepEqual(tercera.cuerpo.alertaBase, { evaluada: true, mandada: true, motivo: null });
+  assert.equal(s.avisos.length, 1, "la alerta de CPU del servidor no suena");
+  assert.equal(s.avisos[0].titulo, "Base de datos saturada");
+  assert.match(s.avisos[0].texto, /crm-postgres usa 250 % de CPU/);
+  assert.equal(leerEstadoAlertaCpu(s.ajustes.get(CLAVE_ESTADO_ALERTA_CPU_BASE)).activa, true);
+  assert.equal(s.ajustes.has(CLAVE_ESTADO_ALERTA_CPU), false, "no toca el estado de la alerta de CPU");
+});
+
+test("3 fotos con Postgres en 200 % exacto → no avisa", async () => {
+  const s = simular();
+  let ultima;
+  for (let i = 0; i < 3; i++) {
+    ultima = await s.enviar(fotoConBase(200));
+    s.avanzar(MINUTO);
+  }
+  assert.equal(avisosDeLaBase(s).length, 0);
+  assert.deepEqual(ultima?.cuerpo.alertaBase, { evaluada: true, mandada: false, motivo: "CPU normal" });
+});
+
+test("el aviso de la base no se repite antes de 60 min", async () => {
+  const s = simular();
+  for (let i = 0; i < 3; i++) {
+    await s.enviar(fotoConBase(250));
+    s.avanzar(MINUTO);
+  }
+  assert.equal(avisosDeLaBase(s).length, 1);
+  for (let i = 0; i < 50; i++) {
+    await s.enviar(fotoConBase(250));
+    s.avanzar(MINUTO);
+  }
+  assert.equal(avisosDeLaBase(s).length, 1, "sigue saturada, pero no pasaron 60 min");
+  s.avanzar(10 * MINUTO);
+  await s.enviar(fotoConBase(250));
+  assert.equal(avisosDeLaBase(s).length, 2);
+});
+
+test("si la pieza nueva lanza, la foto queda guardada y responde 200", async () => {
+  const s = simular();
+  s.piezas.ultimosContenedores = async () => {
+    throw new Error("base caída");
+  };
+  const r = await s.enviar(fotoConBase(250));
+  assert.equal(r.status, 200);
+  assert.equal(r.cuerpo.ok, true);
+  assert.equal(s.fotos.length, 1);
+  assert.equal((r.cuerpo.alertaBase as { evaluada: boolean }).evaluada, false);
+  assert.doesNotMatch(JSON.stringify(r.cuerpo), /base caída/);
+
+  const t = simular();
+  t.piezas.guardarEstadoBase = async () => {
+    throw new Error("no guarda");
+  };
+  t.piezas.avisar = async () => {
+    throw new Error("gateway caído");
+  };
+  let ultima;
+  for (let i = 0; i < 3; i++) {
+    ultima = await t.enviar(fotoConBase(250));
+    t.avanzar(MINUTO);
+  }
+  assert.equal(ultima?.status, 200);
+  assert.equal(t.fotos.length, 3);
+});
+
+test("una foto sin contenedor de la base no avisa y lo dice", async () => {
+  const s = simular();
+  const r = await s.enviar({ ...foto(10), contenedores: [{ nombre: "crm-aizenbot_app.1", cpu: 300, memMb: 900 }] });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.cuerpo.alertaBase, { evaluada: true, mandada: false, motivo: "la foto no trae el contenedor de la base" });
 });

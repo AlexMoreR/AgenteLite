@@ -9,7 +9,11 @@ import { leerUltimosResumenes } from "@/features/agentes-de-area/servicios/resum
 import { coachOpusActivo, diasSaltados } from "@/features/coach/revision-opus/servicio";
 import { prisma } from "@/lib/prisma";
 import postgresDeProduccion from "@/lib/postgres-produccion.json";
-import { CLAVE_ESTADO_ALERTA_CPU, leerEstadoAlertaCpu } from "@/lib/recibir-metrica-servidor";
+import {
+  CLAVE_ESTADO_ALERTA_CPU,
+  CLAVE_ESTADO_ALERTA_CPU_BASE,
+  leerEstadoAlertaCpu,
+} from "@/lib/recibir-metrica-servidor";
 import { CLAVE_ULTIMO_CHEQUEO_NETMAGI, describirUltimoChequeoNetmagi, leerUltimoChequeoNetmagi } from "@/lib/recibir-estado-proxy-netmagi";
 import { aprobacionAutomaticaPrendida, aprobarPlanesSoloPrendido, aprobarTareasSoloPrendido } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
 import { featuresSolasPrendido } from "@/features/tableros-inteligentes/services/preparar-features";
@@ -778,12 +782,13 @@ async function estadoDelRepartoPorAnuncio(workspaceId: string) {
 
 /**
  * La alerta de CPU del servidor (monitoreo, parte 2): la fecha de la última foto que mandó el script del VPS y el
- * estado guardado en `servidor:alerta-cpu`. No es de ningún negocio: se ve igual desde cualquiera.
+ * estado guardado en `servidor:alerta-cpu` (o, para el aviso "Base de datos saturada", en `servidor:alerta-cpu-base`).
+ * No es de ningún negocio: se ve igual desde cualquiera.
  */
-async function estadoDeLaAlertaCpu() {
+async function estadoDeLaAlertaCpu(clave: string = CLAVE_ESTADO_ALERTA_CPU) {
   const [ultima, guardado] = await Promise.all([
     prisma.metricaServidor.findFirst({ orderBy: { tomadaEn: "desc" }, select: { tomadaEn: true } }),
-    bandera(CLAVE_ESTADO_ALERTA_CPU),
+    bandera(clave),
   ]);
   if (!ultima) return "sin fotos: el script del servidor no ha mandado nada a /api/cron/metricas-servidor";
   const fecha = (d: Date) => (Number.isNaN(d.getTime()) ? "(fecha rota)" : d.toISOString().slice(0, 16).replace("T", " ") + " UTC");
@@ -930,6 +935,8 @@ async function automatizaciones(
     agente_de_sistemas: await estadoDelAgenteDeSistemas(workspaceId).catch(() => "no se pudo leer"),
     // La llama el script del VPS cada minuto (no el reloj del CRM): CPU > 85 % en 5 fotos seguidas → WhatsApp al dueño.
     alerta_cpu_servidor: await estadoDeLaAlertaCpu().catch(() => "no se pudo leer"),
+    // Misma ruta del VPS: el contenedor de la base (grupo "Base") pasa de 200 % de CPU en 3 fotos seguidas → aviso MEDIA.
+    alerta_cpu_base_datos: await estadoDeLaAlertaCpu(CLAVE_ESTADO_ALERTA_CPU_BASE).catch(() => "no se pudo leer"),
     // La llama el chequeo de aizen1 (y la extensión NETMAGI): túnel SOCKS y cuentas mfN → alertas en /cliente/alertas, sin WhatsApp.
     vigilancia_proxy_netmagi: await bandera(CLAVE_ULTIMO_CHEQUEO_NETMAGI)
       .then((valor) => describirUltimoChequeoNetmagi(leerUltimoChequeoNetmagi(valor), new Date()))

@@ -15,10 +15,14 @@ import {
   colorCpu,
   colorDisco,
   colorMemoria,
+  cpuDeLaBase,
   cpuEfectivo,
   evaluarAlerta,
+  MUESTRAS_PARA_ALERTA_BASE,
+  UMBRAL_CPU_BASE_ALERTA,
   grupoDelContenedor,
   textoDeAlerta,
+  textoDeAlertaBase,
   validarMuestra,
   type ContenedorMuestra,
   type EstadoAlertaCpu,
@@ -381,4 +385,71 @@ test("seriePanelServidor: % de CPU efectiva, memoria y disco; total en 0 da 0 %"
   const sinTotales = seriePanelServidor([{ ...foto, memTotalMb: 0, discoTotalGb: 0 }])[0];
   assert.equal(sinTotales.memoria, 0);
   assert.equal(sinTotales.disco, 0);
+});
+
+// ---------------------------------------------------------------------------------------------------------
+// Aviso "Base de datos saturada": CPU del contenedor de la base > 200 % en 3 fotos seguidas.
+// ---------------------------------------------------------------------------------------------------------
+
+const BASE = { umbral: UMBRAL_CPU_BASE_ALERTA, muestras: MUESTRAS_PARA_ALERTA_BASE };
+
+test("alerta de la base: los valores son 200 % y 3 fotos", () => {
+  assert.equal(UMBRAL_CPU_BASE_ALERTA, 200);
+  assert.equal(MUESTRAS_PARA_ALERTA_BASE, 3);
+});
+
+test("alerta de la base: 200 % exacto no cuenta", () => {
+  const r = evaluarAlerta({ ultimasCpu: [200, 200, 200], estado: SIN_ALERTA, ahora: INICIO, ...BASE });
+  assert.equal(r.mandar, false);
+  assert.equal(r.estadoNuevo.activa, false);
+  const conBorde = evaluarAlerta({ ultimasCpu: [250, 250, 200], estado: SIN_ALERTA, ahora: INICIO, ...BASE });
+  assert.equal(conBorde.mandar, false);
+});
+
+test("alerta de la base: 2 fotos altas no avisan y 3 sí; repite a los 60 min", () => {
+  const dos = evaluarAlerta({ ultimasCpu: [250, 250], estado: SIN_ALERTA, ahora: INICIO, ...BASE });
+  assert.equal(dos.mandar, false);
+  const tres = evaluarAlerta({ ultimasCpu: [250, 250, 201], estado: SIN_ALERTA, ahora: INICIO, ...BASE });
+  assert.equal(tres.mandar, true);
+  assert.deepEqual(tres.estadoNuevo, { activa: true, ultimoEnvio: INICIO.toISOString() });
+  const a30 = evaluarAlerta({ ultimasCpu: [250, 250, 250], estado: tres.estadoNuevo, ahora: minutosDespues(30), ...BASE });
+  assert.equal(a30.mandar, false);
+  const a60 = evaluarAlerta({ ultimasCpu: [250, 250, 250], estado: a30.estadoNuevo, ahora: minutosDespues(60), ...BASE });
+  assert.equal(a60.mandar, true);
+  const baja = evaluarAlerta({ ultimasCpu: [150, 250, 250], estado: a60.estadoNuevo, ahora: minutosDespues(61), ...BASE });
+  assert.equal(baja.estadoNuevo.activa, false);
+});
+
+test("alerta de la base: 3 fotos sobre 85 % no tocan la alerta normal, que sigue pidiendo 5", () => {
+  const r = evaluarAlerta({ ultimasCpu: [90, 90, 90], estado: SIN_ALERTA, ahora: INICIO });
+  assert.equal(r.mandar, false);
+});
+
+test("cpuDeLaBase: el contenedor de la base que más usa (no la suma); sin grupo Base da null", () => {
+  const c = (nombre: string, grupo: ContenedorMuestra["grupo"], cpu: number): ContenedorMuestra => ({
+    nombre,
+    grupo,
+    cpu,
+    memMb: 100,
+    memLimiteMb: null,
+  });
+  assert.equal(cpuDeLaBase([c("crm-postgres", "Base", 120), c("crm-postgres-2", "Base", 180), c("app", "CRM", 400)]), 180);
+  assert.equal(cpuDeLaBase([c("app", "CRM", 400), c("mf8", "Marketplace", 300)]), null);
+  assert.equal(cpuDeLaBase([]), null);
+});
+
+test("textoDeAlertaBase: título, CPU y memoria de la base y CPU del servidor", () => {
+  const texto = textoDeAlertaBase(
+    muestra({
+      contenedores: [
+        { nombre: "crm-postgres", grupo: "Base", cpu: 251.6, memMb: 2048, memLimiteMb: 4096 },
+        { nombre: "crm-aizenbot_app", grupo: "CRM", cpu: 40, memMb: 900, memLimiteMb: null },
+      ],
+    }),
+  );
+  const lineas = texto.split("\n");
+  assert.equal(lineas[0], "⚠️ Base de datos saturada: crm-postgres usa 252 % de CPU");
+  assert.ok(texto.includes("3 fotos seguidas por encima de 200 %"), texto);
+  assert.ok(texto.includes("Memoria de la base: 2,0 de 4,0 GB"), texto);
+  assert.ok(texto.includes("CPU del servidor: 92 %"), texto);
 });

@@ -4,7 +4,12 @@ import { NextResponse } from "next/server";
 import { mandarWhatsAppAlEquipo } from "@/features/agentes-de-area/servicios/envios";
 import { destinoWhatsAppCritico, leerConfigGravedad } from "@/features/avisos-gravedad/servicios/enrutador";
 import { prisma } from "@/lib/prisma";
-import { CLAVE_ESTADO_ALERTA_CPU, recibirMetricaServidor, type ResultadoDelAviso } from "@/lib/recibir-metrica-servidor";
+import {
+  CLAVE_ESTADO_ALERTA_CPU,
+  CLAVE_ESTADO_ALERTA_CPU_BASE,
+  recibirMetricaServidor,
+  type ResultadoDelAviso,
+} from "@/lib/recibir-metrica-servidor";
 import { autorizadoPorElReloj } from "@/lib/secreto-del-reloj";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +20,8 @@ export const dynamic = "force-dynamic";
   7 días y, si la CPU pasa de 85 % en 5 fotos seguidas, se le avisa al dueño con el mismo mecanismo del Agente de
   Sistemas: solo números del equipo, nunca una línea de ventas, nunca un cliente. Desde el 19-nov-2026 es una alerta
   MEDIA (Tecnología): con "solo urgentes" prendido queda en la página de Alertas y no sale por WhatsApp.
+  Desde el 25-nov-2026 también avisa "Base de datos saturada" (MEDIA, mismo camino) si el contenedor de la base
+  pasa de 200 % de CPU en 3 fotos seguidas; su estado va en AppSetting `servidor:alerta-cpu-base`.
   Se llama con cualquiera de los secretos de siempre del reloj. Solo POST.
 */
 
@@ -90,6 +97,24 @@ export async function POST(request: Request) {
         await prisma.appSetting.upsert({
           where: { key: CLAVE_ESTADO_ALERTA_CPU },
           create: { key: CLAVE_ESTADO_ALERTA_CPU, value },
+          update: { value },
+        });
+      },
+      ultimosContenedores: async (cuantas) =>
+        (
+          await prisma.metricaServidor.findMany({
+            orderBy: { tomadaEn: "desc" },
+            take: cuantas,
+            select: { contenedores: true },
+          })
+        ).map((foto) => foto.contenedores),
+      leerEstadoBase: async () =>
+        (await prisma.appSetting.findUnique({ where: { key: CLAVE_ESTADO_ALERTA_CPU_BASE }, select: { value: true } }))
+          ?.value ?? null,
+      guardarEstadoBase: async (value) => {
+        await prisma.appSetting.upsert({
+          where: { key: CLAVE_ESTADO_ALERTA_CPU_BASE },
+          create: { key: CLAVE_ESTADO_ALERTA_CPU_BASE, value },
           update: { value },
         });
       },

@@ -36,6 +36,15 @@ export type EstadoAlertaCpu = { activa: boolean; ultimoEnvio: string | null };
 export const UMBRAL_CPU_ALERTA = 85;
 /** Cuántas fotos seguidas tienen que estar altas para avisar. */
 export const MUESTRAS_PARA_ALERTA = 5;
+/**
+ * CPU del contenedor de la base (grupo "Base") por encima de este % cuenta como saturada ("pasa de 200 %": 200
+ * exacto no cuenta). Es CPU de Docker: 200 % son dos núcleos llenos.
+ */
+export const UMBRAL_CPU_BASE_ALERTA = 200;
+/** Cuántas fotos seguidas tiene que estar saturada la base para avisar. */
+export const MUESTRAS_PARA_ALERTA_BASE = 3;
+/** Título del aviso de la base. */
+export const TITULO_AVISO_BASE = "Base de datos saturada";
 /** Minutos de espera antes de repetir el aviso mientras siga alta. */
 export const MINUTOS_ENTRE_ALERTAS = 60;
 /** Tope de contenedores por foto, para que un cuerpo roto no llene la tabla. */
@@ -196,26 +205,28 @@ export function validarMuestra(json: unknown): ResultadoValidacion {
 
 /**
  * Decide si se manda el aviso de CPU alta.
- * - `ultimasCpu`: la CPU efectiva de las últimas fotos, de la más nueva a la más vieja.
- * - Manda cuando las 5 últimas pasan de 85 % y (no hay alerta activa o pasaron 60 min del último envío).
- * - Si la última baja de 85 %, la alerta queda inactiva (se recupera) y puede volver a sonar.
+ * - `ultimasCpu`: la CPU de las últimas fotos, de la más nueva a la más vieja.
+ * - `umbral` y `muestras`: por defecto 85 % y 5 fotos (la alerta del servidor); la de la base usa 200 % y 3.
+ * - Manda cuando las `muestras` últimas pasan del umbral y (no hay alerta activa o pasaron 60 min del último envío).
+ * - Si la última no pasa del umbral, la alerta queda inactiva (se recupera) y puede volver a sonar.
  */
 export function evaluarAlerta(entrada: {
   ultimasCpu: number[];
   estado: EstadoAlertaCpu;
   ahora: Date;
+  umbral?: number;
+  muestras?: number;
 }): { mandar: boolean; estadoNuevo: EstadoAlertaCpu } {
-  const { ultimasCpu, estado, ahora } = entrada;
+  const { ultimasCpu, estado, ahora, umbral = UMBRAL_CPU_ALERTA, muestras = MUESTRAS_PARA_ALERTA } = entrada;
   const sinCambio = { mandar: false, estadoNuevo: { ...estado } };
 
   if (ultimasCpu.length === 0) return sinCambio;
-  if (!(ultimasCpu[0] > UMBRAL_CPU_ALERTA)) {
+  if (!(ultimasCpu[0] > umbral)) {
     return { mandar: false, estadoNuevo: { activa: false, ultimoEnvio: estado.ultimoEnvio } };
   }
 
-  const recientes = ultimasCpu.slice(0, MUESTRAS_PARA_ALERTA);
-  const todasAltas =
-    recientes.length === MUESTRAS_PARA_ALERTA && recientes.every((cpu) => cpu > UMBRAL_CPU_ALERTA);
+  const recientes = ultimasCpu.slice(0, muestras);
+  const todasAltas = recientes.length === muestras && recientes.every((cpu) => cpu > umbral);
   if (!todasAltas) return sinCambio;
 
   const mandada = { mandar: true, estadoNuevo: { activa: true, ultimoEnvio: ahora.toISOString() } };
@@ -246,6 +257,40 @@ export function textoDeAlerta(muestra: MuestraServidor): string {
     `Memoria: ${gb(muestra.memUsadaMb)} de ${gb(muestra.memTotalMb)} GB`,
     `Disco: ${conComa(muestra.discoUsadoGb, 0)} de ${conComa(muestra.discoTotalGb, 0)} GB`,
   ];
+  return lineas.join("\n");
+}
+
+/** El contenedor del grupo "Base" que más CPU usa; null si la foto no trae ninguno. */
+function contenedorDeLaBase(contenedores: readonly ContenedorMuestra[]): ContenedorMuestra | null {
+  let mayor: ContenedorMuestra | null = null;
+  for (const c of contenedores) {
+    if (c.grupo === "Base" && (mayor === null || c.cpu > mayor.cpu)) mayor = c;
+  }
+  return mayor;
+}
+
+/** CPU (en %) del contenedor de la base que más usa (no la suma); null si no hay ninguno del grupo "Base". */
+export function cpuDeLaBase(contenedores: readonly ContenedorMuestra[]): number | null {
+  return contenedorDeLaBase(contenedores)?.cpu ?? null;
+}
+
+/** Mensaje corto del aviso "Base de datos saturada": la CPU y la memoria de la base y la CPU del servidor. */
+export function textoDeAlertaBase(muestra: MuestraServidor): string {
+  const base = contenedorDeLaBase(muestra.contenedores);
+  const lineas = [
+    base
+      ? `⚠️ ${TITULO_AVISO_BASE}: ${base.nombre} usa ${Math.round(base.cpu)} % de CPU`
+      : `⚠️ ${TITULO_AVISO_BASE}`,
+    `Lleva ${MUESTRAS_PARA_ALERTA_BASE} fotos seguidas por encima de ${UMBRAL_CPU_BASE_ALERTA} %.`,
+  ];
+  if (base) {
+    lineas.push(
+      base.memLimiteMb
+        ? `Memoria de la base: ${gb(base.memMb)} de ${gb(base.memLimiteMb)} GB`
+        : `Memoria de la base: ${gb(base.memMb)} GB`,
+    );
+  }
+  lineas.push(`CPU del servidor: ${Math.round(cpuEfectivo(muestra))} %`);
   return lineas.join("\n");
 }
 
