@@ -7,10 +7,12 @@ import { prisma } from "@/lib/prisma";
 import {
   CLAVE_ESTADO_ALERTA_CPU,
   CLAVE_ESTADO_ALERTA_CPU_BASE,
+  CLAVE_CONSULTAS_LENTAS,
   recibirMetricaServidor,
   type ResultadoDelAviso,
 } from "@/lib/recibir-metrica-servidor";
 import { autorizadoPorElReloj } from "@/lib/secreto-del-reloj";
+import type { ConsultaLenta } from "@/lib/metricas-servidor";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +24,9 @@ export const dynamic = "force-dynamic";
   MEDIA (Tecnología): con "solo urgentes" prendido queda en la página de Alertas y no sale por WhatsApp.
   Desde el 25-nov-2026 también avisa "Base de datos saturada" (MEDIA, mismo camino) si el contenedor de la base
   pasa de 200 % de CPU en 3 fotos seguidas; su estado va en AppSetting `servidor:alerta-cpu-base`.
+  También en cada foto mira (solo lee: nunca cancela nada) las consultas de más de 10 s en pg_stat_activity, de
+  todas las bases del mismo Postgres (CRM, Marketplace, Gestión), y avisa "Base de datos con consultas lentas"
+  (MEDIA, mismo camino) si hay en 2 fotos seguidas; lo guarda en AppSetting `servidor:consultas-lentas`.
   Se llama con cualquiera de los secretos de siempre del reloj. Solo POST.
 */
 
@@ -59,6 +64,39 @@ async function avisarAlDueno(pedido: { titulo: string; texto: string; ahora: Dat
     return { mandada: resultado.ok, motivo: resultado.ok ? null : (resultado.motivo ?? "no se mandó") };
   }
   return { mandada: false, motivo: "ningún negocio tiene número del administrador y línea Admin en Mi empresa → Equipo" };
+}
+
+type FilaConsultaLenta = { datname: string | null; segundos: unknown; query: string | null };
+
+/**
+ * Las consultas que llevan más de 10 s corriendo, de cualquier base de este Postgres (máximo 5, la más vieja
+ * primero). Solo lee pg_stat_activity, con un tope de 3 s para que la propia lectura nunca se quede pegada.
+ * Solo columnas que existen desde Postgres 10. Sin el permiso pg_read_all_stats, `query` de otros usuarios
+ * llega como "<insufficient privilege>" y el resumen lo dice así.
+ */
+async function leerConsultasLentas(): Promise<ConsultaLenta[]> {
+  const filas = await prisma.$transaction(
+    async (tx) => {
+      // SET LOCAL: el tope vale solo dentro de esta transacción.
+      await tx.$executeRaw`SET LOCAL statement_timeout = 3000`;
+      return tx.$queryRaw<FilaConsultaLenta[]>`
+        SELECT datname, EXTRACT(EPOCH FROM now() - query_start) AS segundos, query
+        FROM pg_stat_activity
+        WHERE state = 'active'
+          AND backend_type = 'client backend'
+          AND pid <> pg_backend_pid()
+          AND query_start < now() - interval '10 seconds'
+        ORDER BY query_start
+        LIMIT 5`;
+    },
+    { timeout: 5000 },
+  );
+  return filas.map((fila) => ({
+    base: fila.datname ?? "",
+    // EXTRACT devuelve numeric (Decimal en Prisma) desde Postgres 14 y double antes.
+    segundos: Number(String(fila.segundos ?? 0)) || 0,
+    texto: fila.query,
+  }));
 }
 
 export async function POST(request: Request) {
@@ -115,6 +153,17 @@ export async function POST(request: Request) {
         await prisma.appSetting.upsert({
           where: { key: CLAVE_ESTADO_ALERTA_CPU_BASE },
           create: { key: CLAVE_ESTADO_ALERTA_CPU_BASE, value },
+          update: { value },
+        });
+      },
+      leerConsultasLentas,
+      leerEstadoConsultas: async () =>
+        (await prisma.appSetting.findUnique({ where: { key: CLAVE_CONSULTAS_LENTAS }, select: { value: true } }))?.value ??
+        null,
+      guardarEstadoConsultas: async (value) => {
+        await prisma.appSetting.upsert({
+          where: { key: CLAVE_CONSULTAS_LENTAS },
+          create: { key: CLAVE_CONSULTAS_LENTAS, value },
           update: { value },
         });
       },

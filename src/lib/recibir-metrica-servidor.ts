@@ -5,7 +5,11 @@
 // base (src/lib/recibir-metrica-servidor.test.ts). Las reglas puras están en ./metricas-servidor.
 
 import {
+  MAXIMO_CONSULTAS_LENTAS,
   MINUTOS_ENTRE_ALERTAS,
+  FOTOS_PARA_ALERTA_CONSULTAS,
+  SEGUNDOS_CONSULTA_LENTA,
+  TITULO_AVISO_CONSULTAS_LENTAS,
   MUESTRAS_PARA_ALERTA,
   MUESTRAS_PARA_ALERTA_BASE,
   TITULO_AVISO_BASE,
@@ -14,10 +18,15 @@ import {
   cpuDeLaBase,
   cpuEfectivo,
   evaluarAlerta,
+  evaluarConsultasLentas,
   leerContenedores,
+  resumirConsultas,
   textoDeAlerta,
   textoDeAlertaBase,
+  textoDeAlertaConsultas,
   validarMuestra,
+  type ConsultaLenta,
+  type ConsultaResumida,
   type EstadoAlertaCpu,
   type MuestraServidor,
 } from "./metricas-servidor";
@@ -30,6 +39,20 @@ export const TITULO_ALERTA_CPU = "Servidor con CPU alta";
 /** Estado del aviso de la base saturada: AppSetting `servidor:alerta-cpu-base` = {activa, ultimoEnvio}. */
 export const CLAVE_ESTADO_ALERTA_CPU_BASE = "servidor:alerta-cpu-base";
 export const TITULO_ALERTA_CPU_BASE = TITULO_AVISO_BASE;
+/**
+ * Consultas de más de 10 s en la base: AppSetting `servidor:consultas-lentas` =
+ * {leidaEn, consultas: [{base, segundos, resumen}] (máx. 5), rachaDeFotos, ultimoAvisoEn}. Lo lee la pantalla.
+ */
+export const CLAVE_CONSULTAS_LENTAS = "servidor:consultas-lentas";
+export const TITULO_ALERTA_CONSULTAS_LENTAS = TITULO_AVISO_CONSULTAS_LENTAS;
+
+/** El valor guardado en `servidor:consultas-lentas`. `leidaEn` y `ultimoAvisoEn` en ISO. */
+export type EstadoGuardadoConsultas = {
+  leidaEn: string | null;
+  consultas: ConsultaResumida[];
+  rachaDeFotos: number;
+  ultimoAvisoEn: string | null;
+};
 
 export type ResultadoDelAviso = { mandada: boolean; motivo: string | null };
 
@@ -47,6 +70,10 @@ export type PiezasDeMetrica = {
   ultimosContenedores: (cuantas: number) => Promise<unknown[]>;
   leerEstadoBase: () => Promise<string | null>;
   guardarEstadoBase: (valor: string) => Promise<void>;
+  /** Las consultas de más de 10 s que están corriendo en la base (pg_stat_activity), máximo 5. Solo lee. */
+  leerConsultasLentas: () => Promise<ConsultaLenta[]>;
+  leerEstadoConsultas: () => Promise<string | null>;
+  guardarEstadoConsultas: (valor: string) => Promise<void>;
   avisar: (pedido: { titulo: string; texto: string; ahora: Date }) => Promise<ResultadoDelAviso>;
   registrar: (mensaje: string) => void;
 };
@@ -64,6 +91,37 @@ export function leerEstadoAlertaCpu(valor: string | null | undefined): EstadoAle
     return {
       activa: objeto.activa === true,
       ultimoEnvio: typeof objeto.ultimoEnvio === "string" && objeto.ultimoEnvio ? objeto.ultimoEnvio : null,
+    };
+  } catch {
+    return vacio;
+  }
+}
+
+function textoSiHay(valor: unknown): string | null {
+  return typeof valor === "string" && valor ? valor : null;
+}
+
+/** El estado guardado de las consultas lentas; si falta o está roto, el de arranque (sin lectura ni racha). */
+export function leerEstadoConsultasLentas(valor: string | null | undefined): EstadoGuardadoConsultas {
+  const vacio: EstadoGuardadoConsultas = { leidaEn: null, consultas: [], rachaDeFotos: 0, ultimoAvisoEn: null };
+  if (!valor) return vacio;
+  try {
+    const crudo = JSON.parse(valor) as unknown;
+    if (!crudo || typeof crudo !== "object" || Array.isArray(crudo)) return vacio;
+    const objeto = crudo as Record<string, unknown>;
+    const consultas: ConsultaResumida[] = [];
+    for (const c of Array.isArray(objeto.consultas) ? objeto.consultas : []) {
+      if (!c || typeof c !== "object" || Array.isArray(c)) continue;
+      const fila = c as Record<string, unknown>;
+      if (typeof fila.resumen !== "string" || typeof fila.segundos !== "number" || !Number.isFinite(fila.segundos)) continue;
+      consultas.push({ base: typeof fila.base === "string" ? fila.base : "", segundos: fila.segundos, resumen: fila.resumen });
+    }
+    const racha = objeto.rachaDeFotos;
+    return {
+      leidaEn: textoSiHay(objeto.leidaEn),
+      consultas: consultas.slice(0, MAXIMO_CONSULTAS_LENTAS),
+      rachaDeFotos: typeof racha === "number" && Number.isInteger(racha) && racha > 0 ? racha : 0,
+      ultimoAvisoEn: textoSiHay(objeto.ultimoAvisoEn),
     };
   } catch {
     return vacio;
@@ -125,7 +183,79 @@ export async function recibirMetricaServidor(
 
   const alerta = await revisarAlerta(muestra, ahora, piezas);
   const alertaBase = await revisarAlertaBase(muestra, ahora, piezas);
-  return { status: 200, cuerpo: { ok: true, guardada: true, borradas, alerta, alertaBase } };
+  const consultasLentas = await revisarConsultasLentas(ahora, piezas);
+  return { status: 200, cuerpo: { ok: true, guardada: true, borradas, alerta, alertaBase, consultasLentas } };
+}
+
+/**
+ * Aviso "Base de datos con consultas lentas": en cada foto se miran las consultas de más de 10 s que están
+ * corriendo (pg_stat_activity, solo lectura). Avisa desde la 2ª foto seguida con alguna y lo repite como máximo
+ * cada 60 min. Nunca tumba la respuesta: si la lectura falla, lo dice en `consultasLentas` y no toca lo guardado
+ * (así `leidaEn` sigue diciendo cuándo fue la última lectura buena).
+ */
+async function revisarConsultasLentas(
+  ahora: Date,
+  piezas: PiezasDeMetrica,
+): Promise<{ evaluada: boolean; mandada: boolean; consultas: number | null; motivo: string | null }> {
+  try {
+    let consultas: ConsultaLenta[];
+    try {
+      consultas = await piezas.leerConsultasLentas();
+    } catch (error) {
+      piezas.registrar(`[metricas-servidor] no se pudieron leer las consultas lentas: ${mensajeDe(error)}`);
+      return { evaluada: false, mandada: false, consultas: null, motivo: "no se pudieron leer las consultas lentas de la base" };
+    }
+    let guardado: EstadoGuardadoConsultas;
+    try {
+      guardado = leerEstadoConsultasLentas(await piezas.leerEstadoConsultas());
+    } catch (error) {
+      piezas.registrar(`[metricas-servidor] no se pudo leer el estado de las consultas lentas: ${mensajeDe(error)}`);
+      return { evaluada: false, mandada: false, consultas: consultas.length, motivo: "no se pudo leer el estado del aviso de consultas lentas" };
+    }
+
+    const resumidas = resumirConsultas(consultas);
+    const { mandar, estadoNuevo } = evaluarConsultasLentas({ consultas: resumidas, estado: guardado, ahora });
+
+    let resultado: ResultadoDelAviso = {
+      mandada: false,
+      motivo:
+        resumidas.length === 0
+          ? `sin consultas de más de ${SEGUNDOS_CONSULTA_LENTA} s`
+          : estadoNuevo.rachaDeFotos < FOTOS_PARA_ALERTA_CONSULTAS
+            ? `hay consultas lentas, pero todavía no en ${FOTOS_PARA_ALERTA_CONSULTAS} fotos seguidas`
+            : `ya se avisó hace menos de ${MINUTOS_ENTRE_ALERTAS} min`,
+    };
+    if (mandar) {
+      try {
+        resultado = await piezas.avisar({
+          titulo: TITULO_ALERTA_CONSULTAS_LENTAS,
+          texto: textoDeAlertaConsultas(resumidas),
+          ahora,
+        });
+      } catch (error) {
+        piezas.registrar(`[metricas-servidor] el aviso de consultas lentas falló: ${mensajeDe(error)}`);
+        resultado = { mandada: false, motivo: "el envío del aviso falló" };
+      }
+    }
+
+    // Se guarda siempre (leidaEn cambia en cada lectura), aunque el envío no salga: no se reintenta cada minuto.
+    const nuevo: EstadoGuardadoConsultas = { leidaEn: ahora.toISOString(), consultas: resumidas, ...estadoNuevo };
+    try {
+      await piezas.guardarEstadoConsultas(JSON.stringify(nuevo));
+    } catch (error) {
+      piezas.registrar(`[metricas-servidor] no se pudo guardar el estado de las consultas lentas: ${mensajeDe(error)}`);
+      return {
+        evaluada: true,
+        mandada: resultado.mandada,
+        consultas: resumidas.length,
+        motivo: `${resultado.motivo ?? "mandada"}; no se pudo guardar el estado de las consultas lentas`,
+      };
+    }
+    return { evaluada: true, mandada: resultado.mandada, consultas: resumidas.length, motivo: resultado.motivo };
+  } catch (error) {
+    piezas.registrar(`[metricas-servidor] el aviso de consultas lentas falló: ${mensajeDe(error)}`);
+    return { evaluada: false, mandada: false, consultas: null, motivo: "no se pudo revisar el aviso de consultas lentas" };
+  }
 }
 
 /**

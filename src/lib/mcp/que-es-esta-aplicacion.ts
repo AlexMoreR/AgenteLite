@@ -12,7 +12,9 @@ import postgresDeProduccion from "@/lib/postgres-produccion.json";
 import {
   CLAVE_ESTADO_ALERTA_CPU,
   CLAVE_ESTADO_ALERTA_CPU_BASE,
+  CLAVE_CONSULTAS_LENTAS,
   leerEstadoAlertaCpu,
+  leerEstadoConsultasLentas,
 } from "@/lib/recibir-metrica-servidor";
 import { CLAVE_ULTIMO_CHEQUEO_NETMAGI, describirUltimoChequeoNetmagi, leerUltimoChequeoNetmagi } from "@/lib/recibir-estado-proxy-netmagi";
 import { aprobacionAutomaticaPrendida, aprobarPlanesSoloPrendido, aprobarTareasSoloPrendido } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
@@ -797,6 +799,21 @@ async function estadoDeLaAlertaCpu(clave: string = CLAVE_ESTADO_ALERTA_CPU) {
   return `activa: última foto ${fecha(ultima.tomadaEn)}; ${estado.activa ? "alerta sonando" : "sin alerta"}, ${envio}`;
 }
 
+/**
+ * El aviso "Base de datos con consultas lentas": la última lectura de pg_stat_activity, cuántas consultas de más de
+ * 10 s había y el último aviso (AppSetting `servidor:consultas-lentas`). No es de ningún negocio.
+ */
+async function estadoDeLasConsultasLentas() {
+  const estado = leerEstadoConsultasLentas(await bandera(CLAVE_CONSULTAS_LENTAS));
+  if (!estado.leidaEn) return "sin lecturas: el script del servidor no ha mandado ninguna foto desde que existe esta alerta";
+  const fecha = (iso: string) => {
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? "(fecha rota)" : d.toISOString().slice(0, 16).replace("T", " ") + " UTC";
+  };
+  const aviso = estado.ultimoAvisoEn ? `último aviso ${fecha(estado.ultimoAvisoEn)}` : "nunca ha avisado";
+  return `activa: última lectura ${fecha(estado.leidaEn)}; ${estado.consultas.length} consultas de más de 10 s (${estado.rachaDeFotos} fotos seguidas); ${aviso}`;
+}
+
 /*
   Los interruptores, leídos de la fila (lo mismo que hace leerConfigDeAsignacion, sin su memoria de un
   minuto): leerConfigDeAsignacion devuelve los valores por defecto si la base falla, y aquí eso tiene que
@@ -937,6 +954,8 @@ async function automatizaciones(
     alerta_cpu_servidor: await estadoDeLaAlertaCpu().catch(() => "no se pudo leer"),
     // Misma ruta del VPS: el contenedor de la base (grupo "Base") pasa de 200 % de CPU en 3 fotos seguidas → aviso MEDIA.
     alerta_cpu_base_datos: await estadoDeLaAlertaCpu(CLAVE_ESTADO_ALERTA_CPU_BASE).catch(() => "no se pudo leer"),
+    // Misma ruta del VPS: consultas de más de 10 s en pg_stat_activity en 2 fotos seguidas → aviso MEDIA.
+    alerta_consultas_lentas: await estadoDeLasConsultasLentas().catch(() => "no se pudo leer"),
     // La llama el chequeo de aizen1 (y la extensión NETMAGI): túnel SOCKS y cuentas mfN → alertas en /cliente/alertas, sin WhatsApp.
     vigilancia_proxy_netmagi: await bandera(CLAVE_ULTIMO_CHEQUEO_NETMAGI)
       .then((valor) => describirUltimoChequeoNetmagi(leerUltimoChequeoNetmagi(valor), new Date()))

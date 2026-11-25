@@ -5,6 +5,15 @@ import path from "node:path";
 
 import { puedeVerDireccion } from "./permisos-del-crm";
 import {
+  FOTOS_PARA_ALERTA_CONSULTAS,
+  SEGUNDOS_CONSULTA_LENTA,
+  TITULO_AVISO_CONSULTAS_LENTAS,
+  evaluarConsultasLentas,
+  resumirConsulta,
+  resumirConsultas,
+  textoDeAlertaConsultas,
+} from "./metricas-servidor";
+import {
   CAMPOS_PANEL,
   agruparContenedores,
   armarPanelServidor,
@@ -452,4 +461,96 @@ test("textoDeAlertaBase: título, CPU y memoria de la base y CPU del servidor", 
   assert.ok(texto.includes("3 fotos seguidas por encima de 200 %"), texto);
   assert.ok(texto.includes("Memoria de la base: 2,0 de 4,0 GB"), texto);
   assert.ok(texto.includes("CPU del servidor: 92 %"), texto);
+});
+
+// ---------------------------------------------------------------------------------------------------------
+// Consultas lentas de la base
+// ---------------------------------------------------------------------------------------------------------
+
+test("consultas lentas: los valores son 10 s y 2 fotos", () => {
+  assert.equal(SEGUNDOS_CONSULTA_LENTA, 10);
+  assert.equal(FOTOS_PARA_ALERTA_CONSULTAS, 2);
+  assert.equal(TITULO_AVISO_CONSULTAS_LENTAS, "Base de datos con consultas lentas");
+});
+
+test("resumirConsulta: dice la tabla y nunca copia el teléfono", () => {
+  const r = resumirConsulta(`SELECT * FROM "Message" WHERE phone = '573001234567'`, "aizen_crm", 23);
+  assert.match(r, /Message/);
+  assert.doesNotMatch(r, /573001234567/);
+  assert.equal(r, "Leyendo la tabla Message, hace 23 s (base aizen_crm)");
+});
+
+test("resumirConsulta: nunca copia textos, números ni valores de $$", () => {
+  const r = resumirConsulta(
+    `SELECT "id" FROM "public"."Contact" WHERE "name" = 'Ana Pérez' AND "total" > 989000 AND nota = $$secreto$$ -- 3001112233`,
+    "crm",
+    12,
+  );
+  for (const valor of ["Ana", "Pérez", "989000", "secreto", "3001112233"]) assert.doesNotMatch(r, new RegExp(valor));
+  assert.match(r, /Contact/);
+});
+
+test("resumirConsulta: leer con JOIN junta las tablas sin comillas ni esquema", () => {
+  const r = resumirConsulta(
+    `SELECT m.id FROM "public"."Message" m JOIN "public"."Conversation" c ON c.id = m."conversationId" WHERE m.id = $1`,
+    "aizen_crm",
+    23.4,
+  );
+  assert.equal(r, "Leyendo las tablas Message y Conversation, hace 23 s (base aizen_crm)");
+  assert.doesNotMatch(r, /"/);
+});
+
+test("resumirConsulta: cada tipo de acción", () => {
+  assert.match(resumirConsulta(`INSERT INTO "public"."Message" ("id","body") VALUES ($1,'hola')`, "crm", 11), /^Guardando en la tabla Message,/);
+  assert.match(resumirConsulta(`UPDATE "Conversation" SET "estado" = 'x' WHERE id = 5`, "crm", 11), /^Cambiando la tabla Conversation,/);
+  assert.match(resumirConsulta(`DELETE FROM "MetricaServidor" WHERE "tomadaEn" < '2026-01-01'`, "crm", 11), /^Borrando de la tabla MetricaServidor,/);
+  assert.match(resumirConsulta(`VACUUM (VERBOSE, ANALYZE) "Message"`, "crm", 11), /^Mantenimiento de la tabla Message,/);
+  assert.match(resumirConsulta(`ANALYZE "Contact"`, "crm", 11), /^Mantenimiento de la tabla Contact,/);
+  assert.match(resumirConsulta(`CREATE INDEX CONCURRENTLY "idx" ON "public"."Message" ("phone")`, "crm", 11), /^Mantenimiento de la tabla Message,/);
+  assert.match(resumirConsulta(`REINDEX TABLE "Message"`, "crm", 11), /^Mantenimiento de la tabla Message,/);
+  assert.match(resumirConsulta(`SELECT pg_sleep(30)`, "crm", 11), /^Leyendo datos, hace 11 s \(base crm\)$/);
+});
+
+test("resumirConsulta: sin texto o <insufficient privilege> dice que es de otro usuario, con la duración", () => {
+  for (const texto of [null, "", "   ", "<insufficient privilege>"]) {
+    assert.equal(resumirConsulta(texto, "gestion", 42.6), "Consulta de otro usuario de la base, hace 43 s (base gestion)");
+  }
+});
+
+test("resumirConsultas: máximo 5, con base y segundos redondeados", () => {
+  const lista = Array.from({ length: 7 }, (_, i) => ({ base: "crm", segundos: 10.6 + i, texto: `SELECT 1 FROM "T${i}"` }));
+  const r = resumirConsultas(lista);
+  assert.equal(r.length, 5);
+  assert.deepEqual({ base: r[0].base, segundos: r[0].segundos }, { base: "crm", segundos: 11 });
+  assert.match(r[0].resumen, /T0/);
+});
+
+test("evaluarConsultasLentas: avisa a la 2ª foto seguida, repite cada 60 min y la racha vuelve a 0", () => {
+  const inicio = new Date("2026-11-11T15:00:00Z");
+  const despues = (min: number) => new Date(inicio.getTime() + min * 60_000);
+  const una = [{}];
+  const primera = evaluarConsultasLentas({ consultas: una, estado: { rachaDeFotos: 0, ultimoAvisoEn: null }, ahora: inicio });
+  assert.deepEqual(primera, { mandar: false, estadoNuevo: { rachaDeFotos: 1, ultimoAvisoEn: null } });
+  const segunda = evaluarConsultasLentas({ consultas: una, estado: primera.estadoNuevo, ahora: despues(1) });
+  assert.equal(segunda.mandar, true);
+  assert.deepEqual(segunda.estadoNuevo, { rachaDeFotos: 2, ultimoAvisoEn: despues(1).toISOString() });
+  const a30 = evaluarConsultasLentas({ consultas: una, estado: segunda.estadoNuevo, ahora: despues(31) });
+  assert.equal(a30.mandar, false);
+  assert.equal(a30.estadoNuevo.rachaDeFotos, 3);
+  const a60 = evaluarConsultasLentas({ consultas: una, estado: a30.estadoNuevo, ahora: despues(61) });
+  assert.equal(a60.mandar, true);
+  const sinConsultas = evaluarConsultasLentas({ consultas: [], estado: a60.estadoNuevo, ahora: despues(62) });
+  assert.deepEqual(sinConsultas, { mandar: false, estadoNuevo: { rachaDeFotos: 0, ultimoAvisoEn: despues(61).toISOString() } });
+  // Una fecha rota no deja la alerta callada para siempre.
+  const rota = evaluarConsultasLentas({ consultas: una, estado: { rachaDeFotos: 1, ultimoAvisoEn: "no-es-fecha" }, ahora: inicio });
+  assert.equal(rota.mandar, true);
+});
+
+test("textoDeAlertaConsultas: título exacto y las consultas resumidas", () => {
+  const texto = textoDeAlertaConsultas(
+    resumirConsultas([{ base: "crm", segundos: 15, texto: `SELECT * FROM "Message" WHERE phone = '573001234567'` }]),
+  );
+  assert.match(texto, /Base de datos con consultas lentas/);
+  assert.match(texto, /1\. Leyendo la tabla Message, hace 15 s \(base crm\)/);
+  assert.doesNotMatch(texto, /573001234567/);
 });
