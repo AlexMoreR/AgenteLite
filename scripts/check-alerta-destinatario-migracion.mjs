@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { PGlite } from "@electric-sql/pglite";
+import { abrirBaseDePruebas } from "./lib/base-de-pruebas.mjs";
 
 const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CARPETA = path.join(RAIZ, "prisma", "migrations");
@@ -25,7 +25,7 @@ const migraciones = fs
 assert.ok(migraciones.includes(NUEVA), `falta la migración ${NUEVA}`);
 const leer = (nombre) => fs.readFileSync(path.join(CARPETA, nombre, "migration.sql"), "utf8");
 
-const db = new PGlite();
+const db = await abrirBaseDePruebas();
 let pruebas = 0;
 async function prueba(nombre, fn) {
   await fn();
@@ -79,4 +79,5 @@ await prueba("una alerta personal se guarda y cada persona ve solo la suya", asy
   assert.deepEqual(delNegocio.map((f) => f.id), ["a1", "a2"]);
 });
 
+await db.close();
 console.log(`\n${pruebas} pruebas de la migración de alertas personales: todas pasaron.`);
