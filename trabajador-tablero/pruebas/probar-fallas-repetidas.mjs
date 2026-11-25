@@ -43,10 +43,8 @@ g(REPO, "push", "-q", "-u", "origin", "main");
 
 /* ── el CRM falso: /api/version dice lo que diga `versionDelServidor` (por defecto, el main de "origin") ── */
 let versionDelServidor = null;
-let preguntasDeVersion = 0;
 const servidor = http.createServer((pedido, respuesta) => {
   if (pedido.method === "GET" && pedido.url === "/api/version") {
-    preguntasDeVersion += 1;
     const version = typeof versionDelServidor === "function" ? versionDelServidor() : (versionDelServidor ?? shaDe("main"));
     respuesta.writeHead(200, { "Content-Type": "application/json" });
     return respuesta.end(JSON.stringify({ version }));
