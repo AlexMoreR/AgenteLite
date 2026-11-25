@@ -202,16 +202,6 @@ export default async function ClienteEquipoPage({ searchParams }: PageProps) {
           <CardTitle className="text-sm">Líder de ventas</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
-          <p className="text-sm text-muted-foreground">
-            Le llega el aviso 🔥 Listo para pagar cuando nadie escribe en 5 minutos, en horario de trabajo. Necesita su
-            número de avisos para recibirlo por WhatsApp; si no lo tiene, le llega solo la notificación del CRM.
-          </p>
-          <p className="text-sm text-muted-foreground">
-            También le llega un WhatsApp cuando una asesora no responde ni el aviso ni el segundo aviso del Supervisor:
-            con el cliente, su teléfono, lo último que dijo y el link del chat. No se le asigna el chat: decide si lo
-            toma. Este aviso solo sale si eliges a alguien aquí. Para abrir chats de otras asesoras debe ser
-            supervisora con esas líneas.
-          </p>
           <form action={guardarLiderDeVentasAction} className="flex flex-wrap items-center gap-2">
             <NativeSelect name="lider" defaultValue={liderEnLista ?? ""} aria-label="Líder de ventas">
               <NativeSelectOption value="">Sin elegir (primera supervisora)</NativeSelectOption>

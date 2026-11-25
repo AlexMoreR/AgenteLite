@@ -5,11 +5,11 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import { guardarReglaDeDemoraAction } from "@/app/actions/equipo-actions";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 
 export type CambioDeDemoraParaPantalla = {
   /** Fecha y hora ya en texto, en hora de Colombia (la arma el servidor). */
@@ -21,6 +21,9 @@ export type CambioDeDemoraParaPantalla = {
 /**
  * Tarjeta de Equipo para prender o apagar la regla de demora de asesora (aviso a los 5 min, el chat
  * pasa a otra asesora activa a los 10). Muestra el estado guardado en la misma fila que usa la regla.
+ *
+ * 25-nov-2026 (Alex): sin el texto de explicación y con un interruptor junto al título que guarda al
+ * tocarlo, en vez de los botones Prendida/Apagada. Los minutos siguen con su Guardar.
  */
 export function ReglaDeDemoraDeAsesora({
   activo,
@@ -43,13 +46,18 @@ export function ReglaDeDemoraDeAsesora({
 
   function guardar(evento: React.FormEvent<HTMLFormElement>) {
     evento.preventDefault();
+    enviar(prendida);
+  }
+
+  function enviar(prender: boolean) {
     if (
-      prendida &&
+      prender &&
       !activo &&
       !window.confirm(
         `¿Prender la regla? Si una asesora no responde en ${reasignar} min, los chats pasarán solos a otra asesora activa.`,
       )
     ) {
+      setPrendida(activo);
       return;
     }
     setError("");
@@ -57,19 +65,21 @@ export function ReglaDeDemoraDeAsesora({
       let resultado: Awaited<ReturnType<typeof guardarReglaDeDemoraAction>>;
       try {
         resultado = await guardarReglaDeDemoraAction({
-          activo: prendida,
+          activo: prender,
           minutosAviso: aviso,
           minutosReasignar: reasignar,
         });
       } catch {
+        setPrendida(activo);
         setError("No se pudo guardar. Intenta de nuevo.");
         return;
       }
       if ("error" in resultado) {
+        setPrendida(activo);
         setError(resultado.error);
         return;
       }
-      toast.success(prendida ? "Regla prendida" : "Regla apagada");
+      toast.success(prender ? "Regla prendida" : "Regla apagada");
       router.refresh();
     });
   }
@@ -77,37 +87,21 @@ export function ReglaDeDemoraDeAsesora({
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="flex flex-wrap items-center gap-2 text-sm">
-          Regla de demora de asesora
-          <Badge variant={activo ? "default" : "secondary"}>{activo ? "Prendida" : "Apagada"}</Badge>
+        <CardTitle className="flex flex-wrap items-center gap-3 text-sm">
+          <label htmlFor="demora-prendida">Regla de demora de asesora</label>
+          <Switch
+            id="demora-prendida"
+            checked={prendida}
+            disabled={pendiente}
+            onCheckedChange={(prender) => {
+              setPrendida(prender);
+              enviar(prender);
+            }}
+          />
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        <p className="text-sm text-muted-foreground">
-          Aviso a la asesora a los {minutosAviso} min sin respuesta. A los {minutosReasignar} min el chat pasa a otra
-          asesora activa.
-        </p>
         <form onSubmit={guardar} className="space-y-3">
-          <div className="flex flex-wrap gap-2" role="group" aria-label="Regla de demora de asesora">
-            <Button
-              type="button"
-              size="sm"
-              variant={prendida ? "default" : "outline"}
-              aria-pressed={prendida}
-              onClick={() => setPrendida(true)}
-            >
-              Prendida
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant={!prendida ? "default" : "outline"}
-              aria-pressed={!prendida}
-              onClick={() => setPrendida(false)}
-            >
-              Apagada
-            </Button>
-          </div>
           <div className="flex flex-wrap items-end gap-3">
             <div className="space-y-1">
               <Label htmlFor="demora-minutos-aviso">Aviso (min)</Label>
