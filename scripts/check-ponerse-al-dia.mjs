@@ -54,7 +54,8 @@ prueba("el respaldo de la API oficial y los avisos sin conversacion NO cambian",
 });
 
 prueba("la bandeja atiende el aviso: preventDefault, pide la lista y los numeros, y reconcilia", () => {
-  assert.match(bandeja, /import \{ EVENTO_PONERSE_AL_DIA \} from "@\/components\/agents\/chats-auto-refresh";/);
+  // La misma línea puede importar otros eventos (p. ej. EVENTO_ESTADOS_DEL_CHAT); EVENTO_PONERSE_AL_DIA sigue obligatorio.
+  assert.match(bandeja, /import \{[^}\n]*\bEVENTO_PONERSE_AL_DIA\b[^}\n]*\} from "@\/components\/agents\/chats-auto-refresh";/);
   assert.match(
     bandeja,
     /const alPonerseAlDia = \(evento: Event\) => \{\s*evento\.preventDefault\(\);\s*reconciliarListaRef\.current = true;\s*setPedidoDeLista\(\(actual\) => actual \+ 1\);\s*setPedidoDeConteos\(\(actual\) => actual \+ 1\);/,

@@ -87,7 +87,8 @@ prueba("la cache de chats: llave con dueño, v2 borrada, 24 h tambien con ignore
   assert.match(cache, /const LEGACY_STORAGE_KEYS = \["aglite:chat-history-cache:v1", "aglite:chat-history-cache:v2"\];/);
   assert.ok(!/"aglite:chat-history-cache:v2";/.test(cache.replace(/LEGACY_STORAGE_KEYS = \[[^\]]*\]/, "")), "la v2 ya no se usa");
   assert.match(cache, /if \(!vigente\(cached\)\) \{\s*return null;\s*\}[\s\S]*?!options\?\.ignoreFreshness/, "la caducidad dura va antes de ignoreFreshness");
-  assert.match(cache, /const recortado = recortarALaMitad\(store\);/);
+  // Sin espacio en el navegador se guarda la mitad de los chats (desde cee6cecd se llama mitadMasVieja).
+  assert.match(cache, /mitadMasVieja\(store, clave\)/);
 });
 
 console.log(`\n${pruebas} pruebas OK`);

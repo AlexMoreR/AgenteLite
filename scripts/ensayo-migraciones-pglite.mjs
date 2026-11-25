@@ -11,7 +11,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { PGlite } from "@electric-sql/pglite";
+import { abrirBaseDePruebas } from "./lib/base-de-pruebas.mjs";
 
 const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CARPETA = path.join(RAIZ, "prisma", "migrations");
@@ -22,7 +22,7 @@ const migraciones = fs
   .map((entrada) => entrada.name)
   .sort();
 
-const db = new PGlite();
+const db = await abrirBaseDePruebas();
 for (const nombre of migraciones) {
   try {
     await db.exec(fs.readFileSync(path.join(CARPETA, nombre, "migration.sql"), "utf8"));
