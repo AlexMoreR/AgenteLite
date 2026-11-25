@@ -1,5 +1,6 @@
 import { WHERE_CHAT_ABIERTO } from "@/lib/chat-resuelto-sql";
 import { prisma } from "@/lib/prisma";
+import { consultaPesada } from "@/lib/consulta-pesada";
 import { extractEvolutionMessageText } from "@/lib/evolution-webhook";
 import type { CrmStage } from "../types";
 import { getCallResultLabel } from "../domain/crm-config";
@@ -19,6 +20,10 @@ import { isSnoozed } from "@/lib/lead-snooze";
  * Y solo los que necesitan un empujon: sin actividad hace mas de MIN_HORAS (no molestar a los que
  * estan chateando ahora) y no mas de MAX_DIAS (mas viejo = probablemente muerto).
  */
+
+// Tope de las dos consultas pesadas de Mi Dia (decision aprobada): mas que el de una pagina comun
+// (8 s) porque es la primera pantalla que ve todo el mundo al entrar.
+const TOPE_MI_DIA_SEGUNDOS = 15;
 
 const PIPELINE_STAGES: CrmStage[] = ["CALIFICADO", "PROPUESTA", "NEGOCIACION"];
 
@@ -220,9 +225,8 @@ async function computeMiDiaData(input: {
     return new Date(medianoche + OFFSET + 24 * 60 * 60 * 1000);
   })();
 
-  const llamadasPendientes = await prisma.$queryRaw<
-    Array<{ contactId: string; nextContactAt: Date; result: string }>
-  >`
+  const llamadasPendientes = await consultaPesada({ modo: "pagina", topeSegundos: TOPE_MI_DIA_SEGUNDOS }, (tx) =>
+    tx.$queryRaw<Array<{ contactId: string; nextContactAt: Date; result: string }>>`
     SELECT DISTINCT ON (ca."contactId")
       ca."contactId" AS "contactId",
       ca."nextContactAt" AS "nextContactAt",
@@ -231,7 +235,8 @@ async function computeMiDiaData(input: {
     WHERE ca."workspaceId" = ${input.workspaceId}
       AND ca."nextContactAt" IS NOT NULL
     ORDER BY ca."contactId", ca."calledAt" DESC
-  `;
+  `,
+  );
 
   const pendientePorContacto = new Map(llamadasPendientes.map((fila) => [fila.contactId, fila]));
 
@@ -296,7 +301,8 @@ async function computeMiDiaData(input: {
     rawPayload: unknown;
   };
   const conversationIds = conversations.map((conversation) => conversation.id);
-  const lastMessageRows = await prisma.$queryRawUnsafe<LastMessageRow[]>(
+  const lastMessageRows = await consultaPesada({ modo: "pagina", topeSegundos: TOPE_MI_DIA_SEGUNDOS }, (tx) =>
+    tx.$queryRawUnsafe<LastMessageRow[]>(
     // OJO con rawPayload: el webhook guarda el ARCHIVO en base64 adentro (foto, audio, video).
     // Traerlo entero para el ultimo mensaje de hasta 300 conversaciones hacia que esta pantalla
     // tardara ~4s -- y es la primera que ve todo el mundo al entrar. Se borra esa clave en la
@@ -315,6 +321,7 @@ async function computeMiDiaData(input: {
        AND (m."type" IS NULL OR m."type"::text <> 'SYSTEM')
      ORDER BY m."conversationId", m."createdAt" DESC, m."id" DESC`,
     conversationIds,
+    ),
   );
   const latestByConversation = new Map(lastMessageRows.map((row) => [row.conversationId, row] as const));
 
