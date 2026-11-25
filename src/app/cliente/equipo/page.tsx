@@ -24,7 +24,7 @@ import { horarioSiempre, leerHorariosDeReparto } from "@/lib/horario-de-reparto"
 import { leerLiderDeVentasElegido, leerSupervisoras } from "@/lib/permisos-del-equipo";
 import { prisma } from "@/lib/prisma";
 import { leerConfigDeAvisos, numeroDeAvisosDe } from "@/features/agente-v3/servicios/avisos";
-import { ultimaAccionPorPersona } from "@/features/actividad/services/actividad";
+import { ultimaAccionEnCache } from "@/features/actividad/services/ultima-accion-en-cache";
 import { lineasDeLaPersona } from "@/features/actividad/services/lineas-de-la-persona";
 
 export const metadata: Metadata = {
@@ -46,13 +46,6 @@ function formatDate(value: Date | null) {
   return new Intl.DateTimeFormat("es-CO", {
     dateStyle: "medium",
   }).format(value);
-}
-
-/** La "Última acción" mira hasta 30 días atrás; más viejo sale "Sin acciones en 30 días". */
-const DIAS_DE_ULTIMA_ACCION = 30;
-
-function haceDias(dias: number) {
-  return new Date(Date.now() - dias * 24 * 3_600_000);
 }
 
 /** "Prendida, 5 y 10 min" para el historial de la regla de demora. */
@@ -122,16 +115,16 @@ export default async function ClienteEquipoPage({ searchParams }: PageProps) {
     // Última conexión y última acción de cada persona (solo lectura). Si fallan, la pantalla sale
     // igual con "Sin registro todavía" / "Sin acciones en 30 días" en vez de romperse.
     leerActividadDelEquipo(access.workspaceId).catch(() => ({}) as Awaited<ReturnType<typeof leerActividadDelEquipo>>),
-    // Solo de las personas que ya se leyeron arriba: va después de esa lectura.
+    // Solo de las personas que ya se leyeron arriba: va después de esa lectura. Mira 30 días atrás y
+    // se guarda 2 minutos por negocio (ultima-accion-en-cache.ts): diez aperturas, una consulta.
     lecturaDeEmpleados
       .then((miembros) =>
-        ultimaAccionPorPersona({
+        ultimaAccionEnCache({
           workspaceId: access.workspaceId,
           userIds: miembros.map((miembro) => miembro.user.id),
-          desde: haceDias(DIAS_DE_ULTIMA_ACCION),
         }),
       )
-      .catch(() => new Map() as Awaited<ReturnType<typeof ultimaAccionPorPersona>>),
+      .catch(() => new Map() as Awaited<ReturnType<typeof ultimaAccionEnCache>>),
   ]);
 
   const demora = estadoDelBotonDeTexto(filaDemora?.value);
