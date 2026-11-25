@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { MuestraServidor } from "./metricas-servidor";
+import type { ConsultaLenta, MuestraServidor } from "./metricas-servidor";
 import {
+  CLAVE_CONSULTAS_LENTAS,
   CLAVE_ESTADO_ALERTA_CPU,
   CLAVE_ESTADO_ALERTA_CPU_BASE,
   TITULO_ALERTA_CPU_BASE,
+  TITULO_ALERTA_CONSULTAS_LENTAS,
   leerEstadoAlertaCpu,
+  leerEstadoConsultasLentas,
   recibirMetricaServidor,
   type PiezasDeMetrica,
   type ResultadoDelAviso,
@@ -43,7 +46,13 @@ function foto(cpuTotal: number): Record<string, unknown> {
 }
 
 // Base, WhatsApp y reloj simulados: la prueba nunca toca Prisma ni manda nada.
-function simular(opciones: { aviso?: ResultadoDelAviso; fallaGuardar?: boolean } = {}) {
+function simular(
+  opciones: {
+    aviso?: ResultadoDelAviso;
+    fallaGuardar?: boolean;
+    consultasLentas?: () => Promise<ConsultaLenta[]>;
+  } = {},
+) {
   let ahora = new Date("2026-11-11T15:00:00Z");
   const fotos: Array<{ muestra: MuestraServidor; tomadaEn: Date }> = [];
   const ajustes = new Map<string, string>();
@@ -77,6 +86,12 @@ function simular(opciones: { aviso?: ResultadoDelAviso; fallaGuardar?: boolean }
     leerEstadoBase: async () => ajustes.get(CLAVE_ESTADO_ALERTA_CPU_BASE) ?? null,
     guardarEstadoBase: async (valor) => {
       ajustes.set(CLAVE_ESTADO_ALERTA_CPU_BASE, valor);
+    },
+    // Por defecto la base no tiene consultas lentas.
+    leerConsultasLentas: opciones.consultasLentas ?? (async () => []),
+    leerEstadoConsultas: async () => ajustes.get(CLAVE_CONSULTAS_LENTAS) ?? null,
+    guardarEstadoConsultas: async (valor) => {
+      ajustes.set(CLAVE_CONSULTAS_LENTAS, valor);
     },
     avisar: async (pedido) => {
       avisos.push({ titulo: pedido.titulo, texto: pedido.texto });
@@ -354,4 +369,102 @@ test("una foto sin contenedor de la base no avisa y lo dice", async () => {
   const r = await s.enviar({ ...foto(10), contenedores: [{ nombre: "crm-aizenbot_app.1", cpu: 300, memMb: 900 }] });
   assert.equal(r.status, 200);
   assert.deepEqual(r.cuerpo.alertaBase, { evaluada: true, mandada: false, motivo: "la foto no trae el contenedor de la base" });
+});
+
+// ---------------------------------------------------------------------------------------------------------
+// Consultas lentas de la base
+// ---------------------------------------------------------------------------------------------------------
+
+const CONSULTA_DE_15_S: ConsultaLenta = {
+  base: "aizen_crm",
+  segundos: 15,
+  texto: `SELECT * FROM "public"."Message" WHERE phone = '573001234567'`,
+};
+
+test("consultas lentas: 2 llamadas seguidas con una consulta de 15 s avisan \"Base de datos con consultas lentas\"", async () => {
+  const s = simular({ consultasLentas: async () => [CONSULTA_DE_15_S] });
+  const primera = await s.enviar(foto(10));
+  assert.equal(primera.status, 200);
+  assert.equal(s.avisos.length, 0);
+  s.avanzar(MINUTO);
+  const segunda = await s.enviar(foto(10));
+  assert.equal(segunda.status, 200);
+  const avisos = s.avisos.filter((a) => a.titulo === TITULO_ALERTA_CONSULTAS_LENTAS);
+  assert.equal(avisos.length, 1);
+  assert.equal(avisos[0].titulo, "Base de datos con consultas lentas");
+  assert.match(avisos[0].texto, /Message/);
+  assert.match(avisos[0].texto, /aizen_crm/);
+  assert.doesNotMatch(avisos[0].texto, /573001234567/);
+  assert.equal((segunda.cuerpo.consultasLentas as { mandada: boolean }).mandada, true);
+
+  const guardado = leerEstadoConsultasLentas(s.ajustes.get(CLAVE_CONSULTAS_LENTAS));
+  assert.equal(guardado.leidaEn, new Date("2026-11-11T15:01:00Z").toISOString());
+  assert.equal(guardado.rachaDeFotos, 2);
+  assert.equal(guardado.ultimoAvisoEn, guardado.leidaEn);
+  assert.equal(guardado.consultas.length, 1);
+  assert.deepEqual(
+    { base: guardado.consultas[0].base, segundos: guardado.consultas[0].segundos },
+    { base: "aizen_crm", segundos: 15 },
+  );
+  assert.doesNotMatch(s.ajustes.get(CLAVE_CONSULTAS_LENTAS) ?? "", /573001234567/);
+
+  // A los 30 min no repite; a los 60 sí.
+  s.avanzar(29 * MINUTO);
+  await s.enviar(foto(10));
+  assert.equal(s.avisos.filter((a) => a.titulo === TITULO_ALERTA_CONSULTAS_LENTAS).length, 1);
+  s.avanzar(31 * MINUTO);
+  await s.enviar(foto(10));
+  assert.equal(s.avisos.filter((a) => a.titulo === TITULO_ALERTA_CONSULTAS_LENTAS).length, 2);
+});
+
+test("consultas lentas: una sola llamada con consulta lenta no avisa", async () => {
+  const s = simular({ consultasLentas: async () => [CONSULTA_DE_15_S] });
+  const r = await s.enviar(foto(10));
+  assert.equal(r.status, 200);
+  assert.equal(s.avisos.length, 0);
+  const guardado = leerEstadoConsultasLentas(s.ajustes.get(CLAVE_CONSULTAS_LENTAS));
+  assert.equal(guardado.rachaDeFotos, 1);
+  assert.equal(guardado.consultas.length, 1);
+});
+
+test("consultas lentas: una foto sin consultas en medio vuelve a empezar la racha", async () => {
+  let hay = true;
+  const s = simular({ consultasLentas: async () => (hay ? [CONSULTA_DE_15_S] : []) });
+  await s.enviar(foto(10));
+  hay = false;
+  s.avanzar(MINUTO);
+  await s.enviar(foto(10));
+  assert.equal(leerEstadoConsultasLentas(s.ajustes.get(CLAVE_CONSULTAS_LENTAS)).rachaDeFotos, 0);
+  hay = true;
+  s.avanzar(MINUTO);
+  await s.enviar(foto(10));
+  assert.equal(s.avisos.length, 0);
+});
+
+test("consultas lentas: si leerConsultasLentas lanza un error, responde 200, guarda la foto y no toca leidaEn", async () => {
+  let falla = false;
+  const s = simular({
+    consultasLentas: async () => {
+      if (falla) throw new Error("permiso denegado para pg_stat_activity");
+      return [];
+    },
+  });
+  await s.enviar(foto(10));
+  const antes = s.ajustes.get(CLAVE_CONSULTAS_LENTAS);
+  assert.ok(antes);
+  falla = true;
+  s.avanzar(MINUTO);
+  const r = await s.enviar(foto(10));
+  assert.equal(r.status, 200);
+  assert.equal(r.cuerpo.guardada, true);
+  assert.equal(s.fotos.length, 2);
+  const consultasLentas = r.cuerpo.consultasLentas as { evaluada: boolean; motivo: string };
+  assert.equal(consultasLentas.evaluada, false);
+  assert.match(consultasLentas.motivo, /no se pudieron leer/);
+  assert.equal(s.ajustes.get(CLAVE_CONSULTAS_LENTAS), antes);
+});
+
+test("consultas lentas: el estado guardado roto se lee como vacío", () => {
+  assert.deepEqual(leerEstadoConsultasLentas("{roto"), { leidaEn: null, consultas: [], rachaDeFotos: 0, ultimoAvisoEn: null });
+  assert.deepEqual(leerEstadoConsultasLentas(null).consultas, []);
 });

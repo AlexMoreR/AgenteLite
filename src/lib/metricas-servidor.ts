@@ -401,3 +401,185 @@ export function seriePanelServidor(fotos: readonly FotoPanel[]): PuntoPanel[] {
     disco: porcentaje(foto.discoUsadoGb, foto.discoTotalGb),
   }));
 }
+
+// ---------------------------------------------------------------------------------------------------------
+// Consultas lentas de la base (alerta, parte 2). Funciones PURAS: la lectura de pg_stat_activity la hace la ruta.
+// Solo se mira: nunca se cancela ni se cambia nada en la base.
+// ---------------------------------------------------------------------------------------------------------
+
+/** Una consulta que lleva más de esto (en segundos) cuenta como lenta. */
+export const SEGUNDOS_CONSULTA_LENTA = 10;
+/** Cuántas fotos seguidas tiene que haber consultas lentas para avisar. */
+export const FOTOS_PARA_ALERTA_CONSULTAS = 2;
+/** Tope de consultas que se leen, se guardan y van en el aviso. */
+export const MAXIMO_CONSULTAS_LENTAS = 5;
+/** Título exacto del aviso. */
+export const TITULO_AVISO_CONSULTAS_LENTAS = "Base de datos con consultas lentas";
+
+/** Lo que se lee de pg_stat_activity: la base, cuántos segundos lleva y el texto (null si Postgres no lo deja ver). */
+export type ConsultaLenta = { base: string; segundos: number; texto: string | null };
+/** Lo que se guarda y se muestra: nunca el texto de la consulta, solo la frase de `resumirConsulta`. */
+export type ConsultaResumida = { base: string; segundos: number; resumen: string };
+/** Estado del aviso. `ultimoAvisoEn` en ISO. */
+export type EstadoConsultasLentas = { rachaDeFotos: number; ultimoAvisoEn: string | null };
+
+const LARGO_MAXIMO_IDENTIFICADOR = 63;
+const MAXIMO_TABLAS_EN_RESUMEN = 4;
+
+/** Un nombre de Postgres (tabla o base) limpio: sin comillas ni caracteres de control, y corto. */
+function nombreLimpio(valor: string): string {
+  return valor
+    .replace(/"/g, "")
+    .replace(/[^\p{L}\p{N}_$\-. ]/gu, "")
+    .trim()
+    .slice(0, LARGO_MAXIMO_IDENTIFICADOR);
+}
+
+/**
+ * Quita del SQL los comentarios y todos los valores escritos (textos entre comillas simples, textos con $$ y
+ * números), para que al buscar las tablas no se pueda colar ningún dato.
+ */
+function sqlSinValores(texto: string): string {
+  return texto
+    .replace(/\/\*[\s\S]*?(?:\*\/|$)/g, " ")
+    .replace(/--[^\n]*/g, " ")
+    .replace(/\$([A-Za-z_]\w*)?\$[\s\S]*?(?:\$\1\$|$)/g, " ")
+    .replace(/[EeBbXxUu]?&?'(?:[^']|'')*(?:'|$)/g, " ")
+    .replace(/\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b/g, " ");
+}
+
+// Un nombre de tabla: "Message", public.users o "public"."Message". El último grupo es la tabla.
+const IDENT = String.raw`(?:"[^"]{1,128}"|[A-Za-z_][\w$]{0,127})`;
+const NOMBRE_TABLA = String.raw`(${IDENT}(?:\s*\.\s*${IDENT})?)`;
+// Pegado al nombre no puede venir "(": eso es una función (unnest(...), now()), no una tabla. Con espacio sí
+// (INSERT INTO "Message" ("id", …) o CREATE INDEX … ON "Message" (…)).
+const NO_FUNCION = String.raw`(?![\w$"(]|\s*\.)`;
+const TABLAS_NORMALES = new RegExp(String.raw`\b(?:FROM|JOIN|INTO|UPDATE)\s+(?:ONLY\s+)?${NOMBRE_TABLA}${NO_FUNCION}`, "gi");
+const TABLAS_MANTENIMIENTO = new RegExp(
+  String.raw`\b(?:ON|TABLE|VACUUM(?:\s*\([^)]*\))?(?:\s+(?:FULL|FREEZE|VERBOSE|ANALYZE))*|ANALYZE(?:\s*\([^)]*\))?(?:\s+VERBOSE)?|CLUSTER(?:\s+VERBOSE)?)\s+(?:ONLY\s+|CONCURRENTLY\s+)?${NOMBRE_TABLA}${NO_FUNCION}`,
+  "gi",
+);
+// Palabras que pueden quedar tras FROM/ON/TABLE y no son tablas.
+const NO_SON_TABLAS = new Set(["select", "lateral", "only", "concurrently", "verbose", "full", "freeze", "analyze", "set", "where", "values", "default", "conflict", "true", "false", "null", "if", "not", "exists", "skip", "nowait", "of"]);
+
+type Accion = "leer" | "guardar" | "cambiar" | "borrar" | "mantenimiento" | "otra";
+
+function accionDe(sql: string): Accion {
+  const primera = sql.trim().match(/^[(\s]*([A-Za-z]+)/)?.[1]?.toUpperCase() ?? "";
+  if (primera === "SELECT" || primera === "TABLE" || primera === "VALUES") return "leer";
+  if (primera === "INSERT" || primera === "COPY" || primera === "MERGE") return "guardar";
+  if (primera === "UPDATE") return "cambiar";
+  if (primera === "DELETE" || primera === "TRUNCATE") return "borrar";
+  if (["VACUUM", "ANALYZE", "ANALYSE", "REINDEX", "CLUSTER", "REFRESH"].includes(primera)) return "mantenimiento";
+  if (primera === "CREATE" || primera === "DROP" || primera === "ALTER") {
+    return /^\s*(?:CREATE|DROP|ALTER)\s+(?:UNIQUE\s+)?INDEX\b/i.test(sql) || /^\s*ALTER\s+TABLE\b/i.test(sql)
+      ? "mantenimiento"
+      : "otra";
+  }
+  if (primera === "WITH") {
+    // La acción de un WITH es la que viene al final; basta con ver si escribe algo.
+    if (/\bINSERT\s+INTO\b/i.test(sql)) return "guardar";
+    if (/\bUPDATE\s+\S+\s+SET\b/i.test(sql)) return "cambiar";
+    if (/\bDELETE\s+FROM\b/i.test(sql)) return "borrar";
+    return "leer";
+  }
+  return "otra";
+}
+
+function tablasDe(sql: string, accion: Accion): string[] {
+  const tablas: string[] = [];
+  const patrones = accion === "mantenimiento" ? [TABLAS_NORMALES, TABLAS_MANTENIMIENTO] : [TABLAS_NORMALES];
+  for (const patron of patrones) {
+    for (const coincidencia of sql.matchAll(patron)) {
+      // Solo la tabla, sin el esquema ("public"."Message" → Message).
+      const partes = coincidencia[1].split(/\s*\.\s*(?=["A-Za-z_])/);
+      const nombre = nombreLimpio(partes[partes.length - 1]);
+      if (!nombre || NO_SON_TABLAS.has(nombre.toLowerCase()) || tablas.includes(nombre)) continue;
+      tablas.push(nombre);
+    }
+  }
+  return tablas.slice(0, MAXIMO_TABLAS_EN_RESUMEN);
+}
+
+function listaConY(nombres: string[]): string {
+  if (nombres.length <= 1) return nombres.join("");
+  return `${nombres.slice(0, -1).join(", ")} y ${nombres[nombres.length - 1]}`;
+}
+
+const VERBOS: Record<Accion, { conTabla: string; sinTabla: string }> = {
+  leer: { conTabla: "Leyendo", sinTabla: "Leyendo datos" },
+  guardar: { conTabla: "Guardando en", sinTabla: "Guardando datos" },
+  cambiar: { conTabla: "Cambiando", sinTabla: "Cambiando datos" },
+  borrar: { conTabla: "Borrando de", sinTabla: "Borrando datos" },
+  mantenimiento: { conTabla: "Mantenimiento de", sinTabla: "Mantenimiento de la base" },
+  otra: { conTabla: "Consulta sobre", sinTabla: "Consulta" },
+};
+
+/**
+ * Frase sencilla de una consulta lenta: la acción y las tablas, cuánto lleva y en qué base. Por ejemplo
+ * "Leyendo la tabla Message y Conversation…" sale como "Leyendo las tablas Message y Conversation, hace 23 s
+ * (base crm)". NUNCA copia valores (textos, números, teléfonos): solo palabras clave y nombres de tabla.
+ * Sin texto (o con `<insufficient privilege>`) dice "consulta de otro usuario de la base".
+ */
+export function resumirConsulta(texto: string | null | undefined, base: string | null | undefined, segundos: number): string {
+  const duracion = `hace ${Number.isFinite(segundos) ? Math.max(0, Math.round(segundos)) : 0} s`;
+  const nombreBase = nombreLimpio(String(base ?? "")) || "sin nombre";
+  const cola = `${duracion} (base ${nombreBase})`;
+  const crudo = String(texto ?? "").trim();
+  if (!crudo || crudo === "<insufficient privilege>") return `Consulta de otro usuario de la base, ${cola}`;
+
+  const sql = sqlSinValores(crudo);
+  const accion = accionDe(sql);
+  const tablas = tablasDe(sql, accion);
+  const verbo = VERBOS[accion];
+  if (tablas.length === 0) return `${verbo.sinTabla}, ${cola}`;
+  const queTabla = tablas.length === 1 ? `la tabla ${tablas[0]}` : `las tablas ${listaConY(tablas)}`;
+  return `${verbo.conTabla} ${queTabla}, ${cola}`;
+}
+
+/** Las consultas leídas, resumidas (máximo 5): base, segundos y la frase; sin el texto. */
+export function resumirConsultas(consultas: readonly ConsultaLenta[]): ConsultaResumida[] {
+  return consultas.slice(0, MAXIMO_CONSULTAS_LENTAS).map((consulta) => ({
+    base: nombreLimpio(String(consulta.base ?? "")) || "sin nombre",
+    segundos: Number.isFinite(consulta.segundos) ? Math.max(0, Math.round(consulta.segundos)) : 0,
+    resumen: resumirConsulta(consulta.texto, consulta.base, consulta.segundos),
+  }));
+}
+
+/**
+ * Decide si se avisa "Base de datos con consultas lentas" con la lista de esta foto y el estado guardado.
+ * - Cada foto con consultas suma 1 a la racha; una foto sin consultas la vuelve a 0.
+ * - Avisa desde la 2ª foto seguida con consultas, y lo repite como máximo cada 60 min.
+ */
+export function evaluarConsultasLentas(entrada: {
+  consultas: readonly unknown[];
+  estado: EstadoConsultasLentas;
+  ahora: Date;
+}): { mandar: boolean; estadoNuevo: EstadoConsultasLentas } {
+  const { consultas, estado, ahora } = entrada;
+  if (consultas.length === 0) {
+    return { mandar: false, estadoNuevo: { rachaDeFotos: 0, ultimoAvisoEn: estado.ultimoAvisoEn } };
+  }
+  const anterior = Number.isInteger(estado.rachaDeFotos) && estado.rachaDeFotos > 0 ? estado.rachaDeFotos : 0;
+  const rachaDeFotos = anterior + 1;
+  const sinAviso = { mandar: false, estadoNuevo: { rachaDeFotos, ultimoAvisoEn: estado.ultimoAvisoEn } };
+  if (rachaDeFotos < FOTOS_PARA_ALERTA_CONSULTAS) return sinAviso;
+
+  const mandada = { mandar: true, estadoNuevo: { rachaDeFotos, ultimoAvisoEn: ahora.toISOString() } };
+  if (!estado.ultimoAvisoEn) return mandada;
+  const ultimo = new Date(estado.ultimoAvisoEn).getTime();
+  // Fecha rota: mejor avisar que quedarse callado para siempre.
+  if (Number.isNaN(ultimo)) return mandada;
+  if (ahora.getTime() - ultimo >= MINUTOS_ENTRE_ALERTAS * 60_000) return mandada;
+  return sinAviso;
+}
+
+/** Mensaje del aviso: el título y las consultas resumidas. */
+export function textoDeAlertaConsultas(consultas: readonly ConsultaResumida[]): string {
+  const lista = consultas.slice(0, MAXIMO_CONSULTAS_LENTAS);
+  return [
+    `⚠️ ${TITULO_AVISO_CONSULTAS_LENTAS}`,
+    `${FOTOS_PARA_ALERTA_CONSULTAS} fotos seguidas con consultas de más de ${SEGUNDOS_CONSULTA_LENTA} s:`,
+    ...lista.map((consulta, i) => `${i + 1}. ${consulta.resumen}`),
+  ].join("\n");
+}
