@@ -18,12 +18,13 @@ import {
   porcentaje,
   seriePanelServidor,
   type ColorEstado,
+  type EstadoTarjetaConsultas,
   type FotoPanel,
 } from "@/lib/metricas-servidor";
 
 /**
  * Dirección → Servidor (solo lectura): la última foto del servidor en tres tarjetas, la gráfica de 24 h y los
- * contenedores por grupo y por CPU. Se actualiza sola cada minuto llamando a GET /api/admin/metricas-servidor.
+ * contenedores por grupo y por CPU, más la tarjeta "Consultas de más de 10 s". Se actualiza sola cada minuto llamando a GET /api/admin/metricas-servidor.
  */
 
 const CADA_MS = 60_000;
@@ -66,8 +67,60 @@ function Tarjeta({ titulo, valor, color, detalle }: { titulo: string; valor: num
   );
 }
 
-export function PanelServidor({ muestrasIniciales }: { muestrasIniciales: FotoPanel[] }) {
+/** Colores de la tarjeta de consultas: los mismos rojo y verde de arriba; gris con los del tema. */
+const TONOS_CONSULTAS: Record<EstadoTarjetaConsultas["tono"], { chip: string; cifra: string; texto: string }> = {
+  rojo: { ...CLASES.rojo, texto: "Lentas" },
+  verde: { ...CLASES.verde, texto: "Bien" },
+  gris: { chip: "bg-muted text-muted-foreground", cifra: "text-muted-foreground", texto: "Sin dato" },
+};
+
+/**
+ * Tarjeta "Consultas de más de 10 s" (se ve siempre): roja con la lista, verde "Ninguna" o gris "Sin dato reciente".
+ * Cada resumen ya trae los segundos y la base ("Leyendo la tabla Message, hace 23 s (base crm)").
+ */
+function TarjetaConsultas({ estado }: { estado: EstadoTarjetaConsultas }) {
+  const tono = TONOS_CONSULTAS[estado.tono];
+  return (
+    <Card>
+      <CardHeader>
+        <CardDescription className="flex items-center justify-between gap-2">
+          Consultas de más de 10 s
+          <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${tono.chip}`}>{tono.texto}</span>
+        </CardDescription>
+        <CardTitle className={`text-2xl ${tono.cifra}`}>
+          {estado.tono === "rojo"
+            ? `${estado.consultas.length} ${estado.consultas.length === 1 ? "consulta lenta" : "consultas lentas"}`
+            : estado.texto}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="text-sm text-muted-foreground">
+        {estado.tono === "rojo" ? (
+          <ul className="flex flex-col gap-1">
+            {estado.consultas.map((consulta, i) => (
+              <li key={i} className="break-words text-foreground">
+                {consulta.resumen}
+              </li>
+            ))}
+          </ul>
+        ) : estado.tono === "verde" ? (
+          "La base no tiene consultas que lleven más de 10 s."
+        ) : (
+          "No hay una lectura de la base de los últimos 5 minutos."
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function PanelServidor({
+  muestrasIniciales,
+  consultasIniciales,
+}: {
+  muestrasIniciales: FotoPanel[];
+  consultasIniciales: EstadoTarjetaConsultas;
+}) {
   const [muestras, setMuestras] = useState(muestrasIniciales);
+  const [consultas, setConsultas] = useState(consultasIniciales);
   const [fallo, setFallo] = useState(false);
 
   useEffect(() => {
@@ -75,10 +128,15 @@ export function PanelServidor({ muestrasIniciales }: { muestrasIniciales: FotoPa
     const actualizar = async () => {
       try {
         const respuesta = await fetch("/api/admin/metricas-servidor", { cache: "no-store" });
-        const datos = (await respuesta.json().catch(() => null)) as { ok?: boolean; muestras?: FotoPanel[] } | null;
+        const datos = (await respuesta.json().catch(() => null)) as {
+          ok?: boolean;
+          muestras?: FotoPanel[];
+          consultas?: EstadoTarjetaConsultas;
+        } | null;
         if (!vivo) return;
         if (respuesta.ok && datos?.ok && Array.isArray(datos.muestras)) {
           setMuestras(datos.muestras);
+          if (datos.consultas?.tono) setConsultas(datos.consultas);
           setFallo(false);
         } else {
           setFallo(true);
@@ -109,6 +167,8 @@ export function PanelServidor({ muestrasIniciales }: { muestrasIniciales: FotoPa
         {ultima ? <p className="text-xs text-muted-foreground">Última foto: {hora(ultima.tomadaEn)} (hora de Colombia).</p> : null}
         {fallo ? <p className="text-xs text-destructive">No se pudo actualizar; se vuelve a intentar en un minuto.</p> : null}
       </div>
+
+      <TarjetaConsultas estado={consultas} />
 
       {!ultima ? (
         <Card>

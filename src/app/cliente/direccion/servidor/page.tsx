@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
-import { leerPanelServidor } from "@/lib/metricas-servidor-lectura";
+import { leerPanelServidor, leerTarjetaConsultas } from "@/lib/metricas-servidor-lectura";
 import { puedeVerDireccion } from "@/lib/permisos-del-crm";
 
 import { PanelServidor } from "./panel-servidor";
@@ -17,6 +17,6 @@ export default async function ServidorPage() {
   if (!puedeVerDireccion(access)) {
     redirect("/unauthorized");
   }
-  const muestras = await leerPanelServidor();
-  return <PanelServidor muestrasIniciales={muestras} />;
+  const [muestras, consultas] = await Promise.all([leerPanelServidor(), leerTarjetaConsultas()]);
+  return <PanelServidor muestrasIniciales={muestras} consultasIniciales={consultas} />;
 }

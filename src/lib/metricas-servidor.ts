@@ -598,3 +598,58 @@ export function textoDeAlertaConsultas(consultas: readonly ConsultaResumida[]): 
     ...lista.map((consulta, i) => `${i + 1}. ${consulta.resumen}`),
   ].join("\n");
 }
+
+// ---------------------------------------------------------------------------------------------------------
+// Tarjeta "Consultas de más de 10 s" de Dirección → Servidor (alerta, parte 3). Solo lee lo que guarda el cron
+// en AppSetting `servidor:consultas-lentas` = {leidaEn, consultas: [{base, segundos, resumen}], …}.
+// ---------------------------------------------------------------------------------------------------------
+
+/** Si la última lectura de las consultas tiene más de esto (en minutos), la tarjeta sale gris. */
+export const MINUTOS_DATO_RECIENTE_CONSULTAS = 5;
+
+/** Lo que muestra la tarjeta: roja con la lista, verde "Ninguna" o gris "Sin dato reciente". */
+export type EstadoTarjetaConsultas =
+  | { tono: "rojo"; consultas: ConsultaResumida[] }
+  | { tono: "verde"; texto: "Ninguna" }
+  | { tono: "gris"; texto: "Sin dato reciente" };
+
+const SIN_DATO_RECIENTE: EstadoTarjetaConsultas = { tono: "gris", texto: "Sin dato reciente" };
+
+/**
+ * Estado de la tarjeta a partir del valor crudo de AppSetting `servidor:consultas-lentas` (texto JSON).
+ * Gris si no hay valor, si no se puede leer, si falta `leidaEn` o si tiene más de 5 min (5 min justos todavía
+ * cuentan). Si no, roja con las consultas (máximo 5) o verde "Ninguna" si la lista está vacía.
+ */
+export function estadoTarjetaConsultas(valor: string | null | undefined, ahora: Date): EstadoTarjetaConsultas {
+  if (!valor) return SIN_DATO_RECIENTE;
+  let objeto: Record<string, unknown>;
+  try {
+    const crudo = JSON.parse(valor) as unknown;
+    if (!crudo || typeof crudo !== "object" || Array.isArray(crudo)) return SIN_DATO_RECIENTE;
+    objeto = crudo as Record<string, unknown>;
+  } catch {
+    return SIN_DATO_RECIENTE;
+  }
+  if (typeof objeto.leidaEn !== "string" || !objeto.leidaEn) return SIN_DATO_RECIENTE;
+  const leida = new Date(objeto.leidaEn).getTime();
+  if (Number.isNaN(leida) || ahora.getTime() - leida > MINUTOS_DATO_RECIENTE_CONSULTAS * 60_000) return SIN_DATO_RECIENTE;
+  if (!Array.isArray(objeto.consultas)) return SIN_DATO_RECIENTE;
+
+  const consultas: ConsultaResumida[] = [];
+  for (const c of objeto.consultas) {
+    if (!c || typeof c !== "object" || Array.isArray(c)) continue;
+    const fila = c as Record<string, unknown>;
+    if (typeof fila.resumen !== "string" || !fila.resumen) continue;
+    if (typeof fila.segundos !== "number" || !Number.isFinite(fila.segundos)) continue;
+    consultas.push({
+      base: typeof fila.base === "string" && fila.base ? fila.base : "sin nombre",
+      segundos: Math.max(0, Math.round(fila.segundos)),
+      resumen: fila.resumen,
+    });
+  }
+  if (consultas.length === 0) {
+    // Una lista con filas que no se pueden leer no es "Ninguna": no se sabe qué hay.
+    return objeto.consultas.length === 0 ? { tono: "verde", texto: "Ninguna" } : SIN_DATO_RECIENTE;
+  }
+  return { tono: "rojo", consultas: consultas.slice(0, MAXIMO_CONSULTAS_LENTAS) };
+}
