@@ -250,3 +250,88 @@ export async function revertirEnRamaBase(cwd, { remoto, ramaBase, antes, commit,
   }
   throw new ErrorDeGit(`No se pudo empujar el revert a ${ramaBase} (3 intentos): ${ultimo}`);
 }
+
+/*
+  ¿YA ESTÁ EN MAIN? (25-nov-2026, parte 3 de «las 4 fallas repetidas»). Cuando Claude terminó sin cambiar ningún archivo
+  (`no_cambio_nada`), antes de reparar se busca en `git log <remoto>/<ramaBase>` si lo pedido ya quedó subido (así pasó T-625,
+  que ya estaba en b52c1b45). Se da por encontrado SOLO si:
+    - un commit trae el id corto de la tarjeta («tablero: … (<idCorto>)», el que deja la etapa de construir), o
+    - la mayoría de las palabras del título están en el asunto del commit Y el commit toca al menos un archivo que nombra el plan.
+  Los commits vacíos de las sesiones (inicio:, revision:, resultado:, pregunta:) y los revert no cuentan, y un commit que ya se
+  deshizo (hay un «revert: deshacer <commit>» en main) tampoco.
+*/
+
+/** Hasta cuántos commits de main se miran (los más nuevos). */
+export const COMMITS_PARA_BUSCAR_EN_MAIN = 400;
+
+const SEPARADOR_DE_COMMIT = "\u001e";
+const SEPARADOR_DE_CAMPO = "\u001f";
+const COMMIT_DE_SENAL = /^(inicio|revision|resultado|pregunta|revert):/i;
+const PALABRAS_QUE_NO_CUENTAN = new Set(["parte", "para", "como", "cuando", "donde", "desde", "hasta", "solo", "tablero"]);
+
+/** Las palabras de un título que cuentan para comparar: sin tildes, en minúscula, de 4 letras o más. */
+export function palabrasDelTitulo(texto) {
+  const palabras = String(texto ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((palabra) => palabra.length >= 4 && !PALABRAS_QUE_NO_CUENTAN.has(palabra));
+  return [...new Set(palabras)];
+}
+
+/** ¿El archivo que tocó el commit es (o está dentro de) uno que nombra el plan? */
+function tocaArchivoDelPlan(archivo, archivosDelPlan) {
+  return archivosDelPlan.some((delPlan) => {
+    const limpio = delPlan.replace(/\/\*\*?$/, "").replace(/\/+$/, "");
+    return Boolean(limpio) && (archivo === limpio || archivo.startsWith(`${limpio}/`));
+  });
+}
+
+/**
+ * Busca en main un commit que ya haga lo de la tarjeta. `repo`: { ruta, remoto, ramaBase }. `archivosDelPlan`: las rutas que
+ * nombra el plan (choques.mjs: archivosDelPlan, sin el manual ni las notas de cambios pendientes). Devuelve
+ * { commit, asunto, por: "id" | "titulo", archivo? } o null. Nunca lanza: si git falla, devuelve null (y se repara como siempre).
+ */
+export async function buscarEnMain(repo, tarjeta, archivosDelPlan = []) {
+  const remoto = repo?.remoto ?? "origin";
+  const ramaBase = repo?.ramaBase ?? "main";
+  if (!repo?.ruta || !tarjeta?.id) return null;
+  await git(repo.ruta, ["fetch", remoto, ramaBase], { permitirFallo: true, timeoutMs: 2 * 60_000 });
+  const log = await git(
+    repo.ruta,
+    ["log", `${remoto}/${ramaBase}`, "-n", String(COMMITS_PARA_BUSCAR_EN_MAIN), "--no-merges", `--format=${SEPARADOR_DE_COMMIT}%H${SEPARADOR_DE_CAMPO}%s`, "--name-only"],
+    { permitirFallo: true, timeoutMs: 2 * 60_000 },
+  );
+  if (log.codigo !== 0) return null;
+  const commits = String(log.salida)
+    .split(SEPARADOR_DE_COMMIT)
+    .map((bloque) => {
+      const [cabeza, ...archivos] = bloque.split(/\r?\n/);
+      const [commit, asunto = ""] = String(cabeza).split(SEPARADOR_DE_CAMPO);
+      return { commit: String(commit).trim(), asunto: asunto.trim(), archivos: archivos.map((archivo) => archivo.trim()).filter(Boolean) };
+    })
+    .filter(({ commit }) => /^[0-9a-f]{40}$/.test(commit));
+  // Lo que ya se deshizo en main no vale como hecho.
+  const deshechos = commits.map(({ asunto }) => asunto.match(/^revert: deshacer ([0-9a-f]{7,40})\b/)?.[1]).filter(Boolean);
+  const vale = ({ commit, asunto, archivos }) => archivos.length > 0 && !COMMIT_DE_SENAL.test(asunto) && !deshechos.some((corto) => commit.startsWith(corto));
+  const candidatos = commits.filter(vale);
+
+  // 1) El commit de la tarjeta: «tablero: … (<idCorto>)».
+  const id = idCorto(tarjeta.id);
+  const conId = candidatos.find(({ asunto }) => asunto.startsWith("tablero: ") && asunto.endsWith(`(${id})`));
+  if (conId) return { commit: conId.commit, asunto: conId.asunto, por: "id" };
+
+  // 2) La mayoría de las palabras del título y al menos un archivo del plan.
+  const delTitulo = palabrasDelTitulo(tarjeta.titulo);
+  const rutas = (archivosDelPlan ?? []).map((ruta) => String(ruta).replace(/\\/g, "/")).filter(Boolean);
+  if (delTitulo.length < 2 || !rutas.length) return null;
+  for (const candidato of candidatos) {
+    const enElAsunto = new Set(palabrasDelTitulo(candidato.asunto));
+    const coinciden = delTitulo.filter((palabra) => enElAsunto.has(palabra)).length;
+    if (coinciden * 2 <= delTitulo.length) continue;
+    const archivo = candidato.archivos.find((tocado) => tocaArchivoDelPlan(tocado, rutas));
+    if (archivo) return { commit: candidato.commit, asunto: candidato.asunto, por: "titulo", archivo };
+  }
+  return null;
+}

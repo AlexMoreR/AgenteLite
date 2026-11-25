@@ -2925,14 +2925,14 @@ const servidor = http.createServer(async (pedido, respuesta) => {
     const tope = reglas.puedeReconstruirPorChoque(reglas.choquesSeguidos(tarjeta.intentosLista ?? []));
     if (tope) return contestar(409, { ok: false, error: tope });
     anotarIntento(tarjeta, cuerpo, "esperar", false);
-    Object.assign(tarjeta, { estado: reglas.estadoTrasReparar(tarjeta.estado), venceEn: null, intentos: Math.max(0, tarjeta.intentos - 1) });
+    Object.assign(tarjeta, { estado: reglas.estadoTrasReparar(tarjeta.estado, reglas.estrategiaDeEntrada(cuerpo.estrategia)), venceEn: null, intentos: Math.max(0, tarjeta.intentos - 1) });
     return contestar(200, { ok: true, estado: tarjeta.estado, reparaciones: tarjeta.reparaciones ?? 0 });
   }
   if (accion === "reparar") {
     // Como el CRM: tope de 3 reparaciones, vuelve a la fila y deja el intento (con la causa y el error exacto).
     if ((tarjeta.reparaciones ?? 0) >= reglas.TOPE_DE_REPARACIONES) return contestar(409, { ok: false, error: "Ya lleva 3 reparaciones" });
     anotarIntento(tarjeta, cuerpo, "reparar", true);
-    Object.assign(tarjeta, { estado: reglas.estadoTrasReparar(tarjeta.estado), venceEn: null, reparaciones: (tarjeta.reparaciones ?? 0) + 1 });
+    Object.assign(tarjeta, { estado: reglas.estadoTrasReparar(tarjeta.estado, reglas.estrategiaDeEntrada(cuerpo.estrategia)), venceEn: null, reparaciones: (tarjeta.reparaciones ?? 0) + 1 });
     return contestar(200, { ok: true, estado: tarjeta.estado, reparaciones: tarjeta.reparaciones });
   }
   if (accion === "partir") {
@@ -3009,10 +3009,10 @@ const servidor = http.createServer(async (pedido, respuesta) => {
     if (esSubida) {
       // Un arreglo de subida sí gasta el intento (cuenta) y deja la fila subida_revertida.
       anotarIntento(tarjeta, { etapa: cuerpo.etapa, categoria: "subida_revertida", causa: cuerpo.causa ?? esperando, error: cuerpo.error }, "reparar", true);
-      Object.assign(tarjeta, { estado: reglas.estadoTrasReparar(tarjeta.estado), venceEn: null, esperando });
+      Object.assign(tarjeta, { estado: reglas.estadoTrasReparar(tarjeta.estado, reglas.estrategiaDeEntrada(cuerpo.estrategia)), venceEn: null, esperando });
     } else {
       anotarIntento(tarjeta, { etapa: cuerpo.etapa, categoria: cuerpo.categoria ?? "otra", causa: cuerpo.causa ?? esperando, error: cuerpo.error }, "esperar", false);
-      Object.assign(tarjeta, { estado: reglas.estadoTrasReparar(tarjeta.estado), venceEn: null, intentos: Math.max(0, tarjeta.intentos - 1), esperando });
+      Object.assign(tarjeta, { estado: reglas.estadoTrasReparar(tarjeta.estado, reglas.estrategiaDeEntrada(cuerpo.estrategia)), venceEn: null, intentos: Math.max(0, tarjeta.intentos - 1), esperando });
     }
     return contestar(200, { ok: true, creada, tarjetaId: origen.id, esperando, soltada: true, estado: tarjeta.estado });
   }

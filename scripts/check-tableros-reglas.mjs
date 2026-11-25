@@ -999,6 +999,11 @@ prueba("el límite de Claude no cuenta como intento: las esperas seguidas se cue
   assert.equal(trabajo.esperasSeguidas(cuenta(false, true)), 0);
   assert.equal(trabajo.estadoTrasReparar("PLANEANDO"), "APROBADO");
   assert.equal(trabajo.estadoTrasReparar("EN_CURSO"), "PLAN_APROBADO");
+  // plan_nuevo (25-nov-2026): se planea otra vez con el main de hoy; las demás estrategias, como siempre.
+  assert.equal(trabajo.estadoTrasReparar("EN_CURSO", "plan_nuevo"), "APROBADO");
+  assert.equal(trabajo.estadoTrasReparar("PLANEANDO", "plan_nuevo"), "APROBADO");
+  assert.equal(trabajo.estadoTrasReparar("EN_CURSO", "opus"), "PLAN_APROBADO");
+  assert.equal(trabajo.estadoTrasReparar("EN_CURSO", null), "PLAN_APROBADO");
 });
 
 prueba("dependencias: no se permiten ciclos", () => {

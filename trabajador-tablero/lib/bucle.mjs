@@ -66,6 +66,7 @@ import {
   revisarDeNuevo,
   sePuedeRevisarDeNuevo,
   subir,
+  yaEstaEnMain,
 } from "./etapas.mjs";
 import { esRamaDelTrabajador, idCorto, nombreDeRama } from "./git.mjs";
 import { MEDIR_POR_DEFECTO, medirTarjeta, referenciasParaDepender, textoDeLaMedida } from "./medir.mjs";
@@ -654,7 +655,8 @@ const CLASE_DE_LA_FALLA = { nube_sin_senal: "nube", no_cambio_nada: "sin_cambios
 
 /** Cómo se resolvió, para la bitácora: una clave de COMO_SE_RESOLVIO o la frase de la decisión. */
 function comoSeResolvioLaFalla(salida) {
-  if (salida?.accion === "reparar" && salida.estrategia === "sesion_nueva") return "sesion_nueva";
+  if (salida?.accion === "ya_en_main") return "ya_en_main";
+  if (salida?.accion === "reparar" && (salida.estrategia === "sesion_nueva" || salida.estrategia === "plan_nuevo")) return salida.estrategia;
   if (salida?.accion === "reparar" && salida.estrategia) return `${DECISION_DEL_ENSAYO.reparar} (estrategia ${salida.estrategia})`;
   return DECISION_DEL_ENSAYO[salida?.accion] ?? `decisión: ${salida?.accion ?? "sin decisión"}`;
 }
@@ -722,6 +724,18 @@ async function repararSinAnotar({ crm, config, registro, contexto, bitacora, pau
   const intento = { etapa: hacer, categoria: diagnostico.categoria, causa: sencilla ? enUnaLinea(`${sencilla} ${causaDelIntento}`) : causaDelIntento, error: diagnostico.error };
   // Lo que llega a la tarjeta (soltar, escalar) dice primero la causa en sencillo.
   const causaParaLaTarjeta = sencilla ? `${sencilla} ${diagnostico.causa ?? ""}`.trim() : diagnostico.causa;
+
+  // 2a. No cambió nada (25-nov-2026, parte 3 de «las 4 fallas repetidas»): antes de reparar, ¿ya está en main? Si el commit está
+  // (comprobado con git), la tarjeta pasa a HECHO con la nota "ya estaba hecho (commit X)" y el motivo; si no, decidir() la repara
+  // con la estrategia plan_nuevo (se vuelve a planear con el main de hoy).
+  if (diagnostico.categoria === "no_cambio_nada" && !error?.reversion) {
+    const yaHecho = await yaEstaEnMain(contexto, tarjeta);
+    if (yaHecho) {
+      const cerrada = await cerrarComoYaHecha({ crm, registro }, tarjeta, hacer, yaHecho);
+      const decidido = `ya estaba en main (commit ${yaHecho.commit.slice(0, 10)})`;
+      return { ...cerrada, motivo, zonas: error?.zonas ?? [], categoria: diagnostico.categoria, accion: cerrada.yaHecha ? "ya_en_main" : "esperar", commit: yaHecho.commit, decidido };
+    }
+  }
 
   // 2b. Tres causas distintas sin resolverlo: UNA fila en el registro del Coordinador para el CTO (nunca al dueño ni por WhatsApp).
   avisarAlCtoSiHaceFalta({ config, registro }, tarjeta, diagnostico);

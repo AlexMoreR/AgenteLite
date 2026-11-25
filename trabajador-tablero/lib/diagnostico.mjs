@@ -564,6 +564,7 @@ const QUE_CAMBIA_POR_ESTRATEGIA = {
   nube: "lo que verificó la nube cambió al subir: se vuelve a construir y verificar en la nube",
   partir: "la tarea se divide en partes más chicas",
   sesion_nueva: "la nube no dio señal: se abre una sesión nueva de la nube (nunca la de un intento anterior)",
+  plan_nuevo: "no cambió nada y no está en main: se vuelve a planear con el main de hoy (el plan viejo queda en los intentos)",
 };
 
 /**
@@ -611,7 +612,8 @@ function reparacionesSeguidasCon(intentos, categoria) {
  *   accion      "reparar" | "partir" | "esperar" | "escalar" | "arreglo_de_subida" (solo con una subida deshecha; no va al historial)
  *   cuenta      si cuenta como una de las 3 reparaciones (reparar y escalar sí; esperar y partir no)
  *   estrategia  "opus" cuando la 2ª reparación seguida con la misma categoría cambia de modelo; "nube" si se verifica otra vez en la nube;
- *               "sesion_nueva" cuando la nube no dio señal (el intento siguiente abre una sesión nueva de la nube)
+ *               "sesion_nueva" cuando la nube no dio señal (el intento siguiente abre una sesión nueva de la nube);
+ *               "plan_nuevo" cuando Claude no cambió nada y no está en main (se vuelve a planear con el main de hoy)
  *   arreglo     "sin_claude": el Coordinador lo arregla solo (cierra procesos, limpia la carpeta, espera al PC);
  *               "reconstruir": choca con main, se construye otra vez desde el main más nuevo sin gastar reparación
  *   motivo      por qué, para el log
@@ -719,6 +721,13 @@ function decidirSinCausa({ diagnostico, tarjeta = {}, etapa, config = {}, archiv
   // la misma. Con 2 previas iguales ya escaló arriba (TOPE_DE_FALLAS_IGUALES): la alerta llega tras 3 intentos distintos.
   if (categoria === "nube_sin_resultado") {
     return { accion: "reparar", cuenta: true, estrategia: "sesion_nueva", motivo: `la nube no dio señal: se reintenta en una sesión nueva de la nube (${reparaciones + 1} de ${tope})` };
+  }
+
+  // 25-nov-2026 (parte 3): Claude no cambió nada y lo pedido no está en main (bucle.mjs ya lo buscó con yaEstaEnMain): construir
+  // otra vez con el mismo plan daría lo mismo. Se vuelve a planear con el main de hoy (el CRM la pasa a APROBADO). Con 2 previas
+  // iguales ya escaló arriba (TOPE_DE_FALLAS_IGUALES): la alerta llega tras 3 intentos distintos.
+  if (categoria === "no_cambio_nada") {
+    return { accion: "reparar", cuenta: true, estrategia: "plan_nuevo", motivo: `no cambió nada y no está en main: se vuelve a planear con el main de hoy (${reparaciones + 1} de ${tope})` };
   }
 
   // La MISMA falla que el intento anterior: solo se repara si queda una estrategia distinta que probar, en este orden:

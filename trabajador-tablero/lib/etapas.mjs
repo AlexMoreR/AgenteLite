@@ -33,6 +33,7 @@ import { PISO_VERSION_MINUTOS } from "./config.mjs";
 import {
   ErrorDeGit,
   archivosCambiados,
+  buscarEnMain,
   crearWorktree,
   diffDeArchivos,
   esRamaDelTrabajador,
@@ -63,7 +64,7 @@ import {
 } from "./revisores.mjs";
 import { esLimiteDeCodex, nombreDelMotor } from "./motores.mjs";
 import { abreSesionNueva, esOrquestador, esperarResultado, lanzarSesionDeLaNube, nombreDelProyecto, sesionFijaDe } from "./nube.mjs";
-import { archivosDelPlan } from "./choques.mjs";
+import { archivosDelPlan, noChoca } from "./choques.mjs";
 import { vigilarSesion } from "./atasco.mjs";
 import { cerrarProcesosEn, comoTexto, correr, detalleDeFalla, lineasQueFallaron, ultimasLineas } from "./procesos.mjs";
 import { esperarRecursos, faltanRecursos, medirUnaVez } from "./recursos.mjs";
@@ -300,6 +301,34 @@ export async function commitEstaEnMain(repo, commit) {
   if (existe.codigo !== 0) return false;
   const dentro = await git(repo.ruta, ["merge-base", "--is-ancestor", commit, `${repo.remoto}/${repo.ramaBase}`], { permitirFallo: true });
   return dentro.codigo === 0;
+}
+
+/**
+ * NO CAMBIÓ NADA (25-nov-2026, parte 3 de «las 4 fallas repetidas»): Claude terminó sin cambiar ningún archivo y no escribió
+ * YA_ESTA_HECHO. ¿Lo pedido ya está en main? Busca con buscarEnMain (git.mjs: el commit con el id corto de la tarjeta, o la mayoría
+ * de las palabras del título y un archivo del plan) y lo comprueba con commitEstaEnMain, el mismo chequeo de YA_ESTA_HECHO.
+ * Devuelve { commit, motivo } (como yaEstaHechoDe) o null. Nunca lanza: si no se pudo buscar, null (y se repara como siempre).
+ */
+export async function yaEstaEnMain(contexto, tarjeta) {
+  try {
+    const repo = configDelRepo(contexto, tarjeta);
+    // El manual y las notas de cambios pendientes los nombran casi todos los planes: no sirven para reconocer la tarea.
+    const archivos = archivosDelPlan(tarjeta.plan).filter((ruta) => !noChoca(ruta, []));
+    const encontrado = await buscarEnMain(repo, tarjeta, archivos);
+    if (!encontrado) return null;
+    if (!(await commitEstaEnMain(repo, encontrado.commit))) {
+      contexto.registro?.aviso?.(`buscarEnMain dio el commit ${encontrado.commit.slice(0, 10)}, pero no está en ${repo.remoto}/${repo.ramaBase}: no le creo`);
+      return null;
+    }
+    const motivo =
+      encontrado.por === "id"
+        ? `Claude no cambió ningún archivo y el commit de la tarjeta «${encontrado.asunto}» ya está en ${repo.ramaBase}`
+        : `Claude no cambió ningún archivo y el commit «${encontrado.asunto}» de ${repo.ramaBase} coincide con el título y toca ${encontrado.archivo}, que nombra el plan`;
+    return { commit: encontrado.commit, motivo: enUnaLinea(motivo, 300) };
+  } catch (error) {
+    contexto.registro?.aviso?.(`no se pudo buscar en main si ya estaba hecho (${String(error?.message ?? error).split("\n")[0]}): se repara como siempre`);
+    return null;
+  }
 }
 
 /** Lo que la sesión dijo de la revisión previa: { yaHecho: { commit, motivo } } (comprobado con git), { dependeDe: [...] } o null. */

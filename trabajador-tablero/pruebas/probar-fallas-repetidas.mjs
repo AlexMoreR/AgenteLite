@@ -1,5 +1,6 @@
 // Pruebas de las FALLAS REPETIDAS del Coordinador (25-nov-2026), parte 1: "no arrancó" y la reversión falsa (T-902 470c7f1,
-// T-800); parte 2: la nube sin señal se reintenta en una sesión nueva (T-921) y la bitácora. Sin red de verdad, sin CRM y sin WhatsApp:
+// T-800); parte 2: la nube sin señal se reintenta en una sesión nueva (T-921) y la bitácora; parte 3: Claude no cambió nada (T-625,
+// que ya estaba en b52c1b45): si ya está en main pasa a HECHO, si no se vuelve a planear. Sin red de verdad, sin CRM y sin WhatsApp:
 //   node trabajador-tablero/pruebas/probar-fallas-repetidas.mjs   (también corre dentro de npm run test:trabajador-tablero)
 // El CRM falso es un servidor local que contesta /api/version; el git falso es un repo con su "origin" en una carpeta
 // temporal; el ssh falso imprime el log de actualizar.sh que pide la prueba; el reloj falso se adelanta con cada espera.
@@ -27,6 +28,10 @@ import {
 import { ErrorDeEtapa, esperarVersion, ramaParaLaNube, subir } from "../lib/etapas.mjs";
 import { nombreDeRama } from "../lib/git.mjs";
 import { abreSesionNueva, lanzarSesionDeLaNube, linksDeIntentosAnteriores } from "../lib/nube.mjs";
+import { cargar } from "../../scripts/supervisor-cargar.mjs";
+
+// Las reglas REALES del CRM (estadoTrasReparar, estrategiaDeEntrada): las mismas que usa /reparar.
+const reglas = cargar("src/features/tableros-inteligentes/services/reglas-trabajador.ts");
 
 let pruebas = 0;
 async function prueba(nombre, fn) {
@@ -430,6 +435,115 @@ try {
     assert.match(texto, /^- Qué se intentó: intento 1 de 3 \(nube_sin_resultado; /m);
     assert.match(texto, /^- Cómo se resolvió: reintento en una sesión nueva de la nube/m);
     assert.match(texto, /^- Regla: Si la nube no da señal, se reintenta en una sesión nueva/m);
+  });
+
+  /* ── parte 3: no cambió nada (T-625: ya estaba en b52c1b45 y se volvió a construir con el plan viejo) ── */
+
+  // El CRM falso de estas pruebas: anota lo que le piden; /reparar usa las reglas reales para el estado al que vuelve.
+  const crmDeNoCambio = (tarjeta) => {
+    const llamadas = [];
+    const crm = {
+      latido: async () => ({ ok: true }),
+      yaHecha: async (id, datos) => (llamadas.push(["ya-hecha", id, datos]), Object.assign(tarjeta, { estado: "HECHO" }), { ok: true, estado: "HECHO" }),
+      reparar: async (id, datos) => {
+        llamadas.push(["reparar", id, datos]);
+        tarjeta.estado = reglas.estadoTrasReparar(tarjeta.estado, reglas.estrategiaDeEntrada(datos.estrategia));
+        return { ok: true, estado: tarjeta.estado, reparaciones: (tarjeta.reparaciones ?? 0) + 1 };
+      },
+      error: async (...args) => (llamadas.push(["error", ...args]), { ok: true }),
+      soltar: async (...args) => (llamadas.push(["soltar", ...args]), { ok: true }),
+      aviso: async () => ({ ok: true }),
+      causaExterna: async (...args) => (llamadas.push(["causaExterna", ...args]), { ok: true }),
+    };
+    return { crm, llamadas };
+  };
+  const NO_CAMBIO = "Claude no cambió ningún archivo.";
+
+  await prueba("no cambió nada: si el commit ya está en main pasa a HECHO con la nota y el commit", async () => {
+    const tarjeta = {
+      id: "cmyjn7ul5g3333333333333",
+      titulo: "Arreglar el botón de exportar contactos",
+      repo: "aizencrm",
+      estado: "EN_CURSO",
+      plan: "Cambiar src/app/exportar/boton.tsx para que exporte.",
+      topeReparaciones: 3,
+      reparaciones: 0,
+      intentos: 1,
+      ultimosIntentos: [],
+    };
+    // En el main falso: el commit «tablero: … (<idCorto>)» de la tarjeta.
+    const idDeLaTarjeta = nombreDeRama(tarjeta).split("/")[1].split("-")[0];
+    // El main local se pone al día con "origin" (la prueba de subir empujó desde su worktree).
+    g(REPO, "checkout", "-q", "main");
+    g(REPO, "fetch", "-q", "origin");
+    g(REPO, "reset", "-q", "--hard", "origin/main");
+    fs.mkdirSync(path.join(REPO, "src", "app", "exportar"), { recursive: true });
+    fs.writeFileSync(path.join(REPO, "src", "app", "exportar", "boton.tsx"), "export const Boton = () => null;\n");
+    g(REPO, "add", "-A");
+    g(REPO, "commit", "-qm", `tablero: ${tarjeta.titulo} (${idDeLaTarjeta})`);
+    g(REPO, "push", "-q", "origin", "main");
+    const commit = shaDe("main");
+    const { crm, llamadas } = crmDeNoCambio(tarjeta);
+    const carpeta = fs.mkdtempSync(path.join(T, "trabajo-no-cambio-"));
+    const salida = await procesar({ crm, config: { ...config, carpetaTrabajo: carpeta }, registro: registroFalso() }, tarjeta, NO_CAMBIO);
+    assert.equal(salida.accion, "ya_en_main", JSON.stringify(salida));
+    assert.equal(salida.yaHecha, true);
+    assert.deepEqual(llamadas.map(([que]) => que), ["ya-hecha"], "ni reparar ni ERROR");
+    const [, id, datos] = llamadas[0];
+    assert.equal(id, tarjeta.id);
+    assert.equal(datos.commit, commit);
+    assert.ok(datos.nota.startsWith(`ya estaba hecho (commit ${commit}): `), datos.nota);
+    assert.match(datos.motivo, /ya está en main/);
+    assert.equal(tarjeta.estado, "HECHO");
+    const texto = fs.readFileSync(path.join(carpeta, "incidentes", "aizencrm.md"), "utf8");
+    assert.match(texto, /^- Qué falló: Claude terminó sin cambiar ningún archivo$/m);
+    assert.match(texto, /^- Cómo se resolvió: ya estaba hecho en main$/m);
+
+    // Sin el id: la mayoría de las palabras del título y un archivo del plan también cuentan; solo el título, no.
+    const otra = { ...tarjeta, id: "cmyjn7ul5g4444444444444", estado: "EN_CURSO" };
+    const conTitulo = crmDeNoCambio(otra);
+    const porTitulo = await procesar({ crm: conTitulo.crm, config: { ...config, carpetaTrabajo: carpeta }, registro: registroFalso() }, otra, NO_CAMBIO);
+    assert.equal(porTitulo.accion, "ya_en_main");
+    assert.equal(conTitulo.llamadas[0][2].commit, commit);
+    const sinArchivo = { ...otra, id: "cmyjn7ul5g5555555555555", estado: "EN_CURSO", plan: "Cambiar src/lib/otra-cosa.ts." };
+    const sinElArchivo = crmDeNoCambio(sinArchivo);
+    const noEsta = await procesar({ crm: sinElArchivo.crm, config: { ...config, carpetaTrabajo: carpeta }, registro: registroFalso() }, sinArchivo, NO_CAMBIO);
+    assert.equal(noEsta.accion, "reparar", "el título solo no basta: hace falta un archivo del plan");
+  });
+
+  await prueba("no cambió nada: si no está en main vuelve a APROBADO con plan nuevo", async () => {
+    const tarjeta = {
+      id: "cmyjn7ul5g6666666666666",
+      titulo: "Agregar el filtro de ciudad en la bandeja",
+      repo: "aizencrm",
+      estado: "EN_CURSO",
+      plan: "Cambiar src/app/bandeja/filtro.tsx.",
+      topeReparaciones: 3,
+      reparaciones: 0,
+      intentos: 1,
+      ultimosIntentos: [],
+    };
+    const { crm, llamadas } = crmDeNoCambio(tarjeta);
+    const carpeta = fs.mkdtempSync(path.join(T, "trabajo-plan-nuevo-"));
+    const salida = await procesar({ crm, config: { ...config, carpetaTrabajo: carpeta }, registro: registroFalso() }, tarjeta, NO_CAMBIO);
+    assert.equal(salida.accion, "reparar");
+    assert.equal(salida.estrategia, "plan_nuevo");
+    assert.deepEqual(llamadas.map(([que]) => que), ["reparar"]);
+    const [, , datos] = llamadas[0];
+    assert.equal(datos.estrategia, "plan_nuevo");
+    assert.equal(datos.categoria, "no_cambio_nada");
+    assert.match(datos.causa, /\[estrategia: plan_nuevo\]$/);
+    // Con las reglas reales del CRM vuelve a APROBADO (se planea otra vez), no a PLAN_APROBADO con el plan viejo.
+    assert.equal(tarjeta.estado, "APROBADO");
+    assert.equal(reglas.estadoTrasReparar("EN_CURSO", null), "PLAN_APROBADO", "sin plan_nuevo, como siempre");
+    assert.equal(reglas.estadoTrasReparar("EN_CURSO", "opus"), "PLAN_APROBADO");
+    const texto = fs.readFileSync(path.join(carpeta, "incidentes", "aizencrm.md"), "utf8");
+    assert.match(texto, /^- Cómo se resolvió: se vuelve a planear la tarea$/m);
+    // La 3.ª vez sin cambiar nada (2 previas en la tarjeta) va a Alertas: la alerta llega tras 3 intentos distintos.
+    const previa = { accion: "reparar", etapa: "construir", categoria: "no_cambio_nada", causa: datos.causa };
+    const diagnostico = { categoria: "no_cambio_nada", causa: "Claude terminó sin cambiar ningún archivo" };
+    assert.equal(decidir({ diagnostico, tarjeta: { reparaciones: 1, ultimosIntentos: [previa] }, etapa: "construir" }).estrategia, "plan_nuevo");
+    assert.equal(decidir({ diagnostico, tarjeta: { reparaciones: 2, ultimosIntentos: [previa, previa] }, etapa: "construir" }).accion, "escalar");
   });
 
   console.log(`\n${pruebas} pruebas OK`);

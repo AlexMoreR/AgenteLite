@@ -1743,8 +1743,13 @@ export function etapaDeEntrada(valor: unknown, estado: EstadoTarjetaTablero): Et
   return ETAPA_DEL_ESTADO[estado] ?? "construir";
 }
 
-/** A qué estado de la fila vuelve una tarjeta que se repara (sin ERROR). */
-export function estadoTrasReparar(estado: EstadoTarjetaTablero): EstadoTarjetaTablero {
+/**
+ * A qué estado de la fila vuelve una tarjeta que se repara (sin ERROR). 25-nov-2026 (parte 3 de «las 4 fallas repetidas»): con la
+ * estrategia `plan_nuevo` vuelve SIEMPRE a APROBADO, para planearse otra vez con el main de hoy (el plan viejo queda en el historial
+ * de intentos). Con cualquier otra estrategia, o sin estrategia, como siempre.
+ */
+export function estadoTrasReparar(estado: EstadoTarjetaTablero, estrategia: EstrategiaDeReparacion | null = null): EstadoTarjetaTablero {
+  if (estrategia === "plan_nuevo") return "APROBADO";
   return estado === "PLANEANDO" ? "APROBADO" : "PLAN_APROBADO";
 }
 

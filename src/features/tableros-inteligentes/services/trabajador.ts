@@ -630,7 +630,7 @@ export async function arranqueDelTrabajador(contexto: ContextoTrabajador, ahora 
  */
 async function reconstruirPorChoque(contexto: ContextoTrabajador, actual: FilaParaTrabajar, cuerpo: Record<string, unknown>, ahora: Date) {
   const estado = actual.estado as EstadoTarjetaTablero;
-  const vuelve = estadoTrasReparar(estado);
+  const vuelve = estadoTrasReparar(estado, estrategiaDeEntrada(cuerpo.estrategia));
   const etapa = etapaDeEntrada(cuerpo.etapa, estado);
   const intento: IntentoPorGuardar = {
     etapa,
@@ -1068,7 +1068,8 @@ export async function accionDelTrabajador(
     // Algo falló y el Coordinador sabe la causa: vuelve a la fila sin ERROR y suma una reparación.
     const tope = puedeReparar(actual.reparaciones);
     if (tope) throw new ErrorDelTrabajador(tope, 409);
-    const vuelve = estadoTrasReparar(estado);
+    // Con la estrategia plan_nuevo vuelve a APROBADO: se planea otra vez con el main de hoy (estadoTrasReparar).
+    const vuelve = estadoTrasReparar(estado, estrategiaDeEntrada(cuerpo.estrategia));
     const etapa = etapaDeEntrada(cuerpo.etapa, estado);
     const intento: IntentoPorGuardar = {
       etapa,
@@ -1874,7 +1875,7 @@ async function pedirCausaExterna(contexto: ContextoTrabajador, actual: FilaParaT
     const etiqueta = etiquetaEsperando(pendientes.map((tarjeta) => ({ titulo: tarjeta.titulo, estado: tarjeta.estado ?? "" }))) ?? `Esperando a «${origen.titulo}»`;
     // Nunca vuelve a SUBIENDO: vuelve a la fila de construir y se reconstruye sobre el main nuevo (con el revert y el arreglo). Si
     // volviera a SUBIENDO, ramaYaEnMain del Coordinador vería el commit viejo en main y no subiría nada.
-    const vuelve = estadoTrasReparar(estado);
+    const vuelve = estadoTrasReparar(estado, estrategiaDeEntrada(cuerpo.estrategia));
     const hecho = await tx.tarjetaTablero.updateMany({
       where: { id: actual.id, estado: actual.estado, borradoEn: null },
       // Un arreglo de subida sí gasta el intento (cuenta); las demás causas no.
