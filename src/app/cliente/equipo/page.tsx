@@ -68,6 +68,32 @@ export default async function ClienteEquipoPage({ searchParams }: PageProps) {
 
   // Muestra empleados (AGENT/EMPLEADO) Y administradores (ADMIN) del negocio. El dueno
   // (OWNER) no se lista aqui: es el titular de la cuenta, no un miembro gestionable.
+  const lecturaDeEmpleados = prisma.workspaceMember.findMany({
+    where: {
+      workspaceId: access.workspaceId,
+      role: { in: ["AGENT", "ADMIN"] },
+      user: {
+        role: { in: ["EMPLEADO", "ADMIN"] },
+      },
+    },
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      role: true,
+      moduleAccess: true,
+      isActive: true,
+      invitedAt: true,
+      acceptedAt: true,
+      user: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+        },
+      },
+    },
+  });
+
   const [
     employees,
     canales,
@@ -80,31 +106,7 @@ export default async function ClienteEquipoPage({ searchParams }: PageProps) {
     actividad,
     ultimasAcciones,
   ] = await Promise.all([
-    prisma.workspaceMember.findMany({
-      where: {
-        workspaceId: access.workspaceId,
-        role: { in: ["AGENT", "ADMIN"] },
-        user: {
-          role: { in: ["EMPLEADO", "ADMIN"] },
-        },
-      },
-      orderBy: { createdAt: "desc" },
-      select: {
-        id: true,
-        role: true,
-        moduleAccess: true,
-        isActive: true,
-        invitedAt: true,
-        acceptedAt: true,
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
-      },
-    }),
+    lecturaDeEmpleados,
     prisma.whatsAppChannel.findMany({
       where: { workspaceId: access.workspaceId },
       orderBy: { createdAt: "asc" },
@@ -120,10 +122,16 @@ export default async function ClienteEquipoPage({ searchParams }: PageProps) {
     // Última conexión y última acción de cada persona (solo lectura). Si fallan, la pantalla sale
     // igual con "Sin registro todavía" / "Sin acciones en 30 días" en vez de romperse.
     leerActividadDelEquipo(access.workspaceId).catch(() => ({}) as Awaited<ReturnType<typeof leerActividadDelEquipo>>),
-    ultimaAccionPorPersona({
-      workspaceId: access.workspaceId,
-      desde: haceDias(DIAS_DE_ULTIMA_ACCION),
-    }).catch(() => new Map() as Awaited<ReturnType<typeof ultimaAccionPorPersona>>),
+    // Solo de las personas que ya se leyeron arriba: va después de esa lectura.
+    lecturaDeEmpleados
+      .then((miembros) =>
+        ultimaAccionPorPersona({
+          workspaceId: access.workspaceId,
+          userIds: miembros.map((miembro) => miembro.user.id),
+          desde: haceDias(DIAS_DE_ULTIMA_ACCION),
+        }),
+      )
+      .catch(() => new Map() as Awaited<ReturnType<typeof ultimaAccionPorPersona>>),
   ]);
 
   const demora = estadoDelBotonDeTexto(filaDemora?.value);

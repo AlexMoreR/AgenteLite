@@ -126,76 +126,106 @@ const DIAS_DE_ULTIMA_ACCION = 30;
  * La última acción de cada persona del equipo: qué hizo (envió un mensaje, cambió una etapa,
  * asignó, llamó), con qué cliente y cuándo.
  *
- * Tres consultas para todo el equipo —mensajes, notas de asignación/etapa y llamadas—, nunca una por
- * persona. Cada una se queda con la fila más nueva de cada persona (DISTINCT ON ordenado por fecha)
- * dentro del rango, y el contacto se busca después, solo para esas pocas filas. Siempre acotado por
- * `desde` (30 días si no se pasa): sin el rango es la misma consulta que ya tardó 61 segundos.
+ * Solo para las personas que se piden (`userIds`, las que ya cargó la pantalla): si no hay ninguna,
+ * no se consulta nada. Tres consultas para todo el grupo —mensajes, notas de asignación/etapa y
+ * llamadas—, nunca una tanda por persona.
+ *
+ * Las dos de mensajes NO recorren los mensajes del rango: por cada persona (`unnest` + `LATERAL`) se
+ * baja por el índice parcial de `20261125000000_indices_ultima_accion` —(workspaceId, quién, fecha
+ * DESC)— y se queda con la primera fila (`LIMIT 1`). Las condiciones del WHERE están escritas igual
+ * que en el índice: si se cambian aquí o allá, Postgres deja de usarlo y vuelve a leer todo.
+ *
+ * Siempre acotado por `desde` (30 días si no se pasa). Las tres corren en una transacción con
+ * `statement_timeout` de 5 s: si la base tarda más o falla, se devuelve un Map vacío y la pantalla
+ * sale con "Sin acciones en 30 días" en vez de quedarse cargando.
  */
 export async function ultimaAccionPorPersona(input: {
   workspaceId: string;
+  userIds: string[];
   desde?: Date;
 }): Promise<Map<string, UltimaAccion>> {
   const { workspaceId } = input;
+  const userIds = [...new Set(input.userIds.filter(Boolean))];
+  if (userIds.length === 0) return new Map();
   const desde = input.desde ?? new Date(Date.now() - DIAS_DE_ULTIMA_ACCION * 24 * 3_600_000);
 
   type Fila = { userId: string; cuando: Date; cliente: string | null };
 
-  const [mensajes, notas, llamadas] = await Promise.all([
-    prisma.$queryRaw<Fila[]>`
-      SELECT u."userId", u."createdAt" AS cuando, coalesce(c."name", c."phoneNumber") AS cliente
-      FROM (
-        SELECT DISTINCT ON (m."rawPayload"->>'enviadoPorUserId')
-               m."rawPayload"->>'enviadoPorUserId' AS "userId", m."createdAt", m."contactId"
-        FROM "Message" m
-        WHERE m."workspaceId" = ${workspaceId}
-          AND m."createdAt" >= ${desde}
-          AND m."direction" = 'OUTBOUND' AND m."type" <> 'SYSTEM'
-          AND m."rawPayload"->>'enviadoPorUserId' IS NOT NULL
-        ORDER BY m."rawPayload"->>'enviadoPorUserId', m."createdAt" DESC
-      ) u
-      LEFT JOIN "Contact" c ON c."id" = u."contactId"
-    `,
-    prisma.$queryRaw<Array<Fila & { kind: string | null }>>`
-      SELECT u."userId", u.kind, u."createdAt" AS cuando, coalesce(c."name", c."phoneNumber") AS cliente
-      FROM (
-        SELECT DISTINCT ON (m."rawPayload"->>'actorUserId')
-               m."rawPayload"->>'actorUserId' AS "userId", m."rawPayload"->>'kind' AS kind,
-               m."createdAt", m."contactId"
-        FROM "Message" m
-        WHERE m."workspaceId" = ${workspaceId}
-          AND m."createdAt" >= ${desde}
-          AND m."type" = 'SYSTEM'
-          AND m."rawPayload"->>'actorUserId' IS NOT NULL
-          AND m."rawPayload"->>'kind' IN ('assigned', 'unassigned', 'stage_changed')
-        ORDER BY m."rawPayload"->>'actorUserId', m."createdAt" DESC
-      ) u
-      LEFT JOIN "Contact" c ON c."id" = u."contactId"
-    `,
-    prisma.$queryRaw<Fila[]>`
-      SELECT u."userId", u."calledAt" AS cuando, coalesce(c."name", c."phoneNumber") AS cliente
-      FROM (
-        SELECT DISTINCT ON (a."calledByUserId") a."calledByUserId" AS "userId", a."calledAt", a."contactId"
-        FROM "CallAttempt" a
-        WHERE a."workspaceId" = ${workspaceId}
-          AND a."calledAt" >= ${desde}
-          AND a."calledByUserId" IS NOT NULL
-        ORDER BY a."calledByUserId", a."calledAt" DESC
-      ) u
-      LEFT JOIN "Contact" c ON c."id" = u."contactId"
-    `,
-  ]);
+  try {
+    const { mensajes, notas, llamadas } = await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe("SET LOCAL statement_timeout = '5s'");
 
-  const candidatas: CandidataDeUltimaAccion[] = [
-    ...mensajes.map((m) => ({ ...m, tipo: "mensaje" as const })),
-    ...notas.map((n) => ({
-      userId: n.userId,
-      cuando: n.cuando,
-      cliente: n.cliente,
-      tipo: n.kind === "stage_changed" ? ("etapa" as const) : ("asignacion" as const),
-    })),
-    ...llamadas.map((l) => ({ ...l, tipo: "llamada" as const })),
-  ];
-  return quedarseConLaMasReciente(candidatas);
+      const mensajes = await tx.$queryRaw<Fila[]>`
+        SELECT p."userId", u."createdAt" AS cuando, coalesce(c."name", c."phoneNumber") AS cliente
+        FROM unnest(${userIds}::text[]) AS p("userId")
+        CROSS JOIN LATERAL (
+          SELECT m."createdAt", m."contactId"
+          FROM "Message" m
+          WHERE m."workspaceId" = ${workspaceId}
+            AND m."rawPayload"->>'enviadoPorUserId' = p."userId"
+            AND m."createdAt" >= ${desde}
+            AND m."direction" = 'OUTBOUND' AND m."type" <> 'SYSTEM'
+            AND (m."rawPayload"->>'enviadoPorUserId') IS NOT NULL
+          ORDER BY m."createdAt" DESC
+          LIMIT 1
+        ) u
+        LEFT JOIN "Contact" c ON c."id" = u."contactId"
+      `;
+
+      const notas = await tx.$queryRaw<Array<Fila & { kind: string | null }>>`
+        SELECT p."userId", u.kind, u."createdAt" AS cuando, coalesce(c."name", c."phoneNumber") AS cliente
+        FROM unnest(${userIds}::text[]) AS p("userId")
+        CROSS JOIN LATERAL (
+          SELECT m."rawPayload"->>'kind' AS kind, m."createdAt", m."contactId"
+          FROM "Message" m
+          WHERE m."workspaceId" = ${workspaceId}
+            AND m."rawPayload"->>'actorUserId' = p."userId"
+            AND m."createdAt" >= ${desde}
+            AND m."type" = 'SYSTEM'
+            AND (m."rawPayload"->>'actorUserId') IS NOT NULL
+            AND m."rawPayload"->>'kind' IN ('assigned', 'unassigned', 'stage_changed')
+          ORDER BY m."createdAt" DESC
+          LIMIT 1
+        ) u
+        LEFT JOIN "Contact" c ON c."id" = u."contactId"
+      `;
+
+      // Las llamadas son pocas y CallAttempt ya tiene índice por (workspaceId, calledAt): basta con
+      // filtrar por las mismas personas.
+      const llamadas = await tx.$queryRaw<Fila[]>`
+        SELECT u."userId", u."calledAt" AS cuando, coalesce(c."name", c."phoneNumber") AS cliente
+        FROM (
+          SELECT DISTINCT ON (a."calledByUserId") a."calledByUserId" AS "userId", a."calledAt", a."contactId"
+          FROM "CallAttempt" a
+          WHERE a."workspaceId" = ${workspaceId}
+            AND a."calledAt" >= ${desde}
+            AND a."calledByUserId" = ANY(${userIds}::text[])
+          ORDER BY a."calledByUserId", a."calledAt" DESC
+        ) u
+        LEFT JOIN "Contact" c ON c."id" = u."contactId"
+      `;
+
+      return { mensajes, notas, llamadas };
+    });
+
+    const candidatas: CandidataDeUltimaAccion[] = [
+      ...mensajes.map((m) => ({ ...m, tipo: "mensaje" as const })),
+      ...notas.map((n) => ({
+        userId: n.userId,
+        cuando: n.cuando,
+        cliente: n.cliente,
+        tipo: n.kind === "stage_changed" ? ("etapa" as const) : ("asignacion" as const),
+      })),
+      ...llamadas.map((l) => ({ ...l, tipo: "llamada" as const })),
+    ];
+    return quedarseConLaMasReciente(candidatas);
+  } catch (error) {
+    console.warn(
+      "[equipo] no se pudo leer la última acción por persona (¿pasó de 5 s?):",
+      error instanceof Error ? error.message : error,
+    );
+    return new Map();
+  }
 }
 
 /** El detalle de una persona: qué hizo, en orden, con el chat al que corresponde. */
