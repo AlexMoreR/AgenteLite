@@ -64,6 +64,11 @@ import {
 import { DIAS_DE_LA_SEMANA, type HorarioSemanal, type ModoDelDia } from "@/lib/horario-de-reparto-dias";
 import type { LineasDeLaPersona as LineasDeActividad } from "@/features/actividad/services/lineas-de-la-persona";
 import {
+  CLASES_DE_LA_ULTIMA_ACCION,
+  UltimaAccionDePersona,
+  type UltimasAccionesEnTexto,
+} from "@/components/ultima-accion-de-persona";
+import {
   clientAssignableModuleDefinitions,
   defaultClientEmployeeModuleKeys,
   type ClientAssignableModuleKey,
@@ -91,14 +96,19 @@ type EmployeeRow = {
   horario: HorarioSemanal;
   /** WhatsApp donde le llegan los avisos de sus chats. Vacío = no recibe. */
   whatsappDeAvisos: string;
-  /** Última conexión y última acción, ya en palabras (solo lo ven el dueño y los administradores). */
-  actividad: LineasDeActividad;
+  /**
+   * Última conexión, ya en palabras (solo lo ven el dueño y los administradores). La última acción
+   * no va aquí: llega después, en `ultimasAcciones`, para que la tabla salga enseguida.
+   */
+  actividad: Pick<LineasDeActividad, "conexion" | "conectadaAhora">;
   invitedAtLabel: string;
   acceptedAtLabel: string;
 };
 
 type ClientTeamWorkspaceProps = {
   employees: EmployeeRow[];
+  /** La "Última acción" de cada persona (userId → texto). Se completa después de pintar la tabla. */
+  ultimasAcciones: Promise<UltimasAccionesEnTexto>;
 };
 
 const ESTADOS_DE_LINEA: Array<{ valor: EstadoDeLinea; titulo: string }> = [
@@ -723,7 +733,7 @@ function PantallasDeLaPersona({ employee }: { employee: EmployeeRow }) {
   );
 }
 
-export function ClientTeamWorkspace({ employees }: ClientTeamWorkspaceProps) {
+export function ClientTeamWorkspace({ employees, ultimasAcciones }: ClientTeamWorkspaceProps) {
   return (
     <Card>
       <CardHeader>
@@ -776,7 +786,9 @@ export function ClientTeamWorkspace({ employees }: ClientTeamWorkspaceProps) {
                         ) : null}
                         {employee.actividad.conexion}
                       </span>
-                      <span className="max-w-64 text-[11px] leading-snug text-muted-foreground">{employee.actividad.accion}</span>
+                      <React.Suspense fallback={<span className={CLASES_DE_LA_ULTIMA_ACCION}>Buscando última acción…</span>}>
+                        <UltimaAccionDePersona promesa={ultimasAcciones} userId={employee.userId} />
+                      </React.Suspense>
                     </div>
                   </TableCell>
                   <TableCell className="align-top">
