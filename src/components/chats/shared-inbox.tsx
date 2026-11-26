@@ -130,7 +130,9 @@ import { inicializarFijados, useChatsFijados } from "./chats-fijados-store";
 import { inicializarPermisosDeLaBandeja } from "./permisos-de-la-bandeja-store";
 import type { CrmStage } from "@/features/crm/types";
 import { resolveCallTarget } from "@/lib/whatsapp-lid";
-import { iniciarMedicion, terminarMedicion, terminarMedicionAlPintar } from "@/lib/metricas-chats";
+import { contarPedidoAutomatico, iniciarMedicion, terminarMedicion, terminarMedicionAlPintar } from "@/lib/metricas-chats";
+import { leerRespuestaJson, pedirCompartido } from "@/lib/pedido-compartido-entre-pestanas";
+import { useCadaTantoVisible } from "@/hooks/use-cada-tanto-visible";
 import { aplicarFirmaDelChat } from "@/lib/firma-del-chat";
 import { EditarMensajeDialog } from "@/components/chats/editar-mensaje-dialog";
 import {
@@ -951,12 +953,28 @@ export function SharedInbox({
     if (guardados.espera) setEsperaDelConteo(guardados.espera);
   }, [firmaDeConteoGuardado]);
 
+  // El ultimo `pedidoDeConteos` atendido: si cambio, el conteo lo pidio una accion (resolver, reabrir).
+  const pedidoDeConteosAtendidoRef = useRef(pedidoDeConteos);
+
   // Conteos por filtro (Mías / Sin asignar / Todas) para mostrarlos junto a cada pestaña.
   useEffect(() => {
     const countsApiPath = conversationListApiPath.replace(/\/list$/, "/counts");
     if (countsApiPath === conversationListApiPath) {
       return;
     }
+
+    /*
+      COMPARTIDO ENTRE PESTAÑAS (refrescos mas livianos, parte 3). Con varias pestañas de la bandeja
+      abiertas, cada una pedia /counts cada minuto. Ahora el pedido pasa por `pedirCompartido` con la
+      URL completa como clave (linea y filtros): solo se comparten las pestañas que ven lo mismo, y
+      la que llega despues usa el dato de otra si tiene menos de un intervalo (60 s).
+
+      Si lo pidio una accion (resolver o reabrir, `pedidoDeConteos`), el primer pedido no acepta un
+      dato guardado (frescoMs 0): tiene que reflejar el cambio. Igual se publica para las demas.
+    */
+    const CADA_MS = 60_000;
+    let forzarRed = pedidoDeConteosAtendidoRef.current !== pedidoDeConteos;
+    pedidoDeConteosAtendidoRef.current = pedidoDeConteos;
 
     /*
       Cada 60 s (antes 15 s) y en pausa mientras la pestaña no se ve: son consultas pesadas.
@@ -971,7 +989,7 @@ export function SharedInbox({
     const programarSiguiente = () => {
       if (timeoutId) clearTimeout(timeoutId);
       if (!cancelled) {
-        timeoutId = setTimeout(fetchCounts, 60_000);
+        timeoutId = setTimeout(fetchCounts, CADA_MS);
       }
     };
 
@@ -997,15 +1015,18 @@ export function SharedInbox({
         for (const [clave, valor] of paresParaContarRef.current) params.set(clave, valor);
         const qs = params.toString();
 
-        const response = await fetch(`${countsApiPath}${qs ? `?${qs}` : ""}`, {
-          credentials: "same-origin",
-          cache: "no-store",
-        });
-        if (!response.ok) {
+        const urlDeConteos = `${countsApiPath}${qs ? `?${qs}` : ""}`;
+        const frescoMs = forzarRed ? 0 : CADA_MS;
+        forzarRed = false;
+        const { dato: respuesta, origen } = await pedirCompartido(urlDeConteos, frescoMs, () =>
+          leerRespuestaJson(urlDeConteos),
+        );
+        contarPedidoAutomatico("conteos", origen);
+        if (respuesta.estado < 200 || respuesta.estado >= 300) {
           return;
         }
 
-        const payload = (await response.json().catch(() => null)) as
+        const payload = respuesta.datos as
           | {
               ok?: boolean;
               counts?: { mine: number; unassigned: number; all: number; sinResponder?: number; noLeido?: number; equipo?: number; proveedores?: number };
@@ -1431,11 +1452,25 @@ export function SharedInbox({
     al tocar Mías se dibuja esa lista en el acto (el cambio de vista ya la toma de la memoria) y /list la
     actualiza por debajo. Solo quien ve Todas (dueño, administradores, supervisora); con la pestaña
     escondida no se pide nada. Es un /list liviano cada 4 min por pestaña.
+
+    El reloj de 4 min es `useCadaTantoVisible` (refrescos mas livianos, parte 3): con la pestaña oculta
+    no corre, y al volver pide como mucho una vez. Antes era un setInterval que seguia contando oculto.
   */
   const sinCondicionesEnLaUrl = filtrosDeLaUrl.condiciones.length === 0;
+  const precargaDeMiasActiva =
+    (isManager || veTodoElEquipo) &&
+    Boolean(usuarioActualId) &&
+    assignedFilter === "all" &&
+    statusFilter === "open" &&
+    !enEspera &&
+    !searchQuery.trim() &&
+    sinCondicionesEnLaUrl;
+  // La precarga de la vista actual: la arma el efecto de abajo y la corre el reloj de 4 min.
+  const precargarMiasRef = useRef<() => Promise<void>>(async () => undefined);
+  const precargarMiasAlTiempo = useCallback(() => precargarMiasRef.current(), []);
+  useCadaTantoVisible(precargarMiasAlTiempo, 4 * 60_000, { activo: precargaDeMiasActiva });
   useEffect(() => {
-    if (!(isManager || veTodoElEquipo) || !usuarioActualId) return;
-    if (assignedFilter !== "all" || statusFilter !== "open" || enEspera || searchQuery.trim() || !sinCondicionesEnLaUrl) return;
+    if (!precargaDeMiasActiva) return;
     const claveMias = claveDeVista(searchQuery, selectedConnectionKey, "mine", "open", "", false);
     let cancelado = false;
     const precargar = async () => {
@@ -1443,6 +1478,7 @@ export function SharedInbox({
       const guardada = leerListaReciente<SharedInboxConversationItem>(claveMias);
       if (guardada && Date.now() - guardada.at < LISTA_FRESCA_MS) return;
       const desde = Date.now();
+      contarPedidoAutomatico("mias", "red");
       try {
         const params = new URLSearchParams();
         if (selectedConnectionKey.trim()) params.set("connection", selectedConnectionKey.trim());
@@ -1479,22 +1515,16 @@ export function SharedInbox({
         // Sin la lista guardada, Mias espera a /list como antes.
       }
     };
+    precargarMiasRef.current = precargar;
     const primera = window.setTimeout(() => void precargar(), 3000);
-    const cada = window.setInterval(() => void precargar(), 4 * 60_000);
     return () => {
       cancelado = true;
       window.clearTimeout(primera);
-      window.clearInterval(cada);
+      precargarMiasRef.current = async () => undefined;
     };
   }, [
-    isManager,
-    veTodoElEquipo,
-    usuarioActualId,
-    assignedFilter,
-    statusFilter,
-    enEspera,
+    precargaDeMiasActiva,
     searchQuery,
-    sinCondicionesEnLaUrl,
     selectedConnectionKey,
     conversationListApiPath,
     initialConversationBatchSize,

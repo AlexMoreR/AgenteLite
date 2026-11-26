@@ -49,6 +49,7 @@
     "test:sugerencia-otro-chat": "npx tsx --test src/components/chats/destino-de-la-sugerencia.test.ts",
     "test:pegar-imagen": "npx tsx --test src/components/chats/imagenes-del-portapapeles.test.ts",
     "test:copiar-mensaje": "npx tsx --test src/components/chats/copiar-mensaje.test.ts",
+    "test:copiar-conversacion": "npx tsx --test src/components/chats/copiar-conversacion.test.ts",
     "test:aplicar-estados": "npx tsx --test src/components/chats/aplicar-estados.test.ts",
     "test:eco-de-lo-enviado": "npx tsx --test src/components/chats/eco-de-lo-enviado.test.ts",
     "test:pedidos-repetidos": "npx tsx --test src/components/chats/pedidos-repetidos.test.ts",

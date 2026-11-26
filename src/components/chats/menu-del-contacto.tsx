@@ -7,6 +7,11 @@ import { toast } from "sonner";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { importConversationHistoryAction } from "@/app/actions/chats-actions";
+import {
+  juntarConversacionParaCopiar,
+  urlDePaginaParaCopiar,
+  type MensajeParaCopiar,
+} from "./copiar-conversacion";
 
 /**
  * El menú de la ficha del contacto.
@@ -49,19 +54,22 @@ export function MenuDelContacto({ chatKey, label, phone, conversationId, puedeTr
     setAbierto(false);
     setCopiando(true);
     try {
-      const respuesta = await fetch(
-        `/api/cliente/chats/live?chatKey=${encodeURIComponent(chatKey)}&batchSize=200`,
-        { credentials: "same-origin", cache: "no-store" },
-      );
-      const datos = (await respuesta.json()) as {
-        ok?: boolean;
-        conversation?: {
-          messages?: Array<{ direction?: string; content?: string | null; type?: string; createdAt?: string }>;
-        };
-      };
+      // Páginas de 30 con precarga=1 (ver copiar-conversacion.ts): copiar no marca leídos ni pide la
+      // presencia ni la foto, como si se abriera el chat.
+      const mensajes = await juntarConversacionParaCopiar(async (antesDe) => {
+        const respuesta = await fetch(urlDePaginaParaCopiar(chatKey, antesDe), {
+          credentials: "same-origin",
+          cache: "no-store",
+        });
+        const datos = (await respuesta.json().catch(() => null)) as {
+          ok?: boolean;
+          conversation?: { messages?: MensajeParaCopiar[] };
+        } | null;
+        if (!respuesta.ok || !datos?.ok) return null;
+        return { mensajes: datos.conversation?.messages ?? [] };
+      });
 
-      const mensajes = datos?.conversation?.messages ?? [];
-      if (!datos?.ok || mensajes.length === 0) {
+      if (!mensajes || mensajes.length === 0) {
         toast.error("No se pudo leer la conversación.");
         return;
       }
