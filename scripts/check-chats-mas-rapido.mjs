@@ -33,7 +33,7 @@ async function prueba(nombre, fn) {
    Cargador de src/ con los alias @/ (como las otras check-*.mjs). Cada llamada arma una copia nueva
    de los modulos, asi cada prueba tiene su propio monitor del event loop.
 ------------------------------------------------------------------------------------------------ */
-function cargadorDeSrc(reemplazos = {}) {
+function cargadorDeSrc(reemplazos = {}, fuentes = {}) {
   const modulos = new Map();
   const resolver = (base) => {
     for (const ext of ["", ".ts", ".tsx", "/index.ts", "/index.tsx"]) {
@@ -53,7 +53,8 @@ function cargadorDeSrc(reemplazos = {}) {
     if (modulos.has(archivo)) return modulos.get(archivo).exports;
     const mod = { exports: {} };
     modulos.set(archivo, mod);
-    const salida = ts.transpileModule(fs.readFileSync(archivo, "utf8"), {
+    // `fuentes` (ruta -> texto) carga otra version de un archivo, para comparar con la de antes.
+    const salida = ts.transpileModule(fuentes[archivo] ?? fs.readFileSync(archivo, "utf8"), {
       compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
       fileName: archivo,
     });
@@ -684,8 +685,186 @@ await prueba("parte 2: el criterio: los dos archivos piden \"rawPayload\"->>'sou
 await db.close();
 
 /* ------------------------------------------------------------------------------------------------
-   Parte 3: (la agrega la parte 3)
+   Parte 3: /chats/counts lee el canal y la configuracion oficial UNA sola vez por pedido.
+
+   GET /api/cliente/chats/counts con una base falsa que cuenta las llamadas: antes cada numero de
+   la linea oficial (5-7 por pedido) volvia a leer whatsAppChannel y officialApiClientConfig. Los
+   numeros esperados de abajo salieron de correr la version de ANTES del cambio (la de main al
+   26-11-2026) con esta misma base falsa: tienen que dar igual.
 ------------------------------------------------------------------------------------------------ */
+const RUTA_DE_CONTEOS = path.join(raiz, "src/app/api/cliente/chats/counts/route.ts");
+const { Prisma: PrismaReal } = require("@prisma/client");
+
+/**
+ * Base falsa de la parte 3. Cada numero dice por donde salio: el canal viejo cuenta 100; la linea
+ * oficial, por SQL, 10 (todas), 3 (de una persona), 4 (sin asesora) o 2 (de varias asesoras), y por
+ * Prisma (con el buscador) esos mismos mas 20. Sin la configuracion oficial (`cfg_1`) cuenta 0.
+ */
+function baseDeLaParte3({ proveedorDelCanal, hayConfig = true }) {
+  const llamadas = { whatsAppChannel: 0, officialApiClientConfig: 0 };
+  const porAsignacion = (asignado) =>
+    asignado === undefined ? 10 : asignado === null ? 4 : typeof asignado === "string" ? 3 : 2;
+  const prisma = {
+    async $queryRaw(primero, ...valores) {
+      const sql = Array.isArray(primero) ? PrismaReal.sql(primero, ...valores) : primero;
+      if (!/FROM "OfficialApiConversation"/.test(sql.text) || !/COUNT\(\*\)/.test(sql.text)) return [];
+      if (!sql.values.includes("cfg_1")) return [{ total: 0n }];
+      const asignado = /"assignedToUserId" = /.test(sql.text)
+        ? "una"
+        : /"assignedToUserId" IS NULL/.test(sql.text)
+          ? null
+          : /"assignedToUserId" IN \(/.test(sql.text)
+            ? ["varias"]
+            : undefined;
+      return [{ total: BigInt(porAsignacion(asignado)) }];
+    },
+    conversation: { count: async () => 100 },
+    officialApiConversation: {
+      async count({ where }) {
+        if (where.configId !== "cfg_1") return 0;
+        return 20 + porAsignacion("assignedToUserId" in where ? where.assignedToUserId : undefined);
+      },
+    },
+    whatsAppChannel: {
+      async findFirst({ where }) {
+        llamadas.whatsAppChannel += 1;
+        return where.id === "canal_elegido" && where.workspaceId === "ws_1" ? { provider: proveedorDelCanal } : null;
+      },
+    },
+    officialApiClientConfig: {
+      async findFirst({ where }) {
+        llamadas.officialApiClientConfig += 1;
+        return hayConfig && where.workspaceId === "ws_1" ? { id: "cfg_1" } : null;
+      },
+    },
+  };
+  return { prisma, llamadas };
+}
+
+/** Un pedido a /counts con la base falsa; `fuente` carga otra version de la ruta (la de antes). */
+async function pedirConteosParte3({ query = "", rol = "OWNER", proveedorDelCanal = "OFFICIAL_API", hayConfig, fuente }) {
+  const { prisma, llamadas } = baseDeLaParte3({ proveedorDelCanal, hayConfig });
+  const cargar = cargadorDeSrc(
+    {
+      "server-only": {},
+      react: { cache: (f) => f },
+      "@/lib/prisma": { prisma },
+      "@/auth": { auth: async () => ({ user: { id: "maria", role: rol === "OWNER" ? "CLIENTE" : "EMPLEADO" } }) },
+      "@/lib/client-workspace-access": {
+        canAccessClientModule: () => true,
+        getClientWorkspaceAccessForUserCached: async () => ({ membershipRole: rol, workspaceId: "ws_1" }),
+      },
+      "@/lib/channel-visibility": {
+        getVisibleChannelIds: async () => null,
+        resolverConexionElegida: async ({ connectionKey }) => connectionKey,
+      },
+      "@/lib/modo-monitoreo": { canalesQueMonitorea: async () => [] },
+      "@/lib/permisos-del-equipo": { esSupervisora: async () => false },
+      "@/lib/canales-del-negocio": { canalesDelNegocio: async () => [] },
+      "@/features/chats/services/espera-de-chats": {
+        esperaDelNegocio: async () => [],
+        esperaParaPersona: () => ({ mine: 0, all: 0, chats: [] }),
+      },
+      "@/features/chats/services/contactos-internos": {
+        contactosInternos: async () => ({
+          equipoIds: ["contacto_equipo"],
+          proveedorIds: ["contacto_proveedor"],
+          variantesDeTelefono: ["3001234567"],
+          etiquetasEquipoIds: [],
+          etiquetasProveedorIds: [],
+        }),
+      },
+      // Sin memoria: cada pedido cuenta de verdad.
+      "@/lib/cache-de-contadores": { cacheDeContadores: { obtener: (_clave, fn) => fn() }, claveDeContadores: () => "x" },
+      "@/lib/server-timing": { conServerTiming: (fn) => (request) => fn(request, { marca() {} }) },
+      "@/lib/official-api-config": {},
+      "@/lib/official-api-media": {},
+    },
+    fuente ? { [RUTA_DE_CONTEOS]: fuente } : {},
+  );
+  const { GET } = cargar("@/app/api/cliente/chats/counts/route");
+  const respuesta = await GET(new Request(`http://local/api/cliente/chats/counts${query}`));
+  const cuerpo = await respuesta.json();
+  assert.equal(cuerpo.ok, true, JSON.stringify(cuerpo));
+  return { counts: cuerpo.counts, llamadas };
+}
+
+/*
+  Los casos y lo que devolvia la version de ANTES. Oficial suma solo sin conexion elegida o con un
+  canal de API oficial; con un canal viejo u otra conexion, y sin configuracion, la oficial vale 0.
+*/
+const CASOS_PARTE_3 = [
+  {
+    nombre: "dueño sin conexion elegida",
+    pedido: {},
+    antes: { mine: 103, unassigned: 104, all: 110, sinResponder: 110, noLeido: 110, equipo: 110, proveedores: 110 },
+    lecturas: { whatsAppChannel: 0, officialApiClientConfig: 1 },
+  },
+  {
+    nombre: "dueño con el canal oficial elegido",
+    pedido: { query: "?connection=channel:canal_elegido" },
+    antes: { mine: 103, unassigned: 104, all: 110, sinResponder: 110, noLeido: 110, equipo: 110, proveedores: 110 },
+    lecturas: { whatsAppChannel: 1, officialApiClientConfig: 1 },
+  },
+  {
+    nombre: "dueño con un canal viejo elegido (no lee la configuracion)",
+    pedido: { query: "?connection=channel:canal_elegido", proveedorDelCanal: "EVOLUTION" },
+    antes: { mine: 100, unassigned: 100, all: 100, sinResponder: 100, noLeido: 100, equipo: 100, proveedores: 100 },
+    lecturas: { whatsAppChannel: 1, officialApiClientConfig: 0 },
+  },
+  {
+    nombre: "dueño con un canal de otro negocio",
+    pedido: { query: "?connection=channel:de_otro" },
+    antes: { mine: 100, unassigned: 100, all: 100, sinResponder: 100, noLeido: 100, equipo: 100, proveedores: 100 },
+    lecturas: { whatsAppChannel: 1, officialApiClientConfig: 0 },
+  },
+  {
+    nombre: "dueño con una conexion que no es canal (no lee nada)",
+    pedido: { query: "?connection=instancia:vieja" },
+    antes: { mine: 100, unassigned: 100, all: 100, sinResponder: 100, noLeido: 100, equipo: 100, proveedores: 100 },
+    lecturas: { whatsAppChannel: 0, officialApiClientConfig: 0 },
+  },
+  {
+    nombre: "negocio sin configuracion oficial",
+    pedido: { hayConfig: false },
+    antes: { mine: 100, unassigned: 100, all: 100, sinResponder: 100, noLeido: 100, equipo: 100, proveedores: 100 },
+    lecturas: { whatsAppChannel: 0, officialApiClientConfig: 1 },
+  },
+  {
+    nombre: "dueño buscando (la oficial va por Prisma)",
+    pedido: { query: "?q=camilla&status=all" },
+    antes: { mine: 123, unassigned: 124, all: 130, sinResponder: 110, noLeido: 110, equipo: 0, proveedores: 0 },
+    lecturas: { whatsAppChannel: 0, officialApiClientConfig: 1 },
+  },
+  {
+    nombre: "asesora con filtros puestos y el canal oficial",
+    pedido: { rol: "AGENT", query: "?connection=channel:canal_elegido&status=resolved&assigned=mine" },
+    antes: { mine: 103, unassigned: 0, all: 110, sinResponder: 103, noLeido: 103, equipo: 103, proveedores: 103 },
+    lecturas: { whatsAppChannel: 1, officialApiClientConfig: 1 },
+  },
+];
+
+for (const caso of CASOS_PARTE_3) {
+  await prueba(`parte 3: /counts ${caso.nombre}: los mismos numeros, una lectura de canal y config`, async () => {
+    const { counts, llamadas } = await pedirConteosParte3(caso.pedido);
+    assert.deepEqual(counts, caso.antes);
+    assert.deepEqual(llamadas, caso.lecturas);
+    assert.ok(llamadas.whatsAppChannel <= 1 && llamadas.officialApiClientConfig <= 1, JSON.stringify(llamadas));
+  });
+}
+
+await prueba("parte 3: en el archivo, una sola lectura de canal y de config, fuera de countOfficialConversations", () => {
+  const fuente = fs.readFileSync(RUTA_DE_CONTEOS, "utf8");
+  assert.equal(fuente.match(/prisma\.whatsAppChannel\./g)?.length, 1);
+  assert.equal(fuente.match(/prisma\.officialApiClientConfig\./g)?.length, 1);
+  const inicio = fuente.indexOf("async function countOfficialConversations(");
+  const fin = fuente.indexOf("\n}\n", inicio);
+  assert.ok(inicio > 0 && fin > inicio);
+  const cuerpo = fuente.slice(inicio, fin);
+  assert.doesNotMatch(cuerpo, /whatsAppChannel|officialApiClientConfig/);
+  // Y se pide una sola vez por pedido, antes de los numeros.
+  assert.equal(fuente.match(/await lineaOficialQueCuenta\(/g)?.length, 1);
+});
 
 /* ------------------------------------------------------------------------------------------------
    Parte 4: (la agrega la parte 4)

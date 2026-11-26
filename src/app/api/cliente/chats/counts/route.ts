@@ -95,6 +95,40 @@ function buildBaseWhere(input: {
   };
 }
 
+/** La configuracion de la linea oficial del negocio: su id es el `configId` de sus conversaciones. */
+type LineaOficial = { id: string };
+
+/**
+ * Si la linea oficial cuenta en este pedido, y su configuracion. Se lee UNA sola vez por pedido.
+ *
+ * La regla es la de siempre: cuenta solo cuando la conexion elegida es un canal de API oficial o no
+ * hay ninguna elegida. El canal se lee solo si hay un canal elegido, y la configuracion solo si la
+ * linea puede contar; con otra conexion elegida no se lee nada. null: no cuenta.
+ */
+async function lineaOficialQueCuenta(input: {
+  workspaceId: string;
+  selectedConnectionKey: string;
+}): Promise<LineaOficial | null> {
+  if (input.selectedConnectionKey.startsWith("channel:")) {
+    const channelId = input.selectedConnectionKey.slice("channel:".length);
+    const channel = await prisma.whatsAppChannel.findFirst({
+      where: { id: channelId, workspaceId: input.workspaceId },
+      select: { provider: true },
+    });
+    if (channel?.provider !== "OFFICIAL_API") {
+      return null;
+    }
+  } else if (input.selectedConnectionKey) {
+    // Hay un filtro de conexion que no es un canal: no aplica.
+    return null;
+  }
+
+  return prisma.officialApiClientConfig.findFirst({
+    where: { workspaceId: input.workspaceId },
+    select: { id: true },
+  });
+}
+
 /**
  * Cuenta los chats del canal de API OFICIAL, que viven en su propia tabla.
  *
@@ -105,35 +139,22 @@ function buildBaseWhere(input: {
  *
  * Se reparten igual que las del canal viejo: las que tienen asesora cuentan en "Mias" de esa
  * persona y las que no, en "Sin asignar".
+ *
+ * Si la linea oficial cuenta (`lineaOficial`) se decide UNA vez por pedido en lineaOficialQueCuenta:
+ * antes cada una de las 5-7 llamadas volvia a leer el canal y la configuracion oficial.
  */
 async function countOfficialConversations(input: {
   workspaceId: string;
   searchQuery: string;
-  selectedConnectionKey: string;
+  // null: la linea oficial no cuenta en este pedido (ver lineaOficialQueCuenta).
+  lineaOficial: LineaOficial | null;
   userId: string;
   // `user:<id>[,<id>...]` solo lo usan las pastillas No leido y Sin responder (ver alcanceDeLasPastillas).
   assignedTo: AsignacionDeLasPastillas;
   statusFilter: ChatsStatusFilter;
   filtros: FiltrosDeBandeja;
 }): Promise<number> {
-  if (input.selectedConnectionKey.startsWith("channel:")) {
-    const channelId = input.selectedConnectionKey.slice("channel:".length);
-    const channel = await prisma.whatsAppChannel.findFirst({
-      where: { id: channelId, workspaceId: input.workspaceId },
-      select: { provider: true },
-    });
-    if (channel?.provider !== "OFFICIAL_API") {
-      return 0;
-    }
-  } else if (input.selectedConnectionKey) {
-    // Hay un filtro de conexion que no es un canal: no aplica.
-    return 0;
-  }
-
-  const config = await prisma.officialApiClientConfig.findFirst({
-    where: { workspaceId: input.workspaceId },
-    select: { id: true },
-  });
+  const config = input.lineaOficial;
   if (!config) {
     return 0;
   }
@@ -373,6 +394,11 @@ async function calcularContadores(
     connectionKey: selectedConnectionKey,
     visibleChannelIds,
   });
+  // El canal y la configuracion oficial, una sola vez para todos los numeros de la linea oficial.
+  const lineaOficial = await lineaOficialQueCuenta({
+    workspaceId: membership.workspace.id,
+    selectedConnectionKey: conexionElegida,
+  });
 
   /*
     Las pastillas son fijas: no cambian segun el grupo que se este mirando. Por eso el `grupo` de
@@ -427,7 +453,7 @@ async function calcularContadores(
         countOfficialConversations({
           workspaceId: membership.workspace.id,
           searchQuery,
-          selectedConnectionKey: conexionElegida,
+          lineaOficial,
           userId: session.userId,
           // La misma asignacion que el canal viejo (alcanceDePastillas), tambien en la linea oficial.
           assignedTo: alcance.asignacion,
@@ -473,7 +499,7 @@ async function calcularContadores(
     countOfficialConversations({
       workspaceId: membership.workspace.id,
       searchQuery,
-      selectedConnectionKey: conexionElegida,
+      lineaOficial,
       userId: session.userId,
       assignedTo: "mine",
       statusFilter,
@@ -482,7 +508,7 @@ async function calcularContadores(
     countOfficialConversations({
       workspaceId: membership.workspace.id,
       searchQuery,
-      selectedConnectionKey: conexionElegida,
+      lineaOficial,
       userId: session.userId,
       assignedTo: "unassigned",
       statusFilter,
@@ -491,7 +517,7 @@ async function calcularContadores(
     countOfficialConversations({
       workspaceId: membership.workspace.id,
       searchQuery,
-      selectedConnectionKey: conexionElegida,
+      lineaOficial,
       userId: session.userId,
       assignedTo: "all",
       statusFilter,
@@ -545,7 +571,7 @@ async function calcularContadores(
       countOfficialConversations({
         workspaceId: membership.workspace.id,
         searchQuery,
-        selectedConnectionKey: conexionElegida,
+        lineaOficial,
         userId: session.userId,
         assignedTo: asignacionOficial,
         statusFilter,
