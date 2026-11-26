@@ -1,3 +1,0 @@
-## Advertencias de operación
-- `ultima_accion_en_cache`: la "Última acción" de Equipo puede atrasarse hasta 2 minutos, porque se guarda en cache por negocio (y grupo de personas) en la memoria del servidor. Si la consulta falla o pasa del tope, sale "Sin acciones en 30 días" y no se guarda: la siguiente apertura vuelve a consultar. Cada consulta real deja en el registro `[equipo] ultima-accion ms=… personas=…`.
-- `indices_ultima_accion_a_mano`: los índices `Message_ultima_accion_*` (`Message_ultima_accion_enviado_idx` y `Message_ultima_accion_actor_idx`) se crean a mano en producción con `CREATE INDEX CONCURRENTLY` antes de desplegar; `node scripts/medir-ultima-accion.mjs` (solo lectura) dice si la consulta los usa y cuánto tarda la vieja contra la nueva.

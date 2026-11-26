@@ -1,2 +1,0 @@
-## Advertencias de operación
-- `indices_ultima_accion`: la migración `20261125000000_indices_ultima_accion` crea dos índices parciales en `Message` (`Message_ultima_accion_enviado_idx` y `Message_ultima_accion_actor_idx`) para la última acción de cada persona en Equipo. En producción se crean antes a mano con `CREATE INDEX CONCURRENTLY` y esos mismos nombres; si no, la migración los crea al arrancar y traba las escrituras en `Message` unos minutos. La consulta tiene tope de 5 s: si la base tarda más, Equipo sale con "Sin acciones en 30 días" en vez de quedarse cargando.
