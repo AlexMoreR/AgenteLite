@@ -684,8 +684,254 @@ await prueba("parte 2: el criterio: los dos archivos piden \"rawPayload\"->>'sou
 await db.close();
 
 /* ------------------------------------------------------------------------------------------------
-   Parte 3: (la agrega la parte 3)
+   Parte 3: /chats/counts lee UNA sola vez el canal elegido y la configuracion oficial.
+
+   Antes countOfficialConversations (5-7 llamadas por pedido) volvia a leer cada vez
+   whatsAppChannel.findFirst y officialApiClientConfig.findFirst. Se corre GET /counts con un Prisma
+   FALSO que cuenta esas lecturas: el SQL crudo va a PGlite y los count() se evaluan sobre las mismas
+   filas (como check-pastillas-ordenables). Los numeros esperados son los que daba la ruta ANTES del
+   cambio con estos mismos datos (se corrio esta seccion contra la version de main, 26-11-2026).
 ------------------------------------------------------------------------------------------------ */
+const { Prisma } = require("@prisma/client");
+const db3 = await abrirBaseDePruebas();
+const WS3 = "ws_magilus";
+await db3.exec(`
+  CREATE TABLE "Contact" (
+    "id" text PRIMARY KEY, "workspaceId" text NOT NULL, "metadata" jsonb, "bloqueadoEn" timestamp(3), "crmStage" text,
+    "phoneNumber" text
+  );
+  CREATE TABLE "Conversation" (
+    "id" text PRIMARY KEY, "workspaceId" text NOT NULL, "channelId" text, "contactId" text NOT NULL,
+    "assignedToUserId" text, "segundoAsesorId" text, "status" text NOT NULL, "lastMessageAt" timestamp(3)
+  );
+  CREATE TABLE "Message" (
+    "id" text PRIMARY KEY, "workspaceId" text NOT NULL, "conversationId" text, "channelId" text,
+    "direction" text NOT NULL, "type" text NOT NULL, "status" text NOT NULL, "readAt" timestamp(3),
+    "isStatusBroadcast" boolean NOT NULL DEFAULT false, "deletedAt" timestamp(3), "rawPayload" jsonb,
+    "createdAt" timestamp(3) NOT NULL
+  );
+  CREATE TABLE "OfficialApiContact" ("id" text PRIMARY KEY, "configId" text NOT NULL, "crmContactId" text);
+  CREATE TABLE "OfficialApiConversation" (
+    "id" text PRIMARY KEY, "configId" text NOT NULL, "contactId" text NOT NULL, "assignedToUserId" text,
+    "status" text NOT NULL, "lastMessageAt" timestamp(3), "createdAt" timestamp(3)
+  );
+  CREATE TABLE "OfficialApiMessage" (
+    "id" text PRIMARY KEY, "configId" text NOT NULL, "conversationId" text NOT NULL, "direction" text NOT NULL,
+    "type" text NOT NULL, "status" text NOT NULL, "readAt" timestamp(3), "rawPayload" jsonb, "createdAt" timestamp(3) NOT NULL
+  );
+`);
+
+const AHORA3 = Date.now();
+const haceHoras3 = (h) => new Date(AHORA3 - h * 3_600_000);
+let n3 = 0;
+
+/** Un chat del canal viejo. `mensajes`: [direccion, horasAtras, leido]. */
+async function chat3(id, mensajes, extra = {}) {
+  const contactId = `ct_${id}`;
+  await db3.query(`INSERT INTO "Contact" VALUES ($1,$2,$3,$4,$5,$6)`, [contactId, extra.workspaceId ?? WS3, null, null, null, null]);
+  await db3.query(`INSERT INTO "Conversation" VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [
+    id, extra.workspaceId ?? WS3, extra.canal ?? "canal_1", contactId, extra.asesora ?? null, null, extra.estado ?? "OPEN", haceHoras3(1),
+  ]);
+  for (const [direccion, horas, leido] of mensajes) {
+    await db3.query(`INSERT INTO "Message" VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, [
+      `m3_${++n3}`, extra.workspaceId ?? WS3, id, extra.canal ?? "canal_1", direccion, "TEXT", direccion === "INBOUND" ? "RECEIVED" : "SENT",
+      leido ? haceHoras3(horas - 0.1) : null, false, null, null, haceHoras3(horas),
+    ]);
+  }
+}
+
+/** Un chat de la linea oficial. */
+async function chatOficial3(id, mensajes, extra = {}) {
+  const config = extra.config ?? "cfg_1";
+  await db3.query(`INSERT INTO "OfficialApiContact" VALUES ($1,$2,$3)`, [`oc_${id}`, config, null]);
+  await db3.query(`INSERT INTO "OfficialApiConversation" VALUES ($1,$2,$3,$4,$5,$6,$7)`, [
+    id, config, `oc_${id}`, extra.asesora ?? null, extra.estado ?? "OPEN", haceHoras3(1), haceHoras3(48),
+  ]);
+  for (const [direccion, horas, leido] of mensajes) {
+    await db3.query(`INSERT INTO "OfficialApiMessage" VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [
+      `om3_${++n3}`, config, id, direccion, "TEXT", direccion === "INBOUND" ? "RECEIVED" : "SENT",
+      leido ? haceHoras3(horas - 0.1) : null, null, haceHoras3(horas),
+    ]);
+  }
+}
+
+await chat3("c_sin_duena", [["INBOUND", 1]]);
+await chat3("c_maria", [["OUTBOUND", 3], ["INBOUND", 1]], { asesora: "maria" });
+await chat3("c_maria_leido", [["INBOUND", 2, true]], { asesora: "maria" });
+await chat3("c_ana_respondido", [["INBOUND", 3], ["OUTBOUND", 2]], { asesora: "ana" });
+await chat3("c_otra_linea", [["INBOUND", 1]], { canal: "canal_2" });
+await chat3("c_resuelto", [["INBOUND", 1]], { estado: "CLOSED", asesora: "maria" });
+await chat3("c_otro_negocio", [["INBOUND", 1]], { workspaceId: "ws_otro" });
+await chatOficial3("of_sin_duena", [["INBOUND", 1]], { canal: "canal_oficial" });
+await chatOficial3("of_maria", [["OUTBOUND", 3], ["INBOUND", 1]], { asesora: "maria" });
+await chatOficial3("of_ana_respondido", [["INBOUND", 2], ["OUTBOUND", 1]], { asesora: "ana" });
+await chatOficial3("of_resuelto", [["INBOUND", 1]], { estado: "CLOSED" });
+await chatOficial3("of_otro_negocio", [["INBOUND", 1]], { config: "cfg_otro" });
+
+/** Un WHERE de Prisma sobre una fila: solo lo que usa la bandeja. Lo desconocido falla en voz alta. */
+function cumple3(fila, where) {
+  for (const [clave, valor] of Object.entries(where ?? {})) {
+    if (clave === "AND") {
+      if (!valor.every((parte) => cumple3(fila, parte))) return false;
+    } else if (clave === "OR") {
+      if (!valor.some((parte) => cumple3(fila, parte))) return false;
+    } else if (clave === "contact") {
+      if (!cumple3(fila.contact, valor)) return false;
+    } else if (valor === null || typeof valor !== "object") {
+      if ((fila[clave] ?? null) !== valor) return false;
+    } else {
+      for (const [op, dato] of Object.entries(valor)) {
+        const actual = fila[clave] ?? null;
+        if (op === "in" && !dato.includes(actual)) return false;
+        else if (op === "notIn" && dato.includes(actual)) return false;
+        else if (op === "not" && actual === dato) return false;
+        else if (!["in", "notIn", "not"].includes(op)) throw new Error(`operador no soportado: ${clave}.${op}`);
+      }
+    }
+  }
+  return true;
+}
+
+const CANALES3 = { canal_1: "BAILEYS", canal_2: "BAILEYS", canal_oficial: "OFFICIAL_API" };
+/** Cuantas veces se leyo cada tabla en el pedido. */
+const lecturas3 = { whatsAppChannel: 0, officialApiClientConfig: 0 };
+const escenario3 = { sesion: { user: { id: "dueno", role: "CLIENTE" } }, rol: "OWNER", monitoreados: [] };
+
+const prismaParte3 = {
+  async $queryRaw(primero, ...valores) {
+    const sql = Array.isArray(primero) ? Prisma.sql(primero, ...valores) : primero;
+    return (await db3.query(sql.text, sql.values)).rows;
+  },
+  conversation: {
+    async count({ where }) {
+      const filas = (await db3.query(`
+        SELECT c.*, ct."bloqueadoEn" AS "bloqueadoEn" FROM "Conversation" c JOIN "Contact" ct ON ct."id" = c."contactId"`)).rows;
+      return filas.map((f) => ({ ...f, contact: { bloqueadoEn: f.bloqueadoEn } })).filter((f) => cumple3(f, where)).length;
+    },
+  },
+  officialApiConversation: {
+    async count({ where }) {
+      return (await db3.query(`SELECT * FROM "OfficialApiConversation"`)).rows.filter((f) => cumple3(f, where)).length;
+    },
+  },
+  whatsAppChannel: {
+    async findFirst({ where }) {
+      lecturas3.whatsAppChannel += 1;
+      const provider = where.workspaceId === WS3 ? CANALES3[where.id] : undefined;
+      return provider ? { provider } : null;
+    },
+  },
+  officialApiClientConfig: {
+    async findFirst({ where }) {
+      lecturas3.officialApiClientConfig += 1;
+      return where.workspaceId === WS3 ? { id: "cfg_1" } : null;
+    },
+  },
+};
+
+const cargarParte3 = cargadorDeSrc({
+  react: { cache: (f) => f },
+  "server-only": {},
+  "@/lib/prisma": { prisma: prismaParte3 },
+  "@/auth": { auth: async () => escenario3.sesion },
+  "@/lib/client-workspace-access": {
+    canAccessClientModule: () => true,
+    getClientWorkspaceAccessForUserCached: async () => ({ membershipRole: escenario3.rol, workspaceId: WS3 }),
+  },
+  "@/lib/channel-visibility": {
+    getVisibleChannelIds: async () => null,
+    resolverConexionElegida: async ({ connectionKey }) => connectionKey,
+  },
+  "@/lib/modo-monitoreo": { canalesQueMonitorea: async () => escenario3.monitoreados },
+  "@/lib/permisos-del-equipo": { esSupervisora: async () => false },
+  "@/lib/canales-del-negocio": { canalesDelNegocio: async () => [] },
+  // Nadie es del equipo ni proveedor: Equipo y Proveedores valen 0 sin consultar.
+  "@/features/chats/services/contactos-internos": {
+    contactosInternos: async () => ({
+      equipoIds: [],
+      proveedorIds: [],
+      variantesDeTelefono: [],
+      etiquetasEquipoIds: [],
+      etiquetasProveedorIds: [],
+    }),
+  },
+  "@/features/chats/services/espera-de-chats": {
+    esperaDelNegocio: async () => [],
+    esperaParaPersona: () => ({ mine: 0, all: 0, chats: [] }),
+  },
+  // Sin memoria entre pedidos: cada pedido de la prueba calcula y lee de nuevo.
+  "@/lib/cache-de-contadores": { cacheDeContadores: { obtener: (_clave, fn) => fn() }, claveDeContadores: () => "x" },
+  "@/lib/server-timing": { conServerTiming: (fn) => (request) => fn(request, { marca() {} }) },
+  "@/lib/official-api-config": {},
+  "@/lib/official-api-media": {},
+});
+const { GET: contarParte3 } = cargarParte3("@/app/api/cliente/chats/counts/route");
+
+async function pedirConteos3(persona, query = "") {
+  Object.assign(escenario3, {
+    sesion: { user: { id: persona.id, role: persona.role ?? "CLIENTE" } },
+    rol: persona.rol,
+    monitoreados: persona.monitoreados ?? [],
+  });
+  lecturas3.whatsAppChannel = 0;
+  lecturas3.officialApiClientConfig = 0;
+  const respuesta = await contarParte3(new Request(`http://local/api/cliente/chats/counts${query}`));
+  const cuerpo = await respuesta.json();
+  assert.equal(cuerpo.ok, true, JSON.stringify(cuerpo));
+  return { counts: cuerpo.counts, lecturas: { ...lecturas3 } };
+}
+
+const DUENO3 = { id: "dueno", rol: "OWNER" };
+const MARIA3 = { id: "maria", role: "EMPLEADO", rol: "AGENT" };
+const MONI3 = { id: "moni", role: "EMPLEADO", rol: "AGENT", monitoreados: ["canal_2"] };
+
+/*
+  Cada caso: quien pide, la direccion, cuantas lecturas puede hacer como mucho de cada tabla y los
+  numeros que daba la ruta antes del cambio (antes leia cada tabla 5 veces por pedido). "otra:x" es un filtro de conexion que no es un canal:
+  la linea oficial no cuenta y no se lee nada (como antes).
+*/
+const CASOS3 = [
+  { nombre: "dueño sin conexion", persona: DUENO3, query: "", canal: 0, config: 1,
+    counts: { mine: 0, unassigned: 3, all: 8, sinResponder: 6, noLeido: 6, equipo: 0, proveedores: 0 } },
+  { nombre: "dueño en la linea oficial", persona: DUENO3, query: "?connection=channel%3Acanal_oficial", canal: 1, config: 1,
+    counts: { mine: 0, unassigned: 1, all: 3, sinResponder: 2, noLeido: 2, equipo: 0, proveedores: 0 } },
+  { nombre: "dueño en un canal viejo", persona: DUENO3, query: "?connection=channel%3Acanal_1", canal: 1, config: 0,
+    counts: { mine: 0, unassigned: 1, all: 4, sinResponder: 3, noLeido: 3, equipo: 0, proveedores: 0 } },
+  { nombre: "dueño con una conexion que no es canal", persona: DUENO3, query: "?connection=otra%3Ax", canal: 0, config: 0,
+    counts: { mine: 0, unassigned: 2, all: 5, sinResponder: 4, noLeido: 4, equipo: 0, proveedores: 0 } },
+  { nombre: "dueño, resueltas y Mias puesta", persona: DUENO3, query: "?status=resolved&assigned=mine", canal: 0, config: 1,
+    counts: { mine: 0, unassigned: 1, all: 2, sinResponder: 0, noLeido: 0, equipo: 0, proveedores: 0 } },
+  { nombre: "asesora sin conexion", persona: MARIA3, query: "", canal: 0, config: 1,
+    counts: { mine: 3, unassigned: 0, all: 5, sinResponder: 3, noLeido: 2, equipo: 0, proveedores: 0 } },
+  { nombre: "asesora con Sin responder puesto", persona: MARIA3, query: "?c=sin_responder%3Asi", canal: 0, config: 1,
+    counts: { mine: 3, unassigned: 0, all: 4, sinResponder: 3, noLeido: 2, equipo: 0, proveedores: 0 } },
+  { nombre: "monitora en la linea oficial", persona: MONI3, query: "?connection=channel%3Acanal_oficial", canal: 1, config: 1,
+    counts: { mine: 0, unassigned: 1, all: 3, sinResponder: 2, noLeido: 2, equipo: 0, proveedores: 0 } },
+];
+
+for (const caso of CASOS3) {
+  await prueba(`parte 3: /counts ${caso.nombre}: lee el canal y la config como mucho una vez, mismos numeros`, async () => {
+    const { counts, lecturas } = await pedirConteos3(caso.persona, caso.query);
+    assert.ok(lecturas.whatsAppChannel <= 1, `whatsAppChannel se leyo ${lecturas.whatsAppChannel} veces`);
+    assert.ok(lecturas.officialApiClientConfig <= 1, `officialApiClientConfig se leyo ${lecturas.officialApiClientConfig} veces`);
+    // Y se lee lo mismo que antes decidia la regla: el canal solo si hay uno elegido, la config solo si aplica.
+    assert.deepEqual(lecturas, { whatsAppChannel: caso.canal, officialApiClientConfig: caso.config });
+    assert.deepEqual(counts, caso.counts);
+  });
+}
+
+await prueba("parte 3: el criterio: una sola lectura de cada tabla, fuera de countOfficialConversations", () => {
+  const fuente = fs.readFileSync(path.join(raiz, "src/app/api/cliente/chats/counts/route.ts"), "utf8");
+  assert.equal(fuente.match(/prisma\.whatsAppChannel\./g)?.length, 1);
+  assert.equal(fuente.match(/prisma\.officialApiClientConfig\./g)?.length, 1);
+  const inicio = fuente.indexOf("async function countOfficialConversations(");
+  assert.ok(inicio >= 0, "no esta countOfficialConversations");
+  const cuerpo = fuente.slice(inicio, fuente.indexOf("\n}\n", inicio));
+  assert.doesNotMatch(cuerpo, /whatsAppChannel|officialApiClientConfig/);
+  assert.equal(fuente.match(/leerLineaOficial\(\{/g)?.length, 1, "leerLineaOficial se llama una sola vez");
+});
+
+await db3.close();
 
 /* ------------------------------------------------------------------------------------------------
    Parte 4: (la agrega la parte 4)

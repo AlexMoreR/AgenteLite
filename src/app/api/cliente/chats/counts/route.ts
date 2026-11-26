@@ -95,27 +95,18 @@ function buildBaseWhere(input: {
   };
 }
 
+/** La linea oficial ya leida: el id de su configuracion, o null si en este pedido no cuenta. */
+type LineaOficial = { id: string } | null;
+
 /**
- * Cuenta los chats del canal de API OFICIAL, que viven en su propia tabla.
+ * Lee UNA sola vez por pedido si la linea oficial cuenta y con que configuracion.
  *
- * La lista de chats SI los muestra (la arma la pagina mezclando las dos fuentes), pero los
- * contadores de arriba solo miraban Conversation: al entrar a "Ventas 1" se veian los chats
- * y al lado "Todas 0". Se cuentan igual que los muestra la lista: solo cuando el canal
- * elegido es el oficial (o no hay ninguno elegido).
- *
- * Se reparten igual que las del canal viejo: las que tienen asesora cuentan en "Mias" de esa
- * persona y las que no, en "Sin asignar".
+ * Antes estas dos lecturas iban dentro de countOfficialConversations, que se llama 5-7 veces por
+ * pedido: eran hasta 14 consultas iguales. Las condiciones son las mismas de siempre: la linea
+ * oficial cuenta solo cuando el canal elegido es el oficial (o no hay ninguno elegido). Con otro
+ * filtro de conexion que no es un canal no se lee nada.
  */
-async function countOfficialConversations(input: {
-  workspaceId: string;
-  searchQuery: string;
-  selectedConnectionKey: string;
-  userId: string;
-  // `user:<id>[,<id>...]` solo lo usan las pastillas No leido y Sin responder (ver alcanceDeLasPastillas).
-  assignedTo: AsignacionDeLasPastillas;
-  statusFilter: ChatsStatusFilter;
-  filtros: FiltrosDeBandeja;
-}): Promise<number> {
+async function leerLineaOficial(input: { workspaceId: string; selectedConnectionKey: string }): Promise<LineaOficial> {
   if (input.selectedConnectionKey.startsWith("channel:")) {
     const channelId = input.selectedConnectionKey.slice("channel:".length);
     const channel = await prisma.whatsAppChannel.findFirst({
@@ -123,17 +114,44 @@ async function countOfficialConversations(input: {
       select: { provider: true },
     });
     if (channel?.provider !== "OFFICIAL_API") {
-      return 0;
+      return null;
     }
   } else if (input.selectedConnectionKey) {
     // Hay un filtro de conexion que no es un canal: no aplica.
-    return 0;
+    return null;
   }
 
   const config = await prisma.officialApiClientConfig.findFirst({
     where: { workspaceId: input.workspaceId },
     select: { id: true },
   });
+  return config ? { id: config.id } : null;
+}
+
+/**
+ * Cuenta los chats del canal de API OFICIAL, que viven en su propia tabla.
+ *
+ * La lista de chats SI los muestra (la arma la pagina mezclando las dos fuentes), pero los
+ * contadores de arriba solo miraban Conversation: al entrar a "Ventas 1" se veian los chats
+ * y al lado "Todas 0". Se cuentan igual que los muestra la lista: solo cuando el canal
+ * elegido es el oficial (o no hay ninguno elegido). Eso lo decide leerLineaOficial, una vez
+ * por pedido: aca llega ya leida.
+ *
+ * Se reparten igual que las del canal viejo: las que tienen asesora cuentan en "Mias" de esa
+ * persona y las que no, en "Sin asignar".
+ */
+async function countOfficialConversations(input: {
+  workspaceId: string;
+  searchQuery: string;
+  // El resultado de leerLineaOficial: null es que la linea oficial no cuenta (vale 0).
+  lineaOficial: LineaOficial;
+  userId: string;
+  // `user:<id>[,<id>...]` solo lo usan las pastillas No leido y Sin responder (ver alcanceDeLasPastillas).
+  assignedTo: AsignacionDeLasPastillas;
+  statusFilter: ChatsStatusFilter;
+  filtros: FiltrosDeBandeja;
+}): Promise<number> {
+  const config = input.lineaOficial;
   if (!config) {
     return 0;
   }
@@ -373,6 +391,14 @@ async function calcularContadores(
     connectionKey: selectedConnectionKey,
     visibleChannelIds,
   });
+  /*
+    El canal elegido y la configuracion oficial se leen UNA vez aca y se pasan a cada conteo de la
+    linea oficial (antes cada uno los volvia a leer: hasta 14 consultas iguales por pedido).
+  */
+  const lineaOficial = await leerLineaOficial({
+    workspaceId: membership.workspace.id,
+    selectedConnectionKey: conexionElegida,
+  });
 
   /*
     Las pastillas son fijas: no cambian segun el grupo que se este mirando. Por eso el `grupo` de
@@ -427,7 +453,7 @@ async function calcularContadores(
         countOfficialConversations({
           workspaceId: membership.workspace.id,
           searchQuery,
-          selectedConnectionKey: conexionElegida,
+          lineaOficial,
           userId: session.userId,
           // La misma asignacion que el canal viejo (alcanceDePastillas), tambien en la linea oficial.
           assignedTo: alcance.asignacion,
@@ -473,7 +499,7 @@ async function calcularContadores(
     countOfficialConversations({
       workspaceId: membership.workspace.id,
       searchQuery,
-      selectedConnectionKey: conexionElegida,
+      lineaOficial,
       userId: session.userId,
       assignedTo: "mine",
       statusFilter,
@@ -482,7 +508,7 @@ async function calcularContadores(
     countOfficialConversations({
       workspaceId: membership.workspace.id,
       searchQuery,
-      selectedConnectionKey: conexionElegida,
+      lineaOficial,
       userId: session.userId,
       assignedTo: "unassigned",
       statusFilter,
@@ -491,7 +517,7 @@ async function calcularContadores(
     countOfficialConversations({
       workspaceId: membership.workspace.id,
       searchQuery,
-      selectedConnectionKey: conexionElegida,
+      lineaOficial,
       userId: session.userId,
       assignedTo: "all",
       statusFilter,
@@ -545,7 +571,7 @@ async function calcularContadores(
       countOfficialConversations({
         workspaceId: membership.workspace.id,
         searchQuery,
-        selectedConnectionKey: conexionElegida,
+        lineaOficial,
         userId: session.userId,
         assignedTo: asignacionOficial,
         statusFilter,
