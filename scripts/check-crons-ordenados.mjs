@@ -10,7 +10,10 @@
  * 5. Las líneas [cron] <trabajo> ms=<n> y [cron] saltado: <trabajo> sigue corriendo.
  * 6. route.ts tiene 25 o más conCandado; el compose tiene 4 "max-time 55"; nada de Postgres 16.
  *
- * Las partes B, C y D le agregan casos a esta misma prueba.
+ * Parte B: el caso de la bienvenida del rescate corre en los minutos % 5 == 4, mira 150 chats y sus 3 groupBy
+ * llevan el filtro createdAt.
+ *
+ * Las partes C y D le agregan casos a esta misma prueba.
  */
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -260,6 +263,37 @@ await prueba("docker-compose.portainer.yml: las 4 llamadas curl cortan a los 55 
   assert.equal(compose.match(/max-time 55/g)?.length, 4);
   assert.equal(compose.match(/curl -sS -X POST --max-time 55 \\/g)?.length, 4);
   assert.equal(compose.match(/curl -sS -X POST/g)?.length, 4, "no quedó ningún curl sin tope");
+});
+
+/* ── Parte B: el rescate de chats huérfanos más liviano ── */
+await prueba("parte B: el caso de la bienvenida corre solo en los minutos % 5 == 4", () => {
+  const { tocaElCasoDeLaBienvenida } = cargar("src/lib/rescate-de-chats-huerfanos.ts", {
+    "@/lib/prisma": { prisma: {} },
+    "@/lib/reparto-de-leads": { autoAssignConversationToCollaborator: async () => null },
+  });
+  for (let minuto = 0; minuto < 60; minuto += 1) {
+    const hora = new Date(2026, 10, 26, 10, minuto, 30);
+    assert.equal(tocaElCasoDeLaBienvenida(hora), minuto % 5 === 4, `minuto ${minuto}`);
+  }
+});
+
+await prueba("parte B: mira 150 chats, y las 3 groupBy llevan el filtro createdAt", () => {
+  const fuente = leer("src/lib/rescate-de-chats-huerfanos.ts");
+  assert.match(fuente, /^const CUANTOS_MIRAR_BIENVENIDA = 150;$/m);
+  assert.match(fuente, /^const CUANTOS_POR_VUELTA = 15;$/m, "el caso normal no cambia");
+  assert.match(fuente, /take: CUANTOS_POR_VUELTA \* 3,/, "el caso normal sigue mirando 45");
+  assert.match(fuente, /if \(tocaElCasoDeLaBienvenida\(ahora\)\) \{/);
+  // El filtro de la historia: ahora - (48 h + 7 días).
+  assert.match(fuente, /HISTORIA_BIENVENIDA_MS = VENTANA_BIENVENIDA_HORAS \* 3_600_000 \+ 7 \* 24 \* 3_600_000;/);
+  assert.match(fuente, /const desde = \{ createdAt: \{ gte: new Date\(ahora\.getTime\(\) - HISTORIA_BIENVENIDA_MS\) \} \};/);
+  assert.match(fuente, /const vigentes = \{.*\.\.\.desde \};/);
+  const consultas = fuente.split("prisma.message.groupBy(").slice(1).map((resto) => resto.slice(0, resto.indexOf("}),")));
+  assert.equal(consultas.length, 3, "quedan exactamente 3 groupBy");
+  for (const consulta of consultas) {
+    assert.match(consulta, /\.\.\.vigentes|\.\.\.desde/, `groupBy sin filtro createdAt:\n${consulta}`);
+  }
+  // Cuántos escribió la clienta y cuándo fue el último salen de la misma consulta.
+  assert.ok(consultas.some((c) => c.includes("_count: { _all: true }") && c.includes("_max: { createdAt: true }")));
 });
 
 console.log(`\n${pruebas} pruebas de los crons ordenados: todas pasaron.`);

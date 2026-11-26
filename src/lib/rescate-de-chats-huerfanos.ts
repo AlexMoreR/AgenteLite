@@ -40,7 +40,8 @@ import { origenDeLinea } from "@/lib/origen-de-venta";
  * `chatNecesitaAsesora` (reparto-cuando-lo-necesita.ts), la misma regla del reparto por turno: con
  * las fotos ya mandadas, que el agente haya pedido asesora o que la clienta hable de precio, pago,
  * envío, contraentrega o ciudad. Corre cada minuto, así ve lo que pasó después del último mensaje de
- * la clienta (las fotos o la nota del agente llegan después de su mensaje).
+ * la clienta (las fotos o la nota del agente llegan después de su mensaje). Desde los crons ordenados
+ * (parte B) corre cada 5 minutos y mira 150 chats: puede tardar hasta 5 minutos más.
  *
  * DESDE LA T-772 (parte 1) decide `elChatNecesitaAsesora` con los interruptores de cada negocio
  * (`reparto:cuando:<workspaceId>`), la misma llamada del reparto por turno: así lo que el negocio
@@ -67,9 +68,28 @@ const VENTANA_BIENVENIDA_HORAS = 48;
 /**
  * Cuántos chats de ventas sin dueño se miran por vuelta para el segundo caso. La mayoría nunca
  * respondió la bienvenida (escribieron una vez y se fueron), así que hay que mirar bastantes para
- * que no tapen a los que sí; por eso primero se filtran con dos consultas en lote.
+ * que no tapen a los que sí; por eso primero se filtran con consultas en lote.
+ *
+ * Crons ordenados (parte B): bajó de 500 a 150 y el caso corre cada 5 minutos, no cada minuto
+ * (ver `tocaElCasoDeLaBienvenida`). Era el trabajo más pesado del reloj.
  */
-const CUANTOS_MIRAR_BIENVENIDA = 500;
+const CUANTOS_MIRAR_BIENVENIDA = 150;
+
+/**
+ * Hasta dónde se cuentan los mensajes en las consultas en lote del segundo caso: las 48 h de la
+ * ventana más 7 días, para que el primer mensaje nuestro de un chat que volvió a moverse siga
+ * entrando sin recorrer todo el historial de la tabla.
+ */
+const HISTORIA_BIENVENIDA_MS = VENTANA_BIENVENIDA_HORAS * 3_600_000 + 7 * 24 * 3_600_000;
+
+/**
+ * ¿Le toca a esta vuelta el segundo caso (la clienta respondió la bienvenida)? Solo en los minutos
+ * que terminan en 4 o 9 (`minuto % 5 == 4`): una vuelta de cada cinco. El caso de siempre (media
+ * hora sin respuesta) sigue corriendo cada minuto. Pura, para poder probarla: recibe la hora.
+ */
+export function tocaElCasoDeLaBienvenida(ahora: Date): boolean {
+  return ahora.getMinutes() % 5 === 4;
+}
 
 /** Mensajes (los últimos, con las notas) que alcanzan para decidir si el chat necesita asesora. */
 const MENSAJES_PARA_BIENVENIDA = 80;
@@ -160,37 +180,36 @@ async function chatsQueRespondieronLaBienvenida(ahora: Date) {
   }
 
   const ids = sinDueno.map((conversacion) => conversacion.id);
-  const vigentes = { conversationId: { in: ids }, type: { not: "SYSTEM" as const }, deletedAt: null };
+  // Solo los mensajes de la historia reciente: sin esto cada consulta recorre todo el historial del chat.
+  const desde = { createdAt: { gte: new Date(ahora.getTime() - HISTORIA_BIENVENIDA_MS) } };
+  const vigentes = { conversationId: { in: ids }, type: { not: "SYSTEM" as const }, deletedAt: null, ...desde };
   // Antes de leer cada chat, en lote: el primer mensaje nuestro, la primera foto nuestra, el último
   // de la clienta y la nota del agente. Con eso se descartan sin leerlos los que la regla nunca
   // asignaría, así se leen pocos chats por vuelta.
-  const [primerosNuestros, mensajesDeLaClienta, ultimosDelCliente, conPedidoDelAgente] = await Promise.all([
+  const [primerosNuestros, mensajesDeLaClienta, conPedidoDelAgente] = await Promise.all([
     prisma.message.groupBy({
       by: ["conversationId"],
       where: { ...vigentes, direction: "OUTBOUND" },
       _min: { createdAt: true },
     }),
-    // Cuántos mensajes mandó la clienta (desde el 22-11 la regla es "escribió algo además del de entrada").
+    // En una sola consulta: cuántos mensajes mandó la clienta (desde el 22-11 la regla es "escribió
+    // algo además del de entrada") y cuándo fue el último.
     prisma.message.groupBy({
       by: ["conversationId"],
       where: { ...vigentes, direction: "INBOUND" },
       _count: { _all: true },
-    }),
-    prisma.message.groupBy({
-      by: ["conversationId"],
-      where: { ...vigentes, direction: "INBOUND" },
       _max: { createdAt: true },
     }),
     prisma.message.groupBy({
       by: ["conversationId"],
-      where: { conversationId: { in: ids }, type: "SYSTEM", deletedAt: null, content: { startsWith: "El agente pide un asesor" } },
+      where: { conversationId: { in: ids }, type: "SYSTEM", deletedAt: null, content: { startsWith: "El agente pide un asesor" }, ...desde },
       _min: { createdAt: true },
     }),
   ]);
   const pidioAsesora = new Set(conPedidoDelAgente.map((fila) => fila.conversationId));
   const primerNuestro = new Map(primerosNuestros.map((fila) => [fila.conversationId, fila._min.createdAt]));
   const cuantosEscribio = new Map(mensajesDeLaClienta.map((fila) => [fila.conversationId, fila._count._all]));
-  const ultimoDelCliente = new Map(ultimosDelCliente.map((fila) => [fila.conversationId, fila._max.createdAt]));
+  const ultimoDelCliente = new Map(mensajesDeLaClienta.map((fila) => [fila.conversationId, fila._max.createdAt]));
 
   // Los interruptores de cada negocio (con su minuto de memoria).
   const configs = new Map<string, ConfigDeAsignacion>();
@@ -251,15 +270,17 @@ export async function rescatarChatsHuerfanos(ahora = new Date()): Promise<{ repa
   /*
     El segundo caso va aparte y con su propio try: si su búsqueda falla, el caso de siempre sigue
     rescatando. Sus chats ya vienen revisados (respondieron la bienvenida), no hace falta que el
-    último mensaje sea de la clienta.
+    último mensaje sea de la clienta. Corre solo una vuelta de cada cinco (`tocaElCasoDeLaBienvenida`).
   */
   let respondieron: Awaited<ReturnType<typeof chatsQueRespondieronLaBienvenida>> = [];
-  try {
-    respondieron = await chatsQueRespondieronLaBienvenida(ahora);
-  } catch (error) {
-    console.error("[rescate] no se pudo buscar a quienes respondieron la bienvenida", {
-      error: error instanceof Error ? error.message : String(error),
-    });
+  if (tocaElCasoDeLaBienvenida(ahora)) {
+    try {
+      respondieron = await chatsQueRespondieronLaBienvenida(ahora);
+    } catch (error) {
+      console.error("[rescate] no se pudo buscar a quienes respondieron la bienvenida", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
   const yaRevisados = new Set(respondieron.map((conversacion) => conversacion.id));
 
