@@ -565,7 +565,7 @@ await prueba("el MCP registra las 4 herramientas y cerebro_escribir ya no exige 
 
 await prueba("la sincronización cada hora, el estado de la automatización, la pestaña y el botón están enchufados", () => {
   const cron = fs.readFileSync(path.join(RAIZ, "src/app/api/cron/follows/route.ts"), "utf8");
-  assert.match(cron, /if \(minuto === 41\) \{\s+after\(async \(\) => \{\s+try \{\s+await sincronizarCerebroDeTodos\(\);/);
+  assert.match(cron, /if \(minuto === 41\) \{\s+after\(async \(\) => \{\s+try \{\s+await conCandado\("cerebro", async \(\) => \{\s+await sincronizarCerebroDeTodos\(\);/);
   const queEs = fs.readFileSync(path.join(RAIZ, "src/lib/mcp/que-es-esta-aplicacion.ts"), "utf8");
   assert.match(queEs, /cerebro_sincronizacion: await estadoDelCerebro/);
   const pestanas = fs.readFileSync(path.join(RAIZ, "src/components/negocio-equipo-tabs-lista.tsx"), "utf8");

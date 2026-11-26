@@ -71,14 +71,14 @@ services:
           fi
           if [ -n "$$SECRET" ]; then
             echo "[follow-cron] calling /api/cron/follows with secret"
-            curl -sS -X POST \
+            curl -sS -X POST --max-time 55 \
               -H "x-follow-cron-secret: $$SECRET" \
               -o /tmp/follow-cron.body \
               -w "[follow-cron] http_status=%{http_code}\n" \
               https://app.aizenbot.com/api/cron/follows || true
           else
             echo "[follow-cron] calling /api/cron/follows without secret"
-            curl -sS -X POST \
+            curl -sS -X POST --max-time 55 \
               -o /tmp/follow-cron.body \
               -w "[follow-cron] http_status=%{http_code}\n" \
               https://app.aizenbot.com/api/cron/follows || true
@@ -117,14 +117,14 @@ services:
           fi
           if [ -n "$$SECRET" ]; then
             echo "[daily-report-cron] calling /api/cron/daily-report with secret"
-            curl -sS -X POST \
+            curl -sS -X POST --max-time 55 \
               -H "x-daily-report-secret: $$SECRET" \
               -o /tmp/daily-report.body \
               -w "[daily-report-cron] http_status=%{http_code}\n" \
               https://app.aizenbot.com/api/cron/daily-report || true
           else
             echo "[daily-report-cron] calling /api/cron/daily-report without secret"
-            curl -sS -X POST \
+            curl -sS -X POST --max-time 55 \
               -o /tmp/daily-report.body \
               -w "[daily-report-cron] http_status=%{http_code}\n" \
               https://app.aizenbot.com/api/cron/daily-report || true
