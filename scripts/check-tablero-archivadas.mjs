@@ -430,8 +430,8 @@ await prueba("al guardar un HECHO se archiva después, fuera de la transacción 
   assert.match(accion, /if \(respuesta\.estado === "HECHO"\) await archivarAlTerminar\(actual\.id\);/, "subida o ya-hecha");
   despuesDeLaTransaccion(accion, "archivarAlTerminar(", "accionDelTrabajador");
   const reloj = leer("src/app/api/cron/follows/route.ts");
-  assert.match(reloj, /await archivarLasHechas\(\);/, "cada vuelta, las HECHO");
-  assert.match(reloj, /await archivarLasTerminadas\(\);/, "una vez al día, las FALLIDO");
+  assert.match(reloj, /await conCandado\("[^"]+", \(\) => archivarLasHechas\(\)\);/, "cada vuelta, las HECHO");
+  assert.match(reloj, /await conCandado\("[^"]+", \(\) => archivarLasTerminadas\(\)\);/, "una vez al día, las FALLIDO");
   // La regla del cliente de la base ya no archiva al escribir (solo desarchiva al reabrir).
   assert.match(leer("src/lib/prisma.ts"), /conDesarchivadoAlReabrir\(model, operation, argsPedidos\)/);
 });

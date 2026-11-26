@@ -191,13 +191,13 @@ await prueba("Mi día: el usuario se lee una vez y lo independiente va en la pri
 /* ── El reloj ── */
 await prueba("reloj: bajada cada 15 min, descarte tras seguimientos y barrido cada 30, limpieza de webhooks a las 3 a. m.", () => {
   const reloj = leer("src/app/api/cron/follows/route.ts");
-  assert.match(reloj, /if \(new Date\(\)\.getMinutes\(\) % 15 === 1\) \{\s*try \{\s*cooldown = await demoteUnresponsiveStaleLeads\(\);/);
-  assert.match(reloj, /if \(new Date\(\)\.getMinutes\(\) % 15 === 8\) \{\s*try \{\s*temperatura = await enfriarLeadsSinRespuesta\(\);/);
-  assert.match(reloj, /if \(new Date\(\)\.getMinutes\(\) % 30 === 12\) \{\s*try \{\s*await ejecutarDescarteTrasSeguimientos\(\);/);
-  assert.match(reloj, /if \(minuto % 30 === 6\) \{\s*after\(async \(\) => \{\s*try \{\s*await barrerEtapasDeTodos\(\);/);
+  assert.match(reloj, /if \(new Date\(\)\.getMinutes\(\) % 15 === 1\) \{\s*try \{\s*cooldown = await conCandado\("[^"]+", \(\) => demoteUnresponsiveStaleLeads\(\)\);/);
+  assert.match(reloj, /if \(new Date\(\)\.getMinutes\(\) % 15 === 8\) \{\s*try \{\s*temperatura = await conCandado\("[^"]+", \(\) => enfriarLeadsSinRespuesta\(\)\);/);
+  assert.match(reloj, /if \(new Date\(\)\.getMinutes\(\) % 30 === 12\) \{\s*try \{\s*await conCandado\("[^"]+", \(\) => ejecutarDescarteTrasSeguimientos\(\)\);/);
+  assert.match(reloj, /if \(minuto % 30 === 6\) \{\s*after\(async \(\) => \{\s*try \{\s*await conCandado\("[^"]+", \(\) => barrerEtapasDeTodos\(\)\);/);
   assert.match(
     reloj,
-    /if \(new Date\(\)\.getMinutes\(\) % 10 === 7 && new Date\(Date\.now\(\) - 5 \* 3_600_000\)\.getUTCHours\(\) === 3\) \{\s*try \{\s*webhookLogs = await purgeOldWebhookEventLogs\(\);/,
+    /if \(new Date\(\)\.getMinutes\(\) % 10 === 7 && new Date\(Date\.now\(\) - 5 \* 3_600_000\)\.getUTCHours\(\) === 3\) \{\s*try \{\s*webhookLogs = await conCandado\("[^"]+", \(\) => purgeOldWebhookEventLogs\(\)\);/,
   );
 });
 
@@ -220,7 +220,7 @@ await prueba("reloj: lo que manda mensajes, asigna chats o avisa no cambió de f
     assert.doesNotMatch(antes, /getMinutes\(\)|minuto [%=]/, `${llamada} sigue en cada vuelta`);
   }
   // Los de siempre, con su minuto de siempre.
-  assert.match(reloj, /if \(new Date\(\)\.getMinutes\(\) % 10 === 0\) \{\s*try \{\s*descartados = await ejecutarDescarteAutomatico\(\);/);
+  assert.match(reloj, /if \(new Date\(\)\.getMinutes\(\) % 10 === 0\) \{\s*try \{\s*descartados = await conCandado\("[^"]+", \(\) => ejecutarDescarteAutomatico\(\)\);/);
   assert.match(reloj, /if \(minuto % 5 === 3\) \{/);
   assert.match(reloj, /if \(minuto === 41\) \{/);
   assert.match(reloj, /if \(minuto === 23\) \{/);
