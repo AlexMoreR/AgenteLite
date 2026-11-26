@@ -4,9 +4,8 @@ import { enmascararSiEsTelefono, enmascararTelefono, estaEnModoMonitoreo } from 
 import { prisma } from "@/lib/prisma";
 import {
   canAccessClientModule,
-  getClientWorkspaceAccessForUser,
+  getClientWorkspaceAccessForUserCached,
 } from "@/lib/client-workspace-access";
-import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import { getVisibleChannelIds } from "@/lib/channel-visibility";
 import { esLaSupervisora } from "@/features/recuperacion/servicios/permiso";
 import { getCrmStageLabel } from "@/features/crm/domain/crm-config";
@@ -40,9 +39,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 401 });
   }
 
-  const access = await getClientWorkspaceAccessForUser(session.user.id);
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
-  const workspaceId = membership?.workspace.id;
+  const access = await getClientWorkspaceAccessForUserCached(session.user.id);
+  const workspaceId = access?.workspaceId;
   if (!access || !workspaceId) {
     return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 401 });
   }
@@ -61,7 +59,7 @@ export async function GET(request: Request) {
     ? [...new Set([q, digitos, digitosSinPais])].map((d) => ({ phoneNumber: { contains: d } }))
     : [{ phoneNumber: { contains: q, mode: "insensitive" as const } }];
 
-  const esJefe = membership.role === "OWNER" || membership.role === "ADMIN";
+  const esJefe = access.membershipRole === "OWNER" || access.membershipRole === "ADMIN";
   // La supervisora (Ingrid) busca en los chats de todas las asesoras, igual que la jefa (Alex, 15-10-2026).
   const veTodosLosChats = esJefe || (await esLaSupervisora(workspaceId, session.user.id));
   /*
@@ -71,7 +69,7 @@ export async function GET(request: Request) {
     aparece en el resultado, al lado del nombre. Ver `modo-monitoreo.ts`.
   */
   const taparTelefonos = await estaEnModoMonitoreo({
-    workspaceId: membership.workspace.id,
+    workspaceId: access.workspaceId,
     userId: session.user.id,
   });
   const canalesVisibles = await getVisibleChannelIds({

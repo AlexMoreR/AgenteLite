@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 
 import { auth } from "@/auth";
+import { getClientWorkspaceAccessForUserCached } from "@/lib/client-workspace-access";
 import { prisma } from "@/lib/prisma";
-import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
 /**
  * Cuanta gente hay en cada etapa del CRM.
@@ -22,14 +22,15 @@ export async function GET() {
     return NextResponse.json({ ok: false, conteo: {} }, { status: 401 });
   }
 
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
-  if (!membership) {
+  // El permiso guardado 45 s: es la misma membresia que daba getPrimaryWorkspaceForUser.
+  const access = await getClientWorkspaceAccessForUserCached(session.user.id);
+  if (!access) {
     return NextResponse.json({ ok: true, conteo: {} });
   }
 
   const filas = await prisma.contact.groupBy({
     by: ["crmStage"],
-    where: { workspaceId: membership.workspace.id, excludedFromCrm: false },
+    where: { workspaceId: access.workspaceId, excludedFromCrm: false },
     _count: { _all: true },
   });
 

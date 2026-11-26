@@ -2,11 +2,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { canAccessOfficialApiModule } from "@/lib/admin-module-access";
-import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
+import { canAccessClientModule, getClientWorkspaceAccessForUserCached } from "@/lib/client-workspace-access";
 import { saveOfficialApiChatbotBuilderState } from "@/lib/official-api-chatbot";
 import { getOfficialApiConfigByWorkspaceId, hasOfficialApiBaseCredentials } from "@/lib/official-api-config";
 import { prisma } from "@/lib/prisma";
-import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
 const builderSchema = z.object({
   sourceType: z.enum(["official-api", "evolution"]),
@@ -83,14 +82,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 401 });
   }
 
-  const access = await getClientWorkspaceAccessForUser(session.user.id);
+  const access = await getClientWorkspaceAccessForUserCached(session.user.id);
   if (!access || !canAccessClientModule(access, "flows")) {
     return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 403 });
-  }
-
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
-  if (!membership?.workspace.id) {
-    return NextResponse.json({ ok: false, error: "Workspace no encontrado" }, { status: 404 });
   }
 
   const requestUrl = new URL(request.url);
@@ -134,7 +128,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: "Modulo API oficial desactivado para este rol." }, { status: 403 });
     }
 
-    const config = await getOfficialApiConfigByWorkspaceId(membership.workspace.id);
+    const config = await getOfficialApiConfigByWorkspaceId(access.workspaceId);
     if (!config || !hasOfficialApiBaseCredentials(config)) {
       return NextResponse.json({ ok: false, error: "La API oficial no esta lista en este workspace." }, { status: 400 });
     }
@@ -150,7 +144,7 @@ export async function POST(request: Request) {
   const channel = await prisma.whatsAppChannel.findFirst({
     where: {
       id: parsed.data.sourceId,
-      workspaceId: membership.workspace.id,
+      workspaceId: access.workspaceId,
       provider: "EVOLUTION",
     },
     select: {

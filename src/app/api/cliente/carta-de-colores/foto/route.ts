@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 
 import { auth } from "@/auth";
-import { getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
+import { getClientWorkspaceAccessForUserCached } from "@/lib/client-workspace-access";
 import { CARPETA_FOTOS_DE_COLORES } from "@/lib/imagen-de-carta-de-colores";
 import { puedeSupervisar } from "@/lib/permisos-del-equipo";
 
@@ -29,7 +29,7 @@ export async function POST(request: Request) {
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     return NextResponse.json({ ok: false, error: "No autorizado." }, { status: 401 });
   }
-  const access = await getClientWorkspaceAccessForUser(session.user.id);
+  const access = await getClientWorkspaceAccessForUserCached(session.user.id);
   if (!access || !(await puedeSupervisar(access))) {
     return NextResponse.json(
       { ok: false, error: "Solo el dueño, un administrador o una supervisora pueden cambiar la carta de colores." },

@@ -6,7 +6,6 @@ import { canAccessClientModule, getClientWorkspaceAccessForUserCached } from "@/
 import { conServerTiming, type MedidorServerTiming } from "@/lib/server-timing";
 import { idDeMensajeValido, motivoSeReintentaSolo, type MotivoDeFallo } from "@/lib/chat-envio-reintento";
 import { anotarErrorDeEnvio } from "@/lib/chat-errores-de-envio";
-import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
 /*
   Envio de texto de las asesoras desde Chats (tarjeta whovymqk).
@@ -125,10 +124,10 @@ async function manejarPost(request: Request, t: MedidorServerTiming) {
     const detalle = error instanceof Error ? error.message : String(error);
     console.error("[chats/enviar] el envio lanzo un error", { conversationId, source, error: detalle });
     after(async () => {
-      const membership = await getPrimaryWorkspaceForUser(userId).catch(() => null);
-      if (membership?.workspace.id) {
+      // El acceso ya leido arriba: es la misma membresia que daba getPrimaryWorkspaceForUser.
+      if (access.workspaceId) {
         await anotarErrorDeEnvio({
-          workspaceId: membership.workspace.id,
+          workspaceId: access.workspaceId,
           source,
           conversationId,
           motivo: "otro",
@@ -157,10 +156,9 @@ async function manejarPost(request: Request, t: MedidorServerTiming) {
   const detalle = resultado.error;
   console.error("[chats/enviar] no se envio", { conversationId, source, motivo, intento, error: detalle });
   after(async () => {
-    const membership = await getPrimaryWorkspaceForUser(userId).catch(() => null);
-    if (membership?.workspace.id) {
+    if (access.workspaceId) {
       await anotarErrorDeEnvio({
-        workspaceId: membership.workspace.id,
+        workspaceId: access.workspaceId,
         source,
         conversationId,
         motivo,

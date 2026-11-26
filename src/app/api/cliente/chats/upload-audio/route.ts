@@ -3,8 +3,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
-import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
+import { canAccessClientModule, getClientWorkspaceAccessForUserCached } from "@/lib/client-workspace-access";
 import { EXTENSION_PARA_ESCUCHAR, convertirAudioParaEscuchar } from "@/lib/audio-para-escuchar";
 
 const MAX_FILE_SIZE_BYTES = 16 * 1024 * 1024;
@@ -127,14 +126,9 @@ async function subirAudio(request: Request, registro: RegistroDeSubida) {
 
   registro.userId = session.user.id;
 
-  const access = await getClientWorkspaceAccessForUser(session.user.id);
+  const access = await getClientWorkspaceAccessForUserCached(session.user.id);
   if (!access || !canAccessClientModule(access, "chats")) {
     return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 403 });
-  }
-
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
-  if (!membership?.workspace.id) {
-    return NextResponse.json({ ok: false, error: "Workspace no encontrado" }, { status: 404 });
   }
 
   const contentType = request.headers.get("content-type");
