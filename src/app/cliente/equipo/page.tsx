@@ -1,16 +1,16 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Suspense } from "react";
 import { Megaphone } from "lucide-react";
 import { guardarLiderDeVentasAction } from "@/app/actions/equipo-actions";
 import { ClientTeamWorkspace, type EstadoDeLinea } from "@/components/client-team-workspace";
 import { NegocioEquipoTabs } from "@/components/negocio-equipo-tabs";
-import type { UltimasAccionesEnTexto } from "@/components/ultima-accion-de-persona";
 import { ReglaDeDemoraDeAsesora } from "@/components/regla-de-demora-de-asesora";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
-import { leerActividadDelEquipo, nombreDeLaRuta } from "@/lib/actividad-del-equipo";
+import { leerActividadDelEquipo } from "@/lib/actividad-del-equipo";
 import { leerColaboradores, leerMonitores, leerPausadosDeReparto } from "@/lib/channel-collaborators";
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import {
@@ -26,7 +26,7 @@ import { leerLiderDeVentasElegido, leerSupervisoras } from "@/lib/permisos-del-e
 import { prisma } from "@/lib/prisma";
 import { leerConfigDeAvisos, numeroDeAvisosDe } from "@/features/agente-v3/servicios/avisos";
 import { ultimaAccionEnCache } from "@/features/actividad/services/ultima-accion-en-cache";
-import { lineasDeLaPersona } from "@/features/actividad/services/lineas-de-la-persona";
+import { UltimaAccionDelEquipo, UltimaAccionDelEquipoCargando } from "./ultima-accion-del-equipo";
 
 export const metadata: Metadata = {
   robots: {
@@ -89,26 +89,20 @@ export default async function ClienteEquipoPage({ searchParams }: PageProps) {
   });
 
   /*
-    La última acción NO se espera: es la consulta lenta (Message de 30 días). Arranca apenas se leen
-    las personas, solo de ellas, y se guarda 2 minutos por negocio (ultima-accion-en-cache.ts): diez
-    aperturas, una consulta. La tabla sale enseguida y cada fila muestra "Buscando última acción…"
-    hasta que esta promesa se cumple. Viaja al navegador, así que va como objeto plano userId → texto
-    ya armado (sin Map ni Date). Nunca falla: si la consulta falla, "Sin acciones en 30 días".
+    La última conexión y la última acción NO se esperan: son las lecturas lentas (latidos y Message de
+    30 días). Arrancan ya y las espera `UltimaAccionDelEquipo`, dentro de un `<Suspense>`: la lista,
+    las líneas, los horarios y la demora salen enseguida. La última acción va solo de las personas
+    leídas y se guarda 2 minutos por negocio (ultima-accion-en-cache.ts): diez aperturas, una
+    consulta. Ninguna de las dos falla: si fallan, "Sin registro todavía" / "Sin acciones en 30 días".
   */
-  const ultimasAccionesPromesa: Promise<UltimasAccionesEnTexto> = lecturaDeEmpleados
-    .then(async (miembros) => {
-      const userIds = miembros.map((miembro) => miembro.user.id);
-      const mapa = await ultimaAccionEnCache({ workspaceId: access.workspaceId, userIds }).catch(
-        () => new Map() as Awaited<ReturnType<typeof ultimaAccionEnCache>>,
-      );
-      return Object.fromEntries(
-        userIds.map((userId) => [
-          userId,
-          lineasDeLaPersona({ latido: null, ultimaAccion: mapa.get(userId) ?? null }).accion,
-        ]),
-      );
-    })
-    .catch(() => ({}));
+  const actividadPromesa = leerActividadDelEquipo(access.workspaceId).catch(
+    () => ({}) as Awaited<ReturnType<typeof leerActividadDelEquipo>>,
+  );
+  const ultimasAccionesPromesa = lecturaDeEmpleados
+    .then((miembros) =>
+      ultimaAccionEnCache({ workspaceId: access.workspaceId, userIds: miembros.map((miembro) => miembro.user.id) }),
+    )
+    .catch(() => new Map() as Awaited<ReturnType<typeof ultimaAccionEnCache>>);
 
   const [
     employees,
@@ -119,7 +113,6 @@ export default async function ClienteEquipoPage({ searchParams }: PageProps) {
     liderElegido,
     filaDemora,
     filaHistorialDemora,
-    actividad,
   ] = await Promise.all([
     lecturaDeEmpleados,
     prisma.whatsAppChannel.findMany({
@@ -134,9 +127,6 @@ export default async function ClienteEquipoPage({ searchParams }: PageProps) {
     // La regla de demora de asesora: la misma fila que lee la regla, y su historial.
     prisma.appSetting.findUnique({ where: { key: claveConfigDemora(access.workspaceId) }, select: { value: true } }),
     prisma.appSetting.findUnique({ where: { key: claveHistorialDemora(access.workspaceId) }, select: { value: true } }),
-    // Última conexión de cada persona (solo lectura). Si falla, la pantalla sale igual con
-    // "Sin registro todavía" en vez de romperse.
-    leerActividadDelEquipo(access.workspaceId).catch(() => ({}) as Awaited<ReturnType<typeof leerActividadDelEquipo>>),
   ]);
 
   const demora = estadoDelBotonDeTexto(filaDemora?.value);
@@ -174,25 +164,18 @@ export default async function ClienteEquipoPage({ searchParams }: PageProps) {
       return { channelId: canal.id, nombre: canal.name, estado, abierta: colaboradores.length === 0 };
     });
 
-  // La "Última conexión" de debajo del nombre, ya en palabras y con la hora de Colombia. La "Última
-  // acción" llega aparte, en `ultimasAccionesPromesa`.
+  // La "Última conexión" y la "Última acción" de debajo del nombre llegan aparte, por Suspense.
   const ahora = new Date();
-  const lineasDeActividadDe = (userId: string) => {
-    const latido = actividad[userId];
-    const { conexion, conectadaAhora } = lineasDeLaPersona({
-      latido: latido
-        ? {
-            cuando: latido.cuando,
-            // "Chats · Salón Rosa": la pantalla y, si estaba en un chat, cuál.
-            donde: latido.donde || nombreDeLaRuta(latido.ruta),
-            aparato: latido.dispositivo,
-          }
-        : null,
-      ultimaAccion: null,
-      ahora,
-    });
-    return { conexion, conectadaAhora };
-  };
+  const actividadDe = (userId: string) => (
+    <Suspense fallback={<UltimaAccionDelEquipoCargando />}>
+      <UltimaAccionDelEquipo
+        actividad={actividadPromesa}
+        ultimasAcciones={ultimasAccionesPromesa}
+        userId={userId}
+        ahora={ahora}
+      />
+    </Suspense>
+  );
 
   return (
     <section className="app-page flex flex-col gap-5 p-4 sm:p-6">
@@ -254,7 +237,6 @@ export default async function ClienteEquipoPage({ searchParams }: PageProps) {
       />
 
       <ClientTeamWorkspace
-        ultimasAcciones={ultimasAccionesPromesa}
         employees={employees.map((employee) => {
           const status = !employee.isActive ? "inactive" : employee.acceptedAt ? "active" : "pending";
 
@@ -272,7 +254,7 @@ export default async function ClienteEquipoPage({ searchParams }: PageProps) {
             lineas: lineasDe(employee.user.id),
             horario: horarios[employee.user.id] ?? horarioSiempre(),
             whatsappDeAvisos: numeroDeAvisosDe(configDeAvisos, employee.user.id),
-            actividad: lineasDeActividadDe(employee.user.id),
+            actividad: actividadDe(employee.user.id),
             invitedAtLabel: `Invitado: ${formatDate(employee.invitedAt)}`,
             acceptedAtLabel: employee.acceptedAt ? `Aceptado: ${formatDate(employee.acceptedAt)}` : "Sin aceptar",
           };

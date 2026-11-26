@@ -290,4 +290,23 @@ await prueba("vueltas.ts: el cron del Supervisor pide modo \"cron\"", () => {
   assert.match(fuente, /leerChatsAbiertos\(\{[^}]*modo: "cron"[^}]*\}\)/);
 });
 
+await prueba("equipo/page.tsx: la ultima conexion y la ultima accion llegan aparte, en un Suspense", () => {
+  const fuente = leerFuente("src/app/cliente/equipo/page.tsx");
+  assert.match(fuente, /<Suspense/);
+  const inicio = fuente.indexOf("await Promise.all([");
+  assert.ok(inicio >= 0, "falta el await Promise.all([");
+  const fin = fuente.indexOf("]);", inicio);
+  assert.ok(fin > inicio, "falta el cierre ]); del Promise.all");
+  const bloque = fuente.slice(inicio, fin);
+  assert.doesNotMatch(bloque, /leerActividadDelEquipo\(/, "la ultima conexion no se espera en el Promise.all");
+  assert.doesNotMatch(bloque, /ultimaAccionEnCache\(/, "la ultima accion no se espera en el Promise.all");
+  // Las dos se arrancan en page.tsx, sin await, y las espera el componente de servidor.
+  assert.match(fuente, /leerActividadDelEquipo\(access\.workspaceId\)\.catch\(/);
+  assert.match(fuente, /ultimaAccionEnCache\(/);
+  assert.match(fuente, /<UltimaAccionDelEquipo\b/);
+  const componente = leerFuente("src/app/cliente/equipo/ultima-accion-del-equipo.tsx");
+  assert.doesNotMatch(componente, /^["']use client["']/m, "es un componente de servidor");
+  assert.match(componente, /export async function UltimaAccionDelEquipo\(/);
+});
+
 console.log(`\n${pruebas} pruebas pasaron.`);
