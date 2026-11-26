@@ -316,7 +316,7 @@ await prueba("arreglo: la consulta busca el primer entrante de líneas ADMIN de 
 
 await prueba("reloj: llama al arreglo en su propio try/catch", async () => {
   const fuente = fs.readFileSync("src/app/api/cron/follows/route.ts", "utf8");
-  assert.match(fuente, /try \{\n\s+await arreglarChatsWebViejos\(\);\n\s+\} catch \(error\) \{/);
+  assert.match(fuente, /try \{\n\s+await conCandado\("arreglo-chats-web", arreglarChatsWebViejos\);\n\s+\} catch \(error\) \{/);
 });
 
 console.log(`\n${pruebas} pruebas OK`);

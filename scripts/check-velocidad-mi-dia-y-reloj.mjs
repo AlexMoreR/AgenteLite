@@ -191,13 +191,13 @@ await prueba("Mi día: el usuario se lee una vez y lo independiente va en la pri
 /* ── El reloj ── */
 await prueba("reloj: bajada cada 15 min, descarte tras seguimientos y barrido cada 30, limpieza de webhooks a las 3 a. m.", () => {
   const reloj = leer("src/app/api/cron/follows/route.ts");
-  assert.match(reloj, /if \(new Date\(\)\.getMinutes\(\) % 15 === 1\) \{\s*try \{\s*cooldown = await demoteUnresponsiveStaleLeads\(\);/);
-  assert.match(reloj, /if \(new Date\(\)\.getMinutes\(\) % 15 === 8\) \{\s*try \{\s*temperatura = await enfriarLeadsSinRespuesta\(\);/);
-  assert.match(reloj, /if \(new Date\(\)\.getMinutes\(\) % 30 === 12\) \{\s*try \{\s*await ejecutarDescarteTrasSeguimientos\(\);/);
-  assert.match(reloj, /if \(minuto % 30 === 6\) \{\s*after\(async \(\) => \{\s*try \{\s*await barrerEtapasDeTodos\(\);/);
+  assert.match(reloj, /if \(new Date\(\)\.getMinutes\(\) % 15 === 1\) \{\s*try \{\s*cooldown = \(await conCandado\("enfriamiento-de-leads", demoteUnresponsiveStaleLeads\)\) \?\? null;/);
+  assert.match(reloj, /if \(new Date\(\)\.getMinutes\(\) % 15 === 8\) \{\s*try \{\s*temperatura = \(await conCandado\("temperatura-de-leads", enfriarLeadsSinRespuesta\)\) \?\? null;/);
+  assert.match(reloj, /if \(new Date\(\)\.getMinutes\(\) % 30 === 12\) \{\s*try \{\s*await conCandado\("descarte-tras-seguimientos", ejecutarDescarteTrasSeguimientos\);/);
+  assert.match(reloj, /if \(minuto % 30 === 6\) \{\s*after\(async \(\) => \{\s*try \{\s*await conCandado\("barrido-de-etapas", barrerEtapasDeTodos\);/);
   assert.match(
     reloj,
-    /if \(new Date\(\)\.getMinutes\(\) % 10 === 7 && new Date\(Date\.now\(\) - 5 \* 3_600_000\)\.getUTCHours\(\) === 3\) \{\s*try \{\s*webhookLogs = await purgeOldWebhookEventLogs\(\);/,
+    /if \(new Date\(\)\.getMinutes\(\) % 10 === 7 && new Date\(Date\.now\(\) - 5 \* 3_600_000\)\.getUTCHours\(\) === 3\) \{\s*try \{\s*webhookLogs = \(await conCandado\("purga-de-webhooks", purgeOldWebhookEventLogs\)\) \?\? null;/,
   );
 });
 
@@ -214,13 +214,13 @@ await prueba("reloj: la limpieza de webhooks corre 6 veces, solo entre las 3:00 
 await prueba("reloj: lo que manda mensajes, asigna chats o avisa no cambió de frecuencia", () => {
   const reloj = leer("src/app/api/cron/follows/route.ts");
   // Siguen en cada vuelta (sin condición de minuto delante).
-  for (const llamada of ["procesarTandasDeCampanas()", "barrerSeguimientoInteligente()", "correrAutomatizacionesDelReloj()", "transcribirAudiosPendientes()"]) {
+  for (const llamada of ["conCandado(\"campanas\", procesarTandasDeCampanas)", "conCandado(\"seguimiento-inteligente\", barrerSeguimientoInteligente)", "conCandado(\"automatizaciones\", correrAutomatizacionesDelReloj)", "conCandado(\"transcripcion-de-audios\", transcribirAudiosPendientes)"]) {
     const antes = reloj.slice(Math.max(0, reloj.indexOf(llamada) - 160), reloj.indexOf(llamada));
     assert.ok(reloj.includes(llamada), llamada);
     assert.doesNotMatch(antes, /getMinutes\(\)|minuto [%=]/, `${llamada} sigue en cada vuelta`);
   }
   // Los de siempre, con su minuto de siempre.
-  assert.match(reloj, /if \(new Date\(\)\.getMinutes\(\) % 10 === 0\) \{\s*try \{\s*descartados = await ejecutarDescarteAutomatico\(\);/);
+  assert.match(reloj, /if \(new Date\(\)\.getMinutes\(\) % 10 === 0\) \{\s*try \{\s*descartados = \(await conCandado\("descarte-automatico", ejecutarDescarteAutomatico\)\) \?\? null;/);
   assert.match(reloj, /if \(minuto % 5 === 3\) \{/);
   assert.match(reloj, /if \(minuto === 41\) \{/);
   assert.match(reloj, /if \(minuto === 23\) \{/);

@@ -474,7 +474,7 @@ await prueba("cableado: el webhook de Evolution usa la del lib, el de WAHA marca
   const waha = leer("src/app/api/webhooks/waha/route.ts");
   assert.equal(waha.match(/anotarQueLlego\(cuerpo\);/g)?.length, 3);
   const reloj = leer("src/app/api/cron/follows/route.ts");
-  assert.equal(reloj.match(/await revisarMensajesIndescifrables\(\)/g)?.length, 1);
+  assert.equal(reloj.match(/await conCandado\("mensajes-indescifrables", revisarMensajesIndescifrables\)/g)?.length, 1);
   const servicio = leer("src/features/mensajes-indescifrables/servicios/revision.ts");
   assert.doesNotMatch(servicio, /direction:\s*"INBOUND"/);
   const endpoint = leer("src/app/api/interno/mensajes-indescifrables/route.ts");

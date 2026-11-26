@@ -166,7 +166,7 @@ await prueba("no manda nada: ni mensajes a la clienta ni push; y el reloj de cad
   const fuente = fs.readFileSync(path.join(RAIZ, "src/lib/rescate-nuevo-sin-asesora.ts"), "utf8");
   assert.doesNotMatch(fuente, /sendAndPersist|sendText|evolution-envio|avisarAsignacionPorPush|web-push|autoAssignConversationToCollaborator/);
   const reloj = fs.readFileSync(path.join(RAIZ, "src/app/api/cron/follows/route.ts"), "utf8");
-  assert.match(reloj, /rescatarNuevoSinAsesoraUnaVez\(\)/);
+  assert.match(reloj, /await conCandado\("rescate-nuevo-sin-asesora", rescatarNuevoSinAsesoraUnaVez\)/);
 });
 
 console.log(`\n${pruebas} pruebas del rescate de chats en Nuevo: OK`);
