@@ -206,8 +206,10 @@ export function NotificacionesWorkspace() {
     const alVolverAMirar = () => {
       if (document.visibilityState === "visible" && llegoAlgoOculta) {
         llegoAlgoOculta = false;
-        // Si el reloj ya pidio al volver, ese pedido empezo despues de lo que llego: alcanza.
-        if (!enCurso) void pedir(0);
+        // Si el reloj ya esta pidiendo al volver, ese pedido pudo salir del dato compartido: se pide
+        // otra vez a la red apenas termine.
+        if (enCurso) pedirOtraVez = true;
+        else void pedir(0);
       }
     };
     document.addEventListener("visibilitychange", alVolverAMirar);
