@@ -13,7 +13,10 @@
  * Parte B: el caso de la bienvenida del rescate corre en los minutos % 5 == 4, mira 150 chats y sus 3 groupBy
  * llevan el filtro createdAt.
  *
- * Las partes C y D le agregan casos a esta misma prueba.
+ * Parte C: leerFichasRecientes mira como mucho 1.500 chats y 300 mensajes por chat, dentro de consultaPesada
+ * de cron; el lateral "hum" de leerChatsAbiertos mira solo 30 días.
+ *
+ * La parte D le agrega casos a esta misma prueba.
  */
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -294,6 +297,89 @@ await prueba("parte B: mira 150 chats, y las 3 groupBy llevan el filtro createdA
   }
   // Cuántos escribió la clienta y cuándo fue el último salen de la misma consulta.
   assert.ok(consultas.some((c) => c.includes("_count: { _all: true }") && c.includes("_max: { createdAt: true }")));
+});
+
+/* ── Parte C: el supervisor lee menos ── */
+
+/** El cuerpo de una función exportada de `fuente`, hasta la próxima declaración de primer nivel. */
+function cuerpoDe(fuente, nombre) {
+  const inicio = fuente.indexOf(`export async function ${nombre}(`);
+  assert.ok(inicio >= 0, `falta la función ${nombre}`);
+  const resto = fuente.slice(inicio + 1);
+  const fin = resto.search(/\n(?:export |const |type |function |async function |\/\*\*)/);
+  return fin >= 0 ? resto.slice(0, fin) : resto;
+}
+
+await prueba("parte C: leerFichasRecientes mira 1.500 chats, 300 mensajes por chat y va en consultaPesada de cron", () => {
+  const fuente = leer("src/features/supervisor/servicios/datos.ts");
+  assert.match(fuente, /^export const MAX_CHATS_DEL_SUPERVISOR = 1500;$/m);
+  assert.match(fuente, /^export const MAX_MENSAJES_POR_CHAT = 300;$/m);
+  const fichas = cuerpoDe(fuente, "leerFichasRecientes");
+  assert.match(fichas, /consultaPesada\(\{ modo: "cron" \}, async \(tx\) =>/);
+  assert.doesNotMatch(fichas, /topeSegundos/, "usa el tope de cron (20 s)");
+  assert.doesNotMatch(fichas, /prisma\./, "todo va dentro de la transacción con tope");
+  assert.match(fichas, /tx\.conversation\.findMany\(\{[\s\S]*orderBy: \[\{ createdAt: "desc" \}, \{ id: "desc" \}\],\s*take: MAX_CHATS_DEL_SUPERVISOR,/);
+  assert.match(fichas, /tx\.\$queryRaw/);
+  assert.match(fichas, /CROSS JOIN LATERAL \(/);
+  assert.match(fichas, /ORDER BY m\."createdAt" DESC\s+LIMIT \$\{MAX_MENSAJES_POR_CHAT\}\) u/, "tope de mensajes por chat");
+  assert.match(fichas, /AND m\."createdAt" >= \$\{desde\}/, "sigue la ventana de días");
+  assert.match(fichas, /ORDER BY c\."id", u\."createdAt"`/, "la ficha recibe los mensajes de viejo a nuevo");
+  assert.doesNotMatch(fichas, /pg_input_is_valid|any_value\(|json_scalar|json_serialize/);
+});
+
+await prueba("parte C: leerFichasRecientes, con una base de mentira, pide lo que dice el plan", async () => {
+  const llamadas = { consultaPesada: [], findMany: [], sql: [] };
+  const conversaciones = [
+    { id: "c2", assignedToUserId: null, contact: { metadata: {}, crmStage: "NUEVO" } },
+    { id: "c1", assignedToUserId: "u1", contact: { metadata: {}, crmStage: null } },
+  ];
+  const tx = {
+    conversation: {
+      findMany: async (args) => {
+        llamadas.findMany.push(args);
+        return conversaciones;
+      },
+    },
+    $queryRaw: async (sql) => {
+      llamadas.sql.push(sql);
+      return [];
+    },
+  };
+  const { leerFichasRecientes } = cargar("src/features/supervisor/servicios/datos.ts", {
+    "@/lib/prisma": { prisma: { whatsAppChannel: { findMany: async () => [{ id: "linea1" }] } } },
+    "@/lib/consulta-pesada": {
+      consultaPesada: async (opciones, fn) => {
+        llamadas.consultaPesada.push(opciones);
+        return fn(tx);
+      },
+    },
+    "@/features/embudo/servicios/config": { leerConfigEmbudo: async () => ({}) },
+  });
+  const ahora = new Date("2026-11-26T15:00:00Z");
+  await leerFichasRecientes({ workspaceId: "w1", ahora, dias: 30 });
+  assert.deepEqual(llamadas.consultaPesada, [{ modo: "cron" }]);
+  assert.equal(llamadas.findMany.length, 1);
+  assert.equal(llamadas.findMany[0].take, 1500);
+  assert.deepEqual(llamadas.findMany[0].orderBy, [{ createdAt: "desc" }, { id: "desc" }]);
+  assert.deepEqual(llamadas.findMany[0].where.channelId, { in: ["linea1"] });
+  assert.equal(llamadas.findMany[0].where.createdAt.gte.toISOString(), "2026-10-27T15:00:00.000Z");
+  assert.equal(llamadas.sql.length, 1);
+  const { strings, values } = llamadas.sql[0];
+  assert.ok(values.includes(300), `el tope de 300 va como parámetro: ${JSON.stringify(values)}`);
+  assert.ok(values.includes("c1") && values.includes("c2"));
+  assert.match(strings.join("?"), /LIMIT \?\) u/);
+});
+
+await prueba("parte C: el lateral \"hum\" de leerChatsAbiertos mira solo 30 días", () => {
+  const fuente = leer("src/features/supervisor/servicios/datos.ts");
+  const chats = cuerpoDe(fuente, "leerChatsAbiertos");
+  const hum = chats.slice(chats.lastIndexOf("LEFT JOIN LATERAL", chats.indexOf(") hum ON true")), chats.indexOf(") hum ON true"));
+  assert.match(hum, /AND m\."createdAt" >= NOW\(\) - INTERVAL '30 days'/, hum);
+  assert.match(hum, /'manual', 'instance'/, "es el lateral de la respuesta de una persona");
+  // Las otras copias de "hum" no cambian (chats excluidos, alertas, MCP).
+  const excluidos = cuerpoDe(fuente, "chatsExcluidosDeAtencion");
+  assert.doesNotMatch(excluidos, /INTERVAL '30 days'/);
+  assert.doesNotMatch(leer("src/features/supervisor/servicios/chats-de-alertas.ts"), /INTERVAL '30 days'/);
 });
 
 console.log(`\n${pruebas} pruebas de los crons ordenados: todas pasaron.`);
