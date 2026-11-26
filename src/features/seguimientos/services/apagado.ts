@@ -1,3 +1,5 @@
+import type { MessageDirection, MessageType } from "@prisma/client";
+
 import { prisma } from "@/lib/prisma";
 import { recordConversationActivity } from "@/lib/conversation-activity";
 
@@ -17,7 +19,17 @@ const MENSAJES_A_MIRAR = 40;
 export const ORIGENES_DEL_SISTEMA = ["AUTOMATICO", "BOT", "SISTEMA"];
 export const PREFIJO_NOTA_APAGADOS = "Seguimientos apagados: ";
 
-export type RevisionDeApagado = { motivo: MotivoDeApagado; conversationId: string; channelId: string | null } | null;
+/** Una fila de la lectura del chat: las columnas de siempre más el origen del rawPayload, sin el JSON entero. */
+type FilaDelChat = {
+  direction: MessageDirection;
+  type: MessageType;
+  content: string | null;
+  transcripcion: string | null;
+  createdAt: Date;
+  origen: string | null;
+};
+
+export type RevisionDeApagado ={ motivo: MotivoDeApagado; conversationId: string; channelId: string | null } | null;
 
 /** Mira el chat del contacto y dice si sus seguimientos automáticos deben apagarse. Nunca lanza. */
 export async function revisarApagadoDelChat(input: {
@@ -45,18 +57,20 @@ export async function revisarApagadoDelChat(input: {
     });
     if (!charla) return null;
 
-    const filas = await prisma.message.findMany({
-      where: { conversationId: charla.id, type: { not: "SYSTEM" }, deletedAt: null },
-      orderBy: { createdAt: "desc" },
-      take: MENSAJES_A_MIRAR,
-      select: { direction: true, type: true, content: true, transcripcion: true, createdAt: true, rawPayload: true },
-    });
+    // Del rawPayload solo se pide el origen (`source`): el JSON entero a veces trae fotos o audios en base64.
+    const filas = await prisma.$queryRaw<FilaDelChat[]>`
+      SELECT m."direction"::text AS "direction", m."type"::text AS "type", m."content", m."transcripcion",
+             m."createdAt", m."rawPayload"->>'source' AS origen
+        FROM "Message" m
+       WHERE m."conversationId" = ${charla.id} AND m."type" <> 'SYSTEM' AND m."deletedAt" IS NULL
+       ORDER BY m."createdAt" DESC
+       LIMIT ${MENSAJES_A_MIRAR}`;
     const mensajes: MensajeDelChat[] = filas.reverse().map((m) => ({
       direccion: m.direction === "INBOUND" ? "IN" : "OUT",
       tipo: m.type,
       texto: m.direction === "INBOUND" ? m.transcripcion?.trim() || m.content : m.content,
       en: m.createdAt,
-      origen: ((m.rawPayload as { source?: unknown } | null)?.source as string | undefined) ?? null,
+      origen: m.origen ?? null,
     }));
 
     // ¿Quién puso la etapa? Solo hace falta para un Caliente: el del sistema ya no apaga (22-11-2026).

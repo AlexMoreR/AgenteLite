@@ -1,3 +1,5 @@
+import type { MessageDirection, MessageStatus, MessageType } from "@prisma/client";
+
 import { leerEstado } from "@/features/agente-v3/motor/estado";
 import { CLAVE_COMBO } from "@/features/embudo/dominio/combo";
 import { estaResuelto } from "@/lib/chat-resuelto";
@@ -30,6 +32,22 @@ export type FichaConContexto = {
 };
 
 const MENSAJES_A_MIRAR = 80;
+const NOTAS_A_MIRAR = 30;
+
+/** Las filas de los mensajes: las columnas de siempre más el origen del rawPayload, sin el JSON entero. */
+type FilaDeNota = {
+  direction: MessageDirection;
+  type: MessageType;
+  content: string | null;
+  createdAt: Date;
+  origen: string | null;
+};
+type FilaDeLaFicha = FilaDeNota & {
+  transcripcion: string | null;
+  readAt: Date | null;
+  status: MessageStatus;
+  mediaUrl: string | null;
+};
 
 async function familiaDelProductoDelBot(workspaceId: string, productoId: string | null, claveDelEmbudo: string | null): Promise<string | null> {
   if (claveDelEmbudo === CLAVE_COMBO) return CLAVE_COMBO;
@@ -57,12 +75,14 @@ export async function leerFicha(conversationId: string): Promise<FichaConContext
   if (!charla) return null;
 
   const [filas, estado, lead] = await Promise.all([
-    prisma.message.findMany({
-      where: { conversationId, type: { not: "SYSTEM" }, deletedAt: null },
-      orderBy: { createdAt: "desc" },
-      take: MENSAJES_A_MIRAR,
-      select: { direction: true, type: true, content: true, transcripcion: true, createdAt: true, readAt: true, status: true, rawPayload: true, mediaUrl: true },
-    }),
+    // Del rawPayload solo se pide el origen (`source`): el JSON entero a veces trae fotos o audios en base64.
+    prisma.$queryRaw<FilaDeLaFicha[]>`
+      SELECT m."direction"::text AS "direction", m."type"::text AS "type", m."content", m."transcripcion",
+             m."createdAt", m."readAt", m."status"::text AS "status", m."mediaUrl", m."rawPayload"->>'source' AS origen
+        FROM "Message" m
+       WHERE m."conversationId" = ${conversationId} AND m."type" <> 'SYSTEM' AND m."deletedAt" IS NULL
+       ORDER BY m."createdAt" DESC
+       LIMIT ${MENSAJES_A_MIRAR}`,
     leerEstado(conversationId).catch(() => null),
     prisma.embudoLead
       .findUnique({
@@ -92,7 +112,7 @@ export async function leerFicha(conversationId: string): Promise<FichaConContext
     en: m.createdAt,
     leidoEn: m.readAt,
     estado: m.status,
-    origen: ((m.rawPayload as { source?: unknown } | null)?.source as string | undefined) ?? null,
+    origen: m.origen ?? null,
     media: m.mediaUrl,
   }));
 
@@ -151,18 +171,19 @@ export async function leerFicha(conversationId: string): Promise<FichaConContext
  * asesor…", llamadas). Solo se leen con el interruptor `turno:config` prendido.
  */
 export async function leerNotasDelTurno(conversationId: string): Promise<MensajeCrudo[]> {
-  const filas = await prisma.message.findMany({
-    where: { conversationId, type: "SYSTEM", deletedAt: null },
-    orderBy: { createdAt: "desc" },
-    take: 30,
-    select: { direction: true, type: true, content: true, createdAt: true, rawPayload: true },
-  });
+  const filas = await prisma.$queryRaw<FilaDeNota[]>`
+    SELECT m."direction"::text AS "direction", m."type"::text AS "type", m."content", m."createdAt",
+           m."rawPayload"->>'source' AS origen
+      FROM "Message" m
+     WHERE m."conversationId" = ${conversationId} AND m."type" = 'SYSTEM' AND m."deletedAt" IS NULL
+     ORDER BY m."createdAt" DESC
+     LIMIT ${NOTAS_A_MIRAR}`;
   return filas.reverse().map((m) => ({
     direccion: m.direction === "INBOUND" ? "IN" : "OUT",
     tipo: m.type,
     texto: m.content,
     en: m.createdAt,
     leidoEn: null,
-    origen: ((m.rawPayload as { source?: unknown } | null)?.source as string | undefined) ?? null,
+    origen: m.origen ?? null,
   }));
 }
