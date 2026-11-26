@@ -49,19 +49,61 @@ export function MenuDelContacto({ chatKey, label, phone, conversationId, puedeTr
     setAbierto(false);
     setCopiando(true);
     try {
-      const respuesta = await fetch(
-        `/api/cliente/chats/live?chatKey=${encodeURIComponent(chatKey)}&batchSize=200`,
-        { credentials: "same-origin", cache: "no-store" },
-      );
-      const datos = (await respuesta.json()) as {
-        ok?: boolean;
-        conversation?: {
-          messages?: Array<{ direction?: string; content?: string | null; type?: string; createdAt?: string }>;
-        };
-      };
+      /*
+        En páginas de 30, del más nuevo hacia atrás, hasta juntar 100 (el tope de /live). Todas van con
+        `precarga=1`: copiar no marca el chat como leído ni pide la presencia y la foto del contacto.
+      */
+      type MensajeCopiado = { id?: string; direction?: string; content?: string | null; type?: string; createdAt?: string };
+      const POR_PAGINA = 30;
+      const MAXIMO = 100;
+      const paginas: MensajeCopiado[][] = [];
+      let juntados = 0;
+      let antesDe = "";
+      while (juntados < MAXIMO) {
+        let pagina: MensajeCopiado[] = [];
+        try {
+          const respuesta = await fetch(
+            `/api/cliente/chats/live?chatKey=${encodeURIComponent(chatKey)}&batchSize=${POR_PAGINA}&precarga=1${
+              antesDe ? `&beforeMessageId=${encodeURIComponent(antesDe)}` : ""
+            }`,
+            { credentials: "same-origin", cache: "no-store" },
+          );
+          const datos = (await respuesta.json()) as { ok?: boolean; conversation?: { messages?: MensajeCopiado[] } };
+          if (!datos?.ok) {
+            // Sin la primera página no hay nada que copiar; si falla otra, se copia lo ya juntado.
+            if (paginas.length === 0) {
+              toast.error("No se pudo leer la conversación.");
+              return;
+            }
+            break;
+          }
+          pagina = datos.conversation?.messages ?? [];
+        } catch (error) {
+          // La primera página es obligatoria (mismo error de siempre); si falla otra, se copia lo juntado.
+          if (paginas.length === 0) throw error;
+          break;
+        }
+        if (pagina.length === 0) break;
+        paginas.unshift(pagina);
+        juntados += pagina.length;
+        // /live los devuelve del más viejo al más nuevo: el primero es el más viejo de la página.
+        const masViejo = pagina[0]?.id ?? "";
+        if (pagina.length < POR_PAGINA || !masViejo || masViejo === antesDe) break;
+        antesDe = masViejo;
+      }
 
-      const mensajes = datos?.conversation?.messages ?? [];
-      if (!datos?.ok || mensajes.length === 0) {
+      // En orden cronológico, sin repetidos, y los 100 más nuevos.
+      const vistos = new Set<string>();
+      const mensajes = paginas
+        .flat()
+        .filter((mensaje) => {
+          if (!mensaje.id) return true;
+          if (vistos.has(mensaje.id)) return false;
+          vistos.add(mensaje.id);
+          return true;
+        })
+        .slice(-MAXIMO);
+      if (mensajes.length === 0) {
         toast.error("No se pudo leer la conversación.");
         return;
       }

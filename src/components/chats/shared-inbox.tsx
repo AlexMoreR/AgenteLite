@@ -130,7 +130,7 @@ import { inicializarFijados, useChatsFijados } from "./chats-fijados-store";
 import { inicializarPermisosDeLaBandeja } from "./permisos-de-la-bandeja-store";
 import type { CrmStage } from "@/features/crm/types";
 import { resolveCallTarget } from "@/lib/whatsapp-lid";
-import { iniciarMedicion, terminarMedicion, terminarMedicionAlPintar } from "@/lib/metricas-chats";
+import { contarPedidoAutomatico, iniciarMedicion, terminarMedicion, terminarMedicionAlPintar } from "@/lib/metricas-chats";
 import { aplicarFirmaDelChat } from "@/lib/firma-del-chat";
 import { EditarMensajeDialog } from "@/components/chats/editar-mensaje-dialog";
 import {
@@ -159,6 +159,8 @@ import {
   type RespuestaDelEnvio,
 } from "@/lib/chat-envio-reintento";
 import { fetchCompartido } from "@/components/chats/pedido-compartido";
+import { leerRespuestaJson, pedirCompartido } from "@/lib/pedido-compartido-entre-pestanas";
+import { useCadaTantoVisible } from "@/hooks/use-cada-tanto-visible";
 
 /*
   Cuantos chats se piden al bajar por la lista. Eran 10: llegar al fondo de "Todas" (unos 2.500)
@@ -952,11 +954,16 @@ export function SharedInbox({
   }, [firmaDeConteoGuardado]);
 
   // Conteos por filtro (Mías / Sin asignar / Todas) para mostrarlos junto a cada pestaña.
+  // El ultimo pedidoDeConteos ya atendido: si el efecto corre porque subio (resolver, reabrir, ponerse
+  // al dia), el primer pedido sale a la red aunque otra pestaña tenga el numero de hace menos de 60 s.
+  const pedidoDeConteosAtendidoRef = useRef(pedidoDeConteos);
   useEffect(() => {
     const countsApiPath = conversationListApiPath.replace(/\/list$/, "/counts");
     if (countsApiPath === conversationListApiPath) {
       return;
     }
+    let frescoDelSiguiente = pedidoDeConteos !== pedidoDeConteosAtendidoRef.current ? 0 : 60_000;
+    pedidoDeConteosAtendidoRef.current = pedidoDeConteos;
 
     /*
       Cada 60 s (antes 15 s) y en pausa mientras la pestaña no se ve: son consultas pesadas.
@@ -997,15 +1004,18 @@ export function SharedInbox({
         for (const [clave, valor] of paresParaContarRef.current) params.set(clave, valor);
         const qs = params.toString();
 
-        const response = await fetch(`${countsApiPath}${qs ? `?${qs}` : ""}`, {
-          credentials: "same-origin",
-          cache: "no-store",
-        });
-        if (!response.ok) {
+        // Las pestañas que miran exactamente lo mismo (la misma URL) comparten el numero: sale un
+        // solo /counts por minuto entre todas.
+        const url = `${countsApiPath}${qs ? `?${qs}` : ""}`;
+        const frescoMs = frescoDelSiguiente;
+        frescoDelSiguiente = 60_000;
+        const { dato, origen } = await pedirCompartido(url, frescoMs, () => leerRespuestaJson(url));
+        contarPedidoAutomatico("conteos", origen);
+        if (dato.estado < 200 || dato.estado > 299) {
           return;
         }
 
-        const payload = (await response.json().catch(() => null)) as
+        const payload = dato.datos as
           | {
               ok?: boolean;
               counts?: { mine: number; unassigned: number; all: number; sinResponder?: number; noLeido?: number; equipo?: number; proveedores?: number };
@@ -1427,12 +1437,14 @@ export function SharedInbox({
   /*
     "MÍAS" AL INSTANTE (Alex, 10-nov-2026). Filtrar Todas no alcanza: la primera tanda de Todas casi
     nunca trae los chats de quien mira. Con Todas abierta, por debajo se trae la primera tanda de Mías a
-    los 3 s de cargar y se renueva cada 4 min (vive 5 en la memoria, ver listas-recientes-de-la-bandeja):
+    los 3 s de cargar y se renueva cada 4 min con la pestaña a la vista (vive 5 en la memoria, ver listas-recientes-de-la-bandeja):
     al tocar Mías se dibuja esa lista en el acto (el cambio de vista ya la toma de la memoria) y /list la
     actualiza por debajo. Solo quien ve Todas (dueño, administradores, supervisora); con la pestaña
     escondida no se pide nada. Es un /list liviano cada 4 min por pestaña.
   */
   const sinCondicionesEnLaUrl = filtrosDeLaUrl.condiciones.length === 0;
+  // La precarga vigente, para el reloj de 4 min (useCadaTantoVisible, que no corre con la pestaña oculta).
+  const precargaMiasRef = useRef<(() => Promise<void>) | null>(null);
   useEffect(() => {
     if (!(isManager || veTodoElEquipo) || !usuarioActualId) return;
     if (assignedFilter !== "all" || statusFilter !== "open" || enEspera || searchQuery.trim() || !sinCondicionesEnLaUrl) return;
@@ -1444,6 +1456,7 @@ export function SharedInbox({
       if (guardada && Date.now() - guardada.at < LISTA_FRESCA_MS) return;
       const desde = Date.now();
       try {
+        contarPedidoAutomatico("mias", "red");
         const params = new URLSearchParams();
         if (selectedConnectionKey.trim()) params.set("connection", selectedConnectionKey.trim());
         params.set("assigned", "mine");
@@ -1480,11 +1493,11 @@ export function SharedInbox({
       }
     };
     const primera = window.setTimeout(() => void precargar(), 3000);
-    const cada = window.setInterval(() => void precargar(), 4 * 60_000);
+    precargaMiasRef.current = precargar;
     return () => {
       cancelado = true;
       window.clearTimeout(primera);
-      window.clearInterval(cada);
+      if (precargaMiasRef.current === precargar) precargaMiasRef.current = null;
     };
   }, [
     isManager,
@@ -1500,6 +1513,10 @@ export function SharedInbox({
     initialConversationBatchSize,
     searchAction,
   ]);
+  // Cada 4 min, solo con la pestaña a la vista: oculta, el reloj no corre y al volver pide como mucho una vez.
+  useCadaTantoVisible(() => precargaMiasRef.current?.(), 4 * 60_000, {
+    activo: (isManager || veTodoElEquipo) && Boolean(usuarioActualId),
+  });
 
   /*
     LOS CHATS FIJADOS (ver lib/chats-fijados).
