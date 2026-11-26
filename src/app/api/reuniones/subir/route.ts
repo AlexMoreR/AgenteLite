@@ -9,7 +9,7 @@ import { randomBytes } from "node:crypto";
 import { NextResponse } from "next/server";
 
 import { auth } from "@/auth";
-import { getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
+import { getClientWorkspaceAccessForUserCached } from "@/lib/client-workspace-access";
 import { prisma } from "@/lib/prisma";
 import {
   TOPE_SUBIDA_BYTES,
@@ -39,7 +39,7 @@ export async function POST(request: Request) {
   if (!session?.user?.id) {
     return NextResponse.json({ ok: false, error: "Inicia sesión." }, { status: 401 });
   }
-  const access = await getClientWorkspaceAccessForUser(session.user.id);
+  const access = await getClientWorkspaceAccessForUserCached(session.user.id);
   if (!puedeVerReuniones(access)) {
     return NextResponse.json({ ok: false, error: "No tienes el módulo Reuniones." }, { status: 403 });
   }

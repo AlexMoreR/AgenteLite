@@ -6,12 +6,11 @@ import { z } from "zod";
 import { auth } from "@/auth";
 import {
   canAccessClientModule,
-  getClientWorkspaceAccessForUser,
+  getClientWorkspaceAccessForUserCached,
   requireClientWorkspaceAccess,
 } from "@/lib/client-workspace-access";
 import { AVISO_MODO_MONITOREO, estaEnModoMonitoreo } from "@/lib/modo-monitoreo";
 import { prisma } from "@/lib/prisma";
-import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 import {
   CALL_RESULTS,
   CALL_RESULT_LOST,
@@ -82,7 +81,7 @@ export async function ultimaLlamadaDelContactoAction(contactId: string): Promise
   if (!session?.user?.id || typeof contactId !== "string" || !contactId.trim()) {
     return null;
   }
-  const access = await getClientWorkspaceAccessForUser(session.user.id);
+  const access = await getClientWorkspaceAccessForUserCached(session.user.id);
   if (!access || !canAccessClientModule(access, "llamadas")) {
     return null;
   }
@@ -104,7 +103,7 @@ export async function sugerenciaDeLlamadaAction(
   if (!session?.user?.id || typeof attemptId !== "string" || !attemptId.trim()) {
     return { error: "No autorizado" };
   }
-  const access = await getClientWorkspaceAccessForUser(session.user.id);
+  const access = await getClientWorkspaceAccessForUserCached(session.user.id);
   if (!access || !canAccessClientModule(access, "llamadas")) {
     return { error: "No autorizado" };
   }
@@ -154,7 +153,7 @@ export async function detalleDeLlamadaAction(messageId: string): Promise<{ detal
   if (!session?.user?.id || typeof messageId !== "string" || !messageId.trim()) {
     return { error: "No autorizado" };
   }
-  const access = await getClientWorkspaceAccessForUser(session.user.id);
+  const access = await getClientWorkspaceAccessForUserCached(session.user.id);
   if (!access) {
     return { error: "No autorizado" };
   }
@@ -282,7 +281,7 @@ export async function llamadasDelEquipoAction(input: {
   if (!session?.user?.id) {
     return { error: "No autorizado" };
   }
-  const access = await getClientWorkspaceAccessForUser(session.user.id);
+  const access = await getClientWorkspaceAccessForUserCached(session.user.id);
   if (!access || !canAccessClientModule(access, "llamadas")) {
     return { error: "No autorizado" };
   }
@@ -407,7 +406,7 @@ export async function registerCallAttemptAction(input: RegisterCallInput) {
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     return { error: "No autorizado" };
   }
-  await requireClientWorkspaceAccess("llamadas");
+  const access = await requireClientWorkspaceAccess("llamadas");
 
   const parsed = registerCallSchema.safeParse(input);
   if (!parsed.success) {
@@ -431,11 +430,8 @@ export async function registerCallAttemptAction(input: RegisterCallInput) {
     return { error: AVISO_FALTA_COTIZACION };
   }
 
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
-  if (!membership) {
-    return { error: "Workspace no encontrado" };
-  }
-  const workspaceId = membership.workspace.id;
+  // El negocio sale del acceso que ya se leyo arriba (es la misma membresia).
+  const workspaceId = access.workspaceId;
 
   /*
     Quien solo monitorea no llama.
@@ -575,21 +571,16 @@ export async function searchContactsForCallAction(query: string): Promise<{ item
   if (!session?.user?.id) {
     return { items: [] };
   }
-  await requireClientWorkspaceAccess("llamadas");
+  const access = await requireClientWorkspaceAccess("llamadas");
 
   const term = query.trim();
   if (term.length < 2) {
     return { items: [] };
   }
 
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
-  if (!membership) {
-    return { items: [] };
-  }
-
   const contacts = await prisma.contact.findMany({
     where: {
-      workspaceId: membership.workspace.id,
+      workspaceId: access.workspaceId,
       excludedFromCrm: false,
       OR: [
         { name: { contains: term, mode: "insensitive" } },
@@ -631,15 +622,10 @@ export async function getContactCallHistoryAction(contactId: string): Promise<{ 
   if (!session?.user?.id) {
     return { items: [] };
   }
-  await requireClientWorkspaceAccess("crm");
-
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
-  if (!membership) {
-    return { items: [] };
-  }
+  const access = await requireClientWorkspaceAccess("crm");
 
   const attempts = await prisma.callAttempt.findMany({
-    where: { workspaceId: membership.workspace.id, contactId },
+    where: { workspaceId: access.workspaceId, contactId },
     orderBy: { calledAt: "desc" },
     take: 20,
     select: {

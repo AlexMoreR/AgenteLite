@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
+import { getClientWorkspaceAccessForUserCached } from "@/lib/client-workspace-access";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -23,8 +23,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 401 });
   }
 
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
-  if (!membership?.workspace.id) {
+  const access = await getClientWorkspaceAccessForUserCached(session.user.id);
+  if (!access) {
     return NextResponse.json({ ok: false, error: "Workspace no encontrado" }, { status: 404 });
   }
 
@@ -43,7 +43,7 @@ export async function POST(request: Request) {
     where: { endpoint },
     update: {
       userId: session.user.id,
-      workspaceId: membership.workspace.id,
+      workspaceId: access.workspaceId,
       p256dh,
       auth: authKey,
       userAgent,
@@ -51,7 +51,7 @@ export async function POST(request: Request) {
     create: {
       endpoint,
       userId: session.user.id,
-      workspaceId: membership.workspace.id,
+      workspaceId: access.workspaceId,
       p256dh,
       auth: authKey,
       userAgent,

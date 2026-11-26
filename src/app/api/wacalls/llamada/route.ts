@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { auth } from "@/auth";
-import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
+import { canAccessClientModule, getClientWorkspaceAccessForUserCached } from "@/lib/client-workspace-access";
 import { normalizePhoneFromJid } from "@/lib/evolution-webhook";
 import {
   buscarFichaDeLaLlamada,
@@ -95,7 +95,7 @@ export async function POST(request: Request) {
   }
 
   // Mismo permiso que la pantalla de Llamadas: quien no puede ver el módulo tampoco puede marcar.
-  const access = await getClientWorkspaceAccessForUser(session.user.id);
+  const access = await getClientWorkspaceAccessForUserCached(session.user.id);
   if (!access || !canAccessClientModule(access, "llamadas")) {
     return NextResponse.json({ error: "No autorizado" }, { status: 403 });
   }

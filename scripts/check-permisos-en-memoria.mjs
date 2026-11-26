@@ -57,6 +57,19 @@ const ARCHIVOS = {
   "src/app/api/cliente/api-oficial/plantillas/route.ts": ["client_official_api"],
   // Solo pide estar en un negocio, sin canAccessClientModule.
   "src/app/api/cliente/canales/estado/route.ts": [],
+  // Parte 3: llamadas, reuniones, exportar y push.
+  "src/app/api/wacalls/llamada/route.ts": ["llamadas"],
+  // Vincular una linea es configuracion del negocio: pide Conexion, no Llamadas.
+  "src/app/api/wacalls/vincular/route.ts": ["connection"],
+  // Las de antes leian el acceso sin memoria; las que piden requireClientWorkspaceAccess siguen igual.
+  "src/app/actions/call-actions.ts": ["llamadas", "llamadas", "llamadas"],
+  "src/lib/exportar-conversacion.ts": ["chats"],
+  // Solo pide estar en un negocio, sin canAccessClientModule.
+  "src/app/api/contactos/[contactId]/export-ejecucion/route.ts": [],
+  // Permiso de reuniones (puedeVerReuniones), sin canAccessClientModule.
+  "src/app/api/reuniones/subir/route.ts": [],
+  // Solo pide estar en un negocio, sin canAccessClientModule.
+  "src/app/api/push/subscribe/route.ts": [],
 };
 
 for (const [archivo, modulos] of Object.entries(ARCHIVOS)) {

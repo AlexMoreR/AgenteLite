@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
+import { getClientWorkspaceAccessForUserCached } from "@/lib/client-workspace-access";
 import { buildActiveProductContextNote, type ActiveProductContext } from "@/lib/agent-product-flow";
 import { buildFlowExecutionContextNote } from "@/lib/flow-execution-history";
 import { prisma } from "@/lib/prisma";
-import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
 function normalizeFileNamePart(value: string) {
   return value
@@ -39,15 +39,15 @@ export async function GET(
   }
 
   const { contactId } = await context.params;
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
-  if (!membership) {
+  const access = await getClientWorkspaceAccessForUserCached(session.user.id);
+  if (!access) {
     return NextResponse.json({ error: "Workspace no encontrado" }, { status: 404 });
   }
 
   const contact = await prisma.contact.findFirst({
     where: {
       id: contactId,
-      workspaceId: membership.workspace.id,
+      workspaceId: access.workspaceId,
     },
     select: {
       id: true,
@@ -172,8 +172,8 @@ export async function GET(
     exportMode,
     exportedAt: new Date().toISOString(),
     workspace: {
-      id: membership.workspace.id,
-      name: membership.workspace.name,
+      id: access.workspaceId,
+      name: access.workspaceName,
     },
     contact: {
       id: contact.id,
@@ -301,8 +301,8 @@ export async function GET(
     exportMode,
     exportedAt: new Date().toISOString(),
     workspace: {
-      id: membership.workspace.id,
-      name: membership.workspace.name,
+      id: access.workspaceId,
+      name: access.workspaceName,
     },
     contact: {
       id: contact.id,

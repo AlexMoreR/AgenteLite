@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import QRCode from "qrcode";
 
 import { auth } from "@/auth";
-import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
+import { canAccessClientModule, getClientWorkspaceAccessForUserCached } from "@/lib/client-workspace-access";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import {
@@ -34,7 +34,7 @@ async function verificarPermiso() {
   if (!session?.user?.id) {
     return { error: NextResponse.json({ error: "No autorizado" }, { status: 401 }) };
   }
-  const access = await getClientWorkspaceAccessForUser(session.user.id);
+  const access = await getClientWorkspaceAccessForUserCached(session.user.id);
   // Vincular una línea es configuración del negocio, igual que conectar un WhatsApp: se pide el
   // permiso de Conexión, no el de Llamadas.
   if (!access || !canAccessClientModule(access, "connection")) {

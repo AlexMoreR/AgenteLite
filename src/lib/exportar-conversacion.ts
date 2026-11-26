@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { auth } from "@/auth";
-import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
-import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
+import { canAccessClientModule, getClientWorkspaceAccessForUserCached } from "@/lib/client-workspace-access";
 import { getPublicBaseUrl } from "@/lib/app-url";
 import { prisma } from "@/lib/prisma";
 
@@ -237,16 +236,12 @@ export async function cargarConversacionParaExportar(
     return falla("No autorizado", 401);
   }
 
-  const access = await getClientWorkspaceAccessForUser(session.user.id);
+  const access = await getClientWorkspaceAccessForUserCached(session.user.id);
   if (!access || !canAccessClientModule(access, "chats")) {
     return falla("No autorizado", 403);
   }
 
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
-  const workspaceId = membership?.workspace.id;
-  if (!workspaceId) {
-    return falla("Workspace no encontrado", 404);
-  }
+  const workspaceId = access.workspaceId;
 
   const chatKey = new URL(request.url).searchParams.get("chatKey")?.trim() || "";
   const parsed = parseChatKey(chatKey);

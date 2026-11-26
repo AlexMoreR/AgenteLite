@@ -449,6 +449,8 @@ const acceso = { actual: { workspaceId: negocio, modulos: ["llamadas"] } };
 simulados["@/auth"] = { auth: async () => sesion.actual };
 simulados["@/lib/client-workspace-access"] = {
   getClientWorkspaceAccessForUser: async () => acceso.actual,
+  // La ruta usa la version con memoria de 45 s (Rutas con permisos en memoria, parte 3).
+  getClientWorkspaceAccessForUserCached: async () => acceso.actual,
   canAccessClientModule: (access, modulo) => access.modulos.includes(modulo),
 };
 const { POST: POST_LLAMADA } = cargarTs("src/app/api/wacalls/llamada/route.ts");
