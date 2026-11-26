@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
+import { useCadaTantoVisible } from "@/hooks/use-cada-tanto-visible";
 import { vistaDeHoyAction } from "@/app/actions/tableros-inteligentes-actions";
 import type { LineaDeHoy, VistaDeHoy as DatosDeHoy } from "../services/resumen-diario";
 import { linkDeLaTarjetaEnPantalla } from "./DialogoDeTablero";
@@ -13,7 +14,7 @@ import { linkDeLaTarjetaEnPantalla } from "./DialogoDeTablero";
   La vista "Hoy" de Tablero IA (/cliente/tablero-ia?vista=hoy, el link de los WhatsApp del Coordinador):
   tres grupos (listas hoy, con problema hoy, te toca a ti) y UNA línea por tarjeta: el título corto y el
   resumen de una línea de la ficha. Tocar la línea abre la tarjeta, donde quedan el plan, los commits, las
-  pruebas y los links. Solo el dueño o el ADMIN. Se refresca cada minuto.
+  pruebas y los links. Solo el dueño o el ADMIN. Se refresca cada minuto, solo con la pestaña a la vista.
 */
 
 const REFRESCO_MS = 60_000;
@@ -52,21 +53,28 @@ function Linea({ linea }: { linea: LineaDeHoy }) {
 export function VistaDeHoy() {
   const [datos, setDatos] = useState<DatosDeHoy | null>(null);
 
-  useEffect(() => {
-    let vigente = true;
-    const leer = (avisar: boolean) =>
+  // Evita escribir el estado si la respuesta llega cuando la caja ya no está en pantalla.
+  const vigente = useRef(true);
+  const leer = useCallback(
+    (avisar: boolean) =>
       void vistaDeHoyAction().then((respuesta) => {
-        if (!vigente) return;
+        if (!vigente.current) return;
         if (respuesta.ok) setDatos(respuesta.vista);
         else if (avisar) toast.error(respuesta.error);
-      });
+      }),
+    [],
+  );
+
+  useEffect(() => {
+    vigente.current = true;
     leer(true);
-    const reloj = setInterval(() => leer(false), REFRESCO_MS);
     return () => {
-      vigente = false;
-      clearInterval(reloj);
+      vigente.current = false;
     };
-  }, []);
+  }, [leer]);
+
+  // Con la pestaña oculta no se pide nada; al volver, una lectura si ya tocaba.
+  useCadaTantoVisible(() => leer(false), REFRESCO_MS);
 
   return (
     <section aria-labelledby="titulo-hoy" className="space-y-4">
