@@ -1,4 +1,4 @@
-import { cacheDeContadores } from "@/lib/cache-de-contadores";
+import { cacheDeContadores, cacheDePospuestos } from "@/lib/cache-de-contadores";
 import { CacheConTtl } from "@/lib/cache-en-memoria";
 import type { CanalDelNegocio } from "@/lib/canales-del-negocio";
 import type { ClientWorkspaceAccess } from "@/lib/client-workspace-access";
@@ -107,4 +107,5 @@ export function vaciarCachesDePermisos() {
   cacheDeSupervisoras.vaciar();
   cacheDeCanales.vaciar();
   cacheDeContadores.vaciar();
+  cacheDePospuestos.vaciar();
 }

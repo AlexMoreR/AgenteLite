@@ -6,7 +6,8 @@
 // - Arreglo de subida de la parte 1: /tomar y /arranque (trabajador.ts) le pasan un plazo propio a
 //   prisma.$transaction, y /tomar lee los intentos y el historial despues del commit.
 // - Parte 2: la ficha, las notas del turno y el apagado leen solo "rawPayload"->>'source' (en PGlite).
-// - Partes 3 y 4: sus pruebas van en las secciones de abajo.
+// - Parte 3: /counts lee el canal y la configuracion oficial una sola vez por pedido.
+// - Parte 4: /counts guarda 30 s por negocio los pospuestos (con su fecha) y posponer borra esa memoria.
 // No toca ninguna base real (la parte 2 usa PGlite, un Postgres embebido). Correr: npm run test:chats-mas-rapido
 import fs from "node:fs";
 import path from "node:path";
@@ -775,7 +776,12 @@ async function pedirConteosParte3({ query = "", rol = "OWNER", proveedorDelCanal
         }),
       },
       // Sin memoria: cada pedido cuenta de verdad.
-      "@/lib/cache-de-contadores": { cacheDeContadores: { obtener: (_clave, fn) => fn() }, claveDeContadores: () => "x" },
+      "@/lib/cache-de-contadores": {
+        cacheDeContadores: { obtener: (_clave, fn) => fn() },
+        cacheDePospuestos: { obtener: (_clave, fn) => fn() },
+        claveDeContadores: () => "x",
+        idsPospuestosAhora: (filas) => filas.map((fila) => fila.id),
+      },
       "@/lib/server-timing": { conServerTiming: (fn) => (request) => fn(request, { marca() {} }) },
       "@/lib/official-api-config": {},
       "@/lib/official-api-media": {},
@@ -867,8 +873,166 @@ await prueba("parte 3: en el archivo, una sola lectura de canal y de config, fue
 });
 
 /* ------------------------------------------------------------------------------------------------
-   Parte 4: (la agrega la parte 4)
+   Parte 4: /counts guarda 30 s por negocio los contactos pospuestos (cacheDePospuestos), con su
+   fecha, y la compara con la hora de cada pedido. Se usa la memoria DE VERDAD
+   (src/lib/cache-de-contadores.ts) y la accion de posponer de verdad (snoozeLeadAction), cargadas
+   juntas para que compartan la misma memoria. La memoria de la respuesta entera se vacia entre
+   pedidos, para que cada pedido cuente y se vea solo la de pospuestos.
 ------------------------------------------------------------------------------------------------ */
+function entornoDeLaParte4() {
+  const consultas = { pospuestos: 0 };
+  // contactId -> metadata. "c_pospuesto" se pospone a mano en las pruebas.
+  const metadatas = new Map([["c_pospuesto", {}]]);
+  const { prisma: base } = baseDeLaParte3({ proveedorDelCanal: "OFFICIAL_API" });
+  const prisma = {
+    ...base,
+    async $queryRaw(primero, ...valores) {
+      const sql = Array.isArray(primero) ? PrismaReal.sql(primero, ...valores) : primero;
+      if (/snoozedUntil/.test(sql.text)) {
+        consultas.pospuestos += 1;
+        assert.ok(sql.values.includes("ws_1"), "la consulta de pospuestos va por negocio");
+        const desde = sql.values.find((v) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}T/.test(v));
+        return [...metadatas]
+          .filter(([, m]) => typeof m.snoozedUntil === "string" && m.snoozedUntil > desde)
+          .map(([id, m]) => ({ id, hasta: m.snoozedUntil }));
+      }
+      return base.$queryRaw(primero, ...valores);
+    },
+    // Los chats que cuenta: 100, menos 1 si "c_pospuesto" va descontado (notIn).
+    conversation: {
+      count: async ({ where }) => (JSON.stringify(where).includes('"notIn":["c_pospuesto"]') ? 99 : 100),
+    },
+    contact: {
+      findFirst: async ({ where }) =>
+        where.workspaceId === "ws_1" && metadatas.has(where.id) ? { id: where.id, metadata: metadatas.get(where.id) } : null,
+      update: async ({ where, data }) => {
+        metadatas.set(where.id, data.metadata);
+        return { id: where.id };
+      },
+    },
+  };
+  const vacio = new Proxy({}, { get: (_o, k) => (k === "__esModule" ? false : async () => null) });
+  const cargar = cargadorDeSrc({
+    "server-only": {},
+    react: { cache: (f) => f },
+    "@/lib/prisma": { prisma },
+    "@/auth": { auth: async () => ({ user: { id: "maria", role: "CLIENTE" } }) },
+    "@/lib/client-workspace-access": {
+      canAccessClientModule: () => true,
+      getClientWorkspaceAccessForUserCached: async () => ({ membershipRole: "OWNER", workspaceId: "ws_1" }),
+      requireClientWorkspaceAccess: async () => ({}),
+    },
+    "@/lib/workspace": { getPrimaryWorkspaceForUser: async () => ({ workspace: { id: "ws_1" } }) },
+    "next/cache": { revalidatePath: () => {} },
+    "@/lib/channel-visibility": {
+      getVisibleChannelIds: async () => null,
+      resolverConexionElegida: async ({ connectionKey }) => connectionKey,
+    },
+    "@/lib/modo-monitoreo": { canalesQueMonitorea: async () => [], AVISO_MODO_MONITOREO: "", estaEnModoMonitoreo: async () => false },
+    "@/lib/permisos-del-equipo": { esSupervisora: async () => false },
+    "@/lib/canales-del-negocio": { canalesDelNegocio: async () => [] },
+    "@/features/chats/services/espera-de-chats": {
+      esperaDelNegocio: async () => [],
+      esperaParaPersona: () => ({ mine: 0, all: 0, chats: [] }),
+    },
+    "@/features/chats/services/contactos-internos": {
+      contactosInternos: async () => ({
+        equipoIds: [],
+        proveedorIds: [],
+        variantesDeTelefono: [],
+        etiquetasEquipoIds: [],
+        etiquetasProveedorIds: [],
+      }),
+    },
+    "@/lib/server-timing": { conServerTiming: (fn) => (request) => fn(request, { marca() {} }) },
+    "@/lib/official-api-config": {},
+    "@/lib/official-api-media": {},
+    // Lo que crm-actions importa y posponer no usa.
+    "@/lib/historial-etapa": vacio,
+    "@/features/crm/services/candado-descarte-sin-respuesta": vacio,
+    "@/lib/origen-de-venta-crm": vacio,
+    "@/features/embudo/servicios/eventos": vacio,
+    "@/lib/contacto-tiene-otros-chats": vacio,
+    "@/features/seguimientos/services/follows": vacio,
+    "@/lib/conversation-activity": vacio,
+    "@/lib/conversation-claim": vacio,
+    "@/lib/crm-stage-sync": { CLAVE_CIERRE_PENDIENTE: "cierrePendiente" },
+  });
+  const memorias = cargar("@/lib/cache-de-contadores");
+  const { GET } = cargar("@/app/api/cliente/chats/counts/route");
+  async function pedir() {
+    memorias.cacheDeContadores.vaciar();
+    const respuesta = await GET(new Request("http://local/api/cliente/chats/counts"));
+    const cuerpo = await respuesta.json();
+    assert.equal(cuerpo.ok, true, JSON.stringify(cuerpo));
+    return cuerpo.counts;
+  }
+  return { cargar, consultas, metadatas, pedir, memorias };
+}
+
+await prueba("parte 4: dos pedidos seguidos del mismo negocio hacen UNA consulta de pospuestos", async () => {
+  const { consultas, metadatas, pedir } = entornoDeLaParte4();
+  metadatas.set("c_pospuesto", { snoozedUntil: new Date(Date.now() + 60 * 60_000).toISOString() });
+  const primero = await pedir();
+  const segundo = await pedir();
+  assert.equal(consultas.pospuestos, 1);
+  assert.equal(primero.all, 109, "el pospuesto se descuenta (99 viejo + 10 oficial)");
+  assert.deepEqual(segundo, primero);
+});
+
+await prueba("parte 4: un pospuesto que vence mientras esta en la memoria vuelve a contar enseguida", async () => {
+  const { consultas, metadatas, pedir } = entornoDeLaParte4();
+  metadatas.set("c_pospuesto", { snoozedUntil: new Date(Date.now() + 150).toISOString() });
+  assert.equal((await pedir()).all, 109);
+  await new Promise((r) => setTimeout(r, 250));
+  // Sigue en la memoria (una sola consulta), pero ya vencio: no se descuenta.
+  assert.equal((await pedir()).all, 110);
+  assert.equal(consultas.pospuestos, 1);
+});
+
+await prueba("parte 4: un pospuesto ya vencido no se descuenta", async () => {
+  const { metadatas, pedir, memorias } = entornoDeLaParte4();
+  metadatas.set("c_pospuesto", { snoozedUntil: new Date(Date.now() - 60_000).toISOString() });
+  assert.equal((await pedir()).all, 110);
+  // Y la comparacion sola: texto ISO contra la hora del pedido, como el SQL de antes.
+  const ahora = new Date("2026-11-26T15:00:00.000Z");
+  assert.deepEqual(
+    memorias.idsPospuestosAhora(
+      [
+        { id: "vencido", hasta: "2026-11-26T14:59:59.999Z" },
+        { id: "justo", hasta: "2026-11-26T15:00:00.000Z" },
+        { id: "vigente", hasta: "2026-11-26T15:00:00.001Z" },
+      ],
+      ahora,
+    ),
+    ["vigente"],
+  );
+});
+
+await prueba("parte 4: despues de posponer o quitar el pospuesto desde crm-actions se vuelve a leer", async () => {
+  const { cargar, consultas, pedir } = entornoDeLaParte4();
+  const { snoozeLeadAction } = cargar("@/app/actions/crm-actions");
+  assert.equal((await pedir()).all, 110);
+  assert.equal(consultas.pospuestos, 1);
+
+  const hasta = new Date(Date.now() + 2 * 60 * 60_000).toISOString();
+  assert.deepEqual(await snoozeLeadAction({ contactId: "c_pospuesto", hasta }), { ok: true });
+  assert.equal((await pedir()).all, 109, "el recien pospuesto se descuenta en el pedido siguiente");
+  assert.equal(consultas.pospuestos, 2);
+
+  assert.deepEqual(await snoozeLeadAction({ contactId: "c_pospuesto", hasta: null }), { ok: true });
+  assert.equal((await pedir()).all, 110, "al quitar el pospuesto vuelve a contar");
+  assert.equal(consultas.pospuestos, 3);
+});
+
+await prueba("parte 4: vaciarCachesDePermisos tambien vacia la memoria de pospuestos", () => {
+  const cargar = cargadorDeSrc({ "@/lib/client-workspace-access": {}, "@/lib/canales-del-negocio": {} });
+  const { cacheDePospuestos } = cargar("@/lib/cache-de-contadores");
+  const { vaciarCachesDePermisos } = cargar("@/lib/cache-de-permisos");
+  cacheDePospuestos.guardar("ws_1", [{ id: "c", hasta: "2999-01-01T00:00:00.000Z" }]);
+  vaciarCachesDePermisos();
+  assert.equal(cacheDePospuestos.leer("ws_1"), undefined);
+});
 
 if (fallas > 0) {
   console.error(`\n${fallas} prueba(s) fallaron.`);

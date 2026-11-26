@@ -25,3 +25,36 @@ export function claveDeContadores(input: { workspaceId: string; userId: string; 
     .join("&");
   return `${input.workspaceId}|${input.userId}|${parametros}`;
 }
+
+/**
+ * Memoria de los contactos POSPUESTOS de cada negocio (30 s), para los numeros de /counts.
+ *
+ * La consulta de `metadata->>'snoozedUntil'` corria en cada pedido que no salia de la memoria de
+ * arriba, y esa memoria es por persona y por filtros: con varias asesoras y pestañas, la misma
+ * lista de pospuestos del negocio se leia muchas veces por minuto. Aca se guarda UNA vez por negocio.
+ *
+ * Se guarda cada contacto CON su fecha de "pospuesto hasta", no la lista ya filtrada: el que lo usa
+ * compara cada fecha con la hora de ESE pedido (`idsPospuestosAhora`). Asi un pospuesto que vence
+ * vuelve a contar enseguida, igual que antes, aunque la memoria tenga hasta 30 s.
+ *
+ * Posponer o quitar el pospuesto desde la pantalla (snoozeLeadAction) borra la memoria del negocio.
+ */
+export const TTL_POSPUESTOS_MS = 30_000;
+
+export type ContactoPospuesto = { id: string; hasta: string };
+
+export const cacheDePospuestos = new CacheConTtl<ContactoPospuesto[]>({ ttlMs: TTL_POSPUESTOS_MS, maxEntradas: 300 });
+
+/** Borra la memoria de pospuestos de un negocio (despues de posponer o quitar el pospuesto). */
+export function borrarPospuestosDelNegocio(workspaceId: string) {
+  cacheDePospuestos.invalidar(workspaceId);
+}
+
+/**
+ * Los ids que siguen pospuestos a la hora `ahora`. Compara texto ISO contra texto ISO, igual que
+ * hacia el SQL de antes (`"metadata"->>'snoozedUntil' > ahora`): los numeros salen iguales.
+ */
+export function idsPospuestosAhora(contactos: ContactoPospuesto[], ahora: Date = new Date()): string[] {
+  const ahoraIso = ahora.toISOString();
+  return contactos.filter((contacto) => contacto.hasta > ahoraIso).map((contacto) => contacto.id);
+}
