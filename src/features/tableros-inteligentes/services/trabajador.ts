@@ -480,6 +480,13 @@ function paraElTrabajador(fila: FilaParaTrabajar, intentos: DatosDeIntentos, anc
 export type TarjetaParaTrabajar = ReturnType<typeof paraElTrabajador>;
 
 /**
+ * El plazo de las transacciones que esperan el candado del negocio (/tomar y /arranque). Prisma trae 5 s por defecto, y
+ * con el servidor recién arrancado o la base ocupada (o con /arranque sosteniendo el candado) /tomar los pasaba y fallaba
+ * con "Transaction API error ... expired transaction" (26-nov-2026). `maxWait` acota la espera por una conexión libre.
+ */
+const PLAZO_CON_CANDADO_DEL_NEGOCIO = { maxWait: 10_000, timeout: 30_000 };
+
+/**
  * POST /tomar. Devuelve `{ tarjeta: null, motivo }` si no hay nada (o ya tiene `maxParalelo` en las
  * manos: "ocupado"), o la tarjeta con `hacer` = planear | construir | subir. Todo en UNA transacción
  * con el candado del negocio.
@@ -490,7 +497,7 @@ export async function tomarTarjeta(contexto: ContextoTrabajador, pedido: PedidoD
   const areaPermitidaId = areaPermitidaDeEntrada(pedido.areaPermitidaId);
   const iso = ahora.toISOString();
   const vence = new Date(ahora.getTime() + MINUTOS_DE_GRACIA_DEL_LATIDO * 60_000).toISOString();
-  return prisma.$transaction(async (tx) => {
+  const resultado = await prisma.$transaction(async (tx) => {
     await tx.$queryRawUnsafe(SQL_CANDADO_DEL_NEGOCIO, contexto.workspaceId);
 
     // Las vencidas sin latido vuelven a la fila (sueltas; una SUBIENDO, a SUBIENDO pendiente) o, si se pasaron del tope
@@ -574,8 +581,13 @@ export async function tomarTarjeta(contexto: ContextoTrabajador, pedido: PedidoD
     const fila = await tx.tarjetaTablero.findUniqueOrThrow({ where: { id: tomada.id }, select: SELECT_PARA_TRABAJAR });
     const hacer = esEstado(tomada.estado) ? ETAPA_DEL_ESTADO[tomada.estado] : undefined;
     const ancestros = (await ancestrosDe(tx, [fila.id])).get(fila.id) ?? [];
-    return { tarjeta: paraElTrabajador(fila, await datosDeIntentos(tx, fila), ancestros), hacer: hacer as EtapaDelTrabajador, ...avisos };
-  });
+    return { tomada: { fila, ancestros }, hacer: hacer as EtapaDelTrabajador, ...avisos };
+  }, PLAZO_CON_CANDADO_DEL_NEGOCIO);
+  if (!("tomada" in resultado)) return resultado;
+  // Los intentos y el historial se leen después del commit: es solo lectura, para el Coordinador, y así la transacción
+  // dura menos y esta lectura no choca con una transacción ya vencida (falla del 26-nov-2026 tras una subida).
+  const { tomada, ...resto } = resultado;
+  return { tarjeta: paraElTrabajador(tomada.fila, await datosDeIntentos(prisma, tomada.fila), tomada.ancestros), ...resto };
 }
 
 /** La nota del historial cuando el arranque cuelga de Features una tarjeta suelta del Coordinador. */
@@ -620,7 +632,7 @@ export async function arranqueDelTrabajador(contexto: ContextoTrabajador, ahora 
     }
     await tocarTableros(tx, [...filas.map((fila) => fila.tableroId), ...(movidas.length ? [TABLERO_DE_FEATURES_ID] : [])], ahora);
     return { ok: true, sueltas: filas.map((fila) => fila.id), movidasAFeatures: movidas.map((fila) => fila.id) };
-  });
+  }, PLAZO_CON_CANDADO_DEL_NEGOCIO);
 }
 
 /**

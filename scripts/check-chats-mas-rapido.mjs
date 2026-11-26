@@ -3,6 +3,8 @@
 // - Parte 1: la linea [timing] de conServerTiming (src/lib/server-timing.ts) trae retrasoEventLoop
 //   (p99 y maximo en ms del retraso del event loop de Node desde el pedido anterior), y si el monitor
 //   falla el pedido igual responde y la linea sale sin ese campo. No va en la cabecera Server-Timing.
+// - Arreglo de subida de la parte 1: /tomar y /arranque (trabajador.ts) le pasan un plazo propio a
+//   prisma.$transaction, y /tomar lee los intentos y el historial despues del commit.
 // - Partes 2, 3 y 4: sus pruebas van en las secciones de abajo.
 // No toca ninguna base. Correr: npm run test:chats-mas-rapido
 import fs from "node:fs";
@@ -226,6 +228,167 @@ await prueba("parte 1: si el manejador falla, la linea 500 sale igual y el error
   const datos = lineaTiming(lineas);
   assert.equal(datos.status, 500);
   assert.equal(typeof datos.retrasoEventLoop?.p99, "number");
+});
+
+/* ------------------------------------------------------------------------------------------------
+   Parte 1, arreglo de subida (26-11-2026): la vigilancia deshizo la parte 1 porque /tomar paso los 5 s
+   que Prisma da por defecto a una transaccion y la lectura del historial choco con la transaccion vencida.
+   /tomar y /arranque le pasan un plazo propio a prisma.$transaction, y datosDeIntentos sale de la de /tomar.
+------------------------------------------------------------------------------------------------ */
+function cuerpoDeFuncion(fuente, nombre) {
+  const inicio = fuente.indexOf(`export async function ${nombre}(`);
+  assert.ok(inicio >= 0, `no esta la funcion ${nombre}`);
+  const siguiente = fuente.indexOf("\nexport ", inicio + 1);
+  return fuente.slice(inicio, siguiente < 0 ? undefined : siguiente);
+}
+
+const fuenteTrabajador = fs.readFileSync(path.join(raiz, "src/features/tableros-inteligentes/services/trabajador.ts"), "utf8");
+
+await prueba("el plazo con candado del negocio tiene timeout de 30 s o mas", () => {
+  const plazo = fuenteTrabajador.match(/const PLAZO_CON_CANDADO_DEL_NEGOCIO = \{([^}]*)\}/);
+  assert.ok(plazo, "falta la constante PLAZO_CON_CANDADO_DEL_NEGOCIO");
+  const timeout = Number(plazo[1].match(/timeout:\s*([\d_]+)/)?.[1].replaceAll("_", ""));
+  const maxWait = Number(plazo[1].match(/maxWait:\s*([\d_]+)/)?.[1].replaceAll("_", ""));
+  assert.ok(timeout >= 30_000, `timeout ${timeout}`);
+  assert.ok(maxWait > 0, `maxWait ${maxWait}`);
+});
+
+for (const nombre of ["tomarTarjeta", "arranqueDelTrabajador"]) {
+  await prueba(`${nombre} le pasa el plazo a prisma.$transaction`, () => {
+    const cuerpo = cuerpoDeFuncion(fuenteTrabajador, nombre);
+    assert.match(cuerpo, /prisma\.\$transaction\(/);
+    assert.match(cuerpo, /\}, PLAZO_CON_CANDADO_DEL_NEGOCIO\);/);
+  });
+}
+
+await prueba("tomarTarjeta lee los intentos fuera de la transaccion", () => {
+  const cuerpo = cuerpoDeFuncion(fuenteTrabajador, "tomarTarjeta");
+  const finDeLaTransaccion = cuerpo.indexOf("}, PLAZO_CON_CANDADO_DEL_NEGOCIO);");
+  assert.ok(finDeLaTransaccion > 0);
+  assert.doesNotMatch(cuerpo, /datosDeIntentos\(tx/);
+  assert.ok(cuerpo.indexOf("datosDeIntentos(prisma") > finDeLaTransaccion, "datosDeIntentos(prisma, ...) va despues del commit");
+});
+
+/**
+ * Un prisma falso: $transaction guarda el plazo que recibe y corre fn con un tx que, al terminar fn, queda vencido
+ * (usarlo despues falla como en produccion). Las consultas crudas de /tomar responden en orden: el candado, vencidas,
+ * madres partidas, huerfanas, las que estan en curso, la tomada y sus ancestros.
+ */
+function prismaFalso({ tomada }) {
+  const plazos = [];
+  const fila = {
+    id: "t1",
+    tableroId: "b1",
+    titulo: "Tarjeta",
+    detalle: "",
+    plan: "plan",
+    resultado: null,
+    estado: "EN_CURSO",
+    repo: "aizencrm",
+    zonaProtegida: [],
+    riesgo: null,
+    riesgoMotivo: null,
+    intentos: 1,
+    reparaciones: 0,
+    trabajoVenceEn: null,
+    tablero: { nombre: "Tablero" },
+  };
+  const modelos = (alUsar) =>
+    new Proxy(
+      {},
+      {
+        get: (_o, modelo) =>
+          new Proxy(
+            {},
+            {
+              get: (_m, metodo) => async () => {
+                alUsar(`${String(modelo)}.${String(metodo)}`);
+                if (modelo === "tarjetaTablero" && metodo === "findUniqueOrThrow") return fila;
+                if (modelo === "intentoTarjeta" && metodo === "findMany")
+                  return [{ numero: 1, etapa: "construir", categoria: "otra", causa: "c", error: "se cayo", accion: "reintentar", cuentaComoIntento: true }];
+                if (metodo === "findMany") return [];
+                if (metodo === "updateMany" || metodo === "createMany") return { count: 0 };
+                return {};
+              },
+            },
+          ),
+      },
+    );
+  const usadosFuera = [];
+  const base = modelos((uso) => usadosFuera.push(uso));
+  const prisma = new Proxy(
+    {},
+    {
+      get: (_o, clave) => {
+        if (clave === "$transaction")
+          return async (fn, plazo) => {
+            plazos.push(plazo);
+            let vencida = false;
+            const respuestas = [[], [], [], [], [], tomada ? [{ id: "t1", tableroId: "b1", antes: "APROBADO", estado: "EN_CURSO" }] : [], [{ id: "t1", ancestros: [] }]];
+            const usar = (uso) => {
+              if (vencida) throw new Error(`Transaction API error: ${uso} on an expired transaction`);
+            };
+            const modelosTx = modelos(usar);
+            const tx = new Proxy(
+              {},
+              {
+                get: (_t, k) => {
+                  if (k === "$queryRawUnsafe") return async () => (usar("$queryRawUnsafe"), respuestas.shift() ?? []);
+                  if (k === "$executeRawUnsafe") return async () => (usar("$executeRawUnsafe"), 0);
+                  return modelosTx[k];
+                },
+              },
+            );
+            try {
+              return await fn(tx);
+            } finally {
+              vencida = true;
+            }
+          };
+        if (clave === "$queryRawUnsafe") return async () => (usadosFuera.push("$queryRawUnsafe"), []);
+        return base[clave];
+      },
+    },
+  );
+  return { prisma, plazos, usadosFuera };
+}
+
+const cargarTrabajador = (falso) =>
+  cargadorDeSrc({ "@/lib/prisma": { prisma: falso.prisma } })("@/features/tableros-inteligentes/services/trabajador");
+
+await prueba("tomarTarjeta: pasa el plazo, lee los intentos despues del commit y la respuesta trae los datos de intentos", async () => {
+  const falso = prismaFalso({ tomada: true });
+  const { tomarTarjeta } = cargarTrabajador(falso);
+  const respuesta = await tomarTarjeta({ claveId: "c1", workspaceId: "w1", nombre: "Coordinador" }, {});
+  assert.equal(falso.plazos.length, 1);
+  assert.ok(falso.plazos[0]?.timeout >= 30_000 && falso.plazos[0]?.maxWait > 0, JSON.stringify(falso.plazos[0]));
+  assert.equal(respuesta.hacer, "construir");
+  assert.equal(respuesta.tarjeta.id, "t1");
+  for (const campo of ["ultimosIntentos", "esperasSeguidas", "esParte", "ultimoError", "planAprobadoPorElDueno"]) {
+    assert.ok(campo in respuesta.tarjeta, `falta ${campo}`);
+  }
+  assert.equal(respuesta.tarjeta.ultimoError, "se cayo");
+  assert.equal(respuesta.tarjeta.ultimosIntentos.length, 1);
+  assert.ok(!("tomada" in respuesta), "no se filtra el campo interno tomada");
+  assert.ok(falso.usadosFuera.includes("intentoTarjeta.findMany"), "los intentos se leen con prisma, fuera de la transaccion");
+  assert.ok(falso.usadosFuera.includes("historialTarjeta.findMany"), "el historial se lee con prisma, fuera de la transaccion");
+});
+
+await prueba("tomarTarjeta: sin tarjeta para tomar responde nada y no lee intentos", async () => {
+  const falso = prismaFalso({ tomada: false });
+  const { tomarTarjeta } = cargarTrabajador(falso);
+  const respuesta = await tomarTarjeta({ claveId: "c1", workspaceId: "w1", nombre: "Coordinador" }, {});
+  assert.equal(respuesta.tarjeta, null);
+  assert.equal(respuesta.motivo, "nada");
+  assert.deepEqual(falso.usadosFuera, []);
+});
+
+await prueba("arranqueDelTrabajador: pasa el plazo a prisma.$transaction", async () => {
+  const falso = prismaFalso({ tomada: false });
+  const { arranqueDelTrabajador } = cargarTrabajador(falso);
+  const respuesta = await arranqueDelTrabajador({ claveId: "c1", workspaceId: "w1", nombre: "Coordinador" });
+  assert.equal(respuesta.ok, true);
+  assert.ok(falso.plazos[0]?.timeout >= 30_000 && falso.plazos[0]?.maxWait > 0, JSON.stringify(falso.plazos[0]));
 });
 
 /* ------------------------------------------------------------------------------------------------
