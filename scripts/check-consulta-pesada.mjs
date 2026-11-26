@@ -8,6 +8,8 @@
  * 3. Con el semaforo lleno se devuelve la copia guardada.
  * 4. Dos pedidos dentro del TTL hacen una sola consulta.
  * 5. Un error no queda guardado.
+ * 6. Actividad (resumenDelEquipo, ultimaAccionPorPersona) y el Supervisor (leerChatsAbiertos) pasan
+ *    por el freno, con cache de 1 minuto, y el cron del Supervisor pide modo "cron".
  */
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -238,6 +240,54 @@ await prueba("importar el archivo no toca la base: prisma se importa recien en l
   const fuente = fs.readFileSync(path.join(RAIZ, "src/lib/consulta-pesada.ts"), "utf8");
   assert.doesNotMatch(fuente, /^import [^\n]*from "@\/lib\/prisma"/m, "sin import fijo de prisma");
   assert.match(fuente, /await import\("@\/lib\/prisma"\)/);
+});
+
+const leerFuente = (archivo) => fs.readFileSync(path.join(RAIZ, archivo), "utf8");
+const IMPORTA_CONSULTA_PESADA = /^import \{[^}]*\bconsultaPesada\b[^}]*\} from "@\/lib\/consulta-pesada";$/m;
+const CACHE_DE_1_MINUTO = /new CacheConTtl<[^>]+>\(\{ ttlMs: 60_000, maxEntradas: 50 \}\)/;
+
+/** El cuerpo de una funcion exportada, hasta la siguiente funcion o constante exportada. */
+function cuerpoDe(fuente, nombre) {
+  const inicio = fuente.indexOf(`export async function ${nombre}(`);
+  assert.ok(inicio >= 0, `falta ${nombre}`);
+  const fin = fuente.slice(inicio + 1).search(/\n(export |\/\*\*)/);
+  return fin === -1 ? fuente.slice(inicio) : fuente.slice(inicio, inicio + 1 + fin);
+}
+
+await prueba("actividad.ts: resumenDelEquipo pasa por consultaPesada con cache de 1 minuto", () => {
+  const fuente = leerFuente("src/features/actividad/services/actividad.ts");
+  assert.match(fuente, IMPORTA_CONSULTA_PESADA);
+  assert.match(fuente, CACHE_DE_1_MINUTO);
+  const resumen = cuerpoDe(fuente, "resumenDelEquipo");
+  assert.match(resumen, /consultaPesada\(\s*\{ modo: "pagina", cache: cacheDelResumen, clave \}/);
+  assert.match(resumen, /workspaceId\}\|\$\{desde\.toISOString\(\)\}\|\$\{hasta\.toISOString\(\)\}/, "clave: negocio + rango");
+  // Una tras otra en la misma transaccion: nada de Promise.all ni del prisma global.
+  assert.doesNotMatch(resumen, /Promise\.all|prisma\./);
+  assert.equal((resumen.match(/await tx\.\$queryRaw/g) ?? []).length, 2);
+  assert.match(resumen, /await tx\.callAttempt\.groupBy/);
+  const ultima = cuerpoDe(fuente, "ultimaAccionPorPersona");
+  assert.match(ultima, /conTurnoPesado\("pagina", \(\) => prisma\.\$transaction\(/);
+  assert.match(ultima, /SET LOCAL statement_timeout = '5s'/, "su tope de 5 s no cambia");
+});
+
+await prueba("datos.ts: leerChatsAbiertos pasa por consultaPesada con cache de 1 minuto (clave sin ahora)", () => {
+  const fuente = leerFuente("src/features/supervisor/servicios/datos.ts");
+  assert.match(fuente, IMPORTA_CONSULTA_PESADA);
+  assert.match(fuente, CACHE_DE_1_MINUTO);
+  const chats = cuerpoDe(fuente, "leerChatsAbiertos");
+  assert.match(chats, /modo\?: ModoConsultaPesada;/);
+  assert.match(chats, /consultaPesada\(\{ modo: input\.modo \?\? "pagina", cache: cacheDeChatsAbiertos, clave \}, \(tx\) =>\s+tx\.\$queryRaw/);
+  const clave = chats.match(/const clave = (.+);/);
+  assert.ok(clave, "falta la clave");
+  assert.match(clave[1], /workspaceId/);
+  assert.match(clave[1], /conTurno/);
+  assert.doesNotMatch(clave[1], /ahora|desde/, "la clave no incluye la hora: pagina y cron comparten la lectura");
+  assert.doesNotMatch(chats, /prisma\.\$queryRaw/);
+});
+
+await prueba("vueltas.ts: el cron del Supervisor pide modo \"cron\"", () => {
+  const fuente = leerFuente("src/features/supervisor/servicios/vueltas.ts");
+  assert.match(fuente, /leerChatsAbiertos\(\{[^}]*modo: "cron"[^}]*\}\)/);
 });
 
 console.log(`\n${pruebas} pruebas pasaron.`);

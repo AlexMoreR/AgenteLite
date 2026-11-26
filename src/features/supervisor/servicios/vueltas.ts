@@ -110,7 +110,7 @@ async function vigilarElLibro(workspaceId: string, ahora: Date): Promise<number>
 async function chequearAtencion(workspaceId: string, ahora: Date): Promise<number> {
   // Turno de la conversación (lib/turno-de-la-conversacion.ts). Apagado = exactamente lo de antes.
   const turno = await leerConfigTurno(workspaceId).catch(() => CONFIG_TURNO_APAGADO);
-  const chats = await leerChatsAbiertos({ workspaceId, ahora, conTurno: turno.activo });
+  const chats = await leerChatsAbiertos({ workspaceId, ahora, conTurno: turno.activo, modo: "cron" });
   // Robots (bancos, códigos de verificación): salen del CRM como un proveedor y los detectores los ignoran.
   const robots = chats.filter((chat) => chat.automatico && !chat.ocultoDelCrm).map((chat) => chat.conversationId);
   await ocultarChatsAutomaticos(workspaceId, robots, ahora).catch(() => 0);

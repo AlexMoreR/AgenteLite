@@ -1,3 +1,5 @@
+import { CacheConTtl } from "@/lib/cache-en-memoria";
+import { conTurnoPesado, consultaPesada } from "@/lib/consulta-pesada";
 import { prisma } from "@/lib/prisma";
 import { quedarseConLaMasReciente, type CandidataDeUltimaAccion, type UltimaAccion } from "./ultima-accion";
 
@@ -54,11 +56,23 @@ const TIPO_POR_KIND: Record<string, TipoDeActividad> = {
   note: "nota",
 };
 
+type LecturaDelResumen = {
+  respuestas: Array<{ userId: string; cuantas: bigint }>;
+  notas: Array<{ userId: string; kind: string; cuantas: bigint }>;
+  llamadas: Array<{ calledByUserId: string | null; _count: { _all: number } }>;
+};
+
+/** Lo que leyó `resumenDelEquipo`, 1 minuto por negocio + rango. */
+const cacheDelResumen = new CacheConTtl<LecturaDelResumen>({ ttlMs: 60_000, maxEntradas: 50 });
+
 /**
  * El resumen de todo el equipo en un rango: cuántas de cada cosa hizo cada persona.
  *
  * Son cuatro consultas agrupadas y no una por persona: con seis asesoras, una por cabeza serían
  * veinticuatro viajes a la base para dibujar una tabla.
+ *
+ * Es consulta pesada (`consultaPesada`, tope de página de 8 s y máximo 3 a la vez) con cache de 1
+ * minuto por negocio y rango: abrir la pantalla varias veces seguidas hace una sola lectura.
  */
 export async function resumenDelEquipo(input: {
   workspaceId: string;
@@ -67,8 +81,12 @@ export async function resumenDelEquipo(input: {
 }): Promise<Map<string, ResumenDePersona>> {
   const { workspaceId, desde, hasta } = input;
 
-  const [respuestas, notas, llamadas] = await Promise.all([
-    prisma.$queryRaw<Array<{ userId: string; cuantas: bigint }>>`
+  const clave = `${workspaceId}|${desde.toISOString()}|${hasta.toISOString()}`;
+  const { respuestas, notas, llamadas } = await consultaPesada(
+    { modo: "pagina", cache: cacheDelResumen, clave },
+    async (tx) => {
+      // Una tras otra dentro de la transacción: la llamada usa una sola conexión.
+      const respuestas = await tx.$queryRaw<Array<{ userId: string; cuantas: bigint }>>`
       SELECT m."rawPayload"->>'enviadoPorUserId' AS "userId", count(*) AS cuantas
       FROM "Message" m
       WHERE m."workspaceId" = ${workspaceId}
@@ -76,8 +94,8 @@ export async function resumenDelEquipo(input: {
         AND m."direction" = 'OUTBOUND' AND m."type" <> 'SYSTEM'
         AND m."rawPayload"->>'enviadoPorUserId' IS NOT NULL
       GROUP BY 1
-    `,
-    prisma.$queryRaw<Array<{ userId: string; kind: string; cuantas: bigint }>>`
+    `;
+      const notas = await tx.$queryRaw<Array<{ userId: string; kind: string; cuantas: bigint }>>`
       SELECT m."rawPayload"->>'actorUserId' AS "userId", m."rawPayload"->>'kind' AS kind, count(*) AS cuantas
       FROM "Message" m
       WHERE m."workspaceId" = ${workspaceId}
@@ -85,13 +103,15 @@ export async function resumenDelEquipo(input: {
         AND m."type" = 'SYSTEM'
         AND m."rawPayload"->>'actorUserId' IS NOT NULL
       GROUP BY 1, 2
-    `,
-    prisma.callAttempt.groupBy({
-      by: ["calledByUserId"],
-      where: { workspaceId, calledAt: { gte: desde, lt: hasta }, calledByUserId: { not: null } },
-      _count: { _all: true },
-    }),
-  ]);
+    `;
+      const llamadas = await tx.callAttempt.groupBy({
+        by: ["calledByUserId"],
+        where: { workspaceId, calledAt: { gte: desde, lt: hasta }, calledByUserId: { not: null } },
+        _count: { _all: true },
+      });
+      return { respuestas, notas, llamadas };
+    },
+  );
 
   const salida = new Map<string, ResumenDePersona>();
   const fila = (userId: string) => {
@@ -157,7 +177,8 @@ export async function ultimaAccionPorPersona(input: {
   type Fila = { userId: string; cuando: Date; cliente: string | null };
 
   try {
-    const { mensajes, notas, llamadas } = await prisma.$transaction(async (tx) => {
+    // Dentro del semáforo de consultas pesadas (máximo 3 a la vez); su tope sigue siendo el de 5 s.
+    const { mensajes, notas, llamadas } = await conTurnoPesado("pagina", () => prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe("SET LOCAL statement_timeout = '5s'");
 
       const mensajes = await tx.$queryRaw<Fila[]>`
@@ -211,7 +232,7 @@ export async function ultimaAccionPorPersona(input: {
       `;
 
       return { mensajes, notas, llamadas };
-    });
+    }));
 
     const candidatas: CandidataDeUltimaAccion[] = [
       ...mensajes.map((m) => ({ ...m, tipo: "mensaje" as const })),

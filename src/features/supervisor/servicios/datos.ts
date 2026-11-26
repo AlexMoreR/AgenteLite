@@ -4,7 +4,9 @@ import { leerHistorialDelLibro, leerLibro, versionResultanteDe } from "@/feature
 import type { LibroDeReglas } from "@/features/agente-v3/domain/reglas";
 import { leerConfigEmbudo } from "@/features/embudo/servicios/config";
 import { getFlowReply } from "@/lib/agent-product-flow";
+import { CacheConTtl } from "@/lib/cache-en-memoria";
 import { estaResuelto } from "@/lib/chat-resuelto";
+import { consultaPesada, type ModoConsultaPesada } from "@/lib/consulta-pesada";
 import { prisma } from "@/lib/prisma";
 import { isMarkedAsLid, readDiscoveredPhone } from "@/lib/whatsapp-lid";
 
@@ -288,21 +290,33 @@ export async function chatsExcluidosDeAtencion(workspaceId: string, ids: string[
   return excluidos;
 }
 
+/** Las filas crudas de `leerChatsAbiertos`, 1 minuto por negocio + `conTurno`. */
+const cacheDeChatsAbiertos = new CacheConTtl<FilaDeChat[]>({ ttlMs: 60_000, maxEntradas: 50 });
+
 /**
  * Los chats abiertos de las líneas del V3 con movimiento en 72 h, con lo que hace falta para el
  * chequeo de atención: último mensaje del cliente, última respuesta humana y los textos del
  * cliente desde entonces. UNA consulta (con LATERAL por chat sobre el índice conversationId+fecha).
+ *
+ * Es consulta pesada (`consultaPesada`: tope de 8 s en la página y 20 s en el cron, máximo 3 a la
+ * vez) con cache de 1 minuto por negocio + `conTurno` (sin `ahora`): la página del Supervisor y su
+ * cron comparten una lectura por minuto. Se guardan las filas crudas y el armado va aparte, así
+ * nadie modifica la copia guardada.
  */
 export async function leerChatsAbiertos(input: {
   workspaceId: string;
   ahora: Date;
   /** Interruptor `turno:config`: lee los últimos mensajes y notas y calcula de quién es el turno. */
   conTurno?: boolean;
+  /** "pagina" (por defecto) o "cron": decide el tope de la consulta. */
+  modo?: ModoConsultaPesada;
 }): Promise<ChatAbierto[]> {
   const lineas = await lineasDelV3(input.workspaceId);
   if (lineas.length === 0) return [];
   const desde = new Date(input.ahora.getTime() - 3 * DIA);
-  const filas = await prisma.$queryRaw<FilaDeChat[]>(Prisma.sql`
+  const clave = `${input.workspaceId}|${input.conTurno ? "conTurno" : "sinTurno"}`;
+  const filas = await consultaPesada({ modo: input.modo ?? "pagina", cache: cacheDeChatsAbiertos, clave }, (tx) =>
+    tx.$queryRaw<FilaDeChat[]>(Prisma.sql`
     SELECT c."id" AS "conversationId", c."assignedToUserId" AS "asesoraId", u."name" AS "asesoraNombre",
            ct."crmStage"::text AS "etapa", c."automationPaused" AS "pausado",
            cli."createdAt" AS "ultimoClienteEn", hum."createdAt" AS "ultimaRespuestaHumanaEn", txt."textos",
@@ -338,7 +352,8 @@ export async function leerChatsAbiertos(input: {
       ${LATERAL_EVENTOS_DEL_TURNO}
      WHERE c."channelId" IN (${Prisma.join(lineas)})
        AND c."status" = 'OPEN'
-       AND c."lastMessageAt" >= ${desde}`);
+       AND c."lastMessageAt" >= ${desde}`),
+  );
   return filas.map((fila) => ({
     conversationId: fila.conversationId,
     asesoraId: fila.asesoraId,
@@ -347,8 +362,8 @@ export async function leerChatsAbiertos(input: {
     pausado: Boolean(fila.pausado),
     ultimoClienteEn: fila.ultimoClienteEn ? new Date(fila.ultimoClienteEn) : null,
     ultimaRespuestaHumanaEn: fila.ultimaRespuestaHumanaEn ? new Date(fila.ultimaRespuestaHumanaEn) : null,
-    textosPendientes: fila.textos ?? [],
-    textosDelCliente: fila.textosCliente ?? [],
+    textosPendientes: [...(fila.textos ?? [])],
+    textosDelCliente: [...(fila.textosCliente ?? [])],
     ...datosDeExclusion(fila),
     // Solo cuenta la asignación a la asesora ACTUAL (si la nota es de otra, no se sabe desde cuándo).
     asignadaEn: fila.asignadaEn && (!fila.asignadaA || fila.asignadaA === fila.asesoraId) ? new Date(fila.asignadaEn) : null,
