@@ -10,6 +10,8 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { TriangleAlert, X } from "lucide-react";
 
+import { useCadaTantoVisible } from "@/hooks/use-cada-tanto-visible";
+
 /**
  * La barrita que avisa, dentro de la app, que una linea de WhatsApp esta caida.
  *
@@ -59,9 +61,10 @@ export function AvisoDeCanalCaido() {
 
   useEffect(() => {
     void revisar();
-    const reloj = window.setInterval(() => void revisar(), CADA_CUANTO_MS);
-    return () => window.clearInterval(reloj);
   }, [revisar]);
+
+  // Con la pestaña oculta no se pregunta: nadie ve el aviso. Al volver, revisa una vez si ya tocaba.
+  useCadaTantoVisible(revisar, CADA_CUANTO_MS);
 
   const visibles = caidos.filter((canal) => !silenciados.includes(canal.id));
   if (visibles.length === 0) {

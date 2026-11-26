@@ -1,17 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { CalendarCheck, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { useCadaTantoVisible } from "@/hooks/use-cada-tanto-visible";
 import { resumenDeHoyAction, type ResumenDeHoyVista } from "@/app/actions/tableros-inteligentes-actions";
 
 /*
   Caja "Resumen de hoy" de la página de inicio de Tablero IA (solo quien administra): el mismo texto corto
   del día (services/resumen-diario.ts), visto hasta ahora. Ya no se manda por WhatsApp (26-oct-2026): el dueño
   solo recibe avisos cuando Sistemas se detiene o lo necesita. El detalle de cada tarjeta está en la pestaña
-  "Hoy". Se lee al mostrarse, se refresca cada minuto y con el botón.
+  "Hoy". Se lee al mostrarse, se refresca cada minuto (solo con la pestaña a la vista) y con el botón.
 */
 
 const REFRESCO_MS = 60_000;
@@ -26,21 +27,28 @@ export function ResumenDelDia() {
     else if (avisar) toast.error(respuesta.error);
   }, []);
 
-  useEffect(() => {
-    let vigente = true;
-    const leer = (avisar: boolean) =>
+  // Evita escribir el estado si la respuesta llega cuando la caja ya no está en pantalla.
+  const vigente = useRef(true);
+  const leer = useCallback(
+    (avisar: boolean) =>
       void resumenDeHoyAction().then((respuesta) => {
-        if (!vigente) return;
+        if (!vigente.current) return;
         if (respuesta.ok) setResumen(respuesta.resumen);
         else if (avisar) toast.error(respuesta.error);
-      });
+      }),
+    [],
+  );
+
+  useEffect(() => {
+    vigente.current = true;
     leer(true);
-    const reloj = setInterval(() => leer(false), REFRESCO_MS);
     return () => {
-      vigente = false;
-      clearInterval(reloj);
+      vigente.current = false;
     };
-  }, []);
+  }, [leer]);
+
+  // Con la pestaña oculta no se pide nada; al volver, una lectura si ya tocaba.
+  useCadaTantoVisible(() => leer(false), REFRESCO_MS);
 
   const lineas = resumen?.texto ? resumen.texto.split("\n") : [];
 
