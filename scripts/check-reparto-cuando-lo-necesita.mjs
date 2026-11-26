@@ -151,7 +151,10 @@ const toma = cargar("src/lib/conversation-claim.ts", mocks);
 const agentePide = cargar("src/lib/asignar-porque-el-agente-pide.ts", mocks);
 
 // ── Chats ───────────────────────────────────────────────────────────────────────────────────────
+// En un minuto que termina en 4 o 9: el rescate de la bienvenida corre solo esas vueltas (crons ordenados, parte B).
 const AHORA = new Date();
+AHORA.setSeconds(0, 0);
+AHORA.setMinutes(AHORA.getMinutes() - ((AHORA.getMinutes() + 1) % 5));
 const haceMin = (min) => new Date(AHORA.getTime() - min * 60_000);
 const ANUNCIO = "Hola, me interesa el COMBO de estética (camilla, escalera, silla y auxiliar)";
 const BIENVENIDA = "Bienvenid@ a *Magilus* 👑";
