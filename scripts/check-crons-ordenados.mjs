@@ -16,7 +16,9 @@
  * Parte C: leerFichasRecientes mira como mucho 1.500 chats y 300 mensajes por chat, dentro de consultaPesada
  * de cron; el lateral "hum" de leerChatsAbiertos mira solo 30 días.
  *
- * La parte D le agrega casos a esta misma prueba.
+ * Parte D: el DISTINCT ON de Mi Día mira desde el chat más viejo de la lista menos 30 días (y no consulta si
+ * no hay chats); Contactos escribe el ciclo de vida por lotes (syncLeadLifecycleForContacts), con EXISTS, y
+ * vuelve a leer la lista solo si algo cambió.
  */
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -380,6 +382,157 @@ await prueba("parte C: el lateral \"hum\" de leerChatsAbiertos mira solo 30 día
   const excluidos = cuerpoDe(fuente, "chatsExcluidosDeAtencion");
   assert.doesNotMatch(excluidos, /INTERVAL '30 days'/);
   assert.doesNotMatch(leer("src/features/supervisor/servicios/chats-de-alertas.ts"), /INTERVAL '30 days'/);
+});
+
+/* ── Parte D: Mi Día acotado por fecha y Contactos por lotes ── */
+
+await prueba("parte D: el DISTINCT ON de Mi Día tiene m.\"createdAt\" >=", () => {
+  const fuente = leer("src/features/crm/services/getMiDiaData.ts");
+  const consulta = fuente.slice(fuente.indexOf("SELECT DISTINCT ON (m.\"conversationId\")"), fuente.indexOf("ORDER BY m.\"conversationId\""));
+  assert.match(consulta, /AND m\."createdAt" >= \$2/);
+  assert.match(fuente, /^const MARGEN_DIAS_MENSAJES = 30;$/m);
+  // Si no hay chats, se corta antes de la consulta.
+  assert.ok(fuente.indexOf("if (conversations.length === 0)") < fuente.indexOf("SELECT DISTINCT ON (m.\"conversationId\")"));
+  assert.doesNotMatch(fuente, /pg_input_is_valid|any_value\(|json_scalar|json_serialize/);
+});
+
+const HORA = 60 * 60 * 1000;
+const DIA = 24 * HORA;
+const miDiaEstado = { conversaciones: [], extra: [], llamadas: [], unsafe: [] };
+const { getMiDiaData } = cargar("src/features/crm/services/getMiDiaData.ts", {
+  "@/lib/prisma": {
+    prisma: {
+      conversation: {
+        findMany: async (args) => (args.where.contactId ? miDiaEstado.extra : miDiaEstado.conversaciones.map((c) => ({ ...c }))),
+      },
+      $queryRaw: async () => [],
+    },
+  },
+  "@/lib/consulta-pesada": {
+    consultaPesada: async (_opciones, fn) =>
+      fn({
+        $queryRaw: async () => miDiaEstado.llamadas,
+        $queryRawUnsafe: async (sql, ...params) => {
+          miDiaEstado.unsafe.push({ sql, params });
+          return params[0].map((id) => ({ conversationId: id, content: `hola ${id}`, direction: "INBOUND", type: "TEXT", rawPayload: null }));
+        },
+      }),
+  },
+  "@/lib/evolution-webhook": { extractEvolutionMessageText: () => "" },
+});
+
+function chatDeMiDia(id, lastMessageAt, startedAt = new Date("2026-01-01T00:00:00Z")) {
+  return {
+    id,
+    lastMessageAt,
+    startedAt,
+    assignedToUserId: "u1",
+    contact: { id: `k-${id}`, name: `Cliente ${id}`, phoneNumber: "57300", avatarUrl: null, crmStage: "PROPUESTA", metadata: {} },
+  };
+}
+
+await prueba("parte D: Mi Día busca mensajes desde el chat más viejo menos 30 días y muestra los mismos chats", async () => {
+  const ahora = Date.now();
+  const viejo = new Date(ahora - 20 * DIA);
+  miDiaEstado.conversaciones = [chatDeMiDia("c1", new Date(ahora - 3 * HORA)), chatDeMiDia("c2", viejo), chatDeMiDia("c3", new Date(ahora - 5 * DIA))];
+  miDiaEstado.unsafe = [];
+  const datos = await getMiDiaData({ workspaceId: "w1", userId: "u1" });
+  assert.equal(miDiaEstado.unsafe.length, 1);
+  const [ids, desde] = miDiaEstado.unsafe[0].params;
+  assert.deepEqual(ids, ["c1", "c2", "c3"]);
+  assert.ok(desde instanceof Date);
+  assert.equal(desde.getTime(), viejo.getTime() - 30 * DIA);
+  assert.deepEqual(datos.leads.map((lead) => lead.conversationId).sort(), ["c1", "c2", "c3"]);
+  assert.ok(datos.leads.every((lead) => lead.lastMessagePreview === `hola ${lead.conversationId}` && lead.waitingOnUs));
+});
+
+await prueba("parte D: un chat sin lastMessageAt usa la fecha en que empezó", async () => {
+  const ahora = Date.now();
+  const empezo = new Date(ahora - 60 * DIA);
+  miDiaEstado.conversaciones = [chatDeMiDia("c1", new Date(ahora - 3 * HORA)), chatDeMiDia("c9", null, empezo)];
+  miDiaEstado.unsafe = [];
+  await getMiDiaData({ workspaceId: "w1", userId: "u1" });
+  assert.equal(miDiaEstado.unsafe[0].params[1].getTime(), empezo.getTime() - 30 * DIA);
+});
+
+await prueba("parte D: Mi Día sin chats no consulta mensajes", async () => {
+  miDiaEstado.conversaciones = [];
+  miDiaEstado.unsafe = [];
+  const datos = await getMiDiaData({ workspaceId: "w1", userId: "u1" });
+  assert.equal(miDiaEstado.unsafe.length, 0);
+  assert.deepEqual(datos.leads, []);
+});
+
+await prueba("parte D: Contactos usa syncLeadLifecycleForContacts( y no syncLeadLifecycleForContact(", () => {
+  const fuente = leer("src/features/contactos/services/getContactosData.ts");
+  assert.match(fuente, /syncLeadLifecycleForContacts\(/);
+  assert.doesNotMatch(fuente, /syncLeadLifecycleForContact\(/);
+  assert.match(fuente, /WHERE EXISTS \(/);
+  assert.doesNotMatch(fuente, /COUNT\(\*\)::int AS "outboundCount"/);
+  assert.match(fuente, /if \(cambiados > 0\) \{\s*rawContacts = await loadContacts\(\);\s*\}/);
+});
+
+const contactosEstado = { lecturas: 0, cambiados: 0, sync: [] };
+function contactoDePrueba(id) {
+  const fecha = new Date("2026-11-20T12:00:00Z");
+  return {
+    id,
+    name: `Cliente ${id}`,
+    phoneNumber: "57300",
+    email: null,
+    notes: null,
+    avatarUrl: null,
+    metadata: null,
+    excludedFromCrm: false,
+    crmStage: "NUEVO",
+    wonAt: null,
+    wonQuoteRef: null,
+    createdAt: fecha,
+    updatedAt: fecha,
+    ContactTag: [],
+    _count: { conversations: 0, messages: 0 },
+    conversations: [],
+    contactMatches: [],
+  };
+}
+const { getContactosData } = cargar("src/features/contactos/services/getContactosData.ts", {
+  "@/lib/prisma": {
+    prisma: {
+      workspaceMember: { findFirst: async () => ({ workspace: { id: "w1", name: "Magilus", businessConfig: {} } }) },
+      contact: {
+        count: async () => 2,
+        findMany: async () => {
+          contactosEstado.lecturas += 1;
+          return [contactoDePrueba("k1"), contactoDePrueba("k2")];
+        },
+        findFirst: async () => null,
+      },
+      agent: { findFirst: async () => null },
+      $queryRaw: async () => [{ contactId: "k2" }],
+    },
+  },
+  "@/lib/contact-default-tags": {
+    syncLeadLifecycleForContacts: async (args) => {
+      contactosEstado.sync.push(args);
+      return { revisados: args.contactIds.length, cambiados: contactosEstado.cambiados };
+    },
+  },
+});
+
+await prueba("parte D: Contactos escribe por lotes y no vuelve a leer la lista si nada cambió", async () => {
+  Object.assign(contactosEstado, { lecturas: 0, cambiados: 0, sync: [] });
+  const datos = await getContactosData({ userId: "u1" });
+  assert.equal(contactosEstado.sync.length, 1, "una sola llamada para toda la página");
+  assert.deepEqual(contactosEstado.sync[0].contactIds, ["k1", "k2"]);
+  assert.deepEqual([...contactosEstado.sync[0].conHistorial], ["k2"]);
+  assert.equal(contactosEstado.lecturas, 1);
+  assert.deepEqual(datos.contacts.map((c) => c.id).sort(), ["k1", "k2"]);
+});
+
+await prueba("parte D: Contactos vuelve a leer la lista solo si algo cambió", async () => {
+  Object.assign(contactosEstado, { lecturas: 0, cambiados: 1, sync: [] });
+  await getContactosData({ userId: "u1" });
+  assert.equal(contactosEstado.lecturas, 2);
 });
 
 console.log(`\n${pruebas} pruebas de los crons ordenados: todas pasaron.`);

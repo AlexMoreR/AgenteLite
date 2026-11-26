@@ -37,6 +37,8 @@ const STAGE_PRIORITY: Record<string, number> = {
 const MIN_HOURS_SINCE_CONTACT = 2; // no mostrar leads con los que se esta hablando ahora mismo
 const MAX_DAYS_SINCE_CONTACT = 30; // mas viejo que esto: probablemente perdido, no ensucia la lista
 const MAX_ITEMS = 60;
+// Margen hacia atras, desde el chat mas viejo de la lista, para buscar el ultimo mensaje de cada chat.
+const MARGEN_DIAS_MENSAJES = 30;
 
 export type MiDiaLead = {
   contactId: string;
@@ -202,6 +204,7 @@ async function computeMiDiaData(input: {
     select: {
       id: true,
       lastMessageAt: true,
+      startedAt: true,
       assignedToUserId: true,
       contact: {
         select: { id: true, name: true, phoneNumber: true, avatarUrl: true, crmStage: true, metadata: true },
@@ -275,6 +278,7 @@ async function computeMiDiaData(input: {
       select: {
         id: true,
         lastMessageAt: true,
+        startedAt: true,
         assignedToUserId: true,
         contact: {
           select: { id: true, name: true, phoneNumber: true, avatarUrl: true, crmStage: true, metadata: true },
@@ -301,6 +305,18 @@ async function computeMiDiaData(input: {
     rawPayload: unknown;
   };
   const conversationIds = conversations.map((conversation) => conversation.id);
+  /*
+    Desde cuando mirar mensajes: la fecha mas vieja de los chats de la lista, menos 30 dias de margen.
+
+    Antes el DISTINCT ON leia TODA la historia de cada chat para quedarse con el ultimo mensaje. El
+    ultimo mensaje de un chat es de cerca de su lastMessageAt, asi que con el chat mas viejo de la
+    lista menos 30 dias sobra (el margen cubre las notas SYSTEM y los estados, que mueven
+    lastMessageAt pero no cuentan aca). Un chat sin lastMessageAt usa la fecha en que empezo.
+  */
+  const fechaMasVieja = Math.min(
+    ...conversations.map((conversation) => (conversation.lastMessageAt ?? conversation.startedAt).getTime()),
+  );
+  const desdeMensajes = new Date(fechaMasVieja - MARGEN_DIAS_MENSAJES * 24 * 60 * 60 * 1000);
   const lastMessageRows = await consultaPesada({ modo: "pagina", topeSegundos: TOPE_MI_DIA_SEGUNDOS }, (tx) =>
     tx.$queryRawUnsafe<LastMessageRow[]>(
     // OJO con rawPayload: el webhook guarda el ARCHIVO en base64 adentro (foto, audio, video).
@@ -319,8 +335,10 @@ async function computeMiDiaData(input: {
      WHERE m."conversationId" = ANY($1::text[])
        AND m."isStatusBroadcast" = false
        AND (m."type" IS NULL OR m."type"::text <> 'SYSTEM')
+       AND m."createdAt" >= $2
      ORDER BY m."conversationId", m."createdAt" DESC, m."id" DESC`,
     conversationIds,
+    desdeMensajes,
     ),
   );
   const latestByConversation = new Map(lastMessageRows.map((row) => [row.conversationId, row] as const));

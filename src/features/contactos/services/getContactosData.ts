@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { syncLeadLifecycleForContact } from "@/lib/contact-default-tags";
+import { syncLeadLifecycleForContacts } from "@/lib/contact-default-tags";
 import { getContactTags } from "@/lib/chat-conversation-summary";
 import type { ContactosContact, ContactosContactProfile, ContactosData } from "../types";
 
@@ -499,37 +499,44 @@ export async function getContactosData({
   let rawContacts = await loadContacts();
 
   const contactIds = rawContacts.map((contact) => contact.id);
-  const outboundRows =
-    contactIds.length > 0
-      ? await prisma.$queryRaw<Array<{ contactId: string; outboundCount: number }>>`
-          SELECT
-            m."contactId" AS "contactId",
-            COUNT(*)::int AS "outboundCount"
-          FROM "Message" m
-          WHERE m."workspaceId" = ${membership.workspace.id}
-            AND m."contactId" IN (${Prisma.join(contactIds)})
-            AND m."direction" = 'OUTBOUND'
-          GROUP BY m."contactId"
-        `
-      : [];
-  const outboundCountByContactId = new Map<string, number>();
-  for (const row of outboundRows) {
-    outboundCountByContactId.set(row.contactId, row.outboundCount);
-  }
 
-  if (autoTagNewLeads && rawContacts.length > 0) {
-    await Promise.all(
-      rawContacts.map((contact) =>
-        syncLeadLifecycleForContact({
-          workspaceId: membership.workspace.id,
-          contactId: contact.id,
-          newLeadTagName,
-          hasHistory: (outboundCountByContactId.get(contact.id) ?? 0) > 0,
-        }),
-      ),
-    );
+  if (autoTagNewLeads && contactIds.length > 0) {
+    /*
+      Solo importa SI el contacto tiene algun saliente, no cuantos (el numero no se muestra en
+      ninguna pantalla): EXISTS se detiene en el primero. Antes un COUNT(*) ... GROUP BY contaba
+      todos los salientes de los contactos de la pagina en cada carga.
+    */
+    const outboundRows = await prisma.$queryRaw<Array<{ contactId: string }>>`
+      SELECT x."contactId" AS "contactId"
+      FROM unnest(ARRAY[${Prisma.join(contactIds)}]::text[]) AS x("contactId")
+      WHERE EXISTS (
+        SELECT 1
+        FROM "Message" m
+        WHERE m."workspaceId" = ${membership.workspace.id}
+          AND m."contactId" = x."contactId"
+          AND m."direction" = 'OUTBOUND'
+      )
+    `;
+    const conHistorial = new Set<string>(outboundRows.map((row) => row.contactId));
 
-    rawContacts = await loadContacts();
+    /*
+      Todos juntos, no uno por uno (igual que la bandeja de chats).
+
+      Antes era una llamada por contacto y cada una hacia unas seis consultas, casi todas
+      escrituras, cada vez que alguien abria la pagina, y casi siempre para dejar todo como ya
+      estaba. Ahora son pocas en total, y cuando no hay nada que cambiar -el caso normal- no se
+      escribe nada ni se vuelve a leer la lista.
+    */
+    const { cambiados } = await syncLeadLifecycleForContacts({
+      workspaceId: membership.workspace.id,
+      contactIds,
+      conHistorial,
+      newLeadTagName,
+    });
+
+    if (cambiados > 0) {
+      rawContacts = await loadContacts();
+    }
   }
 
   const contacts: ContactosContact[] = rawContacts
