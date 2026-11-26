@@ -245,9 +245,16 @@ export function ChatNotificationBell({ className }: { className?: string }) {
       void poll();
     }
 
+    /*
+      Si con la pestaña oculta llego un aviso que cambia el numero, al volver se pide a la red (fresco
+      0): el dato compartido de hace un rato no lo trae. Si no llego nada, sirve el de otra pestaña.
+    */
+    let llegoAlgoOculta = false;
     const alVolverAMirar = () => {
       if (document.visibilityState === "visible") {
-        void poll();
+        const frescoMs = llegoAlgoOculta ? 0 : POLL_INTERVAL_MS;
+        llegoAlgoOculta = false;
+        void poll(frescoMs);
       }
     };
     document.addEventListener("visibilitychange", alVolverAMirar);
@@ -294,6 +301,7 @@ export function ChatNotificationBell({ className }: { className?: string }) {
         return;
       }
       if (document.visibilityState !== "visible") {
+        llegoAlgoOculta = true;
         return;
       }
       // En Chats el numero se arma con las filas que trae la bandeja (alCambiarUnaFila, abajo).
