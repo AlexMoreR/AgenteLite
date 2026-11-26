@@ -34,6 +34,7 @@ import { archivarLasHechas, archivarLasTerminadas } from "@/features/tableros-in
 import { barrerEtapasDeTodos } from "@/features/crm/services/barrido-de-etapas";
 import { revisarMensajesIndescifrables } from "@/features/mensajes-indescifrables/servicios/revision";
 import { retomarEnviosQuedados } from "@/lib/flujos/procesar-envio-de-flujo";
+import { conCandado } from "@/lib/candado-de-cron";
 
 function resolveCronSecret() {
   return process.env.FOLLOW_CRON_SECRET?.trim() || process.env.EVOLUTION_WEBHOOK_SECRET?.trim() || "";
@@ -66,9 +67,16 @@ async function handleCron(request: Request) {
     );
   }
 
-  const result = await executePendingFollows({
-    limit: 50,
-  });
+  /*
+    Cada trabajo va envuelto en `conCandado` (src/lib/candado-de-cron.ts): si la vuelta anterior todavía no
+    terminó ese trabajo, esta vuelta se lo salta en vez de arrancar otra copia encima. No cambia el orden ni
+    los minutos de nada. Cada uno deja en el registro `[cron] <trabajo> ms=<n>`.
+  */
+  const result = await conCandado("seguimientos", () =>
+    executePendingFollows({
+      limit: 50,
+    }),
+  );
 
   /*
     Seguimientos del Agente V3. Van acá y no en un cron propio por lo mismo que los de abajo: un
@@ -80,7 +88,7 @@ async function handleCron(request: Request) {
   */
   let seguimientosV3: { enviados: number; revisados: number; frenados: number } | null = null;
   try {
-    seguimientosV3 = await ejecutarSeguimientosV3();
+    seguimientosV3 = await conCandado("seguimientos-v3", () => ejecutarSeguimientosV3());
   } catch (error) {
     console.error("[cron/follows] seguimientos v3 error", error);
   }
@@ -97,7 +105,7 @@ async function handleCron(request: Request) {
   let clientesEsperando: { avisados: number; revisados: number } | null = null;
   if (new Date().getMinutes() % 2 === 0) {
     try {
-      clientesEsperando = await avisarClientesEsperando();
+      clientesEsperando = await conCandado("clientes-esperando", () => avisarClientesEsperando());
     } catch (error) {
       console.error("[cron/follows] aviso de cliente esperando error", error);
     }
@@ -116,7 +124,7 @@ async function handleCron(request: Request) {
   */
   let mensajesRescatados: { rescatados: number; revisados: number } | null = null;
   try {
-    mensajesRescatados = await rescatarMensajesSinDecidir();
+    mensajesRescatados = await conCandado("rescate-de-mensajes", () => rescatarMensajesSinDecidir());
   } catch (error) {
     console.error("[cron/follows] rescate de mensajes error", error);
   }
@@ -127,7 +135,7 @@ async function handleCron(request: Request) {
     filtro de minutos pares: 5 minutos son 5 minutos.
   */
   try {
-    await revisarListoParaPagar();
+    await conCandado("listo-para-pagar", () => revisarListoParaPagar());
   } catch (error) {
     console.error("[cron/follows] listo para pagar error", error);
   }
@@ -141,7 +149,7 @@ async function handleCron(request: Request) {
   */
   let demoraDeAsesora: Awaited<ReturnType<typeof revisarDemorasDeAsesoras>> | null = null;
   try {
-    demoraDeAsesora = await revisarDemorasDeAsesoras();
+    demoraDeAsesora = await conCandado("demora-de-asesora", () => revisarDemorasDeAsesoras());
   } catch (error) {
     console.error("[cron/follows] demora de asesora error", error);
   }
@@ -155,7 +163,7 @@ async function handleCron(request: Request) {
   */
   let rescatados: { repartidos: number; revisados: number } | null = null;
   try {
-    rescatados = await rescatarChatsHuerfanos();
+    rescatados = await conCandado("rescate-de-huerfanos", () => rescatarChatsHuerfanos());
   } catch (error) {
     console.error("[cron/follows] rescate de huerfanos error", error);
   }
@@ -165,7 +173,7 @@ async function handleCron(request: Request) {
     últimos 10 días, entre Ingrid y María. Sin mensajes a las clientas ni avisos al celular. Después de la
     primera vuelta solo lee su marca en AppSetting. Ver src/lib/rescate-nuevo-sin-asesora.ts.
   */
-  await rescatarNuevoSinAsesoraUnaVez();
+  await conCandado("rescate-nuevo-sin-asesora", () => rescatarNuevoSinAsesoraUnaVez());
 
   /*
     Arreglo de UNA sola vez (parte 4 de los chats web): los chats de la página web de los últimos 60 días
@@ -174,7 +182,7 @@ async function handleCron(request: Request) {
     En su propio try/catch: un error acá no frena los seguimientos. Ver src/lib/origen-web.ts.
   */
   try {
-    await arreglarChatsWebViejos();
+    await conCandado("arreglo-chats-web", () => arreglarChatsWebViejos());
   } catch (error) {
     console.error("[cron/follows] arreglo de chats web viejos error", error);
   }
@@ -186,7 +194,7 @@ async function handleCron(request: Request) {
   */
   let deMadrugada: { repartidos: number; pendientes: number } | null = null;
   try {
-    deMadrugada = await repartirChatsDeMadrugada();
+    deMadrugada = await conCandado("reparto-de-madrugada", () => repartirChatsDeMadrugada());
   } catch (error) {
     console.error("[cron/follows] reparto de madrugada error", error);
   }
@@ -198,7 +206,7 @@ async function handleCron(request: Request) {
   */
   after(async () => {
     try {
-      await retomarEnviosQuedados();
+      await conCandado("flujos-a-medias", () => retomarEnviosQuedados());
     } catch (error) {
       console.error("[cron/follows] flujos a medias error", error);
     }
@@ -212,7 +220,7 @@ async function handleCron(request: Request) {
   */
   after(async () => {
     try {
-      await revisarMensajesIndescifrables();
+      await conCandado("mensajes-indescifrables", () => revisarMensajesIndescifrables());
     } catch (error) {
       console.error("[cron/follows] mensajes indescifrables error", error);
     }
@@ -225,7 +233,7 @@ async function handleCron(request: Request) {
   let cooldown: { demoted: number } | null = null;
   if (new Date().getMinutes() % 15 === 1) {
     try {
-      cooldown = await demoteUnresponsiveStaleLeads();
+      cooldown = await conCandado("enfriamiento-de-leads", () => demoteUnresponsiveStaleLeads());
     } catch (error) {
       console.error("[cron/follows] cooldown error", error);
     }
@@ -237,7 +245,7 @@ async function handleCron(request: Request) {
   let temperatura: { enfriados: number } | null = null;
   if (new Date().getMinutes() % 15 === 8) {
     try {
-      temperatura = await enfriarLeadsSinRespuesta();
+      temperatura = await conCandado("temperatura", () => enfriarLeadsSinRespuesta());
     } catch (error) {
       console.error("[cron/follows] temperatura error", error);
     }
@@ -252,7 +260,7 @@ async function handleCron(request: Request) {
   let descartados: { descartados: number; revisados: number } | null = null;
   if (new Date().getMinutes() % 10 === 0) {
     try {
-      descartados = await ejecutarDescarteAutomatico();
+      descartados = await conCandado("descarte-automatico", () => ejecutarDescarteAutomatico());
     } catch (error) {
       console.error("[cron/follows] descarte automatico error", error);
     }
@@ -266,7 +274,7 @@ async function handleCron(request: Request) {
   */
   if (new Date().getMinutes() % 30 === 12) {
     try {
-      await ejecutarDescarteTrasSeguimientos();
+      await conCandado("descarte-tras-seguimientos", () => ejecutarDescarteTrasSeguimientos());
     } catch (error) {
       console.error("[cron/follows] descarte tras seguimientos error", error);
     }
@@ -281,7 +289,7 @@ async function handleCron(request: Request) {
   */
   after(async () => {
     try {
-      await transcribirAudiosPendientes();
+      await conCandado("transcripcion-de-audios", () => transcribirAudiosPendientes());
     } catch (error) {
       console.error("[cron/follows] transcripcion de audios error", error);
     }
@@ -290,7 +298,7 @@ async function handleCron(request: Request) {
   // Reuniones: transcripción y acta, una a la vez (ver cola-de-reuniones). También después de responder.
   after(async () => {
     try {
-      await procesarColaDeReuniones();
+      await conCandado("cola-de-reuniones", () => procesarColaDeReuniones());
     } catch (error) {
       console.error("[cron/follows] cola de reuniones error", error);
     }
@@ -311,56 +319,56 @@ async function handleCron(request: Request) {
     try {
       // Features solas (24-nov-2026): prepara lo que cuelga de Features (Idea -> Tarea, repo por el texto, partir en dos o
       // preguntar) y lo pasa a la aprobación de siempre. Interruptor tablero:features-solas:<negocio> (prendido sin fila).
-      await prepararFeaturesDeTodos();
+      await conCandado("tablero-features-solas", () => prepararFeaturesDeTodos());
     } catch (error) {
       console.error("[cron/follows] features solas del tablero error", error);
     }
     try {
-      await aprobarSolasLasPendientes();
+      await conCandado("tablero-aprobacion-automatica", () => aprobarSolasLasPendientes());
     } catch (error) {
       console.error("[cron/follows] aprobacion automatica del tablero error", error);
     }
     try {
       // Regla del dueño (24-oct): los planes que esperaban en PLAN_LISTO y no tocan dinero pasan a construir.
-      await aprobarPlanesListosQueEsperan();
+      await conCandado("tablero-aprobacion-de-planes", () => aprobarPlanesListosQueEsperan());
     } catch (error) {
       console.error("[cron/follows] aprobacion de planes del tablero error", error);
     }
     try {
-      await revisarAvisosAlDueno();
+      await conCandado("tablero-avisos-al-dueno", () => revisarAvisosAlDueno());
     } catch (error) {
       console.error("[cron/follows] avisos al dueno del tablero error", error);
     }
     // Anota la versión que corre si es nueva (una lectura por arranque; nunca lanza): el resumen cuenta las subidas a mano o de otros.
-    await anotarVersionQueCorre();
+    await conCandado("tablero-anotar-version", () => anotarVersionQueCorre());
     try {
       // Resumen diario a Alexander (hasta 10 líneas con los despliegues y el link de lo trabajado, una vez al día, por la línea Admin).
-      await enviarResumenDiarioAlDueno();
+      await conCandado("tablero-resumen-diario", () => enviarResumenDiarioAlDueno());
     } catch (error) {
       console.error("[cron/follows] resumen diario del tablero error", error);
     }
     try {
-      await revisarAvisosDeTerminadas();
+      await conCandado("tablero-avisos-de-terminadas", () => revisarAvisosDeTerminadas());
     } catch (error) {
       console.error("[cron/follows] avisos de terminadas del tablero error", error);
     }
     try {
       // Avisos por WhatsApp al equipo (tarea asignada, urgente, el Coordinador necesita algo, recordatorio): después
       // de los del dueño, para no repetirle a Alexander lo que ya recibió. Apagado hasta prender su interruptor.
-      await revisarAvisosAlEquipo();
+      await conCandado("tablero-avisos-al-equipo", () => revisarAvisosAlEquipo());
     } catch (error) {
       console.error("[cron/follows] avisos al equipo del tablero error", error);
     }
     try {
       // Cada vuelta (8-nov-2026): las HECHO que no se archivaron al terminar (las de antes, las madres que se cierran
       // solas, una que falló al archivar) salen del tablero. Solo mira las HECHO sin archivar: son muy pocas.
-      await archivarLasHechas();
+      await conCandado("tablero-archivar-hechas", () => archivarLasHechas());
     } catch (error) {
       console.error("[cron/follows] archivar hechas del tablero error", error);
     }
     try {
       // Una vez al día: las FALLIDO de más de 3 días salen del tablero.
-      await archivarLasTerminadas();
+      await conCandado("tablero-archivar-terminadas", () => archivarLasTerminadas());
     } catch (error) {
       console.error("[cron/follows] archivar terminadas del tablero error", error);
     }
@@ -371,7 +379,7 @@ async function handleCron(request: Request) {
   // saltear corridas solo le agregaria un retraso de hasta 5 minutos a una campaña de 5 minutos.
   let campanas: { enviados: number; frenados: number } | null = null;
   try {
-    campanas = await procesarTandasDeCampanas();
+    campanas = await conCandado("campanas", () => procesarTandasDeCampanas());
   } catch (error) {
     console.error("[cron/follows] campanas error", error);
   }
@@ -383,7 +391,7 @@ async function handleCron(request: Request) {
   let webhookLogs: { deleted: number } | null = null;
   if (new Date().getMinutes() % 10 === 7 && new Date(Date.now() - 5 * 3_600_000).getUTCHours() === 3) {
     try {
-      webhookLogs = await purgeOldWebhookEventLogs();
+      webhookLogs = await conCandado("purga-de-webhook-logs", () => purgeOldWebhookEventLogs());
     } catch (error) {
       console.error("[cron/follows] purga de webhook logs error", error);
     }
@@ -397,7 +405,7 @@ async function handleCron(request: Request) {
   if (new Date().getMinutes() === 17) {
     after(async () => {
       try {
-        await sincronizarSiTocaHoy();
+        await conCandado("sincronizacion-gestion", () => sincronizarSiTocaHoy());
       } catch (error) {
         console.error("[cron/follows] sincronizacion con Gestion error", error);
       }
@@ -411,7 +419,7 @@ async function handleCron(request: Request) {
   if (new Date().getMinutes() === 17 && new Date(Date.now() - 5 * 3_600_000).getUTCHours() === 4) {
     after(async () => {
       try {
-        await correrPautaDeTodos();
+        await conCandado("origen-de-pauta", () => correrPautaDeTodos());
       } catch (error) {
         console.error("[cron/follows] origen de pauta error", error);
       }
@@ -429,7 +437,7 @@ async function handleCron(request: Request) {
   if (minuto % 5 === 3) {
     after(async () => {
       try {
-        await vueltaDeCincoMinutos();
+        await conCandado("supervisor-5-min", () => vueltaDeCincoMinutos());
       } catch (error) {
         console.error("[cron/follows] supervisor 5 min error", error);
       }
@@ -443,7 +451,7 @@ async function handleCron(request: Request) {
   */
   after(async () => {
     try {
-      await barrerSeguimientoInteligente();
+      await conCandado("seguimiento-inteligente", () => barrerSeguimientoInteligente());
     } catch (error) {
       console.error("[cron/follows] seguimiento inteligente error", error);
     }
@@ -457,7 +465,7 @@ async function handleCron(request: Request) {
   */
   after(async () => {
     try {
-      await correrAutomatizacionesDelReloj();
+      await conCandado("automatizaciones", () => correrAutomatizacionesDelReloj());
     } catch (error) {
       console.error("[cron/follows] automatizaciones error", error);
     }
@@ -471,8 +479,10 @@ async function handleCron(request: Request) {
   if (minuto === 41) {
     after(async () => {
       try {
-        await sincronizarCerebroDeTodos();
-        await revisarAlertaDeConexion();
+        await conCandado("cerebro", async () => {
+          await sincronizarCerebroDeTodos();
+          await revisarAlertaDeConexion();
+        });
       } catch (error) {
         console.error("[cron/follows] sincronizacion del cerebro error", error);
       }
@@ -487,7 +497,7 @@ async function handleCron(request: Request) {
   if (minuto % 30 === 6) {
     after(async () => {
       try {
-        await barrerEtapasDeTodos();
+        await conCandado("barrido-de-etapas", () => barrerEtapasDeTodos());
       } catch (error) {
         console.error("[cron/follows] barrido de etapas error", error);
       }
@@ -497,7 +507,7 @@ async function handleCron(request: Request) {
   if (minuto === 23) {
     after(async () => {
       try {
-        await vueltaDeCadaHora();
+        await conCandado("supervisor-hora", () => vueltaDeCadaHora());
       } catch (error) {
         console.error("[cron/follows] supervisor hora error", error);
       }

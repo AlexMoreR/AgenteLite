@@ -190,7 +190,8 @@ await prueba("Mi día: el usuario se lee una vez y lo independiente va en la pri
 
 /* ── El reloj ── */
 await prueba("reloj: bajada cada 15 min, descarte tras seguimientos y barrido cada 30, limpieza de webhooks a las 3 a. m.", () => {
-  const reloj = leer("src/app/api/cron/follows/route.ts");
+  // Los trabajos del reloj van envueltos en conCandado (src/lib/candado-de-cron.ts): se mira lo de adentro.
+  const reloj = leer("src/app/api/cron/follows/route.ts").replace(/await conCandado\("[^"]+", \(\) => (\w+\(\))\)/g, "await $1").replace(/await conCandado\("[^"]+", async \(\) => \{\s*/g, "");
   assert.match(reloj, /if \(new Date\(\)\.getMinutes\(\) % 15 === 1\) \{\s*try \{\s*cooldown = await demoteUnresponsiveStaleLeads\(\);/);
   assert.match(reloj, /if \(new Date\(\)\.getMinutes\(\) % 15 === 8\) \{\s*try \{\s*temperatura = await enfriarLeadsSinRespuesta\(\);/);
   assert.match(reloj, /if \(new Date\(\)\.getMinutes\(\) % 30 === 12\) \{\s*try \{\s*await ejecutarDescarteTrasSeguimientos\(\);/);
@@ -212,7 +213,8 @@ await prueba("reloj: la limpieza de webhooks corre 6 veces, solo entre las 3:00 
 });
 
 await prueba("reloj: lo que manda mensajes, asigna chats o avisa no cambió de frecuencia", () => {
-  const reloj = leer("src/app/api/cron/follows/route.ts");
+  // Los trabajos del reloj van envueltos en conCandado (src/lib/candado-de-cron.ts): se mira lo de adentro.
+  const reloj = leer("src/app/api/cron/follows/route.ts").replace(/await conCandado\("[^"]+", \(\) => (\w+\(\))\)/g, "await $1").replace(/await conCandado\("[^"]+", async \(\) => \{\s*/g, "");
   // Siguen en cada vuelta (sin condición de minuto delante).
   for (const llamada of ["procesarTandasDeCampanas()", "barrerSeguimientoInteligente()", "correrAutomatizacionesDelReloj()", "transcribirAudiosPendientes()"]) {
     const antes = reloj.slice(Math.max(0, reloj.indexOf(llamada) - 160), reloj.indexOf(llamada));

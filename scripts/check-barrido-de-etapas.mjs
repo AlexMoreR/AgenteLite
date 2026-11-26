@@ -454,7 +454,8 @@ await prueba("22-nov: con crm:etapa-automatica:barrido-ia:<negocio> en off la IA
 await prueba("el barrido no usa funciones de envío y el reloj lo llama cada 30 minutos en segundo plano", async () => {
   const fuente = fs.readFileSync(path.join(RAIZ, "src/features/crm/services/barrido-de-etapas.ts"), "utf8");
   assert.doesNotMatch(fuente, /sendText|enviar|evolution/i);
-  const reloj = fs.readFileSync(path.join(RAIZ, "src/app/api/cron/follows/route.ts"), "utf8");
+  // Los trabajos del reloj van envueltos en conCandado (src/lib/candado-de-cron.ts): se mira lo de adentro.
+  const reloj = fs.readFileSync(path.join(RAIZ, "src/app/api/cron/follows/route.ts"), "utf8").replace(/await conCandado\("[^"]+", \(\) => (\w+\(\))\)/g, "await $1").replace(/await conCandado\("[^"]+", async \(\) => \{\s*/g, "");
   assert.match(reloj, /if \(minuto % 30 === 6\) \{\s*after\(async \(\) => \{\s*try \{\s*await barrerEtapasDeTodos\(\);/);
 });
 

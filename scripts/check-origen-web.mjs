@@ -315,7 +315,8 @@ await prueba("arreglo: la consulta busca el primer entrante de líneas ADMIN de 
 });
 
 await prueba("reloj: llama al arreglo en su propio try/catch", async () => {
-  const fuente = fs.readFileSync("src/app/api/cron/follows/route.ts", "utf8");
+  // Los trabajos del reloj van envueltos en conCandado (src/lib/candado-de-cron.ts): se mira lo de adentro.
+  const fuente = fs.readFileSync("src/app/api/cron/follows/route.ts", "utf8").replace(/await conCandado\("[^"]+", \(\) => (\w+\(\))\)/g, "await $1").replace(/await conCandado\("[^"]+", async \(\) => \{\s*/g, "");
   assert.match(fuente, /try \{\n\s+await arreglarChatsWebViejos\(\);\n\s+\} catch \(error\) \{/);
 });
 

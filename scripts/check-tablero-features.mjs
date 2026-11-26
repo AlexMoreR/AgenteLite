@@ -558,7 +558,8 @@ await prueba("prepararFeaturesDeTodos: recorre los negocios con el id de Feature
   sembrar();
   await preparar.prepararFeaturesDeTodos(AHORA_FEATURES);
   assert.equal(tarjeta("i-alerta").estado, "APROBADO");
-  const cron = fs.readFileSync(path.join(RAIZ, "src/app/api/cron/follows/route.ts"), "utf8");
+  // Los trabajos del reloj van envueltos en conCandado (src/lib/candado-de-cron.ts): se mira lo de adentro.
+  const cron = fs.readFileSync(path.join(RAIZ, "src/app/api/cron/follows/route.ts"), "utf8").replace(/await conCandado\("[^"]+", \(\) => (\w+\(\))\)/g, "await $1").replace(/await conCandado\("[^"]+", async \(\) => \{\s*/g, "");
   const bloque = cron.slice(cron.indexOf("await prepararFeaturesDeTodos()") - 400, cron.indexOf("await aprobarSolasLasPendientes()"));
   assert.match(bloque, /try \{[\s\S]*await prepararFeaturesDeTodos\(\);[\s\S]*\} catch \(error\) \{/);
   const mcp = fs.readFileSync(path.join(RAIZ, "src/lib/mcp/que-es-esta-aplicacion.ts"), "utf8");

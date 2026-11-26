@@ -564,7 +564,8 @@ await prueba("el MCP registra las 4 herramientas y cerebro_escribir ya no exige 
 });
 
 await prueba("la sincronización cada hora, el estado de la automatización, la pestaña y el botón están enchufados", () => {
-  const cron = fs.readFileSync(path.join(RAIZ, "src/app/api/cron/follows/route.ts"), "utf8");
+  // Los trabajos del reloj van envueltos en conCandado (src/lib/candado-de-cron.ts): se mira lo de adentro.
+  const cron = fs.readFileSync(path.join(RAIZ, "src/app/api/cron/follows/route.ts"), "utf8").replace(/await conCandado\("[^"]+", \(\) => (\w+\(\))\)/g, "await $1").replace(/await conCandado\("[^"]+", async \(\) => \{\s*/g, "");
   assert.match(cron, /if \(minuto === 41\) \{\s+after\(async \(\) => \{\s+try \{\s+await sincronizarCerebroDeTodos\(\);/);
   const queEs = fs.readFileSync(path.join(RAIZ, "src/lib/mcp/que-es-esta-aplicacion.ts"), "utf8");
   assert.match(queEs, /cerebro_sincronizacion: await estadoDelCerebro/);
@@ -784,7 +785,8 @@ await prueba("alerta CEREBRO:desconectado: IMPORTANTE, una sola, se cierra al si
   assert.equal(llamoAAvisos, false);
   const fuente = fs.readFileSync(path.join(RAIZ, "src/features/cerebro/services/alerta-de-conexion.ts"), "utf8");
   assert.ok(!/avisarAlDueno|whatsapp|push/i.test(fuente.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "")), "no llama a WhatsApp ni push");
-  const cron = fs.readFileSync(path.join(RAIZ, "src/app/api/cron/follows/route.ts"), "utf8");
+  // Los trabajos del reloj van envueltos en conCandado (src/lib/candado-de-cron.ts): se mira lo de adentro.
+  const cron = fs.readFileSync(path.join(RAIZ, "src/app/api/cron/follows/route.ts"), "utf8").replace(/await conCandado\("[^"]+", \(\) => (\w+\(\))\)/g, "await $1").replace(/await conCandado\("[^"]+", async \(\) => \{\s*/g, "");
   assert.match(cron, /sincronizarCerebroDeTodos\(\);\s*await revisarAlertaDeConexion\(\);/);
 });
 

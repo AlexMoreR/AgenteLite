@@ -429,7 +429,8 @@ await prueba("al guardar un HECHO se archiva después, fuera de la transacción 
   assert.match(accion, /const respuesta = await prisma\.\$transaction/);
   assert.match(accion, /if \(respuesta\.estado === "HECHO"\) await archivarAlTerminar\(actual\.id\);/, "subida o ya-hecha");
   despuesDeLaTransaccion(accion, "archivarAlTerminar(", "accionDelTrabajador");
-  const reloj = leer("src/app/api/cron/follows/route.ts");
+  // Los trabajos del reloj van envueltos en conCandado (src/lib/candado-de-cron.ts): se mira lo de adentro.
+  const reloj = leer("src/app/api/cron/follows/route.ts").replace(/await conCandado\("[^"]+", \(\) => (\w+\(\))\)/g, "await $1").replace(/await conCandado\("[^"]+", async \(\) => \{\s*/g, "");
   assert.match(reloj, /await archivarLasHechas\(\);/, "cada vuelta, las HECHO");
   assert.match(reloj, /await archivarLasTerminadas\(\);/, "una vez al día, las FALLIDO");
   // La regla del cliente de la base ya no archiva al escribir (solo desarchiva al reabrir).

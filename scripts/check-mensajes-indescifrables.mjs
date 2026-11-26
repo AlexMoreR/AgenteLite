@@ -473,7 +473,8 @@ await prueba("cableado: el webhook de Evolution usa la del lib, el de WAHA marca
   assert.doesNotMatch(evolution, /function (resolveConversationWithLock|idDeConversacion)\(/);
   const waha = leer("src/app/api/webhooks/waha/route.ts");
   assert.equal(waha.match(/anotarQueLlego\(cuerpo\);/g)?.length, 3);
-  const reloj = leer("src/app/api/cron/follows/route.ts");
+  // Los trabajos del reloj van envueltos en conCandado (src/lib/candado-de-cron.ts): se mira lo de adentro.
+  const reloj = leer("src/app/api/cron/follows/route.ts").replace(/await conCandado\("[^"]+", \(\) => (\w+\(\))\)/g, "await $1").replace(/await conCandado\("[^"]+", async \(\) => \{\s*/g, "");
   assert.equal(reloj.match(/await revisarMensajesIndescifrables\(\)/g)?.length, 1);
   const servicio = leer("src/features/mensajes-indescifrables/servicios/revision.ts");
   assert.doesNotMatch(servicio, /direction:\s*"INBOUND"/);

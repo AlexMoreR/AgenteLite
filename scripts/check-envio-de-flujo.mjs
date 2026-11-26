@@ -215,7 +215,8 @@ prueba("parte 2: la acción guarda el envío y contesta al instante; el servidor
   const procesar = leer("src/lib/flujos/procesar-envio-de-flujo.ts");
   assert.match(procesar, /console\.info\(\s*"\[flujo\] medicion",\s*lineaDeMedicion\(/);
   // El cron retoma los que quedaron a medias, protegido para no frenar el resto.
-  const cron = leer("src/app/api/cron/follows/route.ts");
+  // Los trabajos del reloj van envueltos en conCandado (src/lib/candado-de-cron.ts): se mira lo de adentro.
+  const cron = leer("src/app/api/cron/follows/route.ts").replace(/await conCandado\("[^"]+", \(\) => (\w+\(\))\)/g, "await $1").replace(/await conCandado\("[^"]+", async \(\) => \{\s*/g, "");
   assert.match(cron, /try \{\s*await retomarEnviosQuedados\(\);\s*\} catch/);
   // El módulo de reglas es puro: no importa Prisma, gateways ni acciones.
   const reglas = leer("src/lib/flujos/envio-de-flujo.ts");
