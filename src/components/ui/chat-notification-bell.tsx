@@ -5,6 +5,8 @@ import Link from "next/link";
 import { Bell } from "lucide-react";
 
 import { getPendingConversationSelection, getSelectionClosed } from "@/components/chats/chat-selection-store";
+import { contarPedidoAutomatico } from "@/lib/metricas-chats";
+import { leerRespuestaJson, pedirCompartido } from "@/lib/pedido-compartido-entre-pestanas";
 import { cn } from "@/lib/utils";
 import { recordarVistaDeLaBandeja } from "@/lib/vista-de-la-bandeja";
 
@@ -16,14 +18,24 @@ import { recordarVistaDeLaBandeja } from "@/lib/vista-de-la-bandeja";
  * una). O sea que la campanita, sola, mantenia al servidor y a la base trabajando sin parar todo
  * el dia, aunque nadie la mirara.
  *
- * A 60s sigue avisando a tiempo -- es una notificacion, no un cronometro -- y hace la cuarta
- * parte del trabajo. Ademas el altavoz la adelanta cuando entra un mensaje de verdad, asi que el
- * minuto casi nunca llega a cumplirse.
+ * Paso a 60s y despues a 120s (26-nov-2026): sigue avisando a tiempo -- es una notificacion, no un
+ * cronometro -- porque el altavoz la adelanta cuando entra un mensaje de verdad. El reloj es la red
+ * de seguridad. Ademas el pedido se comparte entre pestañas (`pedirCompartido`): con varias
+ * abiertas sale uno cada 2 minutos sumando todas, no uno por pestaña.
  */
-const POLL_INTERVAL_MS = 60000;
+const POLL_INTERVAL_MS = 120000;
 
 /** Los avisos del altavoz que caen en este rato se cuentan con UN solo pedido de la lista. */
 const VENTANA_DE_RAFAGA_MS = 3000;
+
+/*
+  Un poco de azar sobre la ventana de rafaga. El aviso llega a todas las pestañas a la vez: sin esto
+  las tres pedirian en el mismo milisegundo, antes de enterarse de que otra ya estaba pidiendo. Con
+  esto la primera pide y avisa, y las demas usan su respuesta.
+*/
+const AZAR_DE_RAFAGA_MS = 1500;
+
+const URL_DE_LA_LISTA = "/api/cliente/chats/list?limit=40&assigned=all&grupo=todos";
 
 /**
  * Dentro de Chats, la primera consulta espera este rato para no sumarse a la carga de la bandeja.
@@ -36,7 +48,7 @@ const PRIMERA_CONSULTA_EN_CHATS_MS = 15000;
   Medido en produccion: 3 s despues de cada mensaje entrante pedia /list de 40 chats (65 kB, ~0,9 s),
   en cada pestaña abierta, encima de lo que ya pide la bandeja. En Chats no hace falta: la bandeja
   trae la fila de cada chat que cambia (/summary) y la avisa con `chat-list-update`, que trae el
-  numero de no leidos. La campanita se arma con eso; el reloj de 60 s queda de red de seguridad
+  numero de no leidos. La campanita se arma con eso; el reloj de 120 s queda de red de seguridad
   (por ejemplo, para un chat que no esta en la bandeja de quien mira).
 */
 function estaEnChats() {
@@ -142,7 +154,8 @@ export function ChatNotificationBell({ className }: { className?: string }) {
     let enCurso = false;
     let pedirOtraVez = false;
 
-    const poll = async () => {
+    // `frescoMs`: cuanto puede tener de viejo el dato que publico otra pestaña para usarlo sin pedir.
+    const poll = async (frescoMs: number = POLL_INTERVAL_MS) => {
       /*
         Una sola cadena de consultas, no una por aviso.
 
@@ -173,17 +186,19 @@ export function ChatNotificationBell({ className }: { className?: string }) {
           visibles de cada quien. Pedir "todas" no cambia ninguna de las dos cosas.
         */
         // `grupo=todos`: los avisos del equipo y de los proveedores tambien suenan, mire lo que mire la bandeja.
-        const response = await fetch("/api/cliente/chats/list?limit=40&assigned=all&grupo=todos", {
-          cache: "no-store",
-        });
+        // La misma URL es la clave: Notificaciones pide esta misma lista y comparte el dato.
+        const { dato, origen } = await pedirCompartido(URL_DE_LA_LISTA, frescoMs, () =>
+          leerRespuestaJson(URL_DE_LA_LISTA),
+        );
+        contarPedidoAutomatico("campana", origen);
 
         // El usuario no tiene acceso a chats: ocultamos la campanita.
-        if (response.status === 401 || response.status === 403 || response.status === 404) {
+        if (dato.estado === 401 || dato.estado === 403 || dato.estado === 404) {
           if (!cancelled) setHasAccess(false);
           return;
         }
 
-        const payload = (await response.json().catch(() => null)) as ConversationListResponse | null;
+        const payload = dato.datos as ConversationListResponse | null;
         recordarVistaDeLaBandeja(payload?.isManager);
         if (!cancelled && payload?.ok && Array.isArray(payload.conversations)) {
           const ahora = Date.now();
@@ -216,7 +231,8 @@ export function ChatNotificationBell({ className }: { className?: string }) {
           notificacion del sistema, no el punto rojo. Al volver se pide de una (abajo).
         */
         if (!cancelled && document.visibilityState === "visible") {
-          timeoutId = setTimeout(poll, pedirOtraVez ? 1500 : POLL_INTERVAL_MS);
+          // La vuelta extra es porque llego algo mientras se pedia: tiene que ir a la red (fresco 0).
+          timeoutId = pedirOtraVez ? setTimeout(() => void poll(0), 1500) : setTimeout(() => void poll(), POLL_INTERVAL_MS);
         }
         pedirOtraVez = false;
       }
@@ -224,7 +240,7 @@ export function ChatNotificationBell({ className }: { className?: string }) {
 
     if (estaEnChats()) {
       // La bandeja esta cargando su propia lista: la campanita pide la suya un rato despues.
-      timeoutId = setTimeout(poll, PRIMERA_CONSULTA_EN_CHATS_MS);
+      timeoutId = setTimeout(() => void poll(), PRIMERA_CONSULTA_EN_CHATS_MS);
     } else {
       void poll();
     }
@@ -248,9 +264,9 @@ export function ChatNotificationBell({ className }: { className?: string }) {
       .catch(() => undefined);
 
     /*
-      Ademas del minuto, la campanita escucha el aviso del altavoz.
+      Ademas del reloj, la campanita escucha el aviso del altavoz.
 
-      Con solo el intervalo, el punto podia tardar hasta 60 segundos en aparecer despues de que el
+      Con solo el intervalo, el punto podia tardar hasta un minuto o dos en aparecer despues de que el
       mensaje YA estaba en la bandeja: se veia la fila nueva y la campana seguia apagada, que es
       peor que no tenerla. El intervalo queda de red de seguridad por si el socket esta caido.
     */
@@ -287,12 +303,17 @@ export function ChatNotificationBell({ className }: { className?: string }) {
       if (rafagaTimer !== undefined) {
         return;
       }
+      /*
+        Tambien por `pedirCompartido`, con un fresco igual a la espera: sirve el dato que otra pestaña
+        empezo a pedir DESPUES de este aviso (ya trae el mensaje nuevo), y uno anterior no.
+      */
+      const espera = VENTANA_DE_RAFAGA_MS + Math.round(Math.random() * AZAR_DE_RAFAGA_MS);
       rafagaTimer = setTimeout(() => {
         rafagaTimer = undefined;
         if (!cancelled && document.visibilityState === "visible") {
-          void poll();
+          void poll(espera);
         }
-      }, VENTANA_DE_RAFAGA_MS);
+      }, espera);
     };
     window.addEventListener("official-realtime-poke", alLlegarAlgo);
 

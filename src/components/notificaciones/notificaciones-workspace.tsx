@@ -6,6 +6,9 @@ import { BellOff, LoaderCircle, Search } from "lucide-react";
 
 import { ContactAvatar } from "@/components/chats/contact-avatar";
 import { NotificationPermissionInline } from "@/components/chats/notification-permission-inline";
+import { useCadaTantoVisible } from "@/hooks/use-cada-tanto-visible";
+import { contarPedidoAutomatico } from "@/lib/metricas-chats";
+import { leerRespuestaJson, pedirCompartido } from "@/lib/pedido-compartido-entre-pestanas";
 
 /**
  * Cada cuanto vuelve a preguntar.
@@ -13,8 +16,13 @@ import { NotificationPermissionInline } from "@/components/chats/notification-pe
  * Es el mismo minuto de la campanita, y por el mismo motivo: la consulta trae la lista de chats
  * con su ultimo mensaje. Pero aca casi nunca llega a cumplirse, porque el aviso del altavoz la
  * adelanta en cuanto entra un mensaje.
+ *
+ * Con la pestaña oculta el reloj se para (`useCadaTantoVisible`) y al volver pide de una vez. El
+ * pedido se comparte con las otras pestañas y con la campanita (`pedirCompartido`, misma URL).
  */
 const CADA_CUANTO_MS = 60000;
+
+const URL_DE_LA_LISTA = "/api/cliente/chats/list?limit=40&assigned=all&grupo=todos";
 
 type Conversacion = {
   key?: string;
@@ -104,20 +112,28 @@ export function NotificacionesWorkspace() {
   const [cargando, setCargando] = React.useState(true);
   const [busqueda, setBusqueda] = React.useState("");
 
+  // El pedido vive dentro del efecto; el reloj de abajo lo llama por aca.
+  const pedirRef = React.useRef<((frescoMs?: number) => Promise<void>) | null>(null);
+  useCadaTantoVisible(() => pedirRef.current?.(), CADA_CUANTO_MS);
+
   React.useEffect(() => {
     let cancelado = false;
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     let enCurso = false;
     let pedirOtraVez = false;
+    let llegoAlgoOculta = false;
 
-    const pedir = async () => {
+    // `frescoMs`: cuanto puede tener de viejo el dato que publico otra pestaña para usarlo sin pedir.
+    const pedir = async (frescoMs: number = CADA_CUANTO_MS) => {
       // Una sola cadena de consultas: cada aviso del altavoz sumaba otra (ver la campanita).
       if (timeoutId) {
         clearTimeout(timeoutId);
         timeoutId = undefined;
       }
       if (enCurso) {
-        pedirOtraVez = true;
+        // Solo un aviso nuevo (fresco 0) necesita otra vuelta: el pedido en curso puede no traerlo.
+        // Un turno del reloj ya queda cubierto por el que esta en vuelo.
+        if (frescoMs === 0) pedirOtraVez = true;
         return;
       }
       enCurso = true;
@@ -129,13 +145,14 @@ export function NotificacionesWorkspace() {
           quien, asi que pedir "todas" no destapa nada: a una asesora le sigue mostrando lo suyo.
         */
         // `grupo=todos`: los avisos del equipo y de los proveedores tambien suenan, mire lo que mire la bandeja.
-        const respuesta = await fetch("/api/cliente/chats/list?limit=40&assigned=all&grupo=todos", {
-          cache: "no-store",
-        });
-        if (!respuesta.ok) {
+        const { dato, origen } = await pedirCompartido(URL_DE_LA_LISTA, frescoMs, () =>
+          leerRespuestaJson(URL_DE_LA_LISTA),
+        );
+        contarPedidoAutomatico("notificaciones", origen);
+        if (dato.estado < 200 || dato.estado >= 300) {
           return;
         }
-        const datos = (await respuesta.json().catch(() => null)) as {
+        const datos = dato.datos as {
           ok?: boolean;
           conversations?: Conversacion[];
         } | null;
@@ -148,11 +165,16 @@ export function NotificacionesWorkspace() {
         enCurso = false;
         if (!cancelado) {
           setCargando(false);
-          timeoutId = setTimeout(pedir, pedirOtraVez ? 1500 : CADA_CUANTO_MS);
+          // El reloj de cada minuto lo lleva `useCadaTantoVisible`; aca solo queda la vuelta extra,
+          // porque llego algo mientras se pedia: esa tiene que ir a la red (fresco 0).
+          if (pedirOtraVez) {
+            timeoutId = setTimeout(() => void pedir(0), 1500);
+          }
         }
         pedirOtraVez = false;
       }
     };
+    pedirRef.current = pedir;
 
     void pedir();
     marcarComoVistas();
@@ -165,7 +187,13 @@ export function NotificacionesWorkspace() {
       if (tipo === "waha-ack" || tipo === "waha-update") {
         return;
       }
-      void pedir();
+      // Con la pestaña oculta no se pide: se deja anotado y se pide al volver a mirarla (abajo).
+      if (document.visibilityState !== "visible") {
+        llegoAlgoOculta = true;
+      } else {
+        // Lo que acaba de entrar no esta en ningun dato anterior: este pedido va a la red (fresco 0).
+        void pedir(0);
+      }
       /*
         Lo que entra MIENTRAS la pantalla esta abierta tambien queda visto: si no, uno sale de aca
         con el punto encendido por un aviso que acaba de leer.
@@ -174,8 +202,20 @@ export function NotificacionesWorkspace() {
     };
     window.addEventListener("official-realtime-poke", alLlegarAlgo);
 
+    // Si llego algo mientras la pestaña estaba oculta, se pide apenas se vuelve a ver.
+    const alVolverAMirar = () => {
+      if (document.visibilityState === "visible" && llegoAlgoOculta) {
+        llegoAlgoOculta = false;
+        // Si el reloj ya pidio al volver, ese pedido empezo despues de lo que llego: alcanza.
+        if (!enCurso) void pedir(0);
+      }
+    };
+    document.addEventListener("visibilitychange", alVolverAMirar);
+
     return () => {
+      document.removeEventListener("visibilitychange", alVolverAMirar);
       cancelado = true;
+      pedirRef.current = null;
       window.removeEventListener("official-realtime-poke", alLlegarAlgo);
       if (timeoutId) clearTimeout(timeoutId);
     };

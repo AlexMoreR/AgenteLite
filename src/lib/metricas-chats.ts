@@ -36,6 +36,11 @@ function dispositivo(): "movil" | "escritorio" {
 }
 
 function enviar() {
+  try {
+    pasarPedidosALaCola();
+  } catch {
+    // La medicion es prescindible.
+  }
   if (cola.length === 0 || !hayNavegador()) {
     return;
   }
@@ -82,6 +87,46 @@ export function registrarMedicion(metrica: string, ms: number, extra?: Extra) {
       cola.shift();
     }
     cola.push({ ...(extra ?? {}), m: metrica, ms: Math.round(ms) });
+    asegurarEnvioPeriodico();
+  } catch {
+    // La medicion es prescindible.
+  }
+}
+
+/*
+  Cuantos pedidos automaticos (los que nadie toco: reloj, aviso del altavoz, volver a la pestaña) salen
+  a la red y cuantos se resuelven con lo que publico otra pestaña. Se acumulan aca y se mandan juntos,
+  una marca `pedido_automatico` por fuente y origen, en el mismo envio de cada 10 s.
+*/
+export type FuenteDePedidoAutomatico = "campana" | "notificaciones" | "conteos" | "mias";
+const pedidosAutomaticos = new Map<string, { fuente: FuenteDePedidoAutomatico; origen: "red" | "compartido"; cantidad: number }>();
+
+/** Pasa los conteos acumulados a la cola, como mediciones comunes. Sin conteos no agrega nada. */
+function pasarPedidosALaCola() {
+  if (pedidosAutomaticos.size === 0) {
+    return;
+  }
+  const lista = [...pedidosAutomaticos.values()];
+  pedidosAutomaticos.clear();
+  for (const { fuente, origen, cantidad } of lista) {
+    registrarMedicion("pedido_automatico", 0, { fuente, origen, cantidad });
+  }
+}
+
+/** Cuenta un pedido automatico. No manda nada por si solo: se junta y sale con el envio periodico. */
+export function contarPedidoAutomatico(fuente: FuenteDePedidoAutomatico, origen: "red" | "compartido") {
+  if (!hayNavegador()) {
+    return;
+  }
+  try {
+    const clave = `${fuente}:${origen}`;
+    const actual = pedidosAutomaticos.get(clave);
+    if (actual) {
+      actual.cantidad += 1;
+    } else {
+      pedidosAutomaticos.set(clave, { fuente, origen, cantidad: 1 });
+    }
+    // Se pasan a la cola en el proximo envio (cada 10 s, o al ocultar o cerrar la pestaña).
     asegurarEnvioPeriodico();
   } catch {
     // La medicion es prescindible.
