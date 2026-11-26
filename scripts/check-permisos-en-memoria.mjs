@@ -44,6 +44,19 @@ const ARCHIVOS = {
   "src/app/api/cliente/carta-de-colores/foto/route.ts": [],
   // Solo pide estar en un negocio, sin canAccessClientModule.
   "src/app/api/cliente/crm/conteo-etapas/route.ts": [],
+  // Parte 2: conexion de WhatsApp y API oficial.
+  "src/app/api/cliente/conexion/evolution/lid-backfill/route.ts": ["connection"],
+  "src/app/api/cliente/conexion/evolution/lid-lookup/route.ts": ["connection"],
+  "src/app/api/cliente/conexion/official-api/coexistence/route.ts": ["connection"],
+  "src/app/api/cliente/conexion/official-api/salud/route.ts": ["connection"],
+  "src/app/api/cliente/conexion/official-api/setup/route.ts": ["connection"],
+  "src/app/api/cliente/conexion/official-api/test/route.ts": ["connection"],
+  "src/app/api/cliente/api-oficial/chatbot/route.ts": ["client_official_api"],
+  // Subir (POST) y borrar (DELETE): las dos piden el mismo modulo.
+  "src/app/api/cliente/api-oficial/chatbot/upload-image/route.ts": ["client_official_api", "client_official_api"],
+  "src/app/api/cliente/api-oficial/plantillas/route.ts": ["client_official_api"],
+  // Solo pide estar en un negocio, sin canAccessClientModule.
+  "src/app/api/cliente/canales/estado/route.ts": [],
 };
 
 for (const [archivo, modulos] of Object.entries(ARCHIVOS)) {

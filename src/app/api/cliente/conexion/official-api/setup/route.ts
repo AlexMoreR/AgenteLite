@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/auth";
-import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
+import { canAccessClientModule, getClientWorkspaceAccessForUserCached } from "@/lib/client-workspace-access";
 import { getMetaGraphErrorMessage, normalizeMetaAppSecret, type MetaGraphErrorPayload } from "@/lib/official-api-graph";
 import { upsertOfficialApiConfigByWorkspaceId } from "@/lib/official-api-config";
 import { subscribeOfficialApiAppToWaba } from "@/lib/official-api-subscription";
@@ -54,7 +54,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 401 });
   }
 
-  const access = await getClientWorkspaceAccessForUser(session.user.id);
+  const access = await getClientWorkspaceAccessForUserCached(session.user.id);
   if (!access || !canAccessClientModule(access, "connection")) {
     return NextResponse.json({ ok: false, error: "No autorizado para conexion" }, { status: 403 });
   }

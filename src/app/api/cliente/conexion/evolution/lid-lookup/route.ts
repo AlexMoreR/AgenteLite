@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
+import { canAccessClientModule, getClientWorkspaceAccessForUserCached } from "@/lib/client-workspace-access";
 import { lookupEvolutionUserInfo, sampleEvolutionContacts } from "@/lib/evolution";
 import { prisma } from "@/lib/prisma";
 
@@ -27,7 +27,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 401 });
   }
 
-  const access = await getClientWorkspaceAccessForUser(session.user.id);
+  const access = await getClientWorkspaceAccessForUserCached(session.user.id);
   if (!access || !canAccessClientModule(access, "connection")) {
     return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 401 });
   }

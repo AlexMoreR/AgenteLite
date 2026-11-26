@@ -3,8 +3,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
-import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
+import { canAccessClientModule, getClientWorkspaceAccessForUserCached } from "@/lib/client-workspace-access";
 
 const MAX_FILE_SIZE_BYTES = 16 * 1024 * 1024;
 const ALLOWED_MEDIA_MIME_TYPES = new Set([
@@ -121,14 +120,9 @@ export async function POST(request: Request) {
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 401 });
   }
-  const access = await getClientWorkspaceAccessForUser(session.user.id);
+  const access = await getClientWorkspaceAccessForUserCached(session.user.id);
   if (!access || !canAccessClientModule(access, "client_official_api")) {
     return NextResponse.json({ ok: false, error: "Modulo desactivado para este rol." }, { status: 403 });
-  }
-
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
-  if (!membership?.workspace.id) {
-    return NextResponse.json({ ok: false, error: "Workspace no encontrado" }, { status: 404 });
   }
 
   const formData = await request.formData().catch(() => null);
@@ -194,14 +188,9 @@ export async function DELETE(request: Request) {
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 401 });
   }
-  const access = await getClientWorkspaceAccessForUser(session.user.id);
+  const access = await getClientWorkspaceAccessForUserCached(session.user.id);
   if (!access || !canAccessClientModule(access, "client_official_api")) {
     return NextResponse.json({ ok: false, error: "Modulo desactivado para este rol." }, { status: 403 });
-  }
-
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
-  if (!membership?.workspace.id) {
-    return NextResponse.json({ ok: false, error: "Workspace no encontrado" }, { status: 404 });
   }
 
   const body = (await request.json().catch(() => null)) as { url?: string } | null;

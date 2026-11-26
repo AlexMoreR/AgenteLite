@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/auth";
-import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
+import { canAccessClientModule, getClientWorkspaceAccessForUserCached } from "@/lib/client-workspace-access";
 import {
   getOfficialApiConfigByWorkspaceId,
   hasOfficialApiBaseCredentials,
@@ -42,7 +42,7 @@ async function requireTemplateAccess() {
     return { error: NextResponse.json({ ok: false, error: "No autorizado" }, { status: 401 }) } as const;
   }
 
-  const access = await getClientWorkspaceAccessForUser(session.user.id);
+  const access = await getClientWorkspaceAccessForUserCached(session.user.id);
   if (!access || !canAccessClientModule(access, "client_official_api")) {
     return { error: NextResponse.json({ ok: false, error: "No autorizado para API oficial" }, { status: 403 }) } as const;
   }

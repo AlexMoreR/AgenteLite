@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 
 import { auth } from "@/auth";
+import { getClientWorkspaceAccessForUserCached } from "@/lib/client-workspace-access";
 import { prisma } from "@/lib/prisma";
-import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
 /**
  * Que lineas estan caidas ahora mismo.
@@ -20,14 +20,15 @@ export async function GET() {
     return NextResponse.json({ ok: false, caidos: [] }, { status: 401 });
   }
 
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
-  if (!membership) {
+  // El permiso guardado 45 s: es la misma membresia que daba getPrimaryWorkspaceForUser.
+  const access = await getClientWorkspaceAccessForUserCached(session.user.id);
+  if (!access) {
     return NextResponse.json({ ok: true, caidos: [] });
   }
 
   const canales = await prisma.whatsAppChannel.findMany({
     where: {
-      workspaceId: membership.workspace.id,
+      workspaceId: access.workspaceId,
       isActive: true,
       provider: "EVOLUTION",
       status: { in: ["DISCONNECTED", "QRCODE"] },

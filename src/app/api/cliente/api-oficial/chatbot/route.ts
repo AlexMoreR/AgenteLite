@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/auth";
-import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
+import { canAccessClientModule, getClientWorkspaceAccessForUserCached } from "@/lib/client-workspace-access";
 import { saveOfficialApiChatbotBuilderState } from "@/lib/official-api-chatbot";
 import { getOfficialApiConfigByWorkspaceId, hasOfficialApiBaseCredentials } from "@/lib/official-api-config";
-import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
 
 const builderSchema = z.object({
   isBotEnabled: z.boolean(),
@@ -74,17 +73,12 @@ export async function POST(request: Request) {
   if (!session?.user?.id || !session.user.role || !["ADMIN", "CLIENTE", "EMPLEADO"].includes(session.user.role)) {
     return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 401 });
   }
-  const access = await getClientWorkspaceAccessForUser(session.user.id);
+  const access = await getClientWorkspaceAccessForUserCached(session.user.id);
   if (!access || !canAccessClientModule(access, "client_official_api")) {
     return NextResponse.json({ ok: false, error: "Modulo desactivado para este rol." }, { status: 403 });
   }
 
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
-  if (!membership?.workspace.id) {
-    return NextResponse.json({ ok: false, error: "Workspace no encontrado" }, { status: 404 });
-  }
-
-  const config = await getOfficialApiConfigByWorkspaceId(membership.workspace.id);
+  const config = await getOfficialApiConfigByWorkspaceId(access.workspaceId);
   if (!config || !hasOfficialApiBaseCredentials(config)) {
     return NextResponse.json({ ok: false, error: "La API oficial no esta lista en este workspace." }, { status: 400 });
   }
