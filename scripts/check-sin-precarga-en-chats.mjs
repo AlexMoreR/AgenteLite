@@ -108,7 +108,7 @@ prueba("bandeja: /counts depende de la firma de lo que se cuenta, no de todos lo
 
 prueba("servidor: /counts y /list leen los permisos a la vez", () => {
   const conteos = sinComentarios(leer("app/api/cliente/chats/counts/route.ts"));
-  assert.match(conteos, /const \[esLaSupervisora, snoozedRows, visibleChannelIds, lineasQueMonitorea\] = await Promise\.all\(\[/);
+  assert.match(conteos, /const \[esLaSupervisora, snoozedIds, visibleChannelIds, lineasQueMonitorea\] = await Promise\.all\(\[/);
   assert.match(conteos, /const monitoreados = isManager \? \[\] : lineasQueMonitorea;/, "a quien supervisa no se le cuentan las lineas monitoreadas");
   assert.match(
     conteos,

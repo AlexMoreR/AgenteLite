@@ -21,6 +21,7 @@ import {
 import { recordConversationActivity } from "@/lib/conversation-activity";
 import { claimConversationIfUnassigned } from "@/lib/conversation-claim";
 import { buildSnoozeMetadata } from "@/lib/lead-snooze";
+import { borrarPospuestosDelNegocio } from "@/lib/cache-de-contadores";
 import { CRM_STAGE_META, getCrmLostReasonLabel, motivoOtroSinDetalle } from "@/features/crm/domain/crm-config";
 import type { CrmStage } from "@/features/crm/types";
 import { CLAVE_CIERRE_PENDIENTE } from "@/lib/crm-stage-sync";
@@ -378,6 +379,8 @@ export async function snoozeLeadAction(input: {
     where: { id: contacto.id },
     data: { metadata: buildSnoozeMetadata(contacto.metadata, hasta) as Prisma.InputJsonValue },
   });
+  // Los numeros de las pestañas de Chats guardan los pospuestos 30 s: que se vea en el proximo pedido.
+  borrarPospuestosDelNegocio(membership.workspace.id);
 
   revalidatePath("/cliente/crm/mi-dia");
   return { ok: true };

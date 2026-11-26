@@ -21,7 +21,13 @@ import {
 import { GRUPO_POR_DEFECTO, type GrupoDeBandeja } from "@/features/chats/domain/filtros-de-bandeja";
 import { contactosInternos, type ContactosInternos } from "@/features/chats/services/contactos-internos";
 import { conServerTiming, type MedidorServerTiming } from "@/lib/server-timing";
-import { cacheDeContadores, claveDeContadores } from "@/lib/cache-de-contadores";
+import {
+  cacheDeContadores,
+  cacheDePospuestos,
+  claveDeContadores,
+  idsPospuestosAhora,
+  type ContactoPospuesto,
+} from "@/lib/cache-de-contadores";
 import {
   estadoQueAplica,
   hayBusqueda,
@@ -344,19 +350,28 @@ async function calcularContadores(
     `canalesQueMonitorea` corre aunque sea supervisora (sale de la cache de canales); para quien
     supervisa se ignora igual que antes.
   */
-  const [esLaSupervisora, snoozedRows, visibleChannelIds, lineasQueMonitorea] = await Promise.all([
+  const [esLaSupervisora, snoozedIds, visibleChannelIds, lineasQueMonitorea] = await Promise.all([
     esJefe ? false : esSupervisora(membership.workspace.id, session.userId),
     /**
      * Los contactos con el lead pospuesto, para descontarlos.
      *
      * Va con SQL directo porque la fecha vive dentro de metadata: como es un texto ISO, compararlo
      * con el ahora funciona tal cual. Son pocos, asi que la lista de ids es corta.
+     *
+     * Se guarda 30 s por negocio CON la fecha de cada uno (cache-de-contadores.ts) y la fecha se
+     * vuelve a comparar con la hora de este pedido: un pospuesto que vence en medio vuelve a contar
+     * enseguida. El SQL trae los que seguian pospuestos al cargar: uno ya vencido no puede volver a
+     * estarlo sin una escritura, y posponer desde la pantalla borra esta memoria.
      */
-    prisma.$queryRaw<Array<{ id: string }>>`
-      SELECT "id" FROM "Contact"
-      WHERE "workspaceId" = ${membership.workspace.id}
-        AND ("metadata"->>'snoozedUntil') > ${new Date().toISOString()}
-    `,
+    cacheDePospuestos
+      .obtener(membership.workspace.id, () =>
+        prisma.$queryRaw<ContactoPospuesto[]>`
+          SELECT "id", ("metadata"->>'snoozedUntil') AS "hasta" FROM "Contact"
+          WHERE "workspaceId" = ${membership.workspace.id}
+            AND ("metadata"->>'snoozedUntil') > ${new Date().toISOString()}
+        `,
+      )
+      .then((pospuestos) => idsPospuestosAhora(pospuestos)),
     getVisibleChannelIds({
       workspaceId: membership.workspace.id,
       userId: session.userId,
@@ -467,7 +482,7 @@ async function calcularContadores(
           searchQuery,
           selectedConnectionKey: conexionElegida,
           statusFilter,
-          snoozedContactIds: snoozedRows.map((fila) => fila.id),
+          snoozedContactIds: snoozedIds,
           visibleChannelIds,
           filtros: filtrosConLa,
           ids,
@@ -535,7 +550,7 @@ async function calcularContadores(
     searchQuery,
     selectedConnectionKey: conexionElegida,
     statusFilter,
-    snoozedContactIds: snoozedRows.map((fila) => fila.id),
+    snoozedContactIds: snoozedIds,
     visibleChannelIds,
     filtros,
     ids: idsDeLosFiltros,
