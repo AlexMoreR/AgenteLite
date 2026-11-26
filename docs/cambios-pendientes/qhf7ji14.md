@@ -1,0 +1,2 @@
+## Advertencias de operación
+- `retrasoEventLoop`: campo nuevo de la línea `[timing]` de las rutas de Chats (chats/counts, chats/list y las demás con log): `{"p99":..,"max":..}`, el p99 y el máximo en ms del retraso del event loop de Node desde la línea `[timing]` anterior (el monitor se reinicia en cada línea). Cómo se lee: si `retrasoEventLoop` es alto y `poolEspera` es bajo, la lentitud viene de Node (CPU o código que traba el proceso) y no de la base. Solo va en el log, no en la cabecera Server-Timing; si el monitor falla, la línea sale sin el campo.

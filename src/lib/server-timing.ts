@@ -12,8 +12,44 @@
  * La misma linea trae (desde el 08-10-2026, ver medicion-de-pedido.ts):
  *   "poolEspera": pedidos esperando conexion del pool al EMPEZAR este (cola de conexiones).
  *   "consultas":  consultas SQL que mando este pedido a Postgres.
+ *
+ * Y (desde el 26-11-2026) "retrasoEventLoop": {"p99":..,"max":..} en ms, el retraso del event loop
+ * de Node desde la linea [timing] anterior (de cualquier ruta). Si es alto y poolEspera es bajo, la
+ * lentitud viene de Node (CPU, codigo sincrono) y no de la base. Solo va en el log, no en la cabecera.
  */
+import { monitorEventLoopDelay, type IntervalHistogram } from "node:perf_hooks";
 import { esperaDelPool, medirPedido } from "@/lib/medicion-de-pedido";
+
+/*
+  Un solo monitor del event loop para todo el proceso (igual que en migrar-tanda.ts). Se prende la
+  primera vez que un pedido con log lo necesita, y cada linea [timing] lo reinicia: asi cada pedido
+  mide desde el anterior. Medir nunca rompe un pedido: si algo falla, la linea sale sin el campo.
+*/
+let retrasoDelEventLoop: IntervalHistogram | null = null;
+
+function prenderMonitorDelEventLoop() {
+  if (retrasoDelEventLoop) return;
+  try {
+    const monitor = monitorEventLoopDelay({ resolution: 20 });
+    monitor.enable();
+    retrasoDelEventLoop = monitor;
+  } catch {
+    // Sin monitor: la linea [timing] sale sin retrasoEventLoop.
+  }
+}
+
+/** p99 y maximo del retraso del event loop (ms, redondeados) desde la lectura anterior; null si falla. */
+function leerRetrasoDelEventLoop(): { p99: number; max: number } | null {
+  if (!retrasoDelEventLoop) return null;
+  try {
+    const p99 = Math.round(retrasoDelEventLoop.percentile(99) / 1e6);
+    const max = Math.round(retrasoDelEventLoop.max / 1e6);
+    retrasoDelEventLoop.reset();
+    return Number.isFinite(p99) && Number.isFinite(max) ? { p99, max } : null;
+  } catch {
+    return null;
+  }
+}
 
 export type MedidorServerTiming = {
   /** Cierra el paso que venia corriendo con este nombre (ms desde la marca anterior). */
@@ -25,6 +61,7 @@ export function conServerTiming(
   opciones: { log?: string } = {},
 ): (request: Request) => Promise<Response> {
   return async (request: Request) => {
+    if (opciones.log) prenderMonitorDelEventLoop();
     const inicio = performance.now();
     let ultimo = inicio;
     const pasos: Array<[string, number]> = [];
@@ -86,6 +123,7 @@ function escribirLinea(
   extra: { poolEspera: number | null; consultas: number; externas?: Array<[string, number]> },
 ) {
   try {
+    const retrasoEventLoop = leerRetrasoDelEventLoop();
     console.log(
       `[timing] ${JSON.stringify({
         ruta,
@@ -94,6 +132,7 @@ function escribirLinea(
         pasos: Object.fromEntries(pasos.map(([nombre, duracion]) => [nombre, Math.round(duracion * 10) / 10])),
         poolEspera: extra.poolEspera,
         consultas: extra.consultas,
+        ...(retrasoEventLoop ? { retrasoEventLoop } : {}),
         ...(extra.externas?.length
           ? { externas: extra.externas.map(([nombre, duracion]) => [nombre, Math.round(duracion)]) }
           : {}),
