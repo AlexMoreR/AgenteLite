@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { auth } from "@/auth";
-import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
+import { canAccessClientModule, getClientWorkspaceAccessForUserCached } from "@/lib/client-workspace-access";
 import { prisma } from "@/lib/prisma";
 import {
   buildProductConversationCondition,
@@ -39,7 +39,7 @@ export async function POST(request: Request) {
   if (!session?.user?.id) {
     return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 401 });
   }
-  const access = await getClientWorkspaceAccessForUser(session.user.id);
+  const access = await getClientWorkspaceAccessForUserCached(session.user.id);
   if (!access || !canAccessClientModule(access, "products_v2")) {
     return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 401 });
   }

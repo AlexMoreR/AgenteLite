@@ -70,6 +70,20 @@ const ARCHIVOS = {
   "src/app/api/reuniones/subir/route.ts": [],
   // Solo pide estar en un negocio, sin canAccessClientModule.
   "src/app/api/push/subscribe/route.ts": [],
+  // Parte 4: latido, en linea, notificaciones, admin, cerebro, productos y marketing-ia.
+  // Ademas de crm pide puedeVerDireccion (sin cambios).
+  "src/app/api/admin/metricas-servidor/route.ts": ["crm"],
+  // Permiso del cerebro (puedeAdministrarElCerebro), sin canAccessClientModule.
+  "src/app/api/cerebro/google/conectar/route.ts": [],
+  // Solo piden estar en un negocio, sin canAccessClientModule.
+  "src/app/api/cliente/actividad/latido/route.ts": [],
+  "src/app/api/cliente/en-linea/route.ts": [],
+  "src/app/api/cliente/notificaciones/visto/route.ts": ["chats"],
+  "src/app/api/cliente/productos-v2/insights/route.ts": ["products_v2"],
+  "src/app/api/cliente/productos-v2/leads-etapa/route.ts": ["products_v2"],
+  // Marketing IA: solo la regla de rol ADMIN/CLIENTE y estar en un negocio, sin canAccessClientModule.
+  "src/app/api/marketing-ia/ads-generator/route.ts": [],
+  "src/app/api/marketing-ia/ads-generator/creatives/route.ts": [],
 };
 
 for (const [archivo, modulos] of Object.entries(ARCHIVOS)) {

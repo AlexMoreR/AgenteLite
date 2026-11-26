@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { auth } from "@/auth";
-import { canAccessClientModule, getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
+import { canAccessClientModule, getClientWorkspaceAccessForUserCached } from "@/lib/client-workspace-access";
 import { leerPanelServidor, leerTarjetaConsultas } from "@/lib/metricas-servidor-lectura";
 import { puedeVerDireccion } from "@/lib/permisos-del-crm";
 
@@ -19,7 +19,7 @@ export async function GET() {
   if (!session?.user?.id) {
     return NextResponse.json({ ok: false, error: "Sin sesión." }, { status: 401 });
   }
-  const access = await getClientWorkspaceAccessForUser(session.user.id);
+  const access = await getClientWorkspaceAccessForUserCached(session.user.id);
   if (!access || !canAccessClientModule(access, "crm") || !puedeVerDireccion(access)) {
     return NextResponse.json({ ok: false, error: "Sin permiso." }, { status: 403 });
   }

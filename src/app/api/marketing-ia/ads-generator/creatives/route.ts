@@ -4,7 +4,7 @@ import path from "node:path";
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { generateAdCreativesForProduct } from "@/lib/ad-creatives";
-import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
+import { getClientWorkspaceAccessForUserCached } from "@/lib/client-workspace-access";
 
 async function requireMarketingWorkspace() {
   const session = await auth();
@@ -13,8 +13,7 @@ async function requireMarketingWorkspace() {
     return null;
   }
 
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
-  return membership?.workspace.id ? membership : null;
+  return getClientWorkspaceAccessForUserCached(session.user.id);
 }
 
 async function saveMarketingSourceImage(file: File) {
@@ -84,8 +83,8 @@ function resolveCreativeFilePath(imageUrl: string) {
 }
 
 export async function POST(request: Request) {
-  const membership = await requireMarketingWorkspace();
-  if (!membership) {
+  const access = await requireMarketingWorkspace();
+  if (!access) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
 
@@ -172,8 +171,8 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const membership = await requireMarketingWorkspace();
-  if (!membership) {
+  const access = await requireMarketingWorkspace();
+  if (!access) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
 

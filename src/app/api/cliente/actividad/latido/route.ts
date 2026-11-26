@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { auth } from "@/auth";
-import { getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
+import { getClientWorkspaceAccessForUserCached } from "@/lib/client-workspace-access";
 import { anotarActividad } from "@/lib/actividad-del-equipo";
 import { latirEnLinea } from "@/lib/en-linea";
 import { contarPantalla } from "@/lib/uso-del-sistema";
@@ -25,7 +25,7 @@ export async function POST(request: Request) {
   if (!session?.user?.id) {
     return NextResponse.json({ ok: false }, { status: 401 });
   }
-  const access = await getClientWorkspaceAccessForUser(session.user.id);
+  const access = await getClientWorkspaceAccessForUserCached(session.user.id);
   if (!access) {
     return NextResponse.json({ ok: false }, { status: 403 });
   }

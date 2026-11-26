@@ -7,7 +7,7 @@ import { auth } from "@/auth";
 import { runAdsGenerator } from "@/features/ads-generator";
 import type { AdProductInput } from "@/features/ads-generator";
 import { deleteAdsGeneratorHistoryEntry, getAdsGeneratorHistory, saveAdsGeneratorHistoryEntry } from "@/lib/ads-generator-history";
-import { getPrimaryWorkspaceForUser } from "@/lib/workspace";
+import { getClientWorkspaceAccessForUserCached } from "@/lib/client-workspace-access";
 
 const adImageSchema = z.object({
   url: z.string().trim().min(1),
@@ -63,8 +63,7 @@ async function requireMarketingWorkspace() {
     return null;
   }
 
-  const membership = await getPrimaryWorkspaceForUser(session.user.id);
-  return membership?.workspace.id ? membership : null;
+  return getClientWorkspaceAccessForUserCached(session.user.id);
 }
 
 function resolveCreativeDirectoryFromUrl(imageUrl: string) {
@@ -105,18 +104,18 @@ async function deleteMarketingSourceImageFile(sourceImageUrl: string | null | un
 }
 
 export async function GET() {
-  const membership = await requireMarketingWorkspace();
-  if (!membership) {
+  const access = await requireMarketingWorkspace();
+  if (!access) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
 
-  const history = await getAdsGeneratorHistory(membership.workspace.id);
+  const history = await getAdsGeneratorHistory(access.workspaceId);
   return NextResponse.json({ history });
 }
 
 export async function POST(request: Request) {
-  const membership = await requireMarketingWorkspace();
-  if (!membership) {
+  const access = await requireMarketingWorkspace();
+  if (!access) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
 
@@ -170,7 +169,7 @@ export async function POST(request: Request) {
       },
     };
 
-    const history = await saveAdsGeneratorHistoryEntry(membership.workspace.id, entry);
+    const history = await saveAdsGeneratorHistoryEntry(access.workspaceId, entry);
 
     return NextResponse.json({
       entry,
@@ -182,7 +181,7 @@ export async function POST(request: Request) {
   const input = "input" in parsed.data ? parsed.data.input : parsed.data;
   const assets = "input" in parsed.data ? parsed.data.assets : undefined;
   const result = await runAdsGenerator(input);
-  const currentHistory = await getAdsGeneratorHistory(membership.workspace.id);
+  const currentHistory = await getAdsGeneratorHistory(access.workspaceId);
   const currentEntry = entryId ? currentHistory.find((item) => item.id === entryId) : null;
   const entry = {
     id: currentEntry?.id ?? randomUUID(),
@@ -192,7 +191,7 @@ export async function POST(request: Request) {
     assets: assets ?? currentEntry?.assets,
   };
 
-  const history = await saveAdsGeneratorHistoryEntry(membership.workspace.id, entry);
+  const history = await saveAdsGeneratorHistoryEntry(access.workspaceId, entry);
 
   return NextResponse.json({
     entry,
@@ -201,8 +200,8 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const membership = await requireMarketingWorkspace();
-  if (!membership) {
+  const access = await requireMarketingWorkspace();
+  if (!access) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
 
@@ -213,9 +212,9 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Id invalido" }, { status: 400 });
   }
 
-  const currentHistory = await getAdsGeneratorHistory(membership.workspace.id);
+  const currentHistory = await getAdsGeneratorHistory(access.workspaceId);
   const entry = currentHistory.find((item) => item.id === parsed.data.id);
-  const history = await deleteAdsGeneratorHistoryEntry(membership.workspace.id, parsed.data.id);
+  const history = await deleteAdsGeneratorHistoryEntry(access.workspaceId, parsed.data.id);
 
   if (entry) {
     const directories = Array.from(

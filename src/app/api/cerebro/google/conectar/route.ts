@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { auth } from "@/auth";
-import { getClientWorkspaceAccessForUser } from "@/lib/client-workspace-access";
+import { getClientWorkspaceAccessForUserCached } from "@/lib/client-workspace-access";
 import { urlDeInicioDeSesion, oauthConfigurado } from "@/features/cerebro/services/conexion";
 import { puedeAdministrarElCerebro } from "@/features/cerebro/services/reglas";
 import { origenDelPedido } from "../../origen";
@@ -14,7 +14,7 @@ const PANTALLA = "/cliente/negocio/cerebro";
 export async function GET(request: Request) {
   const origen = origenDelPedido(request);
   const sesion = await auth();
-  const acceso = sesion?.user?.id ? await getClientWorkspaceAccessForUser(sesion.user.id) : null;
+  const acceso = sesion?.user?.id ? await getClientWorkspaceAccessForUserCached(sesion.user.id) : null;
   if (!acceso || !puedeAdministrarElCerebro(acceso)) {
     return NextResponse.redirect(`${origen}${PANTALLA}?error=${encodeURIComponent("Solo el dueño conecta Google.")}`);
   }
