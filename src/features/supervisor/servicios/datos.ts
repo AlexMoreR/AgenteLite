@@ -50,10 +50,21 @@ type FilaDeMensaje = {
   enviadoPorUserId: string | null;
 };
 
+/** Cuántos chats mira el Supervisor por vuelta, como máximo: los más nuevos. */
+export const MAX_CHATS_DEL_SUPERVISOR = 1500;
+/** Cuántos mensajes de la ventana lee de cada chat, como máximo: los últimos. */
+export const MAX_MENSAJES_POR_CHAT = 300;
+
 /**
  * Las fichas de los leads que entraron en los últimos `dias` (16 por defecto: 14 de base + 2 de
  * observación). Dos consultas: conversaciones y mensajes (con el índice por conversación y fecha).
  * El texto se recorta a 600 caracteres: para los detectores alcanza y la consulta pesa menos.
+ *
+ * Corre cada hora y la ventana llega a 30 días, así que se acota: como mucho los
+ * `MAX_CHATS_DEL_SUPERVISOR` chats más nuevos y, de cada uno, sus últimos `MAX_MENSAJES_POR_CHAT`
+ * mensajes de la ventana (LATERAL con LIMIT sobre el índice conversationId+fecha). Las dos consultas
+ * van en UNA `consultaPesada` de cron (tope de 20 s, máximo 3 a la vez): si la base tarda más, la
+ * llamada lanza el error y la vuelta de ese negocio se salta (vueltas.ts lo registra y sigue).
  */
 export async function leerFichasRecientes(input: {
   workspaceId: string;
@@ -66,21 +77,32 @@ export async function leerFichasRecientes(input: {
   const desde = new Date(input.ahora.getTime() - (input.dias ?? 16) * DIA);
   const config = await leerConfigEmbudo(input.workspaceId);
 
-  const conversaciones = await prisma.conversation.findMany({
-    where: { workspaceId: input.workspaceId, channelId: { in: lineas }, createdAt: { gte: desde } },
-    select: { id: true, assignedToUserId: true, contact: { select: { metadata: true, crmStage: true } } },
+  const { conversaciones, filas } = await consultaPesada({ modo: "cron" }, async (tx) => {
+    const conversaciones = await tx.conversation.findMany({
+      where: { workspaceId: input.workspaceId, channelId: { in: lineas }, createdAt: { gte: desde } },
+      select: { id: true, assignedToUserId: true, contact: { select: { metadata: true, crmStage: true } } },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: MAX_CHATS_DEL_SUPERVISOR,
+    });
+    if (conversaciones.length === 0) return { conversaciones, filas: [] as FilaDeMensaje[] };
+    const filas = await tx.$queryRaw<FilaDeMensaje[]>(Prisma.sql`
+      SELECT c."id" AS "conversationId", u."id", u."direction", u."type", u."content", u."transcripcion", u."createdAt",
+             u."source", u."kind", u."assigneeUserId", u."enviadoPorUserId"
+        FROM unnest(ARRAY[${Prisma.join(conversaciones.map((c) => c.id))}]::text[]) AS c("id")
+        CROSS JOIN LATERAL (
+          SELECT m."id", m."direction"::text AS "direction", m."type"::text AS "type",
+                 left(m."content", 600) AS "content", left(m."transcripcion", 400) AS "transcripcion", m."createdAt",
+                 m."rawPayload"->>'source' AS "source", m."rawPayload"->>'kind' AS "kind",
+                 m."rawPayload"->>'assigneeUserId' AS "assigneeUserId", m."rawPayload"->>'enviadoPorUserId' AS "enviadoPorUserId"
+            FROM "Message" m
+           WHERE m."conversationId" = c."id"
+             AND m."createdAt" >= ${desde}
+           ORDER BY m."createdAt" DESC
+           LIMIT ${MAX_MENSAJES_POR_CHAT}) u
+       ORDER BY c."id", u."createdAt"`);
+    return { conversaciones, filas };
   });
   if (conversaciones.length === 0) return [];
-
-  const filas = await prisma.$queryRaw<FilaDeMensaje[]>(Prisma.sql`
-    SELECT m."conversationId", m."id", m."direction"::text AS "direction", m."type"::text AS "type",
-           left(m."content", 600) AS "content", left(m."transcripcion", 400) AS "transcripcion", m."createdAt",
-           m."rawPayload"->>'source' AS "source", m."rawPayload"->>'kind' AS "kind",
-           m."rawPayload"->>'assigneeUserId' AS "assigneeUserId", m."rawPayload"->>'enviadoPorUserId' AS "enviadoPorUserId"
-      FROM "Message" m
-     WHERE m."conversationId" IN (${Prisma.join(conversaciones.map((c) => c.id))})
-       AND m."createdAt" >= ${desde}
-     ORDER BY m."conversationId", m."createdAt"`);
 
   const porChat = new Map<string, MensajeDelSupervisor[]>();
   for (const fila of filas) {
@@ -340,6 +362,8 @@ export async function leerChatsAbiertos(input: {
         SELECT m."createdAt" FROM "Message" m
          WHERE m."conversationId" = c."id" AND m."direction" = 'OUTBOUND' AND m."type"::text <> 'SYSTEM'
            AND m."rawPayload"->>'source' IN ('manual', 'instance')
+           -- Solo los últimos 30 días: una respuesta más vieja cuenta como "nadie le respondió".
+           AND m."createdAt" >= NOW() - INTERVAL '30 days'
          ORDER BY m."createdAt" DESC LIMIT 1) hum ON true
       LEFT JOIN LATERAL (
         SELECT array_agg(t."texto" ORDER BY t."createdAt") AS "textos" FROM (
