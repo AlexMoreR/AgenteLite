@@ -150,6 +150,8 @@ const reemplazos = new Map([
   [ruta("features/agente-v3/servicios/redactor.ts"), {
       responderConElRedactor: async () => ({ porque: "sin redactor en la prueba", respondio: false, causa: null }),
     },],
+  // La consulta de flujos de verdad toca Prisma: aquí no hay flujos.
+  [ruta("features/flows/services/getCreatedFlowItems.ts"), { getCreatedFlowItems: async () => [] }],
   [ruta("features/crm/services/stage-follow-up.ts"), { agendarSeguimientoDeEtapa: async () => {} }],
   [ruta("features/embudo/servicios/eventos.ts"), { registrarTurnoV3: async () => {} }],
 ]);

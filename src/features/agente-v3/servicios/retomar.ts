@@ -5,6 +5,7 @@ import { sendAndPersistEvolutionFlowStepResilient } from "@/lib/evolution-envio"
 import { prisma } from "@/lib/prisma";
 import { avisarAsesorPorWhatsApp } from "./avisos";
 import { responderConElRedactor } from "./redactor";
+import { buscarFlujoDeLaLinea, resultadoParaElMotor } from "./flujos-de-la-linea";
 import { agendarSeguimientoDeEtapa } from "@/features/crm/services/stage-follow-up";
 import { registrarTurnoV3 } from "@/features/embudo/servicios/eventos";
 
@@ -203,9 +204,10 @@ export async function retomarConversacionV3(input: {
           porque: resultado.porque,
           causa: resultado.causa,
         });
+        return resultadoParaElMotor(resultado, "conIa");
       },
       responderSinRegla: async ({ foto }) =>
-        (
+        resultadoParaElMotor(
           await responderConElRedactor({
             workspaceId: channel.workspaceId,
             conversationId: conversation.id,
@@ -214,8 +216,12 @@ export async function retomarConversacionV3(input: {
             avisarAsesor: avisarAsesor,
             yaLoDijimos: yaLoDijimos,
             pausarIa,
-          })
-        ).porque,
+          }),
+          "sinRegla",
+        ),
+      // La ficha del respaldo se busca solo entre los flujos de la línea de este chat.
+      buscarFlujo: (titulo) =>
+        buscarFlujoDeLaLinea({ workspaceId: channel.workspaceId, channelId: channel.id, titulo }),
       alEntrarAlPaso: async (productoId, paso) => {
         if (channel.purpose === "ADMIN") return;
         await agendarSeguimientoDeEtapa({

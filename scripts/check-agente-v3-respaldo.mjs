@@ -50,6 +50,7 @@ function cargar(archivo, reemplazos) {
 const ruta = (relativa) => path.join(SRC, relativa);
 
 // --- Reemplazos de lo que toca la base o la IA ----------------------------------------------------
+const flujosSimulados = { lista: [], falla: false };
 const mundo = { libro: null, estado: null, guardados: [], sugerencia: null, flujo: { steps: [] } };
 const reemplazos = new Map([
   [ruta("lib/agent-product-flow.ts"), { getFlowReply: async () => mundo.flujo() }],
@@ -76,6 +77,15 @@ const reemplazos = new Map([
       leerEstado: async () => structuredClone(mundo.estado),
       guardarEstado: async (_id, estado) => {
         mundo.guardados.push(structuredClone(estado));
+      },
+    },
+  ],
+  [
+    ruta("features/flows/services/getCreatedFlowItems.ts"),
+    {
+      getCreatedFlowItems: async () => {
+        if (flujosSimulados.falla) throw new Error("consulta caída");
+        return flujosSimulados.lista;
       },
     },
   ],
@@ -444,6 +454,60 @@ await prueba("(f') regla responder_con_ia, la IA responde bien: sin respaldo", a
   assert.equal(r.avisos.length, 0);
   assert.equal(r.resultado.traza.respaldo, undefined);
   assert.deepEqual(r.buscados, []);
+});
+
+// --- flujos-de-la-linea: buscarFlujoDeLaLinea y resultadoParaElMotor ------------------------------
+const { buscarFlujoDeLaLinea, resultadoParaElMotor } = cargar(
+  ruta("features/agente-v3/servicios/flujos-de-la-linea.ts"),
+  reemplazos,
+);
+const flujoDe = (id, title) => ({ id, title });
+
+await prueba("(h) buscarFlujoDeLaLinea: encuentra el flujo de título exacto de su línea", async () => {
+  flujosSimulados.falla = false;
+  flujosSimulados.lista = [flujoDe("evolution:linea-1:a", "Otro"), flujoDe("evolution:linea-1:b", "Ficha Camilla Divan")];
+  assert.equal(await buscarFlujoDeLaLinea({ workspaceId: "w", channelId: "linea-1", titulo: "Ficha Camilla Divan" }), "evolution:linea-1:b");
+});
+
+await prueba("(i) buscarFlujoDeLaLinea: no toma uno de otra línea, de official-api ni de título parecido", async () => {
+  flujosSimulados.falla = false;
+  flujosSimulados.lista = [
+    flujoDe("evolution:linea-2:b", "Ficha Camilla Divan"),
+    flujoDe("official-api:linea-1:b", "Ficha Camilla Divan"),
+    flujoDe("evolution:linea-1:c", "Ficha Camilla Divan 2"),
+    flujoDe("evolution:linea-1:d", "ficha camilla divan"),
+  ];
+  assert.equal(await buscarFlujoDeLaLinea({ workspaceId: "w", channelId: "linea-1", titulo: "Ficha Camilla Divan" }), null);
+});
+
+await prueba("(j) buscarFlujoDeLaLinea: null si no existe o si la consulta lanza un error", async () => {
+  flujosSimulados.falla = false;
+  flujosSimulados.lista = [];
+  assert.equal(await buscarFlujoDeLaLinea({ workspaceId: "w", channelId: "linea-1", titulo: "Ficha Camilla Divan" }), null);
+  flujosSimulados.falla = true;
+  const avisos = [];
+  const original = console.warn;
+  console.warn = (...args) => avisos.push(args);
+  try {
+    assert.equal(await buscarFlujoDeLaLinea({ workspaceId: "w", channelId: "linea-1", titulo: "Ficha Camilla Divan" }), null);
+  } finally {
+    console.warn = original;
+    flujosSimulados.falla = false;
+  }
+  assert.equal(avisos.length, 1);
+  assert.equal(avisos[0][0], "[agente-v3] buscarFlujo");
+});
+
+await prueba("(k) resultadoParaElMotor: con causa devuelve el objeto completo; sin causa, lo de siempre", () => {
+  const conCausa = { porque: "la IA no respondió", respondio: false, causa: "tiempo de espera" };
+  assert.equal(resultadoParaElMotor(conCausa, "conIa"), conCausa);
+  assert.equal(resultadoParaElMotor(conCausa, "sinRegla"), conCausa);
+  const envioFallido = { porque: "falló el envío", respondio: false, causa: null };
+  assert.equal(resultadoParaElMotor(envioFallido, "sinRegla"), "falló el envío");
+  assert.equal(resultadoParaElMotor(envioFallido, "conIa"), undefined);
+  const respondio = { porque: "respondió", respondio: true, causa: null };
+  assert.equal(resultadoParaElMotor(respondio, "sinRegla"), "respondió");
+  assert.equal(resultadoParaElMotor(respondio, "conIa"), undefined);
 });
 
 console.log(`\n${pruebas} pruebas ok`);
