@@ -1668,6 +1668,9 @@ export const CATEGORIAS_DE_INTENTO = [
   // 27-nov-2026: el plan nombra archivos del otro repo; el Coordinador le cambia el repo a la tarjeta y la vuelve a planear
   // (acción "cambiar-repo"). No cuenta como intento; tope TOPE_DE_CAMBIOS_DE_REPO.
   "repo_equivocado",
+  // 27-nov-2026 (T-956): la sesión dijo DEPENDE_DE de una tarjeta HECHA a mano o FALLIDA cuyo código no está en main. Esperar no
+  // sirve (no va a avanzar sola): ERROR con el motivo. No se repara sola (diagnostico.mjs: SIN_REPARACION_AUTOMATICA).
+  "depende_de_sin_main",
   "otra",
 ] as const;
 export type CategoriaDeIntento = (typeof CATEGORIAS_DE_INTENTO)[number];
@@ -1947,6 +1950,40 @@ export function madreSeCierra(hijasVivas: readonly { estado: string }[]): boolea
 export const TOPE_DE_RECOGIDAS_POR_TARJETA = 2;
 /** Cuántas tarjetas se recogen por día. */
 export const TOPE_DE_RECOGIDAS_POR_DIA = 6;
+
+/**
+ * DEPENDE_DE por código (27-nov-2026, T-956): "T-955" (también «T-955», "t-955" o "T 955") -> 955. null si la referencia no es
+ * un código de tarjeta. Así /depender encuentra la tarjeta por su número y no solo por id o título exacto.
+ */
+export function numeroDeLaReferencia(referencia: string): number | null {
+  const encontrado = String(referencia ?? "").trim().match(/^[«"']?\s*T[\s-]?(\d{1,9})\s*[»"']?$/i);
+  if (!encontrado) return null;
+  const numero = Number(encontrado[1]);
+  return Number.isSafeInteger(numero) && numero > 0 ? numero : null;
+}
+
+/** El id corto de la tarjeta, el mismo que usa el Coordinador en sus ramas y commits (trabajador-tablero/lib/git.mjs: idCorto). */
+export function idCortoDeTarjeta(id: string): string {
+  return String(id).replace(/[^A-Za-z0-9]/g, "").slice(-8);
+}
+
+/**
+ * ¿Quedó HECHO a mano? (27-nov-2026, T-956): HECHO, con repo (es de código) y sin la subida del Coordinador (`resultado.subida`)
+ * ni la marca de "ya estaba hecho" (`resultado.yaEstabaHecho`). Su código puede no estar en main: el Coordinador lo mira con git.
+ */
+export function quedoHechaAMano(tarjeta: { estado: string; repo?: string | null; resultado?: unknown }): boolean {
+  if (tarjeta.estado !== "HECHO" || !tarjeta.repo) return false;
+  const resultado = (tarjeta.resultado && typeof tarjeta.resultado === "object" ? tarjeta.resultado : {}) as { subida?: unknown; yaEstabaHecho?: unknown };
+  return !resultado.subida && !resultado.yaEstabaHecho;
+}
+
+/**
+ * Las tarjetas de las que todavía se espera (las que no están HECHO). Con `fallidaNoEspera` (solo lo pide el Coordinador al
+ * recibir DEPENDE_DE de una sesión) una FALLIDA tampoco cuenta: no va a avanzar sola y el Coordinador decide con git.
+ */
+export function pendientesDeLaEspera<T extends { estado: string }>(origenes: readonly T[], { fallidaNoEspera = false }: { fallidaNoEspera?: boolean } = {}): T[] {
+  return origenes.filter((origen) => origen.estado !== "HECHO" && !(fallidaNoEspera && origen.estado === "FALLIDO"));
+}
 
 /** Los estados desde los que una dependencia "está trabada": nadie la va a terminar sin que el dueño mire. */
 const ESTADOS_QUE_NO_AVANZAN = ["ERROR", "FALLIDO"] as const;

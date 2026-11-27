@@ -2991,16 +2991,38 @@ const servidor = http.createServer(async (pedido, respuesta) => {
   if (accion === "depender") {
     // Como el CRM (27-oct-2026): pone la flecha hacia las tarjetas que existan (por id o título) y, si alguna no está HECHO,
     // PLANEANDO -> APROBADO y EN_CURSO -> PLAN_APROBADO sin gastar el intento.
-    const origenes = [...tarjetas.values()].filter((t) => t.id !== id && (cuerpo.referencias ?? []).some((r) => r === t.id || r.toLowerCase() === t.titulo.toLowerCase()));
+    // 27-nov-2026 (T-956): también por su código "T-955" (su `numero`); con `fallidaNoEspera` una FALLIDA no cuenta como espera, y la
+    // respuesta trae `tarjetas` con lo que el Coordinador necesita para mirar en git (como services/trabajador.ts: ponerDependencias).
+    const otras = [...tarjetas.values()].filter((t) => t.id !== id);
+    const origenes = [
+      ...new Set(
+        (cuerpo.referencias ?? [])
+          .map((r) => {
+            const numero = reglas.numeroDeLaReferencia(r);
+            return otras.find((t) => t.id === r) ?? (numero !== null ? otras.find((t) => t.numero === numero) : undefined) ?? otras.find((t) => r.toLowerCase() === t.titulo.toLowerCase());
+          })
+          .filter(Boolean),
+      ),
+    ];
     tarjeta.dependeDe = [...new Set([...(tarjeta.dependeDe ?? []), ...origenes.map((t) => t.id)])];
-    const pendientes = origenes.filter((t) => t.estado !== "HECHO");
+    const pendientes = reglas.pendientesDeLaEspera(origenes, { fallidaNoEspera: cuerpo.fallidaNoEspera === true });
     const etiqueta = pendientes.length ? `Esperando a ${pendientes.map((t) => `«${t.titulo}»`).join(" y ")}` : null;
     const vuelve = { PLANEANDO: "APROBADO", EN_CURSO: "PLAN_APROBADO" }[tarjeta.estado];
     if (etiqueta && vuelve) {
       anotarIntento(tarjeta, { etapa: cuerpo.etapa ?? "planear", categoria: "otra", causa: etiqueta }, "esperar", false);
       Object.assign(tarjeta, { estado: vuelve, venceEn: null, intentos: Math.max(0, tarjeta.intentos - 1) });
     }
-    return contestar(200, { ok: true, estado: tarjeta.estado, creadas: origenes.map((t) => t.id), esperando: etiqueta, soltada: Boolean(etiqueta && vuelve) });
+    const nombradas = origenes.map((t) => ({
+      id: t.id,
+      idCorto: reglas.idCortoDeTarjeta(t.id),
+      codigo: typeof t.numero === "number" ? `T-${t.numero}` : "",
+      titulo: t.titulo,
+      estado: t.estado,
+      repo: t.repo ?? null,
+      hechaAMano: reglas.quedoHechaAMano(t),
+      plan: t.plan,
+    }));
+    return contestar(200, { ok: true, estado: tarjeta.estado, creadas: origenes.map((t) => t.id), esperando: etiqueta, soltada: Boolean(etiqueta && vuelve), tarjetas: nombradas });
   }
   if (accion === "ya-hecha") {
     tarjeta.resultado = { ...(tarjeta.resultado ?? {}), yaEstabaHecho: { commit: cuerpo.commit, motivo: cuerpo.motivo, nota: reglas.notaDeYaHecha(cuerpo.commit) } };
@@ -6318,6 +6340,94 @@ process.exit(real.status ?? 1);
     assert.ok(!acciones.includes("reparar") && !acciones.includes("error"), acciones.join(","));
     assert.equal(avisosAlDueno(), antes, "ningún aviso al dueño");
     soltarTodas(pagina, construir);
+    sinRestos();
+  });
+
+  /* ── 27-nov-2026 (T-956): DEPENDE_DE se resuelve con git y con el estado de la otra tarjeta, sin bucle ── */
+
+  await prueba("T-956 (a): la sesión dice 'DEPENDE_DE: T-955', T-955 está HECHA a mano y su código no está en main -> ERROR con el motivo, depende_de_sin_main, sin reparar ni volver a la fila", async () => {
+    cerrarLoDeAntes();
+    const antes = avisosAlDueno();
+    // HECHA a mano: HECHO, con repo y sin la subida del Coordinador. Ningún commit de main trae su id corto.
+    const otra = nuevaModerna("Página que se marcó hecha a mano", "HECHO", { numero: 955, plan: null, resultado: null });
+    const id = nuevaModerna("Alertas que esperan [depende-t955]", "APROBADO", { plan: null });
+    const resultado = await vuelta();
+    assert.equal(resultado.hizo, "planear");
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "ERROR", "queda en ERROR, no vuelve a APROBADO");
+    assert.deepEqual(t.dependeDe, [otra], "la flecha quedó puesta");
+    assert.match(t.resultado.error.motivo, /T-955/);
+    assert.match(t.resultado.error.motivo, /no está en main/);
+    assert.match(t.resultado.error.motivo, /^Depende de «Página que se marcó hecha a mano» \(T-955\), que está HECHA a mano, pero su código no está en main: no se puede seguir hasta que se suba\.$/);
+    assert.equal(t.resultado.error.categoria, "depende_de_sin_main");
+    const acciones = deLaTarjeta(id);
+    assert.ok(!acciones.includes("reparar") && !acciones.includes("soltar"), acciones.join(","));
+    assert.equal(acciones.filter((a) => a === "error").length, 1, "una sola llamada a error");
+    assert.equal(llamadas.findLast((l) => l.id === id && l.accion === "depender").cuerpo.fallidaNoEspera, true);
+    assert.equal(t.reparaciones ?? 0, 0, "ni una reparación");
+    assert.equal(avisosAlDueno(), antes, "sin WhatsApp: la línea queda en el tablero");
+    // Con una FALLIDA pasa lo mismo: no se espera para siempre a algo que no va a avanzar.
+    Object.assign(tarjetas.get(otra), { estado: "FALLIDO" });
+    const otraVez = nuevaModerna("Alertas que esperan a la fallida [depende-t955]", "APROBADO", { plan: null });
+    assert.equal((await vuelta()).hizo, "planear");
+    assert.equal(tarjetas.get(otraVez).estado, "ERROR");
+    assert.match(tarjetas.get(otraVez).resultado.error.motivo, /\(T-955\), que está FALLIDA, pero su código no está en main/);
+    assert.equal(tarjetas.get(otraVez).resultado.error.categoria, "depende_de_sin_main");
+    assert.ok(!deLaTarjeta(otraVez).includes("reparar"));
+    // El código T-955 es único: la que sigue usa otra tarjeta con ese número.
+    delete tarjetas.get(otra).numero;
+    soltarTodas(otra, id, otraVez);
+    sinRestos();
+  });
+
+  await prueba("T-956 (b): la sesión dice 'DEPENDE_DE: T-955' y main ya tiene el commit de T-955 -> vuelve a APROBADO con 'ya está en main' y el commit, sin ERROR ni intento", async () => {
+    cerrarLoDeAntes();
+    const otra = nuevaModerna("Página que sí llegó a main", "HECHO", { numero: 955, plan: null, resultado: null });
+    // El commit de main de T-955 («tablero: … (<id corto>)»), como lo deja el Coordinador al subir.
+    g(REPO, "pull", "--quiet", "--ff-only", "origin", "main");
+    archivo("src/t955/pagina.ts", "export const pagina = true;\n");
+    g(REPO, "add", "-A");
+    g(REPO, "commit", "--quiet", "-m", `tablero: Página que sí llegó a main (${idCorto(otra)})`);
+    g(REPO, "push", "--quiet", "origin", "main");
+    const deMain = shaDe("main");
+    const id = nuevaModerna("Alertas sobre la página [depende-t955]", "APROBADO", { plan: null });
+    const resultado = await vuelta();
+    assert.equal(resultado.hizo, "planear");
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "APROBADO", t.resultado?.error?.motivo);
+    assert.match(t.soltada, /ya está en main/);
+    assert.ok(t.soltada.includes(deMain.slice(0, 10)), `la nota nombra el commit: ${t.soltada}`);
+    assert.match(t.soltada, /«Página que sí llegó a main» \(T-955\)/);
+    assert.match(t.soltada, /Se vuelve a planear sobre el main nuevo/);
+    assert.equal(t.intentos, 0, "no gastó intento");
+    const acciones = deLaTarjeta(id);
+    assert.ok(!acciones.includes("reparar") && !acciones.includes("error"), acciones.join(","));
+    // El código T-955 es único: la que sigue usa otra tarjeta con ese número.
+    delete tarjetas.get(otra).numero;
+    soltarTodas(otra, id);
+    sinRestos();
+  });
+
+  await prueba("T-956 (c): la sesión dice 'DEPENDE_DE: T-955' y T-955 sigue EN_CURSO -> espera con la flecha, sin llamada a error", async () => {
+    cerrarLoDeAntes();
+    // EN_CURSO (sin candado, para que no ocupe un puesto de esta vuelta): el CRM falso no la ofrece.
+    const otra = nuevaModerna("Página que se está construyendo", "EN_CURSO", { numero: 955, plan: null, venceEn: null });
+    const id = nuevaModerna("Alertas que esperan en curso [depende-t955]", "APROBADO", { plan: null });
+    const resultado = await vuelta();
+    assert.equal(resultado.hizo, "planear");
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "APROBADO", "esperando en la fila");
+    assert.deepEqual(t.dependeDe, [otra], "con la flecha de dependencia");
+    assert.equal(t.intentos, 0);
+    const acciones = deLaTarjeta(id);
+    assert.ok(!acciones.includes("error") && !acciones.includes("reparar") && !acciones.includes("soltar"), acciones.join(","));
+    assert.equal(t.intentosLista.at(-1).causa, "Esperando a «Página que se está construyendo»");
+    assert.equal(t.intentosLista.at(-1).cuentaComoIntento, false);
+    // Mientras la otra no esté HECHO, el CRM no la ofrece.
+    assert.equal((await vuelta()).hizo, null);
+    // El código T-955 es único: la que sigue usa otra tarjeta con ese número.
+    delete tarjetas.get(otra).numero;
+    soltarTodas(otra, id);
     sinRestos();
   });
 

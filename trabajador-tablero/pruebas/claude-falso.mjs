@@ -273,11 +273,13 @@ if (titulo.includes("[limite]")) {
 
 // Revisión previa (27-oct-2026): al planear o al construir, la sesión contesta con DEPENDE_DE / YA_ESTA_HECHO en vez de trabajar.
 //   [depende-sesion]   DEPENDE_DE: «Página de alertas»
+//   [depende-t955]     DEPENDE_DE: T-955  (por el código de la otra tarjeta; 27-nov-2026, T-956)
 //   [ya-hecho]         YA_ESTA_HECHO: <el commit de main donde está parado el worktree> — ...  (existe en main)
 //   [ya-hecho-falso]   YA_ESTA_HECHO: f4759b0 — ...  (ese commit NO existe en el repo de prueba)
 const commitDeMain = () => execFileSync("git", ["rev-parse", "--short", "HEAD"], { encoding: "utf8" }).trim();
 const palabraDeRevisionPrevia = () => {
   if (titulo.includes("[depende-sesion]")) return "DEPENDE_DE: «Página de alertas»";
+  if (titulo.includes("[depende-t955]")) return "DEPENDE_DE: T-955";
   if (titulo.includes("[ya-hecho-falso]")) return "YA_ESTA_HECHO: f4759b0 — ya estaba construida desde el 20-oct";
   if (titulo.includes("[ya-hecho]")) return `YA_ESTA_HECHO: ${commitDeMain()} — ya estaba construida desde el 20-oct`;
   return null;
