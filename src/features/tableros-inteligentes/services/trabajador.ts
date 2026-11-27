@@ -174,6 +174,9 @@ import { dondeTableroVivo } from "./tableros-archivados";
     del mismo repo que tocan la misma zona o módulo, ni dos subidas del mismo repo (van en `excluir`).
   - /:id/soltar la devuelve sin ERROR ni contar el intento (Claude llegó a su límite de uso, o choca con
     otra que corre): PLANEANDO -> APROBADO, EN_CURSO -> PLAN_APROBADO, SUBIENDO -> SUBIENDO pendiente.
+  - /:id/repo { repo, motivo } (27-nov-2026): el Coordinador vio con git, ANTES de planear, que los archivos de la tarjeta están solo en el otro
+    repo. Guarda el repo nuevo y la tarjeta sigue en PLANEANDO; nota en el historial y un intento repo_equivocado que no cuenta (tope de
+    cambios compartido con cambiar-repo, 409). 400 con un repo inválido.
   - /:id/cambiar-repo { repo?, causa, origen } (27-nov-2026): el plan nombra archivos del otro repo. Con `repo` (gestion o aizencrm;
     otro, 400) se lo cambia; PLANEANDO o EN_CURSO -> APROBADO para planearla de nuevo, sin ERROR, sin reparación y sin gastar el
     intento. Deja un intento "repo_equivocado" que no cuenta y su línea en el historial. 409 con TOPE_DE_CAMBIOS_DE_REPO cambios.
@@ -1142,6 +1145,47 @@ export async function accionDelTrabajador(
       await anotarIntento(tx, actual.id, intento, ahora);
       await tocarTableros(tx, [actual.tableroId], ahora);
       return { ok: true, estado: vuelve, repo: cambia ? nuevo : actual.repo, cambio: cambia, link: linkDeLaTarjeta(actual.id) };
+    });
+  }
+
+  if (accion === "repo") {
+    // Repo correcto ANTES de planear (27-nov-2026): el Coordinador vio con git que los archivos de la tarjeta están solo en el otro
+    // repo. Se guarda el repo nuevo y la tarjeta SIGUE en PLANEANDO (el Coordinador planea en ese repo en la misma sesión). Deja un
+    // intento repo_equivocado que no cuenta: comparte el tope de cambios con "cambiar-repo".
+    let nuevo: string | null;
+    try {
+      nuevo = repoDeEntrada(cuerpo.repo) ?? null;
+    } catch (fallo) {
+      throw new ErrorDelTrabajador(fallo instanceof Error ? fallo.message : "Ese repo no existe.", 400);
+    }
+    if (!nuevo) throw new ErrorDelTrabajador("Falta el repo nuevo.", 400);
+    if (nuevo === actual.repo) return { ok: true, estado, repo: actual.repo, cambio: false, link: linkDeLaTarjeta(actual.id) };
+    const anteriores = await prisma.intentoTarjeta.findMany({
+      where: { tarjetaId: actual.id, categoria: "repo_equivocado" },
+      select: { categoria: true, causa: true },
+    });
+    const tope = puedeCambiarDeRepo(cambiosDeRepo(anteriores));
+    if (tope) throw new ErrorDelTrabajador(tope, 409);
+    const motivo = causaDeEntrada(cuerpo.motivo);
+    const nota = `El Coordinador cambió el repo de ${actual.repo ?? "sin repo"} a ${nuevo}: ${motivo}`;
+    const intento: IntentoPorGuardar = {
+      etapa: "planear",
+      categoria: "repo_equivocado",
+      causa: causaDeEntrada(notaDeCambioDeRepo(actual.repo, nuevo, motivo)),
+      error: null,
+      accion: "esperar",
+      cuentaComoIntento: false,
+    };
+    return prisma.$transaction(async (tx) => {
+      const hecho = await tx.tarjetaTablero.updateMany({
+        where: { id: actual.id, estado: actual.estado, borradoEn: null },
+        data: { repo: nuevo },
+      });
+      if (hecho.count !== 1) throw new ErrorDelTrabajador("La tarjeta cambió mientras tanto.", 409);
+      await anotarTrabajador(tx, contexto, actual.id, { estado, repo: actual.repo }, { estado, repo: nuevo, nota, categoria: "repo_equivocado" });
+      await anotarIntento(tx, actual.id, intento, ahora);
+      await tocarTableros(tx, [actual.tableroId], ahora);
+      return { ok: true, estado, repo: nuevo, cambio: true, link: linkDeLaTarjeta(actual.id) };
     });
   }
 

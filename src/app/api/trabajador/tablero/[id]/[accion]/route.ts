@@ -24,6 +24,8 @@ export const dynamic = "force-dynamic";
   - soltar    { motivo, categoria?, causa?, error?, etapa? }   PLANEANDO -> APROBADO, EN_CURSO ->
               PLAN_APROBADO, SUBIENDO -> SUBIENDO pendiente, sin ERROR ni contar el intento (Claude llegó
               a su límite de uso, o choca con otra que corre). Con `categoria` queda un intento "esperar".
+  - repo      { repo, motivo }                    PLANEANDO (27-nov-2026): el Coordinador vio con git que los archivos de la tarjeta están solo en el otro
+              repo; guarda el repo nuevo y la tarjeta SIGUE en PLANEANDO. 400 con un repo inválido; 409 pasado el tope de cambios de repo.
   - reparar   { etapa, categoria, causa, error, estrategia? }   PLANEANDO | EN_CURSO | SUBIENDO -> la fila sin
               ERROR (APROBADO / PLAN_APROBADO), reparaciones + 1. 409 si ya lleva 3. Con `cuenta: false` y categoria
               choca_con_main: vuelve a construir sin sumar reparación (intento "esperar" que no cuenta); 409 con 3

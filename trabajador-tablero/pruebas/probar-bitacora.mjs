@@ -193,8 +193,8 @@ try {
   });
 
   await prueba("INCIDENTES_CONOCIDOS: T-875 de Gestión (no arrancó, commit c42a476), sin causa inventada", () => {
-    assert.equal(INCIDENTES_CONOCIDOS.length, 1);
-    const [t875] = INCIDENTES_CONOCIDOS;
+    assert.equal(INCIDENTES_CONOCIDOS.length, 2, "T-875 y T-940");
+    const t875 = INCIDENTES_CONOCIDOS.find((incidente) => incidente.tarjeta.id === "T-875");
     assert.equal(t875.tarjeta.id, "T-875");
     assert.equal(t875.repo, "gestion");
     assert.equal(t875.commit, "c42a476");
@@ -346,6 +346,7 @@ try {
     assert.equal(veces(textoCrm, "<!-- incidente:ru2nd890:2026-11-24 15:00 -->"), 1);
     assert.ok(textoCrm.indexOf("14:05") < textoCrm.indexOf("15:00"), "en el orden en que se anotaron");
     assert.ok(!textoCrm.includes("T-875"), "T-875 es de gestion, no de aizencrm");
+    assert.equal(veces(textoCrm, "<!-- incidente:T-940:fecha no registrada -->"), 1, "T-940 es de aizencrm");
     // gestion: sin entradas locales, entra T-875 (commit c42a476).
     assert.equal(commits(ges.remoto), "2");
     assert.match(ultimoMensaje(ges.remoto), /^docs\(incidentes\): /);
@@ -353,7 +354,7 @@ try {
     assert.match(textoGes, /^# Bitácora de incidentes: gestion\n/);
     assert.equal(veces(textoGes, "<!-- incidente:T-875:fecha no registrada -->"), 1);
     assert.match(textoGes, /^- Repo: gestion \(commit c42a476\)$/m);
-    assert.match(avisos.at(-1), /Bitácora de la noche: pasé 2 entrada\(s\) a aizencrm y 1 entrada\(s\) a gestion/);
+    assert.match(avisos.at(-1), /Bitácora de la noche: pasé 3 entrada\(s\) a aizencrm y 1 entrada\(s\) a gestion/);
     assert.equal(leerEstadoDeLaBitacora(config.carpetaTrabajo).hecho, true);
     assert.equal(fs.existsSync(path.join(config.carpetaTrabajo, "wt", "bitacora-nocturna-aizencrm")), false, "no deja la copia aparte");
     // El mismo día no se repite.
@@ -377,7 +378,7 @@ try {
     assert.equal(commits(ges.remoto), "2");
     const textoCrm2 = enRemoto(crm.remoto, "docs/incidentes.md");
     assert.ok(textoCrm2.startsWith(textoCrm.trimEnd()), "lo de antes queda igual");
-    assert.equal(veces(textoCrm2, "<!-- incidente:"), 3);
+    assert.equal(veces(textoCrm2, "<!-- incidente:"), 4, "las 2 de antes, T-940 y la nueva");
 
     // Si git falla (el remoto desaparece), no lanza: avisa, cuenta el intento y para a los 3 intentos de la noche.
     anotarIncidente({ config, registro: log, ...base, fecha: "2026-11-27 09:00", causa: "cuarta causa" });

@@ -94,6 +94,19 @@ export function crearCrm(config, { fetch: miFetch = globalThis.fetch, timeoutMs 
       }
     },
     /**
+     * Repo correcto ANTES de planear (27-nov-2026): los archivos de la tarjeta están solo en el otro repo. Guarda el repo nuevo y la
+     * tarjeta SIGUE en PLANEANDO. { repo, motivo }. Un CRM viejo (404) o el tope de cambios (409) no lanzan: devuelven { ok: false, status }
+     * y se planea en el repo de antes. (cambiarRepo es otra cosa: devuelve la tarjeta a APROBADO.)
+     */
+    cambiarRepoAlPlanear: async (id, datos) => {
+      try {
+        return await pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/repo`, limpio(datos));
+      } catch (error) {
+        if (error instanceof ErrorDelCrm && (error.status === 404 || error.status === 409)) return { ok: false, status: error.status, error: error.message };
+        throw error;
+      }
+    },
+    /**
      * La falla se repara: vuelve a la fila (PLAN_APROBADO o APROBADO), reparaciones + 1. 409 si ya hizo las 3. { etapa, categoria, causa, error, estrategia?, cuenta? }
      * `cuenta: false` (31-oct-2026, solo con choca_con_main): vuelve a construir desde el main más nuevo SIN sumar reparación
      * (intento que no cuenta); 409 si ya lleva TOPE_DE_CHOQUES_SEGUIDOS choques seguidos. `limpio` deja pasar el false.

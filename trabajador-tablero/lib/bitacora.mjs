@@ -94,6 +94,8 @@ const REGLA_POR_CLASE = {
   sin_cambios: "Si Claude no cambia nada, mirar si ya está en main o volver a planear con lo que falta, sin repetir lo mismo.",
   // 27-nov-2026 («nunca construir en el repo equivocado»).
   repo: "Si el plan nombra archivos de otro repo, se cambia la tarjeta de repo y se vuelve a planear; nunca se construye en el repo equivocado.",
+  // 27-nov-2026 (parte 2 de «revisar repo antes de planear»): la tarjeta se creó en el repo equivocado.
+  repo_equivocado: "Buscar los archivos de la tarjeta en cada repo antes de planear; si están en el otro, cambiar el repo.",
   // 27-nov-2026 (parte 3 de «si una reparación falla por el mismo motivo, no repetir igual»).
   misma_causa: "Si la falla repite la causa del intento anterior, no se repara igual: se espera a la dependencia o se corta con el motivo.",
   desconocida: "Leer los registros completos del servidor y anotar la causa cuando se sepa.",
@@ -322,6 +324,18 @@ export const INCIDENTES_CONOCIDOS = Object.freeze([
     lineasDelError: Object.freeze([]),
     comoSeResolvio: "no registrado",
     clase: "desconocida",
+  }),
+  // T-940: la tarjeta se planeó en el repo equivocado (sus archivos estaban en el otro) y la sesión de plan se perdió.
+  Object.freeze({
+    fecha: null,
+    tarjeta: Object.freeze({ id: "T-940", titulo: "Tarjeta planeada en el repo equivocado" }),
+    repo: "aizencrm",
+    commit: null,
+    queFallo: "repo_equivocado",
+    causa: "La tarjeta se planeó en el repo equivocado: los archivos que nombraba estaban en el otro repo.",
+    lineasDelError: Object.freeze([]),
+    comoSeResolvio: "cambio_de_repo",
+    clase: "repo_equivocado",
   }),
 ]);
 

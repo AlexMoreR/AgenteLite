@@ -1,0 +1,2 @@
+## Advertencias de operación
+- `repo_correcto_al_planear`: antes de planear, el Coordinador busca los archivos que nombra la tarjeta en cada repo (git ls-tree de la rama base). Si están solo en el otro repo, le cambia el repo (acción `repo`: la tarjeta sigue en PLANEANDO) y planea allá sin preguntar; el cambio comparte el tope de 2 con `cambiar-repo`. Un nombre suelto que existe en los dos repos (route.ts, page.tsx) no cambia nada. Con un Coordinador sin actualizar o un CRM viejo (404) se planea como antes.
