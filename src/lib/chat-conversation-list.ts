@@ -1,3 +1,5 @@
+import type { OrdenDeBandeja } from "@/features/chats/domain/filtros-de-bandeja";
+
 type ConversationListRowLike = {
   source: "agent" | "official";
   conversationId: string;
@@ -45,14 +47,19 @@ export function dedupeConversationListRows<T extends ConversationListRowLike>(ro
   return Array.from(rowsByKey.values());
 }
 
-export function sortConversationListRows<T extends ConversationListRowLike>(rows: T[]) {
+/** Ultimo mensaje primero; con orden "antiguos", al reves (el mas viejo primero). Sin orden, el de hoy. */
+export function sortConversationListRows<T extends ConversationListRowLike>(rows: T[], orden?: OrdenDeBandeja) {
+  const signo = orden === "antiguos" ? -1 : 1;
   return [...rows].sort((left, right) => {
     const leftAt = getConversationListRowTimestamp(left.lastMessageAt);
     const rightAt = getConversationListRowTimestamp(right.lastMessageAt);
-    return rightAt - leftAt;
+    return signo * (rightAt - leftAt);
   });
 }
 
-export function dedupeAndSortConversationListRows<T extends ConversationListRowLike>(rows: T[]) {
-  return sortConversationListRows(dedupeConversationListRows(rows));
+export function dedupeAndSortConversationListRows<T extends ConversationListRowLike>(
+  rows: T[],
+  orden?: OrdenDeBandeja,
+) {
+  return sortConversationListRows(dedupeConversationListRows(rows), orden);
 }

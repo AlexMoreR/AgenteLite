@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import type { OrdenDeBandeja } from "@/features/chats/domain/filtros-de-bandeja";
 
 /**
  * Paginacion por CURSOR de la bandeja (/api/cliente/chats/list).
@@ -14,6 +15,12 @@ import type { Prisma } from "@prisma/client";
  * OJO con los nulos: en Postgres `ORDER BY ... DESC` pone los NULL PRIMERO. Los chats sin ultimo
  * mensaje (lastMessageAt NULL) van arriba de todo, como hoy, y el filtro de "despues de" lo respeta.
  *
+ * ORDEN "antiguos" (`ordenDeBandeja("antiguos")`): el espejo exacto, todo `asc`. En Postgres
+ * `ORDER BY ... ASC` pone los NULL AL FINAL, asi que los chats sin ultimo mensaje quedan abajo de
+ * todo, y Postgres lee el mismo indice `(workspaceId, lastMessageAt, updatedAt)` desde la otra
+ * punta. `whereDespuesDelCursor(c, "antiguos")` usa `gt` en vez de `lt`. Sin `orden`, todo es
+ * identico al de siempre.
+ *
  * El cursor se arma con la ultima fila LEIDA de la base, no con la ultima MOSTRADA: si la ultima
  * era un lead pospuesto (no se muestra), el cursor igual tiene que pasar por encima de el.
  */
@@ -22,6 +29,17 @@ export const ORDEN_DE_BANDEJA = [
   { updatedAt: "desc" },
   { id: "desc" },
 ] satisfies Prisma.ConversationOrderByWithRelationInput[];
+
+const ORDEN_DE_BANDEJA_ANTIGUOS = [
+  { lastMessageAt: "asc" },
+  { updatedAt: "asc" },
+  { id: "asc" },
+] satisfies Prisma.ConversationOrderByWithRelationInput[];
+
+/** El orderBy de la bandeja: "recientes" (o sin orden) es ORDEN_DE_BANDEJA; "antiguos", su espejo. */
+export function ordenDeBandeja(orden?: OrdenDeBandeja): Prisma.ConversationOrderByWithRelationInput[] {
+  return orden === "antiguos" ? ORDEN_DE_BANDEJA_ANTIGUOS : ORDEN_DE_BANDEJA;
+}
 
 export type PosicionEnBandeja = {
   id: string;
@@ -63,8 +81,14 @@ export function leerCursor(texto: string | null | undefined): PosicionEnBandeja 
   }
 }
 
-/** Las filas que van DESPUES de `c` en ORDEN_DE_BANDEJA. */
-export function whereDespuesDelCursor(c: PosicionEnBandeja): Prisma.ConversationWhereInput {
+/** Las filas que van DESPUES de `c` en `ordenDeBandeja(orden)` (sin orden, ORDEN_DE_BANDEJA). */
+export function whereDespuesDelCursor(
+  c: PosicionEnBandeja,
+  orden?: OrdenDeBandeja,
+): Prisma.ConversationWhereInput {
+  if (orden === "antiguos") {
+    return whereDespuesDelCursorAntiguos(c);
+  }
   const desempate: Prisma.ConversationWhereInput = {
     OR: [{ updatedAt: { lt: c.updatedAt } }, { updatedAt: c.updatedAt, id: { lt: c.id } }],
   };
@@ -77,6 +101,25 @@ export function whereDespuesDelCursor(c: PosicionEnBandeja): Prisma.Conversation
   // Los NULL ya quedaron atras (van primero); `lt` no los incluye.
   return {
     OR: [{ lastMessageAt: { lt: c.lastMessageAt } }, { AND: [{ lastMessageAt: c.lastMessageAt }, desempate] }],
+  };
+}
+
+/** El espejo de `whereDespuesDelCursor` para el orden "antiguos" (todo `asc`, NULL al final). */
+function whereDespuesDelCursorAntiguos(c: PosicionEnBandeja): Prisma.ConversationWhereInput {
+  const desempate: Prisma.ConversationWhereInput = {
+    OR: [{ updatedAt: { gt: c.updatedAt } }, { updatedAt: c.updatedAt, id: { gt: c.id } }],
+  };
+  if (c.lastMessageAt === null) {
+    // Ya estamos en el bloque de los NULL, que va al final: solo siguen los NULL de despues.
+    return { AND: [{ lastMessageAt: null }, desempate] };
+  }
+  // `gt` no incluye los NULL, que van al final: se suman todos aparte.
+  return {
+    OR: [
+      { lastMessageAt: { gt: c.lastMessageAt } },
+      { AND: [{ lastMessageAt: c.lastMessageAt }, desempate] },
+      { lastMessageAt: null },
+    ],
   };
 }
 

@@ -167,11 +167,27 @@ export function leerGrupoDeBandeja(crudo: string | null | undefined): GrupoDeBan
   return (GRUPOS_DE_BANDEJA as readonly string[]).includes(texto) ? (texto as GrupoDeBandeja) : null;
 }
 
+/**
+ * En que orden sale la lista. "recientes" (el de siempre): ultimo mensaje primero. "antiguos": el
+ * espejo, del chat mas viejo al mas nuevo. NO es una condicion: no filtra, no cuenta en
+ * `hayFiltrosPuestos` y no prende chapitas ni pastillas.
+ */
+export type OrdenDeBandeja = "recientes" | "antiguos";
+
+export const ORDEN_POR_DEFECTO: OrdenDeBandeja = "recientes";
+
+/** `orden=antiguos` en la direccion; cualquier otro valor, o ninguno, es el de por defecto (null). */
+export function leerOrdenDeBandeja(crudo: string | null | undefined): OrdenDeBandeja | null {
+  return (crudo ?? "").trim().toLowerCase() === "antiguos" ? "antiguos" : null;
+}
+
 export type FiltrosDeBandeja = {
   /** Se cumplen TODAS. Vacio = sin filtro. Solo las completas (ver `condicionCompleta`). */
   condiciones: CondicionDeBandeja[];
   /** Solo si vino en la direccion. Sin el = GRUPO_POR_DEFECTO. */
   grupo?: GrupoDeBandeja;
+  /** Solo si vino `orden=antiguos`. Sin el = ORDEN_POR_DEFECTO ("recientes", el de hoy). */
+  orden?: OrdenDeBandeja;
 };
 
 export const SIN_FILTROS: FiltrosDeBandeja = { condiciones: [] };
@@ -181,6 +197,7 @@ const MAX_VALORES = 20;
 const MAX_DIAS = 3650;
 
 export function hayFiltrosPuestos(filtros: FiltrosDeBandeja): boolean {
+  // El orden no cuenta: cambia como se ve la lista, no cuales chats salen.
   return filtros.condiciones.length > 0;
 }
 
@@ -525,7 +542,11 @@ export function leerFiltrosDeBandeja(
   }
   // Un valor desconocido se ignora (queda el de por defecto), igual que una condicion rota.
   const grupo = leerGrupoDeBandeja(leer("grupo"));
-  return grupo ? { condiciones, grupo } : { condiciones };
+  const orden = leerOrdenDeBandeja(leer("orden"));
+  const filtros: FiltrosDeBandeja = grupo ? { condiciones, grupo } : { condiciones };
+  // Igual que el grupo: sin `orden=antiguos` el campo no aparece y todo queda como hoy.
+  if (orden && orden !== ORDEN_POR_DEFECTO) filtros.orden = orden;
+  return filtros;
 }
 
 /**
@@ -543,6 +564,8 @@ export function paramsDeFiltros(filtros: FiltrosDeBandeja): Array<[string, strin
   const pares: Array<[string, string]> = textos.length ? [["c", textos.join(";")]] : [];
   // El grupo viaja solo si vino puesto: sin el, la direccion queda igual que antes.
   if (filtros.grupo) pares.push(["grupo", filtros.grupo]);
+  // El orden viaja solo si es "antiguos": con recientes la direccion (y una lista guardada) no cambia.
+  if (filtros.orden === "antiguos") pares.push(["orden", "antiguos"]);
   return pares;
 }
 
