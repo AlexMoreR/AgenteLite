@@ -792,7 +792,8 @@ function anotarElEnsayoQueFallo({ config, registro }, tarjeta, error, salida) {
       comoSeResolvio: DECISION_DEL_ENSAYO[salida?.accion] ?? `decisión: ${salida?.accion ?? "sin decisión"}`,
       clase: "codigo",
       queSeIntento: { numero: (Number(tarjeta.reparaciones) || 0) + 1, de: Number(tarjeta.topeReparaciones) || TOPE_DE_REPARACIONES, detalle: "ensayo de migraciones antes de subir" },
-      porQue: salida?.porQue ?? null,
+      // La causa del ensayo ya es una frase fija (MOTIVO_ENSAYO): queda esa; qué cambia y por qué es distinto salen de la decisión.
+      porQue: salida?.porQue ? { ...salida.porQue, causa: MOTIVO_ENSAYO } : null,
     });
   } catch (otro) {
     registro.aviso(`bitácora: no se pudo anotar el ensayo que falló (${String(otro?.message ?? otro).split("\n")[0]})`);
