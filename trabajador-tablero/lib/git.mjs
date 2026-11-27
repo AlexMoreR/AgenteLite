@@ -335,3 +335,55 @@ export async function buscarEnMain(repo, tarjeta, archivosDelPlan = []) {
   }
   return null;
 }
+
+/*
+  ¿EL CÓDIGO DE LA OTRA TARJETA YA ESTÁ EN MAIN? (27-nov-2026, incidente T-956). Una sesión contestó "DEPENDE_DE: T-955" y T-955
+  ya está HECHO (quizá a mano, sin que su código llegara a main). Antes de soltar la tarjeta se mira git:
+    1) buscarEnMain con el id corto de la otra («tablero: … (<idCorto>)»), y si no aparece,
+    2) un commit cuyo asunto contenga el título COMPLETO de la otra (no palabras sueltas, para no confundirse con uno parecido).
+  Nunca lanza: si git falla, cuenta como "no está en main".
+*/
+
+/** Sin tildes, en minúscula y con los espacios juntos, para comparar un título con el asunto de un commit. */
+const normalizarParaBuscar = (texto) =>
+  String(texto ?? "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+
+/**
+ * Busca en main el código de la tarjeta `otra` ({ id, titulo }). `repo`: { ruta, remoto, ramaBase }. Devuelve
+ * { commit, asunto, por: "id" | "titulo" } o null (no está, o git falló).
+ */
+export async function buscarDependenciaEnMain(repo, otra) {
+  try {
+    if (!repo?.ruta || !otra?.id) return null;
+    const porId = await buscarEnMain(repo, { id: otra.id, titulo: "" });
+    if (porId) return { commit: porId.commit, asunto: porId.asunto, por: "id" };
+    const titulo = normalizarParaBuscar(otra.titulo);
+    if (titulo.length < 8) return null;
+    const remoto = repo.remoto ?? "origin";
+    const ramaBase = repo.ramaBase ?? "main";
+    const log = await git(repo.ruta, ["log", `${remoto}/${ramaBase}`, "-n", String(COMMITS_PARA_BUSCAR_EN_MAIN), "--no-merges", `--format=%H${SEPARADOR_DE_CAMPO}%s`], {
+      permitirFallo: true,
+      timeoutMs: 2 * 60_000,
+    });
+    if (log.codigo !== 0) return null;
+    const commits = String(log.salida)
+      .split(/\r?\n/)
+      .map((linea) => {
+        const [commit, asunto = ""] = linea.split(SEPARADOR_DE_CAMPO);
+        return { commit: String(commit).trim(), asunto: asunto.trim() };
+      })
+      .filter(({ commit }) => /^[0-9a-f]{40}$/.test(commit));
+    const deshechos = commits.map(({ asunto }) => asunto.match(/^revert: deshacer ([0-9a-f]{7,40})\b/)?.[1]).filter(Boolean);
+    const encontrado = commits.find(
+      ({ commit, asunto }) => !COMMIT_DE_SENAL.test(asunto) && !deshechos.some((corto) => commit.startsWith(corto)) && normalizarParaBuscar(asunto).includes(titulo),
+    );
+    return encontrado ? { commit: encontrado.commit, asunto: encontrado.asunto, por: "titulo" } : null;
+  } catch {
+    return null;
+  }
+}

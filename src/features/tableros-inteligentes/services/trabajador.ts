@@ -35,6 +35,8 @@ import {
   decisionDeRecogerDeEntrada,
   dependenciaHaceCiclo,
   esperasSeguidas,
+  hechaAManoSinSubida,
+  idCortoDeTarjeta,
   choquesSeguidos,
   puedeReconstruirPorChoque,
   esZona,
@@ -1701,6 +1703,7 @@ async function partirTarjeta(
  * de dependencia (la otra → esta) por cada referencia que exista en el mismo tablero (por id o por título exacto) y que no
  * haga un ciclo. Si alguna no está HECHO, la tarjeta vuelve a la fila (PLANEANDO → APROBADO) sin ERROR y sin gastar el intento:
  * queda "Esperando a «X»". Cada flecha queda en el historial y se quita con un clic desde el tablero.
+ * La respuesta trae `tarjetas: [{ id, idCorto, titulo, estado, hechaAMano }]`, una por cada referencia encontrada.
  */
 async function ponerDependencias(contexto: ContextoTrabajador, actual: FilaParaTrabajar, cuerpo: Record<string, unknown>, ahora: Date) {
   const referencias = Array.isArray(cuerpo.referencias)
@@ -1711,9 +1714,9 @@ async function ponerDependencias(contexto: ContextoTrabajador, actual: FilaParaT
   return prisma.$transaction(async (tx) => {
     const candidatas = await tx.tarjetaTablero.findMany({
       where: { tableroId: actual.tableroId, borradoEn: null, id: { not: actual.id }, tipo: { usaEstados: true } },
-      select: { id: true, titulo: true, estado: true },
+      select: { id: true, titulo: true, estado: true, resultado: true },
     });
-    const origenes = new Map<string, { id: string; titulo: string; estado: string }>();
+    const origenes = new Map<string, { id: string; titulo: string; estado: string; resultado: Prisma.JsonValue }>();
     for (const referencia of referencias) {
       const buscada = referencia.toLowerCase();
       const encontrada = candidatas.find((tarjeta) => tarjeta.id === referencia) ?? candidatas.find((tarjeta) => tarjeta.titulo.trim().toLowerCase() === buscada);
@@ -1754,7 +1757,16 @@ async function ponerDependencias(contexto: ContextoTrabajador, actual: FilaParaT
       soltada = true;
     }
     if (creadas.length || soltada) await tocarTableros(tx, [actual.tableroId], ahora);
-    return { ok: true, estado, creadas, esperando: etiqueta, soltada, link: linkDeLaTarjeta(actual.id) };
+    // 27-nov-2026 (incidente T-956): cada tarjeta nombrada que se encontró, para que el Coordinador compruebe con git si su código
+    // ya está en main antes de soltar (`hechaAMano`: HECHO sin una subida del Coordinador ni un YA_ESTA_HECHO comprobado).
+    const tarjetas = [...origenes.values()].map((origen) => ({
+      id: origen.id,
+      idCorto: idCortoDeTarjeta(origen.id),
+      titulo: origen.titulo,
+      estado: origen.estado,
+      hechaAMano: hechaAManoSinSubida(origen),
+    }));
+    return { ok: true, estado, creadas, esperando: etiqueta, soltada, tarjetas, link: linkDeLaTarjeta(actual.id) };
   });
 }
 

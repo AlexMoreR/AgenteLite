@@ -919,6 +919,19 @@ prueba("transiciones del trabajador: cada acción solo desde su estado", () => {
   );
 });
 
+// 27-nov-2026 (tarjeta 7rlezol8, incidente T-956): DEPENDE_DE a una tarjeta HECHA a mano sin su código en main.
+prueba("hechaAManoSinSubida: HECHO sin subida ni yaEstabaHecho; categoría depende_de_sin_main; idCortoDeTarjeta", () => {
+  assert.equal(trabajo.hechaAManoSinSubida({ estado: "HECHO", resultado: null }), true);
+  assert.equal(trabajo.hechaAManoSinSubida({ estado: "HECHO", resultado: { resumen: "hecho a mano" } }), true);
+  assert.equal(trabajo.hechaAManoSinSubida({ estado: "HECHO", resultado: { subida: { commit: "" } } }), true, "un commit vacío no cuenta");
+  assert.equal(trabajo.hechaAManoSinSubida({ estado: "HECHO", resultado: { subida: { commit: "abc1234def" } } }), false);
+  assert.equal(trabajo.hechaAManoSinSubida({ estado: "HECHO", resultado: { yaEstabaHecho: { commit: "abc1234def" } } }), false);
+  for (const estado of ["EN_CURSO", "FALLIDO", "ERROR", "PLAN_APROBADO"]) assert.equal(trabajo.hechaAManoSinSubida({ estado, resultado: null }), false, estado);
+  assert.ok(trabajo.CATEGORIAS_DE_INTENTO.includes("depende_de_sin_main"));
+  assert.equal(trabajo.categoriaDeEntrada("depende_de_sin_main"), "depende_de_sin_main");
+  assert.equal(trabajo.idCortoDeTarjeta("cmvkcrakm00no2nlgu1khlqi3"), "u1khlqi3");
+});
+
 // 27-nov-2026 (tarjeta f1uipesz): el Coordinador le cambia el repo a una tarjeta cuyo plan nombra archivos del otro repo.
 prueba("cambiar-repo: vale desde PLANEANDO y EN_CURSO y lleva a APROBADO; tope de 2 cambios; categoría repo_equivocado", () => {
   assert.ok(trabajo.ACCIONES_DEL_TRABAJADOR.includes("cambiar-repo"));

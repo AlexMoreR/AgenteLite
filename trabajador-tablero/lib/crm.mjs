@@ -101,7 +101,11 @@ export function crearCrm(config, { fetch: miFetch = globalThis.fetch, timeoutMs 
     reparar: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/reparar`, limpio({ ...datos, causa: conTexto(datos?.causa, sinCausaDe(datos)) })),
     /** La tarea era muy grande: crea las partes (2 a 4) que salieron de la sesión de partir. { causa, error, partes: [{ titulo, detalle }] } */
     partir: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/partir`, limpio(datos)),
-    /** Medir antes de planear: la tarjeta nombra a otras como molde o requisito. { referencias: [id o título] } -> { creadas, esperando, soltada }. Si alguna no está HECHO, PLANEANDO vuelve a la fila ("Esperando a «X»") sin ERROR. */
+    /**
+     * Medir antes de planear: la tarjeta nombra a otras como molde o requisito. { referencias: [id o título] } -> { creadas, esperando, soltada,
+     * tarjetas: [{ id, idCorto, titulo, estado, hechaAMano }] }. Si alguna no está HECHO, PLANEANDO vuelve a la fila ("Esperando a «X»") sin ERROR.
+     * `tarjetas` (27-nov-2026) trae cada tarjeta nombrada que se encontró; `hechaAMano` es HECHO sin una subida del Coordinador. Un CRM viejo no la manda.
+     */
     depender: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/depender`, limpio(datos)),
     /** Revisión previa (27-oct-2026): lo pedido ya estaba en main. { commit, motivo, nota, etapa } -> la tarjeta pasa a HECHO con la nota "ya estaba hecho (commit X)". */
     yaHecha: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/ya-hecha`, limpio(datos)),
