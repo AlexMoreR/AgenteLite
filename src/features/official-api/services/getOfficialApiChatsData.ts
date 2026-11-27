@@ -713,6 +713,19 @@ async function loadOfficialApiChatsData(input: {
   // contestado). Misma regla que el filtro "Sin responder" (sqlOficialQuedoSinResponder).
   const sinResponderDesde = sqlOficialSinResponderDesde(DIAS_DE_SIN_RESPONDER);
 
+  /*
+    El orden de la lista sin busqueda (`orden=antiguos`: el mas viejo primero). Se elige entre dos
+    textos FIJOS; nunca se arma con lo que llega en la direccion. Sin `orden`, el de siempre.
+    La consulta con busqueda no lo usa: buscando manda su orden de siempre (igual que el canal viejo).
+  */
+  const pideAntiguos = input.filtros?.orden === "antiguos";
+  const ordenDeLaListaOficial = pideAntiguos
+    ? Prisma.sql`c."lastMessageAt" ASC NULLS FIRST, c."updatedAt" ASC`
+    : Prisma.sql`c."lastMessageAt" DESC NULLS LAST, c."updatedAt" DESC`;
+  const ordenDeLaListaOficialFc = pideAntiguos
+    ? Prisma.sql`fc."lastMessageAt" ASC NULLS FIRST, fc."updatedAt" ASC`
+    : Prisma.sql`fc."lastMessageAt" DESC NULLS LAST, fc."updatedAt" DESC`;
+
   const conversationRows = searchQuery
     ? await prisma.$queryRaw<Array<{
         id: string;
@@ -848,7 +861,7 @@ async function loadOfficialApiChatsData(input: {
             ${officialStageFilter}
             ${officialPendingFilter}
             ${officialSoloIdsFilter}
-          ORDER BY c."lastMessageAt" DESC NULLS LAST, c."updatedAt" DESC
+          ORDER BY ${ordenDeLaListaOficial}
           LIMIT ${conversationListLimit}
         ),
         last_messages AS (
@@ -926,7 +939,7 @@ async function loadOfficialApiChatsData(input: {
           ON ic."conversationId" = fc."id"
         LEFT JOIN last_messages lm
           ON lm."conversationId" = fc."id"
-        ORDER BY fc."lastMessageAt" DESC NULLS LAST, fc."updatedAt" DESC
+        ORDER BY ${ordenDeLaListaOficialFc}
       `;
 
   const conversations = conversationRows.slice(0, 50).map((row) => ({

@@ -16,9 +16,9 @@ import {
   type PartesDeLaBusqueda,
 } from "@/lib/busqueda-de-chats";
 import {
-  ORDEN_DE_BANDEJA,
   cortarPagina,
   leerCursor,
+  ordenDeBandeja,
   whereDespuesDelCursor,
   type PosicionEnBandeja,
 } from "@/lib/cursor-de-bandeja";
@@ -31,7 +31,12 @@ import {
   type FiltrosDeBandeja,
 } from "@/features/chats/services/filtros-de-bandeja";
 import { contactosInternos } from "@/features/chats/services/contactos-internos";
-import { DIAS_DE_SIN_RESPONDER, SIN_FILTROS, leerEspera } from "@/features/chats/domain/filtros-de-bandeja";
+import {
+  DIAS_DE_SIN_RESPONDER,
+  SIN_FILTROS,
+  leerEspera,
+  type OrdenDeBandeja,
+} from "@/features/chats/domain/filtros-de-bandeja";
 import {
   listaDeEsperaDeLaBandeja,
   ordenarSegunEspera,
@@ -210,10 +215,16 @@ async function getAgentConversationList(input: {
   offset: number;
   /** Si viene, la pagina arranca despues de esta fila y `offset` no se usa (ver cursor-de-bandeja). */
   cursor: PosicionEnBandeja | null;
+  /**
+   * `orden=antiguos`: el mas viejo primero. Sin el, el de siempre. Tiene que ser el MISMO que uso la
+   * primera pagina (page.tsx), o el offset y el cursor caerian en otro lugar de la lista.
+   */
+  orden?: OrdenDeBandeja;
   limit: number;
 }) {
   const normalizedSearchQuery = input.searchQuery.trim();
   const partesDeLaBusqueda = input.partesDeLaBusqueda ?? "nombreYNumero";
+  const { orden } = input;
   const tapar = input.monitoredChannelIds.length > 0;
   /*
     Quien monitorea ve TODO lo de su canal, sin importar la pestaña.
@@ -281,7 +292,7 @@ async function getAgentConversationList(input: {
         : {},
       assignedWhere,
       statusWhere,
-      input.cursor ? whereDespuesDelCursor(input.cursor) : {},
+      input.cursor ? whereDespuesDelCursor(input.cursor, orden) : {},
       // Nombre y numero (tambien con las cifras solas), o solo los mensajes de 90 dias (4 letras o mas).
       whereDeBusquedaDeChats(normalizedSearchQuery, new Date(), partesDeLaBusqueda),
     ],
@@ -304,8 +315,8 @@ async function getAgentConversationList(input: {
 
   const activeAgentConversationsRaw = await prisma.conversation.findMany({
     where: conversationWhere,
-    // El orden de siempre + el id como desempate, para que el cursor sea estable.
-    orderBy: ORDEN_DE_BANDEJA,
+    // El orden pedido (sin `orden`, el de siempre) + el id como desempate, para que el cursor sea estable.
+    orderBy: ordenDeBandeja(orden),
     // Con cursor no hay OFFSET: el where ya arranca despues de la ultima fila leida.
     skip: input.cursor ? 0 : input.offset,
     take: input.limit + 1,
@@ -576,7 +587,7 @@ async function getAgentConversationList(input: {
     no tiene que poder encontrar un chat escribiendo el telefono. Por el texto de un mensaje no hay
     telefono que esconder (la seccion "Mensajes" ya le muestra esos mismos chats).
   */
-  const merged = dedupeAndSortConversationListRows(agentRows).filter(
+  const merged = dedupeAndSortConversationListRows(agentRows, orden).filter(
     (item) => !tapar || partesDeLaBusqueda === "mensajes" || coincideConLoVisible(item, input.searchQuery),
   );
 
@@ -768,6 +779,9 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
   t.marca("permisos");
 
   const filtros = leerFiltrosDeBandeja((clave) => requestUrl.searchParams.get(clave));
+  // El orden de la lista (`orden=antiguos`). Buscando manda el de siempre, igual que en page.tsx;
+  // "Esperando" tiene el suyo (responderEsperando no lo usa).
+  const orden = searchQuery ? undefined : filtros.orden;
 
   // La parte "por mensaje" con un texto corto (o sin texto) no busca nada: ni toca la base.
   if (partesDeLaBusqueda === "mensajes" && !buscaEnMensajes(searchQuery)) {
@@ -861,6 +875,7 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
     ...(soloIds.length > 0 ? { soloIds } : {}),
     offset,
     cursor,
+    orden,
     limit,
   });
   t.marca("lista");
@@ -883,10 +898,12 @@ async function manejarGet(request: Request, t: MedidorServerTiming) {
       filaOficial(conversation, { tapar, nombreLineaOficial }),
     );
     // Las dos fuentes ya vienen filtradas por `q` (ver getAgentConversationList).
-    const conversaciones = dedupeAndSortConversationListRows([
-      ...datosDeLista.conversations,
-      ...filasOficiales,
-    ] as Array<(typeof datosDeLista.conversations)[number] | (typeof filasOficiales)[number]>).filter(
+    const conversaciones = dedupeAndSortConversationListRows(
+      [...datosDeLista.conversations, ...filasOficiales] as Array<
+        (typeof datosDeLista.conversations)[number] | (typeof filasOficiales)[number]
+      >,
+      orden,
+    ).filter(
       (item) => !tapar || coincideConLoVisible(item, searchQuery),
     );
 

@@ -17,6 +17,7 @@ import { SharedInbox } from "@/components/chats/shared-inbox";
 import type { AssignedFilter } from "@/components/chats/chat-inbox-types";
 import { QueryFeedbackToast } from "@/components/ui/query-feedback-toast";
 import { dedupeAndSortConversationListRows } from "@/lib/chat-conversation-list";
+import { ordenDeBandeja } from "@/lib/cursor-de-bandeja";
 import {
   extractEvolutionMessageText,
   extractEvolutionPushName,
@@ -534,6 +535,12 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
       .map((clave) => clave.slice(prefijo.length));
   // En "Esperando" no cuentan condiciones ni estado: solo abiertos o pendientes (igual que /list).
   const filtrosDeLaLista = paginaDeEsperando ? SIN_FILTROS : filtros;
+  /*
+    El orden de la lista (`?orden=antiguos`): el MISMO que usa /api/cliente/chats/list, para que la
+    segunda pagina siga justo donde termina esta. Buscando o en "Esperando" no cuenta: ahi manda su
+    propio orden, como hoy. Sin `orden` es el de siempre (ultimo mensaje primero).
+  */
+  const ordenDeLaLista = searchQuery || pideEspera ? undefined : filtros.orden;
 
   /**
    * Las que quedaron sin responder y las no leidas, cuando esos filtros estan puestos.
@@ -670,7 +677,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     }),
     prisma.conversation.findMany({
       where: conversationWhere,
-      orderBy: [{ lastMessageAt: "desc" }, { updatedAt: "desc" }],
+      orderBy: ordenDeBandeja(ordenDeLaLista),
       take: conversationListTake + 1,
       select: seleccionDeLaFila,
     }),
@@ -1156,7 +1163,7 @@ export default async function ClienteChatsPage({ searchParams }: PageProps) {
     dedupeAndSortConversationListRows([
       ...agentRows,
       ...(shouldIncludeOfficialRows ? officialRows : []),
-    ]),
+    ], ordenDeLaLista),
   )
       // La base ya filtro por `q` (nombre, numero y mensajes, igual que /list): volver a filtrar por
       // lo visible solo hace falta en monitoreo, donde el numero va tapado.
