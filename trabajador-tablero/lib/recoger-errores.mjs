@@ -36,6 +36,16 @@ function guardarEstadoDeRecoger(carpetaTrabajo, estado) {
 /** Lo que dice el error cuando falta algo que solo el dueño puede dar: una decisión o una clave. */
 const NECESITA_AL_DUENO = /decid[aeoi]\b|decisi[oó]n|\bA o B\b|\bA\/B\b|opci[oó]n A|clave|token|credencial|contrase[ñn]a|api[ _-]?key|necesita(?:s)? (?:que|tu)|tiene(?:s)? que (?:elegir|decidir)/i;
 
+/** La categoría que deja el CRM (/repetida con tipo "posible") en las tarjetas que podrían repetir a otra. */
+export const CATEGORIA_POSIBLE_REPETIDA = "posible_repetida";
+
+/** ¿La tarjeta en ERROR es una posible repetida? Por su categoría (si el CRM la manda) o por el motivo que deja /repetida. */
+function esPosibleRepetida(tarjeta) {
+  if (tarjeta?.categoria === CATEGORIA_POSIBLE_REPETIDA) return true;
+  if ((tarjeta?.ultimosIntentos ?? []).at(-1)?.categoria === CATEGORIA_POSIBLE_REPETIDA) return true;
+  return /^\s*Posible repetida de T-\d+/i.test(String(tarjeta?.motivo ?? ""));
+}
+
 const PASAJERAS = new Set(["limite_claude", "pc_sobrecargado", "carpeta_trabada", "coordinador_cortado", "sesion_atascada", "choca_con_main"]);
 const DE_TAMANO = new Set(["tiempo_agotado", "tarea_muy_grande"]);
 
@@ -50,6 +60,11 @@ export function decidirRecogida(tarjeta, { maximoPorTarjeta = RECOGER_POR_DEFECT
   const ultimoIntento = [...(tarjeta?.ultimosIntentos ?? [])].reverse().find((intento) => intento?.etapa);
   const etapa = ultimoIntento?.etapa ?? (tarjeta?.plan ? "construir" : "planear");
   const diagnostico = diagnosticar({ error: textoDelError, etapa, tarjeta });
+  // Posible repetida (27-nov-2026, repetidas.mjs): la marcó el Coordinador para que decida el dueño. Nunca se reintenta ni se
+  // parte, antes de las demás reglas. El CRM la deja con la categoría posible_repetida y el motivo "Posible repetida de T-X…".
+  if (esPosibleRepetida(tarjeta)) {
+    return { categoria: CATEGORIA_POSIBLE_REPETIDA, causa: enUnaLinea(tarjeta?.motivo || "Posible repetida de otra tarjeta.", 300), accion: "saltar", motivo: "posible repetida: decide el dueño" };
+  }
   const base = { categoria: diagnostico.categoria, causa: diagnostico.causa };
   if (veces >= maximoPorTarjeta) {
     return { ...base, accion: "saltar", motivo: `ya se recogió ${veces} veces: se queda en ERROR con su línea` };
