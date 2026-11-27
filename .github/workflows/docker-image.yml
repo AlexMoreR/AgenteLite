@@ -42,6 +42,7 @@ jobs:
           push: true
           build-args: |
             DEPLOYMENT_ID=${{ github.sha }}
+            VERSION_NUMERO=${{ github.run_number }}
             NEXT_SERVER_ACTIONS_ENCRYPTION_KEY=${{ secrets.NEXT_SERVER_ACTIONS_ENCRYPTION_KEY }}
           tags: ghcr.io/alexmorer/agentelite:latest
           cache-from: type=gha
