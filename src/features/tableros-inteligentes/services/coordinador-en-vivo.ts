@@ -37,6 +37,8 @@ import {
   textoDelUso,
   textoDelUsoDeClaude,
   textoDeSesionClaude,
+  tareasLargasEnLaNube,
+  claveAlertaNubeLarga,
 } from "./reglas-coordinador-en-vivo";
 import {
   NOMBRE_DE_LA_ZONA,
@@ -214,6 +216,30 @@ async function avisarSesionClaude(workspaceId: string, antesVencida: boolean, ah
   }
 }
 
+/**
+ * Tarjeta con más de 2 h en la nube sin "resultado:": una alerta MEDIA por tarjeta (nunca WhatsApp: no lleva `enviar`),
+ * que se cierra cuando la tarea deja de estar larga en la nube (salió, terminó o ya no está en el latido).
+ */
+async function avisarNubeLarga(workspaceId: string, anterior: LatidoGuardado | null, actual: LatidoGuardado, ahora: Date) {
+  const largas = tareasLargasEnLaNube(actual, ahora);
+  const ids = new Set(largas.map((tarea) => tarea.tarjetaId));
+  for (const tarea of largas) {
+    const tiempo = duracionTexto(tarea.minutos);
+    await registrarAlerta({
+      workspaceId,
+      clave: claveAlertaNubeLarga(tarea.tarjetaId),
+      prioridad: "MEDIA",
+      titulo: `La nube lleva ${tiempo} sin resultado: ${tarea.titulo}`,
+      detalle: `La tarjeta "${tarea.titulo}" lleva ${tiempo} en la nube sin dejar el commit "resultado:".${tarea.linkSesion ? ` Sesión: ${tarea.linkSesion}` : ""}`,
+      origen: "Coordinador",
+      refrescar: false,
+    });
+  }
+  for (const antes of tareasLargasEnLaNube(anterior, ahora)) {
+    if (!ids.has(antes.tarjetaId)) await resolverAlertasPorClave(workspaceId, claveAlertaNubeLarga(antes.tarjetaId), ahora);
+  }
+}
+
 /** POST /latido: guarda el último latido de esta clave. Un cuerpo que no es un objeto es un 400. */
 export async function guardarLatido(contexto: ContextoTrabajador, cuerpo: unknown, ahora = new Date()) {
   const latido = latidoDeEntrada(cuerpo, ahora, HOST_DEL_CRM);
@@ -221,16 +247,23 @@ export async function guardarLatido(contexto: ContextoTrabajador, cuerpo: unknow
   const key = claveDelLatido(contexto.workspaceId, contexto.claveId);
   // El latido anterior (antes de pisarlo), para saber si la sesión de Claude acaba de vencerse o de volver. Si no se
   // puede leer, no se toca ninguna alerta (null = no se sabe).
-  const anteriorVencida = await prisma.appSetting
+  const anteriorLatido = await prisma.appSetting
     .findUnique({ where: { key }, select: { value: true } })
-    .then((fila) => latidoGuardado(fila?.value, HOST_DEL_CRM)?.sesionClaude?.vencida === true)
+    .then((fila) => ({ latido: latidoGuardado(fila?.value, HOST_DEL_CRM) }))
     .catch(() => null);
+  const anteriorVencida = anteriorLatido ? anteriorLatido.latido?.sesionClaude?.vencida === true : null;
   const value = JSON.stringify(latido);
   await prisma.appSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
   // La alerta de la sesión de Claude vencida: si falla, el latido sigue.
   if (anteriorVencida !== null) {
     await avisarSesionClaude(contexto.workspaceId, anteriorVencida, latido.sesionClaude?.vencida === true, ahora).catch((error) =>
       console.warn("[coordinador-en-vivo] no se pudo avisar la sesión de Claude", error instanceof Error ? error.message : String(error)),
+    );
+  }
+  // La alerta de la nube larga: si falla, el latido sigue. Si no se pudo leer el anterior, no se resuelve nada este turno.
+  if (anteriorLatido) {
+    await avisarNubeLarga(contexto.workspaceId, anteriorLatido.latido, latido, ahora).catch((error) =>
+      console.warn("[coordinador-en-vivo] no se pudo avisar la nube larga", error instanceof Error ? error.message : String(error)),
     );
   }
   // El Área Features del Coordinador (la usan /candidatas y /tomar si el pedido no la trae): si falla, el latido sigue.

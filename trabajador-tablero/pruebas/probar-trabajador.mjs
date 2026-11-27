@@ -717,6 +717,26 @@ await prueba("cupos (d): repos.<repo>.cuposNube vale 1 sin la clave, null no pon
   assert.equal(ejemplo.repos.gestion.cuposNube, 2, "y Gestión con 2");
 });
 
+await prueba("nube larga: el latido trae desdeNube (ISO) y linkSesion de la tarea en la nube, y null en aizen1", async () => {
+  const r = repartoFalso(configDeCupos());
+  r.agregar("crm-plan-1", "aizencrm", "planear");
+  r.agregar("crm-construir-1", "aizencrm", "construir");
+  await r.planificador.llenar();
+  // La etapa hace esto mismo al lanzar la sesión (etapas.mjs): contexto.fase("construyendo", { lugar, linkSesion, desdeNube }).
+  const desdeNube = new Date().toISOString();
+  Object.assign(r.sesionesFalsas.get("crm-construir-1").opciones.vivo, { etapa: "construyendo", linkSesion: "https://claude.ai/code/session_x", desdeNube });
+  const tareas = r.planificador.estado().tareas;
+  const enNube = tareas.find((t) => t.tarjetaId === "crm-construir-1");
+  assert.equal(enNube.lugar, "nube");
+  assert.equal(enNube.desdeNube, desdeNube);
+  assert.ok(!Number.isNaN(Date.parse(enNube.desdeNube)) && enNube.desdeNube.endsWith("Z"), "es una fecha ISO");
+  assert.equal(enNube.linkSesion, "https://claude.ai/code/session_x");
+  assert.equal(tareas.find((t) => t.tarjetaId === "crm-plan-1").desdeNube, null, "en aizen1 va null");
+  // Y la etapa de la nube lo manda (null en el modo orquestador: ahí la espera de 24 h es a propósito).
+  const fuente = fs.readFileSync(path.join(AQUI, "..", "lib", "etapas.mjs"), "utf8");
+  assert.match(fuente, /linkSesion: lanzado\.link, desdeNube: contexto\.orquestador === true \? null : new Date\(\)\.toISOString\(\)/);
+});
+
 await prueba("cupos (a): con el CRM lleno en aizen1 y en la nube, una tarjeta de Gestión arranca", async () => {
   const r = repartoFalso(configDeCupos());
   r.agregar("crm-plan-1", "aizencrm", "planear");

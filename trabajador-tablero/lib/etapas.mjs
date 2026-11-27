@@ -1226,7 +1226,8 @@ async function construirLaParteDeLaNube(contexto, tarjeta, { repo, rama, base, r
     // 29-oct-2026: a la sesión fija del proyecto (repos.<repo>.nube.sesionFija) si la tiene; si no, `claude --cloud` con el
     // chequeo previo. La rama ya está en GitHub (pushDeRama de arriba) antes de lanzar: la sesión fija la baja con git fetch.
     const lanzado = await lanzarSesionDeLaNube(contexto, { repo, cwd: carpeta, prompt, modelo, tarjeta });
-    contexto.fase?.("construyendo", { lugar: "nube", linkSesion: lanzado.link });
+    // desdeNube: cuándo empieza la espera del resultado (alerta del CRM a las 2 h). En el modo orquestador la espera es de 24 h a propósito: null.
+    contexto.fase?.("construyendo", { lugar: "nube", linkSesion: lanzado.link, desdeNube: contexto.orquestador === true ? null : new Date().toISOString() });
     registro.info(`construyo en la nube: sesión ${lanzado.link}, rama ${rama} (${lanzado.via})`);
     let resultado;
     try {

@@ -52,6 +52,8 @@ export type TareaDelLatido = {
   reparacionDe: number | null;
   linkSesion: string | null;
   linkWorkflow: string | null;
+  /** Cuándo empezó la espera de la nube (ISO); null en aizen1, en el modo orquestador o si el Coordinador es viejo. */
+  desdeNube: string | null;
   /** La revisión de los 4 mientras la etapa es "revisando" (29-oct-2026); null si no revisa o el Coordinador es viejo. */
   revision: RevisionDelLatido | null;
 };
@@ -357,6 +359,7 @@ function tareaDeEntrada(valor: unknown, hostPropio: string | null): TareaDelLati
     reparacionDe: enteroOpcional(valor.reparacionDe, 99),
     linkSesion: linkPermitido(valor.linkSesion, hostPropio),
     linkWorkflow: linkPermitido(valor.linkWorkflow, hostPropio),
+    desdeNube: fechaIso(valor.desdeNube),
     revision: etapa === "revisando" ? revisionDeEntrada(valor.revision) : null,
   };
 }
@@ -563,6 +566,34 @@ export function duracionTexto(minutos: number | null): string {
   const horas = Math.floor(redondo / 60);
   const resto = redondo % 60;
   return resto ? `${horas} h ${resto} min` : `${horas} h`;
+}
+
+/** Minutos en la nube sin "resultado:" a partir de los cuales sale la alerta MEDIA (la misma espera de `esperarResultado`). */
+export const MINUTOS_NUBE_LARGA = 120;
+
+export type TareaLargaEnLaNube = { tarjetaId: string; titulo: string; minutos: number; linkSesion: string | null };
+
+/** La clave de la alerta de una tarjeta que lleva mucho en la nube: `coordinador:nube-larga:<id>`. */
+export function claveAlertaNubeLarga(tarjetaId: string): string {
+  return `coordinador:nube-larga:${tarjetaId}`;
+}
+
+/**
+ * Tareas en la nube con más de 120 min de espera y sin "resultado:" todavía (etapa construyendo o revisando: al llegar el
+ * commit "resultado:" la etapa cambia). Sin `desdeNube` (aizen1, orquestador, Coordinador viejo) no cuenta.
+ */
+export function tareasLargasEnLaNube(latido: Pick<LatidoGuardado, "tareas"> | null, ahora: Date): TareaLargaEnLaNube[] {
+  if (!latido) return [];
+  const salida: TareaLargaEnLaNube[] = [];
+  for (const tarea of latido.tareas) {
+    if (tarea.lugar !== "nube" || !tarea.desdeNube) continue;
+    if (tarea.etapa !== "construyendo" && tarea.etapa !== "revisando") continue;
+    const desde = Date.parse(tarea.desdeNube);
+    if (!Number.isFinite(desde)) continue;
+    const minutos = (ahora.getTime() - desde) / 60_000;
+    if (minutos > MINUTOS_NUBE_LARGA) salida.push({ tarjetaId: tarea.tarjetaId, titulo: tarea.titulo, minutos: Math.floor(minutos), linkSesion: tarea.linkSesion });
+  }
+  return salida;
 }
 
 /** "intento 2" o "reparación 1 de 3" (la reparación va primero: es lo más importante). */

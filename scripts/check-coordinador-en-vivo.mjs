@@ -1018,4 +1018,38 @@ await prueba("meta trabajando (27-nov): la vista cuenta las que trabajan, arma e
   assert.match(servicio.textoDelCoordinador(vista), /Trabajando 1 de 1 \(meta cumplida\)/);
 });
 
+await prueba("nube larga (parte 4): 2 h 01 min sale; 1 h 59 min, con resultado, sin desdeNube o en aizen1 no; latidoDeEntrada valida desdeNube", async () => {
+  const tarea = (extra = {}) => ({ tarjetaId: "t1", titulo: "Arreglar chats", etapa: "construyendo", lugar: "nube", desdeNube: hace(121).toISOString(), linkSesion: "https://claude.ai/code/session_abc", ...extra });
+  const largas = (extra, ahora = AHORA) => reglas.tareasLargasEnLaNube(reglas.latidoDeEntrada({ tareas: [tarea(extra)] }, ahora), ahora);
+  assert.deepEqual(largas({}), [{ tarjetaId: "t1", titulo: "Arreglar chats", minutos: 121, linkSesion: "https://claude.ai/code/session_abc" }], "2 h 01 min sale");
+  assert.equal(largas({ desdeNube: hace(119).toISOString() }).length, 0, "1 h 59 min no sale");
+  assert.equal(largas({ desdeNube: hace(120).toISOString() }).length, 0, "justo 120 min no sale");
+  assert.equal(largas({ etapa: "revisando" }).length, 1, "revisando todavía no tiene resultado");
+  assert.equal(largas({ etapa: "probando" }).length, 0, "después del resultado no sale");
+  assert.equal(largas({ etapa: "subiendo" }).length, 0);
+  assert.equal(largas({ lugar: "aizen1" }).length, 0, "en aizen1 no sale");
+  assert.equal(largas({ desdeNube: null }).length, 0, "sin desdeNube no sale");
+  assert.equal(reglas.tareasLargasEnLaNube(null, AHORA).length, 0);
+  assert.equal(reglas.claveAlertaNubeLarga("t1"), "coordinador:nube-larga:t1");
+  const entrada = reglas.latidoDeEntrada({ tareas: [tarea({ tarjetaId: "a" }), tarea({ tarjetaId: "b", desdeNube: "no es fecha" })] }, AHORA);
+  assert.equal(entrada.tareas[0].desdeNube, hace(121).toISOString(), "conserva el válido");
+  assert.equal(entrada.tareas[1].desdeNube, null, "el inválido queda null");
+});
+
+await prueba("nube larga (parte 4): una alerta MEDIA sin WhatsApp por tarjeta, y se resuelve cuando deja la nube o desaparece", async () => {
+  const larga = (id, extra = {}) => ({ tarjetaId: id, titulo: `Tarjeta ${id}`, etapa: "construyendo", lugar: "nube", desdeNube: hace(130).toISOString(), linkSesion: "https://claude.ai/code/session_abc", ...extra });
+  await servicio.guardarLatido(contexto, { tareas: [larga("t1"), larga("t2"), larga("t3", { desdeNube: hace(60).toISOString() })] }, hace(1));
+  for (let i = 0; i < 3; i += 1) await servicio.guardarLatido(contexto, { tareas: [larga("t1"), larga("t2"), larga("t3", { desdeNube: hace(60).toISOString() })] }, AHORA);
+  assert.equal(estado.alertas.length, 2, "una por tarjeta larga, sin repetir por latido");
+  const alerta = estado.alertas.find((a) => a.clave === "coordinador:nube-larga:t1");
+  assert.equal(alerta.prioridad, "MEDIA");
+  assert.equal(alerta.salioPorWhatsApp, false);
+  assert.match(alerta.titulo, /2 h \d+ min sin resultado: Tarjeta t1/);
+  assert.match(alerta.detalle, /session_abc/);
+  // t1 sale de la nube (probando) y t2 desaparece del latido: las dos se resuelven.
+  await servicio.guardarLatido(contexto, { tareas: [larga("t1", { etapa: "probando" })] }, AHORA);
+  assert.equal(estado.alertas.find((a) => a.clave === "coordinador:nube-larga:t1").estado, "RESUELTA");
+  assert.equal(estado.alertas.find((a) => a.clave === "coordinador:nube-larga:t2").estado, "RESUELTA");
+});
+
 console.log(`\n${pruebas} pruebas, todas bien`);

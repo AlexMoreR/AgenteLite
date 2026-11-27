@@ -206,6 +206,7 @@ export async function procesar({ crm, config, registro: registroBase, motores = 
     inicioEn: vivo.inicioEn ?? Date.now(),
     linkWorkflow: null,
     linkSesion: null,
+    desdeNube: null,
   });
   const fase = (etapa, extra = {}) => Object.assign(vivo, { etapa }, extra);
   const contexto = { config, registro, senal: control.signal, motorDe: motores.motorDe, alLimite: pausar, medidor, otrasSesiones, fase, puestoParaVerificar, colaPesada, etiqueta, lugar: enNube ? "nube" : "aizen1", alSoltarPuesto, sesionNueva: vivo.sesionNueva === true, orquestador: enNube && vivo.orquestador === true };
@@ -2159,6 +2160,7 @@ export function crearPlanificador({
           reparacionDe: Number(tarjeta.topeReparaciones) || null,
           linkWorkflow: vivo.linkWorkflow ?? null,
           linkSesion: vivo.linkSesion ?? null,
+          desdeNube: vivo.desdeNube ?? null,
           // 31-oct-2026: soltó su puesto (subiendo, vigilando, esperando pruebas) o null.
           sinPuesto: vivo.sinPuesto ?? null,
           // 29-oct-2026: la revisión de los 4 (vuelta y estado de cada revisor), solo mientras la etapa es "revisando".
