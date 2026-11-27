@@ -30,3 +30,44 @@ WHERE c."id" IN (SELECT "id" FROM baja)
   AND k."usaEstados" = true
 ORDER BY c."creadoEn" ASC, c."numero" ASC
 LIMIT 100`;
+
+/**
+ * Tareas fuera de Features (27-nov-2026, tareas-a-features.ts): las tarjetas tipo Tarea del tablero de Features, en APROBADO o
+ * PLAN_APROBADO, con repo, sin borrar ni archivar, que NO cuelgan de Features a ninguna profundidad (mismo recorrido `baja` que
+ * SQL_POR_PREPARAR_EN_FEATURES: sin pasar por borradas, hasta 50 niveles) y no son Features misma. Ideas, Áreas y lo que está
+ * en otro estado no salen. Si Features está borrada, no es de ese tablero o no es de este negocio (`f` vacía), no sale nada.
+ * Solo lee. $1 = id del Área Features, $2 = tableroId, $3 = workspaceId.
+ */
+export const SQL_TAREAS_FUERA_DE_FEATURES = `
+WITH RECURSIVE f AS (
+  SELECT a."id"
+  FROM "TarjetaTablero" a
+  JOIN "TableroInteligente" b ON b."id" = a."tableroId"
+  WHERE a."id" = $1::text AND a."tableroId" = $2::text AND a."borradoEn" IS NULL AND b."workspaceId" = $3::text
+),
+baja AS (
+  SELECT h."id", 1 AS "nivel"
+  FROM "TarjetaTablero" h
+  WHERE h."padreId" = $1::text AND h."borradoEn" IS NULL
+  UNION ALL
+  SELECT h."id", s."nivel" + 1
+  FROM baja s
+  JOIN "TarjetaTablero" h ON h."padreId" = s."id" AND h."borradoEn" IS NULL
+  WHERE s."nivel" < 50
+)
+SELECT c."id", c."padreId", c."estado"::text AS "estado", c."actualizadoEn"
+FROM "TarjetaTablero" c
+JOIN "TableroInteligente" b ON b."id" = c."tableroId"
+JOIN "TipoTarjeta" k ON k."id" = c."tipoId"
+CROSS JOIN f
+WHERE c."tableroId" = $2::text
+  AND b."workspaceId" = $3::text
+  AND lower(btrim(k."nombre")) = 'tarea'
+  AND c."estado" IN ('APROBADO', 'PLAN_APROBADO')
+  AND c."repo" IS NOT NULL AND btrim(c."repo") <> ''
+  AND c."borradoEn" IS NULL
+  AND c."archivadaEn" IS NULL
+  AND c."id" <> f."id"
+  AND c."id" NOT IN (SELECT "id" FROM baja)
+ORDER BY c."creadoEn" ASC, c."numero" ASC
+LIMIT 200`;
