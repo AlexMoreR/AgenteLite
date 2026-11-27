@@ -214,6 +214,12 @@ const COLA_PESADA_POR_DEFECTO = { maximo: 1, esperaMaximaMinutos: 20 };
 // Medir antes de planear (26-oct-2026, medir.mjs) y recoger los errores viejos una vez al día (recoger-errores.mjs).
 const MEDIR_POR_DEFECTO = { activo: true, puntosGrande: 4, puntosDudosa: 2, consultaHaiku: true };
 const RECOGER_POR_DEFECTO = { activo: true, maximoPorDia: 6, maximoPorTarjeta: 2 };
+/**
+ * Tarjetas repetidas antes de planear (27-nov-2026, repetidas.mjs). Las fracciones son de las palabras del título que comparten
+ * dos tarjetas (en las dos direcciones): igualPalabras = "igual" solo por palabras; igualConArchivo = "igual" si además comparten
+ * un archivo; posibleSinArchivo / posibleConArchivo = "posible" (decide el dueño). dias: las otras más viejas que esto no cuentan.
+ */
+const REPETIDAS_POR_DEFECTO = { igualPalabras: 0.8, igualConArchivo: 0.5, posibleSinArchivo: 0.5, posibleConArchivo: 0.3, dias: 30 };
 // Candado de build (candado-de-build.mjs): cuántas veces espera el aviso "another instance of next build" y cuánto entre una y otra.
 const CANDADO_DE_BUILD_POR_DEFECTO = { esperaSegundos: 60, maximoEsperas: 10 };
 
@@ -490,6 +496,13 @@ export function completarConfig(datos, base = process.cwd()) {
     recoger[campo] = Math.floor(Number(recoger[campo]));
     if (!Number.isFinite(recoger[campo]) || recoger[campo] < 1 || recoger[campo] > 50) errores.push(`recogerErrores.${campo}: de 1 a 50.`);
   }
+  const repetidas = { ...REPETIDAS_POR_DEFECTO, ...(datos.repetidas ?? {}) };
+  for (const campo of ["igualPalabras", "igualConArchivo", "posibleSinArchivo", "posibleConArchivo"]) {
+    repetidas[campo] = Number(repetidas[campo]);
+    if (!Number.isFinite(repetidas[campo]) || repetidas[campo] <= 0 || repetidas[campo] > 1) errores.push(`repetidas.${campo}: una fracción de las palabras, mayor que 0 y hasta 1.`);
+  }
+  repetidas.dias = Number(repetidas.dias);
+  if (!Number.isFinite(repetidas.dias) || repetidas.dias < 1) errores.push("repetidas.dias: un número de días, 1 o más.");
   const candadoDeBuild = { ...CANDADO_DE_BUILD_POR_DEFECTO, ...(datos.candadoDeBuild ?? {}) };
   for (const campo of ["esperaSegundos", "maximoEsperas"]) {
     candadoDeBuild[campo] = Number(candadoDeBuild[campo]);
@@ -667,6 +680,13 @@ export function completarConfig(datos, base = process.cwd()) {
     colaPesada: { maximo: colaPesada.maximo, esperaMaximaMinutos: colaPesada.esperaMaximaMinutos },
     medir: { activo: medir.activo, puntosGrande: medir.puntosGrande, puntosDudosa: medir.puntosDudosa, consultaHaiku: medir.consultaHaiku },
     recogerErrores: { activo: recoger.activo, maximoPorDia: recoger.maximoPorDia, maximoPorTarjeta: recoger.maximoPorTarjeta },
+    repetidas: {
+      igualPalabras: repetidas.igualPalabras,
+      igualConArchivo: repetidas.igualConArchivo,
+      posibleSinArchivo: repetidas.posibleSinArchivo,
+      posibleConArchivo: repetidas.posibleConArchivo,
+      dias: repetidas.dias,
+    },
     candadoDeBuild: { esperaSegundos: candadoDeBuild.esperaSegundos, maximoEsperas: candadoDeBuild.maximoEsperas },
     partir: { archivosMinimos: partir.archivosMinimos, archivosAntes: partir.archivosAntes, archivosConMigracion: partir.archivosConMigracion },
     atasco: { minutos: atasco.minutos, revisarCadaSegundos: atasco.revisarCadaSegundos, cpuMinimaSegundos: atasco.cpuMinimaSegundos },

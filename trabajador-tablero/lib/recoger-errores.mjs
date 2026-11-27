@@ -39,6 +39,17 @@ const NECESITA_AL_DUENO = /decid[aeoi]\b|decisi[oó]n|\bA o B\b|\bA\/B\b|opci[o�
 const PASAJERAS = new Set(["limite_claude", "pc_sobrecargado", "carpeta_trabada", "coordinador_cortado", "sesion_atascada", "choca_con_main"]);
 const DE_TAMANO = new Set(["tiempo_agotado", "tarea_muy_grande"]);
 
+/** La categoría con la que el CRM deja en ERROR una posible repetida (reglas-trabajador.ts: CATEGORIA_POSIBLE_REPETIDA). */
+export const CATEGORIA_POSIBLE_REPETIDA = "posible_repetida";
+
+function esPosibleRepetida(tarjeta, diagnostico) {
+  const ultimo = [...(tarjeta?.ultimosIntentos ?? [])].reverse().find((intento) => intento?.categoria);
+  return (
+    [tarjeta?.categoria, diagnostico?.categoria, ultimo?.categoria].includes(CATEGORIA_POSIBLE_REPETIDA) ||
+    /^\s*Posible repetida de T-\d+/i.test(String(tarjeta?.motivo ?? ""))
+  );
+}
+
 /**
  * Qué hacer con una tarjeta en ERROR. `tarjeta` es la de /errores del CRM: { titulo, plan, esParte, recogidas, lineaParaElDueno,
  * motivo, ultimoError, ultimosIntentos }.
@@ -51,6 +62,11 @@ export function decidirRecogida(tarjeta, { maximoPorTarjeta = RECOGER_POR_DEFECT
   const etapa = ultimoIntento?.etapa ?? (tarjeta?.plan ? "construir" : "planear");
   const diagnostico = diagnosticar({ error: textoDelError, etapa, tarjeta });
   const base = { categoria: diagnostico.categoria, causa: diagnostico.causa };
+  // Posible repetida (27-nov-2026, repetidas.mjs): la decisión es del dueño. Nunca se reintenta ni se parte. El CRM la marca con
+  // la categoría posible_repetida (resultado.error.categoria) y el motivo "Posible repetida de T-X: …"; se mira lo que llegue.
+  if (esPosibleRepetida(tarjeta, diagnostico)) {
+    return { categoria: CATEGORIA_POSIBLE_REPETIDA, causa: diagnostico.causa, accion: "saltar", motivo: "posible repetida: decide el dueño" };
+  }
   if (veces >= maximoPorTarjeta) {
     return { ...base, accion: "saltar", motivo: `ya se recogió ${veces} veces: se queda en ERROR con su línea` };
   }
