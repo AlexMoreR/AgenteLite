@@ -9,7 +9,7 @@ import ts from "typescript";
 
 const require = createRequire(import.meta.url);
 
-function cargar(relativo) {
+function cargar(relativo, alias = {}) {
   const sourcePath = path.resolve(relativo);
   const transpiled = ts.transpileModule(fs.readFileSync(sourcePath, "utf8"), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
@@ -18,7 +18,7 @@ function cargar(relativo) {
   const mod = { exports: {} };
   new Function("exports", "require", "module", "__filename", "__dirname", transpiled.outputText)(
     mod.exports,
-    require,
+    (nombre) => (nombre in alias ? alias[nombre] : require(nombre)),
     mod,
     sourcePath,
     path.dirname(sourcePath),
@@ -95,6 +95,95 @@ prueba("el Dockerfile recibe el número y lo deja visible para la app", () => {
   assert.match(builder, /^ENV NEXT_PUBLIC_VERSION_NUMERO=\$\{VERSION_NUMERO\}$/m);
   assert.match(builder, /^ENV NEXT_PUBLIC_DEPLOYMENT_ID=\$\{DEPLOYMENT_ID\}$/m);
 });
+
+// Parte 3: Equipo muestra qué versión tiene abierta cada persona.
+const pendientes = [];
+function pruebaAsincrona(nombre, fn) {
+  pendientes.push(
+    fn().then(() => {
+      pruebas += 1;
+      console.log(`ok - ${nombre}`);
+    }),
+  );
+}
+
+// actividad-del-equipo.ts con una base de prueba: devuelve el JSON que se le dé.
+let valorGuardado = null;
+const prismaDePrueba = {
+  appSetting: {
+    findUnique: async () => (valorGuardado === null ? null : { value: valorGuardado }),
+    upsert: async ({ create }) => {
+      valorGuardado = create.value;
+    },
+  },
+};
+const A = cargar("src/lib/actividad-del-equipo.ts", {
+  "@/lib/prisma": { prisma: prismaDePrueba },
+  "@/lib/version-del-crm": V,
+});
+
+pruebaAsincrona("lee un JSON viejo sin version sin fallar", async () => {
+  valorGuardado = JSON.stringify({
+    u1: { cuando: "2026-11-27T10:00:00.000Z", ruta: "/cliente/chats", donde: "Chats", dispositivo: "Android" },
+  });
+  const actividad = await A.leerActividadDelEquipo("w1");
+  assert.equal(actividad.u1.cuando, "2026-11-27T10:00:00.000Z");
+  assert.equal(actividad.u1.donde, "Chats");
+  assert.equal("version" in actividad.u1, false, "un JSON viejo sale sin versión");
+});
+
+pruebaAsincrona("lee la versión si viene y es válida; si no, la descarta", async () => {
+  valorGuardado = JSON.stringify({
+    u1: { cuando: "2026-11-27T10:00:00.000Z", ruta: "/cliente", donde: "Inicio", dispositivo: "Mac", version: "810" },
+    u2: { cuando: "2026-11-27T10:00:00.000Z", ruta: "/cliente", donde: "Inicio", dispositivo: "Mac", version: "<script>" },
+    u3: { cuando: "2026-11-27T10:00:00.000Z", ruta: "/cliente", donde: "Inicio", dispositivo: "Mac", version: 812 },
+  });
+  const actividad = await A.leerActividadDelEquipo("w1");
+  assert.equal(actividad.u1.version, "810");
+  assert.equal("version" in actividad.u2, false, "una versión con HTML no se lee");
+  assert.equal("version" in actividad.u3, false, "una versión que no es texto no se lee");
+});
+
+pruebaAsincrona("el latido guarda la versión válida y descarta la inválida", async () => {
+  valorGuardado = null;
+  await A.anotarActividad({ workspaceId: "w1", userId: "u1", ruta: "/cliente/chats", version: "812" });
+  await A.anotarActividad({ workspaceId: "w1", userId: "u2", ruta: "/cliente/crm", version: "<b>" });
+  await A.anotarActividad({ workspaceId: "w1", userId: "u3", ruta: "/cliente/crm" });
+  const guardado = JSON.parse(valorGuardado);
+  assert.equal(guardado.u1.version, "812");
+  assert.equal("version" in guardado.u2, false);
+  assert.equal("version" in guardado.u3, false);
+  assert.equal(guardado.u3.donde, "CRM", "sin versión el latido se guarda igual");
+});
+
+prueba("latido-de-actividad.tsx manda version con NEXT_PUBLIC_VERSION_NUMERO", () => {
+  const fuente = leer("src/components/latido-de-actividad.tsx");
+  assert.match(fuente, /JSON\.stringify\(\{[^}]*version: process\.env\.NEXT_PUBLIC_VERSION_NUMERO[^}]*\}\)/);
+});
+
+prueba("route.ts del latido revisa la versión con numeroDeVersionValido", () => {
+  const fuente = leer("src/app/api/cliente/actividad/latido/route.ts");
+  assert.match(fuente, /import \{ numeroDeVersionValido \} from "@\/lib\/version-del-crm";/);
+  assert.match(fuente, /version: numeroDeVersionValido\(cuerpo\?\.version\)/);
+  // Una versión inválida no corta el latido: no hay respuesta de error por la versión.
+  assert.doesNotMatch(fuente, /status: 400[^\n]*[Vv]ersi/);
+});
+
+prueba("UltimaActividad tiene version?: string", () => {
+  const fuente = leer("src/lib/actividad-del-equipo.ts");
+  const tipo = fuente.match(/export type UltimaActividad = \{[\s\S]*?\n\};/)?.[0] ?? "";
+  assert.match(tipo, /^\s*version\?: string;$/m);
+});
+
+prueba("ultima-accion-del-equipo.tsx muestra 'Versión abierta'", () => {
+  const fuente = leer("src/app/cliente/equipo/ultima-accion-del-equipo.tsx");
+  assert.match(fuente, /Versión abierta: /);
+  assert.match(fuente, / · vieja \(la actual es /);
+  assert.match(fuente, /esVersionVieja\(/);
+  assert.match(fuente, /versionDelServidor\(\)/);
+});
+
+await Promise.all(pendientes);
 
 console.log(`\n${pruebas} pruebas OK`);
 console.log("OK");

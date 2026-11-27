@@ -48,7 +48,8 @@ export function LatidoDeActividad() {
       void fetch("/api/cliente/actividad/latido", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ruta: pathname, etiqueta }),
+        // La versión del CRM que tiene abierta esta pestaña (la ve el dueño en Equipo).
+        body: JSON.stringify({ ruta: pathname, etiqueta, version: process.env.NEXT_PUBLIC_VERSION_NUMERO }),
         cache: "no-store",
         // Si la persona cierra la pestaña justo ahora, el latido igual sale.
         keepalive: true,

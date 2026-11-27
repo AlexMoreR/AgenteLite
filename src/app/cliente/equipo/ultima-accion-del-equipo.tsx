@@ -1,11 +1,12 @@
 import { nombreDeLaRuta, type leerActividadDelEquipo } from "@/lib/actividad-del-equipo";
+import { esVersionVieja, etiquetaDeVersion, versionDelServidor } from "@/lib/version-del-crm";
 import { lineasDeLaPersona } from "@/features/actividad/services/lineas-de-la-persona";
 import type { ultimaAccionEnCache } from "@/features/actividad/services/ultima-accion-en-cache";
 
 type Actividad = Awaited<ReturnType<typeof leerActividadDelEquipo>>;
 type UltimasAcciones = Awaited<ReturnType<typeof ultimaAccionEnCache>>;
 
-/** Las clases de las dos líneas de debajo del nombre (las mismas de antes). */
+/** Las clases de las líneas de debajo del nombre (las mismas de antes). */
 const CLASES_DE_LA_ULTIMA_ACCION = "max-w-64 text-[11px] leading-snug text-muted-foreground";
 
 /**
@@ -41,12 +42,22 @@ export async function UltimaAccionDelEquipo({
     ahora,
   });
 
+  // "Versión abierta: v1.0.N" y, si es más vieja que la del servidor, cuál es la actual.
+  // Sin dato de versión la línea no sale; sin versión del servidor (desarrollo) no dice si es vieja.
+  const servidor = versionDelServidor();
+  const versionAbierta = latido?.version
+    ? `Versión abierta: ${etiquetaDeVersion(latido.version)}${
+        esVersionVieja(latido.version, servidor) ? ` · vieja (la actual es ${etiquetaDeVersion(servidor)})` : ""
+      }`
+    : null;
+
   return (
     <>
       <span className={CLASES_DE_LA_ULTIMA_ACCION}>
         {conectadaAhora ? <span className="mr-1 font-medium text-foreground">🟢 Conectada ahora ·</span> : null}
         {conexion}
       </span>
+      {versionAbierta ? <span className={CLASES_DE_LA_ULTIMA_ACCION}>{versionAbierta}</span> : null}
       <span className={CLASES_DE_LA_ULTIMA_ACCION}>{accion}</span>
     </>
   );

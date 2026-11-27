@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { numeroDeVersionValido } from "@/lib/version-del-crm";
 
 /**
  * QUIÉN ESTÁ TRABAJANDO AHORA: la última vez que cada persona tocó la app, y en qué.
@@ -26,6 +27,8 @@ export type UltimaActividad = {
   /** En palabras: "Chats · Lilianny Guerrero", "CRM", "Llamadas". */
   donde: string;
   dispositivo: DispositivoDeTrabajo;
+  /** El número de versión del CRM que tenía abierta ("812"). Los datos viejos no lo traen. */
+  version?: string;
 };
 
 export type ActividadDelEquipo = Record<string, UltimaActividad>;
@@ -94,6 +97,9 @@ export async function leerActividadDelEquipo(workspaceId: string): Promise<Activ
         donde: typeof fila.donde === "string" ? fila.donde : "La app",
         dispositivo: (fila.dispositivo as DispositivoDeTrabajo) ?? "Otro",
       };
+      // Solo si es un número válido: los JSON viejos no la traen y siguen leyéndose igual.
+      const version = numeroDeVersionValido(fila.version);
+      if (version) salida[userId].version = version;
     }
     return salida;
   } catch {
@@ -115,6 +121,8 @@ export async function anotarActividad(input: {
   /** Lo que se está mirando dentro del módulo: el nombre del chat, por ejemplo. */
   etiqueta?: string | null;
   userAgent?: string | null;
+  /** La versión del CRM abierta, ya revisada con numeroDeVersionValido; null si no vino o no era válida. */
+  version?: string | null;
 }): Promise<void> {
   const key = `${CLAVE}${input.workspaceId}`;
   const actual = await leerActividadDelEquipo(input.workspaceId);
@@ -127,6 +135,8 @@ export async function anotarActividad(input: {
     donde: etiqueta ? `${modulo} · ${etiqueta.slice(0, 60)}` : modulo,
     dispositivo: leerDispositivo(input.userAgent),
   };
+  const version = numeroDeVersionValido(input.version);
+  if (version) actual[input.userId].version = version;
 
   const value = JSON.stringify(actual);
   await prisma.appSetting.upsert({ where: { key }, create: { key, value }, update: { value } });

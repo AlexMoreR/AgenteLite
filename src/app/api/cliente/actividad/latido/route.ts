@@ -5,6 +5,7 @@ import { getClientWorkspaceAccessForUserCached } from "@/lib/client-workspace-ac
 import { anotarActividad } from "@/lib/actividad-del-equipo";
 import { latirEnLinea } from "@/lib/en-linea";
 import { contarPantalla } from "@/lib/uso-del-sistema";
+import { numeroDeVersionValido } from "@/lib/version-del-crm";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +31,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false }, { status: 403 });
   }
 
-  const cuerpo = (await request.json().catch(() => null)) as { ruta?: unknown; etiqueta?: unknown } | null;
+  const cuerpo = (await request.json().catch(() => null)) as { ruta?: unknown; etiqueta?: unknown; version?: unknown } | null;
   const ruta = typeof cuerpo?.ruta === "string" ? cuerpo.ruta.trim() : "";
   if (!ruta.startsWith("/")) {
     return NextResponse.json({ ok: false, error: "Ruta invalida" }, { status: 400 });
@@ -48,6 +49,8 @@ export async function POST(request: Request) {
       ruta,
       etiqueta: typeof cuerpo?.etiqueta === "string" ? cuerpo.etiqueta : null,
       userAgent: request.headers.get("user-agent"),
+      // La versión del CRM abierta en esa pestaña: si no es un número válido se descarta, sin error.
+      version: numeroDeVersionValido(cuerpo?.version),
     }).catch(() => {}),
     latirEnLinea({ workspaceId: access.workspaceId, userId: session.user.id }),
   ]);
