@@ -36,6 +36,19 @@ function guardarEstadoDeRecoger(carpetaTrabajo, estado) {
 /** Lo que dice el error cuando falta algo que solo el dueño puede dar: una decisión o una clave. */
 const NECESITA_AL_DUENO = /decid[aeoi]\b|decisi[oó]n|\bA o B\b|\bA\/B\b|opci[oó]n A|clave|token|credencial|contrase[ñn]a|api[ _-]?key|necesita(?:s)? (?:que|tu)|tiene(?:s)? que (?:elegir|decidir)/i;
 
+/**
+ * Posible repetida (27-nov-2026, «detectar tarjetas repetidas»): el CRM la dejó en ERROR con la categoría posible_repetida y el
+ * motivo "Posible repetida de T-X: …". Esa la decide el dueño: nunca se reintenta ni se parte. La categoría puede venir en la
+ * tarjeta o solo en el motivo del error (el /errores de hoy no manda la categoría; /repetida no deja intento).
+ */
+export const CATEGORIA_POSIBLE_REPETIDA = "posible_repetida";
+const MOTIVO_DE_POSIBLE_REPETIDA = /^\s*Posible repetida de T-\d+/i;
+
+function esPosibleRepetida(tarjeta) {
+  if (tarjeta?.categoria === CATEGORIA_POSIBLE_REPETIDA) return true;
+  return MOTIVO_DE_POSIBLE_REPETIDA.test(String(tarjeta?.motivo ?? ""));
+}
+
 const PASAJERAS = new Set(["limite_claude", "pc_sobrecargado", "carpeta_trabada", "coordinador_cortado", "sesion_atascada", "choca_con_main"]);
 const DE_TAMANO = new Set(["tiempo_agotado", "tarea_muy_grande"]);
 
@@ -45,6 +58,10 @@ const DE_TAMANO = new Set(["tiempo_agotado", "tarea_muy_grande"]);
  * -> { accion: "reintentar" | "partir" | "dueno" | "saltar", categoria, causa, linea?, nube?, motivo }
  */
 export function decidirRecogida(tarjeta, { maximoPorTarjeta = RECOGER_POR_DEFECTO.maximoPorTarjeta } = {}) {
+  // Antes de todas las demás reglas: una posible repetida la decide el dueño.
+  if (esPosibleRepetida(tarjeta)) {
+    return { accion: "saltar", categoria: CATEGORIA_POSIBLE_REPETIDA, causa: enUnaLinea(String(tarjeta?.motivo ?? "Posible repetida de otra tarjeta."), 300), motivo: "posible repetida: decide el dueño" };
+  }
   const veces = Number(tarjeta?.recogidas) || 0;
   const textoDelError = [tarjeta?.motivo, tarjeta?.ultimoError].filter(Boolean).join("\n");
   const ultimoIntento = [...(tarjeta?.ultimosIntentos ?? [])].reverse().find((intento) => intento?.etapa);
