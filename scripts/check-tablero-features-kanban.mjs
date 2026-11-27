@@ -258,7 +258,7 @@ await prueba("la SQL es recursiva, de solo lectura, con tope de 50 niveles y 500
   assert.ok(/LIMIT 500\b/.test(texto));
   assert.ok(texto.includes("$3::timestamptz"), "el corte de 7 días se pasa como dato");
   assert.ok(!/\bnow\(\)|current_timestamp|interval\b/i.test(texto), "no calcula la fecha en la base");
-  assert.ok(!/\b(INSERT|UPDATE|DELETE|MERGE|TRUNCATE|any_value|json_object|json_array|IS JSON)\b/i.test(texto), "solo lectura y sin funciones de Postgres 16");
+  assert.ok(!/\b(INSERT|UPDATE|DELETE|MERGE|TRUNCATE|any_value|json_object|json_array|IS JSON)\b/i.test(texto), "solo lectura y sin funciones de Postgres 16"); // sql-version-ok: la prueba busca que la SQL NO las use
 });
 
 await db.close();
