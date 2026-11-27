@@ -9,6 +9,7 @@ import {
 } from "@/lib/evolution";
 import { prisma } from "@/lib/prisma";
 import { esAutomaticoPendiente, estaResuelto } from "@/lib/chat-resuelto";
+import { esChatDeLaAsesora } from "@/lib/chat-de-la-asesora";
 import { revisarFrenoDeAutomatico, type MotivoDeFreno } from "@/lib/freno-de-automaticos";
 import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
 import { getFlowReply, type FlowStep } from "@/lib/agent-product-flow";
@@ -2027,13 +2028,68 @@ async function frenarPorElRedactor(
   return { ok: true as const, executionError: null, frenado: motivo };
 }
 
+/**
+ * El chat de este seguimiento ya es de la asesora (lib/chat-de-la-asesora.ts)? Devuelve el id del chat
+ * (o null si no se pudo leer) cuando hay que frenarlo, y false cuando puede seguir.
+ */
+async function chatDeLaAsesoraDelFollow(follow: ClaimedFollowRow): Promise<{ conversationId: string | null } | false> {
+  let conversationId: string | null = null;
+  try {
+    const [charla] = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT c."id"
+        FROM "Conversation" c
+       WHERE c."workspaceId" = ${follow.workspaceId}
+         AND c."contactId" = ${follow.contactId}
+         ${follow.channelId ? Prisma.sql`AND c."channelId" = ${follow.channelId}` : Prisma.empty}
+       ORDER BY c."lastMessageAt" DESC NULLS LAST
+       LIMIT 1`);
+    conversationId = charla?.id ?? null;
+  } catch (error) {
+    // Mejor perder un toque que pisar a la asesora.
+    console.warn("[follows] no se pudo leer el chat del seguimiento; se frena", {
+      followId: follow.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { conversationId: null };
+  }
+  if (!conversationId) return false;
+  return (await esChatDeLaAsesora(conversationId)) ? { conversationId } : false;
+}
+
 async function executeFollowRecord(follow: ClaimedFollowRow) {
+  const clase = clasificarFollow({ name: follow.name, followRuleId: follow.followRuleId });
+  /*
+    CHAT DE LA ASESORA (tarjeta 8yvjdvpw, 27-nov-2026): si el chat ya lo atiende una asesora (pausado, o
+    asignado y con un mensaje de una persona), ningún seguimiento automático le escribe al cliente:
+    Etapa, Sin responder, Inteligente, Tras asesora, campañas, automatizaciones y reactivación. Se
+    cancela con el motivo "chat_de_la_asesora" y no se envía. Solo siguen saliendo los que agendó una
+    persona a mano (clase "humano"). Va primero, antes que los demás frenos, para que ninguno lo
+    corra de hora ni lo tape con otro motivo. Se mira al ir a enviar, no al agendar.
+  */
+  if (clase !== "humano") {
+    const deLaAsesora = await chatDeLaAsesoraDelFollow(follow);
+    if (deLaAsesora) {
+      await cancelarFollowFrenado(follow, "chat_de_la_asesora");
+      anotarFrenado({
+        workspaceId: follow.workspaceId,
+        conversationId: deLaAsesora.conversationId,
+        contactId: follow.contactId,
+        channelId: follow.channelId,
+        motor: "follow",
+        motivo: "chat_de_la_asesora",
+        claveUnica: `follow:${follow.id}:chat_de_la_asesora`,
+        reglaId: follow.followRuleId,
+        reglaNombre: follow.name,
+        datos: { followId: follow.id, clase },
+      });
+      return { ok: true as const, executionError: null, frenado: "chat_de_la_asesora" as const };
+    }
+  }
   /*
     Anti-bloqueo (ver lib/anti-bloqueo): horario, texto vigente, un solo dueño, tope total y
     espaciado. Cada medida tiene su interruptor y vienen apagadas: así, esto no cambia nada hasta
     que Alex las prenda. Si la revisión falla (base caída), se sigue como antes.
   */
-  const clase = clasificarFollow({ name: follow.name, followRuleId: follow.followRuleId });
   let antiBloqueo: Awaited<ReturnType<typeof revisarAntiBloqueoDelFollow>> = null;
   try {
     /*

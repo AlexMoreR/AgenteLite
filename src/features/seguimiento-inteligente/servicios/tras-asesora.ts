@@ -22,12 +22,22 @@ import { leerFicha, leerNotasDelTurno } from "./ficha";
  * Nunca toca `automationPaused`: la IA sigue sin contestarle al cliente. Nunca lanza.
  */
 
+/** Tarjeta 8yvjdvpw (27-nov-2026): el barrido no agenda nada. */
+const BARRIDO_APAGADO = true;
+
 const ultimaVuelta = new Map<string, number>();
 const POR_VUELTA = 60;
 /** Chat + su último mensaje → hasta cuándo no se vuelve a mirar (si escribe alguien, cambia la clave). */
 const enEspera = new Map<string, number>();
 
 export async function barrerTrasAsesora(workspaceId: string, config: ConfigSeguimientoInteligente, ahora = new Date()): Promise<number> {
+  /*
+    APAGADO (tarjeta 8yvjdvpw, 27-nov-2026). Reemplaza la decisión del 12-10-2026 ("sí siguen"): desde
+    ahora solo la asesora le escribe al cliente en un chat que ella atiende. No se agenda ningún
+    "Tras asesora", con cualquier modo de la configuración. El resto del código queda por si se vuelve
+    a prender; los "Tras asesora" que ya estaban pendientes los frena el envío (lib/chat-de-la-asesora.ts).
+  */
+  if (BARRIDO_APAGADO) return 0;
   const ta = config.trasAsesora;
   if (!ta || ta.modo === "apagado" || !ta.horas.length) return 0;
   if (ahora.getTime() - (ultimaVuelta.get(workspaceId) ?? 0) < 4.5 * 60_000) return 0;

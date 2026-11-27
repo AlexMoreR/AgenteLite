@@ -1,6 +1,8 @@
 /**
  * AUTOMÁTICOS DESPUÉS DE QUE ESCRIBE LA ASESORA (código puro). Decisión de Alexander, 12-10-2026:
- * "sí siguen".
+ * "sí siguen". REEMPLAZADA por la tarjeta 8yvjdvpw (27-nov-2026): desde ahora solo la asesora le
+ * escribe al cliente; el barrido (servicios/tras-asesora.ts) ya no agenda estos toques y el envío
+ * frena cualquier automático en un chat de la asesora (lib/chat-de-la-asesora.ts). Se deja la regla.
  *
  * Hoy, cuando una persona escribe, el chat se pausa (`automationPaused`) y ya no sale ningún
  * automático: ni el recordatorio del V3 ni los Follow. Con esto, si la asesora escribió y el cliente
