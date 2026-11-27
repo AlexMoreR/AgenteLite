@@ -10,6 +10,13 @@
 export const MINUTOS_SIN_LATIDO = 2;
 export const MAXIMO_DE_TAREAS = 10;
 export const MAXIMO_DE_ESPERAS = 20;
+
+/** La meta de tareas trabajando a la vez (27-nov-2026; la lógica está en meta-de-trabajo.ts): 1 a 20, 10 por defecto. */
+export const META_TRABAJANDO_POR_DEFECTO = 10;
+export const META_TRABAJANDO_MINIMA = 1;
+export const META_TRABAJANDO_MAXIMA = 20;
+/** Cuánto tiene que estar por debajo de la meta antes de avisar (el Coordinador sigue llenando cupos mientras tanto). */
+export const MINUTOS_BAJO_META_PARA_AVISAR = 15;
 /** Los mismos límites que usa el Coordinador para no abrir otra tarea (config.limites). */
 export const LIMITE_ROJO = 85;
 export const LIMITE_AMARILLO = 70;

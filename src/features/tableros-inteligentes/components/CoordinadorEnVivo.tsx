@@ -2,12 +2,14 @@
 
 import { useEffect, useState, useTransition, type ReactNode } from "react";
 import Link from "next/link";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Switch } from "@/components/ui/switch";
-import { cambiarPausaPorUsoAction } from "@/app/actions/tableros-inteligentes-actions";
+import { cambiarPausaPorUsoAction, guardarMetaTrabajandoAction } from "@/app/actions/tableros-inteligentes-actions";
 
 import { useRefrescoDelCoordinador } from "../hooks/useRefrescoDelTablero";
 import type { CargaVista, ItemDeFila, TareaEnVivo, VistaDelCoordinador } from "../services/coordinador-en-vivo";
@@ -16,6 +18,9 @@ import {
   DISCO_LIBRE_ROJO_GB,
   LIMITE_AMARILLO,
   LIMITE_ROJO,
+  META_TRABAJANDO_MAXIMA,
+  META_TRABAJANDO_MINIMA,
+  MINUTOS_BAJO_META_PARA_AVISAR,
   duracionTexto,
   haceTexto,
   horaDeBogotaTexto,
@@ -218,7 +223,98 @@ function UsoDeClaude({ uso, sesionVencida }: { uso: VistaDelCoordinador["usoDeCl
   );
 }
 
-function Contenido({ vista, ahora }: { vista: VistaDelCoordinador; ahora: number }) {
+/** "1.5" -> "1,5" (las horas de hoy, como se escriben en Colombia). */
+const horasTexto = (horas: number) => String(horas).replace(".", ",");
+
+/**
+ * La meta de tareas trabajando (27-nov-2026): "Trabajando X de N" y el motivo; con 15 minutos o más por debajo, un recuadro
+ * rojo como el de "Coordinador apagado". Abajo, las horas de hoy con la meta cumplida y "Mínimo trabajando a la vez" (1 a 20),
+ * que solo el dueño cambia.
+ */
+function MetaTrabajando({ vista, ahora, esDueno, alGuardar }: { vista: VistaDelCoordinador; ahora: number; esDueno: boolean; alGuardar: () => void }) {
+  const [borrador, setBorrador] = useState<string | null>(null);
+  const [ocupado, empezar] = useTransition();
+  const causa = vista.motivoBajoMeta ? vista.motivoBajoMeta.replace(/\s*—\s*\d+ de \d+ trabajando\s*$/, "") : null;
+  const desde = vista.bajoMetaDesde ? Date.parse(vista.bajoMetaDesde) : NaN;
+  const enRojo = Boolean(causa) && Number.isFinite(desde) && ahora - desde >= MINUTOS_BAJO_META_PARA_AVISAR * 60_000;
+  const valor = borrador ?? String(vista.meta);
+  const numero = Number(valor);
+  const valido = Number.isInteger(numero) && numero >= META_TRABAJANDO_MINIMA && numero <= META_TRABAJANDO_MAXIMA;
+  const guardar = () =>
+    empezar(async () => {
+      const resultado = await guardarMetaTrabajandoAction(numero);
+      if (resultado.ok) {
+        toast.success(`El mínimo quedó en ${numero} trabajando a la vez`);
+        setBorrador(null);
+        alGuardar();
+      } else toast.error(resultado.error);
+    });
+  return (
+    <div className="space-y-2">
+      {enRojo ? (
+        <div role="alert" className="rounded-xl border border-red-500/50 bg-red-500/10 px-4 py-3">
+          <p className="text-base font-semibold text-red-600 dark:text-red-400">
+            Trabajando {vista.trabajando} de {vista.meta}
+          </p>
+          <p className="text-sm break-words text-muted-foreground">
+            Por debajo de la meta desde las {horaDeBogotaTexto(vista.bajoMetaDesde)} ({haceTexto(ahora - desde)}): {causa}.
+          </p>
+        </div>
+      ) : (
+        <div className="rounded-xl border bg-card px-3 py-2 text-sm">
+          <p className="font-medium">
+            Trabajando {vista.trabajando} de {vista.meta}
+            {causa ? null : <span className="font-normal text-muted-foreground"> · meta cumplida</span>}
+          </p>
+          {causa ? <p className="break-words text-muted-foreground">{causa}</p> : null}
+        </div>
+      )}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border bg-card px-3 py-2 text-sm">
+        <span className="text-muted-foreground">Hoy: {horasTexto(vista.horasConMetaHoy)} h con la meta cumplida</span>
+        <form
+          className="flex flex-wrap items-center gap-2"
+          onSubmit={(evento) => {
+            evento.preventDefault();
+            if (esDueno && valido && !ocupado) guardar();
+          }}
+        >
+          <label htmlFor="cev-meta" className="text-muted-foreground">
+            Mínimo trabajando a la vez
+          </label>
+          <Input
+            id="cev-meta"
+            type="number"
+            inputMode="numeric"
+            min={META_TRABAJANDO_MINIMA}
+            max={META_TRABAJANDO_MAXIMA}
+            step={1}
+            value={valor}
+            disabled={!esDueno || ocupado}
+            onChange={(evento) => setBorrador(evento.target.value)}
+            aria-invalid={!valido}
+            aria-describedby={esDueno ? undefined : "cev-meta-nota"}
+            className="h-8 w-20"
+          />
+          <Button type="submit" size="sm" variant="outline" disabled={!esDueno || ocupado || !valido || numero === vista.meta}>
+            {ocupado ? <Loader2 className="animate-spin" aria-hidden /> : null}
+            Guardar
+          </Button>
+          {!esDueno ? (
+            <span id="cev-meta-nota" className="text-xs text-muted-foreground">
+              Solo el dueño la cambia
+            </span>
+          ) : !valido ? (
+            <span className="text-xs text-red-600 dark:text-red-400">
+              Un número de {META_TRABAJANDO_MINIMA} a {META_TRABAJANDO_MAXIMA}
+            </span>
+          ) : null}
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function Contenido({ vista, ahora, esDueno, alGuardar }: { vista: VistaDelCoordinador; ahora: number; esDueno: boolean; alGuardar: () => void }) {
   const apagado = !vista.enLinea;
   const hora = horaDeBogotaTexto(vista.ultimoLatidoEn);
   const { hoy, fila, uso } = vista;
@@ -237,6 +333,8 @@ function Contenido({ vista, ahora }: { vista: VistaDelCoordinador; ahora: number
           Coordinador en línea{vista.nombre ? ` (${vista.nombre})` : ""}
         </p>
       )}
+
+      {typeof vista.trabajando === "number" ? <MetaTrabajando vista={vista} ahora={ahora} esDueno={esDueno} alGuardar={alGuardar} /> : null}
 
       {vista.sesionClaude?.texto ? (
         <p role="status" className="rounded-xl border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm font-medium break-words">
@@ -340,7 +438,7 @@ function Contenido({ vista, ahora }: { vista: VistaDelCoordinador; ahora: number
 }
 
 export function CoordinadorEnVivo() {
-  const { vista, error } = useRefrescoDelCoordinador(true);
+  const { vista, error, esDueno, preguntarYa } = useRefrescoDelCoordinador(true);
   const [ahora, setAhora] = useState(() => Date.now());
   // El "hace 14 min" se renueva solo cada 20 s (no hace falta preguntar al servidor para eso).
   useEffect(() => {
@@ -361,7 +459,7 @@ export function CoordinadorEnVivo() {
           No se pudo actualizar{vista ? ": se ve lo último que llegó." : "."}
         </p>
       ) : null}
-      {vista ? <Contenido vista={vista} ahora={ahora} /> : error ? null : <p className="text-sm text-muted-foreground">Cargando…</p>}
+      {vista ? <Contenido vista={vista} ahora={ahora} esDueno={esDueno} alGuardar={preguntarYa} /> : error ? null : <p className="text-sm text-muted-foreground">Cargando…</p>}
     </section>
   );
 }

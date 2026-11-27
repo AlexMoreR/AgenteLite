@@ -22,6 +22,8 @@ import { featuresSolasPrendido } from "@/features/tableros-inteligentes/services
 import { REGLA_TAREAS_EN_FEATURES } from "@/features/tableros-inteligentes/services/reglas-features";
 import { estadoDeTareasAFeatures } from "@/features/tableros-inteligentes/services/tareas-a-features";
 import { leerAreaFeatures } from "@/features/tableros-inteligentes/services/coordinador-en-vivo";
+import { leerEstadoDeMeta, leerMetaTrabajando } from "@/features/tableros-inteligentes/services/meta-de-trabajo";
+import { horaDeBogotaTexto } from "@/features/tableros-inteligentes/services/reglas-coordinador-en-vivo";
 import { recogidaDelResultado } from "@/features/tableros-inteligentes/services/reglas-trabajador";
 import { dondeTableroVivo } from "@/features/tableros-inteligentes/services/tableros-archivados";
 import { avisosDeAprobacionPrendidos, avisosPrendidos, leerEstadoDeAvisos, sistemasPrendido, telefonoDeSistemasGuardado, telefonoGuardado } from "@/features/tableros-inteligentes/services/avisos-al-dueno";
@@ -630,6 +632,14 @@ async function estadoDeLaAlarmaDeCupos(workspaceId: string) {
   return `PRENDIDA: ${que}; sale al WhatsApp de Emanuel (…${telefono.slice(-4)}) por la línea Admin, uno cada 3 horas como mucho y con el silencio de 9 p. m. a 7 a. m.`;
 }
 
+async function estadoDelAvisoDeMeta(workspaceId: string) {
+  const [meta, estado, general] = await Promise.all([leerMetaTrabajando(workspaceId), leerEstadoDeMeta(workspaceId), avisosPrendidos(workspaceId)]);
+  const desde = estado.bajoMetaDesde ? horaDeBogotaTexto(estado.bajoMetaDesde) : null;
+  const como = desde ? `por debajo desde las ${desde}` : "cumplida";
+  const que = "a los 15 min por debajo deja una alerta y, sin \"solo urgentes\", un WhatsApp al dueño (el mismo motivo una vez por hora; nunca de 9 p. m. a 7 a. m.)";
+  return `${general ? "PRENDIDA" : "APAGADA (interruptor general de avisos apagado)"}: meta ${meta} trabajando a la vez, ${como}; ${que}`;
+}
+
 async function estadoDeAvisosDeTerminadas(workspaceId: string) {
   const donde = { workspaceId, motivo: MOTIVO_TERMINADA };
   const [general, propio, ultimo, fallidos] = await Promise.all([
@@ -937,6 +947,8 @@ async function automatizaciones(
     avisos_al_equipo_tablero: await estadoDeAvisosAlEquipo(workspaceId).catch(() => "no se pudo leer"),
     avisos_de_terminadas_tablero: await estadoDeAvisosDeTerminadas(workspaceId).catch(() => "no se pudo leer"),
     alarma_cupos_sin_usar_tablero: await estadoDeLaAlarmaDeCupos(workspaceId).catch(() => "no se pudo leer"),
+    // 27-nov-2026: la meta de tareas trabajando a la vez y, si está por debajo, desde qué hora (lo guarda la revisión de cada minuto).
+    aviso_meta_trabajando: await estadoDelAvisoDeMeta(workspaceId).catch(() => "no se pudo leer"),
     archivar_terminadas_tablero: await estadoDelArchivado().catch(() => "no se pudo leer"),
     // Una vez al día en el reloj: las Tareas aprobadas con repo que quedaron fuera de Features pasan a Features (T-736).
     tareas_a_features_tablero: await seguro("tareas_a_features_tablero", () => estadoDeTareasAFeatures(workspaceId)),

@@ -189,16 +189,19 @@ export function useListaDeTableros(iniciales: TableroDelInicio[], firmaInicial: 
 export function useRefrescoDelCoordinador(activo: boolean) {
   const [vista, setVista] = useState<VistaDelCoordinador | null>(null);
   const [error, setError] = useState(false);
+  // 27-nov-2026: si quien mira es el dueño (solo él cambia "Mínimo trabajando a la vez").
+  const [esDueno, setEsDueno] = useState(false);
 
   const armarUrl = useCallback(() => "/api/cliente/tableros-inteligentes/coordinador", []);
   const alResponder = useCallback((respuesta: unknown) => {
-    const datos = respuesta as { ok?: boolean; vista?: VistaDelCoordinador };
+    const datos = respuesta as { ok?: boolean; vista?: VistaDelCoordinador; esDueno?: boolean };
     if (!datos.ok || !datos.vista) {
       setError(true);
       return;
     }
     setError(false);
     setVista(datos.vista);
+    setEsDueno(datos.esDueno === true);
   }, []);
   const alFallar = useCallback(() => setError(true), []);
 
@@ -206,5 +209,5 @@ export function useRefrescoDelCoordinador(activo: boolean) {
   useEffect(() => {
     if (activo) preguntarYa();
   }, [activo, preguntarYa]);
-  return { vista, error };
+  return { vista, error, esDueno, preguntarYa };
 }

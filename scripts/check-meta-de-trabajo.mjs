@@ -163,4 +163,91 @@ await prueba("una meta fuera de 1 a 20 se rechaza y no se guarda", async () => {
   assert.equal(await meta.guardarMetaTrabajando("ws1", 20), 20);
 });
 
+/* ------------------------------------------------------------------ el estado y el aviso (parte 3) */
+
+// 10:00 a. m. de Bogotá (15:00 UTC).
+const DIEZ_AM = new Date("2026-11-27T15:00:00Z");
+const masMinutos = (fecha, minutos) => new Date(fecha.getTime() + minutos * 60_000);
+const MOTIVO = "los cupos configurados dan 7, la meta es 10 — 4 de 10 trabajando";
+/** El estado con `bajoMetaDesde` hace `minutos` minutos y, si se pasa, el último aviso. */
+const estadoBajo = (ahora, minutos, aviso = {}) => ({ ...meta.ESTADO_DE_META_VACIO, bajoMetaDesde: masMinutos(ahora, -minutos).toISOString(), ...aviso });
+
+await prueba("aviso: a los 14 minutos por debajo no avisa; a los 15 sí", () => {
+  assert.deepEqual(meta.decidirAvisoDeMeta(estadoBajo(DIEZ_AM, 14), MOTIVO, DIEZ_AM), { avisar: false, porque: "poco_tiempo" });
+  assert.deepEqual(meta.decidirAvisoDeMeta(estadoBajo(DIEZ_AM, 15), MOTIVO, DIEZ_AM), { avisar: true });
+  // Sin motivo (meta cumplida) nunca.
+  assert.equal(meta.decidirAvisoDeMeta(estadoBajo(DIEZ_AM, 60), null, DIEZ_AM).avisar, false);
+});
+
+await prueba("aviso: con el mismo motivo no repite a los 59 minutos y sí a los 60 (aunque cambien las cifras)", () => {
+  const avisado = (minutos) => ({ ultimoMotivo: MOTIVO, ultimoAvisoEn: masMinutos(DIEZ_AM, -minutos).toISOString() });
+  assert.deepEqual(meta.decidirAvisoDeMeta(estadoBajo(DIEZ_AM, 90, avisado(59)), MOTIVO, DIEZ_AM), { avisar: false, porque: "repetido" });
+  assert.deepEqual(meta.decidirAvisoDeMeta(estadoBajo(DIEZ_AM, 90, avisado(60)), MOTIVO, DIEZ_AM), { avisar: true });
+  // "5 de 10" contra "4 de 10", o 97 % contra 96 %, es el mismo motivo.
+  const otrasCifras = "los cupos configurados dan 7, la meta es 10 — 5 de 10 trabajando";
+  assert.equal(meta.decidirAvisoDeMeta(estadoBajo(DIEZ_AM, 90, avisado(10)), otrasCifras, DIEZ_AM).avisar, false);
+  assert.equal(meta.claveDelMotivo("pausado por el uso de Claude (96 % de 95 %) — 4 de 10 trabajando"), meta.claveDelMotivo("pausado por el uso de Claude (97 % de 95 %) — 3 de 10 trabajando"));
+});
+
+await prueba("aviso: si cambia el motivo avisa enseguida", () => {
+  const avisado = { ultimoMotivo: MOTIVO, ultimoAvisoEn: masMinutos(DIEZ_AM, -2).toISOString() };
+  const otro = "pausado por el uso de Claude (96 % de 95 %) — 4 de 10 trabajando";
+  assert.deepEqual(meta.decidirAvisoDeMeta(estadoBajo(DIEZ_AM, 30, avisado), otro, DIEZ_AM), { avisar: true });
+});
+
+await prueba("aviso: de 9 p. m. a 7 a. m. (Bogotá) no manda; a las 7 a. m. sí", () => {
+  const nueve = new Date("2026-11-28T02:00:00Z"); // 9:00 p. m.
+  const seisCincuentaYNueve = new Date("2026-11-28T11:59:00Z"); // 6:59 a. m.
+  const siete = new Date("2026-11-28T12:00:00Z"); // 7:00 a. m.
+  const ochoCincuentaYNueve = new Date("2026-11-28T01:59:00Z"); // 8:59 p. m.
+  assert.deepEqual(meta.decidirAvisoDeMeta(estadoBajo(nueve, 30), MOTIVO, nueve), { avisar: false, porque: "silencio" });
+  assert.deepEqual(meta.decidirAvisoDeMeta(estadoBajo(seisCincuentaYNueve, 30), MOTIVO, seisCincuentaYNueve), { avisar: false, porque: "silencio" });
+  assert.deepEqual(meta.decidirAvisoDeMeta(estadoBajo(siete, 30), MOTIVO, siete), { avisar: true });
+  assert.deepEqual(meta.decidirAvisoDeMeta(estadoBajo(ochoCincuentaYNueve, 30), MOTIVO, ochoCincuentaYNueve), { avisar: true });
+});
+
+await prueba("estado: bajoMetaDesde se pone al bajar y se borra al cumplir; los minutos con meta suman máximo 2 por vuelta", () => {
+  let estado = meta.avanzarEstadoDeMeta(meta.ESTADO_DE_META_VACIO, { trabajando: 4, meta: 10, ahora: DIEZ_AM });
+  assert.equal(estado.bajoMetaDesde, DIEZ_AM.toISOString());
+  assert.equal(estado.minutosConMetaHoy, 0);
+  // Sigue por debajo: no se mueve la hora de inicio.
+  estado = meta.avanzarEstadoDeMeta(estado, { trabajando: 5, meta: 10, ahora: masMinutos(DIEZ_AM, 1) });
+  assert.equal(estado.bajoMetaDesde, DIEZ_AM.toISOString());
+  // Cumple: se borra y suma el minuto.
+  estado = meta.avanzarEstadoDeMeta(estado, { trabajando: 10, meta: 10, ahora: masMinutos(DIEZ_AM, 2) });
+  assert.equal(estado.bajoMetaDesde, null);
+  assert.equal(estado.minutosConMetaHoy, 1);
+  // Una vuelta 30 minutos después suma solo 2.
+  estado = meta.avanzarEstadoDeMeta(estado, { trabajando: 11, meta: 10, ahora: masMinutos(DIEZ_AM, 32) });
+  assert.equal(estado.minutosConMetaHoy, 3);
+  assert.equal(meta.horasConMetaDeHoy(estado, masMinutos(DIEZ_AM, 32)), 0.1);
+  // Al otro día vuelve a 0 y las horas de ayer no cuentan.
+  const manana = new Date("2026-11-28T15:00:00Z");
+  assert.equal(meta.horasConMetaDeHoy(estado, manana), 0);
+  // Al otro día empieza de 0 y suma solo esta vuelta (máximo 2), no lo de ayer.
+  assert.equal(meta.avanzarEstadoDeMeta(estado, { trabajando: 10, meta: 10, ahora: manana }).minutosConMetaHoy, 2);
+  assert.equal(meta.avanzarEstadoDeMeta(estado, { trabajando: 3, meta: 10, ahora: manana }).minutosConMetaHoy, 0);
+  // Pasando la medianoche de Bogotá (5:00 UTC) solo cuenta lo que va de hoy.
+  const antesDeMedianoche = { ...estado, ultimaRevision: "2026-11-28T04:59:30Z" };
+  assert.equal(meta.avanzarEstadoDeMeta(antesDeMedianoche, { trabajando: 10, meta: 10, ahora: new Date("2026-11-28T05:00:30Z") }).minutosConMetaHoy, 0.5);
+  // El último aviso no lo toca.
+  const conAviso = { ...estado, ultimoMotivo: MOTIVO, ultimoAvisoEn: DIEZ_AM.toISOString() };
+  assert.equal(meta.avanzarEstadoDeMeta(conAviso, { trabajando: 1, meta: 10, ahora: manana }).ultimoMotivo, MOTIVO);
+});
+
+await prueba("estado: se guarda con la clave del negocio y lo dañado se lee como vacío", async () => {
+  assert.deepEqual(await meta.leerEstadoDeMeta("ws1"), meta.ESTADO_DE_META_VACIO);
+  const estado = meta.avanzarEstadoDeMeta(meta.ESTADO_DE_META_VACIO, { trabajando: 2, meta: 10, ahora: DIEZ_AM });
+  await meta.guardarEstadoDeMeta("ws1", estado);
+  assert.ok(ajustes.has("tablero:meta-trabajando:estado:ws1"));
+  assert.deepEqual(await meta.leerEstadoDeMeta("ws1"), estado);
+  assert.deepEqual(await meta.leerEstadoDeMeta("ws2"), meta.ESTADO_DE_META_VACIO, "otro negocio no lo ve");
+  for (const malo of ["{no es json", "null", "[1,2]", '"texto"']) {
+    ajustes.set("tablero:meta-trabajando:estado:ws3", malo);
+    assert.deepEqual(await meta.leerEstadoDeMeta("ws3"), meta.ESTADO_DE_META_VACIO, `dañado: ${malo}`);
+  }
+  ajustes.set("tablero:meta-trabajando:estado:ws3", JSON.stringify({ bajoMetaDesde: "ayer", minutosConMetaHoy: -5, dia: "hoy" }));
+  assert.deepEqual(await meta.leerEstadoDeMeta("ws3"), meta.ESTADO_DE_META_VACIO, "campos dañados");
+});
+
 console.log(`\n${pruebas} pruebas, todas bien`);

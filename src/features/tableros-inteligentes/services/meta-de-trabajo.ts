@@ -1,6 +1,15 @@
 import { prisma } from "@/lib/prisma";
 
-import { type CuposDelLatido, type EsperaDelLatido, type PausaUsoDelLatido } from "./reglas-coordinador-en-vivo";
+import {
+  META_TRABAJANDO_MAXIMA,
+  META_TRABAJANDO_MINIMA,
+  META_TRABAJANDO_POR_DEFECTO,
+  MINUTOS_BAJO_META_PARA_AVISAR,
+  rangoDeHoyEnBogota,
+  type CuposDelLatido,
+  type EsperaDelLatido,
+  type PausaUsoDelLatido,
+} from "./reglas-coordinador-en-vivo";
 
 /*
   META DE TAREAS TRABAJANDO A LA VEZ (27-nov-2026, decisión del dueño): el Coordinador debería tener al menos 10 tareas
@@ -8,11 +17,16 @@ import { type CuposDelLatido, type EsperaDelLatido, type PausaUsoDelLatido } fro
   editable POR NEGOCIO en AppSetting (sin migración), `tablero:meta-trabajando:<negocio>` = "10", y las reglas puras que
   cuentan cuántas trabajan y arman el motivo. El aviso y la pantalla llegan en las partes 2 y 3.
   La meta NO cambia cuántas tareas corre el Coordinador (eso vive en aizen1).
+
+  Parte 3 (27-nov-2026): el ESTADO de la meta por negocio en AppSetting `tablero:meta-trabajando:estado:<negocio>` (desde
+  cuándo está por debajo, el último motivo avisado y cuándo, y los minutos con la meta cumplida hoy). Lo avanza y lo guarda
+  SOLO la revisión de cada minuto (avisos-al-dueno.ts); el panel y el MCP lo leen sin escribir. La decisión de avisar es
+  pura (decidirAvisoDeMeta): 15 minutos por debajo, el mismo motivo una vez por hora, uno nuevo enseguida, nunca de 9 p. m. a
+  7 a. m.
 */
 
-export const META_TRABAJANDO_POR_DEFECTO = 10;
-export const META_TRABAJANDO_MINIMA = 1;
-export const META_TRABAJANDO_MAXIMA = 20;
+// Las cifras viven en reglas-coordinador-en-vivo.ts (sin prisma) para que el panel también las pueda usar.
+export { META_TRABAJANDO_MAXIMA, META_TRABAJANDO_MINIMA, META_TRABAJANDO_POR_DEFECTO, MINUTOS_BAJO_META_PARA_AVISAR };
 
 export const claveDeLaMetaTrabajando = (workspaceId: string) => `tablero:meta-trabajando:${workspaceId}`;
 
@@ -162,4 +176,133 @@ function causaBajoMeta(entrada: EntradaDelMotivo): string {
 export function motivoBajoMeta(entrada: EntradaDelMotivo): string | null {
   if (entrada.trabajando >= entrada.meta) return null;
   return `${causaBajoMeta(entrada)} — ${entrada.trabajando} de ${entrada.meta} trabajando`;
+}
+
+/* ─────────────────────────────────────────────────────────── el estado y el aviso (parte 3) ── */
+
+const MS_MINUTO = 60_000;
+/** Cada cuánto se puede repetir el aviso con el mismo motivo. */
+export const MINUTOS_PARA_REPETIR_EL_MISMO_MOTIVO = 60;
+/** Lo máximo que suma una vuelta a "minutos con la meta cumplida" (si el reloj se saltó vueltas, no se inventa tiempo). */
+const MAXIMO_MINUTOS_POR_VUELTA = 2;
+
+export const claveDelEstadoDeMeta = (workspaceId: string) => `tablero:meta-trabajando:estado:${workspaceId}`;
+
+export type EstadoDeMeta = {
+  /** Desde cuándo está por debajo de la meta (ISO); null si la cumple. */
+  bajoMetaDesde: string | null;
+  /** El último motivo avisado (el texto completo); null si nunca se avisó. */
+  ultimoMotivo: string | null;
+  /** Cuándo se avisó por última vez (ISO). */
+  ultimoAvisoEn: string | null;
+  /** Los minutos con la meta cumplida en el día `dia`. */
+  minutosConMetaHoy: number;
+  /** El día de Bogotá (AAAA-MM-DD) de `minutosConMetaHoy`; null si no hay. */
+  dia: string | null;
+  /** La última vuelta que lo avanzó (ISO). */
+  ultimaRevision: string | null;
+};
+
+export const ESTADO_DE_META_VACIO: EstadoDeMeta = { bajoMetaDesde: null, ultimoMotivo: null, ultimoAvisoEn: null, minutosConMetaHoy: 0, dia: null, ultimaRevision: null };
+
+const fechaValida = (valor: unknown): string | null => (typeof valor === "string" && Number.isFinite(Date.parse(valor)) ? valor : null);
+
+/** Lo guardado de vuelta al estado; lo dañado o ausente cuenta como vacío (campo por campo). */
+export function estadoDeMetaDeValor(texto: string | null | undefined): EstadoDeMeta {
+  try {
+    const leido = JSON.parse(texto ?? "") as Partial<Record<keyof EstadoDeMeta, unknown>> | null;
+    if (!leido || typeof leido !== "object" || Array.isArray(leido)) return { ...ESTADO_DE_META_VACIO };
+    const minutos = typeof leido.minutosConMetaHoy === "number" && Number.isFinite(leido.minutosConMetaHoy) && leido.minutosConMetaHoy >= 0 ? Math.min(leido.minutosConMetaHoy, 24 * 60) : 0;
+    return {
+      bajoMetaDesde: fechaValida(leido.bajoMetaDesde),
+      ultimoMotivo: typeof leido.ultimoMotivo === "string" && leido.ultimoMotivo.trim() ? leido.ultimoMotivo : null,
+      ultimoAvisoEn: fechaValida(leido.ultimoAvisoEn),
+      minutosConMetaHoy: minutos,
+      dia: typeof leido.dia === "string" && /^\d{4}-\d{2}-\d{2}$/.test(leido.dia) ? leido.dia : null,
+      ultimaRevision: fechaValida(leido.ultimaRevision),
+    };
+  } catch {
+    return { ...ESTADO_DE_META_VACIO };
+  }
+}
+
+/** El estado de la meta del negocio (vacío si no hay fila o está dañada). */
+export async function leerEstadoDeMeta(workspaceId: string): Promise<EstadoDeMeta> {
+  const fila = await prisma.appSetting.findUnique({ where: { key: claveDelEstadoDeMeta(workspaceId) }, select: { value: true } });
+  return estadoDeMetaDeValor(fila?.value);
+}
+
+export async function guardarEstadoDeMeta(workspaceId: string, estado: EstadoDeMeta): Promise<void> {
+  const key = claveDelEstadoDeMeta(workspaceId);
+  const value = JSON.stringify(estado);
+  await prisma.appSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+}
+
+/** El día de Bogotá (AAAA-MM-DD) de `ahora`. */
+export function diaDeLaMeta(ahora: Date): string {
+  const { desde } = rangoDeHoyEnBogota(ahora);
+  return new Date(desde.getTime() - 5 * 3_600_000).toISOString().slice(0, 10);
+}
+
+/**
+ * Una vuelta del reloj (pura): pone `bajoMetaDesde` la primera vez que baja de la meta y lo borra al cumplirla; con la meta
+ * cumplida suma los minutos desde la vuelta anterior (máximo 2 por vuelta) y vuelve a 0 al cambiar el día de Bogotá.
+ * No toca el último aviso.
+ */
+export function avanzarEstadoDeMeta(estado: EstadoDeMeta, { trabajando, meta, ahora }: { trabajando: number; meta: number; ahora: Date }): EstadoDeMeta {
+  const dia = diaDeLaMeta(ahora);
+  const cumple = trabajando >= meta;
+  const anterior = estado.ultimaRevision ? Date.parse(estado.ultimaRevision) : NaN;
+  // En el cambio de día solo cuenta lo que va de hoy.
+  const desdeHoy = rangoDeHoyEnBogota(ahora).desde.getTime();
+  const base = Number.isFinite(anterior) ? Math.max(anterior, estado.dia === dia ? anterior : desdeHoy) : NaN;
+  const transcurridos = Number.isFinite(base) ? Math.min(MAXIMO_MINUTOS_POR_VUELTA, Math.max(0, (ahora.getTime() - base) / MS_MINUTO)) : 0;
+  const minutosDeHoy = estado.dia === dia ? estado.minutosConMetaHoy : 0;
+  return {
+    ...estado,
+    bajoMetaDesde: cumple ? null : (estado.bajoMetaDesde ?? ahora.toISOString()),
+    minutosConMetaHoy: Math.min(24 * 60, minutosDeHoy + (cumple ? transcurridos : 0)),
+    dia,
+    ultimaRevision: ahora.toISOString(),
+  };
+}
+
+/**
+ * El motivo sin el "— X de N trabajando" y con las cifras cambiadas por `#`: así "4 de 10" contra "5 de 10" (o 96 % contra
+ * 97 %) no cuenta como un motivo nuevo.
+ */
+export function claveDelMotivo(motivo: string): string {
+  return motivo
+    .replace(/\s*—\s*\d+ de \d+ trabajando\s*$/, "")
+    .replace(/\d+/g, "#")
+    .trim();
+}
+
+/** ¿Es hora de silencio (9:00 p. m. a 6:59 a. m. de Bogotá)? La misma regla que enSilencioDeAvisos de avisos-al-dueno.ts. */
+export function enSilencioDeLaMeta(ahora: Date): boolean {
+  const hora = new Date(ahora.getTime() - 5 * 3_600_000).getUTCHours();
+  return hora >= 21 || hora < 7;
+}
+
+export type DecisionDeMeta = { avisar: true } | { avisar: false; porque: "sin_motivo" | "poco_tiempo" | "silencio" | "repetido" };
+
+/**
+ * ¿Se avisa al dueño en esta vuelta? (pura, con el estado YA avanzado). No, si no hay motivo, si lleva menos de 15 minutos
+ * por debajo o si es de 9 p. m. a 7 a. m. Si el motivo cambió, enseguida; si es el mismo, solo pasados 60 minutos del último.
+ */
+export function decidirAvisoDeMeta(estado: Pick<EstadoDeMeta, "bajoMetaDesde" | "ultimoMotivo" | "ultimoAvisoEn">, motivo: string | null, ahora: Date): DecisionDeMeta {
+  if (!motivo) return { avisar: false, porque: "sin_motivo" };
+  const desde = estado.bajoMetaDesde ? Date.parse(estado.bajoMetaDesde) : NaN;
+  if (!Number.isFinite(desde) || ahora.getTime() - desde < MINUTOS_BAJO_META_PARA_AVISAR * MS_MINUTO) return { avisar: false, porque: "poco_tiempo" };
+  if (enSilencioDeLaMeta(ahora)) return { avisar: false, porque: "silencio" };
+  if (!estado.ultimoMotivo || claveDelMotivo(estado.ultimoMotivo) !== claveDelMotivo(motivo)) return { avisar: true };
+  const ultimo = estado.ultimoAvisoEn ? Date.parse(estado.ultimoAvisoEn) : NaN;
+  if (!Number.isFinite(ultimo) || ahora.getTime() - ultimo >= MINUTOS_PARA_REPETIR_EL_MISMO_MOTIVO * MS_MINUTO) return { avisar: true };
+  return { avisar: false, porque: "repetido" };
+}
+
+/** Las horas con la meta cumplida hoy (con un decimal), según lo guardado; 0 si lo guardado es de otro día. */
+export function horasConMetaDeHoy(estado: Pick<EstadoDeMeta, "minutosConMetaHoy" | "dia">, ahora: Date): number {
+  if (estado.dia !== diaDeLaMeta(ahora)) return 0;
+  return Math.round((estado.minutosConMetaHoy / 60) * 10) / 10;
 }

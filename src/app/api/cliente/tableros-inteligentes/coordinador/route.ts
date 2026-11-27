@@ -4,6 +4,7 @@ import { auth } from "@/auth";
 import { canAccessClientModule, getClientWorkspaceAccessForUserCached } from "@/lib/client-workspace-access";
 import { vistaDelCoordinador } from "@/features/tableros-inteligentes/services/coordinador-en-vivo";
 import { personaPuedeAprobar } from "@/features/tableros-inteligentes/services/reglas";
+import { personaQueAprueba } from "@/features/tableros-inteligentes/services/tableros";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +25,12 @@ export async function GET() {
   if (!access || !canAccessClientModule(access, "tableros_inteligentes") || !personaPuedeAprobar(access)) {
     return NextResponse.json({ ok: false }, { status: 403, headers: SIN_CACHE });
   }
-  const vista = await vistaDelCoordinador(access.workspaceId);
-  return NextResponse.json({ ok: true, vista }, { headers: SIN_CACHE });
+  // `esDueno` (27-nov-2026): solo el dueño edita "Mínimo trabajando a la vez"; si no se puede saber, queda bloqueado.
+  const [vista, esDueno] = await Promise.all([
+    vistaDelCoordinador(access.workspaceId),
+    personaQueAprueba(access.workspaceId, session.user.id)
+      .then((persona) => persona.esDueno)
+      .catch(() => false),
+  ]);
+  return NextResponse.json({ ok: true, vista, esDueno }, { headers: SIN_CACHE });
 }
