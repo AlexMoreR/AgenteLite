@@ -889,6 +889,7 @@ prueba("transiciones del trabajador: cada acción solo desde su estado", () => {
     subida: ["SUBIENDO"],
     error: ["PLANEANDO", "EN_CURSO", "SUBIENDO"],
     soltar: ["PLANEANDO", "EN_CURSO", "SUBIENDO"],
+    "cambiar-repo": ["PLANEANDO", "EN_CURSO"],
     reparar: ["PLANEANDO", "EN_CURSO", "SUBIENDO"],
     partir: ["PLANEANDO", "EN_CURSO"],
     depender: ["APROBADO", "PLANEANDO", "EN_CURSO"],
@@ -905,7 +906,7 @@ prueba("transiciones del trabajador: cada acción solo desde su estado", () => {
   }
   assert.deepEqual(
     Object.fromEntries(Object.entries(trabajo.TRANSICIONES_DEL_TRABAJADOR).map(([accion, regla]) => [accion, regla.a])),
-    { latido: null, plan: "PLAN_LISTO", resultado: "POR_REVISAR", subida: "HECHO", error: "ERROR", soltar: null, reparar: null, partir: null, depender: null, recoger: null, "ya-hecha": "HECHO", limpieza: null, rescatar: null, revisar_de_nuevo: null, "causa-externa": null },
+    { latido: null, plan: "PLAN_LISTO", resultado: "POR_REVISAR", subida: "HECHO", error: "ERROR", soltar: null, "cambiar-repo": "APROBADO", reparar: null, partir: null, depender: null, recoger: null, "ya-hecha": "HECHO", limpieza: null, rescatar: null, revisar_de_nuevo: null, "causa-externa": null },
   );
   // Revisión previa (27-oct-2026): la nota de "ya estaba hecha" y el título único de la tarjeta de limpieza.
   assert.equal(trabajo.notaDeYaHecha("f4759b0"), "ya estaba hecho (commit f4759b0)");
@@ -915,6 +916,56 @@ prueba("transiciones del trabajador: cada acción solo desde su estado", () => {
     { APROBADO: ["PLANEANDO", "planear"], PLAN_APROBADO: ["EN_CURSO", "construir"], SUBIENDO: ["SUBIENDO", "subir"] },
   );
 });
+
+// 27-nov-2026 (tarjeta f1uipesz): el Coordinador le cambia el repo a una tarjeta cuyo plan nombra archivos del otro repo.
+prueba("cambiar-repo: vale desde PLANEANDO y EN_CURSO y lleva a APROBADO; tope de 2 cambios; categoría repo_equivocado", () => {
+  assert.ok(trabajo.ACCIONES_DEL_TRABAJADOR.includes("cambiar-repo"));
+  for (const estado of ["PLANEANDO", "EN_CURSO"]) assert.equal(trabajo.puedeElTrabajador("cambiar-repo", estado), null, estado);
+  for (const estado of ["PLAN_LISTO", "POR_APROBAR", "APROBADO", "PLAN_APROBADO", "SUBIENDO", "ERROR", "HECHO"]) {
+    assert.match(trabajo.puedeElTrabajador("cambiar-repo", estado), /solo vale desde PLANEANDO o EN_CURSO/, estado);
+  }
+  assert.equal(trabajo.TRANSICIONES_DEL_TRABAJADOR["cambiar-repo"].a, "APROBADO");
+  assert.ok(trabajo.CATEGORIAS_DE_INTENTO.includes("repo_equivocado"));
+  assert.equal(trabajo.categoriaDeEntrada("repo_equivocado"), "repo_equivocado");
+  // La nota del historial.
+  assert.equal(trabajo.notaDeCambioDeRepo("gestion", "aizencrm", "el plan nombra src/app"), "cambió de repo: gestion → aizencrm (el plan nombra src/app)");
+  assert.equal(trabajo.notaDeCambioDeRepo("gestion", null, "plan raro"), "vuelve a planear (plan raro)");
+  assert.equal(trabajo.notaDeCambioDeRepo("gestion", "gestion", "mismo repo"), "vuelve a planear (mismo repo)");
+  // El tope cuenta solo los cambios de repo de verdad (no las vueltas a planear ni otras categorías).
+  const cambio = { categoria: "repo_equivocado", causa: "cambió de repo: gestion → aizencrm (x)" };
+  const replan = { categoria: "repo_equivocado", causa: "vuelve a planear (x)" };
+  assert.equal(trabajo.cambiosDeRepo([cambio, replan, { categoria: "otra", causa: "cambió de repo: x" }]), 1);
+  assert.equal(trabajo.TOPE_DE_CAMBIOS_DE_REPO, 2);
+  assert.equal(trabajo.puedeCambiarDeRepo(trabajo.cambiosDeRepo([cambio])), null);
+  assert.match(trabajo.puedeCambiarDeRepo(trabajo.cambiosDeRepo([cambio, cambio])), /tope es 2/);
+  // El repo se valida con repoDeEntrada: solo gestion o aizencrm.
+  assert.equal(trabajo.repoDeEntrada("aizencrm"), "aizencrm");
+  assert.throws(() => trabajo.repoDeEntrada("otro-repo"), /Ese repo no existe/);
+});
+
+// Asíncrona: `prueba` no espera promesas, así que se espera aquí con await.
+await (async (nombre) => {
+  const { crearCrm } = await import("../trabajador-tablero/lib/crm.mjs");
+  const pedidos = [];
+  let status = 200;
+  const fetch = async (url, opciones) => {
+    pedidos.push({ url, cuerpo: JSON.parse(opciones.body) });
+    return { ok: status < 400, status, json: async () => (status < 400 ? { ok: true, estado: "APROBADO" } : { ok: false, error: "no" }) };
+  };
+  const crm = crearCrm({ urlCrm: "https://crm.test", claveTrabajador: "aizen_trab_x" }, { fetch });
+  assert.deepEqual(await crm.cambiarRepo("t 1", { repo: "aizencrm", causa: "plan del otro repo", origen: "planear" }), { ok: true, estado: "APROBADO" });
+  assert.equal(pedidos[0].url, "https://crm.test/api/trabajador/tablero/t%201/cambiar-repo");
+  assert.deepEqual(pedidos[0].cuerpo, { repo: "aizencrm", causa: "plan del otro repo", origen: "planear" });
+  for (const codigo of [404, 409]) {
+    status = codigo;
+    const respuesta = await crm.cambiarRepo("t1", { causa: "x" });
+    assert.deepEqual([respuesta.ok, respuesta.status], [false, codigo]);
+  }
+  status = 500;
+  await assert.rejects(() => crm.cambiarRepo("t1", { causa: "x" }), /no/);
+  pruebas += 1;
+  console.log(`ok - ${nombre}`);
+})("crm.cambiarRepo: POST a /<id>/cambiar-repo; 404 (CRM viejo) y 409 (tope) devuelven { ok: false, status } sin lanzar");
 
 prueba("reparar y partir: tope de 3 reparaciones, resumen de máximo 3 líneas, partes de 2 a 4", () => {
   assert.equal(trabajo.TOPE_DE_REPARACIONES, 3);

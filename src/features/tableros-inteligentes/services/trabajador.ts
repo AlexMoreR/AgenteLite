@@ -64,6 +64,10 @@ import {
   puedeElTrabajador,
   puedePartir,
   puedeReparar,
+  cambiosDeRepo,
+  notaDeCambioDeRepo,
+  puedeCambiarDeRepo,
+  repoDeEntrada,
   resultadoDeEntrada,
   fraseDeLaVigilancia,
   resumenDeTresLineasDeEntrada,
@@ -154,6 +158,9 @@ import { dondeTableroVivo } from "./tableros-archivados";
     del mismo repo que tocan la misma zona o módulo, ni dos subidas del mismo repo (van en `excluir`).
   - /:id/soltar la devuelve sin ERROR ni contar el intento (Claude llegó a su límite de uso, o choca con
     otra que corre): PLANEANDO -> APROBADO, EN_CURSO -> PLAN_APROBADO, SUBIENDO -> SUBIENDO pendiente.
+  - /:id/cambiar-repo { repo?, causa, origen } (27-nov-2026): el plan nombra archivos del otro repo. Con `repo` (gestion o aizencrm;
+    otro, 400) se lo cambia; PLANEANDO o EN_CURSO -> APROBADO para planearla de nuevo, sin ERROR, sin reparación y sin gastar el
+    intento. Deja un intento "repo_equivocado" que no cuenta y su línea en el historial. 409 con TOPE_DE_CAMBIOS_DE_REPO cambios.
   - /:id/latido corre el vencimiento (de a 5 min, hasta el tope de la etapa: 20 / 90 / 45 min; construyendo en la
     nube, 180 min; en el orquestador, 24 h). Construyendo trae { lugar, sesion }: se guarda en resultado.construccion (25-oct-2026).
   - /:id/subida acepta también resumenTres { hizo, ahora, revisar } (las 3 líneas del agente; se recortan y se descartan si vienen vacías).
@@ -1069,6 +1076,53 @@ export async function accionDelTrabajador(
       if (intento) await anotarIntento(tx, actual.id, intento, ahora);
       await tocarTableros(tx, [actual.tableroId], ahora);
       return { ok: true, estado: vuelve, link: linkDeLaTarjeta(actual.id) };
+    });
+  }
+
+  if (accion === "cambiar-repo") {
+    // El plan nombra archivos del otro repo: se le cambia el repo (si llegó) y vuelve a APROBADO para planearla otra vez, sin
+    // ERROR, sin sumar reparación y sin gastar el intento (igual que soltar). Tope: TOPE_DE_CAMBIOS_DE_REPO cambios por tarjeta.
+    let nuevo: string | null;
+    try {
+      nuevo = repoDeEntrada(cuerpo.repo) ?? null;
+    } catch (fallo) {
+      throw new ErrorDelTrabajador(fallo instanceof Error ? fallo.message : "Ese repo no existe.", 400);
+    }
+    const anteriores = await prisma.intentoTarjeta.findMany({
+      where: { tarjetaId: actual.id, categoria: "repo_equivocado" },
+      select: { categoria: true, causa: true },
+    });
+    const tope = puedeCambiarDeRepo(cambiosDeRepo(anteriores));
+    if (tope) throw new ErrorDelTrabajador(tope, 409);
+    const cambia = nuevo !== null && nuevo !== actual.repo;
+    const causa = causaDeEntrada(cuerpo.causa);
+    const origen = typeof cuerpo.origen === "string" ? cuerpo.origen.replace(/\s+/g, " ").trim().slice(0, 100) : "";
+    const nota = notaDeCambioDeRepo(actual.repo, cambia ? nuevo : null, causa);
+    const vuelve: EstadoTarjetaTablero = "APROBADO";
+    const intento: IntentoPorGuardar = {
+      etapa: etapaDeEntrada(cuerpo.etapa, estado),
+      categoria: "repo_equivocado",
+      causa: causaDeEntrada(nota),
+      error: null,
+      accion: "esperar",
+      cuentaComoIntento: false,
+    };
+    return prisma.$transaction(async (tx) => {
+      const hecho = await tx.tarjetaTablero.updateMany({
+        where: { id: actual.id, estado: actual.estado, borradoEn: null },
+        data: { estado: vuelve, trabajoVenceEn: null, intentos: Math.max(0, actual.intentos - 1), ...(cambia ? { repo: nuevo } : {}) },
+      });
+      if (hecho.count !== 1) throw new ErrorDelTrabajador("La tarjeta cambió mientras tanto.", 409);
+      await anotarTrabajador(
+        tx,
+        contexto,
+        actual.id,
+        { estado, ...(cambia ? { repo: actual.repo } : {}) },
+        { estado: vuelve, nota, categoria: "repo_equivocado", ...(cambia ? { repo: nuevo } : {}), ...(origen ? { origen } : {}) },
+      );
+      await anotarIntento(tx, actual.id, intento, ahora);
+      await tocarTableros(tx, [actual.tableroId], ahora);
+      return { ok: true, estado: vuelve, repo: cambia ? nuevo : actual.repo, cambio: cambia, link: linkDeLaTarjeta(actual.id) };
     });
   }
 

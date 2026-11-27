@@ -81,6 +81,19 @@ export function crearCrm(config, { fetch: miFetch = globalThis.fetch, timeoutMs 
     /** Devuelve la tarjeta a la fila sin ERROR. `extra` { categoria, causa, error, etapa }: el CRM guarda un intento "esperar" que no cuenta. */
     soltar: (id, motivo, extra) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/soltar`, { motivo, ...limpio(extra) }),
     /**
+     * El plan nombra archivos del otro repo (27-nov-2026): le cambia el repo a la tarjeta (gestion o aizencrm; sin `repo`, solo la
+     * vuelve a planear) y la devuelve a APROBADO sin ERROR ni reparación. { repo?, causa, origen }. Un CRM viejo (404) o el tope de
+     * cambios (409) no lanzan: devuelven { ok: false, status } y el bucle sigue con la reparación normal.
+     */
+    cambiarRepo: async (id, datos) => {
+      try {
+        return await pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/cambiar-repo`, limpio(datos));
+      } catch (error) {
+        if (error instanceof ErrorDelCrm && (error.status === 404 || error.status === 409)) return { ok: false, status: error.status, error: error.message };
+        throw error;
+      }
+    },
+    /**
      * La falla se repara: vuelve a la fila (PLAN_APROBADO o APROBADO), reparaciones + 1. 409 si ya hizo las 3. { etapa, categoria, causa, error, estrategia?, cuenta? }
      * `cuenta: false` (31-oct-2026, solo con choca_con_main): vuelve a construir desde el main más nuevo SIN sumar reparación
      * (intento que no cuenta); 409 si ya lleva TOPE_DE_CHOQUES_SEGUIDOS choques seguidos. `limpio` deja pasar el false.

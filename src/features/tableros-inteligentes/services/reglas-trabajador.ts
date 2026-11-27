@@ -546,6 +546,7 @@ export type AccionDelTrabajador =
   | "subida"
   | "error"
   | "soltar"
+  | "cambiar-repo"
   | "reparar"
   | "partir"
   | "depender"
@@ -562,6 +563,7 @@ export const ACCIONES_DEL_TRABAJADOR: readonly AccionDelTrabajador[] = [
   "subida",
   "error",
   "soltar",
+  "cambiar-repo",
   "reparar",
   "partir",
   "depender",
@@ -592,6 +594,10 @@ export const TRANSICIONES_DEL_TRABAJADOR: Record<
   // de subida). PLANEANDO -> APROBADO, EN_CURSO -> PLAN_APROBADO, SUBIENDO -> SUBIENDO pendiente (a =
   // null: depende de dónde estaba). Una SUBIENDO se suelta solo antes de empezar, nunca después del push.
   soltar: { desde: ["PLANEANDO", "EN_CURSO", "SUBIENDO"], a: null },
+  // Cambiar de repo (27-nov-2026): el plan nombra archivos del otro repo. El Coordinador le cambia el repo a la tarjeta (o no, si
+  // solo hay que volver a planear) y vuelve a APROBADO para planearla otra vez, sin ERROR, sin reparación y sin gastar el intento.
+  // Tope TOPE_DE_CAMBIOS_DE_REPO cambios por tarjeta (después, 409).
+  "cambiar-repo": { desde: ["PLANEANDO", "EN_CURSO"], a: "APROBADO" },
   // Reparar (24-oct-2026): algo falló y el Coordinador sabe la causa: la tarjeta vuelve a la fila SIN ERROR
   // (PLANEANDO -> APROBADO, EN_CURSO -> PLAN_APROBADO, SUBIENDO -> PLAN_APROBADO: una subida que falló antes
   // del push se arregla reconstruyendo) y cuenta una reparación (tope TOPE_DE_REPARACIONES). a = null: depende de dónde estaba.
@@ -1659,6 +1665,9 @@ export const CATEGORIAS_DE_INTENTO = [
   // 24-nov-2026: la subida se revirtió por un error de código o de arranque. Sí cuenta como intento; con TOPE_INTENTOS_DE_SUBIDA
   // ya no se pide arreglo (causa-externa tipo "subida") y la tarjeta queda en ERROR, en la página de Alertas, sin WhatsApp.
   "subida_revertida",
+  // 27-nov-2026: el plan nombra archivos del otro repo; el Coordinador le cambia el repo a la tarjeta y la vuelve a planear
+  // (acción "cambiar-repo"). No cuenta como intento; tope TOPE_DE_CAMBIOS_DE_REPO.
+  "repo_equivocado",
   "otra",
 ] as const;
 export type CategoriaDeIntento = (typeof CATEGORIAS_DE_INTENTO)[number];
@@ -1734,6 +1743,33 @@ export function causaConEstrategia(causa: string, estrategia: EstrategiaDeRepara
   if (!estrategia) return causa;
   const cola = ` (estrategia: ${estrategia})`;
   return `${causa.slice(0, MAXIMO_CAUSA_DEL_INTENTO - cola.length)}${cola}`;
+}
+
+/* ── cambiar de repo (27-nov-2026) ── */
+
+/** Cuántas veces se le puede cambiar el repo a una tarjeta; con estos cambios hechos, /cambiar-repo contesta 409. */
+export const TOPE_DE_CAMBIOS_DE_REPO = 2;
+const PREFIJO_DEL_CAMBIO_DE_REPO = "cambió de repo:";
+
+/**
+ * La línea del historial (y la causa del intento) de /cambiar-repo: "cambió de repo: <viejo> → <nuevo> (<causa>)" si el repo
+ * cambia de verdad, o "vuelve a planear (<causa>)" si no llegó repo (o es el mismo).
+ */
+export function notaDeCambioDeRepo(viejo: string | null, nuevo: string | null, causa: string): string {
+  if (!nuevo || nuevo === viejo) return `vuelve a planear (${causa})`;
+  return `${PREFIJO_DEL_CAMBIO_DE_REPO} ${viejo ?? "sin repo"} → ${nuevo} (${causa})`;
+}
+
+/** Cuántas veces ya se le cambió el repo: las filas de intento "repo_equivocado" con un repo distinto (no las de solo volver a planear). */
+export function cambiosDeRepo(intentos: readonly { categoria: string; causa?: string | null }[]): number {
+  return intentos.filter((intento) => intento.categoria === "repo_equivocado" && (intento.causa ?? "").startsWith(PREFIJO_DEL_CAMBIO_DE_REPO)).length;
+}
+
+/** ¿Se puede cambiar de repo (o volver a planear por repo equivocado) una vez más? Con TOPE_DE_CAMBIOS_DE_REPO hechos, no. */
+export function puedeCambiarDeRepo(cambios: number): Veredicto {
+  return cambios >= TOPE_DE_CAMBIOS_DE_REPO
+    ? `Ya se le cambió el repo ${cambios} veces (el tope es ${TOPE_DE_CAMBIOS_DE_REPO}): sigue con la reparación normal.`
+    : null;
 }
 
 /** La etapa del intento: la que dice el Coordinador si es válida; si no, la que corresponde al estado de la tarjeta. */
