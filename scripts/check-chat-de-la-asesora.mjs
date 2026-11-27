@@ -247,7 +247,115 @@ await prueba("barrerTrasAsesora: apagado, devuelve 0 y no crea Follows ni consul
   assert.equal(Number((await pg.query(`SELECT COUNT(*)::int AS n FROM "Follow"`)).rows[0].n), antes);
 });
 
-/* ---- 4. Sin envíos nuevos en el archivo nuevo ---- */
+/* ---- 4. Parte 2 (tarjeta veotoze6): el aviso de pausa y el recordatorio del V3 ---- */
+// El aviso «En un momento una de nuestras asesoras te contacta» pregunta `hayPersonaEnElChat` (route.ts):
+// antes miraba solo las últimas 6 h y salió igual a una clienta con la que Ingrid había hablado hacía
+// más de 24 h (26-11-2026, 15:45).
+await prueba("aviso de pausa: hayPersonaEnElChat es sí con un mensaje manual de hace más de 6 h (no sale el aviso)", async () => {
+  const haceUnDia = new Date(Date.now() - 30 * 3_600_000);
+  await pg.query(
+    `INSERT INTO "Conversation" ("id", "workspaceId", "contactId", "channelId", "automationPaused", "startedAt", "lastMessageAt", "updatedAt")
+     VALUES ('c-ingrid', 'ws1', 'k-ingrid', 'l1', true, $1, $1, $1)`,
+    [new Date(haceUnDia.getTime() - 3_600_000)],
+  );
+  await pg.query(
+    `INSERT INTO "Message" ("id", "workspaceId", "conversationId", "contactId", "channelId", "direction", "type", "content", "rawPayload", "createdAt", "updatedAt")
+     VALUES ('m-ingrid', 'ws1', 'c-ingrid', 'k-ingrid', 'l1', 'OUTBOUND', 'TEXT', 'hola', '{"source":"manual"}'::jsonb, $1, $1)`,
+    [haceUnDia],
+  );
+  assert.equal(await chat.hayPersonaEnElChat("c-ingrid", base), true);
+});
+
+await prueba("aviso de pausa: hayPersonaEnElChat es no si ninguna persona escribió (el aviso sí sale)", async () => {
+  await crearChat("c-sin-persona", { pausado: true });
+  await crearMensaje("c-sin-persona", { fuente: "agente-v3" });
+  await crearMensaje("c-sin-persona", { fuente: "webhook", direccion: "INBOUND" });
+  assert.equal(await chat.hayPersonaEnElChat("c-sin-persona", base), false);
+});
+
+/**
+ * El reloj del V3 con todo de mentira: una línea, un chat callado y una regla vencida. El cargador
+ * guarda el módulo en caché, así que se carga una vez y cada prueba cambia `relojV3.deLaAsesora`.
+ */
+const relojV3 = { deLaAsesora: true, envios: [], frenos: [], estados: [] };
+function relojDelV3(deLaAsesora) {
+  relojV3.deLaAsesora = deLaAsesora;
+  relojV3.envios.length = 0;
+  relojV3.frenos.length = 0;
+  relojV3.estados.length = 0;
+  const { envios: enviosDelReloj, frenos, estados } = relojV3;
+  const regla = { id: "r15", nombre: "15 min", activa: true, cuando: { tipo: "sin_respuesta", minutos: 15 }, entonces: [{ tipo: "mensaje", texto: "¿Pudiste ver las fotos?" }] };
+  const reloj = cargar(`src/features/agente-v3/servicios/seguimientos.ts`, {
+    "@/lib/prisma": {
+      prisma: {
+        whatsAppChannel: { findMany: async () => [{ id: "l1", workspaceId: "ws1", evolutionInstanceName: "inst" }] },
+        conversation: {
+          findMany: async () => [{ id: "c-v3", lastMessageAt: new Date(Date.now() - 20 * 60_000), contactId: "k-v3", contact: { phoneNumber: "573000000000" } }],
+        },
+        message: {
+          findFirst: async () => ({ direction: "OUTBOUND", createdAt: new Date(Date.now() - 20 * 60_000) }),
+          create: async () => ({}),
+          upsert: async () => ({}),
+        },
+      },
+    },
+    "@/lib/chat-de-la-asesora": { esChatDeLaAsesora: async () => relojV3.deLaAsesora },
+    "@/lib/evolution": {
+      sendEvolutionTextMessageWithReconnect: async (input) => {
+        relojV3.envios.push(input);
+        return { externalId: "" };
+      },
+    },
+    "@/lib/chat-resuelto-sql": { WHERE_CHAT_ABIERTO: {} },
+    "@/lib/anti-bloqueo/reglas": { dentroDelHorario: () => true, inicioDeVentanaHabil: () => new Date(0) },
+    "@/lib/anti-bloqueo/servicio": {
+      anotarFrenado: (input) => relojV3.frenos.push(input.motivo),
+      leerConfigAntiBloqueo: async () => ({ horario: { activo: false } }),
+      marcarEnvioAutomatico: async () => {},
+      revisarAntiBloqueo: async () => ({ enviar: true }),
+    },
+    "@/lib/freno-de-automaticos": { revisarFrenoDeAutomatico: async () => ({ enviar: true }) },
+    "@/features/seguimientos/services/follows": { apagarSiCorresponde: async () => false },
+    "@/features/seguimiento-inteligente/servicios/convivencia": { revisarConvivencia: async () => null },
+    "@/lib/reglas-de-redaccion": { limpiarFrasesProhibidas: (texto) => texto },
+    "@/features/seguimientos/services/seguimiento-que-escucha": {
+      marcaDelSeguimiento: () => ({ seguimientoQueEscucha: true }),
+      MOTIVO_PROMESA_DE_ENVIO: "promesa_de_envio",
+      redactarSeguimientoQueEscucha: async () => ({ enviar: true, texto: "Hola, ¿pudiste ver las fotos del tocador?", deIA: true, textoReemplazado: null, motivo: "" }),
+    },
+    "@/features/seguimientos/dominio/seguimiento-que-escucha": { revisarAntesDeEnviar: () => [] },
+    "@/features/seguimientos/services/sin-respuesta-a-la-bienvenida": { elClienteRespondioLaBienvenida: async () => true },
+    "@/features/embudo/servicios/eventos": { registrarSeguimientoEnviado: () => {} },
+    "../motor/decidir": { cumpleLasCondiciones: () => true },
+    "../motor/estado": {
+      elV3AtendioLaCharla: async () => true,
+      leerEstado: async () => ({ seguimientosEnviados: [], pasoActual: "presentacion" }),
+      guardarEstado: async (id, estado) => relojV3.estados.push(estado.seguimientosEnviados),
+    },
+    "./almacen": { leerLibro: async () => ({ reglas: [regla] }) },
+  });
+  return { reloj, enviosDelReloj, frenos, estados };
+}
+
+await prueba("recordatorio del V3 en el chat de la asesora: la IA redacta, pero no sale; queda chat_de_la_asesora y se da por visto", async () => {
+  const { reloj, enviosDelReloj, frenos, estados } = relojDelV3(true);
+  const resultado = await reloj.ejecutarSeguimientosV3();
+  assert.equal(enviosDelReloj.length, 0, "no debía llamar al envío");
+  assert.deepEqual(frenos, ["chat_de_la_asesora"]);
+  assert.equal(resultado.enviados, 0);
+  assert.equal(resultado.frenados, 1);
+  assert.deepEqual(estados, [[15]], "se da por visto: no se le vuelve a pedir a la IA cada minuto");
+});
+
+await prueba("recordatorio del V3 en un chat libre: sale como siempre (el freno no lo toca)", async () => {
+  const { reloj, enviosDelReloj, frenos } = relojDelV3(false);
+  const resultado = await reloj.ejecutarSeguimientosV3();
+  assert.equal(enviosDelReloj.length, 1);
+  assert.deepEqual(frenos, []);
+  assert.equal(resultado.enviados, 1);
+});
+
+/* ---- 5. Sin envíos nuevos en el archivo nuevo ---- */
 await prueba("chat-de-la-asesora.ts solo lee: no nombra sendMessage ni enviarMensaje", async () => {
   const fuente = fs.readFileSync(path.join(RAIZ, "src/lib/chat-de-la-asesora.ts"), "utf8");
   assert.doesNotMatch(fuente, /sendMessage|enviarMensaje/);

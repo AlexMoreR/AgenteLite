@@ -42,10 +42,10 @@ import {
 import { claveDeEstado, leerEstado, serializarEstado } from "@/features/agente-v3/motor/estado";
 import {
   enviarAvisoDePausaUnaVez,
-  FUENTES_DE_ASESORA,
   sqlLiberarAvisoDePausa,
   sqlReclamarAvisoDePausa,
 } from "@/features/agente-v3/motor/aviso-pausa";
+import { esChatDeLaAsesora, hayPersonaEnElChat } from "@/lib/chat-de-la-asesora";
 import { leerPausaParaElBot, setConversationAutomationPaused } from "@/lib/conversation-automation";
 import {
   persistEvolutionMessage,
@@ -2867,12 +2867,26 @@ export async function POST(request: NextRequest) {
     a contestar un chat que ya tomo una persona. Si la linea ademas tiene agente V2, el mensaje
     sigue su camino y el V2 respeta la misma pausa por su cuenta.
   */
+  const pausaV3 = canalUsaV3
+    ? await leerPausaParaElBot({
+        conversationId: conversation.id,
+        workspaceId: channel.workspaceId,
+      })
+    : "libre";
+  // Solo "libre" deja hablar al bot: si no se pudo leer la pausa, se trata como pausado (sin aviso).
+  const v3Pausado = pausaV3 !== "libre";
   /*
     Fuera de Colombia (seguimiento inteligente, interruptor `exterior`): una sola respuesta amable y
     nada mas: ni producto, ni asesora, ni el acuse de pausa, ni seguimientos.
+
+    Va DESPUES de leer la pausa y antes del acuse, la espera y el "escribiendo...": si el chat ya es de
+    la asesora (pausado, o asignado y una persona ya escribio), la respuesta no sale, para no hablarle
+    encima (tarjeta veotoze6, 27-11-2026). La marca del contacto y el `return` quedan igual: tampoco
+    sale el acuse de pausa.
   */
   if (canalUsaV3 && exteriorDelSeguimiento.excluir && channel.evolutionInstanceName) {
-    if (exteriorDelSeguimiento.responder) {
+    const frenadoPorLaAsesora = exteriorDelSeguimiento.responder && (await esChatDeLaAsesora(conversation.id));
+    if (exteriorDelSeguimiento.responder && !frenadoPorLaAsesora) {
       try {
         await sendAndPersistEvolutionFlowStepResilient({
           step: { kind: "text", content: exteriorDelSeguimiento.texto },
@@ -2891,18 +2905,14 @@ export async function POST(request: NextRequest) {
         }, error, "warn");
       }
     }
-    console.log("[EVOLUTION] v3_fuera_de_colombia", { conversationId: conversation.id, respondio: exteriorDelSeguimiento.responder });
+    console.log("[EVOLUTION] v3_fuera_de_colombia", {
+      conversationId: conversation.id,
+      respondio: exteriorDelSeguimiento.responder && !frenadoPorLaAsesora,
+      frenadoPorLaAsesora,
+    });
     return NextResponse.json({ ok: true, message: "V3: cliente fuera de Colombia (solo vendemos en Colombia)" });
   }
 
-  const pausaV3 = canalUsaV3
-    ? await leerPausaParaElBot({
-        conversationId: conversation.id,
-        workspaceId: channel.workspaceId,
-      })
-    : "libre";
-  // Solo "libre" deja hablar al bot: si no se pudo leer la pausa, se trata como pausado (sin aviso).
-  const v3Pausado = pausaV3 !== "libre";
   /*
     Chat pausado: el bot NO retoma la conversacion, pero tampoco deja a la clienta en visto.
 
@@ -2953,7 +2963,13 @@ export async function POST(request: NextRequest) {
           Cuenta tambien lo que la asesora escribe desde el CELULAR (`source: instance`), no solo desde
           el CRM: si ella ya esta hablando por WhatsApp, el acuse sobra igual (13-10-2026).
         */
-        const UNA_PERSONA_ADENTRO_MS = 6 * 3_600_000;
+        /*
+          Sin limite de tiempo: si una persona escribio ALGUNA VEZ en este chat, el acuse no sale. Antes
+          solo se miraban las ultimas 6 horas, y no alcanzaba: Ingrid le habia escrito a la clienta hacia
+          mas de 24 horas y el acuse salio igual (26-11-2026, 15:45), a alguien que ya tenia asesora.
+          Sigue saliendo cuando el bot pasa el chat y nadie del equipo ha escrito todavia (tarjeta
+          veotoze6, ver lib/chat-de-la-asesora.ts).
+        */
         const SILENCIO_MINIMO_MS = 3 * 60_000;
         const clavePausa = claveDeEstado(conversation.id);
         let valorSiNoHayFila = "";
@@ -2963,15 +2979,7 @@ export async function POST(request: NextRequest) {
           dos veces (13-10-2026, 10:36). Si el envio falla, la marca se suelta.
         */
         await enviarAvisoDePausaUnaVez({
-          personaAtendiendo: async () =>
-            (await prisma.message.count({
-              where: {
-                conversationId: conversation.id,
-                direction: "OUTBOUND",
-                OR: FUENTES_DE_ASESORA.map((fuente) => ({ rawPayload: { path: ["source"], equals: fuente } })),
-                createdAt: { gt: new Date(Date.now() - UNA_PERSONA_ADENTRO_MS) },
-              },
-            })) > 0,
+          personaAtendiendo: () => hayPersonaEnElChat(conversation.id),
           // Y tampoco se habla encima de algo que se acaba de decir, sea de quien sea.
           respuestaReciente: async () =>
             (await prisma.message.count({

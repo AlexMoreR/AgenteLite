@@ -1,4 +1,5 @@
 import { registrarSeguimientoEnviado } from "@/features/embudo/servicios/eventos";
+import { esChatDeLaAsesora } from "@/lib/chat-de-la-asesora";
 import { WHERE_CHAT_ABIERTO } from "@/lib/chat-resuelto-sql";
 import { prisma } from "@/lib/prisma";
 import { sendEvolutionTextMessageWithReconnect } from "@/lib/evolution";
@@ -364,6 +365,22 @@ export async function ejecutarSeguimientosV3(
             seguimientosEnviados: [...new Set([...yaSalieron, ...vistos])],
           });
         }
+        continue;
+      }
+      /*
+        Chat de la asesora (tarjeta veotoze6, 27-11-2026: «el bot no debe escribir en chats que ya
+        atiende una asesora»): se pregunta justo antes de enviar, después de que la IA redactó, porque
+        la asesora pudo entrar mientras tanto. Si el chat es de ella, no sale y se da por visto, igual
+        que el rechazado: así no se le paga a la IA cada minuto por el mismo recordatorio.
+      */
+      if (await esChatDeLaAsesora(conversacion.id)) {
+        frenados += 1;
+        anotar("chat_de_la_asesora");
+        const vistos = delPaso.filter((fila) => fila.minutos <= toca.minutos).map((fila) => fila.minutos);
+        await guardarEstado(conversacion.id, {
+          ...estado,
+          seguimientosEnviados: [...new Set([...yaSalieron, ...vistos])],
+        });
         continue;
       }
       const marca = marcaDelSeguimiento(redactado);
