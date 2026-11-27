@@ -3368,7 +3368,7 @@ export async function POST(request: NextRequest) {
         pausarIa: pausarIaDelV3,
         // "Responder con IA" del libro: el redactor de la estrella, con la guia de la regla.
         responderConIa: async (guia) => {
-          const porque = await responderConElRedactor({
+          const resultado = await responderConElRedactor({
             workspaceId: channel.workspaceId,
             conversationId: conversation.id,
             guia,
@@ -3378,19 +3378,25 @@ export async function POST(request: NextRequest) {
             yaLoDijimos: yaLoDijimosEnElChat,
             pausarIa: pausarIaDelV3,
           });
-          console.log("[EVOLUTION] v3_responder_con_ia", { conversationId: conversation.id, porque });
+          console.log("[EVOLUTION] v3_responder_con_ia", {
+            conversationId: conversation.id,
+            porque: resultado.porque,
+            causa: resultado.causa,
+          });
         },
         // Ninguna regla aplica: tambien el redactor, en vez de dejar el mensaje sin respuesta.
         responderSinRegla: async ({ foto }) =>
-          responderConElRedactor({
-            workspaceId: channel.workspaceId,
-            conversationId: conversation.id,
-            foto,
-            enviarTexto: enviarTextoDelV3,
-            avisarAsesor: avisarAsesorDelV3,
-            yaLoDijimos: yaLoDijimosEnElChat,
-            pausarIa: pausarIaDelV3,
-          }),
+          (
+            await responderConElRedactor({
+              workspaceId: channel.workspaceId,
+              conversationId: conversation.id,
+              foto,
+              enviarTexto: enviarTextoDelV3,
+              avisarAsesor: avisarAsesorDelV3,
+              yaLoDijimos: yaLoDijimosEnElChat,
+              pausarIa: pausarIaDelV3,
+            })
+          ).porque,
         // Entro a un paso del embudo: los seguimientos de ese paso (dia 1, dia 3...), como hacia el V2.
         alEntrarAlPaso: async (productoId, paso) => {
           if (channel.purpose === "ADMIN") return;

@@ -209,6 +209,102 @@ await probar("generarSugerenciaDeRespuesta: mismo error para las asesoras, con l
   }
 });
 
+// --- responderConElRedactor (el redactor del V3) con generarSugerenciaDeRespuesta simulado --------
+let sugerenciaSimulada = null;
+const { responderConElRedactor } = cargar(
+  ruta("features/agente-v3/servicios/redactor.ts"),
+  new Map([[ruta("lib/sugerencia-de-respuesta.ts"), { generarSugerenciaDeRespuesta: async () => sugerenciaSimulada() }]]),
+);
+function herramientasDelRedactor({ yaLoDijimos = false, saleElEnvio = true } = {}) {
+  const registro = { enviados: [], avisos: [], pausas: 0 };
+  return {
+    registro,
+    input: {
+      workspaceId: "ws",
+      conversationId: "cv",
+      enviarTexto: async (texto) => {
+        registro.enviados.push(texto);
+        return saleElEnvio;
+      },
+      avisarAsesor: async (motivo) => {
+        registro.avisos.push(motivo);
+      },
+      yaLoDijimos: async () => yaLoDijimos,
+      pausarIa: async () => {
+        registro.pausas += 1;
+      },
+    },
+  };
+}
+
+await probar("redactor: si la IA falla, no responde y la nota dice la causa", async () => {
+  sugerenciaSimulada = () => ({ error: ERROR_AL_GENERAR_SUGERENCIA, causa: "tiempo de espera" });
+  const { registro, input } = herramientasDelRedactor();
+  const resultado = await responderConElRedactor(input);
+  assert.equal(resultado.respondio, false);
+  assert.equal(resultado.causa, "tiempo de espera");
+  assert.deepEqual(registro.avisos, ["El agente no pudo redactar una respuesta (tiempo de espera): que conteste una persona"]);
+  assert.equal(registro.enviados.length, 0);
+  assert.match(resultado.porque, /El redactor no pudo responder/);
+});
+
+await probar("redactor: si generar lanza una excepción, la causa es su mensaje", async () => {
+  sugerenciaSimulada = () => {
+    throw new Error("se cayó todo");
+  };
+  const { registro, input } = herramientasDelRedactor();
+  const resultado = await responderConElRedactor(input);
+  assert.equal(resultado.respondio, false);
+  assert.equal(resultado.causa, "se cayó todo");
+  assert.deepEqual(registro.avisos, ["El agente no pudo redactar una respuesta (se cayó todo): que conteste una persona"]);
+});
+
+await probar("redactor: si el filtro frena el texto, no responde y pausa la IA", async () => {
+  sugerenciaSimulada = () => ({ texto: "Vale $10.000", flujo: null, faltaDato: false, problemas: ["inventa un precio"] });
+  const { registro, input } = herramientasDelRedactor();
+  const resultado = await responderConElRedactor(input);
+  assert.equal(resultado.respondio, false);
+  assert.equal(resultado.causa, null);
+  assert.equal(registro.enviados.length, 0);
+  assert.equal(registro.pausas, 1);
+  assert.deepEqual(registro.avisos, ["El agente no pudo responder sin inventar un dato: que conteste una persona"]);
+});
+
+await probar("redactor: si iba a repetir un mensaje, no responde", async () => {
+  sugerenciaSimulada = () => ({ texto: "Hola, ¿en qué ciudad estás?", flujo: null, faltaDato: false, problemas: [] });
+  const { registro, input } = herramientasDelRedactor({ yaLoDijimos: true });
+  const resultado = await responderConElRedactor(input);
+  assert.equal(resultado.respondio, false);
+  assert.equal(resultado.causa, null);
+  assert.equal(registro.enviados.length, 0);
+});
+
+await probar("redactor: si el envío no sale, no responde", async () => {
+  sugerenciaSimulada = () => ({ texto: "Hola, ¿en qué ciudad estás?", flujo: null, faltaDato: false, problemas: [] });
+  const { input } = herramientasDelRedactor({ saleElEnvio: false });
+  const resultado = await responderConElRedactor(input);
+  assert.equal(resultado.respondio, false);
+  assert.equal(resultado.causa, null);
+});
+
+await probar("redactor: si se envía bien, respondió y sin causa", async () => {
+  sugerenciaSimulada = () => ({ texto: "Hola, ¿en qué ciudad estás?", flujo: null, faltaDato: false, problemas: [] });
+  const { registro, input } = herramientasDelRedactor();
+  const resultado = await responderConElRedactor(input);
+  assert.deepEqual(resultado, { porque: "Respondió el redactor: ninguna regla del libro aplicaba.", respondio: true, causa: null });
+  assert.equal(registro.enviados.length, 1);
+  assert.equal(registro.avisos.length, 0);
+});
+
+await probar("redactor: si se envía bien pero falta un dato, respondió y pausa la IA", async () => {
+  sugerenciaSimulada = () => ({ texto: "Te confirmo el envío. ¿En qué ciudad estás?", flujo: null, faltaDato: true, problemas: [] });
+  const { registro, input } = herramientasDelRedactor();
+  const resultado = await responderConElRedactor(input);
+  assert.equal(resultado.respondio, true);
+  assert.equal(resultado.causa, null);
+  assert.equal(registro.pausas, 1);
+});
+
 globalThis.fetch = fetchOriginal;
 console.warn = warnOriginal;
 if (fallas > 0) {
