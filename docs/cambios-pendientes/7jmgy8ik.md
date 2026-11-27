@@ -1,0 +1,2 @@
+## Advertencias de operación
+- `version-del-crm`: la versión v1.0.N de la barra sale de github.run_number del flujo docker-image.yml (VERSION_NUMERO pasa a NEXT_PUBLIC_VERSION_NUMERO); empieza en los cientos y salta si se cancela una corrida, pero siempre sube; el código de 8 letras sigue solo en /api/version; después de subir, Alexander pone brandName="Magilus" a mano en /admin/configuracion/negocio.
