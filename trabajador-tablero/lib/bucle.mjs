@@ -29,7 +29,8 @@
 import { agenteDelRepo, anotarLeccion, leccionDe, tresLineasDe } from "./agentes.mjs";
 import { crearAjusteDeCupos, motivoDelSemaforo, semaforoDeLaCarga } from "./ajuste-de-cupos.mjs";
 import { anotarIncidente } from "./bitacora.mjs";
-import { candidatasQueChocan, huellaDeTarjeta, motivoDeChoque } from "./choques.mjs";
+import fs from "node:fs";
+import { archivosDelPlan, candidatasQueChocan, huellaDeTarjeta, motivoDeChoque, noChoca } from "./choques.mjs";
 import { crearColaPesada } from "./cola.mjs";
 import { debePartirAntes, ordenarCandidatas, partesSinAlcanceNuevo } from "./reparto.mjs";
 import {
@@ -72,7 +73,7 @@ import {
   subir,
   yaEstaEnMain,
 } from "./etapas.mjs";
-import { esRamaDelTrabajador, idCorto, nombreDeRama } from "./git.mjs";
+import { buscarEnMain, esRamaDelTrabajador, idCorto, nombreDeRama } from "./git.mjs";
 import { MEDIR_POR_DEFECTO, medirTarjeta, referenciasParaDepender, textoDeLaMedida } from "./medir.mjs";
 import { anotarAvisoAlCto } from "./notas-boveda.mjs";
 import { notaDeYaHecho } from "./revision-previa.mjs";
@@ -233,7 +234,7 @@ export async function procesar({ crm, config, registro: registroBase, motores = 
     const salida = await etapa(contexto, tarjeta);
     if (vencida) throw new ErrorDeEtapa("La tarjeta venció en el CRM mientras se trabajaba.");
     // La sesión descubrió que falta otra tarjeta, o que ya estaba hecho (commit comprobado en main): sin intento ni reparación.
-    if (salida.dependeDe?.length) return esperarPorDependencia({ crm, registro }, tarjeta, hacer, salida.dependeDe);
+    if (salida.dependeDe?.length) return esperarPorDependencia({ crm, config, registro }, tarjeta, hacer, salida.dependeDe);
     if (salida.yaHecho) return cerrarComoYaHecha({ crm, registro }, tarjeta, hacer, salida.yaHecho);
     // El plan dice que lo pedido vive en el otro repo: /cambiar-repo y nada más (ni el plan ni el aviso «necesita»). Con 404 o 409 sigue como hoy.
     if (hacer === "planear" && salida.otroRepo) {
@@ -467,11 +468,19 @@ async function partirAntesDeConstruir({ crm, config, registro, contexto }, tarje
  * DEPENDE_DE (27-oct-2026): la sesión descubrió que falta algo que otra tarjeta todavía no subió a main. Se pone la flecha de dependencia
  * y la tarjeta vuelve a la fila ("Esperando a «X»") sin ERROR y sin gastar intento ni reparación: planeando vuelve a APROBADO,
  * construyendo a PLAN_APROBADO. Arranca sola cuando la otra queda HECHO. Si el CRM no la deja esperar, se suelta igual sin error.
+ *
+ * 27-nov-2026 (incidente T-956: la otra estaba HECHA a mano y su código nunca llegó a main, y la tarjeta giraba sin fin): el CRM
+ * devuelve las tarjetas nombradas (`tarjetas`) y una FALLIDA ya no hace esperar (`fallidaNoEspera`). Si ninguna sigue en curso, se
+ * mira en main (mirarDependenciasEnMain):
+ *  - alguna HECHA a mano o FALLIDA sin su código en main -> ERROR "depende_de_sin_main" con el motivo en una frase (no se repara sola);
+ *  - todo en main -> se suelta para volver a planear o construir sobre el main nuevo, con la nota "ya está en main (commit X)";
+ *  - no se pudo mirar (repo de otra máquina) o un CRM viejo sin la lista -> se suelta como antes.
+ * Si alguna sigue en curso, el CRM ya la dejó esperando con la flecha (y si además otra está HECHA a mano sin main, eso se ve al volver).
  */
-async function esperarPorDependencia({ crm, registro }, tarjeta, hacer, referencias) {
+async function esperarPorDependencia({ crm, config, registro }, tarjeta, hacer, referencias) {
   let respuesta = null;
   try {
-    respuesta = await crm.depender(tarjeta.id, { referencias, etapa: hacer });
+    respuesta = await crm.depender(tarjeta.id, { referencias, etapa: hacer, fallidaNoEspera: true });
   } catch (error) {
     registro.aviso(`no se pudo poner la dependencia de "${tarjeta.titulo}" (${error.message}): la suelto sin error ni intento`);
   }
@@ -479,9 +488,90 @@ async function esperarPorDependencia({ crm, registro }, tarjeta, hacer, referenc
     registro.info(`"${tarjeta.titulo}": ${respuesta.esperando ?? "espera a otra tarjeta"}; la dejo en la fila sin gastar intento`);
     return { ok: true, estado: respuesta.estado ?? (hacer === "construir" ? "PLAN_APROBADO" : "APROBADO"), esperando: respuesta.esperando ?? true };
   }
-  // Las tarjetas que nombró ya están HECHO (o no existen): no hay a quién esperar. Se suelta sin error y vuelve a intentarse luego.
+  const nombradas = Array.isArray(respuesta?.tarjetas) ? respuesta.tarjetas.filter((otra) => otra && typeof otra.id === "string") : [];
+  if (nombradas.length) {
+    const mirada = await mirarDependenciasEnMain(config, registro, nombradas);
+    if (mirada.sinMain.length) {
+      const motivo = motivoDeDependeDeSinMain(mirada.sinMain);
+      registro.aviso(`"${tarjeta.titulo}": ${motivo}`);
+      try {
+        await crm.error(tarjeta.id, motivo, undefined, undefined, { etapa: hacer, categoria: "depende_de_sin_main", causa: motivo, error: null });
+      } catch (error) {
+        registro.error(`no se pudo avisar el error al CRM: ${error.message}`);
+      }
+      return { ok: false, motivo, categoria: "depende_de_sin_main" };
+    }
+    if (mirada.enMain.length && !mirada.sinMirar.length) {
+      const vuelve = hacer === "construir" ? "construir" : "planear";
+      const nota = `Dependencia: ${mirada.enMain.join("; ")}. Se vuelve a ${vuelve} sobre el main nuevo, sin gastar intento.`;
+      registro.info(`"${tarjeta.titulo}": ${nota}`);
+      await soltar(crm, registro, tarjeta, nota);
+      return { ok: true, estado: respuesta?.estado ?? null, esperando: false };
+    }
+  }
+  // CRM viejo, ninguna encontrada o no se pudo mirar en main: se suelta sin error y vuelve a intentarse luego.
   await soltar(crm, registro, tarjeta, `Dependencia (${referencias.join(", ")}): se reintenta después.`);
   return { ok: true, estado: respuesta?.estado ?? null, esperando: true };
+}
+
+/** Cómo se nombra la otra tarjeta en el motivo: «Título» (T-955). */
+const nombreDeLaOtra = (otra) => `«${otra.titulo ?? otra.id}»${otra.codigo ? ` (${otra.codigo})` : ""}`;
+
+/**
+ * Por cada tarjeta nombrada en DEPENDE_DE que está HECHO o FALLIDA, ¿su código está en main? Busca con buscarEnMain (git.mjs, que ya
+ * hace git fetch) en el repo de ESA tarjeta: primero el commit con su id corto, si no su título y un archivo de su plan.
+ * -> { enMain: [texto], sinMain: [{ ...otra, como }], sinMirar: [otra] }. Nunca lanza.
+ *  - sinMain: HECHA a mano o FALLIDA y no se encontró en main.
+ *  - enMain: se encontró (con el commit), o está HECHO por el camino normal (la subió el Coordinador), o no es de código.
+ *  - sinMirar: su repo no está en esta máquina, o la FALLIDA no es de código: no se sabe, y no se pone ERROR por eso.
+ */
+async function mirarDependenciasEnMain(config, registro, nombradas) {
+  const enMain = [];
+  const sinMain = [];
+  const sinMirar = [];
+  for (const otra of nombradas) {
+    const terminada = otra.estado === "HECHO" || otra.estado === "FALLIDO";
+    if (!terminada) {
+      sinMirar.push(otra);
+      continue;
+    }
+    if (!otra.repo) {
+      if (otra.estado === "HECHO") enMain.push(`${nombreDeLaOtra(otra)} está HECHO y no es de código`);
+      else sinMirar.push(otra);
+      continue;
+    }
+    const repo = config?.repos?.[otra.repo];
+    if (!repo?.ruta || !fs.existsSync(repo.ruta)) {
+      registro.aviso(`no puedo mirar en main la dependencia ${nombreDeLaOtra(otra)}: el repo "${otra.repo}" no está en esta máquina`);
+      sinMirar.push(otra);
+      continue;
+    }
+    let encontrado = null;
+    try {
+      // El manual y las notas de cambios pendientes los nombran casi todos los planes: no sirven para reconocer la tarea.
+      const archivos = archivosDelPlan(otra.plan ?? "").filter((ruta) => !noChoca(ruta, []));
+      encontrado = await buscarEnMain(repo, { id: otra.id, titulo: otra.titulo ?? "" }, archivos);
+    } catch (error) {
+      registro.aviso(`no se pudo buscar en main la dependencia ${nombreDeLaOtra(otra)} (${String(error?.message ?? error).split("\n")[0]})`);
+    }
+    const ramaBase = repo.ramaBase ?? "main";
+    if (encontrado) enMain.push(`${nombreDeLaOtra(otra)} ya está en ${ramaBase} (commit ${encontrado.commit.slice(0, 10)})`);
+    else if (otra.hechaAMano === true || otra.estado === "FALLIDO") sinMain.push({ ...otra, como: otra.estado === "FALLIDO" ? "FALLIDA" : "HECHA a mano" });
+    else enMain.push(`${nombreDeLaOtra(otra)} está HECHO y la subió el Coordinador`);
+  }
+  return { enMain, sinMain, sinMirar };
+}
+
+/** El motivo del ERROR "depende_de_sin_main", en una frase (cabe en la causa del intento, 200 letras, si los títulos son cortos). */
+export function motivoDeDependeDeSinMain(sinMain) {
+  const nombres = sinMain.map((otra) => nombreDeLaOtra(otra));
+  const lista = nombres.length === 1 ? nombres[0] : `${nombres.slice(0, -1).join(", ")} y ${nombres[nombres.length - 1]}`;
+  const como = [...new Set(sinMain.map((otra) => otra.como))].join(" o ");
+  const una = sinMain.length === 1;
+  return enUnaLinea(
+    `Depende de ${lista}, que ${una ? "está" : "están"} ${como} pero su código no está en main: no se puede seguir hasta que se suba`,
+    400,
+  );
 }
 
 /**

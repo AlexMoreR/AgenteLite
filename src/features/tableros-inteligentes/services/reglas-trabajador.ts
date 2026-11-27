@@ -1581,6 +1581,49 @@ export function esHechoAMano(cambio: { accion: string; despues: unknown }) {
   return cambio.accion === "estado" && despues?.hechoAMano === true;
 }
 
+/**
+ * ¿La tarjeta quedó HECHO a mano, sin que su código llegara a main por el Coordinador? (27-nov-2026, incidente T-956). Sí cuando
+ * está HECHO, es de código (tiene repo) y su resultado no trae ni la subida del Coordinador (`subida`) ni la marca de "ya estaba
+ * hecho" (`yaEstabaHecho`). La usa POST /:id/depender para que el Coordinador mire en main antes de reintentar a la que depende.
+ */
+export function quedoHechaAMano(tarjeta: { estado: string; repo: string | null | undefined; resultado: unknown }): boolean {
+  if (tarjeta.estado !== "HECHO" || !tarjeta.repo?.trim()) return false;
+  const resultado = comoObjeto(tarjeta.resultado);
+  return !Object.keys(comoObjeto(resultado.subida)).length && !Object.keys(comoObjeto(resultado.yaEstabaHecho)).length;
+}
+
+/** El id corto de la tarjeta, el mismo de la rama y del commit del Coordinador (trabajador-tablero/lib/git.mjs: idCorto). */
+export function idCortoDeTarjeta(id: string): string {
+  return String(id).replace(/[^A-Za-z0-9]/g, "").slice(-8);
+}
+
+/**
+ * La tarjeta que nombra una referencia de DEPENDE_DE: por su id, por su código "T-955" (el número de la tarjeta) o por su título
+ * exacto (sin importar mayúsculas). undefined si no hay ninguna.
+ */
+export function tarjetaDeLaReferencia<T extends { id: string; numero: number; titulo: string }>(candidatas: readonly T[], referencia: string): T | undefined {
+  const limpia = referencia.trim();
+  const porId = candidatas.find((tarjeta) => tarjeta.id === limpia);
+  if (porId) return porId;
+  const codigo = limpia.match(/^T-?(\d+)$/i);
+  if (codigo) {
+    const numero = Number(codigo[1]);
+    const porCodigo = candidatas.find((tarjeta) => tarjeta.numero === numero);
+    if (porCodigo) return porCodigo;
+  }
+  const buscada = limpia.toLowerCase();
+  return candidatas.find((tarjeta) => tarjeta.titulo.trim().toLowerCase() === buscada);
+}
+
+/**
+ * ¿La tarjeta de la que depende hace esperar? Toda la que no está HECHO, salvo (con `fallidaNoEspera`, lo pide solo el Coordinador
+ * cuando una sesión dijo DEPENDE_DE) la FALLIDA: esa no va a avanzar, y el Coordinador decide mirando main en vez de esperar sin fin.
+ */
+export function dependenciaHaceEsperar(estado: string, { fallidaNoEspera = false }: { fallidaNoEspera?: boolean } = {}): boolean {
+  if (estado === "HECHO") return false;
+  return !(fallidaNoEspera && estado === "FALLIDO");
+}
+
 /* ───────────────────────────────────────────────────────────────────── el resultado ── */
 
 export type ResultadoDelTrabajador = {
@@ -1822,6 +1865,9 @@ export const CATEGORIAS_DE_INTENTO = [
   // 27-nov-2026: el plan nombra archivos del otro repo; el Coordinador le cambia el repo a la tarjeta y la vuelve a planear
   // (acción "cambiar-repo"). No cuenta como intento; tope TOPE_DE_CAMBIOS_DE_REPO.
   "repo_equivocado",
+  // 27-nov-2026 (incidente T-956): la sesión dijo DEPENDE_DE de una tarjeta HECHA a mano o FALLIDA cuyo código no está en main.
+  // No se repara sola: reintentar no lo arregla hasta que alguien suba ese código (diagnostico.mjs: SIN_REPARACION_AUTOMATICA).
+  "depende_de_sin_main",
   "otra",
 ] as const;
 export type CategoriaDeIntento = (typeof CATEGORIAS_DE_INTENTO)[number];

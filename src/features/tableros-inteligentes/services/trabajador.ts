@@ -34,6 +34,10 @@ import {
   errorDeIntentoDeEntrada,
   decisionDeRecogerDeEntrada,
   dependenciaHaceCiclo,
+  dependenciaHaceEsperar,
+  idCortoDeTarjeta,
+  quedoHechaAMano,
+  tarjetaDeLaReferencia,
   esperasSeguidas,
   choquesSeguidos,
   puedeReconstruirPorChoque,
@@ -1701,22 +1705,25 @@ async function partirTarjeta(
  * de dependencia (la otra → esta) por cada referencia que exista en el mismo tablero (por id o por título exacto) y que no
  * haga un ciclo. Si alguna no está HECHO, la tarjeta vuelve a la fila (PLANEANDO → APROBADO) sin ERROR y sin gastar el intento:
  * queda "Esperando a «X»". Cada flecha queda en el historial y se quita con un clic desde el tablero.
+ * 27-nov-2026 (incidente T-956): la referencia también puede ser el código "T-955"; la respuesta trae `tarjetas`, una por cada
+ * tarjeta nombrada ({ id, idCorto, codigo, titulo, estado, repo, hechaAMano, plan }), para que el Coordinador mire en main si su
+ * código llegó; y con `fallidaNoEspera` (solo cuando una sesión dijo DEPENDE_DE) una FALLIDA no hace esperar.
  */
 async function ponerDependencias(contexto: ContextoTrabajador, actual: FilaParaTrabajar, cuerpo: Record<string, unknown>, ahora: Date) {
   const referencias = Array.isArray(cuerpo.referencias)
     ? cuerpo.referencias.filter((valor): valor is string => typeof valor === "string" && valor.trim().length > 0).map((valor) => valor.trim()).slice(0, 5)
     : [];
   if (!referencias.length) throw new ErrorDelTrabajador("Faltan las referencias: manda los ids o títulos de las tarjetas de las que depende.", 400);
+  const fallidaNoEspera = cuerpo.fallidaNoEspera === true;
 
   return prisma.$transaction(async (tx) => {
     const candidatas = await tx.tarjetaTablero.findMany({
       where: { tableroId: actual.tableroId, borradoEn: null, id: { not: actual.id }, tipo: { usaEstados: true } },
-      select: { id: true, titulo: true, estado: true },
+      select: { id: true, numero: true, titulo: true, estado: true, repo: true, plan: true, resultado: true },
     });
-    const origenes = new Map<string, { id: string; titulo: string; estado: string }>();
+    const origenes = new Map<string, (typeof candidatas)[number]>();
     for (const referencia of referencias) {
-      const buscada = referencia.toLowerCase();
-      const encontrada = candidatas.find((tarjeta) => tarjeta.id === referencia) ?? candidatas.find((tarjeta) => tarjeta.titulo.trim().toLowerCase() === buscada);
+      const encontrada = tarjetaDeLaReferencia(candidatas, referencia);
       if (encontrada) origenes.set(encontrada.id, encontrada);
     }
     const dependencias = await tx.conexionTarjeta.findMany({ where: { tableroId: actual.tableroId, esDependencia: true }, select: { origenId: true, destinoId: true } });
@@ -1731,7 +1738,7 @@ async function ponerDependencias(contexto: ContextoTrabajador, actual: FilaParaT
     }
     // De quién depende ahora (con lo de antes): si alguna no está HECHO, espera.
     const flechas = dependencias.filter((flecha) => flecha.destinoId === actual.id);
-    const pendientes = candidatas.filter((tarjeta) => flechas.some((flecha) => flecha.origenId === tarjeta.id) && tarjeta.estado !== "HECHO");
+    const pendientes = candidatas.filter((tarjeta) => flechas.some((flecha) => flecha.origenId === tarjeta.id) && dependenciaHaceEsperar(tarjeta.estado, { fallidaNoEspera }));
     const etiqueta = etiquetaEsperando(pendientes);
     let estado = actual.estado as EstadoTarjetaTablero;
     // Con candado (PLANEANDO / EN_CURSO) vuelve a la fila sin ERROR ni intento gastado: PLANEANDO -> APROBADO, EN_CURSO -> PLAN_APROBADO.
@@ -1754,7 +1761,18 @@ async function ponerDependencias(contexto: ContextoTrabajador, actual: FilaParaT
       soltada = true;
     }
     if (creadas.length || soltada) await tocarTableros(tx, [actual.tableroId], ahora);
-    return { ok: true, estado, creadas, esperando: etiqueta, soltada, link: linkDeLaTarjeta(actual.id) };
+    // Las tarjetas que nombró la referencia: el Coordinador mira en main si el código de las HECHAS a mano o FALLIDAS llegó.
+    const tarjetas = [...origenes.values()].map((tarjeta) => ({
+      id: tarjeta.id,
+      idCorto: idCortoDeTarjeta(tarjeta.id),
+      codigo: codigoDeTarjeta(tarjeta.numero),
+      titulo: tarjeta.titulo,
+      estado: tarjeta.estado,
+      repo: tarjeta.repo,
+      hechaAMano: quedoHechaAMano(tarjeta),
+      plan: tarjeta.plan,
+    }));
+    return { ok: true, estado, creadas, esperando: etiqueta, soltada, tarjetas, link: linkDeLaTarjeta(actual.id) };
   });
 }
 

@@ -2991,16 +2991,29 @@ const servidor = http.createServer(async (pedido, respuesta) => {
   if (accion === "depender") {
     // Como el CRM (27-oct-2026): pone la flecha hacia las tarjetas que existan (por id o título) y, si alguna no está HECHO,
     // PLANEANDO -> APROBADO y EN_CURSO -> PLAN_APROBADO sin gastar el intento.
-    const origenes = [...tarjetas.values()].filter((t) => t.id !== id && (cuerpo.referencias ?? []).some((r) => r === t.id || r.toLowerCase() === t.titulo.toLowerCase()));
+    // 27-nov-2026: también por el código "T-955" (el número de la tarjeta, con las reglas del CRM) y, con `fallidaNoEspera`, una
+    // FALLIDA no hace esperar. Devuelve `tarjetas` (las nombradas, con `hechaAMano`) como el CRM.
+    const candidatas = [...tarjetas.values()].filter((t) => t.id !== id).map((t) => ({ ...t, numero: t.numero ?? -1 }));
+    const origenes = [...new Set((cuerpo.referencias ?? []).map((r) => reglas.tarjetaDeLaReferencia(candidatas, r)?.id).filter(Boolean))].map((idOtra) => tarjetas.get(idOtra));
     tarjeta.dependeDe = [...new Set([...(tarjeta.dependeDe ?? []), ...origenes.map((t) => t.id)])];
-    const pendientes = origenes.filter((t) => t.estado !== "HECHO");
+    const pendientes = origenes.filter((t) => reglas.dependenciaHaceEsperar(t.estado, { fallidaNoEspera: cuerpo.fallidaNoEspera === true }));
     const etiqueta = pendientes.length ? `Esperando a ${pendientes.map((t) => `«${t.titulo}»`).join(" y ")}` : null;
     const vuelve = { PLANEANDO: "APROBADO", EN_CURSO: "PLAN_APROBADO" }[tarjeta.estado];
     if (etiqueta && vuelve) {
       anotarIntento(tarjeta, { etapa: cuerpo.etapa ?? "planear", categoria: "otra", causa: etiqueta }, "esperar", false);
       Object.assign(tarjeta, { estado: vuelve, venceEn: null, intentos: Math.max(0, tarjeta.intentos - 1) });
     }
-    return contestar(200, { ok: true, estado: tarjeta.estado, creadas: origenes.map((t) => t.id), esperando: etiqueta, soltada: Boolean(etiqueta && vuelve) });
+    const nombradas = origenes.map((t) => ({
+      id: t.id,
+      idCorto: reglas.idCortoDeTarjeta(t.id),
+      codigo: t.numero ? `T-${t.numero}` : "",
+      titulo: t.titulo,
+      estado: t.estado,
+      repo: t.repo ?? null,
+      hechaAMano: reglas.quedoHechaAMano(t),
+      plan: t.plan ?? null,
+    }));
+    return contestar(200, { ok: true, estado: tarjeta.estado, creadas: origenes.map((t) => t.id), esperando: etiqueta, soltada: Boolean(etiqueta && vuelve), tarjetas: nombradas });
   }
   if (accion === "ya-hecha") {
     tarjeta.resultado = { ...(tarjeta.resultado ?? {}), yaEstabaHecho: { commit: cuerpo.commit, motivo: cuerpo.motivo, nota: reglas.notaDeYaHecha(cuerpo.commit) } };
@@ -6318,6 +6331,95 @@ process.exit(real.status ?? 1);
     assert.ok(!acciones.includes("reparar") && !acciones.includes("error"), acciones.join(","));
     assert.equal(avisosAlDueno(), antes, "ningún aviso al dueño");
     soltarTodas(pagina, construir);
+    sinRestos();
+  });
+
+  /* ── 27-nov-2026 (incidente T-956): DEPENDE_DE de una tarjeta HECHA a mano o FALLIDA se resuelve con git, sin bucle ── */
+
+  const otraT955 = (estado, extra = {}) => nuevaModerna("Pagos retroactivos del bono", estado, { numero: 955, plan: "5. Archivos:\nsrc/retro/pagos-bono.ts", resultado: null, ...extra });
+  const olvidarNumero = (...ids) => ids.forEach((id) => delete tarjetas.get(id).numero);
+
+  await prueba("27-nov (a): 'DEPENDE_DE: T-955' con T-955 HECHA a mano y sin commit en main -> ERROR depende_de_sin_main con el motivo, sin reparar ni volver a la fila", async () => {
+    cerrarLoDeAntes();
+    const otra = otraT955("HECHO");
+    const id = nuevaModerna("Bono con retroactivos [depende-t955]", "APROBADO", { plan: null });
+    const resultado = await vuelta();
+    assert.equal(resultado.hizo, "planear");
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "ERROR", "no vuelve a APROBADO");
+    assert.match(t.resultado.error.motivo, /^Depende de «Pagos retroactivos del bono» \(T-955\), que está HECHA a mano pero su código no está en main: no se puede seguir hasta que se suba$/);
+    assert.equal(t.resultado.error.categoria, "depende_de_sin_main");
+    const error = llamadas.findLast((l) => l.id === id && l.accion === "error");
+    assert.equal(error.cuerpo.categoria, "depende_de_sin_main");
+    assert.match(error.cuerpo.causa, /T-955/);
+    assert.match(error.cuerpo.causa, /no está en main/);
+    const depender = llamadas.findLast((l) => l.id === id && l.accion === "depender");
+    assert.equal(depender.cuerpo.fallidaNoEspera, true, "pide que una FALLIDA no haga esperar");
+    assert.deepEqual(depender.cuerpo.referencias, ["T-955"]);
+    const acciones = deLaTarjeta(id);
+    assert.ok(!acciones.includes("reparar") && !acciones.includes("soltar"), acciones.join(","));
+    assert.equal(t.reparaciones ?? 0, 0, "ni una reparación");
+    assert.deepEqual(t.dependeDe, [otra], "la flecha queda puesta");
+    olvidarNumero(otra);
+    soltarTodas(id);
+    sinRestos();
+  });
+
+  await prueba("27-nov (a): lo mismo con T-955 FALLIDA (que ya no hace esperar) y al construir: ERROR depende_de_sin_main, sin reparar", async () => {
+    cerrarLoDeAntes();
+    const otra = otraT955("FALLIDO");
+    const id = nuevaModerna("Bono con retroactivos [depende-t955] construir", "PLAN_APROBADO");
+    const resultado = await vuelta();
+    assert.equal(resultado.hizo, "construir");
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "ERROR");
+    assert.match(t.resultado.error.motivo, /\(T-955\), que está FALLIDA pero su código no está en main/);
+    assert.equal(t.resultado.error.categoria, "depende_de_sin_main");
+    assert.ok(!deLaTarjeta(id).some((a) => ["reparar", "soltar", "resultado"].includes(a)), deLaTarjeta(id).join(","));
+    olvidarNumero(otra);
+    soltarTodas(id, otra);
+    sinRestos();
+  });
+
+  await prueba("27-nov (b): T-955 HECHA a mano pero su commit 'tablero: … (<id corto>)' está en main -> vuelve a APROBADO con la nota 'ya está en main (commit X)', sin ERROR", async () => {
+    cerrarLoDeAntes();
+    const otra = otraT955("HECHO");
+    g(REPO, "pull", "--quiet", "--ff-only", "origin", "main");
+    archivo("src/retro/pagos-bono.ts", "export const bono = true;\n");
+    g(REPO, "add", "-A");
+    g(REPO, "commit", "--quiet", "-m", `tablero: Pagos retroactivos del bono (${idCorto(otra)})`);
+    g(REPO, "push", "--quiet", "origin", "main");
+    const commit = shaDe("main");
+    const id = nuevaModerna("Bono con retroactivos (main) [depende-t955]", "APROBADO", { plan: null });
+    const resultado = await vuelta();
+    assert.equal(resultado.hizo, "planear");
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "APROBADO", "vuelve a planear sobre el main nuevo");
+    assert.match(t.soltada, new RegExp(`«Pagos retroactivos del bono» \\(T-955\\) ya está en main \\(commit ${commit.slice(0, 10)}\\)`));
+    assert.match(t.soltada, /Se vuelve a planear sobre el main nuevo, sin gastar intento/);
+    assert.equal(t.intentos, 0, "no gastó intento");
+    const acciones = deLaTarjeta(id);
+    assert.ok(!acciones.includes("error") && !acciones.includes("reparar"), acciones.join(","));
+    olvidarNumero(otra);
+    soltarTodas(id);
+    sinRestos();
+  });
+
+  await prueba("27-nov (c): T-955 EN_CURSO -> la tarjeta espera con la flecha, sin llamar a 'error' ni mirar main", async () => {
+    cerrarLoDeAntes();
+    const otra = otraT955("EN_CURSO");
+    const id = nuevaModerna("Bono con retroactivos (espera) [depende-t955]", "APROBADO", { plan: null });
+    const resultado = await vuelta();
+    assert.equal(resultado.hizo, "planear");
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "APROBADO");
+    assert.deepEqual(t.dependeDe, [otra]);
+    assert.equal(t.intentos, 0);
+    assert.equal(t.intentosLista.at(-1).causa, "Esperando a «Pagos retroactivos del bono»");
+    const acciones = deLaTarjeta(id);
+    assert.ok(!acciones.includes("error") && !acciones.includes("reparar") && !acciones.includes("soltar"), acciones.join(","));
+    olvidarNumero(otra);
+    soltarTodas(id, otra);
     sinRestos();
   });
 

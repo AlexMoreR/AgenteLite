@@ -2925,6 +2925,48 @@ prueba("commitDelResultado: el de la subida, el de ya estaba hecho o el de la co
   assert.equal(trabajo.commitDelResultado({ subida: { commit: "" } }), null);
 });
 
+prueba("depender (27-nov-2026, T-956): «hecha a mano», «T-955» por número, FALLIDA no espera si se pide y la respuesta trae las tarjetas", () => {
+  // HECHO con repo y sin subida del Coordinador: hecha a mano. Con subida, o con «ya estaba hecho», o sin repo: no.
+  assert.equal(trabajo.quedoHechaAMano({ estado: "HECHO", repo: "aizencrm", resultado: null }), true);
+  assert.equal(trabajo.quedoHechaAMano({ estado: "HECHO", repo: "aizencrm", resultado: { resumen: "x", subida: {} } }), true, "una subida vacía no cuenta");
+  assert.equal(trabajo.quedoHechaAMano({ estado: "HECHO", repo: "aizencrm", resultado: { subida: { commit: "abc1234" } } }), false);
+  assert.equal(trabajo.quedoHechaAMano({ estado: "HECHO", repo: "gestion", resultado: { yaEstabaHecho: { commit: "abc1234" } } }), false);
+  assert.equal(trabajo.quedoHechaAMano({ estado: "HECHO", repo: null, resultado: null }), false, "sin repo no es de código");
+  assert.equal(trabajo.quedoHechaAMano({ estado: "HECHO", repo: "  ", resultado: null }), false);
+  assert.equal(trabajo.quedoHechaAMano({ estado: "FALLIDO", repo: "aizencrm", resultado: null }), false, "solo HECHO");
+  // La referencia: por id, por el código T-955 (el número) y por el título exacto.
+  const candidatas = [
+    { id: "cmabc1234567xyzt955", numero: 955, titulo: "Pagos retroactivos" },
+    { id: "cmotra", numero: 12, titulo: "T-955" },
+  ];
+  assert.equal(trabajo.tarjetaDeLaReferencia(candidatas, "T-955")?.id, "cmabc1234567xyzt955", "T-955 es la tarjeta número 955");
+  assert.equal(trabajo.tarjetaDeLaReferencia(candidatas, " t955 ")?.id, "cmabc1234567xyzt955");
+  assert.equal(trabajo.tarjetaDeLaReferencia(candidatas, "cmotra")?.id, "cmotra");
+  assert.equal(trabajo.tarjetaDeLaReferencia(candidatas, "pagos RETROACTIVOS")?.id, "cmabc1234567xyzt955");
+  assert.equal(trabajo.tarjetaDeLaReferencia(candidatas, "T-956"), undefined);
+  assert.equal(trabajo.tarjetaDeLaReferencia([{ id: "cmz", numero: 3, titulo: "T-956" }], "T-956")?.id, "cmz", "sin ese número, sigue por el título");
+  assert.equal(trabajo.idCortoDeTarjeta("cmabc1234567xyzt955"), "567xyzt955".slice(-8));
+  // Quién hace esperar: todo lo que no es HECHO; FALLIDA solo si no se pide fallidaNoEspera. ERROR sigue esperando.
+  assert.equal(trabajo.dependenciaHaceEsperar("HECHO"), false);
+  assert.equal(trabajo.dependenciaHaceEsperar("EN_CURSO"), true);
+  assert.equal(trabajo.dependenciaHaceEsperar("FALLIDO"), true);
+  assert.equal(trabajo.dependenciaHaceEsperar("FALLIDO", { fallidaNoEspera: true }), false);
+  assert.equal(trabajo.dependenciaHaceEsperar("ERROR", { fallidaNoEspera: true }), true);
+  assert.equal(trabajo.dependenciaHaceEsperar("EN_CURSO", { fallidaNoEspera: true }), true);
+  // La categoría nueva no se guarda como «otra».
+  assert.ok(trabajo.CATEGORIAS_DE_INTENTO.includes("depende_de_sin_main"));
+  assert.equal(trabajo.categoriaDeEntrada("depende_de_sin_main"), "depende_de_sin_main");
+  // La respuesta de POST /:id/depender.
+  const codigo = readFileSync("src/features/tableros-inteligentes/services/trabajador.ts", "utf8");
+  const depender = codigo.slice(codigo.indexOf("async function ponerDependencias("), codigo.indexOf("async function pedirLimpieza("));
+  assert.match(depender, /tarjetaDeLaReferencia\(candidatas, referencia\)/);
+  assert.match(depender, /dependenciaHaceEsperar\(tarjeta\.estado, \{ fallidaNoEspera \}\)/);
+  assert.match(depender, /const fallidaNoEspera = cuerpo\.fallidaNoEspera === true;/);
+  assert.match(depender, /hechaAMano: quedoHechaAMano\(tarjeta\)/);
+  for (const campo of ["id", "idCorto", "codigo", "titulo", "estado", "repo", "hechaAMano", "plan"]) assert.match(depender, new RegExp(`\\n\\s+${campo}:`), `la respuesta trae ${campo}`);
+  assert.match(depender, /return \{ ok: true, estado, creadas, esperando: etiqueta, soltada, tarjetas, link/);
+});
+
 prueba("trabajador.ts: parecidas y repetida en la misma transacción, con historial en las dos tarjetas", () => {
   const codigo = readFileSync("src/features/tableros-inteligentes/services/trabajador.ts", "utf8");
   assert.match(codigo, /if \(accion === "parecidas"\) return tarjetasParecidas\(/);
