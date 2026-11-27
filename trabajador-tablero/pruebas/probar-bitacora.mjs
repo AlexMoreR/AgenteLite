@@ -100,6 +100,37 @@ try {
     for (const [clave, texto] of Object.entries(resueltas)) assert.ok(armarEntrada({ ...base, comoSeResolvio: clave }).includes(`- Cómo se resolvió: ${texto}\n`), clave);
   });
 
+  await prueba("(a3) 27-nov: la línea de una reparación trae causa, qué cambia y por qué es distinto (y el corte por misma causa)", () => {
+    const porQue = {
+      causa: "otra: La parte N no está en main",
+      queCambia: "no se repara: se espera a la tarjeta de la que depende",
+      porQueEsDistinto: "no se repara igual: la causa es la misma que la del intento anterior y no es del código",
+    };
+    const entrada = armarEntrada({ ...base, causa: "La parte 1 no está en main (commit 1a2b3c4d5e)", queFallo: "misma_causa", comoSeResolvio: "esperar_dependencia", clase: "misma_causa", porQue });
+    const lineas = entrada.split("\n");
+    assert.match(entrada, /^- Causa: otra: La parte N no está en main$/m, "la causa en una frase");
+    assert.match(entrada, /^- Qué cambia: no se repara: se espera a la tarjeta de la que depende$/m);
+    assert.match(entrada, /^- Por qué es distinto: no se repara igual: la causa es la misma/m);
+    // Las tres van juntas, en ese orden, antes de qué se intentó.
+    const donde = (inicio) => lineas.findIndex((l) => l.startsWith(inicio));
+    assert.ok(donde("- Causa:") + 1 === donde("- Qué cambia:") && donde("- Qué cambia:") + 1 === donde("- Por qué es distinto:"));
+    assert.ok(donde("- Por qué es distinto:") < donde("- Qué se intentó:"));
+    assert.match(entrada, /^- Qué falló: se cortó: misma causa que el intento anterior$/m);
+    assert.match(entrada, /^- Cómo se resolvió: se espera a la tarjeta de la que depende, sin reparar ni gastar intento$/m);
+    assert.match(entrada, /^- Regla: Si la falla repite la causa del intento anterior, no se repara igual/m);
+    // La copia de una línea para el cerebro también las trae.
+    const resumen = resumenDeUnaLinea(entrada);
+    assert.match(resumen, / · causa: otra: La parte N no está en main · qué cambia: no se repara: se espera a la tarjeta de la que depende · por qué es distinto: no se repara igual/);
+    // La regla sigue mirando la causa completa (la frase corta cambia los números por N).
+    assert.match(armarEntrada({ ...base, causa: "falla con postgres 16", clase: "codigo", porQue: { ...porQue, causa: "otra: falla con postgres N" } }), /^- Regla: .*Postgres 16/m);
+    // Sin porQue (o vacío), la entrada es la de siempre: sin las dos líneas nuevas.
+    for (const sin of [null, {}, { causa: "", queCambia: " " }]) {
+      const vieja = armarEntrada({ ...base, porQue: sin });
+      assert.doesNotMatch(vieja, /^- (?:Qué cambia|Por qué es distinto):/m);
+      assert.doesNotMatch(resumenDeUnaLinea(vieja), /qué cambia|por qué es distinto/);
+    }
+  });
+
   await prueba("(b) una causa con pg_input_is_valid da una regla que nombra Postgres 16", () => {
     assert.match(reglaPara('ERROR: function pg_input_is_valid(text, unknown) does not exist', "codigo"), /Postgres 16/);
     // También si está en las líneas del error y no en la causa.

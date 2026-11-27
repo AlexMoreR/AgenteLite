@@ -46,6 +46,7 @@ import {
   enUnaLinea,
   estrategiaDeLaCausa,
   intentosDeSubida,
+  porQueDeLaDecision,
   queCambiaFrenteAlAnterior,
   recortar,
   recortarAviso,
@@ -476,7 +477,9 @@ const TOPE_DE_DEPENDENCIAS_EN_GIT = 5;
  *  - alguna HECHA a mano o FALLIDA sin su código en main: ERROR `depende_de_sin_main` con el motivo, sin reparación ni vuelta a la fila;
  *  - un CRM viejo (sin `tarjetas`), sin repo configurado o cualquier otro caso: como antes, se suelta y se reintenta después.
  */
-async function esperarPorDependencia({ crm, config, registro }, tarjeta, hacer, referencias) {
+async function esperarPorDependencia({ crm, config, registro }, tarjeta, hacer, referencias, porQue = null) {
+  // 27-nov-2026: cuando la espera viene de una reparación cortada por la misma causa, el porqué viaja a /soltar y /error.
+  const conPorQue = porQue ? { porQue } : undefined;
   let respuesta = null;
   try {
     respuesta = await crm.depender(tarjeta.id, { referencias, etapa: hacer });
@@ -504,7 +507,7 @@ async function esperarPorDependencia({ crm, config, registro }, tarjeta, hacer, 
       const motivo = `Depende de ${nombre(sinMain)}, que está ${como} pero su código no está en main: no se puede seguir hasta que se suba.`;
       registro.aviso(`"${tarjeta.titulo}": ${motivo} Queda en ERROR (depende_de_sin_main), sin reparación`);
       try {
-        await crm.error(tarjeta.id, motivo, undefined, undefined, { etapa: hacer, categoria: "depende_de_sin_main", causa: enUnaLinea(motivo), error: `DEPENDE_DE: ${referencias.join(", ")}`.slice(0, 6000), resumen: motivo });
+        await crm.error(tarjeta.id, motivo, undefined, undefined, { etapa: hacer, categoria: "depende_de_sin_main", causa: enUnaLinea(motivo), error: `DEPENDE_DE: ${referencias.join(", ")}`.slice(0, 6000), resumen: motivo, ...conPorQue });
       } catch (error) {
         registro.error(`no se pudo avisar el error al CRM: ${error.message}`);
       }
@@ -514,12 +517,12 @@ async function esperarPorDependencia({ crm, config, registro }, tarjeta, hacer, 
       const notas = enMain.map(({ otra, encontrado }) => `${nombre(otra)} ya está en main, commit ${encontrado.commit.slice(0, 10)}`);
       const nota = `${notas.join("; ")}; se vuelve a ${hacer === "construir" ? "construir" : "planear"} sobre el main nuevo.`;
       registro.info(`"${tarjeta.titulo}": ${nota}`);
-      await soltar(crm, registro, tarjeta, nota);
+      await soltar(crm, registro, tarjeta, nota, conPorQue);
       return { ok: true, estado: respuesta?.estado ?? null, esperando: true };
     }
   }
   // Las tarjetas que nombró ya están HECHO (o no existen): no hay a quién esperar. Se suelta sin error y vuelve a intentarse luego.
-  await soltar(crm, registro, tarjeta, `Dependencia (${referencias.join(", ")}): se reintenta después.`);
+  await soltar(crm, registro, tarjeta, `Dependencia (${referencias.join(", ")}): se reintenta después.`, conPorQue);
   return { ok: true, estado: respuesta?.estado ?? null, esperando: true };
 }
 
@@ -754,9 +757,12 @@ export async function manejarFalla(args, tarjeta, hacer, error) {
     anotarLaLeccion(args.config, args.registro, tarjeta, { resultado: "fallo", etapa: hacer, diagnostico: nota.diagnostico, arreglo });
   }
   // Bitácora de incidentes (24-nov-2026): el ensayo de migraciones falló antes de subir. Solo anota: no cambia la decisión.
-  if (error?.categoria === "migracion" && String(error?.message ?? "").startsWith(MOTIVO_ENSAYO)) anotarElEnsayoQueFallo(args, tarjeta, error, salida);
+  if (esElEnsayoQueFallo(error)) anotarElEnsayoQueFallo(args, tarjeta, error, salida);
   return salida;
 }
+
+/** ¿El error es el del ensayo de migraciones antes de subir? */
+const esElEnsayoQueFallo = (error) => error?.categoria === "migracion" && String(error?.message ?? "").startsWith(MOTIVO_ENSAYO);
 
 /** Lo que se decidió con un ensayo de migraciones que falló, en palabras sencillas (para la bitácora). */
 const DECISION_DEL_ENSAYO = {
@@ -786,6 +792,7 @@ function anotarElEnsayoQueFallo({ config, registro }, tarjeta, error, salida) {
       comoSeResolvio: DECISION_DEL_ENSAYO[salida?.accion] ?? `decisión: ${salida?.accion ?? "sin decisión"}`,
       clase: "codigo",
       queSeIntento: { numero: (Number(tarjeta.reparaciones) || 0) + 1, de: Number(tarjeta.topeReparaciones) || TOPE_DE_REPARACIONES, detalle: "ensayo de migraciones antes de subir" },
+      porQue: salida?.porQue ?? null,
     });
   } catch (otro) {
     registro.aviso(`bitácora: no se pudo anotar el ensayo que falló (${String(otro?.message ?? otro).split("\n")[0]})`);
@@ -805,17 +812,37 @@ const CLASE_DE_LA_FALLA = { nube_sin_senal: "nube", no_cambio_nada: "sin_cambios
 /** Cómo se resolvió, para la bitácora: una clave de COMO_SE_RESOLVIO o la frase de la decisión. */
 function comoSeResolvioLaFalla(salida) {
   if (salida?.accion === "ya_en_main") return "ya_en_main";
+  // 27-nov-2026: la misma causa de dependencia (se espera a la otra tarjeta) y el corte por misma causa.
+  if (salida?.accion === "esperar_dependencia") return salida.enError || salida.categoria === "depende_de_sin_main" ? "pasó a ERROR (depende_de_sin_main): no hay a quién esperar o su código no está en main" : "esperar_dependencia";
+  if (salida?.accion === "escalar" && salida.mismaCausa) return "pasó al dueño (ERROR) sin otra reparación igual";
   if (salida?.accion === "reparar" && (salida.estrategia === "sesion_nueva" || salida.estrategia === "plan_nuevo")) return salida.estrategia;
   if (salida?.accion === "reparar" && salida.estrategia) return `${DECISION_DEL_ENSAYO.reparar} (estrategia ${salida.estrategia})`;
   return DECISION_DEL_ENSAYO[salida?.accion] ?? `decisión: ${salida?.accion ?? "sin decisión"}`;
 }
 
-/** Anota en la bitácora una de las fallas repetidas, ya decidida y hecha. Solo anota: no cambia la decisión. Nunca lanza. */
+/** Las categorías de código: su regla genérica en la bitácora es la de la clase "codigo". */
+const CATEGORIAS_DE_CODIGO = ["no_compila", "fallan_pruebas", "lint", "migracion"];
+
+/**
+ * Qué falló, para la bitácora: el corte por misma causa (y la espera a la dependencia) es "misma_causa"; una falla repetida, su
+ * clave de QUE_FALLO; cualquier otra reparación, la categoría. null si esta falla no se anota aquí.
+ * 27-nov-2026 (parte 3 de «si una reparación falla por el mismo motivo, no repetir igual»): se anotan TODAS las reparaciones (no
+ * solo las de las fallas repetidas) y el corte por misma causa, cada una con su porqué.
+ */
+function queFalloParaLaBitacora(diagnostico, salida) {
+  if (salida?.mismaCausa || salida?.accion === "esperar_dependencia") return "misma_causa";
+  const repetida = FALLAS_REPETIDAS[diagnostico?.categoria];
+  if (repetida) return repetida;
+  return salida?.accion === "reparar" ? (diagnostico?.categoria ?? "otra") : null;
+}
+
+/** Anota en la bitácora una falla ya decidida y hecha (ver queFalloParaLaBitacora). Solo anota: no cambia la decisión. Nunca lanza. */
 function anotarLaFallaRepetida({ config, registro }, tarjeta, error, diagnostico, salida) {
-  const queFallo = FALLAS_REPETIDAS[diagnostico?.categoria];
+  const queFallo = queFalloParaLaBitacora(diagnostico, salida);
   // La subida deshecha (y su reversión falsa) ya se anota en resolverLaSubidaDeshecha; la causa externa no es de la tarea.
-  // El repo equivocado ya quedó anotado en cambiarDeRepoSiHaceFalta.
-  if (!queFallo || error?.reversion?.ok === true || salida?.causaExterna || salida?.repoEquivocado) return;
+  // El repo equivocado ya quedó anotado en cambiarDeRepoSiHaceFalta. El ensayo de migraciones que falló lo anota manejarFalla
+  // (anotarElEnsayoQueFallo, con su porqué): una sola entrada por falla, porque la clave es la fecha al minuto y la tarjeta.
+  if (!queFallo || error?.reversion?.ok === true || salida?.causaExterna || salida?.repoEquivocado || esElEnsayoQueFallo(error)) return;
   try {
     const hechas = Number(tarjeta.reparaciones) || 0;
     const tope = Number(tarjeta.topeReparaciones) || TOPE_DE_REPARACIONES;
@@ -829,7 +856,8 @@ function anotarLaFallaRepetida({ config, registro }, tarjeta, error, diagnostico
       causa: diagnostico.causa,
       lineasDelError: String(diagnostico.error ?? "").split(/\r?\n/),
       comoSeResolvio: comoSeResolvioLaFalla(salida),
-      clase: CLASE_DE_LA_FALLA[queFallo],
+      clase: CLASE_DE_LA_FALLA[queFallo] ?? (queFallo === "misma_causa" ? "misma_causa" : CATEGORIAS_DE_CODIGO.includes(diagnostico.categoria) ? "codigo" : "desconocida"),
+      porQue: salida?.porQue ?? null,
       queSeIntento: { numero: hechas + 1, de: tope, detalle: `${diagnostico.categoria}${antes ? `, con la estrategia ${antes}` : ""}; ${salida?.decidido ?? `decisión: ${salida?.accion ?? "?"}`}` },
     });
   } catch (otro) {
@@ -942,7 +970,22 @@ async function repararSinAnotar({ crm, config, registro, contexto, bitacora, pau
     verificarEnNube: Boolean(error?.verificarEnNube),
   });
   registro.info(`diagnóstico: ${diagnostico.categoria} — ${diagnostico.causa}; decisión: ${decision.accion} (${decision.motivo})${decision.estrategia === "nube" ? "; se verifica otra vez en la nube" : ""}`);
-  const resultado = { ok: false, motivo, zonas: error?.zonas ?? [], categoria: diagnostico.categoria, accion: decision.accion, estrategia: decision.estrategia, decidido: decision.motivo };
+  // 27-nov-2026 (parte 3 de «si una reparación falla por el mismo motivo, no repetir igual»): la causa en una frase, qué cambia en
+  // el intento siguiente y por qué es distinto del anterior. Va al CRM (historial de la tarjeta) y a la bitácora de incidentes.
+  // Se recalcula después si la decisión cambia (el CRM no deja reparar más, no se pudo partir).
+  const porQueDe = () => porQueDeLaDecision(decision, diagnostico, tarjeta.ultimosIntentos);
+  const resultado = {
+    ok: false,
+    motivo,
+    zonas: error?.zonas ?? [],
+    categoria: diagnostico.categoria,
+    accion: decision.accion,
+    estrategia: decision.estrategia,
+    decidido: decision.motivo,
+    ...(decision.mismaCausa ? { mismaCausa: true } : {}),
+    porQue: porQueDe(),
+  };
+  registro.info(`POR QUÉ: causa ${resultado.porQue.causa} | qué cambia: ${resultado.porQue.queCambia} | por qué es distinto: ${resultado.porQue.porQueEsDistinto}`);
   // La causa nunca va vacía al CRM (30-oct-2026): si no se supo, se dice en qué etapa e intento (`intento`, arriba).
 
   // 4. Hacerlo.
@@ -951,7 +994,7 @@ async function repararSinAnotar({ crm, config, registro, contexto, bitacora, pau
   if (decision.arreglo === "reconstruir") {
     const causa = error?.verificarEnNube ? `${enUnaLinea(intento.causa, 160)} [estrategia: nube]` : intento.causa;
     try {
-      await crm.reparar(tarjeta.id, { ...intento, causa, cuenta: false });
+      await crm.reparar(tarjeta.id, { ...intento, causa, cuenta: false, porQue: resultado.porQue });
       registro.info("choca con main: la tarjeta vuelve a construir desde el main más nuevo (no gasta reparación)");
       return resultado;
     } catch (otro) {
@@ -962,12 +1005,18 @@ async function repararSinAnotar({ crm, config, registro, contexto, bitacora, pau
       registro.aviso(`el CRM no deja reconstruir más (${otro.message}): se escala`);
       decision.accion = "escalar";
       resultado.accion = "escalar";
+      resultado.porQue = porQueDe();
     }
   }
   if (decision.accion === "esperar") {
     if (decision.arreglo === "sin_claude") await arreglarSinClaude(contexto, tarjeta, diagnostico.categoria, registro);
-    await soltar(crm, registro, tarjeta, `${causaParaLaTarjeta} Se reintenta después.`, intento);
+    await soltar(crm, registro, tarjeta, `${causaParaLaTarjeta} Se reintenta después.`, { ...intento, porQue: resultado.porQue });
     return resultado;
+  }
+  // 27-nov-2026: la misma causa que el intento anterior, de dependencia o de main: no se repara igual. Se espera a la tarjeta que
+  // nombra la tarjeta o la causa (el camino de DEPENDE_DE); si no hay a quién esperar, queda en ERROR con el motivo.
+  if (decision.accion === "esperar_dependencia") {
+    return esperarPorLaCausa({ crm, config, registro }, tarjeta, hacer, error, { diagnostico, intento, causaParaLaTarjeta, resultado });
   }
   if (decision.accion === "partir") {
     try {
@@ -997,6 +1046,7 @@ async function repararSinAnotar({ crm, config, registro, contexto, bitacora, pau
       const quedan = (Number(tarjeta.reparaciones) || 0) < (Number(tarjeta.topeReparaciones) || TOPE_DE_REPARACIONES);
       decision.accion = quedan ? "reparar" : "escalar";
       resultado.accion = decision.accion;
+      resultado.porQue = porQueDe();
     }
   }
   if (decision.accion === "reparar") {
@@ -1010,7 +1060,7 @@ async function repararSinAnotar({ crm, config, registro, contexto, bitacora, pau
     // líneas (antes solo veía la primera línea que falló, en la causa).
     const errorParaElSiguiente = diagnostico.categoria === "fallan_pruebas" ? conElLogCompleto(intento.error, rutaLog, textoGuardado) : intento.error;
     try {
-      const respuesta = await crm.reparar(tarjeta.id, { ...intento, causa, error: errorParaElSiguiente, estrategia: decision.estrategia });
+      const respuesta = await crm.reparar(tarjeta.id, { ...intento, causa, error: errorParaElSiguiente, estrategia: decision.estrategia, porQue: resultado.porQue });
       registro.info(`a reparar: la tarjeta vuelve a la fila${respuesta?.reparaciones ? ` (reparación ${respuesta.reparaciones} de ${tarjeta.topeReparaciones})` : ""}`);
       return resultado;
     } catch (otro) {
@@ -1019,7 +1069,9 @@ async function repararSinAnotar({ crm, config, registro, contexto, bitacora, pau
         return resultado;
       }
       registro.aviso(`el CRM no deja reparar más (${otro.message}): se escala`);
+      decision.accion = "escalar";
       resultado.accion = "escalar";
+      resultado.porQue = porQueDe();
       // Una falla repetida que el CRM ya no deja reparar llegó a su tope: también es la alerta única.
       if (ESTRATEGIAS_DE_LAS_FALLAS[diagnostico.categoria]) decision.agotado = true;
     }
@@ -1029,7 +1081,7 @@ async function repararSinAnotar({ crm, config, registro, contexto, bitacora, pau
   if (decision.agotado && ESTRATEGIAS_DE_LAS_FALLAS[diagnostico.categoria]) {
     const resumen = resumenDeFallaAgotada({ tarjeta, intentos: tarjeta.ultimosIntentos, diagnostico });
     try {
-      await crm.error(tarjeta.id, resumen, error?.zonas, error?.reversion, { ...intento, resumen, agotado: true });
+      await crm.error(tarjeta.id, resumen, error?.zonas, error?.reversion, { ...intento, resumen, agotado: true, porQue: resultado.porQue });
       registro.info(`${diagnostico.categoria} tras ${Number(tarjeta.reparaciones) || 0} intentos distintos: "${tarjeta.titulo}" queda en ERROR, una sola alerta solo en la página`);
     } catch (otro) {
       registro.error(`no se pudo avisar el error al CRM: ${otro.message}`);
@@ -1043,11 +1095,49 @@ async function repararSinAnotar({ crm, config, registro, contexto, bitacora, pau
       ? error.paraElDueno.join("\n")
       : resumenDeEscalada({ tarjeta, intentos: tarjeta.ultimosIntentos, diagnostico: { ...diagnostico, causa: causaParaLaTarjeta }, decision });
   try {
-    await crm.error(tarjeta.id, resumen, error?.zonas, error?.reversion, { ...intento, resumen });
+    await crm.error(tarjeta.id, resumen, error?.zonas, error?.reversion, { ...intento, resumen, porQue: resultado.porQue });
   } catch (otro) {
     registro.error(`no se pudo avisar el error al CRM: ${otro.message}`);
   }
   return { ...resultado, accion: "escalar" };
+}
+
+/** Los «títulos» y los ids de tarjeta (cm…) que nombra la causa, sin la propia tarjeta (máximo 5). */
+export function referenciasDeLaCausa(causa, tarjeta = null) {
+  const texto = String(causa ?? "");
+  const ids = (texto.match(/\bcm[a-z0-9]{20,28}\b/g) ?? []).filter((id) => id !== tarjeta?.id);
+  const titulos = [...texto.matchAll(/[«"“]([^«»"“”\n]{4,120})[»"”]/g)].map((coincidencia) => coincidencia[1].trim()).filter((titulo) => titulo !== String(tarjeta?.titulo ?? "").trim());
+  return [...new Set([...ids, ...titulos])].slice(0, 5);
+}
+
+/**
+ * esperar_dependencia (27-nov-2026): la falla se repitió con la misma causa y es de dependencia o de main. Las referencias salen de
+ * la tarjeta (referenciasParaDepender: su título, detalle y plan) y de la causa (los «títulos» o ids que nombra):
+ *  - con referencias: esperarPorDependencia, el camino de DEPENDE_DE (flecha y espera; ya en main se suelta; FALLIDA o hecha a mano
+ *    sin su código en main queda en ERROR `depende_de_sin_main`);
+ *  - sin nadie a quién esperar: ERROR `depende_de_sin_main` con el motivo, sin reparar.
+ * Nunca llama /reparar. Nunca lanza.
+ */
+async function esperarPorLaCausa({ crm, config, registro }, tarjeta, hacer, error, { diagnostico, intento, causaParaLaTarjeta, resultado }) {
+  const referencias = [...new Set([...referenciasParaDepender(tarjeta), ...referenciasDeLaCausa(diagnostico.causa, tarjeta)])].slice(0, 5);
+  if (referencias.length) {
+    registro.info(`"${tarjeta.titulo}": misma causa que el intento anterior y es de dependencia: espera a ${referencias.join(", ")}, sin reparar`);
+    const espera = await esperarPorDependencia({ crm, config, registro }, tarjeta, hacer, referencias, resultado.porQue);
+    return { ...resultado, ...espera, motivo: espera.motivo ?? resultado.motivo, categoria: espera.categoria ?? resultado.categoria, accion: "esperar_dependencia", referencias };
+  }
+  const causa = enUnaLinea(causaParaLaTarjeta || diagnostico.causa, 220);
+  const resumen = [
+    `Qué falló: ${causa.replace(/\.?$/, ".")}`,
+    "Qué se probó: falló dos veces seguidas por la misma causa, que es de una dependencia o de main; no se repara igual y no se sabe a qué tarjeta esperar.",
+    "Qué necesita de ti: subir a main la tarjeta de la que depende (o decir cuál es) y tocar Reintentar.",
+  ].join("\n");
+  registro.aviso(`"${tarjeta.titulo}": misma causa de dependencia y no nombra a quién esperar: queda en ERROR (depende_de_sin_main), sin reparar`);
+  try {
+    await crm.error(tarjeta.id, resumen, error?.zonas, undefined, { ...intento, categoria: "depende_de_sin_main", causa, resumen, porQue: resultado.porQue });
+  } catch (otro) {
+    registro.error(`no se pudo avisar el error al CRM: ${otro.message}`);
+  }
+  return { ...resultado, ok: false, categoria: "depende_de_sin_main", accion: "esperar_dependencia", enError: true, referencias: [] };
 }
 
 /** Lo que el CRM guarda del error de un intento (MAXIMO_ERROR_DEL_INTENTO de reglas-trabajador.ts). */

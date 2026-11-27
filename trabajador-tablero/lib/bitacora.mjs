@@ -26,6 +26,9 @@ export const QUE_FALLO = {
   reversion_falsa: "se deshizo antes de que el servidor bajara la versión nueva (reversión falsa)",
   // 27-nov-2026 («nunca construir en el repo equivocado»): el plan nombra archivos que no están en el repo de la tarjeta.
   repo_equivocado: "el plan nombra archivos que no están en este repo (repo equivocado)",
+  // 27-nov-2026 (parte 3 de «si una reparación falla por el mismo motivo, no repetir igual»): la falla repitió la causa del intento
+  // anterior y el Coordinador no la reparó igual (esperó a la dependencia o pasó al dueño).
+  misma_causa: "se cortó: misma causa que el intento anterior",
 };
 
 /** Cómo se resolvió: la decisión que se tomó en ese momento. */
@@ -38,6 +41,8 @@ export const COMO_SE_RESOLVIO = {
   ya_en_main: "ya estaba hecho en main",
   resubir: "se vuelve a subir el mismo commit",
   cambio_de_repo: "se cambió la tarjeta de repo (o se vuelve a planear) sin construir ni gastar intento",
+  // 27-nov-2026: la causa es de una dependencia o de main: se espera a esa tarjeta, sin reparar ni gastar intento.
+  esperar_dependencia: "se espera a la tarjeta de la que depende, sin reparar ni gastar intento",
 };
 
 /** De cuántos intentos se habla en la línea "Qué se intentó" (el tope de reparaciones del CRM). */
@@ -89,6 +94,8 @@ const REGLA_POR_CLASE = {
   sin_cambios: "Si Claude no cambia nada, mirar si ya está en main o volver a planear con lo que falta, sin repetir lo mismo.",
   // 27-nov-2026 («nunca construir en el repo equivocado»).
   repo: "Si el plan nombra archivos de otro repo, se cambia la tarjeta de repo y se vuelve a planear; nunca se construye en el repo equivocado.",
+  // 27-nov-2026 (parte 3 de «si una reparación falla por el mismo motivo, no repetir igual»).
+  misma_causa: "Si la falla repite la causa del intento anterior, no se repara igual: se espera a la dependencia o se corta con el motivo.",
   desconocida: "Leer los registros completos del servidor y anotar la causa cuando se sepa.",
 };
 
@@ -133,12 +140,19 @@ const lineasLimpias = (lineas) =>
 /**
  * La entrada en markdown. `queFallo`: una clave de QUE_FALLO (o un texto); `comoSeResolvio`: una clave de COMO_SE_RESOLVIO (o
  * un texto); `clase`: para la regla genérica; `commit`: opcional; `queSeIntento`: { numero, de?, detalle? } (25-nov-2026).
+ * `porQue` (27-nov-2026): { causa, queCambia, porQueEsDistinto } de una reparación, espera o corte por misma causa. Con él, la
+ * línea "- Causa:" es la causa en una frase (categoría: causa) y le siguen "- Qué cambia:" y "- Por qué es distinto:".
  */
-export function armarEntrada({ fecha, tarjeta, repo, queFallo, causa, lineasDelError, comoSeResolvio, clase = "desconocida", commit = null, queSeIntento = null }) {
+export function armarEntrada({ fecha, tarjeta, repo, queFallo, causa, lineasDelError, comoSeResolvio, clase = "desconocida", commit = null, queSeIntento = null, porQue = null }) {
   const cuando = linea(fecha || "fecha no registrada", 40);
-  const causaLimpia = linea(causa, 600) || SIN_CAUSA;
+  const causaOriginal = linea(causa, 600);
+  const causaLimpia = linea(porQue?.causa, 300) || causaOriginal || SIN_CAUSA;
+  const queCambia = linea(porQue?.queCambia, 300);
+  const porQueEsDistinto = linea(porQue?.porQueEsDistinto, 300);
+  const conPorQue = Boolean(porQue && (porQue.causa || queCambia || porQueEsDistinto));
   const lineas = lineasLimpias(lineasDelError);
-  const regla = reglaPara([causaLimpia, ...lineas].join("\n"), clase);
+  // La regla mira también la causa completa (la frase corta quita los números: "Postgres 16" no se pierde).
+  const regla = reglaPara([causaOriginal, causaLimpia, ...lineas].join("\n"), clase);
   const partes = [
     `### ${cuando} · ${idDeLaTarjeta(tarjeta?.id)} ${linea(tarjeta?.titulo, 160) || "(sin título)"}`,
     claveDeLaEntrada({ fecha: cuando, tarjeta }),
@@ -146,6 +160,7 @@ export function armarEntrada({ fecha, tarjeta, repo, queFallo, causa, lineasDelE
     `- Repo: ${linea(repo, 60) || "sin repo"}${commit ? ` (commit ${linea(commit, 40)})` : ""}`,
     `- Qué falló: ${QUE_FALLO[queFallo] ?? (linea(queFallo, 120) || "no registrado")}`,
     `- Causa: ${causaLimpia}`,
+    ...(conPorQue ? [`- Qué cambia: ${queCambia || "no registrado"}`, `- Por qué es distinto: ${porQueEsDistinto || "no registrado"}`] : []),
     lineaDeQueSeIntento(queSeIntento),
     `- Cómo se resolvió: ${COMO_SE_RESOLVIO[comoSeResolvio] ?? (linea(comoSeResolvio, 200) || "no registrado")}`,
     `- Regla: ${regla}`,
@@ -157,7 +172,7 @@ export function armarEntrada({ fecha, tarjeta, repo, queFallo, causa, lineasDelE
   return `${partes.join("\n")}\n`;
 }
 
-/** La copia corta para el cerebro: una línea con fecha, tarjeta, repo, qué falló, causa, qué se intentó (si se sabe), cómo se resolvió y regla. */
+/** La copia corta para el cerebro: una línea con fecha, tarjeta, repo, qué falló, causa, qué cambia y por qué es distinto (si los trae), qué se intentó (si se sabe), cómo se resolvió y regla. */
 export function resumenDeUnaLinea(entrada) {
   const texto = String(entrada ?? "");
   const encabezado = texto.match(/^###\s+(.+)$/m)?.[1] ?? "";
@@ -167,6 +182,9 @@ export function resumenDeUnaLinea(entrada) {
     campo("Repo") && `repo ${linea(campo("Repo"), 80)}`,
     campo("Qué falló") && `qué falló: ${campo("Qué falló")}`,
     `causa: ${linea(campo("Causa"), 200) || SIN_CAUSA}`,
+    // 27-nov-2026: qué cambia en el intento siguiente y por qué es distinto del anterior (si la entrada los trae).
+    campo("Qué cambia") && `qué cambia: ${linea(campo("Qué cambia"), 160)}`,
+    campo("Por qué es distinto") && `por qué es distinto: ${linea(campo("Por qué es distinto"), 160)}`,
     campo("Qué se intentó") && campo("Qué se intentó") !== "no registrado" && `qué se intentó: ${linea(campo("Qué se intentó"), 160)}`,
     campo("Cómo se resolvió") && `cómo se resolvió: ${linea(campo("Cómo se resolvió"), 120)}`,
     campo("Regla") && `regla: ${campo("Regla")}`,

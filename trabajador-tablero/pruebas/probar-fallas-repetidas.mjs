@@ -11,15 +11,20 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 
-import { manejarFalla, procesar, resolverLaSubidaDeshecha } from "../lib/bucle.mjs";
+import { manejarFalla, procesar, referenciasDeLaCausa, resolverLaSubidaDeshecha } from "../lib/bucle.mjs";
 import { LOG_ACTUALIZAR_POR_DEFECTO, PISO_VERSION_MINUTOS, completarConfig } from "../lib/config.mjs";
 import {
   FRASES_DE_LA_CAUSA,
+  MISMA_CAUSA,
   SIN_REPARACION_AUTOMATICA,
   TOPE_INTENTOS_DE_SUBIDA,
   causaConMarca,
+  causaEnUnaFrase,
   causaExterna,
+  causaParaComparar,
   decidir,
+  esCausaDeDependencia,
+  esLaMismaCausa,
   diagnosticar,
   estrategiaDeLaCausa,
   queHacerConLaSubidaDeshecha,
@@ -626,6 +631,210 @@ try {
     assert.match(primera.error, /Últimas 30 líneas del log:\n/);
     assert.match(primera.error, /ok 11 - prueba 11\n[\s\S]*not ok 40/, "trae las últimas 30 líneas de la salida");
     assert.doesNotMatch(primera.error, /ok 10 - prueba 10\n/, "solo las últimas 30");
+  });
+
+  /* ── 27-nov-2026, parte 3 de «si una reparación falla por el mismo motivo, no repetir igual»: la misma causa no se repara igual ── */
+
+  // El CRM falso de la parte 3: anota todo; /depender suelta la tarjeta (la otra no está HECHO); /reparar suma como el de verdad.
+  const crmDeMismaCausa = (tarjeta, { depender = async () => ({ ok: true, soltada: true, estado: "PLAN_APROBADO", esperando: "Esperando a «Parte 1»" }) } = {}) => {
+    const llamadas = [];
+    const crm = {
+      latido: async () => ({ ok: true }),
+      depender: async (id, datos) => (llamadas.push(["depender", id, datos]), depender(id, datos)),
+      reparar: async (id, datos) => {
+        llamadas.push(["reparar", id, datos]);
+        tarjeta.reparaciones = (tarjeta.reparaciones ?? 0) + 1;
+        tarjeta.ultimosIntentos.push({ accion: "reparar", etapa: datos.etapa, categoria: datos.categoria, causa: reglas.causaConEstrategia(datos.causa, reglas.estrategiaDeEntrada(datos.estrategia)) });
+        return { ok: true, reparaciones: tarjeta.reparaciones };
+      },
+      error: async (...args) => (llamadas.push(["error", ...args]), { ok: true }),
+      soltar: async (...args) => (llamadas.push(["soltar", ...args]), { ok: true }),
+      aviso: async (...args) => (llamadas.push(["aviso", ...args]), { ok: true }),
+      causaExterna: async (...args) => (llamadas.push(["causaExterna", ...args]), { ok: true }),
+      yaHecha: async (...args) => (llamadas.push(["ya-hecha", ...args]), { ok: true, estado: "HECHO" }),
+    };
+    return { crm, llamadas };
+  };
+  const argsDe = (crm, carpeta) => {
+    const conCarpeta = { ...config, carpetaTrabajo: carpeta };
+    const registro = registroFalso();
+    return { crm, config: conCarpeta, registro, contexto: { config: conCarpeta, registro }, bitacora: [] };
+  };
+  const PARTE_1 = "La parte 1 no está en main: no se puede construir sobre ella.";
+
+  await prueba("misma causa: la causa en una frase y la comparación sin hashes, fechas ni links", async () => {
+    assert.equal(causaEnUnaFrase({ categoria: "otra", causa: "La parte 1 no está en main (commit 1a2b3c4d5e) https://x.co/y [estrategia: opus]" }), "otra: La parte N no está en main");
+    // Dos fallas que solo cambian en el commit o la fecha cuentan como la misma.
+    assert.equal(causaParaComparar("Falta el commit 1a2b3c4d5e del 2026-11-26"), causaParaComparar("Falta el commit 9f8e7d6c5b del 2026-11-27"));
+    assert.equal(causaParaComparar("Se cortó el 26-nov-2026"), causaParaComparar("Se cortó el 27-oct-2026"));
+    assert.ok(esLaMismaCausa({ categoria: "otra", causa: "No está el commit abc1234" }, { categoria: "otra", causa: "No está el commit def5678 [estrategia: opus]" }));
+    assert.ok(!esLaMismaCausa({ categoria: "otra", causa: "falta la tabla Pedido" }, { categoria: "otra", causa: "falta la tabla Cliente" }), "lo demás sigue siendo distinto");
+    // Qué es una causa de dependencia o de main (y qué no).
+    for (const si of ["La parte 1 no está en main", "Depende de «Parte 1: la base»", "DEPENDE_DE: T-996", "la parte 2 de 4 no está todavía"]) assert.ok(esCausaDeDependencia(si), si);
+    for (const no of ["no cambió nada y no está en main: se vuelve a planear", "Fallaron las pruebas: not ok 3", ""]) assert.ok(!esCausaDeDependencia(no), no);
+    // Las referencias que nombra la causa: «títulos» e ids, sin la propia tarjeta.
+    assert.deepEqual(referenciasDeLaCausa("Depende de «Parte 1: la base» y de cmabcdefghijklmnopqrstuvw", { id: "cmzzzzzzzzzzzzzzzzzzzzzzz", titulo: "Yo" }), ["cmabcdefghijklmnopqrstuvw", "Parte 1: la base"]);
+    assert.deepEqual(referenciasDeLaCausa("La parte 1 no está en main"), []);
+  });
+
+  await prueba("misma causa de dependencia: la 3.ª decisión es esperar_dependencia, no reparar", async () => {
+    const diagnostico = diagnosticar({ error: new ErrorDeEtapa(PARTE_1), etapa: "construir" });
+    assert.equal(diagnostico.categoria, "otra");
+    const previa = { accion: "reparar", etapa: "construir", categoria: "otra", causa: diagnostico.causa };
+    const primera = decidir({ diagnostico, tarjeta: { reparaciones: 0, ultimosIntentos: [] }, etapa: "construir" });
+    assert.equal(primera.accion, "reparar", "la 1.ª vez se repara como siempre");
+    assert.ok(primera.porQueEsDistinto, "la reparación dice por qué es distinta");
+    // Dos fallas seguidas con la misma causa ("la parte 1 no está en main", aunque cambie el commit): la siguiente no repara.
+    const otraVez = { ...previa, causa: `${diagnostico.causa} (commit 1a2b3c4d5e) [estrategia: opus]` };
+    for (const intentos of [[previa], [previa, otraVez]]) {
+      const decision = decidir({ diagnostico, tarjeta: { reparaciones: intentos.length, ultimosIntentos: intentos }, etapa: "construir" });
+      assert.equal(decision.accion, "esperar_dependencia", JSON.stringify(decision));
+      assert.equal(decision.cuenta, false, "no gasta reparación");
+      assert.match(decision.porQueEsDistinto, /no se repara igual/);
+      assert.match(decision.queCambia, /se espera a la tarjeta de la que depende/);
+    }
+    // Un no_cambio_nada cuyo NO_CAMBIE dice lo mismo también espera (no prueba Opus ni plan nuevo).
+    const sinCambios = { categoria: "no_cambio_nada", causa: "Claude terminó sin cambiar ningún archivo: la parte 1 no está en main" };
+    const previaSinCambios = { accion: "reparar", etapa: "construir", categoria: "no_cambio_nada", causa: `${sinCambios.causa} [estrategia: plan_nuevo] (estrategia: plan_nuevo)` };
+    assert.equal(decidir({ diagnostico: sinCambios, tarjeta: { reparaciones: 1, ultimosIntentos: [previaSinCambios] }, etapa: "construir" }).accion, "esperar_dependencia");
+    // Las causas de código siguen sus estrategias de siempre, aunque digan "no está en main".
+    const pruebasRotas = { categoria: "fallan_pruebas", causa: "Fallaron las pruebas que ya existían: not ok 3 - la función no está en main" };
+    const previaDePruebas = { accion: "reparar", etapa: "construir", categoria: "fallan_pruebas", causa: `${pruebasRotas.causa} [estrategia: arreglo]` };
+    const deCodigo = decidir({ diagnostico: pruebasRotas, tarjeta: { reparaciones: 1, ultimosIntentos: [previaDePruebas] }, etapa: "construir" });
+    assert.deepEqual([deCodigo.accion, deCodigo.estrategia], ["reparar", "opus"]);
+    // Una causa distinta a la anterior, aunque sea de dependencia, se repara la 1.ª vez.
+    assert.equal(decidir({ diagnostico, tarjeta: { reparaciones: 1, ultimosIntentos: [{ ...previa, causa: "Otra cosa distinta que falló antes" }] }, etapa: "construir" }).accion, "reparar");
+  });
+
+  await prueba("esperar_dependencia: llama crm.depender con las referencias de la tarjeta; sin referencias, crm.error depende_de_sin_main; nunca crm.reparar", async () => {
+    const diagnostico = diagnosticar({ error: new ErrorDeEtapa(PARTE_1), etapa: "construir" });
+    const previas = () => [
+      { accion: "reparar", etapa: "construir", categoria: "otra", causa: diagnostico.causa },
+      { accion: "reparar", etapa: "construir", categoria: "otra", causa: `${diagnostico.causa} [estrategia: opus] (estrategia: opus)` },
+    ];
+    // 1) La tarjeta nombra a la parte 1 ("depende de «…»"): flecha y espera, sin reparar.
+    const conReferencia = {
+      id: "cmyjn7ul5g8888888888888",
+      titulo: "Coordinador: parte 3",
+      detalle: "Parte 3 de 4. Depende de «Coordinador parte 1».",
+      repo: "aizencrm",
+      estado: "EN_CURSO",
+      topeReparaciones: 3,
+      reparaciones: 2,
+      intentos: 3,
+      ultimosIntentos: previas(),
+    };
+    const uno = crmDeMismaCausa(conReferencia);
+    const carpeta = fs.mkdtempSync(path.join(T, "trabajo-misma-causa-"));
+    const salida = await manejarFalla(argsDe(uno.crm, carpeta), conReferencia, "construir", new ErrorDeEtapa(PARTE_1));
+    assert.equal(salida.accion, "esperar_dependencia", JSON.stringify(salida));
+    assert.deepEqual(uno.llamadas.map(([que]) => que), ["depender"], "solo la flecha: ni reparar ni ERROR");
+    assert.deepEqual(uno.llamadas[0][2].referencias, ["Coordinador parte 1"]);
+    // Queda en la bitácora como corte por misma causa, con su porqué.
+    const texto = fs.readFileSync(path.join(carpeta, "incidentes", "aizencrm.md"), "utf8");
+    assert.match(texto, /^- Qué falló: se cortó: misma causa que el intento anterior$/m);
+    assert.match(texto, /^- Causa: otra: La parte N no está en main/m);
+    assert.match(texto, /^- Qué cambia: no se repara: se espera a la tarjeta de la que depende/m);
+    assert.match(texto, /^- Por qué es distinto: no se repara igual/m);
+    assert.match(texto, /^- Cómo se resolvió: se espera a la tarjeta de la que depende, sin reparar ni gastar intento$/m);
+
+    // 2) Sin a quién esperar: ERROR depende_de_sin_main con el motivo y el porqué; ni depender ni reparar.
+    const sinReferencia = { ...conReferencia, id: "cmyjn7ul5g9999999999999", titulo: "Coordinador: otra parte", detalle: "Algo sin nombres.", ultimosIntentos: previas() };
+    const dos = crmDeMismaCausa(sinReferencia);
+    const sinNadie = await manejarFalla(argsDe(dos.crm, fs.mkdtempSync(path.join(T, "trabajo-misma-causa-"))), sinReferencia, "construir", new ErrorDeEtapa(PARTE_1));
+    assert.equal(sinNadie.categoria, "depende_de_sin_main");
+    assert.deepEqual(dos.llamadas.map(([que]) => que), ["error"], "solo ERROR");
+    const [, id, resumen, , , extra] = dos.llamadas[0];
+    assert.equal(id, sinReferencia.id);
+    assert.equal(extra.categoria, "depende_de_sin_main");
+    assert.ok(resumen.split("\n").length <= 3, resumen);
+    assert.match(resumen, /no se sabe a qué tarjeta esperar/);
+    assert.deepEqual(Object.keys(extra.porQue).sort(), ["causa", "porQueEsDistinto", "queCambia"]);
+
+    // 3) La tarjeta nombrada ya está HECHA a mano sin su código en main: el camino de DEPENDE_DE la deja en ERROR (tampoco repara).
+    const hechaAMano = { ...conReferencia, id: "cmyjn7ul5g0101010101010", ultimosIntentos: previas() };
+    const tres = crmDeMismaCausa(hechaAMano, { depender: async () => ({ ok: true, soltada: false, tarjetas: [{ id: "cmotraotraotraotraotraotr", titulo: "Coordinador parte 1", estado: "HECHO", hechaAMano: true }] }) });
+    const sinMain = await manejarFalla(argsDe(tres.crm, fs.mkdtempSync(path.join(T, "trabajo-misma-causa-"))), hechaAMano, "construir", new ErrorDeEtapa(PARTE_1));
+    assert.equal(sinMain.categoria, "depende_de_sin_main", JSON.stringify(sinMain));
+    assert.deepEqual(tres.llamadas.map(([que]) => que), ["depender", "error"]);
+    assert.ok(tres.llamadas[1][5].porQue, "el ERROR lleva el porqué");
+    assert.ok(![uno, dos, tres].some(({ llamadas }) => llamadas.some(([que]) => que === "reparar")), "nunca crm.reparar");
+  });
+
+  await prueba("no cambió nada con el mismo motivo dos veces: se escala con mismaCausa, sin una 3.ª reparación", async () => {
+    const MOTIVO = "el botón de exportar ya hace lo que pide la tarea";
+    const fallaSinCambios = () => new ErrorDeEtapa(`${NO_CAMBIO}\nNO_CAMBIE: ${MOTIVO}`);
+    const diagnostico = diagnosticar({ error: fallaSinCambios(), etapa: "construir" });
+    assert.equal(diagnostico.categoria, "no_cambio_nada");
+    const previas = () => [
+      { accion: "reparar", etapa: "construir", categoria: "no_cambio_nada", causa: reglas.causaConEstrategia(causaConMarca(diagnostico.causa, "plan_nuevo"), "plan_nuevo") },
+      { accion: "reparar", etapa: "construir", categoria: "no_cambio_nada", causa: reglas.causaConEstrategia(causaConMarca(diagnostico.causa, "opus"), "opus") },
+    ];
+    const decision = decidir({ diagnostico, tarjeta: { reparaciones: 2, topeReparaciones: 3, ultimosIntentos: previas() }, etapa: "construir" });
+    assert.deepEqual([decision.accion, decision.mismaCausa, decision.reparaciones], ["escalar", true, 2], JSON.stringify(decision));
+    assert.match(decision.porQueEsDistinto, /no hay nada distinto que probar/);
+    // Sin el motivo de NO_CAMBIE, sus estrategias siguen como hoy (queda "nube").
+    const sinMotivo = { categoria: "no_cambio_nada", causa: "Claude terminó sin cambiar ningún archivo" };
+    const previaSinMotivo = [
+      { accion: "reparar", categoria: "no_cambio_nada", causa: `${sinMotivo.causa} [estrategia: plan_nuevo]` },
+      { accion: "reparar", categoria: "no_cambio_nada", causa: `${sinMotivo.causa} [estrategia: opus]` },
+    ];
+    assert.deepEqual(
+      ["accion", "estrategia"].map((campo) => decidir({ diagnostico: sinMotivo, tarjeta: { reparaciones: 2, ultimosIntentos: previaSinMotivo }, etapa: "construir" })[campo]),
+      ["reparar", "nube"],
+    );
+
+    // De punta a punta: no hay tercera llamada a crm.reparar; queda ERROR con el motivo, el porqué y la bitácora del corte.
+    const tarjeta = {
+      id: "cmyjn7ul5g1212121212121",
+      titulo: "Ajustar la ayuda del exportador viejo",
+      repo: "aizencrm",
+      estado: "EN_CURSO",
+      plan: "Cambiar src/lib/no-existe-en-main.ts.",
+      topeReparaciones: 3,
+      reparaciones: 2,
+      intentos: 3,
+      ultimosIntentos: previas(),
+    };
+    const { crm, llamadas } = crmDeMismaCausa(tarjeta);
+    const carpeta = fs.mkdtempSync(path.join(T, "trabajo-no-cambio-igual-"));
+    const salida = await manejarFalla(argsDe(crm, carpeta), { ...tarjeta, ultimosIntentos: previas() }, "construir", fallaSinCambios());
+    assert.equal(salida.accion, "escalar", JSON.stringify(salida));
+    assert.equal(salida.mismaCausa, true);
+    assert.ok(!llamadas.some(([que]) => que === "reparar"), "sin una 3.ª reparación");
+    const errores = llamadas.filter(([que]) => que === "error");
+    assert.equal(errores.length, 1);
+    const [, , resumen, , , extra] = errores[0];
+    assert.ok(resumen.includes(MISMA_CAUSA), resumen);
+    assert.equal(extra.categoria, "no_cambio_nada");
+    assert.match(extra.porQue.causa, /^no_cambio_nada: Claude terminó sin cambiar ningún archivo: el botón de exportar/);
+    assert.match(extra.porQue.queCambia, /no se repara otra vez/);
+    assert.match(extra.porQue.porQueEsDistinto, /misma que la del intento anterior/);
+    const texto = fs.readFileSync(path.join(carpeta, "incidentes", "aizencrm.md"), "utf8");
+    assert.match(texto, /^- Qué falló: se cortó: misma causa que el intento anterior$/m);
+    assert.match(texto, /^- Qué cambia: no se repara otra vez/m);
+    assert.match(texto, /^- Por qué es distinto: no hay nada distinto que probar/m);
+  });
+
+  await prueba("cada reparación manda al CRM y a la bitácora la causa, qué cambia y por qué es distinto", async () => {
+    const tarjeta = { id: "cmyjn7ul5g1313131313131", titulo: "Cambio que no compila", repo: "aizencrm", estado: "EN_CURSO", topeReparaciones: 3, reparaciones: 0, intentos: 1, ultimosIntentos: [] };
+    const { crm, llamadas } = crmDeMismaCausa(tarjeta);
+    const carpeta = fs.mkdtempSync(path.join(T, "trabajo-porque-"));
+    const salida = await manejarFalla(argsDe(crm, carpeta), { ...tarjeta, ultimosIntentos: [] }, "construir", new ErrorDeEtapa("No compiló.\nsrc/a.ts(3,1): error TS2322: Type 'x' is not assignable", { categoria: "no_compila" }));
+    assert.equal(salida.accion, "reparar");
+    const [, , datos] = llamadas.find(([que]) => que === "reparar");
+    assert.match(datos.porQue.causa, /^no_compila: El código no compila: .*error TSN/);
+    assert.match(datos.porQue.queCambia, /primer arreglo/);
+    assert.match(datos.porQue.porQueEsDistinto, /primer intento que falla/);
+    assert.deepEqual(salida.porQue, datos.porQue);
+    // La bitácora la anota aunque no sea una de las fallas repetidas (antes solo se anotaban esas).
+    const texto = fs.readFileSync(path.join(carpeta, "incidentes", "aizencrm.md"), "utf8");
+    assert.match(texto, /^- Causa: no_compila: El código no compila/m);
+    assert.match(texto, /^- Qué cambia: es el primer arreglo/m);
+    assert.match(texto, /^- Por qué es distinto: es el primer intento que falla/m);
+    assert.equal((texto.match(/^### /gm) ?? []).length, 1, "una sola entrada por falla");
+    // Lo que el CRM guarda en el historial: tres textos de 300 letras (porQueDeEntrada de reglas-trabajador.ts).
+    assert.deepEqual(reglas.porQueDeEntrada(datos.porQue), datos.porQue);
   });
 
   console.log(`\n${pruebas} pruebas OK`);

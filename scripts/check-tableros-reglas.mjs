@@ -1418,6 +1418,20 @@ await prueba("las 3 líneas del resumen: se recortan y se descartan si vienen va
   assert.equal(trabajo.resumenDeTresLineasDeEntrada({ hizo: "x".repeat(900) }).hizo.length, 300);
 });
 
+await prueba("el porqué de una reparación: tres textos de 300 letras, los vacíos se descartan y sin nada es null", () => {
+  assert.deepEqual(trabajo.porQueDeEntrada({ causa: " otra: la parte 1\nno está en main ", queCambia: "se espera a la parte 1", porQueEsDistinto: "no se repara igual" }), {
+    causa: "otra: la parte 1 no está en main",
+    queCambia: "se espera a la parte 1",
+    porQueEsDistinto: "no se repara igual",
+  });
+  assert.deepEqual(trabajo.porQueDeEntrada({ causa: "x", queCambia: "  ", porQueEsDistinto: 5 }), { causa: "x" });
+  assert.equal(trabajo.porQueDeEntrada({ causa: "", queCambia: " " }), null);
+  assert.equal(trabajo.porQueDeEntrada("x"), null);
+  assert.equal(trabajo.porQueDeEntrada(["x"]), null);
+  assert.equal(trabajo.porQueDeEntrada(undefined), null, "un Coordinador viejo no lo manda: no cambia nada");
+  assert.equal(trabajo.porQueDeEntrada({ queCambia: "y".repeat(900) }).queCambia.length, 300);
+});
+
 prueba("aprobar_tarjeta: texto obligatorio y válido por voz; zona protegida: bot, Meta Ads, libro V3 y chats también por voz", () => {
   assert.match(destino({ textoConfirmacion: undefined }), /texto de confirmación/);
   assert.match(destino({ textoConfirmacion: "ok dale" }), /texto de confirmación/);

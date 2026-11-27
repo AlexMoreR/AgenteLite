@@ -1744,6 +1744,25 @@ export function resumenDeTresLineasDeEntrada(valor: unknown): ResumenDeTresLinea
   return { ...(hizo ? { hizo } : {}), ...(ahora ? { ahora } : {}), ...(revisar ? { revisar } : {}) };
 }
 
+/**
+ * El porqué de una reparación (27-nov-2026, parte 3 de «si una reparación falla por el mismo motivo, no repetir igual»): la causa
+ * en una frase, qué cambia en el intento siguiente y por qué es distinto del anterior. El Coordinador lo manda con /reparar,
+ * /soltar y /error, y queda en el `despues` de la fila del historial (se ve en ver_historial_tarjeta). Cada texto en una línea y
+ * de máximo 300 letras; los vacíos se descartan. Sin ninguno (o un Coordinador viejo que no lo manda), null: no cambia nada.
+ */
+export type PorQueDeLaReparacion = { causa?: string; queCambia?: string; porQueEsDistinto?: string };
+
+export function porQueDeEntrada(valor: unknown): PorQueDeLaReparacion | null {
+  if (!valor || typeof valor !== "object" || Array.isArray(valor)) return null;
+  const datos = valor as Record<string, unknown>;
+  const limpia = (dato: unknown) => (typeof dato === "string" ? dato.replace(/\s+/g, " ").trim().slice(0, 300) : "");
+  const causa = limpia(datos.causa);
+  const queCambia = limpia(datos.queCambia);
+  const porQueEsDistinto = limpia(datos.porQueEsDistinto);
+  if (!causa && !queCambia && !porQueEsDistinto) return null;
+  return { ...(causa ? { causa } : {}), ...(queCambia ? { queCambia } : {}), ...(porQueEsDistinto ? { porQueEsDistinto } : {}) };
+}
+
 /** Un link https (el del commit en GitHub), o null. */
 export function linkDeEntrada(valor: unknown): string | null {
   const link = textoONull(valor, 500);

@@ -73,6 +73,7 @@ import {
   resultadoDeEntrada,
   fraseDeLaVigilancia,
   resumenDeTresLineasDeEntrada,
+  porQueDeEntrada,
   vigilanciaDeEntrada,
   resumenDeEscalada,
   reversionDeEntrada,
@@ -1088,7 +1089,9 @@ export async function accionDelTrabajador(
         data: { estado: vuelve, trabajoVenceEn: null, intentos: Math.max(0, actual.intentos - 1) },
       });
       if (hecho.count !== 1) throw new ErrorDelTrabajador("La tarjeta cambió mientras tanto.", 409);
-      await anotarTrabajador(tx, contexto, actual.id, { estado }, { estado: vuelve, nota: `soltada sin error: ${motivo}` });
+      // 27-nov-2026: el porqué de la decisión (causa, qué cambia, por qué es distinto) queda en el historial si llegó.
+      const porQue = porQueDeEntrada(cuerpo.porQue);
+      await anotarTrabajador(tx, contexto, actual.id, { estado }, { estado: vuelve, nota: `soltada sin error: ${motivo}`, ...(porQue ? { porQue } : {}) });
       if (intento) await anotarIntento(tx, actual.id, intento, ahora);
       await tocarTableros(tx, [actual.tableroId], ahora);
       return { ok: true, estado: vuelve, link: linkDeLaTarjeta(actual.id) };
@@ -1168,12 +1171,19 @@ export async function accionDelTrabajador(
       });
       if (hecho.count !== 1) throw new ErrorDelTrabajador("La tarjeta cambió mientras tanto.", 409);
       const reparaciones = actual.reparaciones + 1;
+      const porQue = porQueDeEntrada(cuerpo.porQue);
       await anotarTrabajador(
         tx,
         contexto,
         actual.id,
         { estado },
-        { estado: vuelve, nota: `reparación ${reparaciones} de ${TOPE_DE_REPARACIONES}: ${intento.causa}`, categoria: intento.categoria },
+        {
+          estado: vuelve,
+          nota: `reparación ${reparaciones} de ${TOPE_DE_REPARACIONES}: ${intento.causa}`,
+          categoria: intento.categoria,
+          // 27-nov-2026: la causa en una frase, qué cambia y por qué es distinto del intento anterior (ver_historial_tarjeta).
+          ...(porQue ? { porQue } : {}),
+        },
       );
       await anotarIntento(tx, actual.id, intento, ahora);
       await tocarTableros(tx, [actual.tableroId], ahora);
@@ -1497,6 +1507,9 @@ export async function accionDelTrabajador(
       }
       despues.motivo = motivo;
       if (reversion) despues.reversion = reversion;
+      // 27-nov-2026: el porqué de la escalada (causa, qué cambia, por qué es distinto) queda en el historial si llegó.
+      const porQue = porQueDeEntrada(cuerpo.porQue);
+      if (porQue) despues.porQue = porQue;
       // Si el cambio toca una zona protegida, el Coordinador la marca: se aprueba solo en la pantalla.
       marcarZonas();
     }
