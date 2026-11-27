@@ -44,15 +44,18 @@ export function esDeFeatures(
 /* ──────────────────────────────────────────── toda Tarea nueva cae en Features (27-nov) ── */
 
 /*
-  El Coordinador solo toma lo que cuelga de Features. Las Tareas que se creaban sueltas (o en otra área) en el tablero de
-  Features nadie las hacía. Desde ahora (crearTarjeta, en el MCP y en la pantalla): una Tarea nueva SIN padre en ese tablero
-  queda dentro de Features sola; si trae un padre que no está en Features, se crea igual con AVISO_TAREA_FUERA_DE_FEATURES.
-  Crear una tarjeta nunca falla por esta regla. Prueba: npm run test:tareas-a-features.
+  El Coordinador solo toma lo que cuelga de Features. Las Tareas de desarrollo que se creaban sueltas (o en otra área) en el
+  tablero de Features nadie las hacía. Regla (crearTarjeta, en el MCP y en la pantalla; ajustada el 27-nov): una Tarea nueva
+  CON repo de desarrollo (gestion o aizencrm) en ese tablero queda dentro de Features sola, traiga o no padre, y conserva su
+  área (la pedida, o la de la madre que se pidió). Si la madre pedida ya cuelga de Features, se respeta. Lo que no es
+  desarrollo (una Tarea sin repo, una Idea o un Área) queda donde se pidió y sin aviso. Si una Tarea con repo no puede
+  entrar a Features, se crea igual con AVISO_TAREA_FUERA_DE_FEATURES. Crear una tarjeta nunca falla por esta regla.
+  Prueba: npm run test:tareas-a-features.
 */
 
 /** La regla, escrita en un solo lugar: va en la descripción de crear_tarjeta y en las instrucciones del servidor MCP. */
 export const REGLA_TAREAS_EN_FEATURES =
-  "Si es un desarrollo nuevo o una corrección en Gestión o en el CRM, créala como Tarea dentro de Features (T-736), con repo gestion o aizencrm. Las Ideas son solo notas y no van a Features.";
+  "Si es un desarrollo nuevo o una corrección en Gestión o en el CRM, créala como Tarea dentro de Features (T-736), con repo y con el área que corresponda. Si el dueño pide otra área y no es desarrollo, respétala. Las Ideas no van a Features.";
 
 /** Lo que devuelve crear_tarjeta (aviso_features) cuando la Tarea no queda dentro de Features. */
 export const AVISO_TAREA_FUERA_DE_FEATURES = "Esta Tarea no la va a tomar el Coordinador; muévela a Features (T-736).";
@@ -66,19 +69,49 @@ export function esTipoTarea(tipo: { nombre: string } | string | null | undefined
   return typeof nombre === "string" && claveDeNombre(nombre) === claveDeNombre("Tarea");
 }
 
+/** Los repos de desarrollo: una Tarea con uno de estos es trabajo del Coordinador y va a Features. */
+export const REPOS_DE_DESARROLLO = ["gestion", "aizencrm"] as const;
+
+/** ¿Es un repo de desarrollo? Sin espacios ni mayúsculas (" AizenCRM " cuenta). */
+export function esRepoDeDesarrollo(repo: string | null | undefined): boolean {
+  if (typeof repo !== "string") return false;
+  const limpio = repo.trim().toLowerCase();
+  return (REPOS_DE_DESARROLLO as readonly string[]).includes(limpio);
+}
+
 /**
- * El padre de una tarjeta nueva: Features (TARJETA_AREA_FEATURES_ID) solo si es del tablero de Features, de tipo Tarea y nadie
- * le puso padre. En cualquier otro caso (Idea, Área, otro tablero o con padre) devuelve el padre que venía, tal cual.
+ * El padre de una tarjeta nueva: Features (TARJETA_AREA_FEATURES_ID) solo si es del tablero de Features, de tipo Tarea y con
+ * repo de desarrollo, traiga o no padre (si la madre pedida ya está en Features, quien llama la deja). En cualquier otro caso
+ * (Tarea sin repo, Idea, Área, otro tablero o sin tipo) devuelve el padre que venía, tal cual, o null.
  */
 export function padreParaTareaNueva(datos: {
   tableroId: string;
   tipo: { nombre: string } | string | null | undefined;
   padreId: string | null | undefined;
+  repo: string | null | undefined;
 }): string | null {
-  const padre = datos.padreId ?? null;
-  if (padre) return padre;
-  if (datos.tableroId !== TABLERO_DE_FEATURES_ID || !esTipoTarea(datos.tipo)) return padre;
+  const padre = datos.padreId || null;
+  if (datos.tableroId !== TABLERO_DE_FEATURES_ID || !esTipoTarea(datos.tipo) || !esRepoDeDesarrollo(datos.repo)) return padre;
   return TARJETA_AREA_FEATURES_ID;
+}
+
+/**
+ * El área de una Tarea que la regla pasa a Features, en este orden: la pedida (si no viene vacía); si no, el área de la madre
+ * que se pidió; si no, el título de esa madre cuando es de tipo Área; si no, null.
+ */
+export function areaAlMoverAFeatures(datos: {
+  areaPedida: string | null | undefined;
+  madre: { area: string | null | undefined; titulo: string | null | undefined; tipoNombre: string | null | undefined } | null;
+}): string | null {
+  const limpio = (texto: string | null | undefined) => (typeof texto === "string" && texto.trim() !== "" ? texto.trim() : null);
+  const pedida = limpio(datos.areaPedida);
+  if (pedida) return pedida;
+  const madre = datos.madre;
+  if (!madre) return null;
+  const deLaMadre = limpio(madre.area);
+  if (deLaMadre) return deLaMadre;
+  if (typeof madre.tipoNombre === "string" && claveDeNombre(madre.tipoNombre) === claveDeNombre("Área")) return limpio(madre.titulo);
+  return null;
 }
 
 /** ¿El padre (o alguna de sus madres, `ancestrosDelPadre` de SQL_ANCESTROS) es Features? */

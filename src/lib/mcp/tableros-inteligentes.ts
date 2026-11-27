@@ -338,9 +338,9 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     title: "Agregar una tarjeta",
     description:
       "Agrega una tarjeta (un área, una idea, una tarea...) al tablero. Sin tipo queda como Idea. Puede colgar de otra tarjeta (padre_id) si su tipo lo permite (Área > Idea > Tarea, o una Tarea directo en un Área; un Área también dentro de otra Área; lo que vale en cada tablero lo dice listar_tipos). Queda IDEA, o POR_APROBAR si su tipo pide aprobación y ya está lista para que el dueño la mire. Un Área no lleva estado. Si es un cambio de código que debe hacer el Coordinador, poner repo (gestion o aizencrm; solo tipos con aprobación, como Tarea) y, si toca Meta Ads, el bot de ventas o el libro V3, zona_protegida. Aprobarla lo hace el dueño (en la pantalla, o con aprobar_tarjeta si lo dice explícitamente). RIESGO (22-oct-2026, decisión del dueño: 'las cosas básicas que ayudan al negocio y no tienen riesgo, hágalas sin pedirme permiso; lo súper importante sí me lo manda al tablero'): en tarjetas con repo, proponer riesgo BAJO o ALTO. Una tarjeta BAJO POR_APROBAR se aprueba SOLA (si el interruptor de la pantalla está prendido) y el trabajador arranca sin pedir permiso. El servidor revisa las reglas: Claude nunca puede marcar BAJO algo con zona protegida, dinero, permisos o credenciales, mensajes a clientes, el propio trabajador o migraciones que borren o cambien datos. Si hay duda, ALTO. " +
-      // Regla (reglas-features.ts): «Si es un desarrollo nuevo o una corrección en Gestión o en el CRM, créala como Tarea dentro de Features (T-736), con repo gestion o aizencrm. Las Ideas son solo notas y no van a Features.»
+      // Regla (reglas-features.ts): «Si es un desarrollo nuevo o una corrección en Gestión o en el CRM, créala como Tarea dentro de Features (T-736), con repo y con el área que corresponda. Si el dueño pide otra área y no es desarrollo, respétala. Las Ideas no van a Features.»
       REGLA_TAREAS_EN_FEATURES +
-      " Una Tarea sin padre_id en el tablero Empresa Magilus queda dentro de Features sola; si queda fuera de Features, la respuesta trae aviso_features." +
+      " Una Tarea con repo gestion o aizencrm del tablero Empresa Magilus queda dentro de Features sola y conserva su área; lo demás queda donde se pidió; si una Tarea con repo queda fuera, la respuesta trae aviso_features." +
       REGLA_DEL_TABLERO,
     inputSchema: {
       type: "object",
@@ -350,7 +350,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
         tipo: { type: "string", description: "Nombre o id del tipo: 'Área', 'Idea', 'Tarea'... (ver listar_tipos). Por defecto, Idea." },
         padre_id: { type: "string", description: "Id de la tarjeta de la que cuelga (su tipo tiene que estar permitido). Opcional." },
         detalle: { type: "string", description: "Qué es, por qué y cómo se mediría. Opcional." },
-        area: { type: "string", description: "Ventas, Marketing, Operación... Opcional." },
+        area: { type: "string", description: "Ventas, Marketing, Operación... Opcional. Si una Tarea con repo pasa sola a Features, se llena sola con el área pedida (la de su madre)." },
         estado: { type: "string", enum: [...ESTADOS_AL_CREAR], description: "IDEA (por defecto) o POR_APROBAR (solo tipos con aprobación)" },
         fecha: { type: "string", description: "Para cuándo, AAAA-MM-DD. Opcional." },
         orden: { type: "number", description: "Posición dentro de la lista (menor = primero). Opcional." },

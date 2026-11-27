@@ -76,8 +76,8 @@ async function atender(pedido: Pedido, contexto: { workspaceId: string; userId: 
           "y Tarea) y puede colgar de otra (padre_id) si el tipo lo permite: Area > Idea > Tarea, o una Tarea directo en un Area (un Area tambien dentro de " +
           "otra Area; lo que vale en cada tablero lo dice listar_tipos). El Area es una carpeta: no tiene estado. Solo los tipos que piden " +
           "aprobacion (Tarea) pasan por POR_APROBAR. " +
-          // Regla (reglas-features.ts): «Si es un desarrollo nuevo o una corrección en Gestión o en el CRM, créala como Tarea dentro de Features (T-736), con repo gestion o aizencrm. Las Ideas son solo notas y no van a Features.»
-          `${REGLA_TAREAS_EN_FEATURES} Una Tarea sin padre_id en el tablero Empresa Magilus queda dentro de Features sola; si queda fuera, crear_tarjeta trae aviso_features. ` +
+          // Regla (reglas-features.ts): «Si es un desarrollo nuevo o una corrección en Gestión o en el CRM, créala como Tarea dentro de Features (T-736), con repo y con el área que corresponda. Si el dueño pide otra área y no es desarrollo, respétala. Las Ideas no van a Features.»
+          `${REGLA_TAREAS_EN_FEATURES} Una Tarea con repo gestion o aizencrm del tablero Empresa Magilus queda dentro de Features sola y conserva su área; lo demás queda donde se pidió; si una Tarea con repo queda fuera, crear_tarjeta trae aviso_features. ` +
           "Claude nunca aprueba por su cuenta con aprobar_tarjeta, pero desde el 25-oct-2026 el servidor aprueba solo toda Tarea con repo (regla del dueno); " +
           "solo se queda POR_APROBAR, esperando al dueno en la pantalla, la que toca dinero de Gestion o gasto en Meta Ads. Interruptor: Aprobar tareas solo. Si se edita lo que hay que hacer de una tarjeta aprobada (titulo, detalle, tipo, repo, riesgo, zona protegida), vuelve a POR_APROBAR; moverla (de que cuelga, area, orden, fecha, responsable) conserva su estado y su plan. borrar_tarjeta quita la tarjeta con sus " +
           "flechas y se deshace con deshacer_cambio_tarjeta. Una tarjeta PLAN_LISTO o ERROR se borra solo si el dueno lo " +

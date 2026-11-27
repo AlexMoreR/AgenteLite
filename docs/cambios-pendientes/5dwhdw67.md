@@ -1,0 +1,2 @@
+## Advertencias de operación
+- `tareas_en_features_al_crear`: en el tablero Empresa Magilus, solo una Tarea nueva con repo gestion o aizencrm entra sola a Features (T-736), aunque se pida bajo otra madre; deja de colgar de esa madre y conserva su área como texto (la pedida, la de la madre o el título del Área). Una Tarea sin repo, una Idea o un Área queda donde se pidió y sin aviso_features. Hasta la parte 2, la revisión diaria (tareas_a_features_tablero) sigue con la regla vieja.

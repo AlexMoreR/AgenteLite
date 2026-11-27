@@ -1,6 +1,6 @@
-// Toda Tarea nueva cae sola en Features (27-nov-2026): el Coordinador solo toma lo que cuelga de Features (T-736).
-// Una Tarea nueva sin padre del tablero de Features queda dentro de Features; si trae un padre fuera de Features, se crea
-// igual con aviso_features. Prueba la parte pura (reglas-features.ts) y, por texto, que crearTarjeta, crear_tarjeta y
+// Las Tareas con repo caen solas en Features (27-nov-2026): el Coordinador solo toma lo que cuelga de Features (T-736).
+// Una Tarea nueva con repo gestion o aizencrm del tablero de Features queda dentro de Features, traiga o no madre, y conserva
+// su área; lo que no es desarrollo queda donde se pidió; si una Tarea con repo no puede entrar, se crea igual con aviso_features. Prueba la parte pura (reglas-features.ts) y, por texto, que crearTarjeta, crear_tarjeta y
 // las instrucciones del servidor MCP la usan. Sin base ni red.
 // Parte 2: SQL_TAREAS_FUERA_DE_FEATURES en una base de pruebas (PGlite, con todas las migraciones), moverTareasAFeatures con
 // un prisma falso sobre esa misma base, y por texto el reloj y que_es_esta_aplicacion.
@@ -27,26 +27,62 @@ const leer = (ruta) => readFileSync(new URL(`../${ruta}`, import.meta.url), "utf
 await prueba("los textos de la regla y del aviso son los de la tarjeta", () => {
   assert.equal(
     f.REGLA_TAREAS_EN_FEATURES,
-    "Si es un desarrollo nuevo o una corrección en Gestión o en el CRM, créala como Tarea dentro de Features (T-736), con repo gestion o aizencrm. Las Ideas son solo notas y no van a Features.",
+    "Si es un desarrollo nuevo o una corrección en Gestión o en el CRM, créala como Tarea dentro de Features (T-736), con repo y con el área que corresponda. Si el dueño pide otra área y no es desarrollo, respétala. Las Ideas no van a Features.",
   );
   assert.equal(f.AVISO_TAREA_FUERA_DE_FEATURES, "Esta Tarea no la va a tomar el Coordinador; muévela a Features (T-736).");
   assert.equal(f.NOTA_PUESTA_EN_FEATURES, "puesta dentro de Features sola");
 });
 
-await prueba("padreParaTareaNueva: una Tarea sin padre del tablero de Features va a Features", () => {
-  assert.equal(f.padreParaTareaNueva({ tableroId: TABLERO, tipo: { nombre: "Tarea" }, padreId: null }), FEATURES);
-  assert.equal(f.padreParaTareaNueva({ tableroId: TABLERO, tipo: { nombre: "Tarea" }, padreId: undefined }), FEATURES);
-  assert.equal(f.padreParaTareaNueva({ tableroId: TABLERO, tipo: "tarea", padreId: null }), FEATURES, "por nombre, sin mayúsculas");
-  assert.equal(f.padreParaTareaNueva({ tableroId: TABLERO, tipo: { nombre: " TAREA " }, padreId: "" }), FEATURES, "padre vacío = sin padre");
+await prueba("REPOS_DE_DESARROLLO y esRepoDeDesarrollo, sin espacios ni mayúsculas", () => {
+  assert.deepEqual([...f.REPOS_DE_DESARROLLO], ["gestion", "aizencrm"]);
+  assert.equal(f.esRepoDeDesarrollo("aizencrm"), true);
+  assert.equal(f.esRepoDeDesarrollo(" AizenCRM "), true);
+  assert.equal(f.esRepoDeDesarrollo("GESTION"), true);
+  assert.equal(f.esRepoDeDesarrollo("otro"), false);
+  assert.equal(f.esRepoDeDesarrollo(""), false);
+  assert.equal(f.esRepoDeDesarrollo(null), false);
+  assert.equal(f.esRepoDeDesarrollo(undefined), false);
 });
 
-await prueba("padreParaTareaNueva: otro tablero, Idea, Área o una Tarea con padre no se tocan", () => {
-  assert.equal(f.padreParaTareaNueva({ tableroId: "otroTablero", tipo: { nombre: "Tarea" }, padreId: null }), null, "otro tablero");
-  assert.equal(f.padreParaTareaNueva({ tableroId: TABLERO, tipo: { nombre: "Idea" }, padreId: null }), null, "Idea");
-  assert.equal(f.padreParaTareaNueva({ tableroId: TABLERO, tipo: { nombre: "Área" }, padreId: null }), null, "Área");
-  assert.equal(f.padreParaTareaNueva({ tableroId: TABLERO, tipo: { nombre: "Tarea" }, padreId: "otraArea" }), "otraArea", "Tarea con padre");
-  assert.equal(f.padreParaTareaNueva({ tableroId: TABLERO, tipo: { nombre: "Idea" }, padreId: "otraArea" }), "otraArea", "Idea con padre");
-  assert.equal(f.padreParaTareaNueva({ tableroId: TABLERO, tipo: null, padreId: null }), null, "sin tipo");
+const tarea = { nombre: "Tarea" };
+const MARKETING = "area-marketing-0000000001";
+
+await prueba("padreParaTareaNueva: una Tarea sin repo queda donde se pidió", () => {
+  assert.equal(f.padreParaTareaNueva({ tableroId: TABLERO, tipo: tarea, padreId: null, repo: null }), null, "sin repo y sin madre");
+  assert.equal(f.padreParaTareaNueva({ tableroId: TABLERO, tipo: tarea, padreId: undefined, repo: undefined }), null);
+  assert.equal(f.padreParaTareaNueva({ tableroId: TABLERO, tipo: tarea, padreId: "", repo: "" }), null, "padre vacío = sin padre");
+  assert.equal(f.padreParaTareaNueva({ tableroId: TABLERO, tipo: tarea, padreId: MARKETING, repo: null }), MARKETING, "sin repo con madre Marketing");
+});
+
+await prueba("padreParaTareaNueva: una Tarea con repo de desarrollo va a Features, traiga o no madre", () => {
+  assert.equal(f.padreParaTareaNueva({ tableroId: TABLERO, tipo: tarea, padreId: null, repo: "aizencrm" }), FEATURES, "sin madre");
+  assert.equal(f.padreParaTareaNueva({ tableroId: TABLERO, tipo: tarea, padreId: MARKETING, repo: "aizencrm" }), FEATURES, "con madre Marketing");
+  assert.equal(f.padreParaTareaNueva({ tableroId: TABLERO, tipo: tarea, padreId: MARKETING, repo: " AizenCRM " }), FEATURES, "repo sin espacios ni mayúsculas");
+  assert.equal(f.padreParaTareaNueva({ tableroId: TABLERO, tipo: "tarea", padreId: null, repo: "gestion" }), FEATURES, "tipo por nombre, sin mayúsculas");
+  assert.equal(f.padreParaTareaNueva({ tableroId: TABLERO, tipo: { nombre: " TAREA " }, padreId: "", repo: "gestion" }), FEATURES);
+  assert.equal(f.padreParaTareaNueva({ tableroId: TABLERO, tipo: tarea, padreId: MARKETING, repo: "otro" }), MARKETING, "repo que no es de desarrollo");
+});
+
+await prueba("padreParaTareaNueva: Ideas, Áreas, sin tipo y otro tablero no se tocan", () => {
+  for (const nombre of ["Idea", "Área"]) {
+    for (const repo of [null, "aizencrm"]) {
+      assert.equal(f.padreParaTareaNueva({ tableroId: TABLERO, tipo: { nombre }, padreId: null, repo }), null, `${nombre} sin madre, repo ${repo}`);
+      assert.equal(f.padreParaTareaNueva({ tableroId: TABLERO, tipo: { nombre }, padreId: MARKETING, repo }), MARKETING, `${nombre} con madre, repo ${repo}`);
+    }
+  }
+  assert.equal(f.padreParaTareaNueva({ tableroId: TABLERO, tipo: null, padreId: null, repo: "aizencrm" }), null, "sin tipo");
+  assert.equal(f.padreParaTareaNueva({ tableroId: "otroTablero", tipo: tarea, padreId: null, repo: "aizencrm" }), null, "otro tablero");
+  assert.equal(f.padreParaTareaNueva({ tableroId: "otroTablero", tipo: tarea, padreId: MARKETING, repo: "aizencrm" }), MARKETING, "otro tablero con madre");
+});
+
+await prueba("areaAlMoverAFeatures: área pedida, área de la madre, título del Área o null", () => {
+  const madre = { area: "Ventas", titulo: "Marketing", tipoNombre: "Área" };
+  assert.equal(f.areaAlMoverAFeatures({ areaPedida: "Operación", madre }), "Operación", "la pedida primero");
+  assert.equal(f.areaAlMoverAFeatures({ areaPedida: "  ", madre }), "Ventas", "pedida vacía: la de la madre");
+  assert.equal(f.areaAlMoverAFeatures({ areaPedida: null, madre: { area: null, titulo: "Marketing", tipoNombre: "Área" } }), "Marketing", "el título del Área");
+  assert.equal(f.areaAlMoverAFeatures({ areaPedida: undefined, madre: { area: "", titulo: "Marketing", tipoNombre: "AREA" } }), "Marketing", "Área sin tildes ni mayúsculas");
+  assert.equal(f.areaAlMoverAFeatures({ areaPedida: null, madre: { area: null, titulo: "Una idea", tipoNombre: "Idea" } }), null, "madre que no es Área");
+  assert.equal(f.areaAlMoverAFeatures({ areaPedida: null, madre: null }), null, "sin madre");
 });
 
 await prueba("esTipoTarea y padreEstaEnFeatures", () => {
@@ -60,12 +96,18 @@ await prueba("esTipoTarea y padreEstaEnFeatures", () => {
   assert.equal(f.padreEstaEnFeatures("suelta", []), false, "padre suelto");
 });
 
+const FRASE_MCP = "Una Tarea con repo gestion o aizencrm del tablero Empresa Magilus queda dentro de Features sola y conserva su área; lo demás queda donde se pidió; si una Tarea con repo queda fuera,";
+
 await prueba("la regla está en la descripción de crear_tarjeta y aviso_features sale en su respuesta", () => {
   const mcp = leer("src/lib/mcp/tableros-inteligentes.ts");
   assert.match(mcp, /import \{ REGLA_TAREAS_EN_FEATURES \} from "@\/features\/tableros-inteligentes\/services\/reglas-features";/);
   const definicion = mcp.slice(mcp.indexOf('name: "crear_tarjeta"'), mcp.indexOf("inputSchema", mcp.indexOf('name: "crear_tarjeta"')));
   assert.ok(definicion.includes("REGLA_TAREAS_EN_FEATURES +"), "la descripción de crear_tarjeta usa la regla");
   assert.ok(definicion.includes(f.REGLA_TAREAS_EN_FEATURES), "el texto de la regla queda a la vista en crear_tarjeta (igual a la constante)");
+  assert.ok(definicion.includes(FRASE_MCP), "la frase de las Tareas con repo");
+  assert.ok(definicion.includes("la respuesta trae aviso_features."));
+  const esquema = mcp.slice(mcp.indexOf("inputSchema", mcp.indexOf('name: "crear_tarjeta"')), mcp.indexOf('name: "editar_tarjeta"'));
+  assert.match(esquema, /area: \{ type: "string", description: "[^"]*se llena sola con el área pedida[^"]*" \}/, "el parámetro area dice que se llena solo");
   const respuesta = mcp.slice(mcp.indexOf('case "crear_tarjeta": {'), mcp.indexOf('case "editar_tarjeta": {'));
   assert.ok(respuesta.includes("...(resultado.avisoFeatures ? { aviso_features: resultado.avisoFeatures } : {}),"), "aviso_features solo cuando viene");
 });
@@ -78,17 +120,26 @@ await prueba("la regla está en las instrucciones del servidor MCP, en la parte 
   const parte = ruta.slice(tablero, ruta.indexOf("TRABAJADOR (fase 2)", tablero));
   assert.ok(parte.includes("${REGLA_TAREAS_EN_FEATURES}"), "las instrucciones usan la regla");
   assert.ok(parte.includes(f.REGLA_TAREAS_EN_FEATURES), "el texto de la regla queda a la vista (igual a la constante)");
+  assert.ok(parte.includes(FRASE_MCP), "la frase de las Tareas con repo");
+  assert.ok(parte.includes("crear_tarjeta trae aviso_features."));
 });
 
-await prueba("crearTarjeta usa padreParaTareaNueva, revisarMadre sin fallar, SQL_ANCESTROS, la nota y aviso_features", () => {
+await prueba("crearTarjeta: repo antes de la regla, respeta la madre en Features, conserva el área, la nota y aviso_features", () => {
   const servicio = leer("src/features/tableros-inteligentes/services/tableros.ts");
   const inicio = servicio.indexOf("export async function crearTarjeta(");
   const crear = servicio.slice(inicio, servicio.indexOf("\n}\n", inicio));
-  assert.ok(crear.includes("padreParaTareaNueva({ tableroId: tablero.id, tipo, padreId: padrePedido })"));
-  assert.match(crear, /try \{\s*await revisarMadre\(\{[^}]*\}, padreId, tipos\);\s*puestaEnFeatures = true;\s*\} catch \{\s*padreId = null;\s*avisoFeatures = AVISO_TAREA_FUERA_DE_FEATURES;/);
-  assert.ok(crear.includes("...(puestaEnFeatures ? { nota: NOTA_PUESTA_EN_FEATURES } : {}),"), "la nota en el historial de la creación");
-  assert.ok(crear.includes("!(await padreCuelgaDeFeatures(padreId))"), "Tarea con padre: mira la cadena de madres");
+  const repo = crear.indexOf("const repo = repoDeEntrada(datos.repo) ?? null;");
+  const regla = crear.indexOf("padreParaTareaNueva({ tableroId: tablero.id, tipo, padreId: padrePedido, repo })");
+  assert.ok(repo > 0 && regla > repo, "el repo se calcula antes y se le pasa a la regla");
+  assert.ok(crear.includes("padrePedido && (await padreCuelgaDeFeatures(padrePedido))"), "la madre pedida que ya cuelga de Features se respeta");
+  assert.match(crear, /try \{\s*await revisarMadre\(\{[^}]*\}, padreId, tipos\);\s*puestaEnFeatures = true;\s*\} catch \{\s*padreId = padrePedido;\s*avisoFeatures = AVISO_TAREA_FUERA_DE_FEATURES;/);
+  assert.equal(crear.split("avisoFeatures = AVISO_TAREA_FUERA_DE_FEATURES").length, 2, "el aviso sale solo cuando la Tarea con repo no pudo entrar");
+  assert.ok(crear.includes("if (puestaEnFeatures && !area && padrePedido) {"), "el área se llena solo si quien crea no la escribió");
+  assert.ok(crear.includes("area = await areaDeLaMadrePedida(tablero.id, padrePedido, tipos);"));
+  assert.ok(crear.includes("...(puestaEnFeatures ? { nota: tarjeta.area ? `${NOTA_PUESTA_EN_FEATURES} (área ${tarjeta.area})` : NOTA_PUESTA_EN_FEATURES } : {}),"), "la nota en el historial de la creación");
   assert.ok(crear.includes("aprobacionAutomatica: aprobacion.resultado, avisoFeatures }"), "devuelve avisoFeatures");
+  const madre = servicio.slice(servicio.indexOf("async function areaDeLaMadrePedida("));
+  assert.match(madre.slice(0, 900), /try \{[\s\S]*areaAlMoverAFeatures\([\s\S]*\} catch \{\s*return null;\s*\}/, "si leer la madre falla, se crea sin área");
   const sube = servicio.slice(servicio.indexOf("async function padreCuelgaDeFeatures("));
   assert.ok(sube.slice(0, 600).includes("$queryRawUnsafe<{ id: string; ancestros: string[] }[]>(SQL_ANCESTROS, [padreId])"));
 });

@@ -84,9 +84,8 @@ import {
 import {
   AVISO_TAREA_FUERA_DE_FEATURES,
   NOTA_PUESTA_EN_FEATURES,
-  TABLERO_DE_FEATURES_ID,
   VIA_REGLA_FEATURES,
-  esTipoTarea,
+  areaAlMoverAFeatures,
   padreEstaEnFeatures,
   padreParaTareaNueva,
 } from "./reglas-features";
@@ -1504,11 +1503,12 @@ export async function crearTarjeta(
   const link = linkDeEntrada(datos.link) ?? null;
   const linkTexto = link ? (linkTextoDeEntrada(datos.linkTexto) ?? null) : null;
   const padrePedido = padreDeEntrada(datos.padreId) ?? null;
-  // Toda Tarea nueva sin padre del tablero de Features cae en Features (reglas-features.ts, 27-nov).
-  let padreId = padreParaTareaNueva({ tableroId: tablero.id, tipo, padreId: padrePedido });
   const repo = repoDeEntrada(datos.repo) ?? null;
   const zonaProtegida = zonasDeEntrada(datos.zonaProtegida) ?? [];
   if (repo) revisarRepoParaTipo(tipo);
+  // Una Tarea con repo de desarrollo del tablero de Features cae en Features, traiga o no padre (reglas-features.ts, 27-nov).
+  let padreId = padreParaTareaNueva({ tableroId: tablero.id, tipo, padreId: padrePedido, repo });
+  let area = textoLimpio(datos.area, MAX_AREA) ?? null;
   // El riesgo (BAJO / ALTO) lo propone quien crea; BAJO solo si las reglas no ven nada de riesgo alto.
   const detalle = textoLimpio(datos.detalle, MAX_DETALLE) ?? "";
   const riesgo = riesgoDeEntrada(datos.riesgo) ?? null;
@@ -1541,24 +1541,31 @@ export async function crearTarjeta(
       throw new Error("Alguna tarjeta de conectar_con no es de este tablero (o está borrada). Ver ver_tablero para los ids.");
     }
   }
-  // Regla "toda Tarea nueva cae en Features": crear una tarjeta nunca falla por ella; si no se puede, va el aviso.
+  // Regla "las Tareas con repo van a Features": crear una tarjeta nunca falla por ella; si no se puede, va el aviso.
+  // El aviso sale solo para una Tarea con repo de desarrollo que no pudo entrar (nunca para Tareas sin repo, Ideas ni Áreas).
   let avisoFeatures: string | null = null;
   let puestaEnFeatures = false;
-  if (padreId && !padrePedido) {
-    // La puso la regla: Features tiene que existir y aceptar a la Tarea. Si no, se crea suelta, con el aviso.
+  if (padreId && padreId !== padrePedido && padrePedido && (await padreCuelgaDeFeatures(padrePedido))) {
+    // La madre pedida ya cuelga de Features: se respeta esa madre.
+    padreId = padrePedido;
+  }
+  if (padreId && padreId !== padrePedido) {
+    // La puso la regla: Features tiene que existir y aceptar a la Tarea. Si no, queda con la madre pedida (o suelta), con el aviso.
     try {
       await revisarMadre({ id: "", tipoId: tipo.id, tableroId: tablero.id }, padreId, tipos);
       puestaEnFeatures = true;
     } catch {
-      padreId = null;
+      padreId = padrePedido;
       avisoFeatures = AVISO_TAREA_FUERA_DE_FEATURES;
     }
-  } else if (padreId) {
+    if (puestaEnFeatures && !area && padrePedido) {
+      // Conserva el área de la madre que se pidió. Si leerla falla (o no existe), se crea igual, sin área.
+      area = await areaDeLaMadrePedida(tablero.id, padrePedido, tipos);
+    }
+  }
+  if (padreId && !puestaEnFeatures) {
     // Una tarjeta nueva no puede cerrar un ciclo: solo se revisa el tipo y el tablero.
     await revisarMadre({ id: "", tipoId: tipo.id, tableroId: tablero.id }, padreId, tipos);
-    if (tablero.id === TABLERO_DE_FEATURES_ID && esTipoTarea(tipo) && !(await padreCuelgaDeFeatures(padreId))) {
-      avisoFeatures = AVISO_TAREA_FUERA_DE_FEATURES;
-    }
   }
 
   const creada = await prisma.$transaction(async (tx) => {
@@ -1567,7 +1574,7 @@ export async function crearTarjeta(
         tableroId: tablero.id,
         titulo,
         detalle,
-        area: textoLimpio(datos.area, MAX_AREA) ?? null,
+        area,
         estado: estado as EstadoTarjeta,
         orden,
         fecha,
@@ -1607,7 +1614,7 @@ export async function crearTarjeta(
       // La prioridad, solo si no es la de siempre (MEDIA): igual que el responsable.
       ...(tarjeta.prioridad !== PRIORIDAD_POR_DEFECTO ? { prioridad: tarjeta.prioridad } : {}),
       // Solo si la regla la puso en Features: el historial de las demás queda igual.
-      ...(puestaEnFeatures ? { nota: NOTA_PUESTA_EN_FEATURES } : {}),
+      ...(puestaEnFeatures ? { nota: tarjeta.area ? `${NOTA_PUESTA_EN_FEATURES} (área ${tarjeta.area})` : NOTA_PUESTA_EN_FEATURES } : {}),
     });
     // Cada flecha es su propio cambio: así se puede deshacer una sin tocar la tarjeta.
     for (const destinoId of conectarCon) {
@@ -1623,6 +1630,26 @@ export async function crearTarjeta(
   // Una tarea con repo que nace POR_APROBAR se aprueba sola (regla del dueño 25-oct; salvo dinero o Meta Ads).
   const aprobacion = await aprobarSiCorresponde(creada.tarjeta);
   return { ...creada, tarjeta: aprobacion.tarjeta, aprobacionAutomatica: aprobacion.resultado, avisoFeatures };
+}
+
+/**
+ * El área que conserva una Tarea que la regla pasa a Features, sacada de la madre que se pidió (areaAlMoverAFeatures):
+ * su área, o su título si es un Área. null si no existe, está borrada o la lectura falla: crear nunca falla por esto.
+ */
+async function areaDeLaMadrePedida(tableroId: string, padreId: string, tipos: TipoVista[]): Promise<string | null> {
+  try {
+    const madre = await prisma.tarjetaTablero.findFirst({
+      where: { id: padreId, tableroId, ...NO_BORRADA },
+      select: { area: true, titulo: true, tipoId: true },
+    });
+    const area = areaAlMoverAFeatures({
+      areaPedida: null,
+      madre: madre ? { area: madre.area, titulo: madre.titulo, tipoNombre: tipos.find((t) => t.id === madre.tipoId)?.nombre ?? null } : null,
+    });
+    return area ? (textoLimpio(area, MAX_AREA) ?? null) : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
