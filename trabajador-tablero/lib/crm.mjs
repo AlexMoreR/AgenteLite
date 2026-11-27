@@ -103,8 +103,15 @@ export function crearCrm(config, { fetch: miFetch = globalThis.fetch, timeoutMs 
     partir: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/partir`, limpio(datos)),
     /** Medir antes de planear: la tarjeta nombra a otras como molde o requisito. { referencias: [id o título] } -> { creadas, esperando, soltada }. Si alguna no está HECHO, PLANEANDO vuelve a la fila ("Esperando a «X»") sin ERROR. */
     depender: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/depender`, limpio(datos)),
-    /** Revisión previa (27-oct-2026): lo pedido ya estaba en main. { commit, motivo, nota, etapa } -> la tarjeta pasa a HECHO con la nota "ya estaba hecho (commit X)". */
+    /** Revisión previa (27-oct-2026): lo pedido ya estaba en main. { commit, motivo, nota, etapa, repetidaDe? } -> la tarjeta pasa a HECHO con la nota "ya estaba hecho (commit X)"; con repetidaDe (27-nov-2026), "Ya lo hizo T-X (commit …)". */
     yaHecha: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/ya-hecha`, limpio(datos)),
+    /**
+     * Tarjetas repetidas (27-nov-2026), solo lee: las del mismo tablero y repo que podrían repetir a esta (activas, o terminadas en los
+     * últimos 30 días). -> { tarjetas: [{ id, numero, codigo, titulo, detalle, estado, plan, commit, creadaEn }], repetidasRevisadas }
+     */
+    parecidas: (id) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/parecidas`, {}),
+    /** Esta repite a otra: { tipo: "repetida" | "posible", otraId, linea, motivo?, detalleParaLaOtra? } -> "repetida": FALLIDO; "posible": ERROR (posible_repetida). */
+    repetida: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/repetida`, limpio(datos)),
     /** Código limpio (27-oct-2026): main trae errores viejos. { repo, errores } -> { creada } crea UNA tarjeta de limpieza por repo, o le agrega los errores a la abierta. */
     limpieza: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/limpieza`, limpio(datos)),
     /**

@@ -36,6 +36,20 @@ function guardarEstadoDeRecoger(carpetaTrabajo, estado) {
 /** Lo que dice el error cuando falta algo que solo el dueño puede dar: una decisión o una clave. */
 const NECESITA_AL_DUENO = /decid[aeoi]\b|decisi[oó]n|\bA o B\b|\bA\/B\b|opci[oó]n A|clave|token|credencial|contrase[ñn]a|api[ _-]?key|necesita(?:s)? (?:que|tu)|tiene(?:s)? que (?:elegir|decidir)/i;
 
+/** La categoría del ERROR "Posible repetida de T-X: …" que deja /repetida con tipo "posible" (el CRM, reglas-trabajador.ts). */
+export const CATEGORIA_POSIBLE_REPETIDA = "posible_repetida";
+
+/**
+ * ¿La tarjeta está en ERROR por posible repetida? /errores no manda la categoría del error: se reconoce por `categoria` (si algún día
+ * llega), por la del último intento, o por el motivo que deja el CRM ("Posible repetida de T-X: <por qué>").
+ */
+function esPosibleRepetida(tarjeta) {
+  if (tarjeta?.categoria === CATEGORIA_POSIBLE_REPETIDA) return true;
+  const ultimo = (tarjeta?.ultimosIntentos ?? []).at(-1);
+  if (ultimo?.categoria === CATEGORIA_POSIBLE_REPETIDA) return true;
+  return /^Posible repetida de T-\d+/.test(String(tarjeta?.motivo ?? ""));
+}
+
 const PASAJERAS = new Set(["limite_claude", "pc_sobrecargado", "carpeta_trabada", "coordinador_cortado", "sesion_atascada", "choca_con_main"]);
 const DE_TAMANO = new Set(["tiempo_agotado", "tarea_muy_grande"]);
 
@@ -51,6 +65,10 @@ export function decidirRecogida(tarjeta, { maximoPorTarjeta = RECOGER_POR_DEFECT
   const etapa = ultimoIntento?.etapa ?? (tarjeta?.plan ? "construir" : "planear");
   const diagnostico = diagnosticar({ error: textoDelError, etapa, tarjeta });
   const base = { categoria: diagnostico.categoria, causa: diagnostico.causa };
+  // Posible repetida (27-nov-2026, repetidas.mjs): la decide el dueño. Nunca se reintenta ni se parte, antes de las demás reglas.
+  if (esPosibleRepetida(tarjeta)) {
+    return { categoria: CATEGORIA_POSIBLE_REPETIDA, causa: tarjeta?.motivo ?? diagnostico.causa, accion: "saltar", motivo: "posible repetida: decide el dueño" };
+  }
   if (veces >= maximoPorTarjeta) {
     return { ...base, accion: "saltar", motivo: `ya se recogió ${veces} veces: se queda en ERROR con su línea` };
   }
