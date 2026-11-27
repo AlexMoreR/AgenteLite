@@ -1022,23 +1022,6 @@ prueba("reparar y partir: tope de 3 reparaciones, resumen de máximo 3 líneas, 
     "Esperando a «A», «B» y «C»; «A» está en error o fallidas; «B» y «C» están en Por revisar",
   );
   assert.equal(trabajo.dependenciaHaceCiclo([{ origenId: "a", destinoId: "b" }], "b", "a"), true);
-  // 27-nov-2026 (T-956): /depender encuentra la tarjeta por su código "T-955" y dice si quedó HECHA a mano.
-  for (const referencia of ["T-955", "t-955", " «T-955» ", "T 955", "T955"]) assert.equal(trabajo.numeroDeLaReferencia(referencia), 955, referencia);
-  for (const referencia of ["T-", "Página de alertas", "T-955 y T-956", "clx123abc", "T-0", ""]) assert.equal(trabajo.numeroDeLaReferencia(referencia), null, referencia);
-  assert.equal(trabajo.idCortoDeTarjeta("cmabc-1234_5678xyz"), "45678xyz", "como git.mjs: idCorto");
-  assert.equal(trabajo.idCortoDeTarjeta("cmhx7rlezol8"), "7rlezol8");
-  assert.equal(trabajo.quedoHechaAMano({ estado: "HECHO", repo: "aizencrm", resultado: null }), true, "HECHO con repo y sin subida: a mano");
-  assert.equal(trabajo.quedoHechaAMano({ estado: "HECHO", repo: "gestion", resultado: { resumen: "x" } }), true);
-  assert.equal(trabajo.quedoHechaAMano({ estado: "HECHO", repo: "aizencrm", resultado: { subida: { commit: "abc" } } }), false, "con la subida del Coordinador");
-  assert.equal(trabajo.quedoHechaAMano({ estado: "HECHO", repo: "aizencrm", resultado: { yaEstabaHecho: { commit: "abc" } } }), false, "ya estaba hecho");
-  assert.equal(trabajo.quedoHechaAMano({ estado: "HECHO", repo: null, resultado: null }), false, "sin repo no es de código");
-  assert.equal(trabajo.quedoHechaAMano({ estado: "EN_CURSO", repo: "aizencrm", resultado: null }), false);
-  const nombradas = [{ id: "a", estado: "HECHO" }, { id: "b", estado: "FALLIDO" }, { id: "c", estado: "ERROR" }, { id: "d", estado: "EN_CURSO" }];
-  assert.deepEqual(trabajo.pendientesDeLaEspera(nombradas).map((t) => t.id), ["b", "c", "d"], "sin pedirlo, FALLIDA espera como siempre");
-  assert.deepEqual(trabajo.pendientesDeLaEspera(nombradas, { fallidaNoEspera: true }).map((t) => t.id), ["c", "d"], "con fallidaNoEspera, FALLIDA no espera (ERROR sí)");
-  assert.deepEqual(trabajo.pendientesDeLaEspera([{ estado: "FALLIDO" }], { fallidaNoEspera: true }), []);
-  assert.ok(trabajo.CATEGORIAS_DE_INTENTO.includes("depende_de_sin_main"));
-  assert.equal(trabajo.categoriaDeEntrada("depende_de_sin_main"), "depende_de_sin_main", "no se guarda como «otra»");
   // Recoger los errores viejos: máximo 2 veces por tarjeta; lo que hay que recordar va en resultado.recogida.
   assert.deepEqual(trabajo.recogidaDelResultado(null), { veces: 0, ultima: null, linea: null });
   assert.deepEqual(trabajo.recogidaDelResultado({ recogida: { veces: 1, ultima: "2026-10-26", linea: "Decide A o B" } }), { veces: 1, ultima: "2026-10-26", linea: "Decide A o B" });
@@ -1058,6 +1041,26 @@ prueba("reparar y partir: tope de 3 reparaciones, resumen de máximo 3 líneas, 
   assert.equal(trabajo.madreSeCierra([]), false);
   assert.equal(trabajo.madreSeCierra([{ estado: "HECHO" }, { estado: "EN_CURSO" }]), false);
   assert.equal(trabajo.madreSeCierra([{ estado: "HECHO" }, { estado: "HECHO" }]), true);
+});
+
+prueba("27-nov (T-956): /depender reconoce «T-955», dice si la tarjeta quedó HECHA a mano y, si se pide, una FALLIDA no espera", () => {
+  // 27-nov-2026 (T-956): /depender encuentra la tarjeta por su código "T-955" y dice si quedó HECHA a mano.
+  for (const referencia of ["T-955", "t-955", " «T-955» ", "T 955", "T955"]) assert.equal(trabajo.numeroDeLaReferencia(referencia), 955, referencia);
+  for (const referencia of ["T-", "Página de alertas", "T-955 y T-956", "clx123abc", "T-0", ""]) assert.equal(trabajo.numeroDeLaReferencia(referencia), null, referencia);
+  assert.equal(trabajo.idCortoDeTarjeta("cmabc-1234_5678xyz"), "45678xyz", "como git.mjs: idCorto");
+  assert.equal(trabajo.idCortoDeTarjeta("cmhx7rlezol8"), "7rlezol8");
+  assert.equal(trabajo.quedoHechaAMano({ estado: "HECHO", repo: "aizencrm", resultado: null }), true, "HECHO con repo y sin subida: a mano");
+  assert.equal(trabajo.quedoHechaAMano({ estado: "HECHO", repo: "gestion", resultado: { resumen: "x" } }), true);
+  assert.equal(trabajo.quedoHechaAMano({ estado: "HECHO", repo: "aizencrm", resultado: { subida: { commit: "abc" } } }), false, "con la subida del Coordinador");
+  assert.equal(trabajo.quedoHechaAMano({ estado: "HECHO", repo: "aizencrm", resultado: { yaEstabaHecho: { commit: "abc" } } }), false, "ya estaba hecho");
+  assert.equal(trabajo.quedoHechaAMano({ estado: "HECHO", repo: null, resultado: null }), false, "sin repo no es de código");
+  assert.equal(trabajo.quedoHechaAMano({ estado: "EN_CURSO", repo: "aizencrm", resultado: null }), false);
+  const nombradas = [{ id: "a", estado: "HECHO" }, { id: "b", estado: "FALLIDO" }, { id: "c", estado: "ERROR" }, { id: "d", estado: "EN_CURSO" }];
+  assert.deepEqual(trabajo.pendientesDeLaEspera(nombradas).map((t) => t.id), ["b", "c", "d"], "sin pedirlo, FALLIDA espera como siempre");
+  assert.deepEqual(trabajo.pendientesDeLaEspera(nombradas, { fallidaNoEspera: true }).map((t) => t.id), ["c", "d"], "con fallidaNoEspera, FALLIDA no espera (ERROR sí)");
+  assert.deepEqual(trabajo.pendientesDeLaEspera([{ estado: "FALLIDO" }], { fallidaNoEspera: true }), []);
+  assert.ok(trabajo.CATEGORIAS_DE_INTENTO.includes("depende_de_sin_main"));
+  assert.equal(trabajo.categoriaDeEntrada("depende_de_sin_main"), "depende_de_sin_main", "no se guarda como «otra»");
 });
 
 prueba("el límite de Claude no cuenta como intento: las esperas seguidas se cuentan aparte", () => {
