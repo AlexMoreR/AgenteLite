@@ -31,6 +31,7 @@ import { anotarVersionQueCorre, enviarResumenDiarioAlDueno } from "@/features/ta
 import { revisarAvisosDeTerminadas } from "@/features/tableros-inteligentes/services/avisos-de-terminadas";
 import { revisarAvisosAlEquipo } from "@/features/tableros-inteligentes/services/avisos-al-equipo";
 import { archivarLasHechas, archivarLasTerminadas } from "@/features/tableros-inteligentes/services/archivadas";
+import { moverTareasAFeatures } from "@/features/tableros-inteligentes/services/tareas-a-features";
 import { barrerEtapasDeTodos } from "@/features/crm/services/barrido-de-etapas";
 import { revisarMensajesIndescifrables } from "@/features/mensajes-indescifrables/servicios/revision";
 import { retomarEnviosQuedados } from "@/lib/flujos/procesar-envio-de-flujo";
@@ -371,6 +372,12 @@ async function handleCron(request: Request) {
       await conCandado("tablero-archivar-terminadas", archivarLasTerminadas);
     } catch (error) {
       console.error("[cron/follows] archivar terminadas del tablero error", error);
+    }
+    try {
+      // Una vez al día: las Tareas aprobadas con repo que quedaron fuera de Features pasan a colgar de Features (T-736).
+      await conCandado("tablero-tareas-a-features", () => moverTareasAFeatures());
+    } catch (error) {
+      console.error("[cron/follows] tareas a Features del tablero error", error);
     }
   });
 

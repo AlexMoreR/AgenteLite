@@ -4,6 +4,8 @@ import path from "node:path";
 
 import { leerLibro } from "@/features/agente-v3/servicios/almacen";
 import { estadoDelArchivado } from "@/features/tableros-inteligentes/services/archivadas";
+import { REGLA_TAREAS_EN_FEATURES } from "@/features/tableros-inteligentes/services/reglas-features";
+import { estadoDeTareasAFeatures } from "@/features/tableros-inteligentes/services/tareas-a-features";
 import { agenteActivo } from "@/features/agentes-de-area/servicios/config";
 import { leerUltimosResumenes } from "@/features/agentes-de-area/servicios/resumenes";
 import { coachOpusActivo, diasSaltados } from "@/features/coach/revision-opus/servicio";
@@ -74,7 +76,8 @@ export const HERRAMIENTAS_MCP_APLICACION = [
     name: "que_es_esta_aplicacion",
     title: "Que es esta aplicacion",
     description:
-      "Explica el sistema completo para entenderlo antes de trabajar: que hace el CRM y que problema resuelve, stack y despliegue, modulos, modelo de datos (cada entidad y sus relaciones), los agentes V1/V2/V3 y cual atiende cada linea, conceptos del negocio, lineas de WhatsApp, automatizaciones prendidas y apagadas, lo que NO existe hoy y advertencias de operacion. Lo que se puede leer del sistema se lee en vivo; el resto sale de docs/que-es-esta-aplicacion.md. Conviene llamarla al empezar una conversacion sobre el CRM.",
+      "Explica el sistema completo para entenderlo antes de trabajar: que hace el CRM y que problema resuelve, stack y despliegue, modulos, modelo de datos (cada entidad y sus relaciones), los agentes V1/V2/V3 y cual atiende cada linea, conceptos del negocio, lineas de WhatsApp, automatizaciones prendidas y apagadas, lo que NO existe hoy y advertencias de operacion. Lo que se puede leer del sistema se lee en vivo; el resto sale de docs/que-es-esta-aplicacion.md. Conviene llamarla al empezar una conversacion sobre el CRM. Regla del Tablero IA: " +
+      REGLA_TAREAS_EN_FEATURES,
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     annotations: SOLO_LECTURA,
   },
@@ -935,6 +938,8 @@ async function automatizaciones(
     avisos_de_terminadas_tablero: await estadoDeAvisosDeTerminadas(workspaceId).catch(() => "no se pudo leer"),
     alarma_cupos_sin_usar_tablero: await estadoDeLaAlarmaDeCupos(workspaceId).catch(() => "no se pudo leer"),
     archivar_terminadas_tablero: await estadoDelArchivado().catch(() => "no se pudo leer"),
+    // Reloj, una vez al día: las Tareas aprobadas con repo que quedaron fuera de Features pasan a Features (T-736).
+    tareas_a_features_tablero: await seguro("tareas_a_features_tablero", () => estadoDeTareasAFeatures(workspaceId)),
     cerebro_sincronizacion: await estadoDelCerebro(workspaceId).catch(() => "no se pudo leer"),
     // Interruptor cerebro:notas-en-aizen1 (sin fila = apagada): con él apagado el CRM crea las notas directo y aizen1 no escribe.
     cerebro_notas_en_aizen1: await bandera(CLAVE_NOTAS_EN_AIZEN1)
@@ -1020,6 +1025,8 @@ async function queEsEstaAplicacion(contexto: Contexto) {
   return {
     como_leer_esto: `Cada seccion dice su fuente: "${FUENTE_VIVO}" es el sistema que esta corriendo y no puede estar desactualizado; el ${FUENTE_ARCHIVO} lo escribe y corrige Alex. Si hay contradiccion, manda lo que esta en vivo.`,
     ...(archivo ? {} : { aviso: `No se pudo leer el ${FUENTE_ARCHIVO}: solo sale la parte en vivo.` }),
+    // La regla de dónde se crean las Tareas del Tablero IA (reglas-features.ts), la misma de crear_tarjeta.
+    regla_del_tablero_ia: REGLA_TAREAS_EN_FEATURES,
     que_es_y_que_resuelve: { fuente: FUENTE_ARCHIVO, texto: sin(seccion(archivo, "Qué es y qué resuelve")) },
     stack_y_despliegue: {
       versiones: { fuente: `${FUENTE_VIVO} (package.json)`, ...stack },
