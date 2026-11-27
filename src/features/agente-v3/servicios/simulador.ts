@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 
 import { decidir, siguienteEstado, type EstadoDeLaCharla } from "../motor/decidir";
 import { fotoDelClienteReciente } from "../motor/foto-y-precio";
+import { TEXTO_DE_MANDAR_PRODUCTO } from "../domain/mapa";
 import type { LibroDeReglas } from "../domain/reglas";
 
 /**
@@ -48,6 +49,8 @@ function enPalabras(accionTipo: string, detalle: string): string {
       return `Avisa a un asesor: ${detalle}`;
     case "pausar_ia":
       return "Pausa la IA en esa conversación";
+    case "mandar_producto_del_mensaje":
+      return TEXTO_DE_MANDAR_PRODUCTO;
     default:
       return accionTipo;
   }
