@@ -228,7 +228,23 @@ export type SesionClaudeDelLatido = {
   revisadaEn: string | null;
 };
 
-export type EsperaDelLatido = { tarjetaId: string; motivo: string };
+/**
+ * Por qué una tarjeta quedó en fila (27-nov-2026): choca con otra que corre, la nube está llena, aizen1 está ocupado, espera a
+ * otro agente, a otra versión o al motor. null si el Coordinador es uno viejo que no lo manda o llegó otra cosa.
+ */
+export const TIPOS_DE_ESPERA = ["choque", "nube", "aizen1", "agente", "version", "motor"] as const;
+export type TipoDeEspera = (typeof TIPOS_DE_ESPERA)[number];
+
+export type EsperaDelLatido = {
+  tarjetaId: string;
+  motivo: string;
+  tipo: TipoDeEspera | null;
+  /** El id de la tarjeta con la que choca; null si no choca o no se sabe. */
+  contra: string | null;
+};
+
+/** Los cupos del Coordinador (27-nov-2026): cuántos tiene configurados, cuántas tarjetas hay en fila y cuántas corren. */
+export type CuposDelLatido = { cupos: number; enFila: number; corriendo: number };
 
 export type LatidoGuardado = {
   /** Cuándo lo RECIBIÓ el CRM (el reloj del PC no cuenta: puede estar desfasado). */
@@ -243,6 +259,8 @@ export type LatidoGuardado = {
   sesionClaude: SesionClaudeDelLatido | null;
   /** Lo que el Coordinador dejó en fila por chocar con lo que corre (tarjeta y motivo). */
   esperas: EsperaDelLatido[];
+  /** Los cupos del Coordinador; null si es uno viejo que no los manda o llegaron dañados. */
+  cupos: CuposDelLatido | null;
 };
 
 /* ───────────────────────────────────────────────────────────────── validar lo que llega ── */
@@ -398,6 +416,33 @@ export function sesionClaudeDeEntrada(valor: unknown): SesionClaudeDelLatido | n
   };
 }
 
+/** Un entero de 0 a 100, o null si no es un entero o se sale de ese rango (no se acota: un dato raro no cuenta). */
+function enteroDeCupo(valor: unknown): number | null {
+  return typeof valor === "number" && Number.isInteger(valor) && valor >= 0 && valor <= 100 ? valor : null;
+}
+
+/** Los cupos del latido, o null si no vienen o alguno de los tres no es un entero de 0 a 100. */
+export function cuposDeEntrada(valor: unknown): CuposDelLatido | null {
+  if (!esObjeto(valor)) return null;
+  const cupos = enteroDeCupo(valor.cupos);
+  const enFila = enteroDeCupo(valor.enFila);
+  const corriendo = enteroDeCupo(valor.corriendo);
+  return cupos === null || enFila === null || corriendo === null ? null : { cupos, enFila, corriendo };
+}
+
+/** Una espera del latido (tarjeta, motivo, tipo y contra quién choca), o null si no trae tarjeta. */
+function esperaDeEntrada(valor: unknown): EsperaDelLatido | null {
+  if (!esObjeto(valor)) return null;
+  const tarjetaId = textoCorto(valor.tarjetaId, 60);
+  if (!tarjetaId) return null;
+  return {
+    tarjetaId,
+    motivo: textoCorto(valor.motivo, 160),
+    tipo: enLista(TIPOS_DE_ESPERA, valor.tipo),
+    contra: textoCorto(valor.contra, 60) || null,
+  };
+}
+
 /**
  * El latido como queda guardado, o null si el cuerpo no es un objeto. Recorta y valida todo: hasta
  * MAXIMO_DE_TAREAS tareas, textos cortos, porcentajes de 0 a 100 y links solo de claude.ai, github.com o del CRM.
@@ -410,11 +455,7 @@ export function latidoDeEntrada(cuerpo: unknown, ahora: Date, hostPropio: string
     .filter((tarea): tarea is TareaDelLatido => tarea !== null);
   const esperas = (Array.isArray(cuerpo.esperas) ? cuerpo.esperas : [])
     .slice(0, MAXIMO_DE_ESPERAS)
-    .map((espera): EsperaDelLatido | null => {
-      if (!esObjeto(espera)) return null;
-      const tarjetaId = textoCorto(espera.tarjetaId, 60);
-      return tarjetaId ? { tarjetaId, motivo: textoCorto(espera.motivo, 160) } : null;
-    })
+    .map(esperaDeEntrada)
     .filter((espera): espera is EsperaDelLatido => espera !== null);
   return {
     recibidoEn: ahora.toISOString(),
@@ -425,6 +466,7 @@ export function latidoDeEntrada(cuerpo: unknown, ahora: Date, hostPropio: string
     pausaUso: pausaUsoDeEntrada(cuerpo.pausaUso),
     sesionClaude: sesionClaudeDeEntrada(cuerpo.sesionClaude),
     esperas,
+    cupos: cuposDeEntrada(cuerpo.cupos),
   };
 }
 

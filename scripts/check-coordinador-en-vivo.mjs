@@ -605,6 +605,53 @@ const pausaDelLatido = (cambios = {}) => ({
   ...cambios,
 });
 
+await prueba("esperas y cupos: el latido guarda tipo, contra y cupos (y siguen igual al leer lo guardado)", () => {
+  const cuerpo = {
+    esperas: [
+      { tarjetaId: "a1", motivo: "toca el mismo archivo", tipo: "choque", contra: "b1" },
+      { tarjetaId: "a2", motivo: "nube llena", tipo: "NUBE " },
+      { tarjetaId: "a3", motivo: "x", tipo: "version", contra: "c".repeat(200) },
+    ],
+    cupos: { cupos: 7, enFila: 3, corriendo: 4 },
+  };
+  const latido = reglas.latidoDeEntrada(cuerpo, AHORA);
+  assert.deepEqual(latido.esperas[0], { tarjetaId: "a1", motivo: "toca el mismo archivo", tipo: "choque", contra: "b1" });
+  assert.equal(latido.esperas[1].tipo, "nube", "mayúsculas y espacios no importan");
+  assert.equal(latido.esperas[1].contra, null);
+  assert.ok(latido.esperas[2].contra.length <= 60, "contra se recorta a 60");
+  assert.deepEqual(latido.cupos, { cupos: 7, enFila: 3, corriendo: 4 });
+  const releido = reglas.latidoGuardado(JSON.stringify(latido));
+  assert.deepEqual(releido.esperas, latido.esperas);
+  assert.deepEqual(releido.cupos, latido.cupos);
+});
+
+await prueba("esperas y cupos: un tipo inventado queda vacío y los cupos raros se descartan", () => {
+  const latido = reglas.latidoDeEntrada({ esperas: [{ tarjetaId: "a1", motivo: "m", tipo: "marciano", contra: 5 }, { tarjetaId: "a2", tipo: ["choque"] }] }, AHORA);
+  assert.equal(latido.esperas[0].tipo, null);
+  assert.equal(latido.esperas[0].contra, null, "un contra que no es texto queda vacío");
+  assert.equal(latido.esperas[1].tipo, null);
+  for (const malos of [{ cupos: 101, enFila: 0, corriendo: 0 }, { cupos: -1, enFila: 0, corriendo: 0 }, { cupos: 2.5, enFila: 0, corriendo: 0 }, { cupos: "7", enFila: 0, corriendo: 0 }, { cupos: 7, enFila: 0 }, "7", [7, 0, 0]]) {
+    assert.equal(reglas.latidoDeEntrada({ cupos: malos }, AHORA).cupos, null, `rechaza ${JSON.stringify(malos)}`);
+  }
+  assert.deepEqual(reglas.latidoDeEntrada({ cupos: { cupos: 0, enFila: 100, corriendo: 0 } }, AHORA).cupos, { cupos: 0, enFila: 100, corriendo: 0 }, "0 y 100 valen");
+});
+
+await prueba("esperas y cupos: un latido viejo sin esos datos sigue siendo válido (tipo, contra y cupos vacíos)", async () => {
+  const viejo = { nombre: "aizen1", tareas: [{ tarjetaId: "t1", etapa: "construyendo" }], esperas: [{ tarjetaId: "f4", motivo: "toca la misma zona que otra tarea" }] };
+  const latido = reglas.latidoDeEntrada(viejo, AHORA);
+  assert.ok(latido);
+  assert.equal(latido.tareas.length, 1);
+  assert.deepEqual(latido.esperas, [{ tarjetaId: "f4", motivo: "toca la misma zona que otra tarea", tipo: null, contra: null }]);
+  assert.equal(latido.cupos, null);
+  // Uno guardado antes de este cambio (sin tipo, contra ni cupos) también se lee.
+  const guardadoViejo = reglas.latidoGuardado(JSON.stringify({ recibidoEn: AHORA.toISOString(), ...viejo }));
+  assert.equal(guardadoViejo.esperas[0].tipo, null);
+  assert.equal(guardadoViejo.cupos, null);
+  // Y la ruta del latido lo sigue aceptando.
+  await servicio.guardarLatido(contexto, viejo, AHORA);
+  assert.ok(estado.ajustes.has("trabajador:latido:ws1:k1"));
+});
+
 await prueba("pausa por uso: el latido la trae recortada y validada; uno viejo (sin pausaUso) da null", () => {
   const latido = reglas.latidoDeEntrada({ pausaUso: { ...pausaDelLatido(), umbral: 10, sesion: { porcentaje: 250, reinicio: "x".repeat(300) }, semana: "no", reiniciaEn: "no es fecha" } }, AHORA);
   assert.equal(latido.pausaUso.umbral, 80, "un umbral fuera de 50 a 95 cae en 80");
