@@ -107,7 +107,7 @@ import {
   type ListaGuardada as ListaGuardadaDeLaBandeja,
 } from "./listas-recientes-de-la-bandeja";
 import { esperaPorClave, type EsperaDeChats } from "@/features/chats/domain/espera-de-chats";
-import { leerEspera } from "@/features/chats/domain/filtros-de-bandeja";
+import { leerEspera, leerOrdenDeBandeja } from "@/features/chats/domain/filtros-de-bandeja";
 import { ConversationPanel, type EnvioTerminado } from "./chat-conversation-panel";
 import {
   contarNuevosAlFinal,
@@ -551,7 +551,8 @@ export function SharedInbox({
     Las condiciones del filtro se leen de la URL con el MISMO lector del servidor (también las
     listas viejas con stage= / tag= / pending=) y viajan ya normalizadas en `c=`.
   */
-  const firmaDeCondicionesEnLaUrl = ["stage", "tag", "pending", "c"].map((clave) => parametrosDeLaUrl.get(clave) ?? "").join("|");
+  // `orden` tambien: cambiar el orden de una lista recarga la lista (y el scroll lo manda a /list).
+  const firmaDeCondicionesEnLaUrl = ["stage", "tag", "pending", "c", "orden"].map((clave) => parametrosDeLaUrl.get(clave) ?? "").join("|");
   const filtrosDeLaUrl = useMemo(
     () => leerFiltrosDeBandeja((clave) => parametrosDeLaUrl.get(clave)),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- la firma resume lo que se lee
@@ -589,10 +590,19 @@ export function SharedInbox({
     "ESPERANDO" (espera=1): la lista va en el orden del servidor -el que mas lleva esperando primero-
     y la mantiene al dia el /counts de cada 60 s (ver el efecto de sincronizarConEspera). Con texto
     en el buscador del servidor (q) la busqueda manda, igual que en /list.
+
+    "MAS ANTIGUOS PRIMERO" (`orden=antiguos`): tambien va en el orden del servidor, asi que prende la
+    MISMA bandera: la lista no se reordena sola y un mensaje nuevo no sube el chat arriba. Lo que es
+    SOLO de "Esperando" (sincronizar con el conteo de espera, sacar el chat recien contestado,
+    `sinContestadasAca`, la pagina por offset) va con `ordenDeEspera`: si no, en una lista con
+    antiguos contestar un chat lo haria desaparecer.
   */
-  const ordenDelServidor = enEspera && !searchQuery.trim();
+  const ordenDeEspera = enEspera && !searchQuery.trim();
+  const ordenDelServidor = (enEspera || filtrosDeLaUrl.orden === "antiguos") && !searchQuery.trim();
   const ordenDelServidorRef = useRef(ordenDelServidor);
   ordenDelServidorRef.current = ordenDelServidor;
+  const ordenDeEsperaRef = useRef(ordenDeEspera);
+  ordenDeEsperaRef.current = ordenDeEspera;
   const paresDeFiltros = useMemo(
     () => paramsDeFiltros(leerFiltrosDeBandeja((clave) => parametrosDeLaUrl.get(clave))),
     [parametrosDeLaUrl],
@@ -1223,7 +1233,8 @@ export function SharedInbox({
           Sin "hay mas" mientras tanto (el desplazamiento se calcula con la lista del servidor) y sin
           marcar la vista como cargada: si /list falla, el proximo pedido lo vuelve a intentar.
         */
-        const provisional = listaProvisional<SharedInboxConversationItem>(
+        // Con antiguos no: la lista en memoria va del mas nuevo al mas viejo y se veria al reves un instante.
+        const provisional = filtrosDeLaUrl.orden === "antiguos" ? null : listaProvisional<SharedInboxConversationItem>(
           {
             asignada: assignedFilter,
             estado: statusFilter,
@@ -1349,7 +1360,7 @@ export function SharedInbox({
       try {
         const params = armarParams();
         // En "Esperando" el refresco trae la pagina mas grande: el chat que entra va al final.
-        if (ordenDelServidor) params.set("limit", String(CONVERSATION_LIST_LOAD_BATCH_SIZE));
+        if (ordenDeEspera) params.set("limit", String(CONVERSATION_LIST_LOAD_BATCH_SIZE));
 
         const response = await fetch(`${conversationListApiPath}?${params.toString()}`, {
           credentials: "same-origin",
@@ -1381,8 +1392,8 @@ export function SharedInbox({
 
         const fresh = filasDeList(payload.conversations, (item) => hrefDeFila(item));
 
-        if (ordenDelServidor) {
-          // Orden del servidor: la pagina en su orden y despues lo cargado al bajar que no vino.
+        if (ordenDeEspera) {
+          // "Esperando": la pagina en su orden y despues lo cargado al bajar que no vino.
           const hayMas = Boolean(payload.hasMore);
           const siguiente = typeof payload.nextOffset === "number" ? payload.nextOffset : fresh.length;
           conversationOffsetRef.current = hayMas ? Math.max(conversationOffsetRef.current, siguiente) : siguiente;
@@ -1409,16 +1420,25 @@ export function SharedInbox({
             resultados se quedan quietos), y nunca salen el chat abierto, los fijados ni las filas de
             la API oficial, que este /list no trae.
           */
+          /*
+            Con antiguos la primera pagina son los MAS VIEJOS: la regla de reconciliarPrimeraPagina
+            ("mas nueva que la mas vieja de la pagina = ya no esta") sacaria todo lo cargado al bajar
+            y el chat recien contestado. Ahi solo se reconcilia si la pagina es la lista entera.
+          */
+          const sePuedeReconciliar = !ordenDelServidor || !hayMasEnElServidor;
           if (reconciliar && !isSearchActiveRef.current) {
             const abierto = chatAbiertoParaConservarRef.current;
             const fijados = new Set(fijadosParaConservarRef.current);
-            next = reconciliarPrimeraPagina(next, fresh, hayMasEnElServidor, (fila) =>
-              fila.id === abierto || fijados.has(fila.id) || fila.source === "official",
-            );
+            if (sePuedeReconciliar) {
+              next = reconciliarPrimeraPagina(next, fresh, hayMasEnElServidor, (fila) =>
+                fila.id === abierto || fijados.has(fila.id) || fila.source === "official",
+              );
+            }
           }
           for (const item of fresh) {
             if (!item.id) continue;
-            next = updateConversationItemInSortedList(next, item.id, item);
+            // Con antiguos la fila se actualiza en su lugar (no sube) y un chat que falta no entra por aca.
+            next = updateConversationItemInSortedList(next, item.id, item, { ordenDelServidor });
           }
           return next;
         });
@@ -1921,10 +1941,10 @@ export function SharedInbox({
       (sincronizarConEspera) y tambien salieron de la lista del servidor, asi la pagina siguiente no
       salta a nadie. Puede ser 0 si se vacio la pantalla y quedan mas.
     */
-    const offset = ordenDelServidor
+    const offset = ordenDeEspera
       ? Math.min(conversationOffsetRef.current, conversationItems.length)
       : conversationOffsetRef.current;
-    if (offset <= 0 && !ordenDelServidor) {
+    if (offset <= 0 && !ordenDeEspera) {
       return;
     }
 
@@ -2023,9 +2043,10 @@ export function SharedInbox({
           ),
         ];
         const deduped = Array.from(new Map(merged.map((item) => [item.id, item])).values());
-        const sorted = ordenDelServidor
+        // Con antiguos la pagina nueva queda al final, en el orden del servidor (sin reordenar).
+        const sorted = ordenDeEspera
           ? sinContestadasAca(sortConversationItems(deduped, { ordenDelServidor }))
-          : sortConversationItems(deduped);
+          : sortConversationItems(deduped, { ordenDelServidor });
 
         if (
           current.length === sorted.length &&
@@ -2126,7 +2147,7 @@ export function SharedInbox({
   */
   const esperaConocidasRef = useRef<{ version: string; claves: Set<string> } | null>(null);
   useEffect(() => {
-    if (!ordenDelServidor || searchInputValue.trim() || !esperaVigente) return;
+    if (!ordenDeEspera || searchInputValue.trim() || !esperaVigente) return;
     // La lista a la vista todavia es la de otra vista: la de "Esperando" esta llegando.
     if (vistaCargadaRef.current !== vistaKey) return;
     const version = `${vistaKey}#${versionDeVista}`;
@@ -2146,7 +2167,7 @@ export function SharedInbox({
     if (pedirLista) {
       setPedidoDeLista((actual) => actual + 1);
     }
-  }, [ordenDelServidor, searchInputValue, esperaVigente, vistaKey, versionDeVista, assignedFilter]);
+  }, [ordenDeEspera, searchInputValue, esperaVigente, vistaKey, versionDeVista, assignedFilter]);
 
   /*
     La asesora contesto desde esta pantalla (envio bueno): el chat sale en el acto de "Esperando" y
@@ -2166,7 +2187,8 @@ export function SharedInbox({
       siguiente.set(clave, ahora);
       return siguiente;
     });
-    if (ordenDelServidorRef.current) {
+    // Solo en "Esperando": con antiguos el chat contestado se queda en la lista, en su lugar.
+    if (ordenDeEsperaRef.current) {
       setConversationItems((current) => current.filter((item) => item.id !== clave));
     }
   }, []);
@@ -2225,8 +2247,9 @@ export function SharedInbox({
       return;
     }
 
-    // La lista "Esperando" del servidor ya viene en su orden: no se reordena por fecha.
-    const orden = { ordenDelServidor: esperaDelServidor && !searchQuery.trim() };
+    // La lista "Esperando" (o con antiguos) del servidor ya viene en su orden: no se reordena por fecha.
+    const antiguosDelServidor = leerOrdenDeBandeja(new URLSearchParams(filtrosDelServidor).get("orden")) === "antiguos";
+    const orden = { ordenDelServidor: (esperaDelServidor || antiguosDelServidor) && !searchQuery.trim() };
     setConversationItems((current) => {
       if (current.length === 0) {
         return sortConversationItems(
@@ -2271,7 +2294,7 @@ export function SharedInbox({
 
       return sorted;
     });
-  }, [conversations, initialConversationBatchSize, initialConversationOffset, initialHasMoreConversations, searchAction, searchQuery, selectedConnectionKey, assignedFilterDelServidor, statusFilterDelServidor, esperaDelServidor, vistaDelServidorKey]);
+  }, [conversations, initialConversationBatchSize, initialConversationOffset, initialHasMoreConversations, searchAction, searchQuery, selectedConnectionKey, assignedFilterDelServidor, statusFilterDelServidor, esperaDelServidor, filtrosDelServidor, vistaDelServidorKey]);
 
   useEffect(() => {
     selectedConversationRef.current = selectedConversation;
