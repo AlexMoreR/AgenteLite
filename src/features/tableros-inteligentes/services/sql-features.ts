@@ -33,9 +33,11 @@ LIMIT 100`;
 
 /**
  * Tareas fuera de Features (27-nov-2026, tareas-a-features.ts): las tarjetas tipo Tarea del tablero de Features, en APROBADO o
- * PLAN_APROBADO, con repo, sin borrar ni archivar, que NO cuelgan de Features a ninguna profundidad (mismo recorrido `baja` que
+ * PLAN_APROBADO, con repo de desarrollo (gestion o aizencrm, sin importar mayúsculas ni espacios; otro repo se queda donde se
+ * pidió), sin borrar ni archivar, que NO cuelgan de Features a ninguna profundidad (mismo recorrido `baja` que
  * SQL_POR_PREPARAR_EN_FEATURES: sin pasar por borradas, hasta 50 niveles) y no son Features misma. Ideas, Áreas y lo que está
- * en otro estado no salen. Si Features está borrada, no es de ese tablero o no es de este negocio (`f` vacía), no sale nada.
+ * en otro estado no salen. Devuelve también el área de la Tarea y los datos de su madre (área, título y nombre del tipo; la madre
+ * borrada no cuenta) para que la Tarea conserve su área al moverse. Si Features está borrada, no es de ese tablero o no es de este negocio (`f` vacía), no sale nada.
  * Solo lee. $1 = id del Área Features, $2 = tableroId, $3 = workspaceId.
  */
 export const SQL_TAREAS_FUERA_DE_FEATURES = `
@@ -55,16 +57,19 @@ baja AS (
   JOIN "TarjetaTablero" h ON h."padreId" = s."id" AND h."borradoEn" IS NULL
   WHERE s."nivel" < 50
 )
-SELECT c."id", c."padreId", c."estado"::text AS "estado", c."actualizadoEn"
+SELECT c."id", c."padreId", c."estado"::text AS "estado", c."actualizadoEn", c."area",
+  m."area" AS "madreArea", m."titulo" AS "madreTitulo", km."nombre" AS "madreTipo"
 FROM "TarjetaTablero" c
 JOIN "TableroInteligente" b ON b."id" = c."tableroId"
 JOIN "TipoTarjeta" k ON k."id" = c."tipoId"
+LEFT JOIN "TarjetaTablero" m ON m."id" = c."padreId" AND m."borradoEn" IS NULL
+LEFT JOIN "TipoTarjeta" km ON km."id" = m."tipoId"
 CROSS JOIN f
 WHERE c."tableroId" = $2::text
   AND b."workspaceId" = $3::text
   AND lower(btrim(k."nombre")) = 'tarea'
   AND c."estado" IN ('APROBADO', 'PLAN_APROBADO')
-  AND c."repo" IS NOT NULL AND btrim(c."repo") <> ''
+  AND lower(btrim(c."repo")) IN ('gestion', 'aizencrm')
   AND c."borradoEn" IS NULL
   AND c."archivadaEn" IS NULL
   AND c."id" <> f."id"
