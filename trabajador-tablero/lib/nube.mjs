@@ -28,6 +28,7 @@ import { esErrorDeSesionClaude, esLimiteDeUso } from "./diagnostico.mjs";
 import { ErrorDeEtapa, entornoSeguro } from "./etapas.mjs";
 import { urlDelRemoto, webDeGithub } from "./git.mjs";
 import { correr, ultimasLineas } from "./procesos.mjs";
+import { dependenciasDeLaRespuesta, yaEstaHechoDe } from "./revision-previa.mjs";
 import { progresoDelCommit } from "./revisores.mjs";
 
 const MINUTO = 60_000;
@@ -820,6 +821,9 @@ export function preguntaDelCommit(mensaje) {
   return coincide ? coincide[1].trim() || null : null;
 }
 
+/** DEPENDE_DE / YA_ESTA_HECHO en un commit: solo las primeras líneas del mensaje (no una frase del cuerpo que las explica). */
+const LINEAS_DE_LA_PALABRA = { inicio: 3 };
+
 /** ¿Es el commit vacío "inicio: …" que la sesión de la nube deja en sus primeros minutos (la señal de que arrancó)? */
 export const esCommitDeInicio = (mensaje) => /^inicio:/i.test(String(mensaje ?? "").split(/\r?\n/)[0].trim());
 
@@ -831,7 +835,10 @@ export const esCommitDeInicio = (mensaje) => /^inicio:/i.test(String(mensaje ?? 
  *   - ni "inicio:" ni ningún commit nuevo en config.nube.sinSenalMinutos -> error (nube_sin_resultado, con el link);
  *   - un commit "revision: R<n> …" (el progreso de los 4 revisores) va al panel con contexto.fase("revisando") y es señal;
  *   - con señal pero sin "resultado:" al vencer la espera larga -> nube_sin_resultado (antes tiempo_agotado, que se reparaba solo).
- * Devuelve { build, tests, segundos, paso, detalle, sha, mensaje }.
+ *   - 27-nov-2026 (incidente T-956): un commit vacío "DEPENDE_DE: …" o "YA_ESTA_HECHO: <commit> — …" -> vuelve enseguida con
+ *     { dependeDe: [...], sha } o { yaHecho: { commit, motivo }, sha }: no se espera más esa sesión ni se lanza otra. Solo se
+ *     miran las primeras líneas del mensaje (la palabra al principio de la línea), con las mismas funciones de la revisión previa.
+ * Devuelve { build, tests, segundos, paso, detalle, sha, mensaje }, o los dos casos de arriba.
  */
 export async function esperarResultado(contexto, { repo, rama, vistos, reloj, link, esperaMinutos = contexto.config.nube.esperaMinutos, sinSenal = null }) {
   const { config, senal, registro } = contexto;
@@ -860,6 +867,17 @@ export async function esperarResultado(contexto, { repo, rama, vistos, reloj, li
         huboSenal = true;
         const resultado = resultadoDelCommit(commit.mensaje);
         if (resultado) return { ...resultado, sha: commit.sha, mensaje: commit.mensaje };
+        // DEPENDE_DE / YA_ESTA_HECHO (27-nov-2026): la sesión terminó sin "resultado:"; el Coordinador decide (etapas.mjs).
+        const yaHecho = yaEstaHechoDe(commit.mensaje, LINEAS_DE_LA_PALABRA);
+        if (yaHecho) {
+          registro?.info?.(`la nube dice que ya estaba hecho (commit ${yaHecho.commit}) en la rama ${rama}`);
+          return { yaHecho, sha: commit.sha, mensaje: commit.mensaje };
+        }
+        const dependeDe = dependenciasDeLaRespuesta(commit.mensaje, LINEAS_DE_LA_PALABRA);
+        if (dependeDe.length) {
+          registro?.info?.(`la nube dice que depende de otra tarjeta (${dependeDe.join(", ")}) en la rama ${rama}`);
+          return { dependeDe, sha: commit.sha, mensaje: commit.mensaje };
+        }
         const pregunta = preguntaDelCommit(commit.mensaje);
         if (pregunta) {
           // `pregunta` va aparte (1-nov-2026): en el modo orquestador sale el aviso "necesita" con ella (etapas.mjs).

@@ -384,13 +384,36 @@ export async function revisarArchivosDelRepo({ tarjeta, plan, config, registro =
   }
 }
 
-/** Lo que la sesión dijo de la revisión previa: { yaHecho: { commit, motivo } } (comprobado con git), { dependeDe: [...] } o null. */
-async function palabrasDeRevisionPrevia(contexto, repo, texto, ventana) {
-  const ya = yaEstaHechoDe(texto, ventana);
-  if (ya) {
-    if (await commitEstaEnMain(repo, ya.commit)) return { yaHecho: ya };
-    contexto.registro?.aviso?.(`la sesión dijo YA_ESTA_HECHO con el commit ${ya.commit}, pero no está en ${repo.remoto}/${repo.ramaBase}: no le creo`);
+/**
+ * YA_ESTA_HECHO comprobado con git (27-nov-2026, incidente T-956; un solo criterio para el plan, construir en aizen1 y en la nube).
+ * `ya` = { commit, motivo } (yaEstaHechoDe). Si el commit que citó la sesión está en main, vale tal cual. Si no, se busca el commit
+ * equivalente de main con buscarEnMain (el del id corto de la tarjeta, o el que coincide con el título y toca un archivo del plan)
+ * y se confirma con commitEstaEnMain: vale con el hash real de main y la nota dice los dos ("la sesión citó X; en main es Y").
+ * Sin ningún equivalente -> null y el aviso "no le creo". Nunca lanza.
+ */
+export async function comprobarYaHecho(contexto, repo, tarjeta, ya) {
+  if (!ya) return null;
+  if (await commitEstaEnMain(repo, ya.commit)) return ya;
+  try {
+    const archivos = archivosDelPlan(tarjeta?.plan).filter((ruta) => !noChoca(ruta, []));
+    const encontrado = await buscarEnMain(repo, tarjeta, archivos);
+    if (encontrado && (await commitEstaEnMain(repo, encontrado.commit))) {
+      const corto = encontrado.commit.slice(0, 10);
+      contexto.registro?.info?.(`la sesión dijo YA_ESTA_HECHO con el commit ${ya.commit}, que no está en ${repo.ramaBase}; en ${repo.ramaBase} es ${corto} («${encontrado.asunto}»)`);
+      const motivo = `la sesión citó ${ya.commit}; en ${repo.ramaBase} es ${corto}${ya.motivo ? ` — ${ya.motivo}` : ""}`;
+      return { commit: encontrado.commit, motivo: enUnaLinea(motivo, 300), citado: ya.commit };
+    }
+  } catch (error) {
+    contexto.registro?.aviso?.(`no se pudo buscar en main el commit equivalente a ${ya.commit} (${String(error?.message ?? error).split("\n")[0]})`);
   }
+  contexto.registro?.aviso?.(`la sesión dijo YA_ESTA_HECHO con el commit ${ya.commit}, pero no está en ${repo.remoto}/${repo.ramaBase} ni hay uno equivalente: no le creo`);
+  return null;
+}
+
+/** Lo que la sesión dijo de la revisión previa: { yaHecho: { commit, motivo } } (comprobado con git), { dependeDe: [...] } o null. */
+async function palabrasDeRevisionPrevia(contexto, repo, tarjeta, texto, ventana) {
+  const ya = await comprobarYaHecho(contexto, repo, tarjeta, yaEstaHechoDe(texto, ventana));
+  if (ya) return { yaHecho: ya };
   const dependeDe = dependenciasDeLaRespuesta(texto, ventana);
   return dependeDe.length ? { dependeDe } : null;
 }
@@ -992,6 +1015,7 @@ export function promptDeNube(tarjeta, repo, rama, { entorno = {}, modelo = null,
       "LECCIONES OBLIGATORIAS:",
       `0. SEÑAL DE INICIO, en tus primeros minutos y antes de cualquier otra cosa: git commit --allow-empty -m "inicio: ${rama}" && git push origin ${rama}. Si el Coordinador no ve ese commit (ni ningún otro) en unos minutos, da la sesión por perdida.`,
       `   SI TIENES UNA PREGUNTA O TE FALTA ALGO (una decisión, un dato, una pieza de otro sistema): NO preguntes en el chat (nadie lo lee). Deja un commit vacío con la pregunta en UNA línea, súbelo y TERMINA: git commit --allow-empty -m "pregunta: <la pregunta en una línea>" && git push origin ${rama}. (O, si ya intentaste y no se puede, el commit "resultado:" con FALLO del punto 4.)`,
+      `   DEPENDE_DE Y YA_ESTA_HECHO (de las reglas del final): además de escribirlas en tu respuesta, déjalas como commit vacío en UNA línea, súbelo y TERMINA, igual que la pregunta (el chat nadie lo lee): git commit --allow-empty -m "DEPENDE_DE: <id o «título» de esa tarjeta>" && git push origin ${rama}, o git commit --allow-empty -m "YA_ESTA_HECHO: <commit de main> — <motivo en una frase>" && git push origin ${rama}.`,
       `1. PREPARACIÓN, en este orden: ${pasos.join(" → ")}. Sin \`npx prisma generate\` el build falla con errores de tipos falsos.`,
       variables.length
         ? `   Antes de compilar o probar, exporta estas variables (NO son secretas, son direcciones falsas a propósito):\n${variables.map((linea) => `   ${linea}`).join("\n")}`
@@ -1153,6 +1177,23 @@ async function construirLaParteDeLaNube(contexto, tarjeta, { repo, rama, base, r
       }
       if (error instanceof ErrorDeEtapa && !error.message.includes(lanzado.link)) error.message += `\nSesión de la nube: ${lanzado.link}`;
       throw error;
+    }
+    // 27-nov-2026 (incidente T-956): la sesión dejó el commit vacío "DEPENDE_DE: …" o "YA_ESTA_HECHO: …". Mismo camino que la
+    // revisión previa: la tarjeta espera a la otra sin gastar intento, o pasa a HECHO si git confirma el commit en main (el citado
+    // o su equivalente). Nunca nube_sin_resultado ni una reparación.
+    if (resultado.dependeDe?.length) {
+      registro.info(`la sesión de la nube dice que depende de otra tarjeta: ${resultado.dependeDe.join(", ")}`);
+      return { link: lanzado.link, dependeDe: resultado.dependeDe };
+    }
+    if (resultado.yaHecho) {
+      await git(repo.ruta, ["fetch", repo.remoto]);
+      const yaHecho = await comprobarYaHecho(contexto, repo, tarjeta, resultado.yaHecho);
+      if (yaHecho) return { link: lanzado.link, yaHecho };
+      // Sin nada en main que lo respalde: la etapa falla como "no cambió nada", que ya tiene su camino (mirar main o volver a planear).
+      throw new ErrorDeEtapa(
+        `La sesión de la nube dijo YA_ESTA_HECHO con el commit ${resultado.yaHecho.commit}, pero ese commit no está en ${repo.remoto}/${repo.ramaBase} ni hay uno equivalente: no le creo. No se subió nada.\nSesión de la nube: ${lanzado.link}`,
+        { categoria: "no_cambio_nada", archivosCambiados: 0 },
+      );
     }
     registro.info(
       `la nube terminó: build=${resultado.build} tests=${resultado.tests} segundos=${resultado.segundos ?? "?"}${resultado.revision ? ` revision=${resultado.revision}${resultado.revisor ? ` revisor=${resultado.revisor}` : ""}` : ""}`,
@@ -1484,7 +1525,7 @@ export async function planear(contexto, tarjeta) {
       modelo,
     });
     // Revisión previa (27-oct-2026): la sesión contestó "DEPENDE_DE: …" o "YA_ESTA_HECHO: …" en vez del plan.
-    const previa = await palabrasDeRevisionPrevia(contexto, repo, texto, { inicio: 5 });
+    const previa = await palabrasDeRevisionPrevia(contexto, repo, tarjeta, texto, { inicio: 5 });
     if (previa) return { ...previa, motor, modelo };
     const plan = `${texto.replace(MARCA_DEL_PLAN, "").trimEnd()}\n\n${firmaDelPlan(motor, modelo)}`;
     // "NECESITO: …" (26-oct-2026): el plan queda en "Plan listo" esperando el sí del dueño (la línea APROBAR PLAN que espera
@@ -1548,6 +1589,13 @@ export async function construir(contexto, tarjeta) {
       if (nube.pregunta) {
         const detalle = enUnaLinea(nube.pregunta, 400);
         return { necesita: { tipo: "decisión", detalle }, resumen: `La sesión de ${proyecto} hizo una pregunta y paró: ${detalle}\nSesión de la nube: ${nube.link}`, pruebas: "", paso: false, subeSolo: false };
+      }
+      if (nube.dependeDe) {
+        return { dependeDe: nube.dependeDe, resumen: `La sesión de la nube dice que depende de otra tarjeta: ${nube.dependeDe.join(", ")}\nSesión de la nube: ${nube.link}`, pruebas: "", paso: false, subeSolo: false };
+      }
+      if (nube.yaHecho) {
+        registro.info(`ya estaba hecho (commit ${nube.yaHecho.commit}): ${nube.yaHecho.motivo}`);
+        return { yaHecho: nube.yaHecho, resumen: `La sesión de la nube dice que ya estaba hecho (commit ${nube.yaHecho.commit.slice(0, 10)}). Sesión: ${nube.link}`, pruebas: "", paso: false, subeSolo: false };
       }
       if (nube.subidaPorLaSesion) {
         const { commit } = nube.subidaPorLaSesion;
@@ -1697,7 +1745,7 @@ export async function construir(contexto, tarjeta) {
     }
     const cambios = await archivosCambiados(carpeta, base);
     if (!cambios.length) {
-      const previa = await palabrasDeRevisionPrevia(contexto, repo, resumenDelMotor, { final: 12 });
+      const previa = await palabrasDeRevisionPrevia(contexto, repo, tarjeta, resumenDelMotor, { final: 12 });
       if (previa?.yaHecho) {
         registro.info(`ya estaba hecho (commit ${previa.yaHecho.commit}): ${previa.yaHecho.motivo}`);
         return { yaHecho: previa.yaHecho, resumen: String(resumenDelMotor).slice(-1500), pruebas: "", paso: false, subeSolo: false };

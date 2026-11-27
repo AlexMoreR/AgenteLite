@@ -15,7 +15,8 @@
 //                     commit vacío "resultado: build=OK tests=OK segundos=42". [nube-fallo] deja FALLO con 35 líneas de
 //                     error en el cuerpo, [nube-fallo-limite] FALLO con el aviso del límite de uso, [nube-sin-resultado]
 //                     nunca deja el commit, [nube-env] sube un archivo .env, [nube-limite] sale con el límite de uso al
-//                     lanzar y [nube-sin-terminal] sale como si pidiera una terminal real. Con `--cloud "<descripción>"`
+//                     lanzar y [nube-sin-terminal] sale como si pidiera una terminal real. [nube-depende] deja solo el commit
+//                     vacío "DEPENDE_DE: T-955" y [nube-ya-hecho] solo "YA_ESTA_HECHO: deadbeef1234 — …" (un hash que no existe). Con `--cloud "<descripción>"`
 //                     (la terminal real) la instrucción es ese argumento; imprime el link con colores y se queda esperando.
 import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
@@ -35,7 +36,8 @@ if (argumentos[0] === "--trabajo-de-la-nube") {
   git(carpeta, "checkout", "--quiet", rama);
   if (!titulo.includes("[nube-sin-resultado]")) {
     if (titulo.includes("[nube-env]")) fs.writeFileSync(path.join(carpeta, ".env"), "SECRETO=1\n");
-    else if (!titulo.includes("[nube-fallo")) fs.writeFileSync(path.join(carpeta, `cambio-nube-${Date.now()}.txt`), `${titulo}\n`);
+    // [nube-depende] / [nube-ya-hecho] (27-nov-2026): la sesión no cambia nada y deja solo su palabra en un commit vacío.
+    else if (!titulo.includes("[nube-fallo") && !titulo.includes("[nube-depende]") && !titulo.includes("[nube-ya-hecho]")) fs.writeFileSync(path.join(carpeta, `cambio-nube-${Date.now()}-${process.pid}.txt`), `${titulo}\n`);
     git(carpeta, "add", "-A");
     if (git(carpeta, "status", "--porcelain").trim()) git(carpeta, "commit", "--quiet", "-m", "cambios de la nube");
     if (titulo.includes("[nube-fallo-limite]")) git(carpeta, "commit", "--quiet", "--allow-empty", "-m", "resultado: build=FALLO tests=FALLO segundos=3", "-m", "Claude AI usage limit reached|1761210000");
@@ -48,6 +50,11 @@ if (argumentos[0] === "--trabajo-de-la-nube") {
     } else if (titulo.includes("[nube-pregunta]")) {
       // Modo orquestador (1-nov-2026): la sesión del proyecto deja una pregunta en vez del resultado.
       git(carpeta, "commit", "--quiet", "--allow-empty", "-m", "pregunta: ¿La subo a main o espera a la otra tarjeta?");
+    } else if (titulo.includes("[nube-depende]")) {
+      git(carpeta, "commit", "--quiet", "--allow-empty", "-m", "DEPENDE_DE: T-955");
+    } else if (titulo.includes("[nube-ya-hecho]")) {
+      // Un hash que no existe: el Coordinador tiene que encontrar el commit equivalente de main (o no creerle).
+      git(carpeta, "commit", "--quiet", "--allow-empty", "-m", "YA_ESTA_HECHO: deadbeef1234 — ya quedó en main");
     } else if (titulo.includes("[nube-main-ok]") || titulo.includes("[nube-main-fuera]")) {
       // Modo orquestador, parte 3: "resultado: … main=<sha>". Con [nube-main-ok] la sesión de verdad lo sube a main (gh-falso
       // subir-a-main); con [nube-main-fuera] dice el sha de su rama pero no lo sube (no está en main).

@@ -1893,6 +1893,48 @@ await prueba("29-oct: la nube deja 'inicio:' y, si pregunta, 'pregunta:'; espera
   assert.throws(() => completarConfig({ ...base, nube: { sinSenalMinutos: 0 } }), /nube\.sinSenalMinutos/);
 });
 
+await prueba("27-nov (T-956): un commit vacío 'DEPENDE_DE:' o 'YA_ESTA_HECHO:' corta esperarResultado enseguida, sin error; un 'resultado:' más nuevo gana", async () => {
+  const texto = promptDeNube({ id: "t", titulo: "t", detalle: "d", tablero: "E", plan: "p" }, { clave: "aizencrm" }, "tablero/abc");
+  assert.ok(texto.includes('--allow-empty -m "DEPENDE_DE:'), "la nube deja DEPENDE_DE como commit vacío");
+  assert.ok(texto.includes('--allow-empty -m "YA_ESTA_HECHO:'), "la nube deja YA_ESTA_HECHO como commit vacío");
+  const gh = [process.execPath, "-e", "process.stdout.write(process.env.GH_COMMITS_PRUEBA || '')"];
+  const esperar = (commits) => {
+    process.env.GH_COMMITS_PRUEBA = commits.map((c) => JSON.stringify(c)).join("\n");
+    // Espera larga de 120 min: si no corta enseguida, la prueba se pasa de los 20 s.
+    const contexto = { config: { nube: { comandoGh: gh, vigilarCadaSegundos: 0.05, esperaMinutos: 120, sinSenalMinutos: 120 } }, registro: { info() {}, aviso() {} } };
+    return esperarResultado(contexto, { repo: { github: "a/b", ruta: AQUI }, rama: "tablero/abc", vistos: new Set(["viejo"]), reloj: { resta: () => 1e9 }, link: LINK_PRUEBA });
+  };
+  try {
+    const empezo = Date.now();
+    const depende = await esperar([{ sha: "d1", mensaje: "DEPENDE_DE: T-955" }, { sha: "i1", mensaje: "inicio: tablero/abc" }, { sha: "viejo", mensaje: "base" }]);
+    assert.deepEqual(depende.dependeDe, ["T-955"]);
+    assert.equal(depende.sha, "d1");
+    assert.equal(depende.paso, undefined, "no es un resultado");
+    assert.ok(Date.now() - empezo < 20_000, `vuelve enseguida, no a los 120 min (${Date.now() - empezo} ms)`);
+    const hecho = await esperar([{ sha: "y1", mensaje: "YA_ESTA_HECHO: deadbeef1234 — ya quedó en main" }, { sha: "i1", mensaje: "inicio: tablero/abc" }]);
+    assert.deepEqual(hecho.yaHecho, { commit: "deadbeef1234", motivo: "ya quedó en main" });
+    assert.equal(hecho.sha, "y1");
+    // Un "resultado:" más nuevo encima manda.
+    const bien = await esperar([{ sha: "r1", mensaje: "resultado: build=OK tests=OK segundos=9" }, { sha: "d1", mensaje: "DEPENDE_DE: T-955" }]);
+    assert.deepEqual([bien.paso, bien.sha, bien.dependeDe], [true, "r1", undefined]);
+    // La instrucción copiada tal cual (con <…>) no es una dependencia; un commit de código que la nombra en el cuerpo, tampoco.
+    await assert.rejects(
+      (async () => {
+        process.env.GH_COMMITS_PRUEBA = "";
+        const contexto = { config: { nube: { comandoGh: gh, vigilarCadaSegundos: 0.05, esperaMinutos: 0.004, sinSenalMinutos: 0.004 } }, registro: { info() {}, aviso() {} } };
+        process.env.GH_COMMITS_PRUEBA = [
+          { sha: "c2", mensaje: 'DEPENDE_DE: <id o «título» de esa tarjeta>' },
+          { sha: "c1", mensaje: "tablero: cambio\n\nuna\ndos\ntres\nDEPENDE_DE: T-1" },
+        ].map((c) => JSON.stringify(c)).join("\n");
+        return esperarResultado(contexto, { repo: { github: "a/b", ruta: AQUI }, rama: "tablero/abc", vistos: new Set(), reloj: { resta: () => 1e9 }, link: LINK_PRUEBA });
+      })(),
+      (error) => error.categoria === "nube_sin_resultado",
+    );
+  } finally {
+    delete process.env.GH_COMMITS_PRUEBA;
+  }
+});
+
 await prueba("29-oct: un plan que toca más de una parte del sistema se parte antes de construir; partir compara por parte, no por nombre exacto", async () => {
   const planYkpl = [
     "## 1. Qué se cambia",
@@ -5846,6 +5888,86 @@ process.exit(real.status ?? 1);
     assert.equal(avisos[0].cuerpo.tipo, "necesita");
     assert.equal(avisos[0].cuerpo.tarjetaId, id);
     assert.match(avisos[0].cuerpo.texto, /necesita una decisión para "Gestión con una duda \[nube-pregunta\]": ¿La subo a main o espera a la otra tarjeta\?/);
+    t.estado = "HECHO";
+    sinRestos();
+  });
+
+  /* ── 27-nov-2026 (incidente T-956): la nube contesta DEPENDE_DE o YA_ESTA_HECHO con un commit vacío ── */
+
+  const delRegistro = () => {
+    const carpeta = path.join(T, "trabajo", "logs");
+    return fs.existsSync(carpeta) ? fs.readdirSync(carpeta).map((nombre) => fs.readFileSync(path.join(carpeta, nombre), "utf8")).join("\n") : "";
+  };
+
+  await prueba("27-nov: la nube deja 'DEPENDE_DE: T-955' -> la tarjeta vuelve a 'Plan aprobado' esperando a la otra en segundos, sin gastar intento ni reparar", async () => {
+    despejar();
+    olvidarSinAcceso();
+    const otra = nueva("T-955", "IDEA");
+    const id = nueva("Nube que depende [nube-depende]", "PLAN_APROBADO", { plan: planDe("nubedepende"), moderno: true });
+    const planificador = planificar(nubeConfig({ todoEnLaNube: true }));
+    const inicio = Date.now();
+    await correrHasta(planificador, () => (tarjetas.get(id).dependeDe ?? []).length > 0 || ["HECHO", "ERROR", "POR_REVISAR"].includes(tarjetas.get(id).estado), 90_000);
+    await planificador.esperarTodas();
+    planificador.parar();
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "PLAN_APROBADO", t.resultado?.error?.motivo);
+    assert.deepEqual(t.dependeDe, [otra], "la dependencia quedó anotada");
+    assert.equal(t.intentos, 0, "no gastó intento");
+    assert.equal(t.reparaciones ?? 0, 0, "ni una reparación");
+    const acciones = llamadas.filter((l) => l.id === id).map((l) => l.accion);
+    assert.ok(!acciones.includes("reparar") && !acciones.includes("error"), acciones.join(","));
+    assert.ok(Date.now() - inicio < 60_000, `no esperó los minutos de la nube (${Date.now() - inicio} ms)`);
+    t.estado = "HECHO";
+    tarjetas.get(otra).estado = "HECHO";
+    sinRestos();
+  });
+
+  await prueba("27-nov: la nube deja 'YA_ESTA_HECHO: <hash que no existe>' y main tiene el commit con el id corto -> HECHO con el hash de main (la nota nombra el citado)", async () => {
+    despejar();
+    olvidarSinAcceso();
+    const titulo = "Nube ya hecha [nube-ya-hecho]";
+    const id = nueva(titulo, "PLAN_APROBADO", { plan: planDe("nubeyahecha"), moderno: true });
+    // El commit de main de esta tarjeta («tablero: … (<id corto>)»), como lo deja el Coordinador al subir.
+    g(REPO, "pull", "--quiet", "--ff-only", "origin", "main");
+    archivo("src/nubeyahecha/parte-1.ts", "export const yaHecha = true;\n");
+    g(REPO, "add", "-A");
+    g(REPO, "commit", "--quiet", "-m", `tablero: ${titulo} (${idCorto(id)})`);
+    g(REPO, "push", "--quiet", "origin", "main");
+    const deMain = shaDe("main");
+    await new Promise((resolver) => setTimeout(resolver, 300));
+    const planificador = planificar(nubeConfig({ todoEnLaNube: true }));
+    await correrHasta(planificador, () => ["HECHO", "ERROR", "POR_REVISAR"].includes(tarjetas.get(id).estado), 90_000);
+    await planificador.esperarTodas();
+    planificador.parar();
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "HECHO", t.resultado?.error?.motivo);
+    assert.equal(t.resultado.yaEstabaHecho.commit, deMain, "el hash real de main");
+    assert.match(t.resultado.yaEstabaHecho.motivo, /la sesión citó deadbeef1234; en main es [0-9a-f]{10}/);
+    const ya = llamadas.findLast((l) => l.id === id && l.accion === "ya-hecha");
+    assert.match(ya.cuerpo.nota, new RegExp(`^ya estaba hecho \\(commit ${deMain}\\): la sesión citó deadbeef1234`), "la nota dice los dos hashes");
+    const acciones = llamadas.filter((l) => l.id === id).map((l) => l.accion);
+    assert.ok(!acciones.includes("reparar") && !acciones.includes("error") && !acciones.includes("subida"), acciones.join(","));
+    sinRestos();
+  });
+
+  await prueba("27-nov: 'YA_ESTA_HECHO: <hash que no existe>' sin nada equivalente en main -> no queda HECHO, 'no le creo' y la falla es no_cambio_nada", async () => {
+    despejar();
+    olvidarSinAcceso();
+    const id = nueva("Nube que dice que ya estaba [nube-ya-hecho]", "PLAN_APROBADO", { plan: planDe("nubenoestaba"), moderno: true });
+    const antes = delRegistro().length;
+    const planificador = planificar(nubeConfig({ todoEnLaNube: true }));
+    // Basta con la primera decisión del Coordinador sobre la falla (después sigue su camino de siempre: mirar main o replanear).
+    await correrHasta(planificador, () => /diagnóstico: no_cambio_nada/.test(delRegistro().slice(antes)) || ["HECHO", "ERROR", "POR_REVISAR"].includes(tarjetas.get(id).estado), 90_000);
+    await planificador.esperarTodas();
+    planificador.parar();
+    const t = tarjetas.get(id);
+    const registrado = delRegistro().slice(antes);
+    assert.notEqual(t.estado, "HECHO");
+    assert.ok(!t.resultado?.yaEstabaHecho);
+    assert.ok(!llamadas.some((l) => l.id === id && l.accion === "ya-hecha"));
+    assert.match(registrado, /YA_ESTA_HECHO con el commit deadbeef1234[^\n]*no le creo/);
+    assert.match(registrado, /diagnóstico: no_cambio_nada/, "la falla es no_cambio_nada (no nube_sin_resultado)");
+    assert.ok(!/diagnóstico: nube_sin_resultado/.test(registrado));
     t.estado = "HECHO";
     sinRestos();
   });
