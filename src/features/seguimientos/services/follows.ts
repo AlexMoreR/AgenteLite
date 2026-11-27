@@ -9,6 +9,7 @@ import {
 } from "@/lib/evolution";
 import { prisma } from "@/lib/prisma";
 import { esAutomaticoPendiente, estaResuelto } from "@/lib/chat-resuelto";
+import { esChatDeLaAsesoraDelContacto } from "@/lib/chat-de-la-asesora";
 import { revisarFrenoDeAutomatico, type MotivoDeFreno } from "@/lib/freno-de-automaticos";
 import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
 import { getFlowReply, type FlowStep } from "@/lib/agent-product-flow";
@@ -2130,6 +2131,37 @@ async function executeFollowRecord(follow: ClaimedFollowRow) {
       datos: { followId: follow.id, clase },
     });
     return { ok: true as const, executionError: null, frenado: freno.motivo };
+  }
+
+  /*
+    Chat de la asesora (tarjeta 8yvjdvpw, 27-11-2026): ningún automático le escribe a un chat que ya
+    atiende una persona (pausado, o asignado y ya le escribió alguien). Vale para todas las clases
+    (Etapa, Sin responder, Inteligente, Tras asesora, campañas, automatizaciones y reactivación),
+    salvo los que agendó una persona a mano. Si no se puede leer, no sale.
+  */
+  if (clase !== "humano") {
+    const delChat = await esChatDeLaAsesoraDelContacto({
+      workspaceId: follow.workspaceId,
+      contactId: follow.contactId,
+      channelId: follow.channelId,
+    });
+    if (delChat.deLaAsesora) {
+      const motivo: MotivoAntiBloqueo = "chat_de_la_asesora";
+      await cancelarFollowFrenado(follow, motivo);
+      anotarFrenado({
+        workspaceId: follow.workspaceId,
+        conversationId: delChat.conversationId,
+        contactId: follow.contactId,
+        channelId: follow.channelId,
+        motor: "follow",
+        motivo,
+        claveUnica: `follow:${follow.id}:${motivo}`,
+        reglaId: follow.followRuleId,
+        reglaNombre: follow.name,
+        datos: { followId: follow.id, clase },
+      });
+      return { ok: true as const, executionError: null, frenado: motivo };
+    }
   }
 
   const actions = resolveFollowExecutionActions(follow);
