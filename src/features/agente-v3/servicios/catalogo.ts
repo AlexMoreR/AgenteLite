@@ -173,18 +173,20 @@ function claveDeCodigo(texto: string): string {
  * ¿El cliente nombró UN producto por su código exacto? Para mandarle la foto sin preguntar.
  *
  * Más estricto que `reconocerEnElCatalogo` a propósito: una foto equivocada es peor que ninguna.
- * - Solo vale el código como palabra entera del mensaje ("TPV001" o "TPV-001"), nunca un pedazo de
+ * - Solo vale el código como palabra entera del mensaje ("TPV001", "TPV-001" o "tpv 001"), nunca un pedazo de
  *   otra palabra ni el nombre del producto.
  * - Tiene que haber UN solo producto: si nombra dos códigos, o dos productos comparten el código,
  *   no se adivina y devuelve null.
  */
 export function reconocerPorCodigo(mensaje: string, catalogo: ProductoDelCatalogoV3[]): ProductoDelCatalogoV3 | null {
-  const delMensaje = new Set(
-    mensaje
-      .split(/[^\p{L}\p{N}-]+/u)
-      .map(claveDeCodigo)
-      .filter((clave) => clave.length >= 3),
-  );
+  const palabras = mensaje.split(/[^\p{L}\p{N}-]+/u).map(claveDeCodigo).filter(Boolean);
+  const delMensaje = new Set(palabras.filter((clave) => clave.length >= 3));
+  // "tpv 001": letras sueltas seguidas de números sueltos también forman el código.
+  for (let i = 0; i + 1 < palabras.length; i++) {
+    if (/^[A-Z]+$/.test(palabras[i]) && /^[0-9]+$/.test(palabras[i + 1])) {
+      delMensaje.add(palabras[i] + palabras[i + 1]);
+    }
+  }
   if (delMensaje.size === 0) return null;
   const encontrados = catalogo.filter((producto) => {
     const clave = producto.codigo ? claveDeCodigo(producto.codigo) : "";

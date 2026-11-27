@@ -112,6 +112,8 @@ test("2. Sin código no manda imagen (tampoco adivina por el nombre)", async () 
   assert.equal(reconocerPorCodigo("quiero la XTPV001X", CATALOGO), null);
   // Con guion o en minúsculas sí es el mismo código.
   assert.equal(reconocerPorCodigo("me interesa la tpv-001", CATALOGO)?.id, TARIMA.id);
+  // Con espacio también ("tpv 001").
+  assert.equal(reconocerPorCodigo("me interesa la tpv 001", CATALOGO)?.id, TARIMA.id);
 });
 
 test("3. Con dos códigos no manda imagen", async () => {
@@ -121,6 +123,8 @@ test("3. Con dos códigos no manda imagen", async () => {
   assert.equal(estaPausada(), true);
   // Dos productos con el mismo código: tampoco se adivina.
   assert.equal(reconocerPorCodigo("TPV001", [TARIMA, { ...TARIMA, id: "otro" }]), null);
+  // Dos códigos aunque uno venga con espacio: tampoco.
+  assert.equal(reconocerPorCodigo("tpv 001 y LCF16", CATALOGO), null);
 });
 
 test("4. Si el producto no tiene foto, no manda imagen", async () => {
