@@ -24,6 +24,7 @@ import {
 import { DialogoOrganizarAreas } from "./DialogoOrganizarAreas";
 import { ResumenDelDia } from "./ResumenDelDia";
 import { VistaDeHoy } from "./VistaDeHoy";
+import { CLAVE_VISTA_FEATURES, VistaDeFeatures } from "./VistaDeFeatures";
 import { TrabajosTerminados } from "./TrabajosTerminados";
 import { SeccionTrabajador } from "./SeccionTrabajador";
 import { useListaDeTableros } from "../hooks/useRefrescoDelTablero";
@@ -39,7 +40,7 @@ import { useListaDeTableros } from "../hooks/useRefrescoDelTablero";
 */
 
 /** Las vistas del selector de arriba (solo las ve el dueño o el ADMIN): "Tableros" es lo de siempre. */
-export type VistaDelInicio = "tableros" | "hoy" | "coordinador" | "terminados";
+export type VistaDelInicio = "tableros" | "hoy" | "coordinador" | "terminados" | "features";
 // Orden (20-nov-2026, pedido de Alex): Hoy, Tableros, Coordinador, Terminados.
 const PESTANAS: { vista: VistaDelInicio; nombre: string }[] = [
   { vista: "hoy", nombre: "Hoy" },
@@ -48,6 +49,7 @@ const PESTANAS: { vista: VistaDelInicio; nombre: string }[] = [
   { vista: "terminados", nombre: "Trabajos terminados" },
 ];
 
+// "features" no es una pestaña del selector: tiene su botón aparte.
 const esVistaDelInicio = (valor: string): valor is VistaDelInicio => PESTANAS.some((pestana) => pestana.vista === valor);
 
 type Props = {
@@ -60,13 +62,15 @@ type Props = {
   cuentas: CuentasDeTableros;
   /** Las tarjetas que le asignaron a quien mira, en cualquier tablero del negocio ("Asignadas a mí"). */
   asignadas: AsignadaVista[];
-  /** Con qué pestaña abre (?vista=hoy, ?vista=coordinador o ?vista=terminados). Sin permiso de administrar siempre es "tableros". */
+  /** Con qué pestaña abre (?vista=hoy, ?vista=coordinador, ?vista=terminados o ?vista=features). Sin permiso de administrar siempre es "tableros". */
   vistaInicial?: VistaDelInicio;
   /** (6-nov-2026) Con ?vista=terminados&dia=AAAA-MM-DD (el link del resumen de las 6 p. m.): el día ya validado, o null. */
   diaInicial?: string | null;
+  /** El id del Área Features (para «Ver como mapa»): null si no se pudo leer. */
+  areaFeaturesId?: string | null;
 };
 
-export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar, cuentas, asignadas, vistaInicial = "tableros", diaInicial = null }: Props) {
+export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar, cuentas, asignadas, vistaInicial = "tableros", diaInicial = null, areaFeaturesId = null }: Props) {
   const router = useRouter();
   // Se actualiza sola (tableros nuevos, contadores, nombres) mientras la pestaña está a la vista.
   const { tableros: lista, setTableros } = useListaDeTableros(iniciales, firma);
@@ -84,7 +88,8 @@ export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar,
   // Las vistas que reemplazan al listado de tableros ("Hoy", "Coordinador en vivo" y "Trabajos terminados").
   const enCoordinador = puedeAdministrar && vista === "coordinador";
   const enTerminados = puedeAdministrar && vista === "terminados";
-  const aparte = enHoy || enCoordinador || enTerminados;
+  const enFeatures = puedeAdministrar && vista === "features";
+  const aparte = enHoy || enCoordinador || enTerminados || enFeatures;
   // El filtro por día de "Trabajos terminados" (solo viene en el link); cambiar de pestaña o "Ver todos" lo quita.
   const [diaDeTerminados, setDiaDeTerminados] = useState<string | null>(vistaInicial === "terminados" ? diaInicial : null);
   const elegirVista = (nueva: VistaDelInicio) => {
@@ -92,6 +97,18 @@ export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar,
     setDiaDeTerminados(null);
     // El link se queda con la pestaña (recargar o compartir vuelve a ella) sin recargar la página.
     window.history.replaceState(null, "", nueva === "tableros" ? RUTA_DEL_INICIO : `${RUTA_DEL_INICIO}?vista=${nueva}`);
+  };
+
+  // «Features» (27-nov-2026): si la última vez se eligió el mapa, va al mapa del Área; si no, abre la vista tipo tablero.
+  const abrirFeatures = () => {
+    let ultima: string | null = null;
+    try {
+      ultima = window.localStorage.getItem(CLAVE_VISTA_FEATURES);
+    } catch {
+      // Navegador privado: se abre la vista tipo tablero.
+    }
+    if (ultima === "mapa" && areaFeaturesId) router.push(`${RUTA_DEL_INICIO}?area=${encodeURIComponent(areaFeaturesId)}`);
+    else elegirVista("features");
   };
 
   return (
@@ -107,6 +124,11 @@ export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar,
           <Plus className="size-4" />
           Nuevo
         </Button>
+        {puedeAdministrar ? (
+          <Button type="button" variant="outline" className="shrink-0" onClick={abrirFeatures}>
+            Features
+          </Button>
+        ) : null}
         {puedeAdministrar ? (
           <NativeSelect
             aria-label="Vista de Tablero IA"
@@ -128,6 +150,8 @@ export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar,
       {enHoy ? <VistaDeHoy /> : null}
 
       {enCoordinador ? <CoordinadorEnVivo /> : null}
+
+      {enFeatures ? <VistaDeFeatures /> : null}
 
       {enTerminados ? <TrabajosTerminados dia={diaDeTerminados} alVerTodos={() => elegirVista("terminados")} /> : null}
 

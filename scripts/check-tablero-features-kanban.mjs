@@ -325,5 +325,31 @@ await prueba("la acción usa personaPuedeAprobar, la sesión del negocio y no im
   assert.doesNotMatch(texto, /cambiarEstado|aprobarTarjeta|editarTarjeta|borrarTarjeta|marcarHecho|archivar|-actions"/);
 });
 
+/* ------------------------------------------------------------------ 6. la pantalla (parte 2) */
+
+await prueba("VistaDeFeatures: scroll lateral, filtros, mapa, Urgente, la clave y el link de la ficha", async () => {
+  const texto = fs.readFileSync(path.join(RAIZ, "src/features/tableros-inteligentes/components/VistaDeFeatures.tsx"), "utf8");
+  assert.match(texto, /^"use client";/);
+  for (const pieza of ["overflow-x-auto", "Limpiar", "Ver como mapa", "Urgente", "tablero-ia:features:vista", "linkDeLaTarjetaEnPantalla", "tableroDeFeaturesAction", "line-clamp-2"]) {
+    assert.ok(texto.includes(pieza), `VistaDeFeatures.tsx debe tener ${pieza}`);
+  }
+  assert.doesNotMatch(texto, /import \{[^}]*\} from "[^"]*services\/tablero-de-features"/, "la pantalla no importa tablero-de-features (trae prisma): solo sus tipos o -filtros");
+});
+
+await prueba("InicioDeTableros: el botón Features solo para el dueño o el ADMIN", async () => {
+  const texto = fs.readFileSync(path.join(RAIZ, "src/features/tableros-inteligentes/components/InicioDeTableros.tsx"), "utf8");
+  assert.match(texto, /\{puedeAdministrar \? \(\s*<Button[^>]*onClick=\{abrirFeatures\}[^>]*>\s*Features\s*<\/Button>/);
+  assert.match(texto, /enFeatures = puedeAdministrar && vista === "features"/);
+  assert.match(texto, /<VistaDeFeatures \/>/);
+  assert.match(texto, /areaFeaturesId/);
+});
+
+await prueba("page.tsx acepta ?vista=features y lee el id de Features sin romper la página", async () => {
+  const texto = fs.readFileSync(path.join(RAIZ, "src/app/cliente/tablero-ia/page.tsx"), "utf8");
+  assert.match(texto, /valor === "features"/);
+  assert.match(texto, /try \{\s*areaFeaturesId = await idDeFeatures\(access\.workspaceId\);\s*\} catch/);
+  assert.match(texto, /areaFeaturesId=\{areaFeaturesId\}/);
+});
+
 await db.close();
 console.log(`\n${pruebas} pruebas OK`);

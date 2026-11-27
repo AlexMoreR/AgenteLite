@@ -13,7 +13,11 @@ import { prisma } from "@/lib/prisma";
 import { leerAreaFeatures } from "./coordinador-en-vivo";
 import { codigoDeTarjeta, esEstado, type EstadoTarjetaTablero } from "./reglas";
 import type { Prioridad } from "./reglas-trabajador";
+import { SIN_AREA_FEATURES } from "./tablero-de-features-filtros";
 import { filasDeTabla, prioridadDeLaTarjeta, type TarjetaDeVista, type TipoDeVista } from "./vistas-de-tabla";
+
+// Lo puro (repo, filtros y el texto del error) vive en tablero-de-features-filtros.ts para que la pantalla (cliente) lo use sin traer prisma.
+export { SIN_AREA_FEATURES, etiquetaDelRepo, filtrarTarjetas, type FiltrosDeFeatures } from "./tablero-de-features-filtros";
 
 /* ------------------------------------------------------------------ columnas */
 
@@ -52,15 +56,6 @@ export function columnaDelEstado(estado: EstadoTarjetaTablero): { clave: ClaveDe
 }
 
 /* ------------------------------------------------------------------ repo */
-
-/** Cómo se lee el repo en el tablero: 'Gestión', 'CRM' o 'Sin repo' (otro valor, tal cual). */
-export function etiquetaDelRepo(repo: string | null | undefined): string {
-  const clave = (repo ?? "").trim().toLowerCase();
-  if (!clave) return "Sin repo";
-  if (clave === "gestion") return "Gestión";
-  if (clave === "aizencrm") return "CRM";
-  return (repo ?? "").trim();
-}
 
 /* ------------------------------------------------------------------ la consulta */
 
@@ -155,8 +150,6 @@ export type TableroDeFeatures = {
   error?: string;
 };
 
-export const SIN_AREA_FEATURES = "No se encontró el Área Features";
-
 const COMPARAR_TEXTO = new Intl.Collator("es", { sensitivity: "base", numeric: true });
 
 /**
@@ -220,28 +213,6 @@ export function repartirEnColumnas(tarjetas: readonly TarjetaDeFeatures[]): Colu
 /** Las áreas distintas de las tarjetas, en orden alfabético (las sin área no cuentan). */
 export function areasDeLasTarjetas(tarjetas: readonly TarjetaDeFeatures[]): string[] {
   return [...new Set(tarjetas.map((tarjeta) => tarjeta.area).filter((area): area is string => Boolean(area)))].sort(COMPARAR_TEXTO.compare);
-}
-
-/* ------------------------------------------------------------------ filtros */
-
-/**
- * Lo que se filtra; un filtro vacío (undefined o null) deja pasar todo. `area` = el nombre del área ("" = sin área);
- * `repo` = 'gestion', 'aizencrm' o "" (sin repo); `prioridad` = URGENTE, ALTA, MEDIA o BAJA.
- */
-export type FiltrosDeFeatures = { area?: string | null; repo?: string | null; prioridad?: Prioridad | null };
-
-/** Deja las tarjetas que cumplen TODOS los filtros pedidos (se combinan entre sí). */
-export function filtrarTarjetas<T extends Pick<TarjetaDeFeatures, "area" | "repo" | "prioridad">>(
-  tarjetas: readonly T[],
-  filtros: FiltrosDeFeatures = {},
-): T[] {
-  const { area, repo, prioridad } = filtros;
-  return tarjetas.filter(
-    (tarjeta) =>
-      (area === undefined || area === null || (tarjeta.area ?? "") === area) &&
-      (repo === undefined || repo === null || (tarjeta.repo ?? "").trim().toLowerCase() === repo.trim().toLowerCase()) &&
-      (prioridad === undefined || prioridad === null || tarjeta.prioridad === prioridad),
-  );
 }
 
 /* ------------------------------------------------------------------ el Área Features */

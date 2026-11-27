@@ -25,6 +25,7 @@ import {
   tarjetaArchivada,
   tarjetaAsignada,
 } from "@/features/tableros-inteligentes/services/tableros";
+import { idDeFeatures } from "@/features/tableros-inteligentes/services/tablero-de-features";
 import { preferenciasDe } from "@/features/tableros-inteligentes/services/vistas-guardadas";
 import { borrarLosTablerosArchivados } from "@/features/tableros-inteligentes/services/tableros-archivados";
 import { FichaDeAsignada } from "@/features/tableros-inteligentes/components/FichaDeAsignada";
@@ -43,7 +44,7 @@ type PageProps = {
 };
 
 const vistaPedida = (valor: string | null) =>
-  valor === "coordinador" || valor === "hoy" || valor === "terminados" ? valor : "tableros";
+  valor === "coordinador" || valor === "hoy" || valor === "terminados" || valor === "features" ? valor : "tableros";
 
 const uno = (valor: string | string[] | undefined) => (Array.isArray(valor) ? valor[0] : valor)?.trim() || null;
 
@@ -63,6 +64,7 @@ const uno = (valor: string | string[] | undefined) => (Array.isArray(valor) ? va
   para los demás se ignora).
   ?vista=hoy abre la pestaña "Hoy" (lo que terminó, falló o espera al dueño): es el link de los WhatsApp.
   ?vista=terminados abre la pestaña "Trabajos terminados" (las tarjetas archivadas; solo el dueño o el ADMIN).
+  ?vista=features (27-nov-2026) abre la vista tipo tablero de lo que cuelga del Área Features (solo el dueño o el ADMIN).
   ?vista=terminados&dia=AAAA-MM-DD (6-nov-2026, el link del resumen de las 6 p. m.) la abre filtrada en lo que terminó
   ese día de Bogotá, archivado o no. Una fecha mal escrita abre la lista normal.
   Un tablero abre en la última vista de la persona (Tabla, Tablero, Calendario o Mapa; la primera vez,
@@ -115,6 +117,15 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
 
   // Sin nada en el link: la página de inicio con el listado (el último que cambió va primero).
   if (!pedidoTablero && !pedidaTarjeta && !pedidoNivel) {
+    // El id del Área Features (el botón «Features» lo usa para ir al mapa): si no se puede leer, la página abre igual.
+    let areaFeaturesId: string | null = null;
+    if (puedeAdministrar) {
+      try {
+        areaFeaturesId = await idDeFeatures(access.workspaceId);
+      } catch {
+        areaFeaturesId = null;
+      }
+    }
     return (
       <InicioDeTableros
         tableros={lista}
@@ -123,6 +134,7 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
         cuentas={cuentas}
         asignadas={await asignadasA(alcance, access.userId)}
         vistaInicial={vistaPedida(uno(parametros.vista))}
+        areaFeaturesId={areaFeaturesId}
         diaInicial={vistaPedida(uno(parametros.vista)) === "terminados" ? diaValido(uno(parametros.dia)) : null}
       />
     );
