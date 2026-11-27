@@ -51,6 +51,11 @@ export function decidirRecogida(tarjeta, { maximoPorTarjeta = RECOGER_POR_DEFECT
   const etapa = ultimoIntento?.etapa ?? (tarjeta?.plan ? "construir" : "planear");
   const diagnostico = diagnosticar({ error: textoDelError, etapa, tarjeta });
   const base = { categoria: diagnostico.categoria, causa: diagnostico.causa };
+  // Una posible repetida (27-nov-2026) la decide el dueño: nunca se reintenta ni se parte. La lista del CRM no trae la categoría
+  // del error, así que también se reconoce por el motivo, que el CRM escribe siempre "Posible repetida de T-…".
+  if (tarjeta?.categoria === "posible_repetida" || /posible repetida de T-/i.test(textoDelError)) {
+    return { ...base, categoria: "posible_repetida", accion: "saltar", motivo: "posible repetida: decide el dueño" };
+  }
   if (veces >= maximoPorTarjeta) {
     return { ...base, accion: "saltar", motivo: `ya se recogió ${veces} veces: se queda en ERROR con su línea` };
   }

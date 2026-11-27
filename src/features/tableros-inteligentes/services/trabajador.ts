@@ -482,6 +482,8 @@ function paraElTrabajador(fila: FilaParaTrabajar, intentos: DatosDeIntentos, anc
     // En Features el plan con preguntas abiertas igual se construye (como si lo hubiera aprobado el dueño).
     planAprobadoPorElDueno: intentos.planAprobadoPorElDueno || features,
     id: fila.id,
+    // El número de la tarjeta (T-123): el Coordinador lo usa para decidir cuál de dos repetidas se queda (la de número menor).
+    numero: fila.numero,
     titulo: fila.titulo,
     detalle: fila.detalle,
     tablero: fila.tablero.nombre,
