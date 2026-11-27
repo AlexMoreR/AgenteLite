@@ -132,12 +132,16 @@ export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar,
         {puedeAdministrar ? (
           <NativeSelect
             aria-label="Vista de Tablero IA"
-            value={vista}
+            value={esVistaDelInicio(vista) ? vista : ""}
             onChange={(evento) => {
               const nueva = evento.target.value;
               if (esVistaDelInicio(nueva)) elegirVista(nueva);
             }}
           >
+            {/* Con la vista Features (botón aparte) el selector no marca ninguna pestaña: así elegir «Hoy» sí cambia de vista. */}
+            <NativeSelectOption value="" disabled hidden>
+              Vista
+            </NativeSelectOption>
             {PESTANAS.map(({ vista: clave, nombre }) => (
               <NativeSelectOption key={clave} value={clave}>
                 {nombre}
