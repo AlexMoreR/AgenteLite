@@ -25,6 +25,7 @@ import {
   type AsignacionSimple,
   type CondicionDelFiltro,
   type FiltrosDeBandeja,
+  type OrdenDeBandeja,
 } from "@/features/chats/domain/filtros-de-bandeja";
 import type { AssignedFilter, StatusFilter } from "./shared-inbox";
 
@@ -69,6 +70,16 @@ type Props = {
   /** Crear (sin id) o editar (con id) una lista. Devuelve el error, o null si salio bien. */
   alGuardarLista: (datos: { id?: string; nombre: string; query: string }) => Promise<string | null>;
 };
+
+/*
+  "Ordenar por" (listas de Chats, parte 3). NO es una condicion: no filtra, no sale en el resumen
+  ni prende chapitas. "Mas nuevos primero" es el de siempre y no deja nada en la direccion; "Mas
+  antiguos primero" deja `orden=antiguos` (lo escribe paramsDeFiltros).
+*/
+const OPCIONES_DE_ORDEN: Array<{ value: OrdenDeBandeja; label: string }> = [
+  { value: "recientes", label: "Más nuevos primero" },
+  { value: "antiguos", label: "Más antiguos primero" },
+];
 
 const OPCIONES_DE_ASIGNACION: Array<{ value: "all" | "mine" | "unassigned"; label: string }> = [
   { value: "all", label: "Todas" },
@@ -158,6 +169,7 @@ export function FiltrosDeBandejaModal({
   const [asignacion, setAsignacion] = React.useState<AsignacionSimple>(inicial.asignacion);
   // Las condiciones (campo · operador · valor), como en Automatizaciones. Ver condiciones-de-bandeja.
   const [condiciones, setCondiciones] = React.useState<CondicionDelFiltro[]>(inicial.filas);
+  const [orden, setOrden] = React.useState<OrdenDeBandeja>(filtros.orden ?? "recientes");
   const [nombre, setNombre] = React.useState("");
   const [guardando, setGuardando] = React.useState(false);
   const [error, setError] = React.useState("");
@@ -183,15 +195,20 @@ export function FiltrosDeBandejaModal({
       : filasDelModal(soloDeJefes(assignedFilter), statusFilter, filtros);
     setAsignacion(puesto.asignacion);
     setCondiciones(puesto.filas);
+    setOrden((lista ? lista.filtros.orden : filtros.orden) ?? "recientes");
     setNombre(listaQueSeEdita?.nombre ?? "");
     setError("");
     // firmaDeLoPuesto resume todo lo que importa de las props: abrir con otra lista reinicia.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [abierto, firmaDeLoPuesto, isManager]);
 
-  // Lo que viaja: asignacion, estado (`status=`) y las condiciones completas (una fila a medio
-  // llenar no filtra ni se guarda).
-  const elegido = separarFilasDelModal(asignacion, condiciones);
+  // Lo que viaja: asignacion, estado (`status=`), las condiciones completas (una fila a medio
+  // llenar no filtra ni se guarda) y el orden, solo si es antiguos (separarFilasDelModal no lo trae).
+  const separado = separarFilasDelModal(asignacion, condiciones);
+  const elegido = {
+    ...separado,
+    filtros: orden === "antiguos" ? { ...separado.filtros, orden } : separado.filtros,
+  };
 
   /*
     Lo elegido, en una linea. Sin esto hay que recorrer el modal entero para saber que quedo
@@ -284,6 +301,10 @@ export function FiltrosDeBandejaModal({
               <Segmentos opciones={opcionesDeAsignacion} valor={asignacion} alElegir={setAsignacion} />
             </Seccion>
           ) : null}
+
+          <Seccion titulo="Ordenar por">
+            <Segmentos opciones={OPCIONES_DE_ORDEN} valor={orden} alElegir={setOrden} />
+          </Seccion>
 
           <EditorDeCondicionesDeBandeja
             condiciones={condiciones}

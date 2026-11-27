@@ -3,6 +3,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import type { SharedInboxConversationItem } from "@/components/chats/chat-inbox-types";
+import {
+  sortConversationItems,
+  updateConversationItemInSortedList,
+} from "@/components/chats/chat-inbox-conversation-utils";
 import { dedupeAndSortConversationListRows, sortConversationListRows } from "@/lib/chat-conversation-list";
 import { hayFiltrosPuestos, leerFiltrosDeBandeja, paramsDeFiltros } from "./filtros-de-bandeja";
 
@@ -60,4 +65,31 @@ test("dedupeAndSortConversationListRows pasa el orden", () => {
   const filas = [fila("b", 20), fila("a", 10), fila("c", 30)];
   assert.deepEqual(dedupeAndSortConversationListRows(filas).map((f) => f.conversationId), ["c", "b", "a"]);
   assert.deepEqual(dedupeAndSortConversationListRows(filas, "antiguos").map((f) => f.conversationId), ["a", "b", "c"]);
+});
+
+// La pantalla (parte 3): con antiguos la bandeja prende `ordenDelServidor`, la misma bandera de "Esperando".
+const chat = (id: string, minuto: number, texto = "hola") =>
+  ({
+    id,
+    source: "agent",
+    lastMessageAt: new Date(Date.UTC(2026, 10, 20, 10, minuto)).toISOString(),
+    label: id,
+    secondaryLabel: texto,
+  }) as unknown as SharedInboxConversationItem;
+
+test("con ordenDelServidor y antiguos, un mensaje nuevo no mueve el chat", () => {
+  // Lo que mando el servidor con orden=antiguos: el mas viejo primero.
+  const lista = [chat("agent:a", 10), chat("agent:b", 20), chat("agent:c", 30)];
+  const conMensajeNuevo = chat("agent:a", 59, "mensaje nuevo");
+
+  const quieta = updateConversationItemInSortedList(lista, "agent:a", conMensajeNuevo, { ordenDelServidor: true });
+  assert.deepEqual(quieta.map((item) => item.id), ["agent:a", "agent:b", "agent:c"]);
+  assert.equal(quieta[0]?.secondaryLabel, "mensaje nuevo");
+  // Y la lista tampoco se reordena sola.
+  assert.deepEqual(sortConversationItems(lista, { ordenDelServidor: true }).map((item) => item.id), ["agent:a", "agent:b", "agent:c"]);
+
+  // Sin la bandera (la lista de siempre) el chat con el mensaje nuevo sube arriba, como hoy.
+  const recientes = [chat("agent:c", 30), chat("agent:b", 20), chat("agent:a", 10)];
+  const sube = updateConversationItemInSortedList(recientes, "agent:a", conMensajeNuevo);
+  assert.deepEqual(sube.map((item) => item.id), ["agent:a", "agent:c", "agent:b"]);
 });

@@ -540,9 +540,10 @@ export function buildConversationItemFromListSnapshot(
 }
 
 /**
- * `ordenDelServidor`: la vista "Esperando" va ordenada por quien mas lleva esperando, no por el
- * ultimo mensaje. Ahi no se reordena nada y un chat que no esta en la lista no entra por aca: lo
- * trae /list, que es quien sabe si espera.
+ * `ordenDelServidor`: la lista va en el orden que mando el servidor, no por el ultimo mensaje. Lo
+ * prenden "Esperando" (quien mas lleva esperando primero) y el orden "Mas antiguos primero"
+ * (`orden=antiguos`, el chat mas viejo primero). Ahi no se reordena nada, un mensaje nuevo no sube
+ * el chat y uno que no esta en la lista no entra por aca: lo trae /list (al bajar o al refrescar).
  */
 type OpcionesDeOrden = { ordenDelServidor?: boolean };
 
@@ -560,7 +561,7 @@ export function insertConversationItemByTimestamp(
   item: SharedInboxConversationItem,
   opciones: OpcionesDeOrden = {},
 ) {
-  // En "Esperando" no se mete un chat por su fecha: la lista queda como estaba.
+  // En el orden del servidor ("Esperando" o antiguos) no se mete un chat por su fecha: queda como estaba.
   if (opciones.ordenDelServidor) return items;
   const itemAt = getConversationLastMessageTimestamp(item.lastMessageAt);
   let insertIndex = 0;
@@ -619,7 +620,8 @@ export function updateConversationItemInSortedList(
   const currentAt = getConversationLastMessageTimestamp(currentItem.lastMessageAt);
   const nextAt = getConversationLastMessageTimestamp(nextItem.lastMessageAt);
 
-  // En "Esperando" la fila se actualiza en su lugar: no sube por tener un mensaje nuevo.
+  // En el orden del servidor ("Esperando" o antiguos) la fila se actualiza en su lugar: no sube
+  // por tener un mensaje nuevo.
   if (currentAt === nextAt || opciones.ordenDelServidor) {
     const nextItems = [...current];
     nextItems[currentIndex] = nextItem;
