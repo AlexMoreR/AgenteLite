@@ -8,11 +8,13 @@ RUN --mount=type=cache,target=/root/.npm npm ci
 FROM node:20-alpine AS builder
 WORKDIR /app
 ARG DEPLOYMENT_ID
+ARG VERSION_NUMERO
 ARG NEXT_SERVER_ACTIONS_ENCRYPTION_KEY
 ENV DEPLOYMENT_ID=${DEPLOYMENT_ID}
 # La misma version, pero visible desde el navegador: con esto la app se da cuenta sola de que
 # quedo corriendo una version vieja (ver /api/version y AvisoVersionNueva).
 ENV NEXT_PUBLIC_DEPLOYMENT_ID=${DEPLOYMENT_ID}
+ENV NEXT_PUBLIC_VERSION_NUMERO=${VERSION_NUMERO}
 ENV NEXT_SERVER_ACTIONS_ENCRYPTION_KEY=${NEXT_SERVER_ACTIONS_ENCRYPTION_KEY}
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules
