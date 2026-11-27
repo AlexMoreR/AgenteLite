@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { ArrowRight, CircleDot, MessageSquare, Sparkles, TriangleAlert } from "lucide-react";
 
 import { EncabezadoLibroDeReglas } from "./EncabezadoLibroDeReglas";
+import { TEXTO_DE_MANDAR_PRODUCTO } from "../domain/mapa";
 import { pesoDeLaRegla, type Accion, type LibroDeReglas, type ReglaV3 } from "../domain/reglas";
 
 /**
@@ -65,6 +66,8 @@ function comoSeLeeLaAccion(accion: Accion): string {
       return `Mueve la etapa a ${accion.etapa}`;
     case "avisar_asesor":
       return `Avisa a un asesor: ${accion.motivo}`;
+    case "mandar_producto_del_mensaje":
+      return TEXTO_DE_MANDAR_PRODUCTO;
     default:
       return "Pausa la IA";
   }

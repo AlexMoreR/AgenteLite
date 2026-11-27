@@ -164,6 +164,12 @@ function chipsDeLaRegla(regla: ReglaV3, nombres: Record<string, string>): Chip[]
   return chips;
 }
 
+/**
+ * La acción "mandar el producto que nombró", en palabras: no dibuja flecha (no lleva a otro paso
+ * ni a un destino), pero la regla se encuentra al buscar "foto" o "producto".
+ */
+export const TEXTO_DE_MANDAR_PRODUCTO = "Manda la foto del producto que nombró el cliente";
+
 /** ¿La regla tiene algo que ver con lo que se busca? Nombre, frases, descripción y textos. */
 export function coincideConLaBusqueda(regla: ReglaV3, busqueda: string): boolean {
   const buscado = normalizar(busqueda);
@@ -177,6 +183,7 @@ export function coincideConLaBusqueda(regla: ReglaV3, busqueda: string): boolean
     if (accion.tipo === "flujo") partes.push(accion.titulo ?? "");
     if (accion.tipo === "avisar_asesor") partes.push(accion.motivo ?? "");
     if (accion.tipo === "activar_producto") partes.push(accion.nombre ?? "");
+    if (accion.tipo === "mandar_producto_del_mensaje") partes.push(TEXTO_DE_MANDAR_PRODUCTO);
   }
   return partes.some((parte) => normalizar(parte).includes(buscado));
 }

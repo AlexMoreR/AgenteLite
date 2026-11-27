@@ -6,10 +6,13 @@ import { RESPUESTA_POR_MAYOR, pidePorMayor } from "../servicios/mayorista";
 import {
   catalogoActivo,
   nombreLegible,
+  pieDeFotoDelProducto,
   productosInactivos,
   reconocerEnElCatalogo,
+  reconocerPorCodigo,
   textoDeUnProducto,
   textoDeVariasOpciones,
+  type ProductoDelCatalogoV3,
 } from "../servicios/catalogo";
 import { anotarDecision } from "../servicios/decisiones";
 import { clasificarIntenciones } from "./clasificar";
@@ -378,9 +381,7 @@ async function evaluar(
     Se ejecuta antes de decidir si hay que escalar, y no con un retorno temprano, porque si no una
     regla del tipo [mensaje + cambiar_etapa] perdería la etapa solo porque el texto se repetía.
   */
-  for (const accion of filtradas) {
-    await ejecutarUna(accion, input);
-  }
+  const notas = await ejecutarAcciones(filtradas, input);
 
   /*
     Se calló y no le queda nada que decirle: que siga una persona.
@@ -415,11 +416,13 @@ async function evaluar(
       .catch((error) => console.error("[agente-v3] seguimientos del paso", error instanceof Error ? error.message : error));
   }
 
-  const porque = !seCallo
+  const porqueDeLaRegla = !seCallo
     ? decision.porque
     : leDiceAlgo
       ? `${decision.porque} (No se repitió un texto que ya había salido.)`
       : `${decision.porque} Pero ese mensaje ya se había enviado en esta conversación, así que se avisó a un asesor en vez de repetirlo.`;
+  // Lo que dejaron las acciones para la nota del chat (por ejemplo, qué producto se reconoció).
+  const porque = notas.length ? `${porqueDeLaRegla} ${notas.join(" ")}` : porqueDeLaRegla;
 
   return {
     atendido: true,
@@ -470,20 +473,65 @@ async function responderDesdeElCatalogo(input: {
     : `Ninguna regla aplicaba; lo que escribió encaja con ${deQue} del catálogo: se le preguntó cuál y se avisó a una asesora.`;
 }
 
-async function ejecutarUna(
-  accion: Accion,
-  input: {
-    workspaceId: string;
-    incluirApiOficial?: boolean;
-    herramientas: Herramientas;
-  },
-): Promise<void> {
+type EntradaDeAcciones = {
+  workspaceId: string;
+  /** Lo que escribió el cliente: de acá sale el código del producto que nombró. */
+  mensaje: string;
+  incluirApiOficial?: boolean;
+  herramientas: Herramientas;
+  /** De dónde sale el catálogo. Por defecto, los productos activos de Gestión (las pruebas pasan otro). */
+  leerCatalogo?: () => Promise<ProductoDelCatalogoV3[]>;
+};
+
+/**
+ * Ejecuta las acciones de la regla EN ORDEN. Devuelve las notas que dejaron para el chat.
+ *
+ * Exportada para las pruebas: así se comprueba que, si una acción falla, las de después (avisar a
+ * la asesora, pausar la IA) se cumplen igual.
+ */
+export async function ejecutarAcciones(acciones: Accion[], input: EntradaDeAcciones): Promise<string[]> {
+  const notas: string[] = [];
+  for (const accion of acciones) {
+    const nota = await ejecutarUna(accion, input);
+    if (nota) notas.push(nota);
+  }
+  return notas;
+}
+
+/** Ejecuta una acción. Devuelve una nota para el chat cuando hay algo que contar, o null. */
+async function ejecutarUna(accion: Accion, input: EntradaDeAcciones): Promise<string | null> {
   const { herramientas } = input;
 
   switch (accion.tipo) {
     case "mensaje":
       await herramientas.enviarPaso({ kind: "text", content: accion.texto });
-      return;
+      return null;
+
+    case "mandar_producto_del_mensaje": {
+      /*
+        La foto del producto que pidió (el cliente llega de magilus.com con "TPV001 Tarima
+        Pedicure"): la ve de una mientras le escribe la asesora. Nunca rompe la regla: si no hay un
+        código exacto y único, si no tiene foto, si ya se mandó o si falla el envío, no manda nada y
+        las acciones siguientes (avisar, pausar) se cumplen igual.
+      */
+      try {
+        const catalogo = await (input.leerCatalogo ?? (() => catalogoActivo(input.workspaceId)))();
+        const producto = reconocerPorCodigo(input.mensaje, catalogo);
+        if (!producto?.foto) return null;
+        const pie = pieDeFotoDelProducto(producto);
+        const deQue = `${nombreLegible(producto.nombre)} (${producto.codigo?.trim()})`;
+        if (await herramientas.yaLoDijimos(pie)) {
+          return `Reconoció ${deQue}; su foto ya se había mandado en este chat y no se repitió.`;
+        }
+        const salio = await herramientas.enviarPaso({ kind: "image", url: producto.foto, caption: pie });
+        return salio === false
+          ? `Reconoció ${deQue} en el mensaje, pero su foto no se pudo mandar.`
+          : `Reconoció ${deQue} en el mensaje y le mandó su foto.`;
+      } catch (error) {
+        console.error("[agente-v3] mandar_producto_del_mensaje", error instanceof Error ? error.message : error);
+        return null;
+      }
+    }
 
     case "flujo": {
       /*
@@ -501,28 +549,28 @@ async function ejecutarUna(
       for (const paso of flujo?.steps ?? []) {
         await herramientas.enviarPaso(paso);
       }
-      return;
+      return null;
     }
 
     case "responder_con_ia":
       await herramientas.responderConIa(accion.guia);
-      return;
+      return null;
 
     case "avisar_asesor":
       await herramientas.avisarAsesor(accion.motivo);
-      return;
+      return null;
 
     case "cambiar_etapa_crm":
       await herramientas.cambiarEtapa(accion.etapa);
-      return;
+      return null;
 
     case "pausar_ia":
       await herramientas.pausarIa();
-      return;
+      return null;
 
     // activar_producto e ir_al_paso no mandan nada: solo mueven el estado, y eso lo hace
     // `siguienteEstado` con la lista completa de acciones.
     default:
-      return;
+      return null;
   }
 }

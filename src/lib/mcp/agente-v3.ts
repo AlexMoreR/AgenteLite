@@ -66,7 +66,7 @@ const ESQUEMA_DE_REGLA = {
     },
     entonces: {
       type: "array",
-      description: "Que hace. Lista cerrada de acciones: mensaje, flujo, responder_con_ia, activar_producto, ir_al_paso, cambiar_etapa_crm, avisar_asesor, pausar_ia.",
+      description: "Que hace. Lista cerrada de acciones: mensaje, flujo, responder_con_ia, activar_producto, ir_al_paso, cambiar_etapa_crm, avisar_asesor, pausar_ia, mandar_producto_del_mensaje (manda la foto del producto cuyo codigo exacto del catalogo nombro el cliente, con nombre, codigo y hasta 3 datos de la ficha, sin precio; si no hay un codigo exacto y unico, o no tiene foto, no manda nada).",
       items: {
         type: "object",
         properties: {
@@ -81,6 +81,7 @@ const ESQUEMA_DE_REGLA = {
               "cambiar_etapa_crm",
               "avisar_asesor",
               "pausar_ia",
+              "mandar_producto_del_mensaje",
             ],
           },
           texto: { type: "string" },

@@ -73,7 +73,13 @@ export type Accion =
   | { tipo: "ir_al_paso"; paso: PasoDelEmbudo }
   | { tipo: "cambiar_etapa_crm"; etapa: string }
   | { tipo: "avisar_asesor"; motivo: string }
-  | { tipo: "pausar_ia" };
+  | { tipo: "pausar_ia" }
+  /**
+   * Manda la foto del producto que el cliente nombró por su CÓDIGO exacto (TPV001), con un pie
+   * corto: nombre, código y hasta 3 datos de la ficha, sin precio. Si no hay un código exacto y
+   * único, o el producto no tiene foto, no manda nada (idea de Ingrid, 26-nov-2026).
+   */
+  | { tipo: "mandar_producto_del_mensaje" };
 
 export type ReglaV3 = {
   id: string;
