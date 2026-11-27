@@ -488,7 +488,8 @@ async function evaluar(
     if (respaldoDeLaRegla.estado !== estado) {
       nuevoEstado = {
         ...nuevoEstado,
-        pasoActual: respaldoDeLaRegla.estado.pasoActual,
+        // Si la misma regla ya movió el paso ("ir al paso"), ese paso se respeta.
+        pasoActual: nuevoEstado.pasoActual === estado.pasoActual ? respaldoDeLaRegla.estado.pasoActual : nuevoEstado.pasoActual,
         flujosEnviados: [...new Set([...nuevoEstado.flujosEnviados, ...respaldoDeLaRegla.estado.flujosEnviados])],
       };
     }

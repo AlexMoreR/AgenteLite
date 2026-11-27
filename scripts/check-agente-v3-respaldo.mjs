@@ -139,7 +139,7 @@ async function atender({
   conRespondeString = null,
   porRegla = false,
 }) {
-  mundo.libro = porRegla ? libro(reglaConIa) : libroDe;
+  mundo.libro = porRegla ? libro(porRegla === true ? reglaConIa : porRegla) : libroDe;
   mundo.estado = estado;
   mundo.guardados = [];
   mundo.sugerencia = sugerencia;
@@ -418,6 +418,19 @@ await prueba("(c') regla responder_con_ia: el texto ya había salido, no se mand
   assert.deepEqual(r.enviados, []);
   assert.equal(r.avisos.length, 1);
   assert.deepEqual(r.resultado.traza.respaldo, { tipo: "nada", causa: "respuesta vacía" });
+});
+
+await prueba("(g') regla [ir_al_paso + responder_con_ia] que falla: sale la ficha pero se respeta el paso de la regla", async () => {
+  const r = await atender({
+    mensaje: "ayuda con ia",
+    porRegla: { ...reglaConIa, entonces: [{ tipo: "ir_al_paso", paso: "OBJECIONES" }, ...reglaConIa.entonces] },
+    estado: estadoDe({ productoActivo: null, pasoActual: "PRESENTACION" }),
+    sugerencia: fallaPorTiempo,
+  });
+  assert.deepEqual(r.enviados, ["[image]", "Ficha de la camilla"]);
+  assert.equal(r.guardados.length, 1);
+  assert.equal(r.guardados[0].pasoActual, "OBJECIONES");
+  assert.deepEqual(r.guardados[0].flujosEnviados, [FICHA]);
 });
 
 await prueba("(f') regla responder_con_ia, la IA responde bien: sin respaldo", async () => {
