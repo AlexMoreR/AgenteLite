@@ -1013,6 +1013,8 @@ const relojV3 = cargar("src/features/agente-v3/servicios/seguimientos.ts", {
     revisarAntiBloqueo: async () => ({ enviar: true }),
   },
   "@/lib/freno-de-automaticos": { revisarFrenoDeAutomatico: async () => ({ enviar: true }) },
+  // El freno del chat de la asesora tiene sus propias pruebas (check-chat-de-la-asesora.mjs): acá el chat es libre.
+  "@/lib/chat-de-la-asesora": { esChatDeLaAsesora: async () => false },
   "@/features/seguimientos/services/follows": { apagarSiCorresponde: async () => null },
   "@/features/seguimiento-inteligente/servicios/convivencia": { revisarConvivencia: async () => null },
   "../motor/estado": {
