@@ -7,7 +7,12 @@
   "Planeado con Opus · Construido con Sonnet".
 */
 
-export type ModelosDelResultado = Partial<Record<"plan" | "construir" | "revisar" | "subagentes", string>>;
+export type ModelosDelResultado = Partial<Record<"plan" | "construir" | "revisar" | "subagentes", string>> & {
+  /** El modelo de construir lo dijo la propia sesión de la nube (modelo= en su commit). */
+  construirDicho?: boolean;
+  /** El modelo de construir solo se PIDIÓ en el prompt: la nube no dejó forzarlo con --model. */
+  construirPedido?: boolean;
+};
 
 /** Los pasos que se muestran, en orden, con cómo se dice cada uno. Los subagentes no se muestran. */
 const PASOS_VISIBLES = [
@@ -30,6 +35,9 @@ export function modelosDeEntrada(valor: unknown): ModelosDelResultado | null {
     const modelo = modeloDeEntrada((valor as Record<string, unknown>)[paso]);
     if (modelo) modelos[paso] = modelo;
   }
+  const datos = valor as Record<string, unknown>;
+  if (modelos.construir && datos.construirDicho === true) modelos.construirDicho = true;
+  if (modelos.construir && datos.construirPedido === true) modelos.construirPedido = true;
   return Object.keys(modelos).length ? modelos : null;
 }
 
@@ -88,6 +96,6 @@ export function textoDeModelos(plan: string | null | undefined, modelos: Modelos
     if (delPlan) por.plan = delPlan;
   }
   return PASOS_VISIBLES.filter(([paso]) => por[paso])
-    .map(([paso, verbo]) => `${verbo} con ${nombreDelModelo(por[paso] as string)}`)
+    .map(([paso, verbo]) => `${verbo} con ${nombreDelModelo(por[paso] as string)}${paso === "construir" && por.construirPedido ? " (pedido)" : ""}`)
     .join(" · ");
 }

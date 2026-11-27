@@ -615,16 +615,18 @@ function errorSesionFija(repo, detalle) {
 const SESION_FIJA_SIN_ARREGLO = /not found|archived|no such session|no existe|archivada/i;
 
 /** Un mensaje a la sesión fija. -> { ok, link, texto } o lanza ErrorDeEtapa (cancelada, límite de uso, no responde). */
-async function mensajeASesionFija(contexto, repo, mensaje, { cwd }) {
+async function mensajeASesionFija(contexto, repo, mensaje, { cwd, modelo = null }) {
   const { config, senal } = contexto;
   const base = config.nube.comandoClaude ?? config.comandoClaude;
   const id = sesionFijaDe(repo);
   const timeoutMs = Math.max(1000, config.nube.lanzarMinutos * MINUTO);
-  const resultado = await correr([...base, "-p", mensaje, "--cloud", id, "--output-format", "json"], { cwd, timeoutMs, senal, env: entornoSeguro() });
+  const resultado = await correr([...base, "-p", mensaje, "--cloud", id, ...(modelo ? ["--model", modelo] : []), "--output-format", "json"], { cwd, timeoutMs, senal, env: entornoSeguro() });
   if (resultado.cancelado) throw new ErrorDeEtapa("Se canceló el lanzamiento en la nube: la tarjeta venció en el CRM.", { categoria: "coordinador_cortado" });
   const texto = sinColores(`${resultado.salida}\n${resultado.errores}`);
   const datos = jsonDeLaSalida(resultado.salida);
   if (resultado.codigo === 0 && datos && datos.ok !== false && !datos.is_error) return { link: linkDeLaSesionFija(datos, id), texto };
+  // La CLI no deja elegir modelo con la sesión fija: se avisa para reintentar sin --model (mandarASesionFija).
+  if (modelo && NO_ACEPTA_MODELO.test(texto)) return { rechazoElModelo: true, link: null, texto };
   if (esErrorDeSesionClaude(texto)) throw new ErrorDeEtapa(`La sesión de Claude está vencida al escribirle a la sesión fija: ${ultimasLineas(texto, 5)}`, { sinSesion: true, motor: "claude" });
   if (esLimiteDeUso(texto)) throw new ErrorDeEtapa(`Claude llegó a su límite de uso al escribirle a la sesión fija: ${ultimasLineas(texto, 5)}`, { limiteDeUso: true, motor: "claude" });
   const porQue = resultado.vencido ? `no contestó en ${config.nube.lanzarMinutos} min` : `salió con código ${resultado.codigo}${datos?.ok === false ? " (ok: false)" : ""}`;
@@ -643,9 +645,11 @@ async function mensajeASesionFija(contexto, repo, mensaje, { cwd }) {
 /**
  * Manda una tarea a la sesión fija del proyecto: primero `/clear` (contexto limpio), después la instrucción.
  * Modo orquestador (1-nov-2026): sin `/clear` (la sesión lleva varias tarjetas a la vez), solo la instrucción.
- * -> { link, via: "sesion-fija", salida, modeloForzado: false } (el modelo de la sesión lo fija quien la creó; el prompt lo pide).
+ * -> { link, via: "sesion-fija", salida, modeloForzado }.
+ * Con `modelo` la tarea va con `--model <modelo>` (modeloForzado: true). Si la CLI lo rechaza (NO_ACEPTA_MODELO) se avisa y se
+ * reintenta sin él (modeloForzado: false; el prompt ya pide el modelo y la sesión dice cuál usó con modelo= en su commit).
  */
-export async function mandarASesionFija(contexto, { repo, cwd, prompt }) {
+export async function mandarASesionFija(contexto, { repo, cwd, prompt, modelo = null }) {
   const { registro } = contexto;
   const id = sesionFijaDe(repo);
   const orquestador = esOrquestador(repo);
@@ -653,8 +657,14 @@ export async function mandarASesionFija(contexto, { repo, cwd, prompt }) {
   if (!orquestador) await mensajeASesionFija(contexto, repo, "/clear", { cwd });
   const descripcion = descripcionParaLaNube(prompt);
   if (descripcion.length < String(prompt ?? "").length) registro?.aviso?.(`sesión fija: la instrucción tenía ${String(prompt).length} caracteres; la recorté a ${descripcion.length} (el plan, por el medio)`);
-  const { link, texto } = await mensajeASesionFija(contexto, repo, descripcion, { cwd });
-  return { link, via: "sesion-fija", salida: texto, modeloForzado: false };
+  let enviado = await mensajeASesionFija(contexto, repo, descripcion, { cwd, modelo });
+  let forzado = Boolean(modelo);
+  if (enviado.rechazoElModelo) {
+    registro?.aviso?.("la sesión fija no deja elegir modelo con --model: le mando la tarea sin él (el modelo va pedido en el prompt)");
+    enviado = await mensajeASesionFija(contexto, repo, descripcion, { cwd });
+    forzado = false;
+  }
+  return { link: enviado.link, via: "sesion-fija", salida: enviado.texto, modeloForzado: forzado };
 }
 
 /* ── la nube sin señal (25-nov-2026, parte 2 de «las 4 fallas repetidas»: T-921 volvió a la misma sesión) ── */
@@ -712,7 +722,7 @@ export async function lanzarSesionDeLaNube(contexto, { repo, cwd, prompt, modelo
     );
   }
   try {
-    if (sesionFijaDe(repo) && !nueva) return await mandarASesionFija(contexto, { repo, cwd, prompt });
+    if (sesionFijaDe(repo) && !nueva) return await mandarASesionFija(contexto, { repo, cwd, prompt, modelo });
     const lanzado = await lanzarEnNube(contexto, { cwd, prompt, modelo, repo });
     // `claude --cloud` siempre crea una sesión; si diera la de un intento anterior, no se le deja la tarea.
     if (yaLaUsoUnIntento(lanzado?.link, anteriores)) {
@@ -788,6 +798,9 @@ export function resultadoDelCommit(mensaje) {
   const build = coincide[1].toUpperCase();
   const tests = coincide[2].toUpperCase();
   const resultado = { build, tests, segundos: coincide[3] === undefined ? null : Number(coincide[3]), paso: build === "OK" && tests === "OK", detalle: resto.join("\n").trim() };
+  // modelo=<id> (la sesión dice con qué modelo trabajó): solo [A-Za-z0-9._:-]; con otro formato se ignora.
+  const modelo = primera.match(/(?:^|\s)modelo=([A-Za-z0-9._:-]+)(?=\s|$)/i)?.[1];
+  if (modelo) resultado.modelo = modelo;
   const main = primera.match(/(?:^|\s)main=([0-9a-f]{7,40})(?=\s|$)/i)?.[1];
   if (main) resultado.main = main.toLowerCase();
   const revision = primera.match(/\brevisi[oó]n=([A-Za-z]+)/i);

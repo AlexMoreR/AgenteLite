@@ -902,6 +902,15 @@ La cuenta de servicio de Google edita los archivos de la carpeta del cerebro, pe
 
 Se prende con `"boveda": { "ruta": "D:/Magilus" }` en `config.local.json` (sin ruta, apagado). Si la carpeta no existe (unidad sin montar) no marca nada y reintenta. Pruebas: `pruebas/probar-notas-boveda.mjs`.
 
+## Qué modelo usa cada paso (27-nov-2026)
+
+- **La regla** (`lib/modelos.mjs`): Opus planea; Sonnet construye, revisa, revisa seguridad y repara. El código la aplica, no una IA.
+- **Cambiarla**: una línea nueva en `modelos.desde` de la config con una fecha más nueva, p. ej. `{ "fecha": "2026-12-01T12:00:00Z", "paso": "construir", "modelo": "opus" }`.
+- **En aizen1** cada paso va con `--model <modelo>`.
+- **En la nube**: una sesión nueva (`claude --cloud`) va con `--model`; la sesión fija también va con `--model` y, si la CLI lo rechaza, se avisa y se reintenta sin él.
+- **La sesión dice su modelo** con `modelo=<id>` en la primera línea de su commit `resultado:` (p. ej. `resultado: build=OK tests=OK segundos=10 modelo=claude-sonnet-5-5`). Un commit viejo sin `modelo=` no rompe nada.
+- **`(pedido)`** en la tarjeta quiere decir que el modelo solo se pidió en el prompt y no se pudo forzar.
+
 ## Pruebas
 
 ```

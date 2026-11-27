@@ -125,6 +125,11 @@ if (sesionFija) {
     console.error(`Error: session ${sesionFija} is busy`);
     process.exit(1);
   }
+  // [nube-sin-model] también vale con la sesión fija: rechaza --model como una CLI que no lo acepta.
+  if (titulo.includes("[nube-sin-model]") && argumentos.includes("--model")) {
+    console.error("error: unknown option '--model'");
+    process.exit(1);
+  }
   const rama = prompt.match(/git checkout -B (\S+) origin\//)?.[1];
   // Fuera de un repo con remoto (las pruebas de probar-reparto.mjs que solo miran los mensajes) no hay "máquina de la nube".
   let remoto = "";
