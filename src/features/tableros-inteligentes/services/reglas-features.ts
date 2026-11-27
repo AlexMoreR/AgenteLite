@@ -9,6 +9,7 @@
   PARA APAGARLO: poner FEATURES_AUTO_APROBAR en false (un solo lugar). Fuera de Features todo sigue igual.
 */
 
+import { claveDeNombre } from "./reglas";
 import { gastoDeclaradoEnElPlan, normalizar, preguntasAbiertasDelPlan, rutasDelTexto, seccionFinalDelPlan } from "./reglas-riesgo";
 
 /** El interruptor de TODA la regla. false = todo como antes de esta regla. */
@@ -38,6 +39,51 @@ export function esDeFeatures(
   if (!activa) return false;
   if (!datos.repo) return false;
   return datos.tableroId === TABLERO_DE_FEATURES_ID && datos.ancestros.includes(TARJETA_AREA_FEATURES_ID);
+}
+
+/* ──────────────────────────────────────────── toda Tarea nueva cae en Features (27-nov) ── */
+
+/*
+  El Coordinador solo toma lo que cuelga de Features. Las Tareas que se creaban sueltas (o en otra área) en el tablero de
+  Features nadie las hacía. Desde ahora (crearTarjeta, en el MCP y en la pantalla): una Tarea nueva SIN padre en ese tablero
+  queda dentro de Features sola; si trae un padre que no está en Features, se crea igual con AVISO_TAREA_FUERA_DE_FEATURES.
+  Crear una tarjeta nunca falla por esta regla. Prueba: npm run test:tareas-a-features.
+*/
+
+/** La regla, escrita en un solo lugar: va en la descripción de crear_tarjeta y en las instrucciones del servidor MCP. */
+export const REGLA_TAREAS_EN_FEATURES =
+  "Si es un desarrollo nuevo o una corrección en Gestión o en el CRM, créala como Tarea dentro de Features (T-736), con repo gestion o aizencrm. Las Ideas son solo notas y no van a Features.";
+
+/** Lo que devuelve crear_tarjeta (aviso_features) cuando la Tarea no queda dentro de Features. */
+export const AVISO_TAREA_FUERA_DE_FEATURES = "Esta Tarea no la va a tomar el Coordinador; muévela a Features (T-736).";
+
+/** Lo que queda en la nota del historial de la creación cuando la regla la puso en Features. */
+export const NOTA_PUESTA_EN_FEATURES = "puesta dentro de Features sola";
+
+/** ¿Es el tipo Tarea? Por su nombre, con claveDeNombre (sin tildes ni mayúsculas), como lo distingue el tablero. */
+export function esTipoTarea(tipo: { nombre: string } | string | null | undefined): boolean {
+  const nombre = typeof tipo === "string" ? tipo : tipo?.nombre;
+  return typeof nombre === "string" && claveDeNombre(nombre) === claveDeNombre("Tarea");
+}
+
+/**
+ * El padre de una tarjeta nueva: Features (TARJETA_AREA_FEATURES_ID) solo si es del tablero de Features, de tipo Tarea y nadie
+ * le puso padre. En cualquier otro caso (Idea, Área, otro tablero o con padre) devuelve el padre que venía, tal cual.
+ */
+export function padreParaTareaNueva(datos: {
+  tableroId: string;
+  tipo: { nombre: string } | string | null | undefined;
+  padreId: string | null | undefined;
+}): string | null {
+  const padre = datos.padreId ?? null;
+  if (padre) return padre;
+  if (datos.tableroId !== TABLERO_DE_FEATURES_ID || !esTipoTarea(datos.tipo)) return padre;
+  return TARJETA_AREA_FEATURES_ID;
+}
+
+/** ¿El padre (o alguna de sus madres, `ancestrosDelPadre` de SQL_ANCESTROS) es Features? */
+export function padreEstaEnFeatures(padreId: string, ancestrosDelPadre: readonly string[]): boolean {
+  return padreId === TARJETA_AREA_FEATURES_ID || ancestrosDelPadre.includes(TARJETA_AREA_FEATURES_ID);
 }
 
 /* ──────────────────────────────────────────── gasto de VERDAD en Meta Ads (excepción) ── */

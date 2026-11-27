@@ -133,6 +133,7 @@
     "test:tablero-features": "node scripts/check-tablero-features.mjs",
     "test:tablero-organizar-areas": "node scripts/check-tablero-organizar-areas.mjs",
     "test:features-auto-aprobar": "node scripts/check-features-auto-aprobar.mjs",
+    "test:tareas-a-features": "node scripts/check-tareas-a-features.mjs",
     "test:tablero-archivar-al-terminar": "npx tsx --test src/features/tableros-inteligentes/services/archivar-al-terminar.test.ts",
     "test:tablero-archivadas-migracion": "node scripts/check-tablero-archivadas-migracion.mjs",
     "test:coordinador-en-vivo": "node scripts/check-coordinador-en-vivo.mjs",

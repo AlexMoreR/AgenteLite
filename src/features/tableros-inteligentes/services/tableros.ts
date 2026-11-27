@@ -81,7 +81,16 @@ import {
   type Prioridad,
   type ViaDeAprobacion,
 } from "./reglas-trabajador";
-import { VIA_REGLA_FEATURES } from "./reglas-features";
+import {
+  AVISO_TAREA_FUERA_DE_FEATURES,
+  NOTA_PUESTA_EN_FEATURES,
+  TABLERO_DE_FEATURES_ID,
+  VIA_REGLA_FEATURES,
+  esTipoTarea,
+  padreEstaEnFeatures,
+  padreParaTareaNueva,
+} from "./reglas-features";
+import { SQL_ANCESTROS } from "./sql-trabajador";
 import {
   frase,
   motivoDeRiesgoDeEntrada,
@@ -1494,7 +1503,9 @@ export async function crearTarjeta(
   const orden = typeof datos.orden === "number" && Number.isFinite(datos.orden) ? Math.trunc(datos.orden) : 0;
   const link = linkDeEntrada(datos.link) ?? null;
   const linkTexto = link ? (linkTextoDeEntrada(datos.linkTexto) ?? null) : null;
-  const padreId = padreDeEntrada(datos.padreId) ?? null;
+  const padrePedido = padreDeEntrada(datos.padreId) ?? null;
+  // Toda Tarea nueva sin padre del tablero de Features cae en Features (reglas-features.ts, 27-nov).
+  let padreId = padreParaTareaNueva({ tableroId: tablero.id, tipo, padreId: padrePedido });
   const repo = repoDeEntrada(datos.repo) ?? null;
   const zonaProtegida = zonasDeEntrada(datos.zonaProtegida) ?? [];
   if (repo) revisarRepoParaTipo(tipo);
@@ -1530,9 +1541,24 @@ export async function crearTarjeta(
       throw new Error("Alguna tarjeta de conectar_con no es de este tablero (o está borrada). Ver ver_tablero para los ids.");
     }
   }
-  if (padreId) {
+  // Regla "toda Tarea nueva cae en Features": crear una tarjeta nunca falla por ella; si no se puede, va el aviso.
+  let avisoFeatures: string | null = null;
+  let puestaEnFeatures = false;
+  if (padreId && !padrePedido) {
+    // La puso la regla: Features tiene que existir y aceptar a la Tarea. Si no, se crea suelta, con el aviso.
+    try {
+      await revisarMadre({ id: "", tipoId: tipo.id, tableroId: tablero.id }, padreId, tipos);
+      puestaEnFeatures = true;
+    } catch {
+      padreId = null;
+      avisoFeatures = AVISO_TAREA_FUERA_DE_FEATURES;
+    }
+  } else if (padreId) {
     // Una tarjeta nueva no puede cerrar un ciclo: solo se revisa el tipo y el tablero.
     await revisarMadre({ id: "", tipoId: tipo.id, tableroId: tablero.id }, padreId, tipos);
+    if (tablero.id === TABLERO_DE_FEATURES_ID && esTipoTarea(tipo) && !(await padreCuelgaDeFeatures(padreId))) {
+      avisoFeatures = AVISO_TAREA_FUERA_DE_FEATURES;
+    }
   }
 
   const creada = await prisma.$transaction(async (tx) => {
@@ -1580,6 +1606,8 @@ export async function crearTarjeta(
       ...(responsable ? { responsableId: responsable.userId, responsableNombre: responsable.nombre } : {}),
       // La prioridad, solo si no es la de siempre (MEDIA): igual que el responsable.
       ...(tarjeta.prioridad !== PRIORIDAD_POR_DEFECTO ? { prioridad: tarjeta.prioridad } : {}),
+      // Solo si la regla la puso en Features: el historial de las demás queda igual.
+      ...(puestaEnFeatures ? { nota: NOTA_PUESTA_EN_FEATURES } : {}),
     });
     // Cada flecha es su propio cambio: así se puede deshacer una sin tocar la tarjeta.
     for (const destinoId of conectarCon) {
@@ -1594,7 +1622,20 @@ export async function crearTarjeta(
   });
   // Una tarea con repo que nace POR_APROBAR se aprueba sola (regla del dueño 25-oct; salvo dinero o Meta Ads).
   const aprobacion = await aprobarSiCorresponde(creada.tarjeta);
-  return { ...creada, tarjeta: aprobacion.tarjeta, aprobacionAutomatica: aprobacion.resultado };
+  return { ...creada, tarjeta: aprobacion.tarjeta, aprobacionAutomatica: aprobacion.resultado, avisoFeatures };
+}
+
+/**
+ * ¿El padre de una Tarea nueva es Features o cuelga de ella (a cualquier profundidad)? Sube por las madres con SQL_ANCESTROS,
+ * igual que aprobacion-automatica.ts. Si la consulta falla, se da por buena: crear nunca falla ni avisa de más por la regla.
+ */
+async function padreCuelgaDeFeatures(padreId: string): Promise<boolean> {
+  try {
+    const filas = await prisma.$queryRawUnsafe<{ id: string; ancestros: string[] }[]>(SQL_ANCESTROS, [padreId]);
+    return padreEstaEnFeatures(padreId, filas[0]?.ancestros ?? []);
+  } catch {
+    return true;
+  }
 }
 
 /**

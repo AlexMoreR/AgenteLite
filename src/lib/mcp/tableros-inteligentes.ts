@@ -28,6 +28,7 @@ import {
   type ContextoTablero,
   type TipoVista,
 } from "@/features/tableros-inteligentes/services/tableros";
+import { REGLA_TAREAS_EN_FEATURES } from "@/features/tableros-inteligentes/services/reglas-features";
 import {
   ESTADOS_AL_CREAR,
   ESTADOS_SIN_APROBAR,
@@ -336,7 +337,10 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     name: "crear_tarjeta",
     title: "Agregar una tarjeta",
     description:
-      "Agrega una tarjeta (un área, una idea, una tarea...) al tablero. Sin tipo queda como Idea. Puede colgar de otra tarjeta (padre_id) si su tipo lo permite (Área > Idea > Tarea, o una Tarea directo en un Área; un Área también dentro de otra Área; lo que vale en cada tablero lo dice listar_tipos). Queda IDEA, o POR_APROBAR si su tipo pide aprobación y ya está lista para que el dueño la mire. Un Área no lleva estado. Si es un cambio de código que debe hacer el Coordinador, poner repo (gestion o aizencrm; solo tipos con aprobación, como Tarea) y, si toca Meta Ads, el bot de ventas o el libro V3, zona_protegida. Aprobarla lo hace el dueño (en la pantalla, o con aprobar_tarjeta si lo dice explícitamente). RIESGO (22-oct-2026, decisión del dueño: 'las cosas básicas que ayudan al negocio y no tienen riesgo, hágalas sin pedirme permiso; lo súper importante sí me lo manda al tablero'): en tarjetas con repo, proponer riesgo BAJO o ALTO. Una tarjeta BAJO POR_APROBAR se aprueba SOLA (si el interruptor de la pantalla está prendido) y el trabajador arranca sin pedir permiso. El servidor revisa las reglas: Claude nunca puede marcar BAJO algo con zona protegida, dinero, permisos o credenciales, mensajes a clientes, el propio trabajador o migraciones que borren o cambien datos. Si hay duda, ALTO." +
+      "Agrega una tarjeta (un área, una idea, una tarea...) al tablero. Sin tipo queda como Idea. Puede colgar de otra tarjeta (padre_id) si su tipo lo permite (Área > Idea > Tarea, o una Tarea directo en un Área; un Área también dentro de otra Área; lo que vale en cada tablero lo dice listar_tipos). Queda IDEA, o POR_APROBAR si su tipo pide aprobación y ya está lista para que el dueño la mire. Un Área no lleva estado. Si es un cambio de código que debe hacer el Coordinador, poner repo (gestion o aizencrm; solo tipos con aprobación, como Tarea) y, si toca Meta Ads, el bot de ventas o el libro V3, zona_protegida. Aprobarla lo hace el dueño (en la pantalla, o con aprobar_tarjeta si lo dice explícitamente). RIESGO (22-oct-2026, decisión del dueño: 'las cosas básicas que ayudan al negocio y no tienen riesgo, hágalas sin pedirme permiso; lo súper importante sí me lo manda al tablero'): en tarjetas con repo, proponer riesgo BAJO o ALTO. Una tarjeta BAJO POR_APROBAR se aprueba SOLA (si el interruptor de la pantalla está prendido) y el trabajador arranca sin pedir permiso. El servidor revisa las reglas: Claude nunca puede marcar BAJO algo con zona protegida, dinero, permisos o credenciales, mensajes a clientes, el propio trabajador o migraciones que borren o cambien datos. Si hay duda, ALTO. " +
+      // Regla (reglas-features.ts): «Si es un desarrollo nuevo o una corrección en Gestión o en el CRM, créala como Tarea dentro de Features (T-736), con repo gestion o aizencrm. Las Ideas son solo notas y no van a Features.»
+      REGLA_TAREAS_EN_FEATURES +
+      " Una Tarea sin padre_id en el tablero Empresa Magilus queda dentro de Features sola; si queda fuera de Features, la respuesta trae aviso_features." +
       REGLA_DEL_TABLERO,
     inputSchema: {
       type: "object",
@@ -895,6 +899,8 @@ export async function ejecutarHerramientaMcpTableros(
         ...(resultado.tarjeta.repo ? { repo: resultado.tarjeta.repo, riesgo: resultado.tarjeta.riesgo ?? "ALTO (sin riesgo puesto)" } : {}),
         ...(resultado.tarjeta.zonaProtegida.length ? { zona_protegida: resultado.tarjeta.zonaProtegida } : {}),
         ...(resultado.aprobacionAutomatica?.aprobada ? { aprobada_sola: true } : {}),
+        // Solo cuando la Tarea no quedó dentro de Features (el Coordinador no la va a tomar).
+        ...(resultado.avisoFeatures ? { aviso_features: resultado.avisoFeatures } : {}),
         cambio_id: resultado.cambioId,
         aviso: !resultado.tipo.usaEstados
           ? `Listo: es de tipo ${resultado.tipo.nombre}, una carpeta sin estado. Para ponerle cosas adentro, usar su tarjeta_id como padre_id.`
