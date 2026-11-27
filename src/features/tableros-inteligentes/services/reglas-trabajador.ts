@@ -791,6 +791,23 @@ export function commitDelResultado(resultado: unknown): string | null {
   return null;
 }
 
+/**
+ * ¿La tarjeta quedó HECHO a mano, sin una subida del Coordinador? (27-nov-2026, incidente T-956). Es true cuando está HECHO y su
+ * resultado no trae `subida.commit` (lo deja el Coordinador al subir) ni `yaEstabaHecho.commit` (un YA_ESTA_HECHO comprobado en
+ * main). Con eso el Coordinador sabe que su código puede no estar en main y lo comprueba con git antes de soltar a quien la espera.
+ */
+export function hechaAManoSinSubida(tarjeta: { estado: string; resultado?: unknown }): boolean {
+  if (tarjeta.estado !== "HECHO") return false;
+  const datos = comoObjeto(tarjeta.resultado);
+  const conCommit = (valor: unknown) => typeof comoObjeto(valor).commit === "string" && String(comoObjeto(valor).commit).trim().length > 0;
+  return !conCommit(datos.subida) && !conCommit(datos.yaEstabaHecho);
+}
+
+/** El id corto de una tarjeta, igual que el del Coordinador (trabajador-tablero/lib/git.mjs: idCorto): las últimas 8 letras y números. */
+export function idCortoDeTarjeta(id: string): string {
+  return String(id).replace(/[^A-Za-z0-9]/g, "").slice(-8);
+}
+
 /** El título de la tarjeta única de limpieza de un repo. Las tareas de limpieza se buscan por este título exacto. */
 export function tituloDeLimpieza(repo: string): string {
   return `Limpieza: main trae errores viejos (${repo})`;
@@ -1822,6 +1839,9 @@ export const CATEGORIAS_DE_INTENTO = [
   // 27-nov-2026: el plan nombra archivos del otro repo; el Coordinador le cambia el repo a la tarjeta y la vuelve a planear
   // (acción "cambiar-repo"). No cuenta como intento; tope TOPE_DE_CAMBIOS_DE_REPO.
   "repo_equivocado",
+  // 27-nov-2026 (incidente T-956): DEPENDE_DE a una tarjeta HECHA a mano o FALLIDA cuyo código no está en main. Va directo a
+  // ERROR con el motivo, sin reparación (trabajador-tablero/lib/diagnostico.mjs: SIN_REPARACION_AUTOMATICA).
+  "depende_de_sin_main",
   "otra",
 ] as const;
 export type CategoriaDeIntento = (typeof CATEGORIAS_DE_INTENTO)[number];

@@ -3000,7 +3000,9 @@ const servidor = http.createServer(async (pedido, respuesta) => {
       anotarIntento(tarjeta, { etapa: cuerpo.etapa ?? "planear", categoria: "otra", causa: etiqueta }, "esperar", false);
       Object.assign(tarjeta, { estado: vuelve, venceEn: null, intentos: Math.max(0, tarjeta.intentos - 1) });
     }
-    return contestar(200, { ok: true, estado: tarjeta.estado, creadas: origenes.map((t) => t.id), esperando: etiqueta, soltada: Boolean(etiqueta && vuelve) });
+    // 27-nov-2026 (T-956): cada tarjeta nombrada, con `hechaAMano` de la regla pura del CRM.
+    const nombradas = origenes.map((t) => ({ id: t.id, idCorto: reglas.idCortoDeTarjeta(t.id), titulo: t.titulo, estado: t.estado, hechaAMano: reglas.hechaAManoSinSubida(t) }));
+    return contestar(200, { ok: true, estado: tarjeta.estado, creadas: origenes.map((t) => t.id), esperando: etiqueta, soltada: Boolean(etiqueta && vuelve), tarjetas: nombradas });
   }
   if (accion === "ya-hecha") {
     tarjeta.resultado = { ...(tarjeta.resultado ?? {}), yaEstabaHecho: { commit: cuerpo.commit, motivo: cuerpo.motivo, nota: reglas.notaDeYaHecha(cuerpo.commit) } };
@@ -5917,6 +5919,89 @@ process.exit(real.status ?? 1);
     const acciones = llamadas.filter((l) => l.id === id).map((l) => l.accion);
     assert.ok(!acciones.includes("reparar") && !acciones.includes("error"), acciones.join(","));
     assert.ok(Date.now() - inicio < 60_000, `no esperó los minutos de la nube (${Date.now() - inicio} ms)`);
+    t.estado = "HECHO";
+    tarjetas.get(otra).estado = "HECHO";
+    sinRestos();
+  });
+
+  /* ── 27-nov-2026 (tarjeta 7rlezol8, incidente T-956): DEPENDE_DE se resuelve con git y con el estado de la otra, sin bucle ── */
+
+  // La nube falsa siempre contesta "DEPENDE_DE: T-955": las «T-955» de pruebas anteriores cambian de título para que solo cuente la nueva.
+  const otraT955 = (estado, extra = {}) => {
+    for (const t of tarjetas.values()) if (t.titulo === "T-955") t.titulo = `T-955 (vieja ${t.id})`;
+    return nueva("T-955", estado, extra);
+  };
+
+  await prueba("27-nov (T-956): DEPENDE_DE a una HECHA a mano sin main -> ERROR depende_de_sin_main con el motivo, sin reparar ni soltar", async () => {
+    despejar();
+    olvidarSinAcceso();
+    // T-955 quedó HECHO a mano: sin subida del Coordinador ni YA_ESTA_HECHO, y main no tiene su commit.
+    const otra = otraT955("HECHO");
+    const id = nueva("Nube que depende [nube-depende]", "PLAN_APROBADO", { plan: planDe("nubedependeamano"), moderno: true });
+    const planificador = planificar(nubeConfig({ todoEnLaNube: true }));
+    await correrHasta(planificador, () => ["HECHO", "ERROR", "POR_REVISAR"].includes(tarjetas.get(id).estado) || llamadas.some((l) => l.id === id && l.accion === "soltar"), 90_000);
+    await planificador.esperarTodas();
+    planificador.parar();
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "ERROR", t.resultado?.error?.motivo);
+    assert.equal(t.resultado.error.categoria, "depende_de_sin_main");
+    assert.match(t.resultado.error.motivo, /T-955/);
+    assert.match(t.resultado.error.motivo, /HECHA a mano pero su código no está en main/);
+    assert.deepEqual(t.dependeDe, [otra], "la flecha quedó puesta");
+    assert.equal(t.reparaciones ?? 0, 0, "ni una reparación");
+    const acciones = llamadas.filter((l) => l.id === id).map((l) => l.accion);
+    assert.ok(!acciones.includes("reparar") && !acciones.includes("soltar"), acciones.join(","));
+    const error = llamadas.findLast((l) => l.id === id && l.accion === "error");
+    assert.equal(error.cuerpo.categoria, "depende_de_sin_main");
+    t.estado = "HECHO";
+    sinRestos();
+  });
+
+  await prueba("27-nov (T-956): DEPENDE_DE a una HECHA cuyo commit ya está en main -> se suelta sin intento ni reparación, con la nota 'ya está en main' y el commit", async () => {
+    despejar();
+    olvidarSinAcceso();
+    const otra = otraT955("HECHO");
+    // El commit de la otra en main («tablero: … (<id corto>)»), como lo deja el Coordinador al subir.
+    g(REPO, "pull", "--quiet", "--ff-only", "origin", "main");
+    archivo("src/nubedependeenmain/otra.ts", "export const otra = true;\n");
+    g(REPO, "add", "-A");
+    g(REPO, "commit", "--quiet", "-m", `tablero: T-955 (${idCorto(otra)})`);
+    g(REPO, "push", "--quiet", "origin", "main");
+    const deMain = shaDe("main");
+    const id = nueva("Nube que depende [nube-depende]", "PLAN_APROBADO", { plan: planDe("nubedependeenmain"), moderno: true });
+    const planificador = planificar(nubeConfig({ todoEnLaNube: true }));
+    await correrHasta(planificador, () => ["HECHO", "ERROR", "POR_REVISAR"].includes(tarjetas.get(id).estado) || llamadas.some((l) => l.id === id && l.accion === "soltar"), 90_000);
+    await planificador.esperarTodas();
+    planificador.parar();
+    const t = tarjetas.get(id);
+    assert.ok(["PLAN_APROBADO", "APROBADO"].includes(t.estado), `${t.estado}: ${t.resultado?.error?.motivo ?? ""}`);
+    assert.equal(t.intentos, 0, "no gastó intento");
+    assert.equal(t.reparaciones ?? 0, 0, "ni una reparación");
+    assert.equal((t.intentosLista ?? []).filter((i) => i.cuentaComoIntento).length, 0, "ningún intento que cuente");
+    const soltada = llamadas.findLast((l) => l.id === id && l.accion === "soltar");
+    assert.match(soltada.cuerpo.motivo, /«T-955» \([A-Za-z0-9]{8}\) ya está en main, commit [0-9a-f]{10}/);
+    assert.ok(soltada.cuerpo.motivo.includes(deMain.slice(0, 10)), "la nota trae el commit de main");
+    const acciones = llamadas.filter((l) => l.id === id).map((l) => l.accion);
+    assert.ok(!acciones.includes("reparar") && !acciones.includes("error"), acciones.join(","));
+    t.estado = "HECHO";
+    sinRestos();
+  });
+
+  await prueba("27-nov (T-956): DEPENDE_DE a una que sigue EN_CURSO -> espera con la flecha en 'Plan aprobado', sin error ni reparar", async () => {
+    despejar();
+    olvidarSinAcceso();
+    const otra = otraT955("EN_CURSO");
+    const id = nueva("Nube que depende [nube-depende]", "PLAN_APROBADO", { plan: planDe("nubedependeencurso"), moderno: true });
+    const planificador = planificar(nubeConfig({ todoEnLaNube: true }));
+    await correrHasta(planificador, () => (tarjetas.get(id).dependeDe ?? []).length > 0 || ["HECHO", "ERROR", "POR_REVISAR"].includes(tarjetas.get(id).estado), 90_000);
+    await planificador.esperarTodas();
+    planificador.parar();
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "PLAN_APROBADO", t.resultado?.error?.motivo);
+    assert.deepEqual(t.dependeDe, [otra], "la flecha quedó puesta");
+    assert.equal(t.intentos, 0, "no gastó intento");
+    const acciones = llamadas.filter((l) => l.id === id).map((l) => l.accion);
+    assert.ok(!acciones.includes("reparar") && !acciones.includes("error") && !acciones.includes("soltar"), acciones.join(","));
     t.estado = "HECHO";
     tarjetas.get(otra).estado = "HECHO";
     sinRestos();

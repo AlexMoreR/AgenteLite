@@ -46,6 +46,9 @@ export const CATEGORIAS = [
   // 27-nov-2026: el plan nombra archivos de otro repo; el Coordinador le cambia el repo a la tarjeta (o la vuelve a planear) sin
   // construir ni gastar intento (acción "cambiar-repo" del CRM).
   "repo_equivocado",
+  // 27-nov-2026 (incidente T-956): la sesión dijo DEPENDE_DE a una tarjeta HECHA a mano o FALLIDA cuyo código no está en main
+  // (bucle.mjs: esperarPorDependencia). No se repara sola: hasta que alguien suba ese código, reintentar da la misma vuelta.
+  "depende_de_sin_main",
   "otra",
 ];
 
@@ -53,7 +56,7 @@ export const CATEGORIAS = [
  * Las categorías que NO se reparan solas (29-oct-2026, 62 % del uso semanal se fue en reintentos ciegos): van directo al
  * dueño con el link y la línea de qué necesita. Repetirlas no cambia nada hasta que alguien encuentre la causa.
  */
-export const SIN_REPARACION_AUTOMATICA = ["nube_pregunta", "plan_con_preguntas", "revision_no_paso", "nube_sin_acceso_repo", "zona", "choque_de_logica"];
+export const SIN_REPARACION_AUTOMATICA = ["nube_pregunta", "plan_con_preguntas", "revision_no_paso", "nube_sin_acceso_repo", "zona", "choque_de_logica", "depende_de_sin_main"];
 
 /**
  * 25-nov-2026 (parte 2 de «las 4 fallas repetidas»): la nube sin señal ya no va directo al dueño. Se repara con la estrategia
@@ -255,6 +258,7 @@ const CAUSA_BASE = {
   zona: "El cambio de chats o del bot de ventas no puede subir solo",
   choque_de_logica: "Lo nuevo de main y el cambio de la tarea no encajan (choque de lógica)",
   repo_equivocado: "El plan nombra archivos de otro repo (repo equivocado)",
+  depende_de_sin_main: "Depende de una tarjeta HECHA a mano o FALLIDA cuyo código no está en main",
   otra: "No se reconoció la causa",
 };
 
