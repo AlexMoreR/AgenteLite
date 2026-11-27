@@ -583,11 +583,12 @@
   },
   "modelos": {
     "planear": "opus",
-    "planearSencillo": "sonnet",
+    "planearSencillo": "opus",
     "construir": "sonnet",
     "revisar": "sonnet",
-    "revisarSeguridad": "opus",
+    "revisarSeguridad": "sonnet",
     "subagentes": "sonnet",
+    "reparar": "sonnet",
     "leer": "haiku",
     "desde": []
   }

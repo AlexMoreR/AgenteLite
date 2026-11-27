@@ -11,7 +11,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 
-import { manejarFalla, procesar, referenciasDeLaCausa, resolverLaSubidaDeshecha } from "../lib/bucle.mjs";
+import { manejarFalla, modeloDeLaSesion, procesar, referenciasDeLaCausa, resolverLaSubidaDeshecha } from "../lib/bucle.mjs";
 import { LOG_ACTUALIZAR_POR_DEFECTO, PISO_VERSION_MINUTOS, completarConfig } from "../lib/config.mjs";
 import {
   FRASES_DE_LA_CAUSA,
@@ -835,6 +835,36 @@ try {
     assert.equal((texto.match(/^### /gm) ?? []).length, 1, "una sola entrada por falla");
     // Lo que el CRM guarda en el historial: tres textos de 300 letras (porQueDeEntrada de reglas-trabajador.ts).
     assert.deepEqual(reglas.porQueDeEntrada(datos.porQue), datos.porQue);
+  });
+
+  await prueba("27-nov: la 2.ª reparación por lo mismo da la estrategia opus, su texto no dice Opus y la sesión usa el modelo de reparar", async () => {
+    const diagnostico = { categoria: "no_compila", causa: "El código no compila: error TS2322: el tipo no calza" };
+    const previa = { accion: "reparar", etapa: "construir", categoria: "no_compila", causa: diagnostico.causa };
+    // Con Sonnet construyendo (la regla del 27-nov), la 2.ª por la misma causa prueba la estrategia opus…
+    const segunda = decidir({ diagnostico, tarjeta: { reparaciones: 1, ultimosIntentos: [previa] }, etapa: "construir", modeloConstruir: "sonnet" });
+    assert.deepEqual([segunda.accion, segunda.estrategia], ["reparar", "opus"]);
+    for (const texto of [segunda.motivo, segunda.queCambia]) assert.doesNotMatch(texto, /Opus/, texto);
+    assert.match(segunda.motivo, /modelo de reparar/);
+    // …y con la estrategia opus ya usada (marcada en la causa) se parte, aunque construir nunca haya sido Opus.
+    const usada = { ...previa, causa: reglas.causaConEstrategia(causaConMarca(diagnostico.causa, "opus"), "opus") };
+    const tercera = decidir({ diagnostico, tarjeta: { reparaciones: 2, ultimosIntentos: [usada] }, etapa: "construir", modeloConstruir: "sonnet" });
+    assert.equal(tercera.accion, "partir");
+    assert.doesNotMatch(tercera.motivo, /Opus/);
+    // Que construir sea Opus (config vieja) ya no salta la estrategia opus.
+    assert.equal(decidir({ diagnostico, tarjeta: { reparaciones: 1, ultimosIntentos: [previa] }, etapa: "construir", modeloConstruir: "opus" }).estrategia, "opus");
+    // La sesión de esa reparación usa el modelo de `reparar` (Sonnet), también con la config de aizen1 (construir en Opus desde el 30-oct).
+    const motores = { motorDe: () => "claude" };
+    const deAizen1 = completarConfig({
+      urlCrm: "https://app.aizenbot.com",
+      claveTrabajador: "aizen_trab_x",
+      repos: { aizencrm: { ruta: ".", subirSolo: false } },
+      modelos: { planearSencillo: "opus", desde: [{ fecha: "2026-10-30T12:00:00Z", paso: "construir", modelo: "opus" }] },
+    });
+    const tarjeta = { titulo: "x", detalle: "", intentos: 2 };
+    assert.equal(modeloDeLaSesion(deAizen1, motores, tarjeta, "construir", { estrategia: "opus" }), "sonnet");
+    const conReparar = { ...deAizen1, modelos: { ...deAizen1.modelos, desde: [...deAizen1.modelos.desde, { fecha: "2026-11-27T12:00:00Z", paso: "reparar", modelo: "claude-otro" }] } };
+    assert.equal(modeloDeLaSesion(conReparar, motores, tarjeta, "construir", { estrategia: "opus" }), "claude-otro", "sale de modelos.reparar");
+    assert.equal(modeloDeLaSesion(conReparar, motores, tarjeta, "construir", null), "sonnet", "sin la estrategia, el de construir");
   });
 
   console.log(`\n${pruebas} pruebas OK`);
