@@ -242,7 +242,7 @@ await prueba("la consulta es de solo lectura, recursiva, con tope de 50 niveles 
   assert.match(texto, /"nivel" < 50/);
   assert.match(texto, /LIMIT 500\s*$/);
   assert.doesNotMatch(texto, /\b(INSERT|UPDATE|DELETE|TRUNCATE|ALTER|DROP|CREATE|FOR UPDATE)\b/i);
-  assert.doesNotMatch(texto, /\b(any_value|json_object|json_array|json_exists|json_query|json_value|json_table|is json|merge)\b/i);
+  assert.doesNotMatch(texto, /\b(any_value|json_object|json_array|json_exists|json_query|json_value|json_table|is json|merge)\b/i); // sql-version-ok: es la lista de lo prohibido, no una consulta
   assert.doesNotMatch(texto, /now\(\)|current_timestamp/i, "el corte de 7 días llega como dato ($3)");
 });
 
