@@ -164,8 +164,9 @@ const SUB = "area-seo-000000000000001";
 const SUBSUB = "area-seo-ideas-0000000001";
 const SUB_BORRADA = "area-vieja-borrada-000001";
 const OTRA = "area-ventas-0000000000001";
-const fila = (id, tablero, tipo, estado, repo, padre, creado) =>
-  `('${id}', '${tablero}', '${id}', '${estado}', 'u-dueno', '${creado}', '${creado}', '${tipo}', ${repo === null ? "NULL" : `'${repo}'`}, 'El plan de ${id}', ${padre === null ? "NULL" : `'${padre}'`}, 0)`;
+const VENTAS = "area-ventas-bis-00000001";
+const fila = (id, tablero, tipo, estado, repo, padre, creado, area = null) =>
+  `('${id}', '${tablero}', '${id}', '${estado}', 'u-dueno', '${creado}', '${creado}', '${tipo}', ${repo === null ? "NULL" : `'${repo}'`}, 'El plan de ${id}', ${padre === null ? "NULL" : `'${padre}'`}, 0, ${area === null ? "NULL" : `'${area}'`})`;
 
 await db.exec(`
   INSERT INTO "User" ("id", "email", "password", "updatedAt") VALUES ('u-dueno', 'dueno@x.co', 'x', now());
@@ -182,18 +183,22 @@ await db.exec(`
     ('tarea', '${TABLERO}', 'Tarea', true, true, 2),
     ('tarea-otro', 'tab-otro-0000000000000001', 'Tarea', true, true, 2),
     ('tarea-ws2', 'tab-ws2-00000000000000001', ' TAREA ', true, true, 2);
-  INSERT INTO "TarjetaTablero" ("id", "tableroId", "titulo", "estado", "creadoPor", "creadoEn", "actualizadoEn", "tipoId", "repo", "plan", "padreId", "intentos") VALUES
+  INSERT INTO "TarjetaTablero" ("id", "tableroId", "titulo", "estado", "creadoPor", "creadoEn", "actualizadoEn", "tipoId", "repo", "plan", "padreId", "intentos", "area") VALUES
     ${[
       fila(FEATURES, TABLERO, "area", "IDEA", null, null, "2026-10-01 08:00:00"),
       fila(SUB, TABLERO, "area", "IDEA", null, FEATURES, "2026-10-01 08:00:00"),
       fila(SUBSUB, TABLERO, "area", "IDEA", null, SUB, "2026-10-01 08:00:00"),
       fila(SUB_BORRADA, TABLERO, "area", "IDEA", null, FEATURES, "2026-10-01 08:00:00"),
       fila(OTRA, TABLERO, "area", "IDEA", null, null, "2026-10-01 08:00:00"),
+      fila(VENTAS, TABLERO, "area", "IDEA", null, null, "2026-10-01 08:00:00"),
       // Las que tienen que salir (fuera de Features, Tarea, APROBADO o PLAN_APROBADO, con repo):
       fila("fuera-suelta", TABLERO, "tarea", "APROBADO", "aizencrm", null, "2026-11-01 08:00:00"),
       fila("fuera-otra-area", TABLERO, "tarea", "PLAN_APROBADO", "gestion", OTRA, "2026-11-02 08:00:00"),
       fila("fuera-bajo-borrada", TABLERO, "tarea", "APROBADO", "aizencrm", SUB_BORRADA, "2026-11-03 08:00:00"),
+      fila("fuera-aizencrm-ventas", TABLERO, "tarea", "APROBADO", "aizencrm", VENTAS, "2026-11-04 08:00:00"),
+      fila("fuera-con-area", TABLERO, "tarea", "APROBADO", "gestion", VENTAS, "2026-11-04 09:00:00", "Marketing"),
       // Las que no:
+      fila("repo-otro", TABLERO, "tarea", "APROBADO", "otro", VENTAS, "2026-10-02 08:00:00"),
       fila("dentro", TABLERO, "tarea", "APROBADO", "aizencrm", FEATURES, "2026-10-02 08:00:00"),
       fila("dentro-sub", TABLERO, "tarea", "PLAN_APROBADO", "aizencrm", SUBSUB, "2026-10-02 08:00:00"),
       fila("idea-aprobada", TABLERO, "idea", "APROBADO", "aizencrm", null, "2026-10-02 08:00:00"),
@@ -209,6 +214,7 @@ await db.exec(`
       fila("otro-tablero", "tab-otro-0000000000000001", "tarea-otro", "APROBADO", "aizencrm", null, "2026-10-02 08:00:00"),
       fila("otro-negocio", "tab-ws2-00000000000000001", "tarea-ws2", "APROBADO", "aizencrm", null, "2026-10-02 08:00:00"),
     ].join(",\n    ")};
+  UPDATE "TarjetaTablero" SET "titulo" = 'Ventas' WHERE "id" = '${VENTAS}';
   UPDATE "TarjetaTablero" SET "borradoEn" = '2026-11-05 08:00:00' WHERE "id" IN ('borrada', '${SUB_BORRADA}');
   UPDATE "TarjetaTablero" SET "archivadaEn" = '2026-11-05 08:00:00' WHERE "id" = 'archivada';
 `);
@@ -219,9 +225,18 @@ const tarjetaEnBase = async (id) => (await db.query(`SELECT * FROM "TarjetaTable
 
 await prueba("SQL_TAREAS_FUERA_DE_FEATURES: solo las Tareas APROBADO/PLAN_APROBADO con repo que están fuera de Features", async () => {
   // Una que cuelga de una sub-área borrada ya no está en Features (el recorrido no pasa por borradas, como el Coordinador).
-  assert.deepEqual(await fueraDe(), ["fuera-suelta", "fuera-otra-area", "fuera-bajo-borrada"]);
-  const [primera] = (await db.query(SQL, [FEATURES, TABLERO, "ws1"])).rows;
-  assert.deepEqual(Object.keys(primera).sort(), ["actualizadoEn", "estado", "id", "padreId"]);
+  assert.deepEqual(await fueraDe(), ["fuera-suelta", "fuera-otra-area", "fuera-bajo-borrada", "fuera-aizencrm-ventas", "fuera-con-area"]);
+  assert.ok(!(await fueraDe()).includes("repo-otro"), "un repo que no es de desarrollo no sale");
+  const filas = (await db.query(SQL, [FEATURES, TABLERO, "ws1"])).rows;
+  const [primera] = filas;
+  assert.deepEqual(Object.keys(primera).sort(), ["actualizadoEn", "area", "estado", "id", "madreArea", "madreTipo", "madreTitulo", "padreId"]);
+  const ventas = filas.find((x) => x.id === "fuera-aizencrm-ventas");
+  assert.equal(ventas.area, null);
+  assert.equal(ventas.madreTitulo, "Ventas");
+  assert.equal(ventas.madreTipo, "Área");
+  assert.equal(filas.find((x) => x.id === "fuera-con-area").area, "Marketing");
+  const bajoBorrada = filas.find((x) => x.id === "fuera-bajo-borrada");
+  assert.equal(bajoBorrada.madreTitulo, null, "la madre borrada no cuenta");
   assert.equal(primera.estado, "APROBADO");
   assert.ok(primera.actualizadoEn instanceof Date);
 });
@@ -240,15 +255,15 @@ let antesDeMover = null;
 const tx = {
   tarjetaTablero: {
     async updateMany({ where, data }) {
-      assert.deepEqual(Object.keys(where).sort(), ["actualizadoEn", "archivadaEn", "borradoEn", "estado", "id", "padreId"], "update condicional");
-      assert.deepEqual(data, { padreId: FEATURES }, "solo cambia padreId: estado, plan y orden quedan igual");
+      assert.deepEqual(Object.keys(where).sort(), ["actualizadoEn", "archivadaEn", "area", "borradoEn", "estado", "id", "padreId"], "update condicional");
+      assert.ok(data.padreId === FEATURES && Object.keys(data).every((k) => k === "padreId" || k === "area"), "solo cambia padreId (y el área vacía): estado, plan y orden quedan igual");
       assert.equal(where.borradoEn, null);
       assert.equal(where.archivadaEn, null);
       const res = await db.query(
-        `UPDATE "TarjetaTablero" SET "padreId" = $1, "actualizadoEn" = now()
+        `UPDATE "TarjetaTablero" SET "padreId" = $1, "area" = COALESCE($6, "area"), "actualizadoEn" = now()
          WHERE "id" = $2 AND "padreId" IS NOT DISTINCT FROM $3 AND "estado"::text = $4 AND "actualizadoEn" = $5
-           AND "borradoEn" IS NULL AND "archivadaEn" IS NULL`,
-        [data.padreId, where.id, where.padreId, where.estado, where.actualizadoEn],
+           AND "area" IS NOT DISTINCT FROM $7 AND "borradoEn" IS NULL AND "archivadaEn" IS NULL`,
+        [data.padreId, where.id, where.padreId, where.estado, where.actualizadoEn, data.area ?? null, where.area],
       );
       return { count: res.affectedRows ?? 0 };
     },
@@ -304,7 +319,7 @@ await prueba("moverTareasAFeatures: mueve cada una por separado y no pisa a la q
     primera = false;
     await db.query(`UPDATE "TarjetaTablero" SET "actualizadoEn" = '2026-11-28 14:59:00' WHERE "id" = 'fuera-otra-area'`);
   };
-  assert.deepEqual(await mover.moverTareasAFeatures(DIA_1), { movidas: 2 });
+  assert.deepEqual(await mover.moverTareasAFeatures(DIA_1), { movidas: 4 });
   antesDeMover = null;
   const suelta = await tarjetaEnBase("fuera-suelta");
   assert.equal(suelta.padreId, FEATURES);
@@ -319,20 +334,36 @@ await prueba("moverTareasAFeatures: mueve cada una por separado y no pisa a la q
     quien: "sistema:tareas-a-features",
     origen: "TRABAJADOR",
     accion: "mover",
-    antes: { estado: "APROBADO", padreId: null },
-    despues: { estado: "APROBADO", padreId: FEATURES, nota: mover.NOTA_TAREA_MOVIDA_A_FEATURES },
+    antes: { estado: "APROBADO", padreId: null, area: null },
+    despues: { estado: "APROBADO", padreId: FEATURES, area: null, nota: mover.NOTA_TAREA_MOVIDA_A_FEATURES },
   });
   assert.equal(historial[1].tarjetaId, "fuera-bajo-borrada");
-  assert.deepEqual(historial[1].antes, { estado: "APROBADO", padreId: SUB_BORRADA });
-  assert.equal(historial.length, 2);
+  assert.deepEqual(historial[1].antes, { estado: "APROBADO", padreId: SUB_BORRADA, area: null });
+  assert.equal(suelta.area, null, "sin madre ni área pedida queda sin área");
+  const ventas = await tarjetaEnBase("fuera-aizencrm-ventas");
+  assert.equal(ventas.padreId, FEATURES);
+  assert.equal(ventas.area, "Ventas", "hereda el área de su madre, el Área Ventas");
+  assert.deepEqual(historial[2], {
+    tarjetaId: "fuera-aizencrm-ventas",
+    quien: "sistema:tareas-a-features",
+    origen: "TRABAJADOR",
+    accion: "mover",
+    antes: { estado: "APROBADO", padreId: VENTAS, area: null },
+    despues: { estado: "APROBADO", padreId: FEATURES, area: "Ventas", nota: `${mover.NOTA_TAREA_MOVIDA_A_FEATURES} (área Ventas)` },
+  });
+  const conArea = await tarjetaEnBase("fuera-con-area");
+  assert.equal(conArea.padreId, FEATURES);
+  assert.equal(conArea.area, "Marketing", "la que ya tenía área la conserva tal cual");
+  assert.equal(historial[3].despues.area, "Marketing");
+  assert.equal(historial.length, 4);
   assert.deepEqual(tablerosTocados, [TABLERO], "el tablero se refresca una vez");
   assert.equal(ajustes.get("tablero:tareas-a-features:ultimo-dia:ws1"), "2026-11-28");
-  assert.equal(ajustes.get("tablero:tareas-a-features:movidas:ws1"), "2");
+  assert.equal(ajustes.get("tablero:tareas-a-features:movidas:ws1"), "4");
 });
 
 await prueba("moverTareasAFeatures: una vez al día por fecha de Bogotá; al día siguiente toma la que quedó", async () => {
   assert.deepEqual(await mover.moverTareasAFeatures(DIA_1_NOCHE), { movidas: 0 }, "mismo día en Bogotá: no vuelve a correr");
-  assert.equal(historial.length, 2);
+  assert.equal(historial.length, 4);
   assert.deepEqual(await mover.moverTareasAFeatures(DIA_2), { movidas: 1 });
   assert.equal((await tarjetaEnBase("fuera-otra-area")).padreId, FEATURES);
   assert.equal((await tarjetaEnBase("fuera-otra-area")).estado, "PLAN_APROBADO", "el estado queda igual");
@@ -345,6 +376,9 @@ await prueba("después de moverlas, la consulta no devuelve nada; nada de lo que
   for (const id of ["idea-aprobada", "area-aprobada", "borrada", "archivada", "en-curso", "por-aprobar", "planeando", "subiendo", "sin-repo", "repo-vacio", "otro-tablero", "otro-negocio"]) {
     assert.equal((await tarjetaEnBase(id)).padreId, null, `${id} sigue donde estaba`);
   }
+  const otroRepo = await tarjetaEnBase("repo-otro");
+  assert.equal(otroRepo.padreId, VENTAS, "la de repo 'otro' se queda en su área");
+  assert.equal(otroRepo.area, null);
   assert.equal((await tarjetaEnBase("dentro-sub")).padreId, SUBSUB, "la de la sub-área sigue en su sub-área");
 });
 
@@ -357,6 +391,7 @@ await prueba("moverTareasAFeatures: con tablero:tareas-a-features:<negocio> = fa
   assert.match(await mover.estadoDeTareasAFeatures("ws1"), /^apagada \(tablero:tareas-a-features:<negocio> = false\); última vuelta: 2026-11-29 \(movió 1\)$/);
   ajustes.delete("tablero:tareas-a-features:ws1");
   assert.match(await mover.estadoDeTareasAFeatures("ws1"), /^prendida: .*última vuelta: 2026-11-29 \(movió 1\)$/);
+  assert.match(await mover.estadoDeTareasAFeatures("ws1"), /repo gestion o aizencrm.*conservan su área/);
   assert.match(await mover.estadoDeTareasAFeatures("ws2"), /última vuelta: todavía ninguna$/);
   assert.equal(mover.tareasAFeaturesPrendida(null), true, "sin fila está prendida");
   assert.equal(mover.tareasAFeaturesPrendida(" FALSE "), false);

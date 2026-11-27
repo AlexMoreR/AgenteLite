@@ -1,16 +1,18 @@
 import { prisma } from "@/lib/prisma";
 import { diaDeBogota } from "./archivadas";
-import { TABLERO_DE_FEATURES_ID, TARJETA_AREA_FEATURES_ID } from "./reglas-features";
+import { areaAlMoverAFeatures, TABLERO_DE_FEATURES_ID, TARJETA_AREA_FEATURES_ID } from "./reglas-features";
 import { SQL_TAREAS_FUERA_DE_FEATURES } from "./sql-features";
 
 /*
   TAREAS APROBADAS FUERA DE FEATURES (27-nov-2026, parte 2 de "Tablero IA: toda Tarea nueva cae sola en Features si nadie le
   pone padre"). El Coordinador solo toma lo que cuelga de Features (T-736). Una vez al día (fecha de Bogotá), en el reloj
-  (/api/cron/follows, con candado), las Tareas del tablero Empresa Magilus en APROBADO o PLAN_APROBADO, con repo, sin borrar
-  ni archivar, que quedaron fuera de Features (sueltas o en otra área) pasan a colgar de Features.
+  (/api/cron/follows, con candado), las Tareas del tablero Empresa Magilus en APROBADO o PLAN_APROBADO, con repo gestion o
+  aizencrm (lo demás no es desarrollo y se queda donde se pidió), sin borrar ni archivar, que quedaron fuera de Features
+  (sueltas o en otra área) pasan a colgar de Features y conservan su área.
 
-  - Solo cambia padreId: el estado, el plan y el orden quedan igual.
-  - Cada tarjeta va por separado y condicionada: solo si sigue con el padre, el estado y el actualizadoEn que se leyeron.
+  - Cambia padreId; el estado, el plan y el orden quedan igual. El área: si ya tenía, igual; si no, la de la madre (o su título
+    si la madre es un Área), con areaAlMoverAFeatures.
+  - Cada tarjeta va por separado y condicionada: solo si sigue con el padre, el área, el estado y el actualizadoEn que se leyeron.
     Si alguien la tocó mientras tanto, no se mueve (la vuelta del día siguiente la vuelve a mirar).
   - Queda en el historial como "mover", con quien = QUIEN_MUEVE_A_FEATURES.
   - PARA APAGARLA: AppSetting `tablero:tareas-a-features:<negocio>` = "false". Sin esa fila está prendida.
@@ -34,7 +36,16 @@ export function tareasAFeaturesPrendida(valor: string | null | undefined): boole
   return (valor ?? "").trim().toLowerCase() !== "false";
 }
 
-type FueraDeFeatures = { id: string; padreId: string | null; estado: string; actualizadoEn: Date };
+type FueraDeFeatures = {
+  id: string;
+  padreId: string | null;
+  estado: string;
+  actualizadoEn: Date;
+  area: string | null;
+  madreArea: string | null;
+  madreTitulo: string | null;
+  madreTipo: string | null;
+};
 
 async function ajuste(clave: string) {
   const fila = await prisma.appSetting.findUnique({ where: { key: clave }, select: { value: true } });
@@ -51,17 +62,24 @@ async function guardarAjuste(clave: string, valor: string) {
  */
 async function moverUna(tarjeta: FueraDeFeatures): Promise<boolean> {
   try {
+    const madre = tarjeta.padreId
+      ? { area: tarjeta.madreArea, titulo: tarjeta.madreTitulo, tipoNombre: tarjeta.madreTipo }
+      : null;
+    const area = areaAlMoverAFeatures({ areaPedida: tarjeta.area, madre });
+    // Solo se escribe el área si la tarjeta no tenía y salió una; la que ya tenía se deja tal cual.
+    const poneArea = !tarjeta.area && area !== null;
     return await prisma.$transaction(async (tx) => {
       const cambio = await tx.tarjetaTablero.updateMany({
         where: {
           id: tarjeta.id,
           padreId: tarjeta.padreId,
+          area: tarjeta.area ?? null,
           estado: tarjeta.estado as "APROBADO" | "PLAN_APROBADO",
           actualizadoEn: tarjeta.actualizadoEn,
           borradoEn: null,
           archivadaEn: null,
         },
-        data: { padreId: TARJETA_AREA_FEATURES_ID },
+        data: poneArea ? { padreId: TARJETA_AREA_FEATURES_ID, area } : { padreId: TARJETA_AREA_FEATURES_ID },
       });
       if (cambio.count !== 1) return false;
       await tx.historialTarjeta.create({
@@ -70,8 +88,13 @@ async function moverUna(tarjeta: FueraDeFeatures): Promise<boolean> {
           quien: QUIEN_MUEVE_A_FEATURES,
           origen: "TRABAJADOR",
           accion: "mover",
-          antes: { estado: tarjeta.estado, padreId: tarjeta.padreId },
-          despues: { estado: tarjeta.estado, padreId: TARJETA_AREA_FEATURES_ID, nota: NOTA_TAREA_MOVIDA_A_FEATURES },
+          antes: { estado: tarjeta.estado, padreId: tarjeta.padreId, area: tarjeta.area ?? null },
+          despues: {
+            estado: tarjeta.estado,
+            padreId: TARJETA_AREA_FEATURES_ID,
+            area,
+            nota: area ? `${NOTA_TAREA_MOVIDA_A_FEATURES} (área ${area})` : NOTA_TAREA_MOVIDA_A_FEATURES,
+          },
         },
         select: { id: true },
       });
@@ -126,6 +149,6 @@ export async function estadoDeTareasAFeatures(workspaceId: string): Promise<stri
   ]);
   const vuelta = ultimoDia ? `última vuelta: ${ultimoDia} (movió ${movidas ?? "0"})` : "última vuelta: todavía ninguna";
   return tareasAFeaturesPrendida(interruptor)
-    ? `prendida: una vez al día pasa a Features (T-736) las Tareas APROBADO/PLAN_APROBADO con repo que quedaron fuera; ${vuelta}`
+    ? `prendida: una vez al día pasa a Features (T-736) las Tareas APROBADO/PLAN_APROBADO con repo gestion o aizencrm que quedaron fuera (conservan su área); ${vuelta}`
     : `apagada (${claveDeTareasAFeatures("<negocio>")} = false); ${vuelta}`;
 }
