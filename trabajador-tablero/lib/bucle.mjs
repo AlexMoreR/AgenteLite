@@ -534,6 +534,12 @@ async function esperarDependenciasAntesDeConstruir({ crm, config, registro }, ta
 /** Cuántas veces seguidas se mira el repo por la tarjeta: con estos intentos "repo_equivocado" ya hechos, se sigue como hoy. */
 const TOPE_DE_REPO_EQUIVOCADO = 2;
 
+/** Cuántos intentos "repo_equivocado" (cambios de repo) ya tiene la tarjeta. */
+const vecesConRepoEquivocado = (tarjeta) => (tarjeta.ultimosIntentos ?? []).filter((intento) => intento?.categoria === "repo_equivocado").length;
+
+/** ¿La tarjeta ya pasó TOPE_DE_REPO_EQUIVOCADO veces por un cambio de repo? Entonces se sigue como hoy (sin dar vueltas entre repos). */
+const yaPasoPorElTope = (tarjeta) => vecesConRepoEquivocado(tarjeta) >= TOPE_DE_REPO_EQUIVOCADO;
+
 /**
  * NUNCA CONSTRUIR EN EL REPO EQUIVOCADO (27-nov-2026). Mira con git si los archivos que el plan da por existentes están en el repo
  * de la tarjeta (revisarArchivosDelRepo). Si están en el otro repo, /cambiar-repo le cambia el repo; si no están en ninguno, la
@@ -541,11 +547,9 @@ const TOPE_DE_REPO_EQUIVOCADO = 2;
  * para procesar (o para la reparación), o null si hay que seguir como hoy: no falta nada, un CRM viejo (404), el tope de
  * cambios (409), el CRM falló o la tarjeta ya pasó por aquí TOPE_DE_REPO_EQUIVOCADO veces.
  */
-async function cambiarDeRepoSiHaceFalta({ crm, config, registro }, tarjeta, { origen, etapa }) {
-  if (typeof crm.cambiarRepo !== "function") return null;
-  const yaVeces = (tarjeta.ultimosIntentos ?? []).filter((intento) => intento?.categoria === "repo_equivocado").length;
-  if (yaVeces >= TOPE_DE_REPO_EQUIVOCADO) return null;
-  const revision = await revisarArchivosDelRepo({ tarjeta, plan: tarjeta.plan, config, registro });
+async function cambiarDeRepoSiHaceFalta(contexto, tarjeta, { origen, etapa }) {
+  if (typeof contexto.crm.cambiarRepo !== "function" || yaPasoPorElTope(tarjeta)) return null;
+  const revision = await revisarArchivosDelRepo({ tarjeta, plan: tarjeta.plan, config: contexto.config, registro: contexto.registro });
   if (revision.accion === "ninguna") return null;
   const cuales = revision.faltan.slice(0, 5).join(", ") + (revision.faltan.length > 5 ? ` y ${revision.faltan.length - 5} más` : "");
   const causa = enUnaLinea(
@@ -553,9 +557,27 @@ async function cambiarDeRepoSiHaceFalta({ crm, config, registro }, tarjeta, { or
       ? `El plan nombra archivos que no están en ${tarjeta.repo} y sí en ${revision.repoCorrecto}: ${cuales}`
       : `El plan nombra archivos que no están en ${tarjeta.repo} ni en el otro repo: ${cuales}`,
   );
+  const salida = await pedirCambioDeRepo(contexto, tarjeta, {
+    repo: revision.repoCorrecto,
+    causa,
+    lineasDelError: revision.faltan.map((ruta) => `no está en ${tarjeta.repo}: ${ruta}`),
+    accion: revision.accion,
+    origen,
+    etapa,
+  });
+  return salida && { ...salida, faltan: revision.faltan };
+}
+
+/**
+ * Lo común a los cambios de repo: llama /cambiar-repo (con `repo`, se lo cambia; sin `repo`, solo la vuelve a planear), lo deja en el
+ * registro y en la bitácora (repo_equivocado -> cambio_de_repo) y devuelve el resultado para procesar. null si hay que seguir como
+ * hoy: el CRM falló, es un CRM viejo (404) o llegó al tope de cambios (409). `causaParaElCrm` es la causa que guarda el CRM.
+ */
+async function pedirCambioDeRepo({ crm, config, registro }, tarjeta, { repo = null, causa, causaParaElCrm = causa, lineasDelError, accion, origen, etapa }) {
+  const yaVeces = vecesConRepoEquivocado(tarjeta);
   let respuesta;
   try {
-    respuesta = await crm.cambiarRepo(tarjeta.id, { ...(revision.repoCorrecto ? { repo: revision.repoCorrecto } : {}), causa, origen, etapa });
+    respuesta = await crm.cambiarRepo(tarjeta.id, { ...(repo ? { repo } : {}), causa: causaParaElCrm, origen, etapa });
   } catch (error) {
     registro.aviso(`no se pudo cambiar de repo "${tarjeta.titulo}" (${error.message}): sigue como siempre`);
     return null;
@@ -564,8 +586,8 @@ async function cambiarDeRepoSiHaceFalta({ crm, config, registro }, tarjeta, { or
     registro.aviso(`el CRM no dejó cambiar de repo "${tarjeta.titulo}" (${respuesta.status ?? "?"}: ${respuesta.error ?? "sin motivo"}): sigue como siempre`);
     return null;
   }
-  const decidido = revision.accion === "cambiar_repo" ? `pasó de ${tarjeta.repo} a ${revision.repoCorrecto} y se vuelve a planear` : "se vuelve a planear";
-  registro.info(`"${tarjeta.titulo}": ${causa}; ${decidido} (sin construir ni gastar intento)`);
+  const decidido = repo ? `pasó de ${tarjeta.repo} a ${repo} y se vuelve a planear` : "se vuelve a planear";
+  registro.info(`"${tarjeta.titulo}": ${causa}; ${decidido} (sin ${etapa === "planear" ? "mandar el plan" : "construir"} ni gastar intento)`);
   anotarIncidente({
     config,
     registro,
@@ -573,21 +595,12 @@ async function cambiarDeRepoSiHaceFalta({ crm, config, registro }, tarjeta, { or
     repo: tarjeta.repo,
     queFallo: "repo_equivocado",
     causa,
-    lineasDelError: revision.faltan.map((ruta) => `no está en ${tarjeta.repo}: ${ruta}`),
+    lineasDelError,
     comoSeResolvio: "cambio_de_repo",
     clase: "repo",
     queSeIntento: { numero: yaVeces + 1, de: TOPE_DE_REPO_EQUIVOCADO, detalle: `${origen}; ${decidido}` },
   });
-  return {
-    ok: true,
-    estado: respuesta?.estado ?? "APROBADO",
-    categoria: "repo_equivocado",
-    accion: revision.accion,
-    repo: revision.repoCorrecto,
-    faltan: revision.faltan,
-    repoEquivocado: true,
-    decidido,
-  };
+  return { ok: true, estado: respuesta?.estado ?? "APROBADO", categoria: "repo_equivocado", accion, repo, repoEquivocado: true, decidido };
 }
 
 /**
@@ -598,37 +611,10 @@ async function cambiarDeRepoSiHaceFalta({ crm, config, registro }, tarjeta, { or
  * historial). Devuelve el resultado para procesar, o null si hay que seguir el camino de hoy: un CRM viejo (404), el tope de
  * cambios (409), el CRM falló o la tarjeta ya pasó TOPE_DE_REPO_EQUIVOCADO veces por aquí.
  */
-async function cambiarDeRepoPorElPlan({ crm, config, registro }, tarjeta, { repo, motivo, origen = "plan", etapa }) {
-  if (typeof crm.cambiarRepo !== "function" || !repo || repo === tarjeta.repo) return null;
-  const yaVeces = (tarjeta.ultimosIntentos ?? []).filter((intento) => intento?.categoria === "repo_equivocado").length;
-  if (yaVeces >= TOPE_DE_REPO_EQUIVOCADO) return null;
+async function cambiarDeRepoPorElPlan(contexto, tarjeta, { repo, motivo, origen = "plan", etapa }) {
+  if (typeof contexto.crm.cambiarRepo !== "function" || !repo || repo === tarjeta.repo || yaPasoPorElTope(tarjeta)) return null;
   const causa = enUnaLinea(`Lo pedido vive en el repo ${repo}, no en ${tarjeta.repo}: ${motivo || "lo dice el plan"}`);
-  let respuesta;
-  try {
-    respuesta = await crm.cambiarRepo(tarjeta.id, { repo, causa: motivo || causa, origen, etapa });
-  } catch (error) {
-    registro.aviso(`no se pudo cambiar de repo "${tarjeta.titulo}" (${error.message}): sigue como siempre`);
-    return null;
-  }
-  if (respuesta?.ok === false) {
-    registro.aviso(`el CRM no dejó cambiar de repo "${tarjeta.titulo}" (${respuesta.status ?? "?"}: ${respuesta.error ?? "sin motivo"}): sigue como siempre`);
-    return null;
-  }
-  const decidido = `pasó de ${tarjeta.repo} a ${repo} y se vuelve a planear`;
-  registro.info(`"${tarjeta.titulo}": ${causa}; ${decidido} (sin ${etapa === "planear" ? "mandar el plan" : "construir"} ni gastar intento)`);
-  anotarIncidente({
-    config,
-    registro,
-    tarjeta,
-    repo: tarjeta.repo,
-    queFallo: "repo_equivocado",
-    causa,
-    lineasDelError: [enUnaLinea(motivo || causa)],
-    comoSeResolvio: "cambio_de_repo",
-    clase: "repo",
-    queSeIntento: { numero: yaVeces + 1, de: TOPE_DE_REPO_EQUIVOCADO, detalle: `${origen}; ${decidido}` },
-  });
-  return { ok: true, estado: respuesta?.estado ?? "APROBADO", categoria: "repo_equivocado", accion: "cambiar_repo", repo, repoEquivocado: true, decidido };
+  return pedirCambioDeRepo(contexto, tarjeta, { repo, causa, causaParaElCrm: motivo || causa, lineasDelError: [enUnaLinea(motivo || causa)], accion: "cambiar_repo", origen, etapa });
 }
 
 /** La decisión del Coordinador al construir: la opción recomendada de una pregunta abierta del plan es pasar al otro repo. */
