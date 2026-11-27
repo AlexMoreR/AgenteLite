@@ -1035,7 +1035,7 @@ export function laSesionSubeAMain(tarjeta, repo) {
   return !Object.keys(zonasTocadas(archivosDelPlan(plan), repo.zonasProtegidas ?? {})).length;
 }
 
-export function promptDeNube(tarjeta, repo, rama, { entorno = {}, modelo = null, lecciones = "", incidentes = "", revision = true, modeloRevisar = "sonnet", modeloRevisarSeguridad = "opus", vueltasRevision = 2, sesionFija = false, orquestador = false } = {}) {
+export function promptDeNube(tarjeta, repo, rama, { entorno = {}, modelo = null, lecciones = "", incidentes = "", revision = true, modeloRevisar = "sonnet", modeloRevisarSeguridad = "sonnet", vueltasRevision = 2, sesionFija = false, orquestador = false } = {}) {
   const aprobadas = tarjeta.zonasAprobadas?.length ? tarjeta.zonasAprobadas.join(", ") : "ninguna";
   const pasos = [repo.instalar, ...(repo.verificar ?? []), ...(repo.pruebas ?? [])].filter(Boolean).map((comando) => `\`${comoTexto(comando)}\``);
   const variables = Object.entries(entorno).map(([nombre, valor]) => `export ${nombre}="${valor}"`);
@@ -1083,9 +1083,10 @@ export function promptDeNube(tarjeta, repo, rama, { entorno = {}, modelo = null,
         : "",
       `2. TODO EN PRIMER PLANO: nada en segundo plano ni subagentes esperando. No digas "reviso más tarde": la sesión no termina hasta tener el resultado (OK o error).${orquestador ? " Los subagentes que uses para llevar varias tarjetas a la vez, también en primer plano y esperando su respuesta." : revision ? " Los ÚNICOS subagentes permitidos son los 4 de la REVISIÓN de abajo, en primer plano y esperando su respuesta." : ""}`,
       `3. DEJA TODO EN LA RAMA ${rama}: haz commit y \`git push origin ${rama}\` (sin --force). No uses otra rama ${subeLaSesion ? "(salvo el push a main de arriba) " : ""}ni abras pull requests. Como ÚLTIMO paso deja un commit VACÍO y súbelo:`,
-      `   git commit --allow-empty -m "resultado: build=OK tests=OK segundos=<N>${subeLaSesion ? " main=<sha>" : ""}${revision ? " revision=OK" : ""}"`,
+      `   git commit --allow-empty -m "resultado: build=OK tests=OK segundos=<N> modelo=<tu id de modelo>${subeLaSesion ? " main=<sha>" : ""}${revision ? " revision=OK" : ""}"`,
+      `   (modelo=<tu id de modelo> es el id con que trabajas, p. ej. modelo=claude-sonnet-5-5: va justo después de segundos=, antes de cualquier otro campo, y también en el commit con FALLO: segundos=<N> modelo=<id>).`,
       `   (build=FALLO o tests=FALLO si algo falló; <N> = los segundos que tardó todo${revision ? "; revision= como dice la REVISIÓN de abajo" : ""}).`,
-      '4. SI FALLA: no preguntes ni te quedes dando vueltas. Si no lo puedes arreglar, deja el commit vacío con FALLO y pon en su CUERPO las últimas 30 líneas del error: git commit --allow-empty -m "resultado: build=FALLO tests=FALLO segundos=<N>" -m "<últimas 30 líneas>", y súbelo.',
+      '4. SI FALLA: no preguntes ni te quedes dando vueltas. Si no lo puedes arreglar, deja el commit vacío con FALLO y pon en su CUERPO las últimas 30 líneas del error: git commit --allow-empty -m "resultado: build=FALLO tests=FALLO segundos=<N> modelo=<tu id de modelo>" -m "<últimas 30 líneas>", y súbelo.',
     ]
       .filter(Boolean)
       .join("\n"),
@@ -1306,12 +1307,15 @@ async function construirLaParteDeLaNube(contexto, tarjeta, { repo, rama, base, r
       link: lanzado.link,
       segundos: resultado.segundos,
       baseComun,
-      // Solo se anota el modelo si de verdad se pidió con --model; si no, la tarjeta lo dice en una línea.
-      modelo: lanzado.modeloForzado ? modelo : null,
+      // Siempre hay un modelo para la tarjeta (parte 2, 27-nov-2026): el que dijo la sesión (modelo= en su commit), o el pedido,
+      // marcado como forzado (--model aceptado) o como pedido (no se pudo forzar; solo va en el prompt).
+      modelo: resultado.modelo ?? modelo,
+      modeloDicho: Boolean(resultado.modelo),
+      modeloPedido: !resultado.modelo && !lanzado.modeloForzado,
       // El commit "resultado: build=OK tests=OK": lo que se empuje tiene que tener su mismo código (confiarEnResultado).
       commitVerificado: resultado.sha,
       resumen: [
-        lanzado.modeloForzado ? "" : "La nube no deja elegir modelo; se pidió en el prompt.",
+        resultado.modelo ? `Modelo que dijo la sesión: ${resultado.modelo}.` : lanzado.modeloForzado ? "" : "La nube no deja elegir modelo; se pidió en el prompt.",
         `Construido por Claude en la nube (${resultado.segundos === null ? "sin tiempo" : `${resultado.segundos} s`}): build=${resultado.build} tests=${resultado.tests}. Sesión: ${lanzado.link}`,
         textoRevision,
         resultado.detalle ? `Lo que dejó en la rama:\n${resultado.detalle}` : "",
@@ -1764,7 +1768,7 @@ export async function construir(contexto, tarjeta) {
     const modelos = {
       ...(modeloDelPlan(tarjeta.plan) ? { plan: modeloDelPlan(tarjeta.plan) } : {}),
       ...(motor === "claude" && !nube ? { construir: modeloElegido ?? modeloDelPaso(config, "construir", tarjeta), subagentes: modeloDelPaso(config, "subagentes", tarjeta) } : {}),
-      ...(nube?.modelo ? { construir: nube.modelo } : {}),
+      ...(nube?.modelo ? { construir: nube.modelo, ...(nube.modeloDicho ? { construirDicho: true } : {}), ...(nube.modeloPedido ? { construirPedido: true } : {}) } : {}),
     };
 
     // Lo que construyó Codex lo revisa otro paso (Claude por defecto; Codex si Claude está alto). Claude ya

@@ -1205,6 +1205,12 @@ await prueba("nube: se lee el link de la sesión y la línea 'resultado:' del co
   assert.equal(fallo.detalle, "error uno\nerror dos");
   assert.equal(resultadoDelCommit("resultado: build=OK tests=FALLO").paso, false);
   assert.equal(resultadoDelCommit("resultado: build=OK tests=OK").segundos, null);
+  assert.equal(resultadoDelCommit("resultado: build=OK tests=OK segundos=10 modelo=claude-sonnet-5-5").modelo, "claude-sonnet-5-5");
+  assert.equal(resultadoDelCommit("resultado: build=OK tests=OK segundos=10 modelo=claude-sonnet-5-5 main=abcdef1 revision=OK").modelo, "claude-sonnet-5-5");
+  assert.equal(resultadoDelCommit("resultado: build=FALLO tests=FALLO segundos=3 modelo=claude-opus-5-5").modelo, "claude-opus-5-5");
+  assert.equal(resultadoDelCommit("resultado: build=OK tests=OK segundos=10 modelo=mal;id").modelo, undefined, "un id con caracteres raros se ignora");
+  assert.equal(resultadoDelCommit("resultado: build=OK tests=OK segundos=10").modelo, undefined, "un commit viejo sin modelo= no rompe");
+  assert.match(promptDeNube({ id: "t", titulo: "x", plan: "p", zonasAprobadas: [] }, { clave: "aizencrm", verificar: [], pruebas: [] }, "tablero/x"), /modelo=/, "el prompt de la nube pide modelo=");
   assert.equal(resultadoDelCommit("arreglar el build=OK"), null);
   assert.equal(resultadoDelCommit("tablero: algo\n\nresultado: build=OK tests=OK segundos=1"), null, "solo cuenta la primera línea");
 });
@@ -1813,7 +1819,7 @@ await prueba("modo orquestador parte 3 (1-nov-2026): main=<sha> en el resultado 
   const sube = promptDeNube({ id: "t1", titulo: "T", plan: `${plan}\nSube a main.` }, repo, "tablero/t1-x", { orquestador: true, sesionFija: true });
   assert.match(sube, /ESTA TARJETA LA SUBES TÚ A MAIN/);
   assert.match(sube, /git merge origin\/main \(sin rebase\)[^\n]*git push origin HEAD:main \(sin --force\)/);
-  assert.match(sube, /resultado: build=OK tests=OK segundos=<N> main=<sha>/);
+  assert.match(sube, /resultado: build=OK tests=OK segundos=<N> modelo=<tu id de modelo> main=<sha>/);
   assert.ok(!/nunca hagas push a main/.test(sube) && !/el Coordinador lo sube a main/.test(sube), "no se contradice");
   for (const otra of [{ plan: "Al terminar: espera tu sí\n- src/x.ts" }, { plan, zonasAprobadas: ["CHATS"] }]) {
     const texto = promptDeNube({ id: "t2", titulo: "T", ...otra }, repo, "tablero/t2-x", { orquestador: true, sesionFija: true });
@@ -2033,7 +2039,7 @@ await prueba("29-oct revisión: veredictos, pantallas, 'resultado:' con y sin re
   assert.match(texto, /DUEÑO 1: <por qué se paró[^\n]*DUEÑO 2: <la decisión que necesita, como pregunta cerrada/);
   assert.match(texto, /NO lances experiencia ni diseno/);
   assert.match(texto, /Máximo 2 correcciones/);
-  assert.match(texto, /resultado: build=OK tests=OK segundos=<N> revision=OK/);
+  assert.match(texto, /resultado: build=OK tests=OK segundos=<N> modelo=<tu id de modelo> revision=OK/);
   assert.match(texto, /revision=FALLO revisor=<seguridad\|experiencia\|diseno\|codigo> motivo=/);
   assert.match(texto, /Los ÚNICOS subagentes permitidos son los 4 de la REVISIÓN/);
   assert.ok(textoParaLaNube().length < 3200, `el bloque de la nube es corto (${textoParaLaNube().length})`);
@@ -5656,7 +5662,8 @@ process.exit(real.status ?? 1);
     assert.match(lanzadas[1].prompt, /MODELO PEDIDO: Sonnet/, "el modelo va pedido en el prompt");
     const r = tarjetas.get(id).resultado;
     assert.match(r.resumen, /La nube no deja elegir modelo; se pidió en el prompt\./);
-    assert.equal(r.modelo?.construir, undefined, "no se anota un modelo que no se pudo forzar");
+    assert.equal(r.modelo?.construir, "sonnet", "queda el modelo pedido");
+    assert.equal(r.modelo?.construirPedido, true, "marcado como pedido: no se pudo forzar");
     planificador.parar();
     sinRestos();
   });
@@ -5769,13 +5776,40 @@ process.exit(real.status ?? 1);
     assert.equal(llamadasALaNube(desde).length, fija.length, "no se creó ninguna sesión nueva con claude --cloud");
     assert.deepEqual(fija.map((l) => (l.prompt === "/clear" ? "/clear" : "tarea")), ["/clear", "tarea", "/clear", "tarea"], "/clear antes de cada tarea");
     for (const llamada of fija) {
-      assert.deepEqual([llamada.argumentos[0], llamada.argumentos.slice(2)], ["-p", ["--cloud", FIJA, "--output-format", "json"]]);
+      // El /clear va sin modelo; la tarea va con --model sonnet (parte 2, 27-nov-2026).
+      const conModelo = llamada.prompt !== "/clear";
+      assert.deepEqual([llamada.argumentos[0], llamada.argumentos.slice(2)], ["-p", ["--cloud", FIJA, ...(conModelo ? ["--model", "sonnet"] : []), "--output-format", "json"]]);
+    }
+    for (const id of [a, b]) {
+      assert.equal(tarjetas.get(id).resultado.modelo?.construir, "sonnet", "siempre queda un modelo de construir");
+      assert.equal(tarjetas.get(id).resultado.modelo?.construirPedido, undefined, "se pudo forzar: no es 'pedido'");
     }
     const tarea = fija[1];
     const rama = tarjetas.get(tarea.titulo === "Gestión fija uno [mod:fijauno]" ? a : b).resultado.rama;
     assert.match(tarea.prompt, /^TAREA NUEVA E INDEPENDIENTE/);
     assert.ok(tarea.prompt.includes(`git fetch origin && git checkout -B ${rama} origin/${rama}`));
     assert.match(tarea.prompt, /DEJA TODO EN LA RAMA tablero\//);
+    sinRestos();
+  });
+
+  await prueba("nube parte 2: la sesión fija recibe --model sonnet y, si la CLI lo rechaza, se reintenta sin él (modeloForzado: false)", async () => {
+    despejar();
+    olvidarSinAcceso();
+    const desde = leerLog(LOGS.claude).length;
+    const id = nueva("Fija sin model [nube-sin-model]", "PLAN_APROBADO", { plan: planDe("fijasinmodel", 9) });
+    const planificador = planificar(fijaConfig());
+    await planificador.llenar();
+    await correrHasta(planificador, () => ["HECHO", "ERROR"].includes(tarjetas.get(id).estado), 240_000);
+    await planificador.esperarTodas();
+    planificador.parar();
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "HECHO", t.resultado?.error?.motivo);
+    const tareas = leerLog(LOGS.claude).slice(desde).filter((l) => l.argumentos.includes(FIJA) && l.prompt !== "/clear");
+    assert.equal(tareas.length, 2, "un intento con --model y otro sin él");
+    assert.deepEqual(tareas[0].argumentos.slice(tareas[0].argumentos.indexOf("--model")), ["--model", "sonnet", "--output-format", "json"]);
+    assert.ok(!tareas[1].argumentos.includes("--model"));
+    assert.equal(t.resultado.modelo?.construir, "sonnet");
+    assert.equal(t.resultado.modelo?.construirPedido, true, "no se pudo forzar: queda como pedido");
     sinRestos();
   });
 
