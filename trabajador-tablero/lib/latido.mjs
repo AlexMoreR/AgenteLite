@@ -21,6 +21,13 @@ export function datosDelLatidoDeConstruir({ lugar, linkSesion = null, orquestado
   return { lugar: lugar === "nube" ? "nube" : "aizen1", ...(linkSesion ? { sesion: linkSesion } : {}) };
 }
 
+/** Los cupos de la vuelta como { cupos, enFila, corriendo } si los tres son enteros; si no, null. */
+function cuposDelLatido(cupos) {
+  if (!cupos || typeof cupos !== "object") return null;
+  const { cupos: puestos, enFila, corriendo } = cupos;
+  return [puestos, enFila, corriendo].every(Number.isInteger) ? { cupos: puestos, enFila, corriendo } : null;
+}
+
 /**
  * El cuerpo del latido: lo que da el planificador (`estado()`) más la carga del PC. `medidor` da CPU y memoria
  * en %, `carga` (leerCarga) memoria y disco en GB. Todo lo que no se pueda leer va en null.
@@ -50,9 +57,17 @@ export function armarLatido({ estado, medidor, carga, nombre = "aizen1", areaPer
     pausaUso: estado.pausaUso ?? null,
     // 24-nov-2026: la sesión de Claude de aizen1: { vencida, desde, revisadaEn } (vencida = no se toman tarjetas).
     sesionClaude: estado.sesionClaude ?? null,
-    esperas: estado.esperas ?? [],
+    // 27-nov-2026: cada espera con { tarjetaId, motivo, tipo, contra } (tipo: choque, nube, aizen1, agente, version o motor;
+    // contra: el id de la tarjeta con la que choca, o null).
+    esperas: (estado.esperas ?? []).map((espera) => ({
+      tarjetaId: espera.tarjetaId,
+      motivo: espera.motivo,
+      tipo: espera.tipo ?? null,
+      contra: espera.contra ?? null,
+    })),
     // 31-oct-2026: puestos disponibles, en fila y corriendo (el CRM guarda los máximos del día para el resumen de las 9 p. m.).
-    cupos: Number.isInteger(estado.cupos) ? estado.cupos : null,
+    // 27-nov-2026: `cupos` va como objeto { cupos, enFila, corriendo }, solo si los tres son enteros (si no, null).
+    cupos: cuposDelLatido(estado.cupos),
     enFila: Number.isInteger(estado.enFila) ? estado.enFila : null,
     corriendo: Number.isInteger(estado.corriendo) ? estado.corriendo : null,
     // 31-oct-2026 (parte 4): el ajuste automático del cupo de la nube: { estado, desde, hasta, diasQuedan, repos: { <repo>: { cupo, … } } }.

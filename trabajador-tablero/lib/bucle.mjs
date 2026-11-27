@@ -1602,27 +1602,36 @@ export function crearPlanificador({
   /** ¿Se puede abrir una sesión nueva de la nube para el proyecto? No, si la nube no tuvo acceso al repo hace poco. */
   const puedeAbrirSesionNueva = (clave) => !sinAccesoASesionesNuevas(clave);
 
-  /** Por qué una candidata no tiene dónde correr ahora (para el log y el panel "esperan en fila"). */
-  function motivoDeEspera(hacer, { aizenOk, nubeUsable, colaEnFila = 0, semaforo = null }, tarjeta = null) {
-    if (tarjeta && !nubeUsable && vaAlOrquestador(tarjeta, hacer)) return `espera: la nube está apagada o Claude en pausa; se entrega a la sesión de ${nombreDelProyecto(config.repos[tarjeta.repo])} cuando vuelva`;
+  /**
+   * Por qué una candidata no tiene dónde correr ahora, con su tipo (27-nov-2026): `nube` si lo que falta es un puesto o una
+   * sesión de la nube (también el freno del semáforo y el orquestador con la nube apagada), `aizen1` si falta un puesto de
+   * aizen1 o turno en la cola de pasos pesados. El latido manda el tipo para que el CRM explique por qué hay menos trabajando.
+   */
+  function esperaConTipo(hacer, { aizenOk, nubeUsable, colaEnFila = 0, semaforo = null }, tarjeta = null) {
+    const nube = (motivo) => ({ motivo, tipo: "nube" });
+    const aizen1 = (motivo) => ({ motivo, tipo: "aizen1" });
+    if (tarjeta && !nubeUsable && vaAlOrquestador(tarjeta, hacer)) return nube(`espera: la nube está apagada o Claude en pausa; se entrega a la sesión de ${nombreDelProyecto(config.repos[tarjeta.repo])} cuando vuelva`);
     const marca = hacer === "construir" && nubeUsable && tarjeta ? sinAccesoALaNube(tarjeta.repo) : null;
     if (marca) {
       const hora = new Date(marca.hasta).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", timeZone: "America/Bogota" });
-      return `espera: la nube no tiene acceso al repo de "${tarjeta.repo}" (no se manda a la nube hasta las ${hora})`;
+      return nube(`espera: la nube no tiene acceso al repo de "${tarjeta.repo}" (no se manda a la nube hasta las ${hora})`);
     }
     if (hacer === "construir" && nubeUsable && tarjeta && sesionFijaOcupada(tarjeta.repo) && (!puedeAbrirSesionNueva(tarjeta.repo) || !repoConPuestoEnNube(tarjeta.repo))) {
       const ocupada = `espera: la sesión de ${nombreDelProyecto(config.repos[tarjeta.repo])} está ocupada`;
-      return puedeAbrirSesionNueva(tarjeta.repo) ? `${ocupada} (y ${tarjeta.repo} ya usa su(s) ${cupoNubeDe(tarjeta.repo)} puesto(s) de la nube)` : `${ocupada} y la nube no tiene acceso al repo para abrir otra`;
+      return nube(puedeAbrirSesionNueva(tarjeta.repo) ? `${ocupada} (y ${tarjeta.repo} ya usa su(s) ${cupoNubeDe(tarjeta.repo)} puesto(s) de la nube)` : `${ocupada} y la nube no tiene acceso al repo para abrir otra`);
     }
-    if (hacer === "construir" && aizenOk && colaEnFila > 0 && !nubeUsable) return `espera: la cola de pasos pesados de aizen1 tiene ${colaEnFila} en fila`;
+    if (hacer === "construir" && aizenOk && colaEnFila > 0 && !nubeUsable) return aizen1(`espera: la cola de pasos pesados de aizen1 tiene ${colaEnFila} en fila`);
     if (hacer === "construir" && nubeUsable && tarjeta && config.repos[tarjeta.repo]?.construirEn !== "aizen1" && !repoConPuestoEnNube(tarjeta.repo)) {
-      return `espera: ${tarjeta.repo} ya usa su(s) ${cupoNubeDe(tarjeta.repo)} puesto(s) de la nube`;
+      return nube(`espera: ${tarjeta.repo} ya usa su(s) ${cupoNubeDe(tarjeta.repo)} puesto(s) de la nube`);
     }
     const freno = hacer === "construir" && nubeUsable && tarjeta ? frenoDelSemaforo(tarjeta, hacer, { semaforo }) : null;
-    if (freno) return `espera: aizen1 está en ${freno}; no se abre otra de ${tarjeta.repo} en la nube`;
-    if (tarjeta && aizenOk && !repoConPuesto(tarjeta.repo) && !(hacer === "construir" && nubeUsable)) return `espera: ${tarjeta.repo} ya usa sus ${config.repos[tarjeta.repo].cuposAizen1} puesto(s) de aizen1`;
-    return hacer === "construir" && nubeUsable ? "espera un puesto en la nube" : "espera un puesto en aizen1";
+    if (freno) return nube(`espera: aizen1 está en ${freno}; no se abre otra de ${tarjeta.repo} en la nube`);
+    if (tarjeta && aizenOk && !repoConPuesto(tarjeta.repo) && !(hacer === "construir" && nubeUsable)) return aizen1(`espera: ${tarjeta.repo} ya usa sus ${config.repos[tarjeta.repo].cuposAizen1} puesto(s) de aizen1`);
+    return hacer === "construir" && nubeUsable ? nube("espera un puesto en la nube") : aizen1("espera un puesto en aizen1");
   }
+
+  /** Por qué una candidata no tiene dónde correr ahora (para el log y el panel "esperan en fila"): el mismo texto de siempre. */
+  const motivoDeEspera = (hacer, estadoDeCupos, tarjeta = null) => esperaConTipo(hacer, estadoDeCupos, tarjeta).motivo;
 
   /** Cuántos pasos pesados esperan turno en aizen1 (0 sin cola). */
   const colaEnFila = () => colaPesada?.estado().esperando ?? 0;
@@ -1912,8 +1921,10 @@ export function crearPlanificador({
         const contraQuien = {};
         const paraChoques = candidatas.filter((c) => !vaAlOrquestador(c, c.hacer));
         const chocan = corriendo.length ? candidatasQueChocan(paraChoques, corriendo, config.repos, contraQuien) : {};
-        for (const c of candidatas) if (!chocan[c.id] && sinMotor.includes(c.hacer)) chocan[c.id] = `(sin motor para ${c.hacer})`;
-        if (soloPlanear) for (const c of candidatas) if (!chocan[c.id] && c.hacer !== "planear") chocan[c.id] = `(espera la versión nueva del Coordinador para ${c.hacer})`;
+        // 27-nov-2026: el tipo de cada espera (choque, nube, aizen1, agente, version, motor) para el latido.
+        const tipoDe = Object.fromEntries(Object.keys(chocan).map((id) => [id, "choque"]));
+        for (const c of candidatas) if (!chocan[c.id] && sinMotor.includes(c.hacer)) [chocan[c.id], tipoDe[c.id]] = [`(sin motor para ${c.hacer})`, "motor"];
+        if (soloPlanear) for (const c of candidatas) if (!chocan[c.id] && c.hacer !== "planear") [chocan[c.id], tipoDe[c.id]] = [`(espera la versión nueva del Coordinador para ${c.hacer})`, "version"];
         // La cola de cada proyecto: un agente no pasa de su `maxEnParalelo` (sesiones de aizen1 y de la nube juntas).
         for (const c of candidatas) {
           if (chocan[c.id] || vaAlOrquestador(c, c.hacer)) continue;
@@ -1922,16 +1933,17 @@ export function crearPlanificador({
           const trabajando = corriendoDelAgente(c.repo);
           if (trabajando >= agente.maxEnParalelo) {
             chocan[c.id] = `(el ${agente.nombre} ya tiene ${trabajando} tarjeta${trabajando === 1 ? "" : "s"} trabajando (su máximo es ${agente.maxEnParalelo}))`;
+            tipoDe[c.id] = "agente";
           }
         }
         // Sin dónde correr ahora: planear y subir esperan un puesto de aizen1; una grande espera un puesto de la nube.
         for (const c of candidatas) {
           if (chocan[c.id]) continue;
-          if (descartadas.has(c.id)) chocan[c.id] = `(${descartadas.get(c.id)})`;
-          else if (!dondeCorre(c, c.hacer, estadoDeCupos)) chocan[c.id] = `(${motivoDeEspera(c.hacer, estadoDeCupos, c)})`;
+          const espera = descartadas.get(c.id) ?? (dondeCorre(c, c.hacer, estadoDeCupos) ? null : esperaConTipo(c.hacer, estadoDeCupos, c));
+          if (espera) [chocan[c.id], tipoDe[c.id]] = [`(${espera.motivo})`, espera.tipo];
         }
         excluir = [...new Set([...Object.keys(chocan), ...descartadas.keys()])];
-        esperasDeFila = new Map(Object.entries(chocan).map(([id, motivo]) => [id, { motivo: String(motivo).replace(/^\(|\)$/g, ""), contra: contraQuien[id] ?? null }]));
+        esperasDeFila = new Map(Object.entries(chocan).map(([id, motivo]) => [id, { motivo: String(motivo).replace(/^\(|\)$/g, ""), tipo: tipoDe[id], contra: tipoDe[id] === "choque" ? (contraQuien[id] ?? null) : null }]));
         if (candidatas.length && candidatas.every((c) => excluir.includes(c.id))) {
           const enFila = candidatas.map((c) => `"${c.titulo}" ${chocan[c.id] ?? "(sin dónde correr ahora)"}`);
           avisarUnaVez(`fila-${excluir.join(",")}-${sesiones.size}-${enNube.size}`, `esperan en fila: ${enFila.join("; ")}`);
@@ -1973,9 +1985,9 @@ export function crearPlanificador({
       const lugar = dondeCorre(tarjeta, hacer, estadoDeCupos);
       if (!lugar) {
         registro.info(`"${tarjeta.titulo}" no tiene dónde correr ahora (${hacer}): la suelto y espera en fila`);
-        const espera = motivoDeEspera(hacer, estadoDeCupos, tarjeta);
+        const espera = esperaConTipo(hacer, estadoDeCupos, tarjeta);
         descartadas.set(tarjeta.id, espera);
-        if (await soltar(crm, registro, tarjeta, `Espera en fila: no hay dónde construirla ahora (${espera}).`)) continue;
+        if (await soltar(crm, registro, tarjeta, `Espera en fila: no hay dónde construirla ahora (${espera.motivo}).`)) continue;
         return;
       }
       arrancar(tarjeta, hacer, huella, lugar);
@@ -2060,13 +2072,15 @@ export function crearPlanificador({
         tareas,
         esperandoPc: Boolean(pcEspera),
         motivoEspera: pcEspera,
-        esperas: [...esperasDeFila.entries()].map(([tarjetaId, espera]) => ({ tarjetaId, motivo: espera.motivo, ...(espera.contra ? { contra: espera.contra } : {}) })),
+        // 27-nov-2026: cada espera con su tipo (choque, nube, aizen1, agente, version, motor) y, si choca, `contra` (si no, null).
+        esperas: [...esperasDeFila.entries()].map(([tarjetaId, espera]) => ({ tarjetaId, motivo: espera.motivo, tipo: espera.tipo ?? null, contra: espera.contra ?? null })),
         uso: motores.resumenDeUso(),
         pausaUso: pausaUso.resumen(),
         // 24-nov-2026: la sesión de Claude: { vencida, desde, revisadaEn }.
         sesionClaude: pausaSesion.resumen(),
         // 31-oct-2026: los puestos disponibles, cuántas esperan en fila y cuántas ocupan puesto (los máximos del día salen de acá).
-        cupos: cuposVistos.cupos,
+        // 27-nov-2026: `cupos` va como objeto { cupos, enFila, corriendo }; `enFila` y `corriendo` siguen también sueltos.
+        cupos: { ...cuposVistos },
         enFila: cuposVistos.enFila,
         corriendo: cuposVistos.corriendo,
         // 31-oct-2026 (parte 4): el ajuste automático del cupo de la nube (prendido o terminado, días que quedan, cupo de cada proyecto).

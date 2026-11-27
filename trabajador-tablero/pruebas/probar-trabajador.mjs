@@ -363,6 +363,8 @@ await prueba("latido: la carga del PC (GB) se lee sin lanzar y el cuerpo lleva t
   assert.equal(cuerpo.tareas[0].agente, "Agente CRM", "el latido lleva el agente de cada tarea");
   assert.deepEqual(cuerpo.carga, { cpu: 40, memoriaPorciento: 55, memoriaUsadaGb: 22, memoriaTotalGb: 40, discoLibreGb: 120.5, discoTotalGb: 500, esperandoPc: true, motivoEspera: "CPU 92 % (límite 85 %)" });
   assert.equal(cuerpo.esperas[0].tarjetaId, "t2");
+  assert.deepEqual(cuerpo.esperas[0], { tarjetaId: "t2", motivo: "misma zona", tipo: null, contra: null }, "una espera sin tipo va con tipo y contra en null");
+  assert.equal(cuerpo.cupos, null, "sin cupos: null");
   // Un medidor que falla no tumba el latido: la carga va en null.
   const sinMedidor = armarLatido({ estado, medidor: { medir: () => { throw new Error("x"); } }, carga: null });
   assert.equal(sinMedidor.carga.cpu, null);
@@ -733,6 +735,10 @@ await prueba("cupos (a): con el CRM lleno en aizen1 y en la nube, una tarjeta de
   const esperas = Object.fromEntries(r.planificador.estado().esperas.map((e) => [e.tarjetaId, e.motivo]));
   assert.match(esperas["crm-construir-2"], /aizencrm ya usa su\(s\) 1 puesto\(s\) de la nube/);
   assert.match(esperas["crm-plan-3"], /aizencrm ya usa sus 2 puesto\(s\) de aizen1/);
+  // 27-nov-2026: el tipo de cada espera (para el latido): la de la nube es `nube`, la de aizen1 es `aizen1`, sin `contra`.
+  const tipos = Object.fromEntries(r.planificador.estado().esperas.map((e) => [e.tarjetaId, [e.tipo, e.contra]]));
+  assert.deepEqual(tipos["crm-construir-2"], ["nube", null]);
+  assert.deepEqual(tipos["crm-plan-3"], ["aizen1", null]);
   // Y una de Gestión para planear también arranca (su puesto de aizen1).
   r.agregar("gestion-plan-1", "gestion", "planear");
   await r.planificador.llenar();
@@ -851,9 +857,10 @@ await prueba("cupos sin usar: con tarjetas en fila y puestos libres, el aviso «
   const estado = r.planificador.estado();
   assert.equal(estado.corriendo, 1, "una construye en la nube");
   assert.equal(estado.enFila, 1, "la otra espera en fila");
-  assert.equal(estado.cupos, 5, "aizen1 min(3, 2+1) + nube min(2, 1+1)");
+  assert.deepEqual(estado.cupos, { cupos: 5, enFila: 1, corriendo: 1 }, "aizen1 min(3, 2+1) + nube min(2, 1+1)");
   const latido = armarLatido({ estado, medidor: sinMedirAqui, carga: null });
-  assert.deepEqual([latido.cupos, latido.enFila, latido.corriendo], [5, 1, 1], "el latido los lleva");
+  assert.deepEqual([latido.cupos, latido.enFila, latido.corriendo], [{ cupos: 5, enFila: 1, corriendo: 1 }, 1, 1], "el latido los lleva (cupos como objeto; enFila y corriendo también sueltos)");
+  assert.deepEqual(latido.esperas, [{ tarjetaId: "crm-construir-2", motivo: "espera: aizencrm ya usa su(s) 1 puesto(s) de la nube", tipo: "nube", contra: null }]);
   await r.vueltaEn(9);
   assert.equal(r.avisos.length, 0, "a los 9 min todavía no");
   await r.vueltaEn(12);
@@ -934,6 +941,7 @@ await prueba("cupos (e): esperando la versión nueva solo se toman tarjetas para
   assert.equal(r.dondeEsta("gestion-construir-1"), null, "construir espera la versión nueva");
   assert.equal(r.dondeEsta("crm-subir"), null, "subir espera la versión nueva");
   assert.match(r.planificador.estado().esperas.find((e) => e.tarjetaId === "crm-subir").motivo, /versión nueva/);
+  assert.equal(r.planificador.estado().esperas.find((e) => e.tarjetaId === "crm-subir").tipo, "version", "27-nov-2026: tipo version");
   r.planificador.parar();
 });
 
@@ -1045,6 +1053,7 @@ await prueba("cupos parte 4: dos del CRM con el mismo archivo en el plan no corr
   const espera = r.planificador.estado().esperas.find((e) => e.tarjetaId === "crm-b");
   assert.match(espera.motivo, /choca con "crm-a": las dos tocan (el módulo lib\/compartido|src\/lib\/compartido\.ts)/);
   assert.equal(espera.contra, "crm-a");
+  assert.equal(espera.tipo, "choque", "27-nov-2026: la que choca sale con tipo choque y contra = la que corre");
   assert.ok(r.pedidos.at(-1).excluir.includes("crm-b"), "va en excluir a /tomar");
   assert.equal(motivoDeChoque(huellaDeTarjeta({ id: "x", titulo: "x", repo: "aizencrm", plan: planConArchivo("src/lib/compartido.ts") }, "construir", {}), huellaDeTarjeta({ id: "y", titulo: "y", repo: "aizencrm", plan: planConArchivo("src/lib/compartido.ts") }, "construir", {})), "las dos tocan el módulo lib/compartido");
   // Al terminar la primera, la espera se suelta y la 2.ª entra.
@@ -2469,6 +2478,36 @@ await prueba("choques: archivos y módulos del plan; misma zona o módulo del mi
     repos,
   );
   assert.deepEqual(Object.keys(chocan), ["b"]);
+});
+
+await prueba("27-nov-2026 choques: construir en módulos distintos no choca y subir a main va de a una", async () => {
+  const repos = { aizencrm: { zonasProtegidas: {} } };
+  const h = (id, hacer, archivo) => huellaDeTarjeta({ id, titulo: id, repo: "aizencrm", plan: planConArchivo(archivo), zonaProtegida: [] }, hacer, repos.aizencrm);
+  assert.equal(motivoDeChoque(h("a", "construir", "src/features/coach/a.ts"), h("b", "construir", "src/features/supervisor/b.ts")), null, "dos construyendo en módulos distintos van a la vez");
+  assert.equal(motivoDeChoque(h("s1", "subir", "src/features/coach/a.ts"), h("s2", "subir", "src/features/supervisor/b.ts")), "las dos suben a main de aizencrm (de a una)");
+});
+
+await prueba("27-nov-2026 latido: manda esperas[].tipo, esperas[].contra y cupos como { cupos, enFila, corriendo }", async () => {
+  const estado = {
+    tareas: [],
+    esperas: [
+      { tarjetaId: "t1", motivo: 'choca con "t9": las dos tocan el módulo features/coach', tipo: "choque", contra: "t9" },
+      { tarjetaId: "t2", motivo: "espera un puesto en la nube", tipo: "nube", contra: null },
+      { tarjetaId: "t3", motivo: "espera un puesto en aizen1", tipo: "aizen1" },
+      { tarjetaId: "t4", motivo: "sin motor para construir", tipo: "motor", contra: null },
+    ],
+    cupos: { cupos: 7, enFila: 4, corriendo: 3 },
+    enFila: 4,
+    corriendo: 3,
+  };
+  const latido = armarLatido({ estado, medidor: null, carga: null });
+  assert.deepEqual(latido.esperas.map((e) => [e.tarjetaId, e.tipo, e.contra]), [["t1", "choque", "t9"], ["t2", "nube", null], ["t3", "aizen1", null], ["t4", "motor", null]]);
+  assert.equal(latido.esperas[0].motivo, 'choca con "t9": las dos tocan el módulo features/coach');
+  assert.deepEqual(latido.cupos, { cupos: 7, enFila: 4, corriendo: 3 });
+  assert.deepEqual([latido.enFila, latido.corriendo], [4, 3], "enFila y corriendo siguen sueltos");
+  assert.equal(armarLatido({ estado: { ...estado, cupos: { cupos: 7, enFila: 4 } }, medidor: null, carga: null }).cupos, null, "cupos incompletos: null");
+  assert.equal(armarLatido({ estado: { ...estado, cupos: { cupos: 7, enFila: "4", corriendo: 3 } }, medidor: null, carga: null }).cupos, null, "un cupo que no es entero: null");
+  assert.equal(armarLatido({ estado: { ...estado, cupos: 5 }, medidor: null, carga: null }).cupos, null, "un número suelto ya no es la forma: null");
 });
 
 await prueba("choques: el manual y las notas de cambios pendientes no hacen chocar (la medida de la tarjeta)", async () => {

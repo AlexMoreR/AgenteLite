@@ -294,6 +294,10 @@ await prueba("máximos del día (31-oct): maximosDelDia sube solo, vuelve a cero
   assert.deepEqual(maximosDelDia(primero, { corriendo: 1, enFila: 0, cupos: 5 }, "2026-11-01"), { dia: "2026-11-01", corriendoMax: 1, enFilaMax: 0, cupos: 5 }, "día nuevo: desde cero");
   assert.equal(maximosDelDia(primero, { corriendo: "9", enFila: -1, cupos: 101 }, "2026-10-31"), null, "lo que no es un entero de 0 a 100 no cuenta");
   assert.equal(maximosDelDia(null, {}, "2026-10-31"), null, "un Coordinador viejo sin las cuentas no escribe nada");
+  // 27-nov-2026: `cupos` como objeto (Coordinador nuevo) y como número (Coordinador viejo).
+  assert.equal(maximosDelDia(null, { corriendo: 3, enFila: 2, cupos: { cupos: 7, enFila: 2, corriendo: 3 } }, "2026-11-27").cupos, 7, "cupos como objeto: se lee cupos.cupos");
+  assert.equal(maximosDelDia(null, { corriendo: 3, enFila: 2, cupos: 5 }, "2026-11-27").cupos, 5, "cupos como número: sigue igual");
+  assert.equal(maximosDelDia(null, { corriendo: 3, enFila: 2, cupos: { cupos: "7" } }, "2026-11-27").cupos, null, "cupos.cupos que no es entero no cuenta");
 });
 
 await prueba("máximos del día: guardarLatido los guarda por día de Bogotá, ultimoLatido no los confunde y leerCuposDelDia los lee", async () => {

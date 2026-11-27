@@ -112,7 +112,9 @@ export function cuposDelDiaDeValor(valor: string | null | undefined): CuposDelDi
 export function maximosDelDia(anterior: CuposDelDia | null, entrada: CuentasDelLatido, dia: string): CuposDelDia | null {
   const corriendo = cuentaValida(entrada.corriendo);
   const enFila = cuentaValida(entrada.enFila);
-  const cupos = cuentaValida(entrada.cupos);
+  // 27-nov-2026: el Coordinador nuevo manda `cupos` como objeto { cupos, enFila, corriendo }; uno viejo, como número.
+  const cuposCrudos = entrada.cupos && typeof entrada.cupos === "object" ? (entrada.cupos as { cupos?: unknown }).cupos : entrada.cupos;
+  const cupos = cuentaValida(cuposCrudos);
   if (corriendo === null && enFila === null && cupos === null) return null;
   const base: CuposDelDia = anterior && anterior.dia === dia ? anterior : { dia, corriendoMax: 0, enFilaMax: 0, cupos: null };
   const nuevo: CuposDelDia = {
