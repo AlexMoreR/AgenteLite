@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { archivarAlTerminar } from "./archivadas";
-import { esEstado, type EstadoTarjetaTablero } from "./reglas";
+import { codigoDeTarjeta, esEstado, type EstadoTarjetaTablero } from "./reglas";
 import {
   AL_TOMAR,
   ETAPA_DEL_ESTADO,
@@ -79,6 +79,19 @@ import {
   vencimientoDelCandado,
   latidoDeEntrada,
   notaDeYaHecha,
+  CATEGORIA_POSIBLE_REPETIDA,
+  DIAS_DE_PARECIDAS,
+  ESTADOS_TERMINADOS_DE_PARECIDAS,
+  NOTAS_PARA_LA_OTRA,
+  commitDelResultado,
+  destinoDeRepetida,
+  detalleConLoAgregado,
+  idDeTarjetaDeEntrada,
+  lineaDeRepetida,
+  motivoDePosibleRepetida,
+  notaDeYaHechaPor,
+  parejasRevisadas,
+  repetidaDeEntrada,
   tituloDeLimpieza,
   zonasDeEntrada,
   zonasQueNoArrancanSolas,
@@ -368,6 +381,7 @@ async function tocarTableros(tx: Tx, tableroIds: string[], ahora: Date) {
 /** Lo que el Coordinador necesita de la tarjeta para hacer su etapa. */
 const SELECT_PARA_TRABAJAR = {
   id: true,
+  numero: true,
   tableroId: true,
   titulo: true,
   detalle: true,
@@ -1172,6 +1186,8 @@ export async function accionDelTrabajador(
   if (accion === "recoger") return recogerTarjeta(contexto, actual, cuerpo, ahora);
   if (accion === "rescatar") return rescatarTarjeta(contexto, actual, cuerpo, ahora);
   if (accion === "revisar_de_nuevo") return revisarDeNuevo(contexto, actual, cuerpo, ahora);
+  if (accion === "parecidas") return tarjetasParecidas(contexto, actual, ahora);
+  if (accion === "repetida") return marcarRepetida(contexto, actual, cuerpo, ahora);
 
   let a = TRANSICIONES_DEL_TRABAJADOR[accion].a as EstadoTarjetaTablero;
   const previo = resultadoComoObjeto(actual.resultado);
@@ -1186,6 +1202,8 @@ export async function accionDelTrabajador(
   let decisionDeFeatures: string | null = null;
   // La fila de intentos que deja una escalada (/error con categoria).
   let intentoPorGuardar: IntentoPorGuardar | null = null;
+  // "ya-hecha" con repetidaDe: la otra tarjeta que ya lo hizo (recibe una fila en su historial).
+  let hechaPor: OtraTarjeta | null = null;
   // Las zonas protegidas que marca el Coordinador (el cambio toca esas rutas): se suman, nunca se quitan.
   const marcarZonas = () => {
     const zonas = zonasDeEntrada(cuerpo.zonaProtegida);
@@ -1427,7 +1445,19 @@ export async function accionDelTrabajador(
       const commit = typeof cuerpo.commit === "string" ? cuerpo.commit.trim().slice(0, 40) : "";
       if (!/^[0-9a-f]{7,40}$/i.test(commit)) throw new ErrorDelTrabajador("Falta el commit de main donde ya estaba hecho.", 400);
       const motivo = typeof cuerpo.motivo === "string" ? cuerpo.motivo.trim().slice(0, 300) : "";
-      const yaEstabaHecho = { commit, motivo, nota: notaDeYaHecha(commit), cuando: ahora.toISOString() };
+      // repetidaDe (27-nov-2026): lo hizo otra tarjeta del mismo tablero. La línea dice cuál y la otra recibe una fila en su historial.
+      if (cuerpo.repetidaDe !== undefined && cuerpo.repetidaDe !== null) {
+        const otraId = idDeTarjetaDeEntrada(cuerpo.repetidaDe);
+        if (!otraId || otraId === actual.id) throw new ErrorDelTrabajador("repetidaDe tiene que ser el id de otra tarjeta.", 400);
+        hechaPor = await otraDelMismoTablero(prisma, actual, otraId);
+      }
+      const yaEstabaHecho = {
+        commit,
+        motivo,
+        nota: hechaPor ? notaDeYaHechaPor(hechaPor.numero, commit) : notaDeYaHecha(commit),
+        cuando: ahora.toISOString(),
+        ...(hechaPor ? { repetidaDe: { id: hechaPor.id, numero: hechaPor.numero } } : {}),
+      };
       const { error: _errorViejo, ...sinError } = previo;
       void _errorViejo;
       datos.resultado = { ...sinError, yaEstabaHecho } as Prisma.InputJsonValue;
@@ -1499,6 +1529,7 @@ export async function accionDelTrabajador(
     await anotarTrabajador(tx, contexto, actual.id, { estado }, despues);
     if (aprobacionDelPlan) await anotarAprobacionAutomatica(tx, actual.id, { estado: "PLAN_LISTO" }, aprobacionDelPlan);
     if (intentoPorGuardar) await anotarIntento(tx, actual.id, intentoPorGuardar, ahora);
+    if (hechaPor) await anotarEnLaOtra(tx, contexto, hechaPor, { nota: NOTAS_PARA_LA_OTRA.yaHecha(actual.numero), yaHechaPor: actual.numero });
     // Una parte que sube puede ser la última: entonces la madre se cierra (HECHO, o FALLIDO si otra parte quedó fallida).
     if (accion === "subida" || accion === "ya-hecha") await cerrarLaMadreSiToca(tx, contexto, actual);
     await tocarTableros(tx, [actual.tableroId], ahora);
@@ -2038,5 +2069,284 @@ async function recogerTarjeta(contexto: ContextoTrabajador, actual: FilaParaTrab
     );
     await tocarTableros(tx, [actual.tableroId], ahora);
     return { ok: true, estado: vuelve, recogidas: recogida.veces, link: linkDeLaTarjeta(actual.id) };
+  });
+}
+
+/* ───────────────────────────────────────────── tarjetas repetidas (27-nov-2026, parte 1 de 3: solo el CRM) ── */
+
+/** La otra tarjeta de /repetida y de "ya-hecha" con repetidaDe: siempre del mismo tablero y sin borrar. */
+type OtraTarjeta = { id: string; numero: number; tableroId: string; estado: string; detalle: string };
+
+async function otraDelMismoTablero(db: Tx, actual: FilaParaTrabajar, otraId: string): Promise<OtraTarjeta> {
+  if (otraId === actual.id) throw new ErrorDelTrabajador("Una tarjeta no puede ser repetida de sí misma.", 400);
+  const otra = await db.tarjetaTablero.findFirst({
+    where: { id: otraId, tableroId: actual.tableroId, borradoEn: null },
+    select: { id: true, numero: true, tableroId: true, estado: true, detalle: true },
+  });
+  if (!otra) throw new ErrorDelTrabajador("No existe esa otra tarjeta en este tablero.", 404);
+  return otra;
+}
+
+/**
+ * La fila que queda en el historial de LA OTRA tarjeta. No cambia su estado: antes y después es el mismo, con la nota.
+ * (No usa anotarTrabajador: una otra en ERROR recibiría el "no mandó motivo" que es solo para las que pasan a ERROR.)
+ */
+async function anotarEnLaOtra(tx: Tx, contexto: ContextoTrabajador, otra: OtraTarjeta, despues: Record<string, unknown>) {
+  await tx.historialTarjeta.create({
+    data: {
+      tarjetaId: otra.id,
+      quien: quienEs(contexto),
+      origen: "TRABAJADOR",
+      accion: "estado",
+      antes: { estado: otra.estado } as Prisma.InputJsonValue,
+      despues: { estado: otra.estado, ...despues } as Prisma.InputJsonValue,
+    },
+  });
+}
+
+/**
+ * Las tarjetas que nunca cuentan como parecidas ni como repetidas de esta: ella misma; su madre, sus hijas y sus hermanas de la
+ * misma tarea partida (resultado.partida y padreId); y las unidas a ella por una flecha de dependencia, en cualquier dirección.
+ */
+async function vecinasDe(tx: Tx, actual: FilaParaTrabajar): Promise<Set<string>> {
+  const fuera = new Set<string>([actual.id]);
+  for (const id of partidaDelResultado(actual.resultado)?.hijas ?? []) fuera.add(id);
+  const [propia, hijasPorPadre, madres, flechas] = await Promise.all([
+    tx.tarjetaTablero.findUnique({ where: { id: actual.id }, select: { padreId: true } }),
+    tx.tarjetaTablero.findMany({ where: { padreId: actual.id }, select: { id: true } }),
+    tx.$queryRawUnsafe<{ id: string }[]>(SQL_ES_PARTE, actual.tableroId, actual.id),
+    tx.conexionTarjeta.findMany({ where: { esDependencia: true, OR: [{ origenId: actual.id }, { destinoId: actual.id }] }, select: { origenId: true, destinoId: true } }),
+  ]);
+  if (propia?.padreId) fuera.add(propia.padreId);
+  for (const hija of hijasPorPadre) fuera.add(hija.id);
+  for (const flecha of flechas) {
+    fuera.add(flecha.origenId);
+    fuera.add(flecha.destinoId);
+  }
+  for (const madre of madres) {
+    fuera.add(madre.id);
+    const fila = await tx.tarjetaTablero.findUnique({ where: { id: madre.id }, select: { resultado: true } });
+    for (const hermana of partidaDelResultado(fila?.resultado)?.hijas ?? []) fuera.add(hermana);
+  }
+  return fuera;
+}
+
+/** Cuántas parecidas devuelve como mucho, y cuánto de su detalle y su plan. */
+const MAXIMO_DE_PARECIDAS = 100;
+const MAXIMO_TEXTO_DE_PARECIDA = 4000;
+
+const numerosDe = (valor: unknown): number[] =>
+  Array.isArray(valor) ? valor.filter((numero): numero is number => Number.isInteger(numero) && (numero as number) > 0) : [];
+
+/**
+ * POST /:id/parecidas (desde PLANEANDO, solo lee): las tarjetas del mismo tablero y del mismo repo, sin borrar, que podrían repetir
+ * a esta. Entran las activas y las terminadas (HECHO, FALLIDO o ERROR) en los últimos DIAS_DE_PARECIDAS días, aunque estén
+ * archivadas. Quedan fuera las vecinas (vecinasDe) y las parejas que el dueño ya revisó (parejasRevisadas, en las dos direcciones):
+ * sus números quedan en resultado.repetidasRevisadas. No cambia el estado.
+ * -> { tarjetas: [{ id, numero, codigo, titulo, detalle, estado, plan, commit, creadaEn }], repetidasRevisadas }
+ */
+async function tarjetasParecidas(contexto: ContextoTrabajador, actual: FilaParaTrabajar, ahora: Date) {
+  void contexto;
+  if (!actual.repo) return { ok: true, estado: actual.estado, tarjetas: [], repetidasRevisadas: [], link: linkDeLaTarjeta(actual.id) };
+  const desde = new Date(ahora.getTime() - DIAS_DE_PARECIDAS * 24 * 60 * 60_000);
+  const terminados = [...ESTADOS_TERMINADOS_DE_PARECIDAS];
+  return prisma.$transaction(async (tx) => {
+    const fresca = await tx.tarjetaTablero.findFirst({ where: { id: actual.id, estado: actual.estado, borradoEn: null }, select: { resultado: true } });
+    if (!fresca) throw new ErrorDelTrabajador("La tarjeta cambió mientras tanto.", 409);
+    const fuera = await vecinasDe(tx, actual);
+    const filas = await tx.tarjetaTablero.findMany({
+      where: {
+        tableroId: actual.tableroId,
+        repo: actual.repo,
+        borradoEn: null,
+        id: { notIn: [...fuera] },
+        tipo: { usaEstados: true },
+        OR: [
+          { estado: { notIn: terminados } },
+          { estado: { in: terminados }, OR: [{ terminadaEn: { gte: desde } }, { terminadaEn: null, actualizadoEn: { gte: desde } }] },
+        ],
+      },
+      orderBy: { creadoEn: "desc" },
+      take: MAXIMO_DE_PARECIDAS,
+      select: { id: true, numero: true, titulo: true, detalle: true, estado: true, plan: true, resultado: true, creadoEn: true },
+    });
+
+    // Las parejas revisadas: la marca de "posible repetida" puede estar en esta o en la otra (las dos direcciones).
+    const resultados = new Map<string, unknown>([[actual.id, fresca.resultado], ...filas.map((fila) => [fila.id, fila.resultado] as [string, unknown])]);
+    const marcadas = await tx.historialTarjeta.findMany({
+      where: { tarjetaId: { in: [...resultados.keys()] }, despues: { path: ["categoria"], equals: CATEGORIA_POSIBLE_REPETIDA } },
+      select: { tarjetaId: true },
+    });
+    const conMarca = new Set(marcadas.map((fila) => fila.tarjetaId));
+    for (const [id, resultado] of resultados) {
+      if (resultadoComoObjeto(resultadoComoObjeto(resultado).error).categoria === CATEGORIA_POSIBLE_REPETIDA) conMarca.add(id);
+    }
+    const historial = conMarca.size
+      ? await tx.historialTarjeta.findMany({
+          where: { tarjetaId: { in: [...conMarca] }, accion: { in: ["estado", "aprobar"] } },
+          orderBy: { creadoEn: "asc" },
+          select: { tarjetaId: true, accion: true, origen: true, antes: true, despues: true, creadoEn: true, deshechoEn: true },
+        })
+      : [];
+    const revisadasDe = (id: string) => parejasRevisadas(historial.filter((fila) => fila.tarjetaId === id), resultados.get(id));
+    const revisadas = new Set<number>([...numerosDe(resultadoComoObjeto(fresca.resultado).repetidasRevisadas), ...(conMarca.has(actual.id) ? revisadasDe(actual.id) : [])]);
+    for (const fila of filas) if (conMarca.has(fila.id) && revisadasDe(fila.id).includes(actual.numero)) revisadas.add(fila.numero);
+    const repetidasRevisadas = [...revisadas].sort((a, b) => a - b);
+
+    const previo = resultadoComoObjeto(fresca.resultado);
+    const guardadas = numerosDe(previo.repetidasRevisadas);
+    if (guardadas.length !== repetidasRevisadas.length || guardadas.some((numero, indice) => numero !== repetidasRevisadas[indice])) {
+      const hecho = await tx.tarjetaTablero.updateMany({
+        where: { id: actual.id, estado: actual.estado, borradoEn: null },
+        data: { resultado: { ...previo, repetidasRevisadas } as Prisma.InputJsonValue },
+      });
+      if (hecho.count !== 1) throw new ErrorDelTrabajador("La tarjeta cambió mientras tanto.", 409);
+    }
+
+    const tarjetas = filas
+      .filter((fila) => !revisadas.has(fila.numero))
+      .map((fila) => ({
+        id: fila.id,
+        numero: fila.numero,
+        codigo: codigoDeTarjeta(fila.numero),
+        titulo: fila.titulo,
+        detalle: (fila.detalle ?? "").slice(0, MAXIMO_TEXTO_DE_PARECIDA),
+        estado: fila.estado,
+        plan: fila.plan ? fila.plan.slice(0, MAXIMO_TEXTO_DE_PARECIDA) : null,
+        commit: commitDelResultado(fila.resultado),
+        creadaEn: fila.creadoEn.toISOString(),
+      }));
+    return { ok: true, estado: actual.estado, tarjetas, repetidasRevisadas, link: linkDeLaTarjeta(actual.id) };
+  });
+}
+
+/**
+ * POST /:id/repetida (desde PLANEANDO) { tipo, otraId, linea, motivo?, detalleParaLaOtra? }. Todo en una transacción y condicionado
+ * al estado que se leyó (si la tarjeta cambió mientras tanto, 409):
+ *  - tipo "repetida": esta pasa a FALLIDO con la línea "Repetida de T-X". Si viene detalleParaLaOtra y la otra no lo tiene, se le
+ *    agrega bajo "Agregado de T-Y (repetida):". Las flechas de dependencia que salían de esta (las que la esperaban) pasan a la otra,
+ *    sin duplicar ni hacer un ciclo (esa no se mueve). La otra NUNCA cambia de estado. La madre partida se cierra si toca.
+ *  - tipo "posible": esta pasa a ERROR con la categoría posible_repetida y el motivo "Posible repetida de T-X: <por qué>".
+ * Las dos tarjetas quedan con su fila en el historial. La otra no puede ser una vecina (misma familia o unida por una flecha): 409.
+ */
+async function marcarRepetida(contexto: ContextoTrabajador, actual: FilaParaTrabajar, cuerpo: Record<string, unknown>, ahora: Date) {
+  const entrada = repetidaDeEntrada(cuerpo);
+  if (typeof entrada === "string") throw new ErrorDelTrabajador(entrada, 400);
+  const estado = actual.estado as EstadoTarjetaTablero;
+  const a = destinoDeRepetida(entrada.tipo);
+  return prisma.$transaction(async (tx) => {
+    const otra = await otraDelMismoTablero(tx, actual, entrada.otraId);
+    if ((await vecinasDe(tx, actual)).has(otra.id)) {
+      throw new ErrorDelTrabajador("Esa tarjeta es de la misma tarea partida o está unida a esta por una flecha de dependencia: no puede ser su repetida.", 409);
+    }
+    const fresca = await tx.tarjetaTablero.findFirst({ where: { id: actual.id, estado: actual.estado, borradoEn: null }, select: { resultado: true } });
+    if (!fresca) throw new ErrorDelTrabajador("La tarjeta cambió mientras tanto.", 409);
+    const previo = resultadoComoObjeto(fresca.resultado);
+    const cuando = ahora.toISOString();
+
+    if (entrada.tipo === "posible") {
+      const motivo = motivoDePosibleRepetida(otra.numero, entrada.motivo ?? entrada.linea);
+      const error = { motivo, en: estado, cuando, categoria: CATEGORIA_POSIBLE_REPETIDA, causa: causaDeEntrada(motivo) };
+      const hecho = await tx.tarjetaTablero.updateMany({
+        where: { id: actual.id, estado: actual.estado, borradoEn: null },
+        data: {
+          estado: a,
+          trabajoVenceEn: null,
+          resultado: { ...previo, error, posibleRepetida: { id: otra.id, numero: otra.numero, linea: entrada.linea, cuando } } as Prisma.InputJsonValue,
+        },
+      });
+      if (hecho.count !== 1) throw new ErrorDelTrabajador("La tarjeta cambió mientras tanto.", 409);
+      await anotarTrabajador(tx, contexto, actual.id, { estado }, { estado: a, motivo, nota: motivo, categoria: CATEGORIA_POSIBLE_REPETIDA, posibleRepetidaDe: otra.numero });
+      await anotarEnLaOtra(tx, contexto, otra, { nota: NOTAS_PARA_LA_OTRA.posible(actual.numero), posibleRepetidaPor: actual.numero });
+      await tocarTableros(tx, [actual.tableroId], ahora);
+      return { ok: true, estado: a, otra: { id: otra.id, numero: otra.numero }, link: linkDeLaTarjeta(actual.id) };
+    }
+
+    // tipo "repetida": FALLIDO con su línea. La salida del tablero la hace el reloj, como con cualquier FALLIDO (archivadas.ts).
+    const linea = lineaDeRepetida(otra.numero, entrada.linea);
+    const { error: _errorViejo, ...sinError } = previo;
+    void _errorViejo;
+    const repetida = { de: otra.id, numero: otra.numero, linea, ...(entrada.motivo ? { motivo: entrada.motivo } : {}), cuando };
+
+    // 1. El detalle para la otra (solo si no lo tiene ya). Condicionado al detalle que se leyó: si lo cambiaron recién, 409.
+    const detalleNuevo = detalleConLoAgregado(otra.detalle, actual.numero, entrada.detalleParaLaOtra);
+    if (detalleNuevo) {
+      const cambio = await tx.tarjetaTablero.updateMany({ where: { id: otra.id, detalle: otra.detalle, borradoEn: null }, data: { detalle: detalleNuevo } });
+      if (cambio.count !== 1) throw new ErrorDelTrabajador("La otra tarjeta cambió mientras tanto.", 409);
+    }
+
+    // 2. Las flechas que salían de esta (las tarjetas que la esperaban) pasan a salir de la otra.
+    const conexiones = await tx.conexionTarjeta.findMany({
+      where: { tableroId: actual.tableroId },
+      select: { id: true, origenId: true, destinoId: true, esDependencia: true },
+    });
+    const dependencias = conexiones.filter((conexion) => conexion.esDependencia);
+    let flechasMovidas = 0;
+    let flechasQueQuedaron = 0;
+    for (const flecha of dependencias.filter((conexion) => conexion.origenId === actual.id)) {
+      const resto = dependencias.filter((conexion) => conexion.id !== flecha.id);
+      const existente = conexiones.find((conexion) => conexion.origenId === otra.id && conexion.destinoId === flecha.destinoId);
+      const yaDepende = Boolean(existente?.esDependencia);
+      if (!yaDepende && dependenciaHaceCiclo(resto, otra.id, flecha.destinoId)) {
+        flechasQueQuedaron += 1;
+        continue;
+      }
+      await tx.conexionTarjeta.delete({ where: { id: flecha.id } });
+      dependencias.splice(dependencias.indexOf(flecha), 1);
+      if (existente && !existente.esDependencia) {
+        // Ya había una flecha simple entre las dos: pasa a ser de dependencia (no se puede crear otra igual).
+        await tx.conexionTarjeta.update({ where: { id: existente.id }, data: { esDependencia: true } });
+        existente.esDependencia = true;
+        dependencias.push(existente);
+      } else if (!existente) {
+        const creada = await tx.conexionTarjeta.create({
+          data: { tableroId: actual.tableroId, origenId: otra.id, destinoId: flecha.destinoId, esDependencia: true },
+          select: { id: true, origenId: true, destinoId: true, esDependencia: true },
+        });
+        conexiones.push(creada);
+        dependencias.push(creada);
+      }
+      flechasMovidas += 1;
+    }
+
+    // 3. Esta tarjeta pasa a FALLIDO.
+    const hecho = await tx.tarjetaTablero.updateMany({
+      where: { id: actual.id, estado: actual.estado, borradoEn: null },
+      data: { estado: a, trabajoVenceEn: null, resultado: { ...sinError, repetida } as Prisma.InputJsonValue },
+    });
+    if (hecho.count !== 1) throw new ErrorDelTrabajador("La tarjeta cambió mientras tanto.", 409);
+    await anotarTrabajador(
+      tx,
+      contexto,
+      actual.id,
+      { estado },
+      { estado: a, nota: linea, repetidaDe: otra.numero, ...(flechasMovidas || flechasQueQuedaron ? { flechasMovidas, flechasQueQuedaron } : {}) },
+    );
+    // 4. El historial de la otra: se cerró como repetida de ella y, si se agregó, el detalle (como una edición, con el antes).
+    await anotarEnLaOtra(tx, contexto, otra, { nota: NOTAS_PARA_LA_OTRA.repetida(actual.numero), repetidaPor: actual.numero });
+    if (detalleNuevo) {
+      await tx.historialTarjeta.create({
+        data: {
+          tarjetaId: otra.id,
+          quien: quienEs(contexto),
+          origen: "TRABAJADOR",
+          accion: "editar",
+          antes: { detalle: otra.detalle } as Prisma.InputJsonValue,
+          despues: { detalle: detalleNuevo, nota: NOTAS_PARA_LA_OTRA.detalle(actual.numero) } as Prisma.InputJsonValue,
+        },
+      });
+    }
+    // Una parte que se cierra como repetida puede ser la última: la madre se cierra (FALLIDO, como con cualquier parte fallida).
+    await cerrarLaMadreSiToca(tx, contexto, actual);
+    await tocarTableros(tx, [actual.tableroId], ahora);
+    return {
+      ok: true,
+      estado: a,
+      otra: { id: otra.id, numero: otra.numero },
+      detalleAgregado: Boolean(detalleNuevo),
+      flechasMovidas,
+      flechasQueQuedaron,
+      link: linkDeLaTarjeta(actual.id),
+    };
   });
 }

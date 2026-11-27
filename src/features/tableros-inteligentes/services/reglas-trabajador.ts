@@ -69,6 +69,7 @@ import {
   type OrigenCambio,
   type Veredicto,
   claveDeNombre,
+  codigoDeTarjeta,
   estaTrabajando,
   sePuedeMarcarHechoAMano,
 } from "./reglas";
@@ -555,7 +556,9 @@ export type AccionDelTrabajador =
   | "ya-hecha"
   | "limpieza"
   | "rescatar"
-  | "causa-externa";
+  | "causa-externa"
+  | "parecidas"
+  | "repetida";
 export const ACCIONES_DEL_TRABAJADOR: readonly AccionDelTrabajador[] = [
   "latido",
   "plan",
@@ -573,6 +576,8 @@ export const ACCIONES_DEL_TRABAJADOR: readonly AccionDelTrabajador[] = [
   "limpieza",
   "rescatar",
   "causa-externa",
+  "parecidas",
+  "repetida",
 ];
 
 /**
@@ -630,11 +635,160 @@ export const TRANSICIONES_DEL_TRABAJADOR: Record<
   // con otra tarjeta, el servidor no responde). Crea la tarjeta de la causa (o reusa la abierta con el mismo título), pone la flecha de
   // dependencia y suelta la original sin ERROR ni intento: PLANEANDO -> APROBADO, EN_CURSO y SUBIENDO -> PLAN_APROBADO. a = null.
   "causa-externa": { desde: ["PLANEANDO", "EN_CURSO", "SUBIENDO"], a: null },
+  // Parecidas (27-nov-2026, parte 1 de «detectar tarjetas repetidas»): mientras planea, el Coordinador pide las tarjetas parecidas
+  // del mismo tablero y repo. Solo lee: no cambia el estado (a = null). Solo guarda en resultado.repetidasRevisadas las parejas que
+  // el dueño ya revisó.
+  parecidas: { desde: ["PLANEANDO"], a: null },
+  // Repetida (27-nov-2026): al planear se ve que la tarjeta repite a otra. tipo "repetida" -> FALLIDO ("Repetida de T-X"); tipo
+  // "posible" -> ERROR con la categoría posible_repetida, para que decida el dueño. a = null: el destino lo elige trabajador.ts según
+  // el tipo (destinoDeRepetida), igual que en reparar y soltar. La otra tarjeta nunca cambia de estado.
+  repetida: { desde: ["PLANEANDO"], a: null },
 };
 
 /** La nota de una tarjeta que ya estaba hecha (27-oct-2026): "ya estaba hecho (commit X)". */
 export function notaDeYaHecha(commit: string): string {
   return `ya estaba hecho (commit ${commit})`;
+}
+
+/* ───────────────────────────────────────────────── tarjetas repetidas (27-nov-2026, parte 1 de 3) ── */
+
+/** La categoría del ERROR de una tarjeta que quedó como "posible repetida" de otra (resultado.error.categoria y el historial). */
+export const CATEGORIA_POSIBLE_REPETIDA = "posible_repetida";
+/** Las terminadas (HECHO, FALLIDO o ERROR) entran en "parecidas" si terminaron en los últimos 30 días. */
+export const DIAS_DE_PARECIDAS = 30;
+/** Los estados que cuentan como terminados en "parecidas" (las demás son activas y entran siempre). */
+export const ESTADOS_TERMINADOS_DE_PARECIDAS: readonly EstadoTarjetaTablero[] = ["HECHO", "FALLIDO", "ERROR"];
+export const TIPOS_DE_REPETIDA = ["repetida", "posible"] as const;
+export type TipoDeRepetida = (typeof TIPOS_DE_REPETIDA)[number];
+const MAXIMO_LINEA_DE_REPETIDA = 300;
+const MAXIMO_MOTIVO_DE_REPETIDA = 600;
+const MAXIMO_DETALLE_PARA_LA_OTRA = 4000;
+const MAXIMO_DETALLE_DE_LA_TARJETA = 20_000;
+
+/** Un id de tarjeta que manda el Coordinador (otraId, repetidaDe): texto de 1 a 64 letras, números, _ o -. null si no sirve. */
+export function idDeTarjetaDeEntrada(valor: unknown): string | null {
+  if (typeof valor !== "string") return null;
+  const id = valor.trim();
+  return /^[A-Za-z0-9_-]{1,64}$/.test(id) ? id : null;
+}
+
+/**
+ * Lo que manda el Coordinador en /repetida, validado: { tipo: "repetida" | "posible", otraId, linea, motivo?, detalleParaLaOtra? }.
+ * `linea` es obligatoria (máximo 300 letras, una línea). En "posible", el motivo es el por qué (si no viene, se usa la línea).
+ * Devuelve el texto del problema si algo no sirve.
+ */
+export function repetidaDeEntrada(
+  cuerpo: Record<string, unknown>,
+): { tipo: TipoDeRepetida; otraId: string; linea: string; motivo: string | null; detalleParaLaOtra: string | null } | string {
+  const tipo = cuerpo.tipo;
+  if (typeof tipo !== "string" || !(TIPOS_DE_REPETIDA as readonly string[]).includes(tipo)) return 'El tipo tiene que ser "repetida" o "posible".';
+  const otraId = idDeTarjetaDeEntrada(cuerpo.otraId);
+  if (!otraId) return "Falta otraId: el id de la tarjeta que esta repite.";
+  const unaLinea = (valor: unknown, n: number) => (typeof valor === "string" ? valor.replace(/\s+/g, " ").trim().slice(0, n) : "");
+  const linea = unaLinea(cuerpo.linea, MAXIMO_LINEA_DE_REPETIDA);
+  if (!linea) return "Falta la línea: qué repite esta tarjeta, en una frase.";
+  const motivo = unaLinea(cuerpo.motivo, MAXIMO_MOTIVO_DE_REPETIDA) || null;
+  const detalle = typeof cuerpo.detalleParaLaOtra === "string" ? cuerpo.detalleParaLaOtra.replace(/\r\n/g, "\n").trim().slice(0, MAXIMO_DETALLE_PARA_LA_OTRA) : "";
+  return { tipo: tipo as TipoDeRepetida, otraId, linea, motivo, detalleParaLaOtra: detalle || null };
+}
+
+/** A qué estado pasa la tarjeta con /repetida: FALLIDO si es repetida, ERROR si es solo posible (decide el dueño). */
+export function destinoDeRepetida(tipo: TipoDeRepetida): EstadoTarjetaTablero {
+  return tipo === "repetida" ? "FALLIDO" : "ERROR";
+}
+
+/** La línea de una tarjeta cerrada como repetida: "Repetida de T-X: <linea>" (sin repetir el comienzo si ya lo trae). */
+export function lineaDeRepetida(numeroDeLaOtra: number, linea: string): string {
+  const comienzo = `Repetida de ${codigoDeTarjeta(numeroDeLaOtra)}`;
+  const limpia = linea.trim();
+  if (!limpia || limpia.toLowerCase() === comienzo.toLowerCase()) return comienzo;
+  return limpia.toLowerCase().startsWith(comienzo.toLowerCase()) ? limpia : `${comienzo}: ${limpia}`;
+}
+
+/** El motivo del ERROR de una posible repetida: "Posible repetida de T-X: <por qué>". */
+export function motivoDePosibleRepetida(numeroDeLaOtra: number, porQue: string): string {
+  const comienzo = `Posible repetida de ${codigoDeTarjeta(numeroDeLaOtra)}`;
+  const limpio = porQue.trim();
+  if (!limpio) return comienzo;
+  return limpio.toLowerCase().startsWith(comienzo.toLowerCase()) ? limpio : `${comienzo}: ${limpio}`;
+}
+
+/** La nota de "ya-hecha" cuando la hizo otra tarjeta (repetidaDe): "Ya lo hizo T-X (commit …)". */
+export function notaDeYaHechaPor(numeroDeLaOtra: number, commit: string): string {
+  return `Ya lo hizo ${codigoDeTarjeta(numeroDeLaOtra)} (commit ${commit})`;
+}
+
+/** Las líneas que quedan en el historial de LA OTRA tarjeta (la que no cambia de estado). */
+export const NOTAS_PARA_LA_OTRA = {
+  repetida: (numeroDeEsta: number) => `${codigoDeTarjeta(numeroDeEsta)} se cerró como repetida de esta`,
+  detalle: (numeroDeEsta: number) => `se le agregó el detalle de ${codigoDeTarjeta(numeroDeEsta)}`,
+  posible: (numeroDeEsta: number) => `${codigoDeTarjeta(numeroDeEsta)} quedó como posible repetida de esta`,
+  yaHecha: (numeroDeEsta: number) => `${codigoDeTarjeta(numeroDeEsta)} se cerró como ya hecha por esta`,
+} as const;
+
+const normalizarParaComparar = (texto: string) => texto.normalize("NFC").replace(/\s+/g, " ").trim().toLowerCase();
+
+/**
+ * El detalle de la otra tarjeta con lo agregado de la repetida, bajo "Agregado de T-Y (repetida):". null si no hay que tocarlo: no
+ * vino nada, la otra ya lo tiene (mismo texto, sin importar espacios ni mayúsculas) o ya tiene un agregado de esta tarjeta.
+ * Nunca pasa de 20.000 letras (lo agregado se recorta).
+ */
+export function detalleConLoAgregado(detalleDeLaOtra: string, numeroDeEsta: number, agregado: string | null): string | null {
+  const texto = (agregado ?? "").trim();
+  if (!texto) return null;
+  const titulo = `Agregado de ${codigoDeTarjeta(numeroDeEsta)} (repetida):`;
+  const actual = detalleDeLaOtra ?? "";
+  if (normalizarParaComparar(actual).includes(normalizarParaComparar(texto))) return null;
+  if (actual.includes(titulo)) return null;
+  const base = actual.trimEnd();
+  const cabeza = `${base ? `${base}\n\n` : ""}${titulo}\n`;
+  const cabe = MAXIMO_DETALLE_DE_LA_TARJETA - cabeza.length;
+  if (cabe <= 0) return null;
+  return `${cabeza}${texto.slice(0, cabe)}`;
+}
+
+/** Una fila del historial tal como la lee parejasRevisadas. */
+export type FilaParaParejas = { accion: string; origen: string; antes: unknown; despues: unknown; creadoEn: Date; deshechoEn?: Date | null };
+
+const comoObjeto = (valor: unknown) => (valor && typeof valor === "object" && !Array.isArray(valor) ? (valor as Record<string, unknown>) : {});
+
+/**
+ * Las parejas que el dueño ya revisó, vistas desde UNA tarjeta: los números de las tarjetas de las que quedó como "posible
+ * repetida" (marca en su historial, o en su resultado si todavía no se borró) y DESPUÉS el dueño la reintentó (una aprobación desde
+ * ERROR que no hizo el Coordinador y no se deshizo). Una vuelta del Coordinador (recoger) no cuenta como revisada.
+ */
+export function parejasRevisadas(historial: readonly FilaParaParejas[], resultado?: unknown): number[] {
+  const marcas: { numero: number; cuando: number }[] = [];
+  for (const fila of historial) {
+    if (fila.deshechoEn) continue;
+    const despues = comoObjeto(fila.despues);
+    if (despues.categoria !== CATEGORIA_POSIBLE_REPETIDA) continue;
+    const numero = Number(despues.posibleRepetidaDe);
+    if (Number.isInteger(numero) && numero > 0) marcas.push({ numero, cuando: new Date(fila.creadoEn).getTime() });
+  }
+  const datos = comoObjeto(resultado);
+  const error = comoObjeto(datos.error);
+  const posible = comoObjeto(datos.posibleRepetida);
+  const numeroDelResultado = Number(posible.numero);
+  if (error.categoria === CATEGORIA_POSIBLE_REPETIDA && Number.isInteger(numeroDelResultado) && numeroDelResultado > 0) {
+    const cuando = typeof error.cuando === "string" ? new Date(error.cuando).getTime() : NaN;
+    if (Number.isFinite(cuando)) marcas.push({ numero: numeroDelResultado, cuando });
+  }
+  const reintentos = historial
+    .filter((fila) => !fila.deshechoEn && fila.accion === "aprobar" && fila.origen !== "TRABAJADOR" && comoObjeto(fila.antes).estado === "ERROR")
+    .map((fila) => new Date(fila.creadoEn).getTime());
+  const revisadas = new Set<number>();
+  for (const marca of marcas) if (reintentos.some((cuando) => cuando > marca.cuando)) revisadas.add(marca.numero);
+  return [...revisadas].sort((a, b) => a - b);
+}
+
+/** El commit del resultado de una tarjeta: el de su subida, el de "ya estaba hecho" o el de su construcción. null si no tiene. */
+export function commitDelResultado(resultado: unknown): string | null {
+  const datos = comoObjeto(resultado);
+  for (const valor of [comoObjeto(datos.subida).commit, comoObjeto(datos.yaEstabaHecho).commit, datos.commit]) {
+    if (typeof valor === "string" && valor.trim()) return valor.trim().slice(0, 80);
+  }
+  return null;
 }
 
 /** El título de la tarjeta única de limpieza de un repo. Las tareas de limpieza se buscan por este título exacto. */

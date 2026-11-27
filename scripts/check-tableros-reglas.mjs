@@ -897,6 +897,8 @@ prueba("transiciones del trabajador: cada acción solo desde su estado", () => {
     "ya-hecha": ["PLANEANDO", "EN_CURSO"],
     limpieza: ["EN_CURSO", "SUBIENDO", "POR_REVISAR", "HECHO"],
     "causa-externa": ["PLANEANDO", "EN_CURSO", "SUBIENDO"],
+    parecidas: ["PLANEANDO"],
+    repetida: ["PLANEANDO"],
   };
   for (const [accion, validos] of Object.entries(esperado)) {
     for (const estado of reglas.ESTADOS_TARJETA) {
@@ -906,7 +908,7 @@ prueba("transiciones del trabajador: cada acción solo desde su estado", () => {
   }
   assert.deepEqual(
     Object.fromEntries(Object.entries(trabajo.TRANSICIONES_DEL_TRABAJADOR).map(([accion, regla]) => [accion, regla.a])),
-    { latido: null, plan: "PLAN_LISTO", resultado: "POR_REVISAR", subida: "HECHO", error: "ERROR", soltar: null, "cambiar-repo": "APROBADO", reparar: null, partir: null, depender: null, recoger: null, "ya-hecha": "HECHO", limpieza: null, rescatar: null, revisar_de_nuevo: null, "causa-externa": null },
+    { latido: null, plan: "PLAN_LISTO", resultado: "POR_REVISAR", subida: "HECHO", error: "ERROR", soltar: null, "cambiar-repo": "APROBADO", reparar: null, partir: null, depender: null, recoger: null, "ya-hecha": "HECHO", limpieza: null, rescatar: null, revisar_de_nuevo: null, "causa-externa": null, parecidas: null, repetida: null },
   );
   // Revisión previa (27-oct-2026): la nota de "ya estaba hecha" y el título único de la tarjeta de limpieza.
   assert.equal(trabajo.notaDeYaHecha("f4759b0"), "ya estaba hecho (commit f4759b0)");
@@ -2822,6 +2824,124 @@ prueba("los textos del MCP dicen que chats, bot de ventas y libro V3 se aprueban
   assert.deepEqual([...trabajo.ZONAS_QUE_ARRANCAN_POR_VOZ].sort(), ["BOT_VENTAS", "CHATS", "LIBRO_V3"]);
   for (const zona of ["CHATS", "BOT_VENTAS", "LIBRO_V3"]) assert.deepEqual(trabajo.zonasQueEsperanLaPantalla([zona], "voz"), [], zona);
   assert.deepEqual(trabajo.zonasQueEsperanLaPantalla(["META_ADS"], "voz"), ["META_ADS"]);
+});
+
+// 27-nov-2026 (tarjeta pqsohatw, parte 1 de «detectar tarjetas repetidas»): la consulta "parecidas" y la acción "repetida".
+prueba("repetida: vale desde PLANEANDO y se rechaza desde EN_CURSO; el destino es FALLIDO (repetida) o ERROR (posible)", () => {
+  assert.ok(trabajo.ACCIONES_DEL_TRABAJADOR.includes("repetida"));
+  assert.equal(trabajo.puedeElTrabajador("repetida", "PLANEANDO"), null);
+  assert.match(trabajo.puedeElTrabajador("repetida", "EN_CURSO"), /solo vale desde PLANEANDO/);
+  for (const estado of ["APROBADO", "PLAN_LISTO", "PLAN_APROBADO", "SUBIENDO", "POR_REVISAR", "ERROR", "HECHO", "FALLIDO"]) {
+    assert.notEqual(trabajo.puedeElTrabajador("repetida", estado), null, estado);
+  }
+  assert.equal(trabajo.TRANSICIONES_DEL_TRABAJADOR.repetida.a, null);
+  assert.equal(trabajo.destinoDeRepetida("repetida"), "FALLIDO");
+  assert.equal(trabajo.destinoDeRepetida("posible"), "ERROR");
+  assert.equal(trabajo.CATEGORIA_POSIBLE_REPETIDA, "posible_repetida");
+});
+
+prueba("parecidas: solo lee (no cambia el estado) y vale solo desde PLANEANDO", () => {
+  assert.ok(trabajo.ACCIONES_DEL_TRABAJADOR.includes("parecidas"));
+  assert.equal(trabajo.TRANSICIONES_DEL_TRABAJADOR.parecidas.a, null);
+  assert.equal(trabajo.puedeElTrabajador("parecidas", "PLANEANDO"), null);
+  for (const estado of ["APROBADO", "EN_CURSO", "SUBIENDO", "ERROR", "HECHO"]) assert.notEqual(trabajo.puedeElTrabajador("parecidas", estado), null, estado);
+  assert.equal(trabajo.DIAS_DE_PARECIDAS, 30);
+  assert.deepEqual([...trabajo.ESTADOS_TERMINADOS_DE_PARECIDAS], ["HECHO", "FALLIDO", "ERROR"]);
+  // ya-hecha sigue igual: PLANEANDO | EN_CURSO -> HECHO.
+  assert.deepEqual([...trabajo.TRANSICIONES_DEL_TRABAJADOR["ya-hecha"].desde], ["PLANEANDO", "EN_CURSO"]);
+  assert.equal(trabajo.TRANSICIONES_DEL_TRABAJADOR["ya-hecha"].a, "HECHO");
+});
+
+prueba("repetidaDeEntrada: tipo, otraId y linea obligatorios; motivo y detalle opcionales", () => {
+  assert.match(trabajo.repetidaDeEntrada({ otraId: "abc", linea: "x" }), /tipo/);
+  assert.match(trabajo.repetidaDeEntrada({ tipo: "igual", otraId: "abc", linea: "x" }), /tipo/);
+  assert.match(trabajo.repetidaDeEntrada({ tipo: "repetida", linea: "x" }), /otraId/);
+  assert.match(trabajo.repetidaDeEntrada({ tipo: "repetida", otraId: "a b;drop", linea: "x" }), /otraId/);
+  assert.match(trabajo.repetidaDeEntrada({ tipo: "posible", otraId: "abc", linea: "   " }), /línea/);
+  assert.deepEqual(trabajo.repetidaDeEntrada({ tipo: "posible", otraId: " abc ", linea: " pide  lo\nmismo " }), {
+    tipo: "posible",
+    otraId: "abc",
+    linea: "pide lo mismo",
+    motivo: null,
+    detalleParaLaOtra: null,
+  });
+  const larga = trabajo.repetidaDeEntrada({ tipo: "repetida", otraId: "abc", linea: "x".repeat(900), motivo: "m", detalleParaLaOtra: "d".repeat(9000) });
+  assert.equal(larga.linea.length, 300);
+  assert.equal(larga.motivo, "m");
+  assert.equal(larga.detalleParaLaOtra.length, 4000);
+  assert.equal(trabajo.idDeTarjetaDeEntrada("cm1abc_D-9"), "cm1abc_D-9");
+  assert.equal(trabajo.idDeTarjetaDeEntrada(42), null);
+  assert.equal(trabajo.idDeTarjetaDeEntrada("../x"), null);
+});
+
+prueba("líneas de repetida, posible repetida y ya hecha por otra; las notas de la otra tarjeta", () => {
+  assert.equal(trabajo.lineaDeRepetida(12, "pide el mismo botón"), "Repetida de T-12: pide el mismo botón");
+  assert.equal(trabajo.lineaDeRepetida(12, "Repetida de T-12: ya está"), "Repetida de T-12: ya está");
+  assert.equal(trabajo.lineaDeRepetida(12, "repetida de t-12"), "Repetida de T-12");
+  assert.equal(trabajo.motivoDePosibleRepetida(7, "las dos piden la columna"), "Posible repetida de T-7: las dos piden la columna");
+  assert.equal(trabajo.motivoDePosibleRepetida(7, ""), "Posible repetida de T-7");
+  assert.equal(trabajo.notaDeYaHechaPor(30, "f4759b0"), "Ya lo hizo T-30 (commit f4759b0)");
+  assert.equal(trabajo.NOTAS_PARA_LA_OTRA.repetida(5), "T-5 se cerró como repetida de esta");
+  assert.equal(trabajo.NOTAS_PARA_LA_OTRA.detalle(5), "se le agregó el detalle de T-5");
+  assert.equal(trabajo.NOTAS_PARA_LA_OTRA.posible(5), "T-5 quedó como posible repetida de esta");
+  assert.equal(trabajo.NOTAS_PARA_LA_OTRA.yaHecha(5), "T-5 se cerró como ya hecha por esta");
+});
+
+prueba("detalleConLoAgregado: agrega bajo «Agregado de T-Y (repetida):» solo si la otra no lo tiene", () => {
+  assert.equal(trabajo.detalleConLoAgregado("Hacer X", 9, "Además, en el celular"), "Hacer X\n\nAgregado de T-9 (repetida):\nAdemás, en el celular");
+  assert.equal(trabajo.detalleConLoAgregado("", 9, "algo"), "Agregado de T-9 (repetida):\nalgo");
+  // Ya lo tiene (sin importar espacios ni mayúsculas), ya tiene un agregado de esta, o no vino nada: no se toca.
+  assert.equal(trabajo.detalleConLoAgregado("Hacer X. ADEMÁS,  en el celular.", 9, "además, en el celular"), null);
+  assert.equal(trabajo.detalleConLoAgregado("Hacer X\n\nAgregado de T-9 (repetida):\nviejo", 9, "nuevo"), null);
+  assert.equal(trabajo.detalleConLoAgregado("Hacer X", 9, null), null);
+  assert.equal(trabajo.detalleConLoAgregado("Hacer X", 9, "   "), null);
+  // Nunca pasa de 20.000 letras.
+  assert.equal(trabajo.detalleConLoAgregado("a".repeat(19_900), 9, "b".repeat(500)).length, 20_000);
+  assert.equal(trabajo.detalleConLoAgregado("a".repeat(19_990), 9, "b"), null);
+});
+
+prueba("parejasRevisadas: la marca de posible repetida seguida de un reintento del dueño (no del Coordinador)", () => {
+  const t = (min) => new Date(T0.getTime() + min * 60_000);
+  const marca = { accion: "estado", origen: "TRABAJADOR", antes: { estado: "PLANEANDO" }, despues: { estado: "ERROR", categoria: "posible_repetida", posibleRepetidaDe: 12 }, creadoEn: t(1) };
+  const reintentoDelDueno = { accion: "aprobar", origen: "PANTALLA", antes: { estado: "ERROR" }, despues: { momento: "tarea" }, creadoEn: t(5) };
+  const vueltaDelCoordinador = { accion: "aprobar", origen: "TRABAJADOR", antes: { estado: "ERROR" }, despues: {}, creadoEn: t(5) };
+  assert.deepEqual(trabajo.parejasRevisadas([marca, reintentoDelDueno]), [12]);
+  // Sin reintento, con un reintento ANTES de la marca, con la vuelta del Coordinador o con el reintento deshecho: no está revisada.
+  assert.deepEqual(trabajo.parejasRevisadas([marca]), []);
+  assert.deepEqual(trabajo.parejasRevisadas([{ ...reintentoDelDueno, creadoEn: t(0) }, marca]), []);
+  assert.deepEqual(trabajo.parejasRevisadas([marca, vueltaDelCoordinador]), []);
+  assert.deepEqual(trabajo.parejasRevisadas([marca, { ...reintentoDelDueno, deshechoEn: t(6) }]), []);
+  // La marca también se lee del resultado (si todavía no se borró), y por MCP también cuenta como el dueño.
+  const resultado = { error: { categoria: "posible_repetida", cuando: t(1).toISOString() }, posibleRepetida: { numero: 40 } };
+  assert.deepEqual(trabajo.parejasRevisadas([{ ...reintentoDelDueno, origen: "MCP" }], resultado), [40]);
+  assert.deepEqual(trabajo.parejasRevisadas([], resultado), []);
+});
+
+prueba("commitDelResultado: el de la subida, el de ya estaba hecho o el de la construcción", () => {
+  assert.equal(trabajo.commitDelResultado({ commit: "aaa", subida: { commit: "bbb" } }), "bbb");
+  assert.equal(trabajo.commitDelResultado({ yaEstabaHecho: { commit: "ccc" } }), "ccc");
+  assert.equal(trabajo.commitDelResultado({ commit: "ddd" }), "ddd");
+  assert.equal(trabajo.commitDelResultado(null), null);
+  assert.equal(trabajo.commitDelResultado({ subida: { commit: "" } }), null);
+});
+
+prueba("trabajador.ts: parecidas y repetida en la misma transacción, con historial en las dos tarjetas", () => {
+  const codigo = readFileSync("src/features/tableros-inteligentes/services/trabajador.ts", "utf8");
+  assert.match(codigo, /if \(accion === "parecidas"\) return tarjetasParecidas\(/);
+  assert.match(codigo, /if \(accion === "repetida"\) return marcarRepetida\(/);
+  const repetida = codigo.slice(codigo.indexOf("async function marcarRepetida("));
+  assert.match(repetida, /prisma\.\$transaction\(async \(tx\) =>/);
+  assert.match(repetida, /NOTAS_PARA_LA_OTRA\.repetida/);
+  assert.match(repetida, /NOTAS_PARA_LA_OTRA\.posible/);
+  assert.match(repetida, /NOTAS_PARA_LA_OTRA\.detalle/);
+  assert.match(repetida, /dependenciaHaceCiclo\(/);
+  // La otra nunca cambia de estado: el único updateMany sobre ella toca solo el detalle.
+  assert.doesNotMatch(repetida, /where: \{ id: otra\.id[^}]*\}, data: \{[^}]*estado/);
+  assert.match(codigo, /NOTAS_PARA_LA_OTRA\.yaHecha\(actual\.numero\)/);
+  const ruta = readFileSync("src/app/api/trabajador/tablero/[id]/[accion]/route.ts", "utf8");
+  assert.match(ruta, /- parecidas \{\}/);
+  assert.match(ruta, /- repetida  \{ tipo: "repetida" \| "posible", otraId, linea, motivo\?, detalleParaLaOtra\? \}/);
+  assert.match(ruta, /repetidaDe/);
 });
 
 console.log(`\n${pruebas} pruebas, todas bien`);

@@ -36,7 +36,17 @@ export const dynamic = "force-dynamic";
               tarjetas (mismo tablero, sin ciclos). Si alguna no está HECHO, PLANEANDO vuelve a APROBADO sin ERROR
               ni contar el intento: queda "Esperando a «X»". -> { creadas, esperando, soltada }
   - ya-hecha  { commit, motivo?, nota?, etapa? }  PLANEANDO | EN_CURSO -> HECHO con la nota "ya estaba hecho (commit X)" (27-oct-2026;
-              el Coordinador ya comprobó con git que el commit está en main).
+              el Coordinador ya comprobó con git que el commit está en main). Con `repetidaDe` (id de otra tarjeta del mismo tablero, 27-nov-2026)
+              la línea queda "Ya lo hizo T-X (commit …)" y la otra recibe en su historial "T-Y se cerró como ya hecha por esta".
+  - parecidas {}                                  PLANEANDO, solo lee (no cambia el estado): las tarjetas del mismo tablero y repo, sin borrar,
+              activas o terminadas (HECHO, FALLIDO, ERROR) en los últimos 30 días aunque estén archivadas; sin ella misma, su familia
+              de tarea partida, las unidas por una flecha de dependencia ni las parejas que el dueño ya revisó (quedan en
+              resultado.repetidasRevisadas). -> { tarjetas: [{ id, numero, codigo, titulo, detalle, estado, plan, commit, creadaEn }], repetidasRevisadas }
+  - repetida  { tipo: "repetida" | "posible", otraId, linea, motivo?, detalleParaLaOtra? }   PLANEANDO: "repetida" -> FALLIDO
+              ("Repetida de T-X"; el detalle se agrega a la otra si no lo tiene y las flechas que salían de esta pasan a la otra, sin
+              duplicar ni ciclos); "posible" -> ERROR con categoría posible_repetida ("Posible repetida de T-X: <por qué>"). La otra nunca
+              cambia de estado; las dos quedan con su fila en el historial. 400 si falta tipo, otraId o linea; 404 si la otra no es de
+              este tablero; 409 si es de su familia o está unida por una flecha.
   - limpieza  { repo, errores: [texto] }          main trae errores viejos: crea UNA tarjeta "Limpieza: main trae errores viejos (<repo>)"
               (APROBADO, mismo tablero) o le agrega los errores a la abierta. No mueve la tarjeta que la pidió. -> { creada, agregados }
   - causa-externa { tipo, titulo, detalle, referencia?, etapa?, categoria?, causa?, error? }   PLANEANDO | EN_CURSO | SUBIENDO
