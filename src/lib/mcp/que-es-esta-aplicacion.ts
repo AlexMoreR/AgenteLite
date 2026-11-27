@@ -19,6 +19,8 @@ import {
 import { CLAVE_ULTIMO_CHEQUEO_NETMAGI, describirUltimoChequeoNetmagi, leerUltimoChequeoNetmagi } from "@/lib/recibir-estado-proxy-netmagi";
 import { aprobacionAutomaticaPrendida, aprobarPlanesSoloPrendido, aprobarTareasSoloPrendido } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
 import { featuresSolasPrendido } from "@/features/tableros-inteligentes/services/preparar-features";
+import { REGLA_TAREAS_EN_FEATURES } from "@/features/tableros-inteligentes/services/reglas-features";
+import { estadoDeTareasAFeatures } from "@/features/tableros-inteligentes/services/tareas-a-features";
 import { leerAreaFeatures } from "@/features/tableros-inteligentes/services/coordinador-en-vivo";
 import { recogidaDelResultado } from "@/features/tableros-inteligentes/services/reglas-trabajador";
 import { dondeTableroVivo } from "@/features/tableros-inteligentes/services/tableros-archivados";
@@ -74,7 +76,8 @@ export const HERRAMIENTAS_MCP_APLICACION = [
     name: "que_es_esta_aplicacion",
     title: "Que es esta aplicacion",
     description:
-      "Explica el sistema completo para entenderlo antes de trabajar: que hace el CRM y que problema resuelve, stack y despliegue, modulos, modelo de datos (cada entidad y sus relaciones), los agentes V1/V2/V3 y cual atiende cada linea, conceptos del negocio, lineas de WhatsApp, automatizaciones prendidas y apagadas, lo que NO existe hoy y advertencias de operacion. Lo que se puede leer del sistema se lee en vivo; el resto sale de docs/que-es-esta-aplicacion.md. Conviene llamarla al empezar una conversacion sobre el CRM.",
+      "Explica el sistema completo para entenderlo antes de trabajar: que hace el CRM y que problema resuelve, stack y despliegue, modulos, modelo de datos (cada entidad y sus relaciones), los agentes V1/V2/V3 y cual atiende cada linea, conceptos del negocio, lineas de WhatsApp, automatizaciones prendidas y apagadas, lo que NO existe hoy y advertencias de operacion. Lo que se puede leer del sistema se lee en vivo; el resto sale de docs/que-es-esta-aplicacion.md. Conviene llamarla al empezar una conversacion sobre el CRM. Regla del tablero IA: " +
+      REGLA_TAREAS_EN_FEATURES,
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     annotations: SOLO_LECTURA,
   },
@@ -929,6 +932,8 @@ async function automatizaciones(
     aprobar_tareas_solas_tablero: await estadoDeAprobarTareasSolo(workspaceId).catch(() => "no se pudo leer"),
     aprobar_planes_solo_tablero: await estadoDeAprobarPlanesSolo(workspaceId).catch(() => "no se pudo leer"),
     features_solas_tablero: await estadoDeFeaturesSolas(workspaceId).catch(() => "no se pudo leer"),
+    // Una vez al día pasa a Features las Tareas aprobadas con repo que quedaron fuera (tareas-a-features.ts).
+    tareas_a_features_tablero: await seguro("tareas_a_features_tablero", estadoDeTareasAFeatures),
     resumen_diario_tablero: await estadoDelResumenDiario(),
     avisos_al_dueno_tablero: await estadoDeAvisosAlDueno(workspaceId).catch(() => "no se pudo leer"),
     avisos_al_equipo_tablero: await estadoDeAvisosAlEquipo(workspaceId).catch(() => "no se pudo leer"),
@@ -1020,6 +1025,8 @@ async function queEsEstaAplicacion(contexto: Contexto) {
   return {
     como_leer_esto: `Cada seccion dice su fuente: "${FUENTE_VIVO}" es el sistema que esta corriendo y no puede estar desactualizado; el ${FUENTE_ARCHIVO} lo escribe y corrige Alex. Si hay contradiccion, manda lo que esta en vivo.`,
     ...(archivo ? {} : { aviso: `No se pudo leer el ${FUENTE_ARCHIVO}: solo sale la parte en vivo.` }),
+    // La regla de dónde se crean las Tareas en el tablero IA (reglas-features.ts): la misma de crear_tarjeta.
+    regla_del_tablero_ia: REGLA_TAREAS_EN_FEATURES,
     que_es_y_que_resuelve: { fuente: FUENTE_ARCHIVO, texto: sin(seccion(archivo, "Qué es y qué resuelve")) },
     stack_y_despliegue: {
       versiones: { fuente: `${FUENTE_VIVO} (package.json)`, ...stack },
