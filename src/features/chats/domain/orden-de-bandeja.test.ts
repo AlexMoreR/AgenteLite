@@ -3,6 +3,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import {
+  sortConversationItems,
+  updateConversationItemInSortedList,
+} from "@/components/chats/chat-inbox-conversation-utils";
+import type { SharedInboxConversationItem } from "@/components/chats/chat-inbox-types";
 import { dedupeAndSortConversationListRows, sortConversationListRows } from "@/lib/chat-conversation-list";
 import { hayFiltrosPuestos, leerFiltrosDeBandeja, paramsDeFiltros } from "./filtros-de-bandeja";
 
@@ -60,4 +65,43 @@ test("dedupeAndSortConversationListRows pasa el orden", () => {
   const filas = [fila("b", 20), fila("a", 10), fila("c", 30)];
   assert.deepEqual(dedupeAndSortConversationListRows(filas).map((f) => f.conversationId), ["c", "b", "a"]);
   assert.deepEqual(dedupeAndSortConversationListRows(filas, "antiguos").map((f) => f.conversationId), ["a", "b", "c"]);
+});
+
+// Parte 3: la pantalla. Con antiguos la bandeja prende `ordenDelServidor` (la misma de "Esperando").
+const chat = (id: string, minuto: number, extra: Partial<SharedInboxConversationItem> = {}) =>
+  ({
+    id: `agent:${id}`,
+    source: "agent",
+    label: id,
+    secondaryLabel: "",
+    href: "",
+    lastMessage: null,
+    lastMessageAt: new Date(Date.UTC(2026, 10, 20, 10, minuto)),
+    ...extra,
+  }) as SharedInboxConversationItem;
+
+test("con ordenDelServidor y antiguos, un mensaje nuevo no mueve el chat", () => {
+  // La lista como la manda el servidor con orden=antiguos: el mas viejo primero.
+  const lista = [chat("a", 10), chat("b", 20), chat("c", 30)];
+  assert.deepEqual(sortConversationItems(lista, { ordenDelServidor: true }).map((i) => i.id), ["agent:a", "agent:b", "agent:c"]);
+
+  // Entra un mensaje en "a" (el mas viejo): queda primero, con el mensaje nuevo.
+  const aConMensaje = chat("a", 45, { lastMessage: "hola" });
+  const tras = updateConversationItemInSortedList(lista, "a", aConMensaje, { ordenDelServidor: true });
+  assert.deepEqual(tras.map((i) => i.id), ["agent:a", "agent:b", "agent:c"]);
+  assert.equal(tras[0]?.lastMessage, "hola");
+
+  // Un chat que no esta cargado no entra solo: lo trae el scroll o el refresco.
+  const nuevo = chat("z", 50);
+  assert.deepEqual(
+    updateConversationItemInSortedList(lista, "z", nuevo, { ordenDelServidor: true }).map((i) => i.id),
+    ["agent:a", "agent:b", "agent:c"],
+  );
+
+  // Sin la bandera (la lista de siempre) el chat con mensaje nuevo sube arriba, como hoy.
+  const recientes = [chat("c", 30), chat("b", 20), chat("a", 10)];
+  assert.deepEqual(
+    updateConversationItemInSortedList(recientes, "a", aConMensaje).map((i) => i.id),
+    ["agent:a", "agent:c", "agent:b"],
+  );
 });
