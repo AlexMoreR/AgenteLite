@@ -24,6 +24,8 @@ export const QUE_FALLO = {
   no_cambio_nada: "Claude terminó sin cambiar ningún archivo",
   fallan_pruebas: "fallaron las pruebas",
   reversion_falsa: "se deshizo antes de que el servidor bajara la versión nueva (reversión falsa)",
+  // 27-nov-2026 («nunca construir en el repo equivocado»): el plan nombra archivos que no están en el repo de la tarjeta.
+  repo_equivocado: "el plan nombra archivos que no están en este repo (repo equivocado)",
 };
 
 /** Cómo se resolvió: la decisión que se tomó en ese momento. */
@@ -35,6 +37,7 @@ export const COMO_SE_RESOLVIO = {
   plan_nuevo: "se vuelve a planear la tarea",
   ya_en_main: "ya estaba hecho en main",
   resubir: "se vuelve a subir el mismo commit",
+  cambio_de_repo: "se cambió la tarjeta de repo (o se vuelve a planear) sin construir ni gastar intento",
 };
 
 /** De cuántos intentos se habla en la línea "Qué se intentó" (el tope de reparaciones del CRM). */
@@ -84,6 +87,8 @@ const REGLA_POR_CLASE = {
   // 25-nov-2026 (parte 2 de «las 4 fallas repetidas»).
   nube: "Si la nube no da señal, se reintenta en una sesión nueva; nunca en la misma sesión de un intento anterior.",
   sin_cambios: "Si Claude no cambia nada, mirar si ya está en main o volver a planear con lo que falta, sin repetir lo mismo.",
+  // 27-nov-2026 («nunca construir en el repo equivocado»).
+  repo: "Si el plan nombra archivos de otro repo, se cambia la tarjeta de repo y se vuelve a planear; nunca se construye en el repo equivocado.",
   desconocida: "Leer los registros completos del servidor y anotar la causa cuando se sepa.",
 };
 

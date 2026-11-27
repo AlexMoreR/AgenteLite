@@ -66,6 +66,7 @@ import {
   medirConClaude,
   partirTarea,
   planear,
+  revisarArchivosDelRepo,
   revisarDeNuevo,
   sePuedeRevisarDeNuevo,
   subir,
@@ -220,6 +221,9 @@ export async function procesar({ crm, config, registro: registroBase, motores = 
     if (hacer === "construir" && conReparaciones) {
       const previa = await esperarDependenciasAntesDeConstruir({ crm, config, registro }, tarjeta);
       if (previa) return previa;
+      // Nunca construir en el repo equivocado (27-nov-2026): si el plan nombra archivos de otro repo, se cambia de repo y se replanea.
+      const porRepo = await cambiarDeRepoSiHaceFalta({ crm, config, registro }, tarjeta, { origen: "antes_de_construir", etapa: hacer });
+      if (porRepo) return porRepo;
     }
     const salida = await etapa(contexto, tarjeta);
     if (vencida) throw new ErrorDeEtapa("La tarjeta venció en el CRM mientras se trabajaba.");
@@ -517,6 +521,65 @@ async function esperarDependenciasAntesDeConstruir({ crm, config, registro }, ta
   return null;
 }
 
+/** Cuántas veces seguidas se mira el repo por la tarjeta: con estos intentos "repo_equivocado" ya hechos, se sigue como hoy. */
+const TOPE_DE_REPO_EQUIVOCADO = 2;
+
+/**
+ * NUNCA CONSTRUIR EN EL REPO EQUIVOCADO (27-nov-2026). Mira con git si los archivos que el plan da por existentes están en el repo
+ * de la tarjeta (revisarArchivosDelRepo). Si están en el otro repo, /cambiar-repo le cambia el repo; si no están en ninguno, la
+ * vuelve a planear (sin repo). En los dos casos: no se construye, no se gasta intento y queda en la bitácora. Devuelve el resultado
+ * para procesar (o para la reparación), o null si hay que seguir como hoy: no falta nada, un CRM viejo (404), el tope de
+ * cambios (409), el CRM falló o la tarjeta ya pasó por aquí TOPE_DE_REPO_EQUIVOCADO veces.
+ */
+async function cambiarDeRepoSiHaceFalta({ crm, config, registro }, tarjeta, { origen, etapa }) {
+  if (typeof crm.cambiarRepo !== "function") return null;
+  const yaVeces = (tarjeta.ultimosIntentos ?? []).filter((intento) => intento?.categoria === "repo_equivocado").length;
+  if (yaVeces >= TOPE_DE_REPO_EQUIVOCADO) return null;
+  const revision = await revisarArchivosDelRepo({ tarjeta, plan: tarjeta.plan, config, registro });
+  if (revision.accion === "ninguna") return null;
+  const cuales = revision.faltan.slice(0, 5).join(", ") + (revision.faltan.length > 5 ? ` y ${revision.faltan.length - 5} más` : "");
+  const causa = enUnaLinea(
+    revision.accion === "cambiar_repo"
+      ? `El plan nombra archivos que no están en ${tarjeta.repo} y sí en ${revision.repoCorrecto}: ${cuales}`
+      : `El plan nombra archivos que no están en ${tarjeta.repo} ni en el otro repo: ${cuales}`,
+  );
+  let respuesta;
+  try {
+    respuesta = await crm.cambiarRepo(tarjeta.id, { ...(revision.repoCorrecto ? { repo: revision.repoCorrecto } : {}), causa, origen, etapa });
+  } catch (error) {
+    registro.aviso(`no se pudo cambiar de repo "${tarjeta.titulo}" (${error.message}): sigue como siempre`);
+    return null;
+  }
+  if (respuesta?.ok === false) {
+    registro.aviso(`el CRM no dejó cambiar de repo "${tarjeta.titulo}" (${respuesta.status ?? "?"}: ${respuesta.error ?? "sin motivo"}): sigue como siempre`);
+    return null;
+  }
+  const decidido = revision.accion === "cambiar_repo" ? `pasó de ${tarjeta.repo} a ${revision.repoCorrecto} y se vuelve a planear` : "se vuelve a planear";
+  registro.info(`"${tarjeta.titulo}": ${causa}; ${decidido} (sin construir ni gastar intento)`);
+  anotarIncidente({
+    config,
+    registro,
+    tarjeta,
+    repo: tarjeta.repo,
+    queFallo: "repo_equivocado",
+    causa,
+    lineasDelError: revision.faltan.map((ruta) => `no está en ${tarjeta.repo}: ${ruta}`),
+    comoSeResolvio: "cambio_de_repo",
+    clase: "repo",
+    queSeIntento: { numero: yaVeces + 1, de: TOPE_DE_REPO_EQUIVOCADO, detalle: `${origen}; ${decidido}` },
+  });
+  return {
+    ok: true,
+    estado: respuesta?.estado ?? "APROBADO",
+    categoria: "repo_equivocado",
+    accion: revision.accion,
+    repo: revision.repoCorrecto,
+    faltan: revision.faltan,
+    repoEquivocado: true,
+    decidido,
+  };
+}
+
 /**
  * MEDIR ANTES DE PLANEAR (26-oct-2026, medir.mjs). Devuelve un resultado si NO hay que planear ahora, o null si hay que planear:
  *  1. Dependencias: si el texto nombra otra tarjeta como molde o requisito, pone la flecha (/depender). Si esa tarjeta no está
@@ -669,7 +732,8 @@ function comoSeResolvioLaFalla(salida) {
 function anotarLaFallaRepetida({ config, registro }, tarjeta, error, diagnostico, salida) {
   const queFallo = FALLAS_REPETIDAS[diagnostico?.categoria];
   // La subida deshecha (y su reversión falsa) ya se anota en resolverLaSubidaDeshecha; la causa externa no es de la tarea.
-  if (!queFallo || error?.reversion?.ok === true || salida?.causaExterna) return;
+  // El repo equivocado ya quedó anotado en cambiarDeRepoSiHaceFalta.
+  if (!queFallo || error?.reversion?.ok === true || salida?.causaExterna || salida?.repoEquivocado) return;
   try {
     const hechas = Number(tarjeta.reparaciones) || 0;
     const tope = Number(tarjeta.topeReparaciones) || TOPE_DE_REPARACIONES;
@@ -749,6 +813,10 @@ async function repararSinAnotar({ crm, config, registro, contexto, bitacora, pau
       const decidido = `ya estaba en main (commit ${yaHecho.commit.slice(0, 10)})`;
       return { ...cerrada, motivo, zonas: error?.zonas ?? [], categoria: diagnostico.categoria, accion: cerrada.yaHecha ? "ya_en_main" : "esperar", commit: yaHecho.commit, decidido };
     }
+    // 27-nov-2026 («nunca construir en el repo equivocado»): desde la primera vez que no cambió nada, ¿el plan es de otro repo? Si
+    // sí, se cambia de repo (o se vuelve a planear) en vez de gastar la reparación plan_nuevo u opus.
+    const porRepo = await cambiarDeRepoSiHaceFalta({ crm, config, registro }, tarjeta, { origen: "no_cambio_nada", etapa: hacer });
+    if (porRepo) return { ...porRepo, motivo, zonas: error?.zonas ?? [] };
   }
 
   // 2b. Tres causas distintas sin resolverlo: UNA fila en el registro del Coordinador para el CTO (nunca al dueño ni por WhatsApp).
