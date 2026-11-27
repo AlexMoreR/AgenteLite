@@ -1187,6 +1187,18 @@ prueba("el resultado guarda dónde se construyó (aizen1 o nube) y el link de la
   assert.ok(!("construidoEn" in trabajo.resultadoDeEntrada({ ...base, construidoEn: "luna" })));
 });
 
+prueba("textoDeModelos: '(pedido)' solo si no se pudo forzar; forzado o dicho por la sesión sin marca; resultado viejo igual que antes", () => {
+  const { textoDeModelos, modelosDeEntrada } = modelosCoordinador;
+  assert.equal(textoDeModelos(null, { plan: "opus", construir: "sonnet", construirPedido: true }), "Planeado con Opus · Construido con Sonnet (pedido)", "solo pedido");
+  assert.equal(textoDeModelos(null, { plan: "opus", construir: "sonnet" }), "Planeado con Opus · Construido con Sonnet", "forzado");
+  assert.equal(textoDeModelos(null, { construir: "claude-sonnet-5-5", construirDicho: true }), "Construido con Sonnet", "lo dijo la sesión; un id largo se ve como Sonnet");
+  assert.equal(textoDeModelos(null, { construir: "claude-sonnet-5-5", construirPedido: true }), "Construido con Sonnet (pedido)");
+  assert.equal(textoDeModelos("Plan escrito con: Claude Code (Opus)", { construir: "sonnet", revisar: "sonnet" }), "Planeado con Opus · Construido con Sonnet · Revisado con Sonnet", "resultado viejo sin marca");
+  assert.equal(textoDeModelos(null, null), "");
+  assert.deepEqual(modelosDeEntrada({ construir: "sonnet", construirPedido: true }), { construir: "sonnet", construirPedido: true });
+  assert.equal(modelosDeEntrada({ construirPedido: true }), null, "la marca sola no cuenta");
+});
+
 prueba("la tarjeta dice dónde se construyó: 'La está construyendo Claude en la nube…', 'Construida en: aizen1 / la nube' y el link de la sesión", () => {
   const sesion = "https://claude.ai/code/session_01AbC";
   const { dondeSeConstruyo, esLinkDeSesion } = modelosCoordinador;

@@ -198,7 +198,10 @@ export async function procesar({ crm, config, registro: registroBase, motores = 
   Object.assign(vivo, {
     etapa: ETAPA_VISIBLE[hacer] ?? "construyendo",
     lugar: enNube ? "nube" : "aizen1",
-    modelo: enNube ? null : modeloDeLaSesion(config, motores, tarjeta, hacer, reparacion),
+    // 27-nov-2026: en la nube se manda el modelo PEDIDO (construir o reparar) y la marca "pedido": no se sabe si la
+    // nube lo dejó forzar con --model, y el commit "resultado:" de la sesión lo confirma después.
+    modelo: enNube ? modeloDelPaso(config, reparacion?.estrategia === "opus" ? "reparar" : "construir", tarjeta) : modeloDeLaSesion(config, motores, tarjeta, hacer, reparacion),
+    modeloPedido: enNube,
     motor: enNube ? "claude" : hacer === "subir" ? null : (motores.motorDe(hacer) ?? null),
     inicioEn: vivo.inicioEn ?? Date.now(),
     linkWorkflow: null,
@@ -2148,6 +2151,7 @@ export function crearPlanificador({
           etapa: vivo.etapa,
           lugar: vivo.lugar,
           modelo: vivo.modelo ?? null,
+          modeloPedido: vivo.modeloPedido === true,
           motor: vivo.motor ?? null,
           inicioEn: new Date(vivo.inicioEn).toISOString(),
           intento: tarjeta.intentos ?? null,

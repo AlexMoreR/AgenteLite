@@ -320,6 +320,23 @@ await prueba("máximos del día: guardarLatido los guarda por día de Bogotá, u
   }
 });
 
+await prueba("una tarea construida en la nube trae modelo sonnet y ver_coordinador dice 'con Sonnet (pedido)' o 'con Sonnet'", async () => {
+  const latido = reglas.latidoDeEntrada({ tareas: [
+    { tarjetaId: "n1", titulo: "En la nube", etapa: "construyendo", lugar: "nube", modelo: "claude-sonnet-5-5", modeloPedido: true },
+    { tarjetaId: "n2", titulo: "Forzada", etapa: "construyendo", lugar: "nube", modelo: "sonnet" },
+  ] }, AHORA);
+  assert.deepEqual(latido.tareas.map((t) => [t.modelo, t.modeloPedido]), [["sonnet", true], ["sonnet", false]]);
+  estado.tarjetas.push(tarjeta({ id: "n1", titulo: "En la nube", estado: "EN_CURSO" }), tarjeta({ id: "n2", titulo: "Forzada", estado: "EN_CURSO" }));
+  await servicio.guardarLatido(contexto, { tareas: [
+    { tarjetaId: "n1", titulo: "En la nube", etapa: "construyendo", lugar: "nube", modelo: "sonnet", modeloPedido: true },
+    { tarjetaId: "n2", titulo: "Forzada", etapa: "construyendo", lugar: "nube", modelo: "sonnet" },
+  ] }, hace(0.2));
+  const texto = servicio.textoDelCoordinador(await servicio.vistaDelCoordinador("ws1", AHORA));
+  assert.match(texto, /«En la nube»: construyendo en Nube de Claude con Sonnet \(pedido\)/);
+  assert.match(texto, /«Forzada»: construyendo en Nube de Claude con Sonnet[,\s]/);
+  estado.tarjetas.length = 0;
+});
+
 await prueba("la vista junta el latido con las tarjetas en marcha: lugar, modelo, en qué va y los links", async () => {
   estado.tarjetas.push(tarjeta({ id: "t1", titulo: "Panel en vivo", estado: "EN_CURSO", intentos: 2 }));
   await servicio.guardarLatido(

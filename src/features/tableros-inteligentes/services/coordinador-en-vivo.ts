@@ -627,7 +627,7 @@ export async function vistaDelCoordinador(workspaceId: string, ahora = new Date(
       lugar,
       lugarTexto: lugarDelOrquestador(tarjeta, dato?.agente) ?? NOMBRE_DEL_LUGAR[lugar],
       modelo,
-      modeloTexto: modelo ? NOMBRE_DEL_MODELO[modelo] : dato?.motor === "codex" ? "Codex" : null,
+      modeloTexto: modelo ? `${NOMBRE_DEL_MODELO[modelo]}${dato?.modeloPedido ? " (pedido)" : ""}` : dato?.motor === "codex" ? "Codex" : null,
       inicioEn: (dato?.inicioEn ?? tarjeta.trabajoIniciadoEn?.toISOString()) ?? null,
       enQueVa: dato ? enQueVa(dato) : enQueVa({ intento: tarjeta.intentos, reparacion: tarjeta.reparaciones, reparacionDe: null }),
       linkSesion: dato?.linkSesion ?? null,
