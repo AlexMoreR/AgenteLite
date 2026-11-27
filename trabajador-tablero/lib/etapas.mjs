@@ -64,7 +64,7 @@ import {
 } from "./revisores.mjs";
 import { esLimiteDeCodex, nombreDelMotor } from "./motores.mjs";
 import { abreSesionNueva, esOrquestador, esperarResultado, lanzarSesionDeLaNube, nombreDelProyecto, sesionFijaDe } from "./nube.mjs";
-import { archivosDelPlan, noChoca } from "./choques.mjs";
+import { archivosDelPlan, archivosExistentesDelPlan, noChoca } from "./choques.mjs";
 import { vigilarSesion } from "./atasco.mjs";
 import { cerrarProcesosEn, comoTexto, correr, detalleDeFalla, lineasQueFallaron, ultimasLineas } from "./procesos.mjs";
 import { esperarRecursos, faltanRecursos, medirUnaVez } from "./recursos.mjs";
@@ -328,6 +328,59 @@ export async function yaEstaEnMain(contexto, tarjeta) {
   } catch (error) {
     contexto.registro?.aviso?.(`no se pudo buscar en main si ya estaba hecho (${String(error?.message ?? error).split("\n")[0]}): se repara como siempre`);
     return null;
+  }
+}
+
+/** El otro repo de cada uno: el plan que nombra archivos de uno puede ser del otro. */
+export const OTRO_REPO = { gestion: "aizencrm", aizencrm: "gestion" };
+/** Tope de rutas que se miran con git (un plan normal nombra menos de 30). */
+const MAX_RUTAS_POR_REVISAR = 80;
+
+/** ¿La ruta existe en la rama base del repo? `git cat-file -e <remoto>/<rama>:<ruta>` (archivo o carpeta). */
+async function existeEnLaBase(repo, ruta) {
+  const respuesta = await git(repo.ruta, ["cat-file", "-e", `${repo.remoto}/${repo.ramaBase}:${ruta}`], { permitirFallo: true, timeoutMs: 30_000 });
+  return respuesta.codigo === 0;
+}
+
+/**
+ * NUNCA CONSTRUIR EN EL REPO EQUIVOCADO (27-nov-2026): ¿los archivos que el plan da por existentes (los de la parte 5 sin "(nuevo)")
+ * están en la rama base del repo de la tarjeta? Los que faltan se buscan en el otro repo configurado (gestion ↔ aizencrm).
+ * -> { faltan, repoCorrecto, accion }: "ninguna" (no falta nada, o no se pudo mirar), "cambiar_repo" (todos los que faltan están en
+ * el otro repo: repoCorrecto es ese) o "replanear" (faltan y no están en ninguno). Nunca lanza: si algo falla, o si el otro repo
+ * no está configurado en este PC (no se puede saber de cuál es), "ninguna".
+ * No se miran los globs, el manual ni las notas de cambios pendientes (casi todos los planes los nombran).
+ */
+export async function revisarArchivosDelRepo({ tarjeta, plan, config, registro = null }) {
+  const nada = { faltan: [], repoCorrecto: null, accion: "ninguna" };
+  try {
+    const rutas = archivosExistentesDelPlan(plan ?? tarjeta?.plan)
+      .map((ruta) => ruta.replace(/\/+$/, ""))
+      .filter((ruta) => ruta && !ruta.includes("*") && !noChoca(ruta, []))
+      .slice(0, MAX_RUTAS_POR_REVISAR);
+    if (!rutas.length) return nada;
+    // Sin el otro repo en este PC no se puede saber si el plan es de allá: se sigue como hoy (nunca peor que antes).
+    const claveDelOtro = OTRO_REPO[tarjeta.repo];
+    const otro = claveDelOtro ? config.repos?.[claveDelOtro] : null;
+    if (!otro || !fs.existsSync(otro.ruta)) return nada;
+    const repo = configDelRepo({ config }, tarjeta);
+    // El main de hoy: un archivo que una dependencia acaba de subir no tiene que contar como faltante.
+    await git(repo.ruta, ["fetch", repo.remoto], { permitirFallo: true, timeoutMs: 2 * 60_000 });
+    const faltan = [];
+    for (const ruta of rutas) if (!(await existeEnLaBase(repo, ruta))) faltan.push(ruta);
+    if (!faltan.length) return nada;
+    await git(otro.ruta, ["fetch", otro.remoto], { permitirFallo: true, timeoutMs: 2 * 60_000 });
+    let todos = true;
+    for (const ruta of faltan) {
+      if (!(await existeEnLaBase(otro, ruta))) {
+        todos = false;
+        break;
+      }
+    }
+    if (todos) return { faltan, repoCorrecto: claveDelOtro, accion: "cambiar_repo" };
+    return { faltan, repoCorrecto: null, accion: "replanear" };
+  } catch (error) {
+    registro?.aviso?.(`no se pudo mirar si los archivos del plan están en el repo (${String(error?.message ?? error).split("\n")[0]}): se sigue como siempre`);
+    return nada;
   }
 }
 
@@ -725,7 +778,7 @@ export function promptDelPlan(tarjeta, repo, motor = "claude", { lecciones = "",
     ].join("\n"),
     `Reglas: ${REGLAS_DE_ZONAS} Si la tarea lo requiere, dilo claro al principio del plan: "TOCA ZONA PROTEGIDA: <cuál y por qué>".`,
     motor === "codex" ? SIN_SUBAGENTES_AL_PLANEAR : SUBAGENTES_AL_PLANEAR,
-    "En la parte 5 escribe cada archivo con su ruta completa desde la raíz del repo (por ejemplo src/features/coach/servicio.ts): el Coordinador la usa para no construir a la vez dos tareas que tocan lo mismo.",
+    "En la parte 5 escribe cada archivo con su ruta completa desde la raíz del repo (por ejemplo src/features/coach/servicio.ts): el Coordinador la usa para no construir a la vez dos tareas que tocan lo mismo. Marca con \"(nuevo)\" cada archivo que se crea (por ejemplo src/features/coach/nuevo.ts (nuevo)): antes de construir, el Coordinador mira que los demás ya existan en este repo y, si son de otro repo, cambia la tarjeta de repo.",
     fraseAlTerminar(repo),
     instruccionDeRiesgo(Boolean(repo.featuresAuto)),
     INSTRUCCION_NECESITO,

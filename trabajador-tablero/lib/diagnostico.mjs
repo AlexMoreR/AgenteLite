@@ -43,6 +43,9 @@ export const CATEGORIAS = [
   // 31-oct-2026: el rebase con main no tuvo conflicto de texto, pero lo nuevo de main y la tarea no encajan (la lógica
   // choca). No se repara sola: reconstruir otra vez no lo arregla, alguien tiene que decidir cómo juntarlos.
   "choque_de_logica",
+  // 27-nov-2026: el plan nombra archivos de otro repo; el Coordinador le cambia el repo a la tarjeta (o la vuelve a planear) sin
+  // construir ni gastar intento (acción "cambiar-repo" del CRM).
+  "repo_equivocado",
   "otra",
 ];
 
@@ -251,6 +254,7 @@ const CAUSA_BASE = {
   nube_sin_acceso_repo: "La nube no tiene acceso al repo",
   zona: "El cambio de chats o del bot de ventas no puede subir solo",
   choque_de_logica: "Lo nuevo de main y el cambio de la tarea no encajan (choque de lógica)",
+  repo_equivocado: "El plan nombra archivos de otro repo (repo equivocado)",
   otra: "No se reconoció la causa",
 };
 

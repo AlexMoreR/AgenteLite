@@ -80,6 +80,23 @@ export function archivosDelPlan(plan) {
   return parte.length ? parte : archivosDeTexto(String(plan ?? ""));
 }
 
+/** Una línea de la parte 5 que dice que el archivo se crea: "(nuevo)", "crear" o "se crea". */
+const LINEA_DE_ARCHIVO_NUEVO = /\(\s*nuev[oa]s?\s*\)|\bcrear\b|\bse\s+crean?\b/i;
+
+/**
+ * Las rutas del plan que YA deberían existir (27-nov-2026, «nunca construir en el repo equivocado»): las de archivosDelPlan sin
+ * las que en su línea de la parte 5 dicen "(nuevo)", "crear" o "se crea". Con estas se mira si el plan es de este repo.
+ * Las líneas se miran en todo el plan (no solo en la parte 5): un archivo que se crea según cualquier línea no se exige; así,
+ * ante la duda, no se cambia de repo.
+ */
+export function archivosExistentesDelPlan(plan) {
+  const nuevos = new Set();
+  for (const linea of String(plan ?? "").split(/\r?\n/)) {
+    if (LINEA_DE_ARCHIVO_NUEVO.test(linea)) for (const ruta of archivosDeTexto(linea)) nuevos.add(ruta);
+  }
+  return archivosDelPlan(plan).filter((ruta) => !nuevos.has(ruta));
+}
+
 function archivosDeTexto(texto) {
   const encontrados = new Set();
   // 31-oct-2026: los "*" ya no cortan la ruta ("src/lib/**" queda entero). Solo se quitan los del markdown
