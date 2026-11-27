@@ -152,20 +152,58 @@ export function lineaDeLaOpcion({ pregunta, opcion, origen }) {
   return `Seguí con lo que dice el plan, la pregunta no traía opciones: ${pregunta}`;
 }
 
+// CAMBIAR DE REPO (27-nov-2026, parte 3 de «nunca construir en el repo equivocado»): cuando la opción recomendada es "pasar la
+// tarjeta a Gestion" (o a aizencrm), el Coordinador ya no solo lo deja escrito: le cambia el repo a la tarjeta (/cambiar-repo).
+
+/** Las claves de los repos, tal como las usa el CRM. */
+const REPOS = { gestion: "gestion", aizencrm: "aizencrm" };
+
 /**
- * Las preguntas abiertas del plan resueltas con su opción recomendada (o la primera): { elegidas, nota, aviso } o null si el
- * plan no tiene preguntas. `nota`: una línea por pregunta, para el historial de la tarjeta (va arriba del plan). `aviso`: UNA
- * línea corta para el dueño, que solo informa (no espera respuesta).
+ * "pasar/mover (la tarjeta) a(l repo) Gestion|aizencrm" en un texto (sin importar mayúsculas ni tildes): 'gestion', 'aizencrm' o
+ * null. "no pasar a Gestion" no cuenta.
+ */
+export function repoDelTexto(texto) {
+  const t = normal(texto).replace(/[*_`"'«»“”]/g, " ").replace(/\s+/g, " ");
+  const calce = /(?:^|[^a-z])(no\s+)?(?:pasar|mover|pasa|mueve|pasarla|moverla|cambiar)(?:\s+(?:la|esta)\s+tarjeta)?(?:\s+de\s+repo(?:sitorio)?)?\s+(?:a|al|hacia)\s+(?:(?:el\s+)?repo(?:sitorio)?\s+(?:de\s+)?)?(gestion|aizencrm)(?![a-z])/.exec(t);
+  if (!calce || calce[1]) return null;
+  return REPOS[calce[2]];
+}
+
+/**
+ * El repo al que manda la opción RECOMENDADA de una pregunta abierta ("¿Se hace aquí o en Gestion? Recomendada: pasar a Gestion"):
+ * 'gestion', 'aizencrm' o null. Acepta la pregunta en texto o ya resuelta ({ opcion, origen } de opcionDeLaPregunta). Solo
+ * cuenta la recomendada: la primera opción escrita, sin recomendar, no cambia de repo.
+ */
+export function repoDeLaRecomendada(pregunta) {
+  const elegida = pregunta && typeof pregunta === "object" ? pregunta : opcionDeLaPregunta(pregunta);
+  if (elegida?.origen !== "recomendada" || !elegida.opcion) return null;
+  return repoDelTexto(elegida.opcion);
+}
+
+/** Las líneas de la nota que deja seguirConLaRecomendada arriba del plan ("Seguí con …"): no son preguntas nuevas. */
+const LINEA_DE_LA_NOTA = /^\s*Segu[ií] con (?:la opci[oó]n recomendada|la primera opci[oó]n escrita|lo que dice el plan)/i;
+
+/**
+ * Las preguntas abiertas del plan resueltas con su opción recomendada (o la primera): { elegidas, decisiones, nota, aviso } o
+ * null si el plan no tiene preguntas. `nota`: una línea por pregunta, para el historial de la tarjeta (va arriba del plan).
+ * `aviso`: UNA línea corta para el dueño, que solo informa (no espera respuesta). `decisiones`: las que tienen opción, cada una
+ * { pregunta, opcion, origen, repo } (repo: 'gestion' o 'aizencrm' si la recomendada es cambiar de repo; si no, null), para el
+ * prompt de construir ("Decisiones ya tomadas") y para cambiar de repo. La nota de una vuelta anterior no se vuelve a leer.
  */
 export function seguirConLaRecomendada(plan, titulo = "") {
-  const preguntas = preguntasAbiertasDelPlan(plan);
+  const sinNota = String(plan ?? "")
+    .split(/\r?\n/)
+    .filter((linea) => !LINEA_DE_LA_NOTA.test(linea))
+    .join("\n");
+  const preguntas = preguntasAbiertasDelPlan(sinNota);
   if (!preguntas.length) return null;
   const elegidas = preguntas.map(opcionDeLaPregunta);
+  const decisiones = elegidas.filter((elegida) => elegida.opcion).map((elegida) => ({ ...elegida, repo: repoDeLaRecomendada(elegida) }));
   const nota = elegidas.map(lineaDeLaOpcion).join("\n");
   const [primera] = elegidas;
   const corta = (texto, n) => (texto.length > n ? `${texto.slice(0, n - 1)}…` : texto);
   const queSegui = primera.opcion ? `seguí con ${primera.origen === "recomendada" ? "la opción recomendada" : "la primera opción"}: ${corta(primera.opcion, 120)}` : "seguí con lo que dice el plan";
   const mas = elegidas.length > 1 ? ` (y ${elegidas.length - 1} pregunta(s) más, en la tarjeta)` : "";
   const aviso = `Solo para que sepas: el plan de "${corta(String(titulo ?? "").replace(/\s+/g, " ").trim(), 100)}" tenía una pregunta abierta y ${queSegui}${mas}. No tienes que responder.`;
-  return { elegidas, nota, aviso };
+  return { elegidas, decisiones, nota, aviso };
 }

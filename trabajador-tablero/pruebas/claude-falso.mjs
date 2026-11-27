@@ -1,6 +1,6 @@
 // Un `claude` FALSO para las pruebas del trabajador (config comandoClaude). Lee el prompt por stdin y
 // se porta según el título de la tarea (las marcas entre corchetes):
-//   modo plan:        escribe un plan. [lento] = no contesta nunca (para probar el tiempo máximo);
+//   modo plan:        escribe un plan (con CLAUDE_FALSO_PLAN_EXTRA, esas líneas van al final). [lento] = no contesta nunca (para probar el tiempo máximo);
 //                     [medio] = tarda 6 s (para probar el vencimiento por latido); [mod:x] = el plan
 //                     dice que toca src/x/cambio.ts (y al construir escribe en src/x/).
 //   en los dos modos: [limite] = sale con el aviso del límite de uso de Claude.
@@ -315,7 +315,7 @@ if (modo === "plan") {
   // Como pide el prompt: la línea RIESGO en las primeras líneas (BAJO salvo que el título marque [zona]).
   const riesgo = titulo.includes("[zona]") ? "RIESGO: ALTO — toca el bot de ventas" : "RIESGO: BAJO — un cambio chico sin zonas ni migración destructiva";
   // Regla del dueño 24-oct: el plan dice si pasa solo a construir o espera el sí.
-  console.log(`PLAN para "${titulo}"\n${riesgo}\nAPROBAR PLAN: SOLO\n1. Qué se cambia: un archivo.\n2. Efecto: ninguno para clientes.\n3. Riesgos: bajos.\n4. Migración: no.\n5. Archivos: ${modulo ? `src/${modulo}/cambio.ts` : "cambio.txt"}\n6. Pruebas: verificar.mjs${titulo.includes("[necesito]") ? "\nNECESITO: acceso al panel de Meta para leer el píxel" : ""}`);
+  console.log(`PLAN para "${titulo}"\n${riesgo}\nAPROBAR PLAN: SOLO\n1. Qué se cambia: un archivo.\n2. Efecto: ninguno para clientes.\n3. Riesgos: bajos.\n4. Migración: no.\n5. Archivos: ${modulo ? `src/${modulo}/cambio.ts` : "cambio.txt"}\n6. Pruebas: verificar.mjs${titulo.includes("[necesito]") ? "\nNECESITO: acceso al panel de Meta para leer el píxel" : ""}${process.env.CLAUDE_FALSO_PLAN_EXTRA ? `\n${process.env.CLAUDE_FALSO_PLAN_EXTRA}` : ""}`);
   process.exit(0);
 }
 

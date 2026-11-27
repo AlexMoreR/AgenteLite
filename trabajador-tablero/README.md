@@ -47,6 +47,30 @@ El dueño dice **un solo sí**: el de la tarea (en la pantalla o por voz). Despu
 - **Registro de errores del lanzador**: cuando el Coordinador sale con un código distinto de 0, `lanzador.mjs` guarda en
   `logs/lanzador.log` las últimas 40 líneas de su stderr (sin la clave), para saber por qué se cayó.
 
+### Nunca construir en el repo equivocado: cambio de repo automático (27-nov-2026)
+
+Cuando lo pedido vive en el otro repo (Gestión en vez de aizencrm, o al revés), el Coordinador **le cambia el repo a la
+tarjeta** (`POST /api/trabajador/tablero/<id>/cambiar-repo`, `crm.cambiarRepo`) y la vuelve a planear allá: sin construir,
+sin reparar y sin gastar intento. Los disparadores:
+
+- **`OTRO_REPO: <gestion|aizencrm> — motivo`** en el plan (lo pide `promptDelPlan`), un **`NECESITO:`** de "pasar/mover la
+  tarjeta a Gestion/aizencrm" (`repoDelNecesito`, `lib/agentes.mjs`), una **pregunta abierta cuya recomendada** es cambiar de
+  repo ("Recomendada: pasar a Gestion", `repoDeLaRecomendada`, `lib/preguntas-abiertas.mjs`) o una frase tipo "solo existe en
+  el repo Gestion" (`otroRepoDelPlan`, `lib/etapas.mjs`). En esos casos `planear` devuelve `salida.otroRepo = { repo, motivo }`
+  y el bucle **no** manda el plan ni el aviso «necesita»: llama `cambiarRepo` con `origen: "plan"`.
+- La **recomendada ya elegida** en un plan aprobado: al construir se cambia de repo en vez de construir (`origen: "recomendada"`).
+- **Archivos que faltan antes de construir**: el Coordinador mira con git si los archivos del plan (los que no marca
+  "(nuevo)") están en el repo de la tarjeta (`revisarArchivosDelRepo`). Si están en el otro, cambia de repo; si no están en
+  ninguno, la vuelve a planear sin cambiarle el repo (`origen: "antes_de_construir"`).
+- **«Claude no cambió ningún archivo»**: la misma revisión de archivos, antes de la reparación de siempre (`origen: "no_cambio_nada"`).
+
+Topes: el CRM deja cambiar de repo una tarjeta **como mucho 2 veces** (después contesta 409) y el Coordinador tampoco lo
+intenta tras 2 intentos `repo_equivocado`. Con un CRM viejo (404) o el tope (409) sigue el camino de hoy (manda el plan,
+construye o repara). **No se avisa por WhatsApp**: queda solo en la bitácora de incidentes (qué falló `repo_equivocado`,
+cómo se resolvió `cambio_de_repo`, clase `repo`) y en el historial de la tarjeta. Las demás opciones que el Coordinador eligió
+por las preguntas abiertas van al prompt de construir en el bloque "Decisiones ya tomadas (aplícalas, no las vuelvas a
+preguntar)". Pruebas: `pruebas/probar-repo-equivocado.mjs`.
+
 ### El plan pasa solo (regla del dueño, 24-oct-2026)
 
 Aprobada la tarea, el plan pasa solo de PLAN_LISTO a PLAN_APROBADO, con cualquier riesgo y aunque

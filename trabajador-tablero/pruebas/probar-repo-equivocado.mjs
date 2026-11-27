@@ -16,7 +16,9 @@ import { COMO_SE_RESOLVIO, QUE_FALLO, reglaPara } from "../lib/bitacora.mjs";
 import { archivosExistentesDelPlan } from "../lib/choques.mjs";
 import { completarConfig } from "../lib/config.mjs";
 import { CATEGORIAS } from "../lib/diagnostico.mjs";
-import { ErrorDeEtapa, revisarArchivosDelRepo } from "../lib/etapas.mjs";
+import { repoDelNecesito } from "../lib/agentes.mjs";
+import { ErrorDeEtapa, otroRepoDelPlan, promptDeConstruir, revisarArchivosDelRepo } from "../lib/etapas.mjs";
+import { repoDeLaRecomendada, seguirConLaRecomendada } from "../lib/preguntas-abiertas.mjs";
 
 const AQUI = path.dirname(fileURLToPath(import.meta.url));
 
@@ -80,11 +82,18 @@ const registroFalso = () => ({ info: () => {}, aviso: () => {}, error: () => {},
 /** El CRM falso: guarda cada llamada; /cambiar-repo contesta `respuestaDeCambiarRepo` (por defecto, ok y APROBADO). */
 function crmFalso(respuestaDeCambiarRepo = { ok: true, estado: "APROBADO" }) {
   const llamadas = [];
+  const repos = new Map();
   const anota = (que, respuesta = { ok: true }) => async (...args) => (llamadas.push([que, ...args]), respuesta);
   const crm = {
     latido: async () => ({ ok: true }),
     depender: anota("depender", { ok: true, soltada: false }),
-    cambiarRepo: anota("cambiar-repo", respuestaDeCambiarRepo),
+    cambiarRepo: async (id, datos) => {
+      llamadas.push(["cambiar-repo", id, datos]);
+      // Como el CRM de verdad: con `repo`, la tarjeta queda en ese repo.
+      if (respuestaDeCambiarRepo.ok !== false && datos?.repo) repos.set(id, datos.repo);
+      return respuestaDeCambiarRepo;
+    },
+    plan: anota("plan", { ok: true, estado: "PLAN_LISTO" }),
     reparar: anota("reparar", { ok: true, estado: "APROBADO", reparaciones: 1 }),
     resultado: anota("resultado", { ok: true, estado: "POR_REVISAR" }),
     error: anota("error"),
@@ -95,7 +104,7 @@ function crmFalso(respuestaDeCambiarRepo = { ok: true, estado: "APROBADO" }) {
     limpieza: anota("limpieza"),
     aviso: anota("aviso"),
   };
-  return { crm, llamadas, que: () => llamadas.map(([que]) => que) };
+  return { crm, llamadas, repos, que: () => llamadas.map(([que]) => que) };
 }
 
 const planCon = (...lineas) =>
@@ -200,6 +209,92 @@ try {
     const conTope = crmFalso();
     await manejarFalla({ crm: conTope.crm, config, registro, contexto: { config, registro }, bitacora: [] }, otra, "construir", error);
     assert.deepEqual(conTope.que(), ["reparar"]);
+  });
+
+  // Parte 3 (27-nov-2026): el aviso del plan sobre el otro repo cambia la tarjeta de verdad, no solo deja "sigo con la recomendada".
+  /** Planea con el claude falso, que agrega `extra` al final del plan (CLAUDE_FALSO_PLAN_EXTRA). */
+  async function planearCon(id, extra, respuesta) {
+    const carpeta = fs.mkdtempSync(path.join(T, "trabajo-plan-"));
+    const config = configDe(carpeta);
+    const tarjeta = tarjetaCon(id, null, { estado: "PLANEANDO", intentos: 0 });
+    const falso = crmFalso(respuesta);
+    process.env.CLAUDE_FALSO_PLAN_EXTRA = extra;
+    try {
+      const salida = await procesar({ crm: falso.crm, config, registro: registroFalso() }, tarjeta, "planear");
+      return { ...falso, salida, tarjeta, carpeta };
+    } finally {
+      delete process.env.CLAUDE_FALSO_PLAN_EXTRA;
+    }
+  }
+  const sinAvisoNecesita = (llamadas) => !llamadas.some(([que, , tipo]) => que === "aviso" && tipo === "necesita");
+
+  await prueba("caso b (parte 3): el plan dice «NECESITO: decisión pasar la tarjeta a Gestion» -> cambiar-repo a gestion, sin plan ni aviso «necesita»", async () => {
+    assert.equal(repoDelNecesito("NECESITO: decisión pasar la tarjeta a Gestion"), "gestion");
+    assert.equal(repoDelNecesito("NECESITO: decisión mover la tarjeta al repo aizencrm"), "aizencrm");
+    assert.equal(repoDelNecesito("NECESITO: clave de la API de pagos"), null);
+    const { salida, llamadas, repos, que, tarjeta, carpeta } = await planearCon("cmyjn7ul5gb888888888888", "NECESITO: decisión pasar la tarjeta a Gestion, el módulo vive allá");
+    assert.equal(salida.ok, true, JSON.stringify(salida));
+    assert.equal(salida.accion, "cambiar_repo");
+    const [, id, datos] = llamadas.find(([cual]) => cual === "cambiar-repo");
+    assert.equal(id, tarjeta.id);
+    assert.equal(datos.repo, "gestion");
+    assert.equal(datos.origen, "plan");
+    assert.equal(repos.get(tarjeta.id), "gestion", "la tarjeta quedó en gestion en el CRM falso");
+    assert.ok(!que().includes("plan"), `no se mandó el plan: ${JSON.stringify(que())}`);
+    assert.ok(sinAvisoNecesita(llamadas), "no se mandó el aviso «necesita»");
+    const texto = fs.readFileSync(path.join(carpeta, "incidentes", "aizencrm.md"), "utf8");
+    assert.ok(texto.includes(`- Qué falló: ${QUE_FALLO.repo_equivocado}`), texto);
+    assert.ok(texto.includes(`- Cómo se resolvió: ${COMO_SE_RESOLVIO.cambio_de_repo}`), texto);
+
+    // Con 409 (el tope de 2 cambios en el CRM) sigue el camino de hoy: el plan con su «necesita».
+    const conTope = await planearCon("cmyjn7ul5gb999999999999", "NECESITO: decisión pasar la tarjeta a Gestion", { ok: false, status: 409, error: "tope" });
+    assert.ok(conTope.que().includes("cambiar-repo"));
+    assert.ok(conTope.que().includes("plan"), JSON.stringify(conTope.que()));
+    assert.ok(!sinAvisoNecesita(conTope.llamadas), "con 409 se avisa como hoy");
+  });
+
+  await prueba("caso e (parte 3): la pregunta abierta «Recomendada: pasar a Gestion» -> cambiar-repo; también OTRO_REPO y «solo existe en el repo Gestion»", async () => {
+    assert.equal(repoDeLaRecomendada("¿Se hace aquí o en Gestión? Recomendada: pasar a Gestion"), "gestion");
+    assert.equal(repoDeLaRecomendada("¿Lo paso al repo Gestion? Recomendada: mover la tarjeta al repo GESTIÓN."), "gestion");
+    assert.equal(repoDeLaRecomendada("¿Pasar a Gestion o hacerlo aquí? Recomendada: hacerlo aquí"), null);
+    assert.equal(repoDeLaRecomendada("¿Pasar a Gestion o hacerlo aquí?"), null, "la primera opción sin recomendar no cambia de repo");
+    const { salida, llamadas, repos, que, tarjeta } = await planearCon(
+      "cmyjn7ul5ge111111111111",
+      "PREGUNTAS ABIERTAS:\n- ¿Se hace en aizencrm o en Gestion? Recomendada: pasar a Gestion",
+    );
+    assert.equal(salida.accion, "cambiar_repo", JSON.stringify(salida));
+    const [, , datos] = llamadas.find(([cual]) => cual === "cambiar-repo");
+    assert.equal(datos.repo, "gestion");
+    assert.equal(repos.get(tarjeta.id), "gestion");
+    assert.ok(!que().includes("plan") && sinAvisoNecesita(llamadas), JSON.stringify(que()));
+
+    assert.deepEqual(otroRepoDelPlan("Plan\nOTRO_REPO: gestion — la lista de cuentas vive en Gestion", "aizencrm"), { repo: "gestion", motivo: "la lista de cuentas vive en Gestion" });
+    assert.equal(otroRepoDelPlan("La pantalla solo existe en el repo Gestión.", "aizencrm")?.repo, "gestion");
+    assert.equal(otroRepoDelPlan("OTRO_REPO: aizencrm — ya estamos acá", "aizencrm"), null, "el mismo repo no cuenta");
+    assert.equal(otroRepoDelPlan("Un plan normal.\nPREGUNTAS ABIERTAS: ninguna", "aizencrm"), null);
+
+    // La decisión ya tomada en un plan aprobado: al construir se cambia de repo en vez de construir.
+    const carpeta = fs.mkdtempSync(path.join(T, "trabajo-e-"));
+    const aprobada = tarjetaCon("cmyjn7ul5ge222222222222", `${planCon("src/app/cliente/chats/page.tsx")}\n\nPREGUNTAS ABIERTAS:\n- ¿Aquí o en Gestion? Recomendada: pasar a Gestion`);
+    const alConstruir = crmFalso();
+    const antes = vecesQueAbrieronClaude();
+    const construida = await procesar({ crm: alConstruir.crm, config: configDe(carpeta), registro: registroFalso() }, aprobada, "construir");
+    assert.equal(construida.accion, "cambiar_repo", JSON.stringify(construida));
+    assert.equal(alConstruir.llamadas.find(([cual]) => cual === "cambiar-repo")[2].origen, "recomendada");
+    assert.equal(vecesQueAbrieronClaude(), antes, "no se abrió ninguna sesión de construir");
+  });
+
+  await prueba("el bloque «Decisiones ya tomadas» va en promptDeConstruir, sin las de cambiar de repo", async () => {
+    const plan = `${planCon("src/app/cliente/chats/page.tsx")}\n\nPREGUNTAS ABIERTAS:\n- ¿Botón arriba o abajo? Recomendada: arriba\n- ¿Aquí o en Gestion? Recomendada: pasar a Gestion`;
+    const decisiones = seguirConLaRecomendada(plan).decisiones;
+    assert.deepEqual(decisiones.map((una) => [una.opcion, una.repo]), [["arriba", null], ["pasar a Gestion", "gestion"]]);
+    const texto = promptDeConstruir({ ...tarjetaCon("cmyjn7ul5gf333333333333", plan), zonasAprobadas: [] }, { clave: "aizencrm" }, "tablero/x");
+    assert.match(texto, /Decisiones ya tomadas \(aplícalas, no las vuelvas a preguntar\):\n- arriba \(pregunta: ¿Botón arriba o abajo\?\)/);
+    assert.ok(!/^- pasar a Gestion/m.test(texto), "la de cambiar de repo no va en el bloque");
+    // Sin preguntas abiertas no hay bloque; la nota de una vuelta anterior ("Seguí con …") no se vuelve a leer como pregunta.
+    assert.ok(!promptDeConstruir(tarjetaCon("cmyjn7ul5gf444444444444", planCon("src/a.ts")), { clave: "aizencrm" }, "tablero/x").includes("Decisiones ya tomadas"));
+    const conNota = `Seguí con la opción recomendada: arriba (pregunta: ¿Botón arriba o abajo?)\n\n${plan}`;
+    assert.equal(seguirConLaRecomendada(conNota).decisiones.length, 2);
   });
 
   console.log(`\n${pruebas} pruebas del repo equivocado: todo OK`);

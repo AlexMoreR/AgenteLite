@@ -11,6 +11,8 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
+import { repoDelTexto } from "./preguntas-abiertas.mjs";
+
 /** El nombre de cada agente según el proyecto (lo que no esté acá se llama "Agente <clave>"). */
 export const NOMBRES_DE_AGENTES = {
   aizencrm: "Agente CRM",
@@ -259,6 +261,21 @@ export function necesitoDe(texto) {
     if (!calce) continue;
     const tipo = sinTildes(calce[1]).toLowerCase().replace("decision", "decisión");
     return { tipo, detalle: unaLinea(calce[2].replace(/\*+/g, ""), 400) || "(sin detalle)" };
+  }
+  return null;
+}
+
+/**
+ * Un "NECESITO: … pasar/mover la tarjeta a Gestion|aizencrm" (27-nov-2026, parte 3 de «nunca construir en el repo equivocado»):
+ * no es algo que solo el dueño pueda dar, es un cambio de repo que el Coordinador hace solo. Devuelve 'gestion', 'aizencrm' o
+ * null (no hay NECESITO, o el NECESITO pide otra cosa).
+ */
+export function repoDelNecesito(texto) {
+  for (const original of String(texto ?? "").split(/\r?\n/)) {
+    const calce = /^[\s>*_#-]*\**NECESITO\**\s*:\s*(.*)$/i.exec(original);
+    if (!calce) continue;
+    const repo = repoDelTexto(calce[1]);
+    if (repo) return repo;
   }
   return null;
 }
