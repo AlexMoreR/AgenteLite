@@ -42,6 +42,8 @@ export type TareaDelLatido = {
   etapa: EtapaVisible;
   lugar: Lugar;
   modelo: Modelo | null;
+  /** El modelo solo se pidió (nube): no se sabe si se pudo forzar. */
+  modeloPedido: boolean;
   /** "claude" | "codex": quién la hace (el modelo solo aplica a Claude). */
   motor: string | null;
   inicioEn: string | null;
@@ -347,6 +349,7 @@ function tareaDeEntrada(valor: unknown, hostPropio: string | null): TareaDelLati
     etapa,
     lugar: enLista(LUGARES, valor.lugar) ?? "aizen1",
     modelo: modeloDeEntrada(valor.modelo),
+    modeloPedido: valor.modeloPedido === true,
     motor: textoCorto(valor.motor, 20).toLowerCase() || null,
     inicioEn: fechaIso(valor.inicioEn),
     intento: enteroOpcional(valor.intento, 99),
