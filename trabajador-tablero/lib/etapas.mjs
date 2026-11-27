@@ -1639,8 +1639,8 @@ export async function construir(contexto, tarjeta) {
   const base = `${repo.remoto}/${repo.ramaBase}`;
   const carpeta = carpetaDe(contexto, tarjeta, "construir");
   const intentos = carpetaDeIntentos(config.carpetaTrabajo, tarjeta.id);
-  // La 2ª reparación seguida por lo mismo se hace con un modelo más fuerte (decidir -> estrategia "opus").
-  const modeloElegido = tarjeta.reparacion?.estrategia === "opus" ? (config.modelos?.planear ?? "opus") : undefined;
+  // La 2ª reparación seguida por lo mismo (decidir -> estrategia "opus") se hace con el modelo de `reparar` (27-nov-2026: Sonnet).
+  const modeloElegido = tarjeta.reparacion?.estrategia === "opus" ? modeloDelPaso(config, "reparar", tarjeta) : undefined;
   await git(repo.ruta, ["fetch", repo.remoto]);
   let baseSha = null;
   try {

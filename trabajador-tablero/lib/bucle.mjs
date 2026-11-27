@@ -96,9 +96,10 @@ const ETAPAS = { planear, construir, subir };
 const ETAPA_VISIBLE = { planear: "planeando", construir: "construyendo", subir: "subiendo" };
 
 /** El modelo de Claude que usa esta etapa (el mismo que eligen las etapas), o null si no es Claude. */
-function modeloDeLaSesion(config, motores, tarjeta, hacer, reparacion) {
+export function modeloDeLaSesion(config, motores, tarjeta, hacer, reparacion) {
   if (hacer === "subir" || motores.motorDe(hacer) !== "claude") return null;
-  if (hacer === "construir" && reparacion?.estrategia === "opus") return config.modelos?.planear ?? "opus";
+  // 27-nov-2026: la reparación con estrategia "opus" usa el modelo de `reparar` (Sonnet), ya no fuerza Opus.
+  if (hacer === "construir" && reparacion?.estrategia === "opus") return modeloDelPaso(config, "reparar", tarjeta);
   return modeloDelPaso(config, hacer, tarjeta);
 }
 
@@ -958,7 +959,7 @@ async function repararSinAnotar({ crm, config, registro, contexto, bitacora, pau
 
   // 3. Decidir.
   const estrategiaActual = tarjeta.reparacion?.estrategia;
-  const modeloConstruir = estrategiaActual === "opus" ? (config.modelos?.planear ?? "opus") : modeloDelPaso(config, "construir", tarjeta);
+  const modeloConstruir = modeloDelPaso(config, estrategiaActual === "opus" ? "reparar" : "construir", tarjeta);
   // Lo que verificó la nube ya no es lo que se subiría: decidir() manda la reparación a la NUBE (nunca a compilar en aizen1).
   const decision = decidir({
     diagnostico,

@@ -1397,12 +1397,13 @@ await prueba("30-oct: una causa distinta a la anterior sí se repara, y QUÉ CAM
   assert.equal(otraCategoria.accion, "reparar");
 });
 
-await prueba("30-oct: construir con la misma causa: primero Opus; si Opus ya se usó, se parte; si es una parte, escala", async () => {
+await prueba("30-oct: construir con la misma causa: primero la estrategia opus (modelo de reparar); si ya se usó, se parte; si es una parte, escala", async () => {
   const falla = { categoria: "no_compila", causa: "El código no compila: error TS2322: el tipo no calza" };
   const previo = (causa) => [{ accion: "reparar", etapa: "construir", categoria: "no_compila", causa }];
   const opus = decidir({ diagnostico: falla, tarjeta: { reparaciones: 1, ultimosIntentos: previo(falla.causa) }, etapa: "construir", modeloConstruir: "sonnet" });
   assert.deepEqual([opus.accion, opus.estrategia], ["reparar", "opus"]);
-  assert.match(opus.queCambia, /Opus/);
+  assert.match(opus.queCambia, /modelo de reparar/);
+  assert.doesNotMatch(`${opus.queCambia} ${opus.motivo}`, /Opus/, "27-nov: el texto ya no dice Opus");
   // La marca de estrategia no hace distinta la causa: Opus ya se usó -> se parte.
   const yaOpus = previo(`${falla.causa} [estrategia: opus]`);
   assert.equal(decidir({ diagnostico: falla, tarjeta: { reparaciones: 1, ultimosIntentos: yaOpus }, etapa: "construir", modeloConstruir: "sonnet" }).accion, "partir");
@@ -1479,7 +1480,7 @@ await prueba("30-oct: el prompt de la reparación empieza con CAUSA y QUÉ CAMBI
   const bloque = prompt.slice(prompt.indexOf("\nCAUSA: ") + 1);
   const [causa, queCambia, reparacion] = bloque.split("\n");
   assert.equal(causa, "CAUSA: El código no compila: error TS2322 (categoría: no_compila)", "sin la marca de estrategia");
-  assert.match(queCambia, /^QUÉ CAMBIA: se construye con un modelo más fuerte \(Opus\)/);
+  assert.match(queCambia, /^QUÉ CAMBIA: se repara pensando otra forma de resolverlo \(modelo de reparar\)/);
   assert.match(reparacion, /^REPARACIÓN 2 de 3/);
   // Sin estrategia y con otra causa antes, QUÉ CAMBIA lo dice; sin intentos previos, es el primer arreglo.
   const sinMarca = { ...tarjeta, ultimosIntentos: [tarjeta.ultimosIntentos[0], { ...tarjeta.ultimosIntentos[1], causa: "El código no compila: error TS2322" }] };
@@ -2393,7 +2394,7 @@ await prueba("motores: por defecto todo Claude (Opus planea, Sonnet construye y 
   const porDefecto = completarConfig(base);
   assert.deepEqual(porDefecto.motores, { planear: "claude", construir: "claude", revisar: "claude", respaldoClaude: false, respaldoCodex: false });
   // 29-oct-2026: el revisor de seguridad va en Opus (revisarSeguridad) y `desde` (cambios con fecha) viene vacío.
-  assert.deepEqual(porDefecto.modelos, { planear: "opus", planearSencillo: "sonnet", construir: "sonnet", revisar: "sonnet", revisarSeguridad: "opus", subagentes: "sonnet", leer: "haiku", desde: [] });
+  assert.deepEqual(porDefecto.modelos, { planear: "opus", planearSencillo: "sonnet", construir: "sonnet", revisar: "sonnet", revisarSeguridad: "opus", subagentes: "sonnet", reparar: "sonnet", leer: "haiku", desde: [] });
   assert.throws(() => completarConfig({ ...base, modelos: { planear: "opus 5" } }), /modelos\.planear/);
   const sinRespaldo = crearEstadoDeMotores(porDefecto);
   sinRespaldo.ponerClaudeAlto({ periodo: "sesion", porcentaje: 83, reinicio: "3:20pm" });
@@ -4629,7 +4630,7 @@ process.exit(real.status ?? 1);
   /* ── 29-oct-2026: la revisión de los 4 en aizen1 (Sonnet, solo lectura; corrige el mismo que construyó) ── */
   const revisionesDe = (titulo) => leerLog(`${LOGS.claude}.revisores`).filter((l) => l.titulo === titulo);
 
-  await prueba("29-oct revisión en aizen1: pasa a la primera (seguridad con Opus, código con Sonnet, en modo plan; sin pantallas, experiencia y diseño no aplican)", async () => {
+  await prueba("29-oct revisión en aizen1: pasa a la primera (27-nov: seguridad y código con Sonnet, en modo plan; sin pantallas, experiencia y diseño no aplican)", async () => {
     const titulo = "Revisión limpia";
     const id = nuevaModerna(titulo);
     const resultado = await vuelta();
@@ -4639,7 +4640,7 @@ process.exit(real.status ?? 1);
     assert.match(t.resultado.resumen, /Revisión \(4 revisores\): APROBADA a la primera — seguridad APROBADO · experiencia no aplica · diseño no aplica · código APROBADO\./);
     const revisiones = revisionesDe(titulo);
     assert.deepEqual(revisiones.map((r) => r.revisor).sort(), ["código", "seguridad"]);
-    assert.deepEqual(Object.fromEntries(revisiones.map((r) => [r.revisor, r.modelo])), { seguridad: "opus", código: "sonnet" }, "seguridad en Opus, el resto en Sonnet");
+    assert.deepEqual(Object.fromEntries(revisiones.map((r) => [r.revisor, r.modelo])), { seguridad: "sonnet", código: "sonnet" }, "27-nov: seguridad también en Sonnet (regla del dueño)");
     assert.ok(revisiones.every((r) => r.modo === "plan"), "solo lectura");
     soltarTodas(id);
     sinRestos();
@@ -5582,9 +5583,9 @@ process.exit(real.status ?? 1);
     const intento = t.intentosLista.at(-1);
     assert.ok(intento.causa.includes(enlaceDe(titulo)), "la causa trae el link de la sesión");
     assert.match(intento.error, /Informes de los revisores:\nseguridad: CAMBIOS — src\/api\/ruta\.ts: validar quién llama/);
-    // La instrucción que recibió la nube trae la revisión (seguridad en Opus, los demás en Sonnet, progreso y revision=).
+    // La instrucción que recibió la nube trae la revisión (27-nov: seguridad también en Sonnet, progreso y revision=).
     const [lanzada] = llamadasALaNube(desde);
-    assert.match(lanzada.prompt, /^- seguridad \(model "opus"\)/m);
+    assert.match(lanzada.prompt, /^- seguridad \(model "sonnet"\)/m);
     assert.match(lanzada.prompt, /^- codigo \(model "sonnet"\)/m);
     assert.match(lanzada.prompt, /git commit --allow-empty -m "revision: R<N> seguridad=/);
     sinRestos();

@@ -668,7 +668,8 @@ export function sinCausa(etapa, intento) {
 }
 
 const QUE_CAMBIA_POR_ESTRATEGIA = {
-  opus: "se construye con un modelo más fuerte (Opus) en vez del de antes",
+  // El nombre "opus" se queda (las causas guardadas en el CRM lo traen); desde el 27-nov-2026 se repara con el modelo de `reparar`.
+  opus: "se repara pensando otra forma de resolverlo (modelo de reparar), sin repetir lo de antes",
   nube: "lo que verificó la nube cambió al subir: se vuelve a construir y verificar en la nube",
   partir: "la tarea se divide en partes más chicas",
   sesion_nueva: "la nube no dio señal: se abre una sesión nueva de la nube (nunca la de un intento anterior)",
@@ -720,7 +721,7 @@ function reparacionesSeguidasCon(intentos, categoria) {
  * Qué hacer con la falla. Devuelve { accion, cuenta, estrategia?, motivo, causa?, queCambia?, mismaCausa? }.
  *   accion      "reparar" | "partir" | "esperar" | "escalar" | "arreglo_de_subida" (solo con una subida deshecha; no va al historial)
  *   cuenta      si cuenta como una de las 3 reparaciones (reparar y escalar sí; esperar y partir no)
- *   estrategia  "opus" cuando la 2ª reparación seguida con la misma categoría cambia de modelo; "nube" si se verifica otra vez en la nube;
+ *   estrategia  "opus" cuando la 2ª reparación seguida con la misma categoría prueba otra forma (modelo de reparar); "nube" si se verifica otra vez en la nube;
  *               "sesion_nueva" cuando la nube no dio señal (el intento siguiente abre una sesión nueva de la nube);
  *               "plan_nuevo" cuando Claude no cambió nada y no está en main (se vuelve a planear con el main de hoy);
  *               "arreglo" cuando fallaron las pruebas (el intento siguiente lee el log completo). Las fallas repetidas
@@ -802,7 +803,7 @@ export function porQueDeLaDecision(decision, diagnostico, intentosPrevios) {
   return { causa: causaEnUnaFrase(diagnostico), queCambia: enUnaLinea(calculado.queCambia, 300), porQueEsDistinto: enUnaLinea(calculado.porQueEsDistinto, 300) };
 }
 
-function decidirSinCausa({ diagnostico, tarjeta = {}, etapa, config = {}, archivosCambiados, reversion = null, modeloConstruir = null, verificarEnNube = false } = {}) {
+function decidirSinCausa({ diagnostico, tarjeta = {}, etapa, config = {}, archivosCambiados, reversion = null, verificarEnNube = false } = {}) {
   const categoria = diagnostico?.categoria ?? "otra";
   const reparaciones = Number(tarjeta.reparaciones) || 0;
   const tope = Number(tarjeta.topeReparaciones) || TOPE_DE_REPARACIONES;
@@ -899,27 +900,28 @@ function decidirSinCausa({ diagnostico, tarjeta = {}, etapa, config = {}, archiv
   if (reparaciones >= tope) return { accion: "escalar", cuenta: true, motivo: `ya se hicieron ${reparaciones} reparaciones` };
 
   // La MISMA falla que el intento anterior: solo se repara si queda una estrategia distinta que probar, en este orden:
-  // verificar otra vez en la nube (si eso es lo que cambió), Opus al construir (si no se usó), partir (si se puede).
+  // verificar otra vez en la nube (si eso es lo que cambió), la estrategia opus (si no se usó), partir (si se puede).
   if (mismaQueLaAnterior) {
     const usadas = new Set(intentos.map((intento) => estrategiaDeLaCausa(intento?.causa)).filter(Boolean));
-    const yaEsOpus = /opus/i.test(String(modeloConstruir ?? "")) || usadas.has("opus");
+    // 27-nov-2026: "ya se usó la estrategia opus" (no "el modelo de construir es Opus"): con Sonnet también se llega a partir.
+    const yaEsOpus = usadas.has("opus") || estrategiaDeLaCausa(diagnostico?.causa) === "opus";
     // Lo que hay que verificar en la nube se repara SOLO en la nube: si eso ya se probó, no queda nada distinto.
     if (verificarEnNube) {
       return usadas.has("nube")
         ? { accion: "escalar", cuenta: true, mismaCausa: true, motivo: MISMA_CAUSA }
         : { accion: "reparar", cuenta: true, estrategia: "nube", motivo: `${categoria} otra vez: se verifica otra vez en la nube` };
     }
-    if (etapa === "construir" && !yaEsOpus) return { accion: "reparar", cuenta: true, estrategia: "opus", motivo: `${categoria} con la misma causa: se repara con un modelo más fuerte (Opus)` };
-    if (etapa === "construir" && !esParte) return { accion: "partir", cuenta: false, motivo: `${categoria} con la misma causa y Opus ya lo intentó: se parte` };
+    if (etapa === "construir" && !yaEsOpus) return { accion: "reparar", cuenta: true, estrategia: "opus", motivo: `${categoria} con la misma causa: se repara pensando otra forma de resolverlo (modelo de reparar)` };
+    if (etapa === "construir" && !esParte) return { accion: "partir", cuenta: false, motivo: `${categoria} con la misma causa y ya se intentó otra forma de resolverlo: se parte` };
     return { accion: "escalar", cuenta: true, mismaCausa: true, motivo: MISMA_CAUSA };
   }
 
-  // La 2ª reparación seguida con la misma categoría cambia de estrategia: modelo más fuerte o partir. (Desde el 29-oct, con 2
+  // La 2ª reparación seguida con la misma categoría cambia de estrategia: la opus (otra forma, modelo de reparar) o partir. (Desde el 29-oct, con 2
   // fallas iguales se escala arriba: el cambio de estrategia llega en la 2ª, no en la 3ª.)
   if (reparacionesSeguidasCon(intentos, categoria) >= 1) {
-    const yaEsOpus = /opus/i.test(String(modeloConstruir ?? ""));
-    if (etapa === "construir" && !esParte && yaEsOpus) return { accion: "partir", cuenta: false, motivo: `${categoria} otra vez y Opus ya lo intentó: se parte` };
-    if (etapa === "construir" && !yaEsOpus) return { accion: "reparar", cuenta: true, estrategia: "opus", motivo: `${categoria} otra vez: se repara con un modelo más fuerte (Opus)` };
+    const yaEsOpus = intentos.some((intento) => estrategiaDeLaCausa(intento?.causa) === "opus") || estrategiaDeLaCausa(diagnostico?.causa) === "opus";
+    if (etapa === "construir" && !esParte && yaEsOpus) return { accion: "partir", cuenta: false, motivo: `${categoria} otra vez y ya se intentó otra forma de resolverlo: se parte` };
+    if (etapa === "construir" && !yaEsOpus) return { accion: "reparar", cuenta: true, estrategia: "opus", motivo: `${categoria} otra vez: se repara pensando otra forma de resolverlo (modelo de reparar)` };
   }
   return { accion: "reparar", cuenta: true, motivo: `${categoria}: se repara (${reparaciones + 1} de ${tope})` };
 }
@@ -951,7 +953,7 @@ function decidirLaFallaRepetida({ diagnostico, categoria, reparaciones, tope, in
 export const FRASES_DE_LA_FALLA_AGOTADA = {
   nube_sin_resultado: "La sesión de la nube no terminó ni dio señal, ni siquiera abriendo sesiones nuevas.",
   no_cambio_nada: "Claude terminó sin cambiar nada, aunque se volvió a planear la tarea con lo último del sistema.",
-  fallan_pruebas: "Las pruebas siguen fallando después de corregir con el registro completo, con un modelo más fuerte y verificando en la nube.",
+  fallan_pruebas: "Las pruebas siguen fallando después de corregir con el registro completo, de pensar otra forma de resolverlo y de verificar en la nube.",
 };
 
 /**

@@ -5,6 +5,8 @@
 //   construir -> Sonnet.      revisar -> Sonnet.      subagentes -> Sonnet.      revisarSeguridad -> Opus.
 //   Cambios con fecha (29-oct-2026): modelos.desde = [{ fecha, paso, modelo }] (p. ej. construir -> Opus desde el 30-oct).
 //   leer      -> Haiku (pasos que solo leen o resumen: hoy, mirar el uso del plan con `claude -p /usage`).
+//   Regla del dueño (27-nov-2026, CAMBIOS_DE_MODELO_DEL_CODIGO): planear (sencilla y difícil) -> Opus; construir, revisar,
+//   revisarSeguridad, subagentes y reparar -> Sonnet. Una línea de modelos.desde con fecha posterior lo puede cambiar.
 //
 // Los nombres de modelo se cambian en config.local.json -> modelos (ver MODELOS_POR_DEFECTO).
 import { archivosDelPlan, moduloDe } from "./choques.mjs";
@@ -22,6 +24,8 @@ export const MODELOS_POR_DEFECTO = {
   // y código usan `revisar`.
   revisarSeguridad: "opus",
   subagentes: "sonnet",
+  // 27-nov-2026: la 2ª reparación por la misma causa (estrategia "opus" de diagnostico.mjs) usa este modelo.
+  reparar: "sonnet",
   leer: "haiku",
 };
 
@@ -51,13 +55,35 @@ export function cambiosDeModeloConFecha(valor) {
   return { desde, errores };
 }
 
-/** Los modelos que valen AHORA: los de la config con, por paso, la entrada de `desde` más reciente cuya fecha ya pasó. */
+/**
+ * Los cambios con fecha que trae el CÓDIGO (como `modelos.desde`, pero fijos). Van antes que los de la config: con la misma
+ * fecha gana la config, y una línea de `modelos.desde` con fecha posterior cambia el paso que nombre.
+ * 27-nov-2026 (regla del dueño): planear con Opus; construir, revisar, revisarSeguridad, subagentes y reparar con Sonnet.
+ * `leer` (Haiku) no se toca.
+ */
+export const CAMBIOS_DE_MODELO_DEL_CODIGO = Object.freeze(
+  [
+    ["planear", "opus"],
+    ["planearSencillo", "opus"],
+    ["construir", "sonnet"],
+    ["revisar", "sonnet"],
+    ["revisarSeguridad", "sonnet"],
+    ["subagentes", "sonnet"],
+    ["reparar", "sonnet"],
+  ].map(([paso, modelo]) => Object.freeze({ fecha: "2026-11-27T00:00:00Z", paso, modelo })),
+);
+
+/**
+ * Los modelos que valen AHORA: los de la config con, por paso, el cambio con fecha más reciente cuya fecha ya pasó (los del
+ * código, CAMBIOS_DE_MODELO_DEL_CODIGO, y los de `modelos.desde`).
+ */
 export function modelosVigentes(config, ahora = Date.now()) {
   const modelos = { ...MODELOS_POR_DEFECTO, ...(config?.modelos ?? {}) };
   delete modelos.desde;
   const momento = ahora instanceof Date ? ahora.getTime() : Number(ahora);
   const vigentes = {};
-  for (const entrada of Array.isArray(config?.modelos?.desde) ? config.modelos.desde : []) {
+  const desdeDeLaConfig = Array.isArray(config?.modelos?.desde) ? config.modelos.desde : [];
+  for (const entrada of [...CAMBIOS_DE_MODELO_DEL_CODIGO, ...desdeDeLaConfig]) {
     const fecha = Date.parse(entrada?.fecha);
     if (!Number.isFinite(fecha) || fecha > momento || !entrada.paso || !entrada.modelo) continue;
     if (!vigentes[entrada.paso] || fecha >= vigentes[entrada.paso].fecha) vigentes[entrada.paso] = { fecha, modelo: entrada.modelo };
@@ -112,7 +138,7 @@ export function dificultadDeLaTarea(tarjeta) {
   return { dificil: motivos.length > 0, motivos };
 }
 
-/** El modelo de cada paso para esta tarjeta. `paso`: planear | construir | revisar | subagentes | leer. */
+/** El modelo de cada paso para esta tarjeta. `paso`: planear | construir | revisar | revisarSeguridad | subagentes | reparar | leer. */
 // Con `ahora`: respeta los cambios con fecha (`modelos.desde`) que ya entraron (construir -> Opus desde el 30-oct, p. ej.).
 export function modeloDelPaso(config, paso, tarjeta = null, ahora = Date.now()) {
   const modelos = modelosVigentes(config, ahora);

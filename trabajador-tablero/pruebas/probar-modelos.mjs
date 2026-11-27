@@ -20,14 +20,16 @@ function prueba(nombre, fn) {
 
 const base = { urlCrm: "https://app.aizenbot.com", claveTrabajador: "aizen_trab_x", repos: { aizencrm: { ruta: ".", subirSolo: false } } };
 const sencilla = { titulo: "Cambiar el color del botón Guardar", detalle: "Ponerlo verde en la ficha.", intentos: 1 };
+// Las reglas de antes de la regla del dueño del 27-nov-2026 (CAMBIOS_DE_MODELO_DEL_CODIGO) se prueban con esta fecha.
+const ANTES_DEL_27_NOV = Date.parse("2026-11-26T12:00:00Z");
 
-prueba("tarea sencilla: Sonnet; el resto de pasos también Sonnet y leer con Haiku", () => {
+prueba("antes del 27-nov, tarea sencilla: Sonnet; el resto de pasos también Sonnet y leer con Haiku", () => {
   const config = completarConfig(base);
   assert.deepEqual(dificultadDeLaTarea(sencilla), { dificil: false, motivos: [] });
-  assert.equal(modeloDelPaso(config, "planear", sencilla), "sonnet");
-  assert.equal(modeloDelPaso(config, "construir", sencilla), "sonnet");
-  assert.equal(modeloDelPaso(config, "revisar", sencilla), "sonnet");
-  assert.equal(modeloDelPaso(config, "subagentes", sencilla), "sonnet");
+  assert.equal(modeloDelPaso(config, "planear", sencilla, ANTES_DEL_27_NOV), "sonnet");
+  assert.equal(modeloDelPaso(config, "construir", sencilla, ANTES_DEL_27_NOV), "sonnet");
+  assert.equal(modeloDelPaso(config, "revisar", sencilla, ANTES_DEL_27_NOV), "sonnet");
+  assert.equal(modeloDelPaso(config, "subagentes", sencilla, ANTES_DEL_27_NOV), "sonnet");
   assert.equal(modeloDelPaso(config, "leer"), "haiku");
 });
 
@@ -66,19 +68,19 @@ prueba("la config manda: cambiar los nombres por paso, y una config vieja (sin p
   assert.equal(vieja.modelos.planearSencillo, "sonnet");
   assert.equal(vieja.modelos.leer, "haiku");
   const propia = completarConfig({ ...base, modelos: { planear: "claude-opus-4-1", planearSencillo: "haiku", leer: "sonnet", construir: "opus" } });
-  assert.equal(modeloDelPaso(propia, "planear", sencilla), "haiku");
-  assert.equal(modeloDelPaso(propia, "planear", { ...sencilla, intentos: 3 }), "claude-opus-4-1");
-  assert.equal(modeloDelPaso(propia, "leer"), "sonnet");
-  assert.equal(modeloDelPaso(propia, "construir", sencilla), "opus");
+  assert.equal(modeloDelPaso(propia, "planear", sencilla, ANTES_DEL_27_NOV), "haiku");
+  assert.equal(modeloDelPaso(propia, "planear", { ...sencilla, intentos: 3 }, ANTES_DEL_27_NOV), "claude-opus-4-1");
+  assert.equal(modeloDelPaso(propia, "leer"), "sonnet", "leer no lo toca la regla del 27-nov");
+  assert.equal(modeloDelPaso(propia, "construir", sencilla, ANTES_DEL_27_NOV), "opus");
   assert.throws(() => completarConfig({ ...base, modelos: { leer: "haiku 3" } }), /modelos\.leer/);
   assert.throws(() => completarConfig({ ...base, modelos: { planearSencillo: "" } }), /modelos\.planearSencillo/);
 });
 
 prueba("29-oct: el revisor de seguridad va en Opus (revisarSeguridad); los otros 3 revisores en revisar (Sonnet)", () => {
   const config = completarConfig(base);
-  assert.equal(modeloDelPaso(config, "revisarSeguridad", sencilla), "opus");
-  assert.equal(modeloDelPaso(config, "revisar", sencilla), "sonnet");
-  assert.equal(modeloDelPaso(completarConfig({ ...base, modelos: { revisarSeguridad: "sonnet" } }), "revisarSeguridad"), "sonnet", "se cambia en la config");
+  assert.equal(modeloDelPaso(config, "revisarSeguridad", sencilla, ANTES_DEL_27_NOV), "opus");
+  assert.equal(modeloDelPaso(config, "revisar", sencilla, ANTES_DEL_27_NOV), "sonnet");
+  assert.equal(modeloDelPaso(completarConfig({ ...base, modelos: { revisarSeguridad: "sonnet" } }), "revisarSeguridad", null, ANTES_DEL_27_NOV), "sonnet", "se cambia en la config");
 });
 
 prueba("29-oct: cambios de modelo con fecha (modelos.desde): antes de la fecha Sonnet, después Opus; sin desde, igual que siempre", () => {
@@ -106,6 +108,36 @@ prueba("29-oct: cambios de modelo con fecha (modelos.desde): antes de la fecha S
   assert.throws(() => completarConfig({ ...base, modelos: { desde: [{ fecha: "2026-10-30T12:00:00Z", paso: "volar", modelo: "opus" }] } }), /modelos\.desde\[0\]\.paso/);
   assert.throws(() => completarConfig({ ...base, modelos: { desde: [{ fecha: "2026-10-30T12:00:00Z", paso: "construir", modelo: " " }] } }), /modelos\.desde\[0\]\.modelo/);
   assert.throws(() => completarConfig({ ...base, modelos: { desde: { paso: "construir" } } }), /modelos\.desde: una lista/);
+});
+
+// 27-nov-2026: la regla del dueño (planear con Opus; construir, revisar, revisarSeguridad, subagentes y reparar con Sonnet).
+// La config de aizen1 de hoy: planearSencillo en Opus y construir en Opus desde el 30-oct.
+const configDeAizen1 = { ...base, modelos: { planearSencillo: "opus", desde: [{ fecha: "2026-10-30T12:00:00Z", paso: "construir", modelo: "opus" }] } };
+const EL_28_NOV = Date.parse("2026-11-28T12:00:00Z");
+
+prueba("27-nov: con la config de aizen1, planear (sencilla y difícil) en Opus; construir, revisar, seguridad, subagentes y reparar en Sonnet", () => {
+  const config = completarConfig(configDeAizen1);
+  const dificil = { ...sencilla, detalle: "Cambiar la arquitectura del tablero" };
+  for (const paso of ["construir", "revisar", "revisarSeguridad", "subagentes", "reparar"]) {
+    assert.equal(modeloDelPaso(config, paso, sencilla, EL_28_NOV), "sonnet", paso);
+  }
+  assert.equal(modeloDelPaso(config, "planear", sencilla, EL_28_NOV), "opus", "planear sencilla");
+  assert.equal(modeloDelPaso(config, "planear", dificil, EL_28_NOV), "opus", "planear difícil");
+  assert.equal(modeloDelPaso(config, "leer", null, EL_28_NOV), "haiku", "leer no se toca");
+  // El día antes seguía construyendo con Opus (la línea del 30-oct de la config).
+  assert.equal(modeloDelPaso(config, "construir", sencilla, ANTES_DEL_27_NOV), "opus");
+  // reparar es un paso conocido: por defecto Sonnet y se valida como los otros.
+  assert.equal(completarConfig(base).modelos.reparar, "sonnet");
+  assert.throws(() => completarConfig({ ...base, modelos: { reparar: "son net" } }), /modelos\.reparar/);
+});
+
+prueba("27-nov: una línea de modelos.desde con fecha posterior todavía cambia el paso", () => {
+  const config = completarConfig({ ...configDeAizen1, modelos: { ...configDeAizen1.modelos, desde: [...configDeAizen1.modelos.desde, { fecha: "2026-12-01T00:00:00Z", paso: "construir", modelo: "opus" }] } });
+  assert.equal(modeloDelPaso(config, "construir", sencilla, EL_28_NOV), "sonnet", "antes del 1-dic");
+  assert.equal(modeloDelPaso(config, "construir", sencilla, Date.parse("2026-12-02T00:00:00Z")), "opus", "desde el 1-dic");
+  assert.equal(modeloDelPaso(config, "revisar", sencilla, Date.parse("2026-12-02T00:00:00Z")), "sonnet", "solo el paso de la línea");
+  const reparar = completarConfig({ ...base, modelos: { desde: [{ fecha: "2026-12-01T00:00:00Z", paso: "reparar", modelo: "opus" }] } });
+  assert.equal(modeloDelPaso(reparar, "reparar", null, Date.parse("2026-12-02T00:00:00Z")), "opus", "reparar también se cambia con fecha");
 });
 
 prueba("nombres para mostrar", () => {
