@@ -13,7 +13,7 @@ import { ejecutarAcciones, type Herramientas } from "./ejecutar";
 
 const TARIMA: ProductoDelCatalogoV3 = {
   id: "p-tarima",
-  nombre: "TARIMA PEDICURE",
+  nombre: "TARIMA PARA PEDICURE",
   codigo: "TPV001",
   categoria: "Pedicure",
   precio: 1_250_000,
@@ -84,13 +84,18 @@ async function correr(mensaje: string, opciones?: Parameters<typeof herramientas
   return { ...prueba, notas, imagenes };
 }
 
+// El texto real que manda la página magilus.com al tocar "Cotizar por WhatsApp".
+const DESDE_LA_PAGINA = "Hola, vengo de magilus.com 👋\nMe interesa la *Tarima Para Pedicure* (TPV001)";
+
 test("1. Con TPV001 manda la foto con el pie correcto y sin precio", async () => {
-  const { imagenes, enviados, notas } = await correr("Hola, vengo de magilus.com, me interesa TPV001 Tarima Pedicure");
+  const { imagenes, enviados, notas } = await correr(DESDE_LA_PAGINA);
   assert.equal(imagenes.length, 1);
   assert.equal(imagenes[0].url, TARIMA.foto);
+  assert.ok((imagenes[0].caption ?? "").startsWith("*Tarima para pedicure* (TPV001)"));
+  assert.doesNotMatch(imagenes[0].caption ?? "", /\$/);
   assert.equal(
     imagenes[0].caption,
-    "*Tarima pedicure* (TPV001)\n• Medidas: 180 x 60 x 78 cm\n• Material: Madera y cuero sintético\n• Peso: 35 kg",
+    "*Tarima para pedicure* (TPV001)\n• Medidas: 180 x 60 x 78 cm\n• Material: Madera y cuero sintético\n• Peso: 35 kg",
   );
   // Nada de precio: ni el del catálogo ni un dato de la ficha que hable de plata.
   assert.doesNotMatch(imagenes[0].caption ?? "", /\$|precio|1\.250\.000|1\.100\.000/i);
@@ -98,11 +103,11 @@ test("1. Con TPV001 manda la foto con el pie correcto y sin precio", async () =>
   // La foto sale después del texto de bienvenida.
   assert.equal(enviados[0].kind, "text");
   assert.equal(enviados[1].kind, "image");
-  assert.match(notas.join(" "), /Tarima pedicure \(TPV001\)/);
+  assert.match(notas.join(" "), /Tarima para pedicure \(TPV001\)/);
 });
 
 test("2. Sin código no manda imagen (tampoco adivina por el nombre)", async () => {
-  const { imagenes, avisos, estaPausada } = await correr("Hola, vengo de magilus.com, me interesa la tarima pedicure");
+  const { imagenes, avisos, estaPausada } = await correr("Hola, vengo de magilus.com, me interesa la Tarima Para Pedicure");
   assert.equal(imagenes.length, 0);
   assert.equal(avisos.length, 1);
   assert.equal(estaPausada(), true);
