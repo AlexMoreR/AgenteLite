@@ -22,7 +22,12 @@ export type ProductoDelCatalogoV3 = {
   cantidadMinimaMayorista: number;
   descripcion: string | null;
   foto: string | null;
+  /** Los primeros datos de la ficha del CRM ("Medidas" → "180 x 60 x 78 cm"), en su orden. */
+  ficha?: Array<{ etiqueta: string; valor: string }>;
 };
+
+/** Cuántos datos de la ficha van en el pie de la foto: más ya no se lee en un chat. */
+const DATOS_EN_EL_PIE = 3;
 
 const VIDA_MS = 5 * 60_000;
 const enMemoria = new Map<string, { productos: ProductoDelCatalogoV3[]; leidoEn: number }>();
@@ -45,6 +50,14 @@ export async function catalogoActivo(workspaceId: string): Promise<ProductoDelCa
       thumbnailUrl: true,
       category: { select: { name: true } },
       images: { orderBy: { order: "asc" }, take: 1, select: { url: true } },
+      specs: {
+        where: { workspaceId },
+        take: 1,
+        select: {
+          // Dos más de los que van en el pie: alguno puede ser un precio y se salta.
+          fields: { orderBy: { sortOrder: "asc" }, take: DATOS_EN_EL_PIE + 2, select: { label: true, value: true } },
+        },
+      },
     },
   });
   const productos = filas.map((fila) => ({
@@ -57,6 +70,9 @@ export async function catalogoActivo(workspaceId: string): Promise<ProductoDelCa
     cantidadMinimaMayorista: fila.minWholesaleQty,
     descripcion: fila.description?.trim() || null,
     foto: fila.thumbnailUrl?.trim() || fila.images[0]?.url || null,
+    ficha: (fila.specs[0]?.fields ?? [])
+      .map((campo) => ({ etiqueta: campo.label.trim(), valor: campo.value.trim() }))
+      .filter((campo) => campo.etiqueta && campo.valor),
   }));
   enMemoria.set(workspaceId, { productos, leidoEn: Date.now() });
   return productos;
@@ -142,6 +158,57 @@ export function reconocerEnElCatalogo(mensaje: string, catalogo: ProductoDelCata
   if (candidatos.length === 1) return { tipo: "uno", producto: candidatos[0] };
   const ordenados = [...candidatos].sort((a, b) => a.precio - b.precio);
   return { tipo: "varios", productos: ordenados.slice(0, 5), total: candidatos.length };
+}
+
+/** "TPV-001", "tpv 001" o "TPV001" se comparan igual: solo letras y números, en mayúsculas. */
+function claveDeCodigo(texto: string): string {
+  return texto
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+}
+
+/**
+ * ¿El cliente nombró UN producto por su código exacto? Para mandarle la foto sin preguntar.
+ *
+ * Más estricto que `reconocerEnElCatalogo` a propósito: una foto equivocada es peor que ninguna.
+ * - Solo vale el código como palabra entera del mensaje ("TPV001" o "TPV-001"), nunca un pedazo de
+ *   otra palabra ni el nombre del producto.
+ * - Tiene que haber UN solo producto: si nombra dos códigos, o dos productos comparten el código,
+ *   no se adivina y devuelve null.
+ */
+export function reconocerPorCodigo(mensaje: string, catalogo: ProductoDelCatalogoV3[]): ProductoDelCatalogoV3 | null {
+  const delMensaje = new Set(
+    mensaje
+      .split(/[^\p{L}\p{N}-]+/u)
+      .map(claveDeCodigo)
+      .filter((clave) => clave.length >= 3),
+  );
+  if (delMensaje.size === 0) return null;
+  const encontrados = catalogo.filter((producto) => {
+    const clave = producto.codigo ? claveDeCodigo(producto.codigo) : "";
+    return clave.length >= 3 && delMensaje.has(clave);
+  });
+  return encontrados.length === 1 ? encontrados[0] : null;
+}
+
+/** Datos de la ficha que hablan de plata: el precio lo da la asesora, nunca el pie de la foto. */
+const DE_PRECIO = /precio|valor|costo|cuesta|\$/i;
+
+/**
+ * El pie de la foto del producto: nombre, código y hasta 3 datos de su ficha. SIN precio (el precio
+ * lo da la asesora).
+ */
+export function pieDeFotoDelProducto(producto: ProductoDelCatalogoV3): string {
+  const lineas = [`*${nombreLegible(producto.nombre)}*${producto.codigo ? ` (${producto.codigo.trim()})` : ""}`];
+  const datos = (producto.ficha ?? [])
+    .filter((campo) => !DE_PRECIO.test(campo.etiqueta) && !DE_PRECIO.test(campo.valor))
+    .slice(0, DATOS_EN_EL_PIE);
+  for (const campo of datos) {
+    lineas.push(`• ${campo.etiqueta}: ${campo.valor}`);
+  }
+  return lineas.join("\n");
 }
 
 /* ------------------------------------------------------------------ responder */

@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils";
 import {
   NOMBRE_DEL_CARRIL,
   NOMBRE_DEL_DISPARADOR,
+  TEXTO_DE_MANDAR_PRODUCTO,
   conectadosA,
   construirMapa,
   idDeRegla,
@@ -178,6 +179,8 @@ function textoDeLaAccion(accion: Accion, titulos: Record<string, string>, produc
       return `Mueve la etapa del CRM a ${accion.etapa}`;
     case "avisar_asesor":
       return `Avisa a una asesora: ${accion.motivo}`;
+    case "mandar_producto_del_mensaje":
+      return TEXTO_DE_MANDAR_PRODUCTO;
     default:
       return "Pausa la IA";
   }
