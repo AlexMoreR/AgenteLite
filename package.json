@@ -43,6 +43,7 @@
     "test:linea-de-falla": "npx tsx --test src/lib/linea-de-falla.test.ts",
     "test:subir-por-pedazos": "npx tsx --test src/lib/subir-archivo-por-pedazos.test.ts src/lib/chat-upload-pedazos.test.ts",
     "test:chat-envio-reintento": "npx tsx --test src/lib/chat-envio-reintento.test.ts",
+    "test:chat-de-la-asesora": "node scripts/check-chat-de-la-asesora.mjs",
     "test:carta-de-colores": "npx tsx --test src/lib/carta-de-colores.test.ts src/lib/imagen-de-carta-de-colores.test.tsx",
     "test:metricas-servidor": "npx tsx --test src/lib/metricas-servidor.test.ts",
     "test:sugerencia-catalogo": "npx tsx --test src/lib/sugerencia-de-respuesta.test.ts",
