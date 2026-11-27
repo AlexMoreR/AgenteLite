@@ -427,14 +427,68 @@ export function estrategiaDeLaCausa(causa) {
  * hace distinta la falla), en minúsculas y con espacios simples.
  */
 export function causaParaComparar(causa) {
-  return sinMarcaDeEstrategia(causa)
-    .replace(/https?:\/\/\S+/g, "")
+  return sinHashesNiFechas(sinMarcaDeEstrategia(causa).replace(/https?:\/\/\S+/g, ""))
     .replace(/\d+/g, "#")
     .toLowerCase()
     // 25-nov-2026: también el guion que separa la causa de su link ("… — https://…"), para que dos causas de la nube con link
     // distinto cuenten como la misma.
     .replace(/[\s.…:;,—–]+/g, " ")
     .trim();
+}
+
+/**
+ * 27-nov-2026 (parte 3 de «si una reparación falla por el mismo motivo, no repetir igual»): los hashes de commit (7 a 40 letras
+ * hexadecimales con al menos un número) y las fechas ("2026-11-27", "27/11/2026", "27-nov-2026", "27 de noviembre de 2026") no
+ * hacen distinta una falla: dos fallas que solo cambian en un commit o una fecha cuentan como la misma.
+ */
+const HASH_DE_COMMIT = /\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b/gi;
+const MESES = "ene(?:ro)?|feb(?:rero)?|mar(?:zo)?|abr(?:il)?|may(?:o)?|jun(?:io)?|jul(?:io)?|ago(?:sto)?|sep(?:tiembre)?|set(?:iembre)?|oct(?:ubre)?|nov(?:iembre)?|dic(?:iembre)?|jan|apr|aug|dec";
+const FECHA = new RegExp(
+  [
+    "\\b\\d{4}-\\d{2}-\\d{2}(?:[T ]\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d+)?)?Z?)?\\b",
+    "\\b\\d{1,2}[/.-]\\d{1,2}[/.-]\\d{2,4}\\b",
+    `\\b\\d{1,2}(?:-|\\s+de\\s+|\\s+)(?:${MESES})\\.?(?:(?:-|\\s+de\\s+|\\s+)\\d{4})?\\b`,
+  ].join("|"),
+  "gi",
+);
+
+/** El texto sin hashes de commit ni fechas. */
+export function sinHashesNiFechas(texto) {
+  return (
+    String(texto ?? "")
+      .replace(FECHA, " ")
+      .replace(HASH_DE_COMMIT, " ")
+      // Lo que queda sin su dato ("(commit )", "del ]") tampoco hace distinta la falla.
+      .replace(/\b(?:commits?|el|del)\s*(?=[)\]]|$)/gi, " ")
+      .replace(/\(\s*\)|\[\s*\]/g, " ")
+  );
+}
+
+/**
+ * La causa en UNA frase, para el historial de la tarjeta y la bitácora: "categoría: causa", sin hashes de commit, fechas, links,
+ * números (quedan como "N") ni la marca de estrategia. Con ella se ve de un vistazo si dos fallas son la misma.
+ */
+export function causaEnUnaFrase(diagnostico) {
+  const categoria = diagnostico?.categoria || "otra";
+  const limpia = sinHashesNiFechas(sinMarcaDeEstrategia(diagnostico?.causa).replace(/https?:\/\/\S+/g, " "))
+    .replace(/\d+/g, "N")
+    .replace(/\s+([.,;:])/g, "$1")
+    .replace(/[\s—–:.,;]+$/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return enUnaLinea(`${categoria}: ${limpia || CAUSA_BASE[categoria] || CAUSA_BASE.otra}`);
+}
+
+/**
+ * ¿La causa es de una dependencia o de main, ajena al código? ("la parte 1 no está en main", "depende de «X»", DEPENDE_DE,
+ * "parte 2 de 4 no está"). Repararla con otro modelo o partiéndola no cambia nada: hay que esperar a la otra tarjeta. No cuenta
+ * la frase del propio Coordinador "no cambió nada y no está en main" (la estrategia plan_nuevo), que no es una dependencia.
+ */
+const DE_DEPENDENCIA = /no est[aá] (?:todav[ií]a |a[uú]n )?(?:subid[ao] )?en main|\bdepende(?:n)? de\b|\bDEPENDE_DE\b|\bparte \d+(?: de \d+)? (?:todav[ií]a |a[uú]n )?no est[aá]/i;
+const FRASE_DEL_COORDINADOR = /no cambi[oó] nada y no est[aá] en main/gi;
+
+export function esCausaDeDependencia(texto) {
+  return DE_DEPENDENCIA.test(String(texto ?? "").replace(FRASE_DEL_COORDINADOR, " "));
 }
 
 /** El último intento que de verdad probó algo (no una espera): con él se compara la falla nueva. null si no hay. */
@@ -687,13 +741,65 @@ function reparacionesSeguidasCon(intentos, categoria) {
  */
 export function decidir(entrada = {}) {
   const decision = decidirSinCausa(entrada);
+  const { diagnostico, tarjeta = {}, etapa } = entrada;
+  // 27-nov-2026: esperar a la dependencia y escalar por la misma causa también dicen qué cambia y por qué es distinto.
+  if (decision.accion === "esperar_dependencia" || (decision.accion === "escalar" && decision.mismaCausa)) {
+    return { ...decision, ...queCambiaYPorQue(decision, diagnostico, tarjeta.ultimosIntentos) };
+  }
   if (decision.accion !== "reparar") return decision;
   // Lo que verificó la nube ya no es lo que se subiría: la reparación va a la NUBE (nunca a compilar en aizen1).
   if (entrada.verificarEnNube) decision.estrategia = "nube";
   // Antes de reparar: la causa en una frase y qué cambia frente al intento anterior (va al prompt del siguiente intento).
-  const { diagnostico, tarjeta = {}, etapa } = entrada;
   const causa = enUnaLinea(diagnostico?.causa) || sinCausa(etapa, tarjeta.intentos);
-  return { ...decision, causa, queCambia: queCambiaFrenteAlAnterior(diagnostico, tarjeta.ultimosIntentos, decision.estrategia) };
+  return { ...decision, causa, ...queCambiaYPorQue(decision, diagnostico, tarjeta.ultimosIntentos) };
+}
+
+/** ¿La causa de un no_cambio_nada trae el motivo que Claude escribió en "NO_CAMBIE: <motivo>"? */
+function conMotivoDeNoCambie(causa) {
+  const texto = sinMarcaDeEstrategia(causa);
+  return texto.startsWith(`${CAUSA_BASE.no_cambio_nada}:`) && texto.slice(CAUSA_BASE.no_cambio_nada.length + 1).trim().length > 0;
+}
+
+/**
+ * Por qué el intento siguiente es distinto del anterior, en una frase (27-nov-2026). Va al historial de la tarjeta y a la
+ * bitácora junto con la causa y qué cambia.
+ *   decision     la de decidir (accion, estrategia, mismaCausa)
+ *   diagnostico  la falla de ahora; intentosPrevios: los intentos ANTES de esta falla
+ */
+export function porQueEsDistinto(decision, diagnostico, intentosPrevios) {
+  const anterior = intentoAnterior(intentosPrevios);
+  const antes = anterior ? causaEnUnaFrase(anterior) : "";
+  if (decision?.accion === "esperar_dependencia") return enUnaLinea(`no se repara igual: la causa es la misma que la del intento anterior (${antes}) y no es del código; se espera a la otra tarjeta`);
+  if (decision?.accion === "escalar" && decision.mismaCausa) return enUnaLinea(`no hay nada distinto que probar: la causa es la misma que la del intento anterior (${antes}); se corta sin otra reparación igual`);
+  if (decision?.accion === "escalar") return "no queda una reparación que probar: pasa al dueño";
+  if (decision?.estrategia) {
+    const usadas = (intentosPrevios ?? []).map((intento) => estrategiaDeLaCausa(intento?.causa)).filter(Boolean);
+    const antesUso = usadas.at(-1);
+    return enUnaLinea(`se prueba la estrategia ${decision.estrategia}${antesUso && antesUso !== decision.estrategia ? `, distinta de la de antes (${antesUso})` : ", que no se había usado con esta causa"}`);
+  }
+  if (!anterior) return "es el primer intento que falla: no hay uno anterior con qué compararlo";
+  if (esLaMismaCausa(diagnostico, anterior)) return enUnaLinea(`la causa es la misma que la del intento anterior (${antes}), pero todavía queda una reparación`);
+  return enUnaLinea(`la causa es nueva: la del intento anterior fue ${antes}`);
+}
+
+/** { queCambia, porQueEsDistinto } de una decisión. */
+function queCambiaYPorQue(decision, diagnostico, intentosPrevios) {
+  const queCambia =
+    decision.accion === "esperar_dependencia"
+      ? "no se repara: se espera a la tarjeta de la que depende (o queda en ERROR si no hay a quién esperar)"
+      : decision.accion === "escalar"
+        ? "no se repara otra vez: pasa al dueño con el motivo (ERROR)"
+        : queCambiaFrenteAlAnterior(diagnostico, intentosPrevios, decision.estrategia);
+  return { queCambia, porQueEsDistinto: porQueEsDistinto(decision, diagnostico, intentosPrevios) };
+}
+
+/**
+ * Los tres datos de una reparación, espera o escalada para el CRM y la bitácora (27-nov-2026): { causa, queCambia,
+ * porQueEsDistinto }. `causa` es causaEnUnaFrase. Lo que la decisión ya trae se usa; lo que falta se calcula.
+ */
+export function porQueDeLaDecision(decision, diagnostico, intentosPrevios) {
+  const calculado = decision?.queCambia && decision?.porQueEsDistinto ? decision : queCambiaYPorQue(decision ?? {}, diagnostico, intentosPrevios);
+  return { causa: causaEnUnaFrase(diagnostico), queCambia: enUnaLinea(calculado.queCambia, 300), porQueEsDistinto: enUnaLinea(calculado.porQueEsDistinto, 300) };
 }
 
 function decidirSinCausa({ diagnostico, tarjeta = {}, etapa, config = {}, archivosCambiados, reversion = null, modeloConstruir = null, verificarEnNube = false } = {}) {
@@ -748,6 +854,19 @@ function decidirSinCausa({ diagnostico, tarjeta = {}, etapa, config = {}, archiv
   if (SIN_REPARACION_AUTOMATICA.includes(categoria)) {
     return { accion: "escalar", cuenta: true, motivo: `${categoria}: no se repara solo, lo ve el dueño (con el link)` };
   }
+  // 27-nov-2026 (parte 3 de «si una reparación falla por el mismo motivo, no repetir igual»): la misma causa que el intento
+  // anterior, de dependencia o de main ("la parte 1 no está en main", DEPENDE_DE): ni Opus ni partir lo arreglan. Se espera a la
+  // otra tarjeta (esperar_dependencia, bucle.mjs), sin contar ni reparar. Las causas de código siguen su camino de siempre.
+  const anteriorDeLaTarea = AJENAS_A_LA_TAREA.includes(categoria) ? null : intentoAnterior(intentos);
+  const mismaQueLaAnterior = esLaMismaCausa(diagnostico, anteriorDeLaTarea);
+  if (mismaQueLaAnterior && !ERROR_DE_CODIGO.includes(categoria) && esCausaDeDependencia(diagnostico?.causa)) {
+    return { accion: "esperar_dependencia", cuenta: false, motivo: `${categoria} con la misma causa que el intento anterior, de dependencia o de main: se espera a la otra tarjeta, sin reparar` };
+  }
+  // Claude no cambió nada con el MISMO motivo (su NO_CAMBIE) dos veces seguidas: volver a planear, Opus o la nube no le dan nada
+  // distinto. Se escala con mismaCausa, sin gastar otra reparación igual. Sin motivo, sigue con sus estrategias de siempre.
+  if (mismaQueLaAnterior && categoria === "no_cambio_nada" && conMotivoDeNoCambie(diagnostico?.causa)) {
+    return { accion: "escalar", cuenta: true, mismaCausa: true, reparaciones, motivo: `no cambió nada con el mismo motivo que el intento anterior: ${MISMA_CAUSA}` };
+  }
   // 25-nov-2026 (parte 4): las fallas repetidas (nube sin señal, no cambió nada, pruebas) usan el tope de 3 reparaciones del
   // CRM y cambian de estrategia en cada una; la falla que llega tras 3 intentos distintos escala UNA vez, `agotado`.
   if (ESTRATEGIAS_DE_LAS_FALLAS[categoria]) return decidirLaFallaRepetida({ diagnostico, categoria, reparaciones, tope, intentos });
@@ -781,8 +900,7 @@ function decidirSinCausa({ diagnostico, tarjeta = {}, etapa, config = {}, archiv
 
   // La MISMA falla que el intento anterior: solo se repara si queda una estrategia distinta que probar, en este orden:
   // verificar otra vez en la nube (si eso es lo que cambió), Opus al construir (si no se usó), partir (si se puede).
-  const anterior = AJENAS_A_LA_TAREA.includes(categoria) ? null : intentoAnterior(intentos);
-  if (esLaMismaCausa(diagnostico, anterior)) {
+  if (mismaQueLaAnterior) {
     const usadas = new Set(intentos.map((intento) => estrategiaDeLaCausa(intento?.causa)).filter(Boolean));
     const yaEsOpus = /opus/i.test(String(modeloConstruir ?? "")) || usadas.has("opus");
     // Lo que hay que verificar en la nube se repara SOLO en la nube: si eso ya se probó, no queda nada distinto.
