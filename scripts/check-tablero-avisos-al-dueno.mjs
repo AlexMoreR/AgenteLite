@@ -28,6 +28,8 @@ const reiniciar = () => {
     enviados: [],
     alertas: [],
     fallaElEnvio: false,
+    // La vista del Coordinador que lee la meta de tareas trabajando (27-nov-2026): por defecto la meta está cumplida.
+    vistaMeta: { trabajando: 10, meta: 10, motivoBajoMeta: null },
     // Un solo sí (30-oct-2026): las tarjetas cuya tarea aprobó el dueño (pantalla o voz, cuenta dueña).
     tareasDelDueno: new Set(),
     // Las tarjetas que comprueba el aviso del Coordinador con tarjetaId.
@@ -123,7 +125,10 @@ const mocks = {
     },
   },
   "./aprobacion-automatica": { tareaAprobadaPorElDueno: async (id) => estado.tareasDelDueno.has(id) },
-  "./coordinador-en-vivo": { ultimoLatido: async () => (estado.latido ? { recibidoEn: estado.latido } : null) },
+  "./coordinador-en-vivo": {
+    ultimoLatido: async () => (estado.latido ? { recibidoEn: estado.latido } : null),
+    vistaDelCoordinador: async () => estado.vistaMeta,
+  },
   "./tableros": {
     pendientesDelDueno: async () => estado.esperando,
     todoElNegocio: (workspaceId) => ({ workspaceId, soloDe: null }),
@@ -1061,6 +1066,89 @@ await prueba("falla repetida agotada (25-nov-2026): ERROR con nube_sin_resultado
   assert.equal(avisos.esSubidaAgotada({ estado: "ERROR", categoriaDelError: "lint", errorAgotado: true }), false);
   assert.equal(avisos.errorAgotado({ error: { agotado: true } }), true);
   assert.equal(avisos.errorAgotado({ error: { agotado: "true" } }), false);
+});
+
+/* ------------------------------------------------------------------ la meta de tareas trabajando (27-nov-2026) */
+
+await prueba("meta trabajando: a los 15 min por debajo deja la alerta ALTA del dueño y manda el motivo; no repite antes de 1 hora; con 'solo urgentes' queda en la página", async () => {
+  guardarNumero();
+  estado.latido = DIA.toISOString();
+  estado.ajustes.set("alertas:solo-urgentes:ws1", "false");
+  const motivo = "pausado por el uso de Claude (96 % de 95 %) — 4 de 10 trabajando";
+  estado.vistaMeta = { trabajando: 4, meta: 10, motivoBajoMeta: motivo };
+  const minuto = (n) => new Date(DIA.getTime() + n * 60_000);
+  // Baja a las 10:00: a las 10:14 todavía nada.
+  for (const n of [0, 1, 14]) {
+    estado.latido = minuto(n).toISOString();
+    await avisos.revisarAvisosAlDueno(minuto(n));
+  }
+  assert.equal(estado.enviados.length, 0, "a los 14 minutos no avisa");
+  assert.ok(!estado.alertas.some((a) => a.clave === "meta:trabajando"));
+  const guardado = JSON.parse(estado.ajustes.get("tablero:meta-trabajando:estado:ws1"));
+  assert.equal(guardado.bajoMetaDesde, DIA.toISOString(), "el estado se guarda en la AppSetting del negocio");
+  // A los 15 sí: alerta ALTA para el dueño (sin destinatario) y WhatsApp con el porcentaje y el link.
+  estado.latido = minuto(15).toISOString();
+  assert.deepEqual(await avisos.revisarAvisosAlDueno(minuto(15)), { enviados: 1 });
+  const alerta = estado.alertas.find((a) => a.clave === "meta:trabajando");
+  assert.equal(alerta.prioridad, "ALTA");
+  assert.equal(alerta.destinatarioId ?? null, null, "para el dueño, no para Emanuel");
+  assert.equal(alerta.titulo, "Coordinador: 4 de 10 trabajando");
+  assert.equal(alerta.detalle, motivo);
+  assert.equal(estado.enviados.length, 1);
+  assert.equal(estado.enviados[0].phoneNumber, "573001112233");
+  assert.match(estado.enviados[0].text, /96 % de 95 %/);
+  assert.match(estado.enviados[0].text, /vista=coordinador/);
+  assert.ok(estado.enviados[0].text.split("\n").length <= 2);
+  // El mismo motivo con otra cifra a los 50 minutos: no repite.
+  estado.vistaMeta = { trabajando: 5, meta: 10, motivoBajoMeta: "pausado por el uso de Claude (97 % de 95 %) — 5 de 10 trabajando" };
+  estado.latido = minuto(65).toISOString();
+  await avisos.revisarAvisosAlDueno(minuto(65));
+  assert.equal(estado.enviados.length, 1, "el mismo motivo no se repite antes de 60 minutos");
+  // Cambia el motivo: avisa enseguida. Con 'solo urgentes' prendido queda solo en la página.
+  estado.ajustes.set("alertas:solo-urgentes:ws1", "true");
+  estado.vistaMeta = { trabajando: 5, meta: 10, motivoBajoMeta: "fila vacía — 5 de 10 trabajando" };
+  estado.latido = minuto(66).toISOString();
+  assert.deepEqual(await avisos.revisarAvisosAlDueno(minuto(66)), { enviados: 0 });
+  assert.equal(estado.enviados.length, 1, "con 'solo urgentes' no sale WhatsApp");
+  assert.equal(estado.alertas.find((a) => a.clave === "meta:trabajando").detalle, "fila vacía — 5 de 10 trabajando", "la alerta se actualiza con el motivo nuevo");
+  assert.equal(JSON.parse(estado.ajustes.get("tablero:meta-trabajando:estado:ws1")).ultimoMotivo, "fila vacía — 5 de 10 trabajando");
+  // Vuelve a la meta: la alerta pasa a Resuelta y se borra bajoMetaDesde.
+  estado.vistaMeta = { trabajando: 10, meta: 10, motivoBajoMeta: null };
+  estado.latido = minuto(67).toISOString();
+  await avisos.revisarAvisosAlDueno(minuto(67));
+  assert.equal(estado.alertas.find((a) => a.clave === "meta:trabajando").estado, "RESUELTA");
+  assert.equal(JSON.parse(estado.ajustes.get("tablero:meta-trabajando:estado:ws1")).bajoMetaDesde, null);
+});
+
+await prueba("meta trabajando: de noche no manda, con los avisos apagados tampoco (pero guarda el estado), y si falla no frena los demás avisos", async () => {
+  guardarNumero();
+  estado.ajustes.set("alertas:solo-urgentes:ws1", "false");
+  estado.vistaMeta = { trabajando: 2, meta: 10, motivoBajoMeta: "fila vacía — 2 de 10 trabajando" };
+  // De noche (11 p. m.), aunque lleve más de 15 minutos por debajo.
+  estado.ajustes.set("tablero:meta-trabajando:estado:ws1", JSON.stringify({ bajoMetaDesde: hace(HORA, NOCHE).toISOString() }));
+  estado.latido = NOCHE.toISOString();
+  await avisos.revisarAvisosAlDueno(NOCHE);
+  assert.equal(estado.enviados.length, 0);
+  assert.ok(!estado.alertas.some((a) => a.clave === "meta:trabajando"));
+  // Con el interruptor general apagado no avisa, pero el estado sí se guarda.
+  reiniciar();
+  guardarNumero();
+  estado.vistaMeta = { trabajando: 2, meta: 10, motivoBajoMeta: "fila vacía — 2 de 10 trabajando" };
+  await avisos.guardarConfigDeAvisos("ws1", { activo: false });
+  estado.ajustes.set("tablero:meta-trabajando:estado:ws1", JSON.stringify({ bajoMetaDesde: hace(HORA).toISOString() }));
+  estado.latido = DIA.toISOString();
+  await avisos.revisarAvisosAlDueno(DIA);
+  assert.equal(estado.enviados.length, 0);
+  assert.ok(!estado.alertas.some((a) => a.clave === "meta:trabajando"));
+  assert.equal(JSON.parse(estado.ajustes.get("tablero:meta-trabajando:estado:ws1")).ultimaRevision, DIA.toISOString());
+  // Si la vista falla, el Coordinador caído se sigue avisando.
+  reiniciar();
+  guardarNumero();
+  estado.ajustes.set("alertas:solo-urgentes:ws1", "false");
+  estado.vistaMeta = null; // trabajando de null: lanza dentro del bloque
+  estado.latido = hace(30 * 60_000).toISOString();
+  await avisos.revisarAvisosAlDueno(DIA);
+  assert.ok(estado.alertas.some((a) => a.clave === "auto:caido"), "los demás avisos siguen");
 });
 
 console.log(`\n${pruebas} pruebas, todas bien`);

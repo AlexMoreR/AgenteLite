@@ -959,4 +959,46 @@ await prueba("render: la línea de pasos resalta el actual, marca los hechos y c
   assert.match(cuadritos, /grid-cols-2 gap-1\.5 sm:grid-cols-4/, "2 por fila en el celular");
 });
 
+await prueba("meta trabajando (27-nov): la vista cuenta las que trabajan, arma el motivo en vivo y lee el estado sin escribirlo", async () => {
+  estado.tarjetas.push(tarjeta({ id: "t1", titulo: "Panel en vivo", estado: "EN_CURSO" }));
+  estado.tarjetas.push(tarjeta({ id: "t2", titulo: "Un plan", estado: "PLANEANDO" }));
+  estado.tarjetas.push(tarjeta({ id: "f1", titulo: "Arreglar chats", estado: "APROBADO", trabajoVenceEn: null }));
+  await servicio.guardarLatido(
+    contexto,
+    {
+      tareas: [
+        { tarjetaId: "t1", etapa: "construyendo" },
+        { tarjetaId: "t2", etapa: "planeando" },
+      ],
+      cupos: { cupos: 7, enFila: 1, corriendo: 2 },
+      esperas: [{ tarjetaId: "f1", motivo: "tocan el mismo archivo", tipo: "choque", contra: "t1" }],
+    },
+    hace(0.2),
+  );
+  estado.ajustes.set("tablero:meta-trabajando:estado:ws1", JSON.stringify({ bajoMetaDesde: hace(20).toISOString(), minutosConMetaHoy: 90, dia: "2026-10-24" }));
+  const antes = estado.ajustes.get("tablero:meta-trabajando:estado:ws1");
+  let vista = await servicio.vistaDelCoordinador("ws1", AHORA);
+  assert.equal(vista.trabajando, 1, "planear no cuenta");
+  assert.equal(vista.meta, 10);
+  assert.equal(vista.motivoBajoMeta, "los cupos configurados dan 7, la meta es 10 — 1 de 10 trabajando");
+  assert.equal(vista.bajoMetaDesde, hace(20).toISOString());
+  assert.equal(vista.horasConMetaHoy, 1.5);
+  assert.equal(estado.ajustes.get("tablero:meta-trabajando:estado:ws1"), antes, "leer la vista no escribe el estado");
+  assert.match(servicio.textoDelCoordinador(vista), /Trabajando 1 de 10 — los cupos configurados dan 7, la meta es 10\. Hoy: 1\.5 h con la meta cumplida\./);
+  // Con cupos de sobra, el choque nombra las dos tarjetas por su título.
+  await servicio.guardarLatido(
+    contexto,
+    { tareas: [{ tarjetaId: "t1", etapa: "construyendo" }], cupos: { cupos: 10, enFila: 1, corriendo: 1 }, esperas: [{ tarjetaId: "f1", motivo: "tocan el mismo archivo", tipo: "choque", contra: "t1" }] },
+    hace(0.1),
+  );
+  vista = await servicio.vistaDelCoordinador("ws1", AHORA);
+  assert.ok(vista.motivoBajoMeta.startsWith("«Arreglar chats» choca con «Panel en vivo» (tocan el mismo archivo)"), vista.motivoBajoMeta);
+  // Con la meta en 1 se cumple: sin motivo ni "desde".
+  estado.ajustes.set("tablero:meta-trabajando:ws1", "1");
+  vista = await servicio.vistaDelCoordinador("ws1", AHORA);
+  assert.equal(vista.motivoBajoMeta, null);
+  assert.equal(vista.bajoMetaDesde, null);
+  assert.match(servicio.textoDelCoordinador(vista), /Trabajando 1 de 1 \(meta cumplida\)/);
+});
+
 console.log(`\n${pruebas} pruebas, todas bien`);

@@ -1175,6 +1175,10 @@ export async function ejecutarHerramientaMcpTableros(
       return {
         resumen: textoDelCoordinador(vista),
         en_linea: vista.enLinea,
+        // 27-nov-2026: la meta de tareas trabajando a la vez, por qué falta (null si se cumple) y las horas de hoy con la meta cumplida.
+        trabajando: `${vista.trabajando} de ${vista.meta}`,
+        motivo_bajo_meta: vista.motivoBajoMeta,
+        horas_con_meta_hoy: vista.horasConMetaHoy,
         ultimo_latido: vista.ultimoLatidoEn ? hora(new Date(vista.ultimoLatidoEn)) : null,
         ahora_mismo: vista.tareas.map((tarea) => ({
           tarjeta_id: tarea.tarjetaId,

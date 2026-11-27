@@ -16,12 +16,14 @@ import {
   limpiezaUnicaDelCoordinador,
   marcarSalioPorWhatsApp,
   registrarAlerta,
+  resolverAlertasPorClave,
   soloUrgentesPrendido,
 } from "@/features/alertas/servicios/alertas";
 import { sendEvolutionTextMessageWithReconnect } from "@/lib/evolution";
 import { prisma } from "@/lib/prisma";
 
-import { leerAreaFeatures, ultimoLatido } from "./coordinador-en-vivo";
+import { leerAreaFeatures, ultimoLatido, vistaDelCoordinador } from "./coordinador-en-vivo";
+import { avanzarEstadoDeMeta, decidirAvisoDeMeta, guardarEstadoDeMeta, leerEstadoDeMeta } from "./meta-de-trabajo";
 import { tareaAprobadaPorElDueno } from "./aprobacion-automatica";
 import { porQueElPlanNuevoEsperaTuSi, porQueLaTareaEsperaTuSi } from "./reglas-riesgo";
 import { REPOS_DEL_TRABAJADOR, TOPE_DE_REPARACIONES, TOPE_INTENTOS_DE_SUBIDA, textoDeAprobarEnPantalla, zonasQueEsperanLaPantalla, zonasQueNoArrancanSolas } from "./reglas-trabajador";
@@ -100,6 +102,13 @@ import { linkDeHoy, linkDeLaTarjeta, linkDelCoordinador, pendientesDelDueno, tod
   de 24 h desde que entró a Features (el último "mover" a Features o a una sub-área; si no, su creación), deja una alerta MEDIA
   `auto:quieta:<id>:<estado>` con el motivo en una línea (regla pura tarjetaQuieta, en alertas/dominio/reglas.ts). Es solo
   página: no sale ningún WhatsApp. Se cierra sola en el barrido cuando cambia de estado o la toman. Sin id de Features, nada.
+
+  META DE TAREAS TRABAJANDO (27-nov-2026, parte 3 de «Coordinador: mínimo 10 tareas trabajando a la vez»): en cada vuelta se
+  arma la vista del Coordinador, se avanza el estado de la meta (meta-de-trabajo.ts) y se guarda, aunque los avisos estén
+  apagados (el panel lo necesita). Si lleva 15 minutos o más por debajo, deja la alerta ALTA `meta:trabajando` para el dueño
+  (no para Emanuel) y, con "solo urgentes" apagado, le manda el motivo en una línea por WhatsApp. El mismo motivo se repite
+  como mucho una vez por hora; uno nuevo sale enseguida; nunca de 9 p. m. a 7 a. m. (decidirAvisoDeMeta). Al volver a la
+  meta, la alerta pasa a Resuelta. Va en su propio try/catch: si falla, los demás avisos siguen.
 
   Todo se guarda en AppSetting (sin tablas nuevas). El reloj del servidor (api/cron/follows) llama a
   revisarAvisosAlDueno cada minuto. Antes de este archivo el aviso del Coordinador devolvía 412 porque nadie
@@ -949,6 +958,66 @@ export async function revisarNegocio(workspaceId: string, ahora: Date): Promise<
   } catch (error) {
     console.warn("[avisos-al-dueno] falló el barrido de alertas", error instanceof Error ? error.message : String(error));
   }
+  // La meta de tareas trabajando: su propio try/catch, corre aunque los avisos estén apagados (guarda el estado del panel).
+  let enviadosDeMeta = 0;
+  try {
+    enviadosDeMeta = await revisarMetaTrabajando(workspaceId, ahora);
+  } catch (error) {
+    console.warn("[avisos-al-dueno] falló la revisión de la meta de tareas trabajando", error instanceof Error ? error.message : String(error));
+  }
+  const resultado = await revisarAvisosDelNegocio(workspaceId, ahora);
+  return { enviados: resultado.enviados + enviadosDeMeta };
+}
+
+export const CLAVE_ALERTA_META_TRABAJANDO = "meta:trabajando";
+
+/**
+ * La meta de tareas trabajando en la vuelta de cada minuto: avanza y guarda el estado y, si decidirAvisoDeMeta dice que sí,
+ * deja la alerta y (sin "solo urgentes") manda el WhatsApp al dueño. Devuelve cuántos WhatsApp salieron (0 o 1).
+ */
+export async function revisarMetaTrabajando(workspaceId: string, ahora: Date): Promise<number> {
+  const [vista, anterior] = await Promise.all([vistaDelCoordinador(workspaceId, ahora), leerEstadoDeMeta(workspaceId)]);
+  const estado = avanzarEstadoDeMeta(anterior, { trabajando: vista.trabajando, meta: vista.meta, ahora });
+  // Volvió a la meta: la alerta abierta ya no aplica.
+  if (anterior.bajoMetaDesde && !estado.bajoMetaDesde) await resolverAlertasPorClave(workspaceId, CLAVE_ALERTA_META_TRABAJANDO, ahora);
+  const motivo = vista.motivoBajoMeta;
+  if (!motivo || !(await avisosPrendidos(workspaceId)) || !decidirAvisoDeMeta(estado, motivo, ahora).avisar) {
+    await guardarEstadoDeMeta(workspaceId, estado);
+    return 0;
+  }
+  await registrarAlerta({
+    workspaceId,
+    clave: CLAVE_ALERTA_META_TRABAJANDO,
+    prioridad: "ALTA",
+    titulo: `Coordinador: ${vista.trabajando} de ${vista.meta} trabajando`,
+    detalle: motivo,
+    origen: ORIGEN_COORDINADOR,
+  });
+  // Se anota como avisado aunque no salga el WhatsApp (queda en la página): no se reintenta cada minuto.
+  const avisado = { ...estado, ultimoMotivo: motivo, ultimoAvisoEn: ahora.toISOString() };
+  let salio = 0;
+  if (!(await soloUrgentesPrendido(workspaceId))) {
+    const texto = textoDelAvisoDeMeta(motivo);
+    const envio = await enviarAlDueno(workspaceId, texto);
+    if (envio.salio) {
+      await marcarSalioPorWhatsApp(workspaceId, CLAVE_ALERTA_META_TRABAJANDO);
+      salio = 1;
+    }
+    const avisos = await leerEstadoDeAvisos(workspaceId);
+    anotarEnHistorial(avisos, { cuando: ahora.toISOString(), tipo: "meta_trabajando", texto, salio: envio.salio, motivo: envio.salio ? null : `no salió: ${envio.motivo}` });
+    await guardarEstadoDeAvisos(workspaceId, avisos);
+  }
+  await guardarEstadoDeMeta(workspaceId, avisado);
+  return salio;
+}
+
+/** El WhatsApp del aviso de la meta: el motivo en una línea y el link al panel del Coordinador. */
+export function textoDelAvisoDeMeta(motivo: string): string {
+  return `⚠️ Coordinador: ${motivo}\nVer: ${linkDelCoordinador()}`;
+}
+
+/** Los avisos de siempre (caído, sin trabajo, trabado, necesita, aprobar en pantalla, quietas) de un negocio. */
+async function revisarAvisosDelNegocio(workspaceId: string, ahora: Date): Promise<{ enviados: number }> {
   if (!(await avisosPrendidos(workspaceId))) return { enviados: 0 };
   const [situacion, estado] = await Promise.all([leerSituacion(workspaceId), leerEstadoDeAvisos(workspaceId)]);
   const calculados = calcularAvisos(situacion, ahora);

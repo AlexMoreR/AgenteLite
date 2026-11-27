@@ -41,6 +41,7 @@ import {
   ponerAprobarTareasSolo,
 } from "@/features/tableros-inteligentes/services/aprobacion-automatica";
 import { guardarPausaPorUso } from "@/features/tableros-inteligentes/services/pausa-por-uso-de-claude";
+import { guardarMetaTrabajando } from "@/features/tableros-inteligentes/services/meta-de-trabajo";
 import {
   avisosParaLaPantalla,
   guardarConfigDeAvisos,
@@ -537,6 +538,22 @@ export async function cambiarPausaPorUsoAction(cambios: { activa?: boolean; umbr
     return { ok: true };
   } catch (fallo) {
     return { ok: false, error: mensaje(fallo, "No se pudo cambiar la pausa por uso de Claude") };
+  }
+}
+
+/**
+ * "Mínimo trabajando a la vez" (27-nov-2026): la meta de tareas trabajando del panel del Coordinador (un entero de 1 a 20).
+ * Solo el dueño. No cambia cuántas corre el Coordinador: solo contra qué número se mide y se avisa.
+ */
+export async function guardarMetaTrabajandoAction(n: number): Promise<Resultado> {
+  const access = await requireClientWorkspaceAccess("tableros_inteligentes");
+  try {
+    const persona = await personaQueAprueba(access.workspaceId, access.userId);
+    if (!persona.esDueno) return { ok: false, error: "El mínimo de tareas trabajando lo cambia solo el dueño del negocio." };
+    await guardarMetaTrabajando(access.workspaceId, n);
+    return { ok: true };
+  } catch (fallo) {
+    return { ok: false, error: mensaje(fallo, "No se pudo guardar el mínimo de tareas trabajando") };
   }
 }
 

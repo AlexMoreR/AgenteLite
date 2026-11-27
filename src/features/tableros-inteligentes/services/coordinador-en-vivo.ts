@@ -3,6 +3,7 @@ import { registrarAlerta, resolverAlertasPorClave } from "@/features/alertas/ser
 
 import {
   type CargaDelLatido,
+  type EsperaDelLatido,
   type EtapaVisible,
   type HoyVista,
   type LatidoGuardado,
@@ -54,6 +55,16 @@ import {
 import { VIA_REGLA_FEATURES } from "./reglas-features";
 import { diaDeBogota } from "./archivadas";
 import { leerPausaPorUso } from "./pausa-por-uso-de-claude";
+import {
+  ESTADO_DE_META_VACIO,
+  META_TRABAJANDO_POR_DEFECTO,
+  contarTrabajando,
+  horasConMetaDeHoy,
+  leerEstadoDeMeta,
+  leerMetaTrabajando,
+  motivoBajoMeta,
+  type EsperaConTitulos,
+} from "./meta-de-trabajo";
 import { ErrorDelTrabajador, type ContextoTrabajador } from "./trabajador";
 import { linkDeLaTarjeta } from "./tableros";
 import { dondeTableroVivo } from "./tableros-archivados";
@@ -330,6 +341,16 @@ export type VistaDelCoordinador = {
    * sale solo si está vencida, y entonces manda sobre el texto del uso de Claude.
    */
   sesionClaude: { vencida: boolean; desde: string | null; texto: string | null };
+  /** La meta de tareas trabajando a la vez (27-nov-2026): cuántas trabajan ahora (construyendo a vigilando; planear no cuenta). */
+  trabajando: number;
+  /** La meta del negocio (1 a 20, 10 por defecto). */
+  meta: number;
+  /** Por qué hay menos que la meta, en una línea; null si se cumple. */
+  motivoBajoMeta: string | null;
+  /** Desde cuándo está por debajo (ISO), según la revisión de cada minuto; null si cumple o todavía no lo vio. */
+  bajoMetaDesde: string | null;
+  /** Las horas de hoy (Bogotá) con la meta cumplida, con un decimal. */
+  horasConMetaHoy: number;
 };
 
 const ESTADOS_EN_MARCHA = ["PLANEANDO", "EN_CURSO", "SUBIENDO"] as const;
@@ -532,6 +553,10 @@ async function filaDelCoordinador(workspaceId: string, ahora: Date, esperas: Map
     bloqueadas: bloqueadas.slice(0, MAXIMO_DE_FILA),
     errores: { cantidad: errores.length, tarjetas: errores.slice(0, MAXIMO_DE_FILA) },
     esperandoAOtra: { cantidad: esperando.length, esperanTuSiFinal, tarjetas: esperando.slice(0, MAXIMO_DE_FILA) },
+    // Para el motivo de la meta (27-nov-2026): las que esperan tu aprobación (POR_APROBAR o PLAN_LISTO), no las de Por revisar.
+    esperanAprobacion: esperandoAlDueno
+      .filter((tarjeta) => tarjeta.estado === "POR_APROBAR" || tarjeta.estado === "PLAN_LISTO")
+      .map((tarjeta) => ({ tarjetaId: tarjeta.id, titulo: tarjeta.titulo })),
   };
 }
 
@@ -614,6 +639,40 @@ export async function vistaDelCoordinador(workspaceId: string, ahora = new Date(
 
   const carga: CargaVista | null = latido ? { ...latido.carga, semaforo: semaforoDeLaCarga(latido.carga) } : null;
   const uso = latido?.uso ?? { limiteAlcanzado: false, reiniciaEn: null, motor: null };
+
+  // La meta de tareas trabajando a la vez (27-nov-2026): el motivo sale en vivo con lo que ya se juntó; el estado (desde
+  // cuándo está por debajo y las horas de hoy) lo guarda la revisión de cada minuto y acá solo se lee.
+  const [meta, estadoDeMeta] = await Promise.all([
+    leerMetaTrabajando(workspaceId).catch(() => META_TRABAJANDO_POR_DEFECTO),
+    leerEstadoDeMeta(workspaceId).catch(() => ({ ...ESTADO_DE_META_VACIO })),
+  ]);
+  const trabajando = contarTrabajando(tareas);
+  const motivo =
+    trabajando >= meta
+      ? null
+      : motivoBajoMeta({
+          trabajando,
+          meta,
+          // `activa` y el umbral, como los tiene guardados el CRM (el interruptor del panel manda).
+          pausaUso: latido?.pausaUso ? { ...latido.pausaUso, activa: ajuste.activa, umbral: ajuste.umbral } : null,
+          sesionVencida: latido?.sesionClaude?.vencida === true,
+          apagado,
+          cupos: latido?.cupos ?? null,
+          nubeLlena: null,
+          aizen1Ocupado: carga?.semaforo === "rojo" || carga?.esperandoPc === true,
+          esperas: await esperasConTitulos(workspaceId, latido?.esperas ?? [], [
+            ...tareas,
+            ...fila.siguientes,
+            ...fila.bloqueadas,
+            ...fila.errores.tarjetas,
+            ...fila.esperandoAOtra.tarjetas,
+          ]),
+          dependencias: fila.esperandoAOtra.tarjetas.map((item) => ({ tarjetaId: item.tarjetaId, titulo: item.titulo, esperaA: item.esperaA?.titulo ?? "otra tarjeta" })),
+          esperanAprobacion: fila.esperanAprobacion,
+          errores: fila.errores.cantidad,
+          candidatas: fila.siguientes.length,
+        });
+
   return {
     generadoEn: ahora.toISOString(),
     enLinea: !apagado,
@@ -633,7 +692,29 @@ export async function vistaDelCoordinador(workspaceId: string, ahora = new Date(
       desde: latido?.sesionClaude?.desde ?? null,
       texto: textoDeSesionClaude(latido?.sesionClaude ?? null),
     },
+    trabajando,
+    meta,
+    motivoBajoMeta: motivo,
+    bajoMetaDesde: motivo ? estadoDeMeta.bajoMetaDesde : null,
+    horasConMetaHoy: horasConMetaDeHoy(estadoDeMeta, ahora),
   };
+}
+
+/**
+ * Las esperas del latido con el título de su tarjeta y el de con la que choca: primero de lo que la vista ya tiene; lo que
+ * falte, con UNA consulta del mismo negocio. Si esa consulta falla, quedan los ids (el motivo sale igual).
+ */
+async function esperasConTitulos(workspaceId: string, esperas: readonly EsperaDelLatido[], conocidas: readonly { tarjetaId: string; titulo: string }[]): Promise<EsperaConTitulos[]> {
+  if (!esperas.length) return [];
+  const titulos = new Map(conocidas.map((tarjeta) => [tarjeta.tarjetaId, tarjeta.titulo]));
+  const faltan = [...new Set(esperas.flatMap((espera) => [espera.tarjetaId, espera.contra]).filter((id): id is string => Boolean(id) && !titulos.has(id as string)))];
+  if (faltan.length) {
+    const filas = await prisma.tarjetaTablero
+      .findMany({ where: { id: { in: faltan.slice(0, 40) }, tablero: { workspaceId }, borradoEn: null }, select: { id: true, titulo: true } })
+      .catch(() => [] as { id: string; titulo: string }[]);
+    for (const fila of filas ?? []) titulos.set(fila.id, fila.titulo);
+  }
+  return esperas.map((espera) => ({ ...espera, titulo: titulos.get(espera.tarjetaId) ?? null, tituloContra: espera.contra ? (titulos.get(espera.contra) ?? null) : null }));
 }
 
 const TEXTO_DEL_REVISOR: Record<EstadoDelRevisor, string> = { revisando: "revisando", aprobado: "aprobó", cambios: "pidió cambios", no_aplica: "no aplica" };
@@ -658,6 +739,11 @@ export function textoDelCoordinador(vista: VistaDelCoordinador): string {
   else if (!vista.enLinea) {
     lineas.push(`Coordinador apagado o sin conexión: el último latido fue ${haceTexto(ahora - Date.parse(vista.ultimoLatidoEn ?? ""))}. Lo siguiente es el último dato conocido.`);
   } else lineas.push("Coordinador en línea.");
+  // La meta (27-nov-2026): "Trabajando 4 de 10 — pausado por el uso de Claude (96 % de 95 %)"; el motivo ya trae el "4 de 10".
+  if (typeof vista.trabajando === "number" && typeof vista.meta === "number") {
+    const causa = vista.motivoBajoMeta ? vista.motivoBajoMeta.replace(/\s*—\s*\d+ de \d+ trabajando\s*$/, "") : null;
+    lineas.push(`Trabajando ${vista.trabajando} de ${vista.meta}${causa ? ` — ${causa}` : " (meta cumplida)"}. Hoy: ${vista.horasConMetaHoy ?? 0} h con la meta cumplida.`);
+  }
 
   if (vista.tareas.length) {
     lineas.push(`Ahora mismo (${vista.tareas.length}):`);
