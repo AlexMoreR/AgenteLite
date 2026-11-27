@@ -11,6 +11,8 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
+import { repoDeLaOpcion } from "./preguntas-abiertas.mjs";
+
 /** El nombre de cada agente según el proyecto (lo que no esté acá se llama "Agente <clave>"). */
 export const NOMBRES_DE_AGENTES = {
   aizencrm: "Agente CRM",
@@ -261,4 +263,14 @@ export function necesitoDe(texto) {
     return { tipo, detalle: unaLinea(calce[2].replace(/\*+/g, ""), 400) || "(sin detalle)" };
   }
   return null;
+}
+
+/**
+ * ¿El agente pide con su NECESITO que la tarjeta pase al otro repo? ("NECESITO: decisión pasar la tarjeta a Gestion") -> 'gestion'
+ * o 'aizencrm'; null si no hay NECESITO o pide otra cosa (27-nov-2026, parte 3 de «nunca construir en el repo equivocado»): eso no
+ * lo decide el dueño, el Coordinador cambia el repo solo (bucle.mjs).
+ */
+export function repoDelNecesito(texto) {
+  const necesita = necesitoDe(texto);
+  return necesita ? repoDeLaOpcion(necesita.detalle) : null;
 }

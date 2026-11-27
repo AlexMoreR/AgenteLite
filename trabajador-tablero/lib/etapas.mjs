@@ -25,7 +25,7 @@ import path from "node:path";
 
 import crypto from "node:crypto";
 
-import { agenteDelRepo, leccionesParaElPrompt, necesitoDe, textoDeIdentidad } from "./agentes.mjs";
+import { agenteDelRepo, leccionesParaElPrompt, necesitoDe, repoDelNecesito, textoDeIdentidad } from "./agentes.mjs";
 import { bloqueDeIncidentes, incidentesParaElPrompt } from "./bitacora.mjs";
 import { MAXIMO_DE_PARTES, MINIMO_DE_PARTES, FRASES_DE_LA_CAUSA, causaDeLaSubidaFallida, enUnaLinea, esErrorDeSesionClaude, esLimiteDeUso, recortar, sinRuido } from "./diagnostico.mjs";
 import { ensayarMigraciones, migracionesNuevas } from "./ensayo.mjs";
@@ -73,7 +73,7 @@ import { PRIORIDAD } from "./cola.mjs";
 import { tamanoDeLaRespuesta } from "./medir.mjs";
 import { carpetaDeIntentos } from "./registro.mjs";
 import { migracionDestructiva } from "./riesgo.mjs";
-import { seguirConLaRecomendada } from "./preguntas-abiertas.mjs";
+import { opcionDeLaPregunta, preguntasAbiertasDelPlan, repoDeLaRecomendada, seguirConLaRecomendada } from "./preguntas-abiertas.mjs";
 import { motivoFrenaEnFeatures, repoParaLaTarjeta } from "./features-auto.mjs";
 import { MINUTOS_PARA_RESOLVER, resolverChoque } from "./resolver-choque.mjs";
 import {
@@ -776,6 +776,55 @@ const INSTRUCCION_DEPENDE_DE =
 const INSTRUCCION_YA_HECHO =
   'Si lo pedido YA está hecho en main, escribe en una línea sola, al principio de la línea: "YA_ESTA_HECHO: <commit> — <motivo en una frase>" (el commit de main donde quedó, que el Coordinador comprueba con git).';
 
+/** Los repos entre los que se puede pasar una tarjeta (/cambiar-repo acepta solo estos). */
+const REPOS_PARA_CAMBIAR = ["gestion", "aizencrm"];
+
+/** El texto en minúsculas y sin tildes (para buscar frases en el plan). */
+const sinTildesNiMayusculas = (texto) =>
+  String(texto ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+/**
+ * CAMBIO DE REPO DESDE EL PLAN (27-nov-2026, parte 3 de «nunca construir en el repo equivocado»): ¿el plan dice que lo pedido vive
+ * en el otro repo? { repo, motivo } o null. En este orden: la línea "OTRO_REPO: <gestion|aizencrm> — motivo" (la pide
+ * promptDelPlan), un "NECESITO: … pasar la tarjeta a Gestion" (repoDelNecesito), una pregunta abierta cuya opción recomendada es
+ * pasar al otro repo (repoDeLaRecomendada) o una frase como "solo existe en el repo Gestion". Un repo igual al de la tarjeta, o
+ * que no sea gestion ni aizencrm, no cuenta.
+ */
+export function otroRepoDelPlan(texto, repoActual) {
+  const sirve = (repo) => (REPOS_PARA_CAMBIAR.includes(repo) && repo !== repoActual ? repo : null);
+  const lineas = String(texto ?? "").split(/\r?\n/);
+  for (const linea of lineas) {
+    const calce = /^[\s>*_#-]*\**otro_repo\**\s*:\s*\**\s*["'«`]?([a-z]+)["'»`]?\**\s*(?:[—–:-]+\s*)?(.*)$/.exec(sinTildesNiMayusculas(linea));
+    const repo = calce && sirve(calce[1]);
+    if (repo) {
+      const motivo = linea.replace(/^[^:]*:\s*\**\s*["'«`]?\p{L}+["'»`]?\**\s*(?:[—–:-]+\s*)?/u, "").replace(/\*+/g, "").trim();
+      return { repo, motivo: enUnaLinea(motivo || `El plan dice que lo pedido vive en el repo ${repo}`, 300) };
+    }
+  }
+  const delNecesito = sirve(repoDelNecesito(texto));
+  if (delNecesito) return { repo: delNecesito, motivo: enUnaLinea(`El plan pide: ${necesitoDe(texto)?.detalle ?? `pasar la tarjeta a ${delNecesito}`}`, 300) };
+  for (const pregunta of preguntasAbiertasDelPlan(texto)) {
+    const elegida = opcionDeLaPregunta(pregunta);
+    const repo = sirve(repoDeLaRecomendada(elegida));
+    if (repo) return { repo, motivo: enUnaLinea(`La opción recomendada del plan es «${elegida.opcion}» (pregunta: ${elegida.pregunta})`, 300) };
+  }
+  for (const linea of lineas) {
+    const calce = /\b(?:solo|unicamente)\s+(?:existe|existen|esta|estan|vive|viven)\s+en\s+(?:el\s+)?repo(?:sitorio)?\s+(?:de\s+)?["'«`]?([a-z]+)\b/.exec(sinTildesNiMayusculas(linea));
+    const repo = calce && sirve(calce[1]);
+    if (repo) return { repo, motivo: enUnaLinea(linea.replace(/^[\s>*_#-]*/, "").replace(/\*+/g, ""), 300) };
+  }
+  return null;
+}
+
+/** La instrucción de la línea OTRO_REPO para el plan (el otro repo es el que no es el de la tarjeta). */
+function instruccionDeOtroRepo(repo) {
+  const otro = REPOS_PARA_CAMBIAR.find((clave) => clave !== repo.clave) ?? "gestion";
+  return `Si lo pedido vive en el OTRO repo (los archivos, pantallas o tablas que hay que cambiar están en "${otro}" y no en "${repo.clave}"), no planees aquí: escribe en una línea sola, al principio de la línea, "OTRO_REPO: ${otro} — <motivo en una frase>". El Coordinador le cambia el repo a la tarjeta y la vuelve a planear allá. No lo pidas con NECESITO ni como pregunta abierta.`;
+}
+
 export function promptDelPlan(tarjeta, repo, motor = "claude", { lecciones = "", incidentes = "" } = {}) {
   return [
     `${identidadDelAgente(repo)} Eres parte del Coordinador de Sistemas de Magilus. Tienes que escribir un PLAN para esta tarea del repositorio "${repo.clave}". ${
@@ -805,6 +854,7 @@ export function promptDelPlan(tarjeta, repo, motor = "claude", { lecciones = "",
     fraseAlTerminar(repo),
     instruccionDeRiesgo(Boolean(repo.featuresAuto)),
     INSTRUCCION_NECESITO,
+    instruccionDeOtroRepo(repo),
     `Antes de planear revisa que se pueda hacer. ${INSTRUCCION_DEPENDE_DE} ${INSTRUCCION_YA_HECHO} En esos dos casos contesta SOLO esa línea, sin plan.`,
     "Contesta SOLO con el plan.",
   ]
@@ -908,12 +958,23 @@ function fraseAlTerminar(repo) {
     .join("\n");
 }
 
+/**
+ * Las opciones que el Coordinador ya eligió para las preguntas abiertas del plan (seguirConLaRecomendada), para que quien construye
+ * las aplique y no las vuelva a preguntar (27-nov-2026). Las de cambio de repo no van: esas las resuelve el bucle con /cambiar-repo.
+ */
+export function bloqueDeDecisiones(plan) {
+  const decisiones = (seguirConLaRecomendada(plan)?.decisiones ?? []).filter((una) => !una.repo);
+  if (!decisiones.length) return "";
+  return ["Decisiones ya tomadas (aplícalas, no las vuelvas a preguntar):", ...decisiones.map((una) => `- ${enUnaLinea(una.pregunta, 200)} -> ${enUnaLinea(una.opcion, 200)}`)].join("\n");
+}
+
 export function promptDeConstruir(tarjeta, repo, rama, motor = "claude", { patchAplicado = false, lecciones = "", incidentes = "" } = {}) {
   const aprobadas = tarjeta.zonasAprobadas?.length ? tarjeta.zonasAprobadas.join(", ") : "ninguna";
   return [
     `${identidadDelAgente(repo)} Implementa EXACTAMENTE el plan que aprobó el dueño, en este repositorio ("${repo.clave}"). Estás en un worktree aparte, en la rama ${rama}.`,
     contextoDeLaTarjeta(tarjeta),
     `PLAN APROBADO:\n${tarjeta.plan}`,
+    bloqueDeDecisiones(tarjeta.plan),
     bloqueDeLecciones(lecciones),
     bloqueDeIncidentes(incidentes),
     bloqueDeReparacion(tarjeta, { patchAplicado }),
@@ -1528,19 +1589,25 @@ export async function planear(contexto, tarjeta) {
     const previa = await palabrasDeRevisionPrevia(contexto, repo, tarjeta, texto, { inicio: 5 });
     if (previa) return { ...previa, motor, modelo };
     const plan = `${texto.replace(MARCA_DEL_PLAN, "").trimEnd()}\n\n${firmaDelPlan(motor, modelo)}`;
+    // Lo pedido vive en el otro repo (27-nov-2026): OTRO_REPO, un NECESITO de "pasar la tarjeta a Gestion", la recomendada de una
+    // pregunta abierta o "solo existe en el repo Gestion". El bucle llama /cambiar-repo y NO manda el plan ni el aviso «necesita».
+    // Lo de siempre (plan, necesita, informa) viaja igual: si el CRM no deja cambiar el repo (404 o 409) sigue el camino de hoy.
+    const otroRepo = otroRepoDelPlan(texto, tarjeta.repo);
+    if (otroRepo) contexto.registro?.info?.(`el plan dice que lo pedido vive en ${otroRepo.repo}: ${otroRepo.motivo}`);
+    const conOtroRepo = otroRepo ? { otroRepo } : {};
     // "NECESITO: …" (26-oct-2026): el plan queda en "Plan listo" esperando el sí del dueño (la línea APROBAR PLAN que espera
     // gana sobre cualquier "SOLO") y el bucle manda UN aviso "necesita".
     const necesita = necesitoDe(texto);
-    if (necesita) return { plan: `APROBAR PLAN: ESPERA TU SÍ — el agente necesita ${necesita.tipo}: ${necesita.detalle}\n\n${plan}`, motor, modelo, necesita };
+    if (necesita) return { plan: `APROBAR PLAN: ESPERA TU SÍ — el agente necesita ${necesita.tipo}: ${necesita.detalle}\n\n${plan}`, motor, modelo, necesita, ...conOtroRepo };
     // Preguntas abiertas (2-nov-2026, un solo sí de verdad): ya no esperan el sí del dueño. Por cada pregunta se sigue con su
     // opción recomendada (o la primera escrita); la nota va arriba del plan (queda en el historial de la tarjeta y quien
     // construye la lee) y el bucle manda UN aviso de una línea que solo informa (`informa`, no `necesita`).
     const resueltas = seguirConLaRecomendada(plan, tarjeta.titulo);
     if (resueltas) {
       contexto.registro?.info?.(`el plan tenía ${resueltas.elegidas.length} pregunta(s) abierta(s): ${enUnaLinea(resueltas.nota, 300)}`);
-      return { plan: `${resueltas.nota}\n\n${plan}`, motor, modelo, informa: resueltas.aviso };
+      return { plan: `${resueltas.nota}\n\n${plan}`, motor, modelo, informa: resueltas.aviso, ...conOtroRepo };
     }
-    return { plan, motor, modelo };
+    return { plan, motor, modelo, ...conOtroRepo };
   } finally {
     await quitarWorktree(repo, carpeta);
   }

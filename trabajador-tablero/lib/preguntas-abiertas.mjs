@@ -158,14 +158,41 @@ export function lineaDeLaOpcion({ pregunta, opcion, origen }) {
  * línea corta para el dueño, que solo informa (no espera respuesta).
  */
 export function seguirConLaRecomendada(plan, titulo = "") {
-  const preguntas = preguntasAbiertasDelPlan(plan);
+  // Las notas que el Coordinador ya dejó arriba del plan ("Seguí con …") no son preguntas nuevas: al construir el plan las trae.
+  const sinNotas = String(plan ?? "")
+    .split(/\r?\n/)
+    .filter((linea) => !/^\s*Segu[ií] con /.test(linea))
+    .join("\n");
+  const preguntas = preguntasAbiertasDelPlan(sinNotas);
   if (!preguntas.length) return null;
   const elegidas = preguntas.map(opcionDeLaPregunta);
+  // Las decisiones que quien construye tiene que aplicar (promptDeConstruir): cada opción elegida, con el repo si es de cambio de repo.
+  const decisiones = elegidas.filter((una) => una.opcion).map((una) => ({ ...una, repo: repoDeLaOpcion(una.opcion) }));
   const nota = elegidas.map(lineaDeLaOpcion).join("\n");
   const [primera] = elegidas;
   const corta = (texto, n) => (texto.length > n ? `${texto.slice(0, n - 1)}…` : texto);
   const queSegui = primera.opcion ? `seguí con ${primera.origen === "recomendada" ? "la opción recomendada" : "la primera opción"}: ${corta(primera.opcion, 120)}` : "seguí con lo que dice el plan";
   const mas = elegidas.length > 1 ? ` (y ${elegidas.length - 1} pregunta(s) más, en la tarjeta)` : "";
   const aviso = `Solo para que sepas: el plan de "${corta(String(titulo ?? "").replace(/\s+/g, " ").trim(), 100)}" tenía una pregunta abierta y ${queSegui}${mas}. No tienes que responder.`;
-  return { elegidas, nota, aviso };
+  return { elegidas, nota, aviso, decisiones };
+}
+
+// CAMBIO DE REPO DESDE EL PLAN (27-nov-2026, parte 3 de «nunca construir en el repo equivocado»): el plan de una tarjeta de
+// aizencrm decía "¿Se hace aquí o en Gestión? Recomendada: pasar a Gestion" y el Coordinador solo dejaba escrito «seguí con la
+// recomendada», sin cambiarle el repo. Ahora esa opción la reconoce y el bucle llama /cambiar-repo.
+
+/** "pasar a Gestion", "mover la tarjeta al repo aizencrm", "pasarla a Gestión" -> el repo ('gestion' o 'aizencrm'); si no, null. */
+export function repoDeLaOpcion(texto) {
+  const calce = /\b(?:pasar|mover|pasa|mueve|pasarla|moverla)\s+(?:(?:la|esta)\s+(?:tarjeta|tarea)\s+)?(?:a|al)\s+(?:(?:el\s+)?repo(?:sitorio)?\s+(?:de\s+)?)?["'«`]?(gestion|aizencrm)\b/.exec(normal(texto));
+  return calce ? calce[1] : null;
+}
+
+/**
+ * ¿La opción recomendada de esta pregunta abierta es pasar la tarjeta al otro repo? 'gestion', 'aizencrm' o null. Acepta la
+ * pregunta tal cual ("¿Aquí o en Gestión? Recomendada: pasar a Gestion") o ya resuelta ({ opcion, origen } de opcionDeLaPregunta).
+ * Solo cuenta la opción RECOMENDADA: la primera opción escrita no basta para cambiar de repo.
+ */
+export function repoDeLaRecomendada(pregunta) {
+  const elegida = pregunta && typeof pregunta === "object" ? pregunta : opcionDeLaPregunta(pregunta);
+  return elegida?.origen === "recomendada" ? repoDeLaOpcion(elegida.opcion) : null;
 }

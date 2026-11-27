@@ -29,7 +29,25 @@ El dueño dice **un solo sí**: el de la tarea (en la pantalla o por voz). Despu
   opción escrita, y lo anota así; si no hay opciones, con lo que dice el plan), deja arriba del plan la nota
   "Seguí con la opción recomendada: A (pregunta: ¿A o B?)" (queda en el historial de la tarjeta y quien construye la lee)
   y le manda al dueño **UN aviso de una línea** que solo informa ("Solo para que sepas: … No tienes que responder.").
-  Construir tampoco frena por preguntas (ya no existe `frenarPlanConPreguntas`).
+  Construir tampoco frena por preguntas (ya no existe `frenarPlanConPreguntas`). Quien construye recibe esas opciones en
+  el bloque "Decisiones ya tomadas (aplícalas, no las vuelvas a preguntar)" (`promptDeConstruir`), salvo las de cambio de
+  repo, que resuelve el Coordinador (abajo).
+- **Cambio de repo automático** (27-nov-2026, «nunca construir en el repo equivocado»): si lo pedido vive en el otro repo
+  (aizencrm ↔ gestion), el Coordinador llama `/cambiar-repo`: la tarjeta pasa al otro repo y vuelve a APROBADO para
+  planearla allá, sin construir, sin ERROR, sin reparación y sin gastar intento. Lo disparan:
+  - en el plan (`planear`, `otroRepoDelPlan`): la línea `OTRO_REPO: <gestion|aizencrm> — motivo` (la pide el prompt del
+    plan), un `NECESITO: decisión pasar la tarjeta a Gestion` (`repoDelNecesito`), una pregunta abierta cuya
+    recomendada es "pasar/mover (la tarjeta) a(l repo) Gestion|aizencrm" (`repoDeLaRecomendada`) o una frase como
+    "solo existe en el repo Gestion". En esos casos **no** se manda el plan ni el aviso «necesita»;
+  - antes de construir: los archivos que el plan da por existentes no están en el repo de la tarjeta y sí en el otro
+    (`revisarArchivosDelRepo`; si no están en ninguno, solo se vuelve a planear), o la recomendada que eligió el
+    Coordinador para una pregunta abierta es pasar al otro repo;
+  - cuando Claude «no cambió ningún archivo» y los archivos del plan son del otro repo.
+
+  El CRM deja cambiar el repo **2 veces** por tarjeta (después contesta 409) y el Coordinador tampoco lo intenta tras 2
+  intentos `repo_equivocado`: ahí sigue el camino de siempre (plan, aviso o reparación). Con un CRM viejo (404) también.
+  **No se avisa por WhatsApp**: queda en la bitácora de incidentes (`repo_equivocado` → `cambio_de_repo`) y en el
+  historial de la tarjeta.
 - **Lo que sigue esperando al dueño**: el gasto en Meta Ads (presupuesto, activar campañas) sin su sí, un `NECESITO:`
   real del agente (clave, acceso o decisión que solo él da), el dinero de Gestión en una tarea que nadie aprobó a mano y
   una migración destructiva.

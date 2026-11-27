@@ -3,6 +3,7 @@
 //   modo plan:        escribe un plan. [lento] = no contesta nunca (para probar el tiempo máximo);
 //                     [medio] = tarda 6 s (para probar el vencimiento por latido); [mod:x] = el plan
 //                     dice que toca src/x/cambio.ts (y al construir escribe en src/x/).
+//                     [otro-repo-necesito] / [otro-repo-recomendada] / [otro-repo-linea]: el plan dice que es del repo gestion.
 //   en los dos modos: [limite] = sale con el aviso del límite de uso de Claude.
 //   modo acceptEdits: [zona] edita src/bot/ (zona protegida), [tsc] rompe la verificación, [lint] deja un
 //                     error de lint nuevo, [migracion] agrega una migración, [conflicto] escribe un archivo
@@ -321,8 +322,17 @@ if (modo === "plan") {
   await dormir(titulo.includes("[medio]") ? 6000 : 1500);
   // Como pide el prompt: la línea RIESGO en las primeras líneas (BAJO salvo que el título marque [zona]).
   const riesgo = titulo.includes("[zona]") ? "RIESGO: ALTO — toca el bot de ventas" : "RIESGO: BAJO — un cambio chico sin zonas ni migración destructiva";
+  // 27-nov-2026 (cambio de repo desde el plan): [otro-repo-necesito] pide pasar la tarjeta con NECESITO, [otro-repo-recomendada] lo
+  // recomienda en una pregunta abierta y [otro-repo-linea] escribe la línea OTRO_REPO.
+  const otroRepo = titulo.includes("[otro-repo-necesito]")
+    ? "\nNECESITO: decisión pasar la tarjeta a Gestion"
+    : titulo.includes("[otro-repo-recomendada]")
+      ? "\nPREGUNTAS ABIERTAS:\n- ¿Se hace en aizencrm o en Gestión? Recomendada: pasar a Gestion"
+      : titulo.includes("[otro-repo-linea]")
+        ? "\nOTRO_REPO: gestion — la lista de cuentas del marketplace está en Gestión"
+        : "";
   // Regla del dueño 24-oct: el plan dice si pasa solo a construir o espera el sí.
-  console.log(`PLAN para "${titulo}"\n${riesgo}\nAPROBAR PLAN: SOLO\n1. Qué se cambia: un archivo.\n2. Efecto: ninguno para clientes.\n3. Riesgos: bajos.\n4. Migración: no.\n5. Archivos: ${modulo ? `src/${modulo}/cambio.ts` : "cambio.txt"}\n6. Pruebas: verificar.mjs${titulo.includes("[necesito]") ? "\nNECESITO: acceso al panel de Meta para leer el píxel" : ""}`);
+  console.log(`PLAN para "${titulo}"\n${riesgo}\nAPROBAR PLAN: SOLO\n1. Qué se cambia: un archivo.\n2. Efecto: ninguno para clientes.\n3. Riesgos: bajos.\n4. Migración: no.\n5. Archivos: ${modulo ? `src/${modulo}/cambio.ts` : "cambio.txt"}\n6. Pruebas: verificar.mjs${titulo.includes("[necesito]") ? "\nNECESITO: acceso al panel de Meta para leer el píxel" : ""}${otroRepo}`);
   process.exit(0);
 }
 
