@@ -185,7 +185,9 @@ export type MotivoAntiBloqueo =
   /* La asesora resolvió el chat (lib/chat-resuelto.ts): se cancelan los automáticos. */
   | "chat_resuelto"
   /* Seguimientos apagados (features/seguimientos/dominio/apagado.ts): interruptor del chat, etapa de venta, el cliente confirmó... */
-  | "seguimientos_apagados";
+  | "seguimientos_apagados"
+  /* El chat lo atiende una asesora (lib/chat-de-la-asesora.ts): ningún automático le escribe al cliente. */
+  | "chat_de_la_asesora";
 
 /** Los que solo CORREN el envío (se reprograma); el resto lo cancela. */
 export const MOTIVOS_QUE_REPROGRAMAN: readonly MotivoAntiBloqueo[] = ["fuera_de_horario", "espaciado"];

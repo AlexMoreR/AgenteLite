@@ -177,6 +177,7 @@
     "test:prender-etapa-automatica-migracion": "node scripts/check-prender-etapa-automatica-migracion.mjs",
     "test:rescate-nuevo-sin-asesora": "node scripts/check-rescate-nuevo-sin-asesora.mjs",
     "test:seguimientos-apagados": "node scripts/check-seguimientos-apagados.mjs",
+    "test:chat-de-la-asesora": "node scripts/check-chat-de-la-asesora.mjs",
     "test:avisos-gravedad": "node scripts/check-avisos-gravedad.mjs",
     "test:listo-para-pagar": "npx tsx --test src/features/listo-para-pagar/dominio/senal.test.ts src/features/listo-para-pagar/dominio/lider-de-ventas.test.ts",
     "test:supervisor-accionable": "node scripts/check-supervisor-accionable.mjs",

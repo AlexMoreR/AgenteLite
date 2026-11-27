@@ -9,6 +9,7 @@ import {
 } from "@/lib/evolution";
 import { prisma } from "@/lib/prisma";
 import { esAutomaticoPendiente, estaResuelto } from "@/lib/chat-resuelto";
+import { esChatDeLaAsesora } from "@/lib/chat-de-la-asesora";
 import { revisarFrenoDeAutomatico, type MotivoDeFreno } from "@/lib/freno-de-automaticos";
 import { getCreatedFlowItems } from "@/features/flows/services/getCreatedFlowItems";
 import { getFlowReply, type FlowStep } from "@/lib/agent-product-flow";
@@ -2027,6 +2028,33 @@ async function frenarPorElRedactor(
   return { ok: true as const, executionError: null, frenado: motivo };
 }
 
+/**
+ * ¿Alguno de los chats del cliente (en la línea del seguimiento, si la tiene) lo atiende una asesora?
+ * Devuelve el chat, o null si ninguno. Si la lectura falla, se toma como de la asesora: es mejor
+ * perder un toque que pisarla (lo mismo que hace esChatDeLaAsesora).
+ */
+async function chatDeLaAsesoraDelFollow(follow: ClaimedFollowRow): Promise<{ conversationId: string | null } | null> {
+  let charlas: Array<{ id: string }>;
+  try {
+    charlas = await prisma.conversation.findMany({
+      where: { workspaceId: follow.workspaceId, contactId: follow.contactId, ...(follow.channelId ? { channelId: follow.channelId } : {}) },
+      orderBy: { lastMessageAt: "desc" },
+      take: 5,
+      select: { id: true },
+    });
+  } catch (error) {
+    console.error("[follows] no se pudieron leer los chats del cliente; se toma como de la asesora", {
+      followId: follow.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { conversationId: null };
+  }
+  for (const charla of charlas) {
+    if (await esChatDeLaAsesora(charla.id)) return { conversationId: charla.id };
+  }
+  return null;
+}
+
 async function executeFollowRecord(follow: ClaimedFollowRow) {
   /*
     Anti-bloqueo (ver lib/anti-bloqueo): horario, texto vigente, un solo dueño, tope total y
@@ -2130,6 +2158,32 @@ async function executeFollowRecord(follow: ClaimedFollowRow) {
       datos: { followId: follow.id, clase },
     });
     return { ok: true as const, executionError: null, frenado: freno.motivo };
+  }
+
+  /*
+    Chat de la asesora (tarjeta axybzjk7, 27-nov-2026): justo antes de enviar, ningún seguimiento que no
+    agendó una persona (Etapa, Sin responder, Inteligente, Tras asesora, campañas, automatizaciones,
+    reactivación) le escribe a un chat pausado o que ya atiende una asesora. Se cancela con el motivo y
+    no sale nada. Los que agendó una persona a mano sí salen.
+  */
+  if (clase !== "humano") {
+    const charlaDeLaAsesora = await chatDeLaAsesoraDelFollow(follow);
+    if (charlaDeLaAsesora) {
+      await cancelarFollowFrenado(follow, "chat_de_la_asesora");
+      anotarFrenado({
+        workspaceId: follow.workspaceId,
+        conversationId: charlaDeLaAsesora.conversationId,
+        contactId: follow.contactId,
+        channelId: follow.channelId,
+        motor: "follow",
+        motivo: "chat_de_la_asesora",
+        claveUnica: `follow:${follow.id}:chat_de_la_asesora`,
+        reglaId: follow.followRuleId,
+        reglaNombre: follow.name,
+        datos: { followId: follow.id, clase },
+      });
+      return { ok: true as const, executionError: null, frenado: "chat_de_la_asesora" as const };
+    }
   }
 
   const actions = resolveFollowExecutionActions(follow);

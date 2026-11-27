@@ -27,7 +27,16 @@ const POR_VUELTA = 60;
 /** Chat + su último mensaje → hasta cuándo no se vuelve a mirar (si escribe alguien, cambia la clave). */
 const enEspera = new Map<string, number>();
 
+/*
+  APAGADO (tarjeta 8yvjdvpw, 27-nov-2026): reemplaza la decisión del 12-10-2026 («sí siguen»). Desde
+  ahora, en un chat que atiende una asesora solo ella le escribe al cliente: el barrido no agenda
+  ningún "Tras asesora" (ni en sombra). Los que ya estaban agendados los frena el motor de
+  seguimientos al enviar (lib/chat-de-la-asesora.ts). El código de abajo se deja como estaba.
+*/
+const TRAS_ASESORA_APAGADO = true;
+
 export async function barrerTrasAsesora(workspaceId: string, config: ConfigSeguimientoInteligente, ahora = new Date()): Promise<number> {
+  if (TRAS_ASESORA_APAGADO) return 0;
   const ta = config.trasAsesora;
   if (!ta || ta.modo === "apagado" || !ta.horas.length) return 0;
   if (ahora.getTime() - (ultimaVuelta.get(workspaceId) ?? 0) < 4.5 * 60_000) return 0;
