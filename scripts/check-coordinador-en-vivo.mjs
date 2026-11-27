@@ -223,6 +223,58 @@ await prueba("el agente de cada tarea se conserva, se recorta y es opcional (un 
   assert.equal(latido.tareas[3].agente, null);
 });
 
+await prueba("meta de trabajo (27-nov-2026): el latido guarda el tipo y el contra de cada espera y los cupos", async () => {
+  const latido = reglas.latidoDeEntrada(
+    {
+      esperas: [
+        { tarjetaId: "a", motivo: "toca el mismo archivo", tipo: "choque", contra: "b" },
+        { tarjetaId: "c", motivo: "sin puesto", tipo: "NUBE", contra: "x".repeat(200) },
+        { tarjetaId: "d", motivo: "espera", tipo: "inventado", contra: 7 },
+        { tarjetaId: "e", motivo: "espera", tipo: ["choque"] },
+      ],
+      cupos: 7,
+      enFila: 5,
+      corriendo: 4,
+    },
+    AHORA,
+  );
+  assert.deepEqual(latido.esperas[0], { tarjetaId: "a", motivo: "toca el mismo archivo", tipo: "choque", contra: "b" });
+  assert.equal(latido.esperas[1].tipo, "nube");
+  assert.equal(latido.esperas[1].contra.length, 60, "contra se recorta a 60");
+  assert.equal(latido.esperas[2].tipo, null, "un tipo inventado queda vacío");
+  assert.equal(latido.esperas[2].contra, null);
+  assert.equal(latido.esperas[3].tipo, null);
+  assert.deepEqual(latido.cupos, { cupos: 7, enFila: 5, corriendo: 4 });
+  // Lo guardado (con los cupos juntos) se vuelve a leer igual, y guardarLatido lo guarda así.
+  assert.deepEqual(reglas.latidoGuardado(JSON.stringify(latido)).cupos, latido.cupos);
+  assert.deepEqual(reglas.latidoGuardado(JSON.stringify(latido)).esperas, latido.esperas);
+  await servicio.guardarLatido(contexto, { esperas: [{ tarjetaId: "a", motivo: "m", tipo: "choque", contra: "b" }], cupos: 7, enFila: 5, corriendo: 4 }, AHORA);
+  const guardado = JSON.parse(estado.ajustes.get("trabajador:latido:ws1:k1"));
+  assert.deepEqual(guardado.cupos, { cupos: 7, enFila: 5, corriendo: 4 });
+  assert.deepEqual(guardado.esperas[0], { tarjetaId: "a", motivo: "m", tipo: "choque", contra: "b" });
+  // Cupos dañados: null, sin romper el latido.
+  for (const malos of [{ cupos: 101, enFila: 1, corriendo: 1 }, { cupos: "7", enFila: 1, corriendo: 1 }, { cupos: 7, enFila: -1, corriendo: 1 }, { cupos: 7, enFila: 1, corriendo: 1.5 }, { cupos: 7, enFila: 1 }, { cupos: { cupos: 7, enFila: 1 } }]) {
+    const conMalos = reglas.latidoDeEntrada({ tareas: [], ...malos }, AHORA);
+    assert.notEqual(conMalos, null, JSON.stringify(malos));
+    assert.equal(conMalos.cupos, null, JSON.stringify(malos));
+  }
+  assert.deepEqual(reglas.latidoDeEntrada({ cupos: { cupos: 0, enFila: 100, corriendo: 0 } }, AHORA).cupos, { cupos: 0, enFila: 100, corriendo: 0 }, "0 y 100 valen");
+});
+
+await prueba("meta de trabajo: un latido viejo sin tipo, contra ni cupos sigue siendo válido (tipo y contra vacíos, cupos vacíos)", () => {
+  const viejo = reglas.latidoDeEntrada({ tareas: [{ tarjetaId: "t1", etapa: "construyendo" }], esperas: [{ tarjetaId: "f4", motivo: "toca la misma zona que otra tarea" }] }, AHORA);
+  assert.notEqual(viejo, null);
+  assert.equal(viejo.tareas.length, 1);
+  assert.deepEqual(viejo.esperas, [{ tarjetaId: "f4", motivo: "toca la misma zona que otra tarea", tipo: null, contra: null }]);
+  assert.equal(viejo.cupos, null);
+  // Un latido guardado por el CRM de antes (sin esos campos) también se lee.
+  const guardadoViejo = JSON.stringify({ recibidoEn: AHORA.toISOString(), nombre: "aizen1", tareas: [], esperas: [{ tarjetaId: "f4", motivo: "m" }] });
+  const leido = reglas.latidoGuardado(guardadoViejo);
+  assert.deepEqual(leido.esperas, [{ tarjetaId: "f4", motivo: "m", tipo: null, contra: null }]);
+  assert.equal(leido.cupos, null);
+  assert.equal(reglas.latidoDeEntrada({}, AHORA).cupos, null);
+});
+
 /* ------------------------------------------------------------------ semáforo y apagado */
 
 await prueba("semáforo: verde bajo 70 %, amarillo de 70 a 85 %, rojo sobre 85 % o con poco disco", () => {

@@ -228,7 +228,21 @@ export type SesionClaudeDelLatido = {
   revisadaEn: string | null;
 };
 
-export type EsperaDelLatido = { tarjetaId: string; motivo: string };
+/**
+ * Por qué espera una tarjeta en fila (27-nov-2026, meta de tareas trabajando): choca con otra que corre, no hay puesto en la
+ * nube, aizen1 está ocupado, espera a su agente, a una versión o al motor. Cualquier otro valor queda null.
+ */
+export const TIPOS_DE_ESPERA = ["choque", "nube", "aizen1", "agente", "version", "motor"] as const;
+export type TipoDeEspera = (typeof TIPOS_DE_ESPERA)[number];
+
+/**
+ * Lo que el Coordinador dejó en fila: la tarjeta y el motivo; `tipo` y `contra` (la tarjeta con la que choca) solo si el
+ * Coordinador los manda: uno viejo no, y quedan null.
+ */
+export type EsperaDelLatido = { tarjetaId: string; motivo: string; tipo: TipoDeEspera | null; contra: string | null };
+
+/** Las cuentas del Coordinador: cuántos cupos tiene configurados, cuántas tarjetas hay en fila y cuántas corren (enteros de 0 a 100). */
+export type CuposDelLatido = { cupos: number; enFila: number; corriendo: number };
 
 export type LatidoGuardado = {
   /** Cuándo lo RECIBIÓ el CRM (el reloj del PC no cuenta: puede estar desfasado). */
@@ -243,6 +257,8 @@ export type LatidoGuardado = {
   sesionClaude: SesionClaudeDelLatido | null;
   /** Lo que el Coordinador dejó en fila por chocar con lo que corre (tarjeta y motivo). */
   esperas: EsperaDelLatido[];
+  /** Los cupos, la fila y lo que corre; null si el Coordinador es uno viejo que no los manda o llegaron dañados. */
+  cupos: CuposDelLatido | null;
 };
 
 /* ───────────────────────────────────────────────────────────────── validar lo que llega ── */
@@ -413,7 +429,13 @@ export function latidoDeEntrada(cuerpo: unknown, ahora: Date, hostPropio: string
     .map((espera): EsperaDelLatido | null => {
       if (!esObjeto(espera)) return null;
       const tarjetaId = textoCorto(espera.tarjetaId, 60);
-      return tarjetaId ? { tarjetaId, motivo: textoCorto(espera.motivo, 160) } : null;
+      if (!tarjetaId) return null;
+      return {
+        tarjetaId,
+        motivo: textoCorto(espera.motivo, 160),
+        tipo: enLista(TIPOS_DE_ESPERA, espera.tipo),
+        contra: textoCorto(espera.contra, 60) || null,
+      };
     })
     .filter((espera): espera is EsperaDelLatido => espera !== null);
   return {
@@ -425,7 +447,25 @@ export function latidoDeEntrada(cuerpo: unknown, ahora: Date, hostPropio: string
     pausaUso: pausaUsoDeEntrada(cuerpo.pausaUso),
     sesionClaude: sesionClaudeDeEntrada(cuerpo.sesionClaude),
     esperas,
+    cupos: cuposDeEntrada(cuerpo),
   };
+}
+
+/** Un entero de 0 a 100; lo demás (texto, decimales, negativos) no cuenta: null. */
+const cuentaDeEntrada = (valor: unknown): number | null =>
+  typeof valor === "number" && Number.isInteger(valor) && valor >= 0 && valor <= 100 ? valor : null;
+
+/**
+ * Los cupos del latido. El Coordinador los manda sueltos (`cupos`, `enFila`, `corriendo`, los mismos de los máximos del día);
+ * lo guardado los trae juntos en `cupos: { cupos, enFila, corriendo }`. Si falta uno o no es un entero de 0 a 100, null.
+ */
+export function cuposDeEntrada(cuerpo: unknown): CuposDelLatido | null {
+  if (!esObjeto(cuerpo)) return null;
+  const fuente = esObjeto(cuerpo.cupos) ? cuerpo.cupos : cuerpo;
+  const cupos = cuentaDeEntrada(fuente.cupos);
+  const enFila = cuentaDeEntrada(fuente.enFila);
+  const corriendo = cuentaDeEntrada(fuente.corriendo);
+  return cupos === null || enFila === null || corriendo === null ? null : { cupos, enFila, corriendo };
 }
 
 /** El JSON guardado en la AppSetting, de vuelta a un latido (null si está dañado). */
