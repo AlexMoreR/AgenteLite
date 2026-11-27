@@ -65,6 +65,9 @@ if (argumentos[0] === "--trabajo-de-la-nube") {
         execFileSync(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), "gh-falso.mjs"), "subir-a-main", sha], { env: { ...process.env, GH_FALSO_REMOTO: remoto, GH_FALSO_LOG: "" }, stdio: "ignore" });
       }
       git(carpeta, "commit", "--quiet", "--allow-empty", "-m", `resultado: build=OK tests=OK segundos=1 main=${sha}`);
+    } else if (titulo.includes("[nube-modelo]")) {
+      // 27-nov-2026: la sesión dice su modelo con modelo=<id> en la 1ª línea del commit.
+      git(carpeta, "commit", "--quiet", "--allow-empty", "-m", "resultado: build=OK tests=OK segundos=11 modelo=claude-sonnet-5-5");
     } else if (titulo.includes("[nube-rev-ok]")) {
       git(carpeta, "commit", "--quiet", "--allow-empty", "-m", "resultado: build=OK tests=OK segundos=44 revision=OK", "-m", "seguridad: APROBADO\nexperiencia: no aplica\ndiseno: no aplica\ncodigo: APROBADO — tras 1 corrección");
     } else git(carpeta, "commit", "--quiet", "--allow-empty", "-m", "resultado: build=OK tests=OK segundos=42");

@@ -5597,6 +5597,22 @@ process.exit(real.status ?? 1);
     sinRestos();
   });
 
+  await prueba("27-nov nube: si la sesión dice modelo=<id> en su commit, la tarjeta guarda ese id marcado como dicho por la sesión (no como pedido)", async () => {
+    despejar();
+    const id = nueva("La sesión dice su modelo [nube-modelo]", "PLAN_APROBADO", { plan: planDe("nubemodelo", 9) });
+    const planificador = planificar(nubeConfig());
+    await planificador.llenar();
+    await planificador.esperarTodas();
+    planificador.parar();
+    const t = tarjetas.get(id);
+    assert.notEqual(t.estado, "ERROR", t.resultado?.error?.motivo);
+    assert.equal(t.resultado.modelo.construir, "claude-sonnet-5-5");
+    assert.equal(t.resultado.modelo.construirDichoPorLaSesion, true);
+    assert.ok(!t.resultado.modelo.construirPedido);
+    assert.ok(!/La nube no deja elegir modelo/.test(t.resultado.resumen));
+    sinRestos();
+  });
+
   await prueba("29-oct revisión en la nube: revision=OK sigue como siempre y el resumen lo dice; un 'resultado:' viejo sin revision= también sigue", async () => {
     despejar();
     const id = nueva("Revisión de la nube pasa [nube-rev-ok]", "PLAN_APROBADO", { plan: planDe("revok", 9) });
