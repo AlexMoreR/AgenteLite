@@ -1211,6 +1211,7 @@ await prueba("nube: se lee el link de la sesión y la línea 'resultado:' del co
   assert.equal(resultadoDelCommit("resultado: build=OK tests=OK segundos=10 modelo=mal;id").modelo, undefined, "un id con caracteres raros se ignora");
   assert.equal(resultadoDelCommit("resultado: build=OK tests=OK segundos=10").modelo, undefined, "un commit viejo sin modelo= no rompe");
   assert.match(promptDeNube({ id: "t", titulo: "x", plan: "p", zonasAprobadas: [] }, { clave: "aizencrm", verificar: [], pruebas: [] }, "tablero/x"), /modelo=/, "el prompt de la nube pide modelo=");
+  assert.match(promptDeNube({ id: "t", titulo: "x", plan: "p", zonasAprobadas: [] }, { clave: "aizencrm", verificar: [], pruebas: [] }, "tablero/x"), /resultado: build=FALLO tests=FALLO segundos=<N> modelo=<tu id de modelo>/, "el commit con FALLO también pide modelo=");
   assert.equal(resultadoDelCommit("arreglar el build=OK"), null);
   assert.equal(resultadoDelCommit("tablero: algo\n\nresultado: build=OK tests=OK segundos=1"), null, "solo cuenta la primera línea");
 });

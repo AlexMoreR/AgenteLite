@@ -1298,7 +1298,7 @@ async function construirLaParteDeLaNube(contexto, tarjeta, { repo, rama, base, r
           );
         }
         registro.info(`la sesión de ${nombreDelProyecto(repo)} subió la tarjeta a main (${resultado.main.slice(0, 10)}): comprobado con git`);
-        return { link: lanzado.link, segundos: resultado.segundos, subidaPorLaSesion: { commit: resultado.main } };
+        return { link: lanzado.link, segundos: resultado.segundos, modelo: resultado.modelo ?? modelo, modeloDicho: Boolean(resultado.modelo), modeloPedido: !resultado.modelo && !lanzado.modeloForzado, subidaPorLaSesion: { commit: resultado.main } };
       }
       registro.aviso(`la sesión dejó main=${resultado.main}, pero esta tarjeta no la sube ella (zona protegida o espera tu sí): sigue por el Coordinador`);
     }
