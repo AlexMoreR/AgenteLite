@@ -26,7 +26,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 
 import { agenteDelRepo, leccionesParaElPrompt, necesitoDe, repoDelNecesito, textoDeIdentidad } from "./agentes.mjs";
-import { bloqueDeIncidentes, incidentesParaElPrompt } from "./bitacora.mjs";
+import { anotarIncidente, bloqueDeIncidentes, incidentesParaElPrompt } from "./bitacora.mjs";
 import { MAXIMO_DE_PARTES, MINIMO_DE_PARTES, FRASES_DE_LA_CAUSA, causaDeLaSubidaFallida, enUnaLinea, esErrorDeSesionClaude, esLimiteDeUso, recortar, sinRuido } from "./diagnostico.mjs";
 import { ensayarMigraciones, migracionesNuevas } from "./ensayo.mjs";
 import { PISO_VERSION_MINUTOS } from "./config.mjs";
@@ -65,6 +65,7 @@ import {
 import { esLimiteDeCodex, nombreDelMotor } from "./motores.mjs";
 import { abreSesionNueva, esOrquestador, esperarResultado, lanzarSesionDeLaNube, nombreDelProyecto, sesionFijaDe } from "./nube.mjs";
 import { archivosDelPlan, archivosExistentesDelPlan, noChoca } from "./choques.mjs";
+import { repoCorrecto } from "./repo-correcto.mjs";
 import { vigilarSesion } from "./atasco.mjs";
 import { cerrarProcesosEn, comoTexto, correr, detalleDeFalla, lineasQueFallaron, ultimasLineas } from "./procesos.mjs";
 import { esperarRecursos, faltanRecursos, medirUnaVez } from "./recursos.mjs";
@@ -1569,7 +1570,55 @@ async function verificar(contexto, repo, cwd, reloj, prioridad = PRIORIDAD.verif
 }
 
 /** PLANEANDO -> el texto del plan. */
-export async function planear(contexto, tarjeta) {
+export async function planear(contexto, tarjetaOriginal) {
+  const { tarjeta, repoCambiado } = await corregirRepoAntesDePlanear(contexto, tarjetaOriginal);
+  const salida = await planearEnElRepo(contexto, tarjeta);
+  return repoCambiado ? { ...salida, repoCambiado } : salida;
+}
+
+/** Cuántos cambios de repo (intentos "repo_equivocado") se le permiten a una tarjeta; el CRM usa el mismo tope. */
+const TOPE_DE_CAMBIOS_AL_PLANEAR = 2;
+
+/**
+ * REPO CORRECTO ANTES DE PLANEAR (27-nov-2026, caso T-940): si los archivos que nombra la tarjeta están solo en el otro repo, le cambia
+ * el repo (crm.cambiarRepoAlPlanear: la tarjeta sigue en PLANEANDO), deja el incidente en la bitácora y sigue planeando en el repo
+ * nuevo, sin preguntarle a nadie. -> { tarjeta, repoCambiado }: la tarjeta con el repo nuevo y el repo nuevo, o la misma tarjeta y
+ * null. Nunca lanza: con un CRM viejo (404), el tope (409), un fallo del CRM o de git, se planea en el repo de antes.
+ */
+async function corregirRepoAntesDePlanear(contexto, tarjeta) {
+  const sinCambio = { tarjeta, repoCambiado: null };
+  try {
+    if (typeof contexto.crm?.cambiarRepoAlPlanear !== "function") return sinCambio;
+    const yaCambios = (tarjeta.ultimosIntentos ?? []).filter((intento) => intento?.categoria === "repo_equivocado").length;
+    if (yaCambios >= TOPE_DE_CAMBIOS_AL_PLANEAR) return sinCambio;
+    const cambio = await repoCorrecto(contexto, tarjeta);
+    if (!cambio || !contexto.config.repos?.[cambio.repo]) return sinCambio;
+    const respuesta = await contexto.crm.cambiarRepoAlPlanear(tarjeta.id, { repo: cambio.repo, motivo: cambio.motivo });
+    if (respuesta?.ok === false) {
+      contexto.registro?.aviso?.(`el CRM no dejó cambiar el repo de "${tarjeta.titulo}" (${respuesta.status ?? "?"}): se planea en ${tarjeta.repo}`);
+      return sinCambio;
+    }
+    contexto.registro?.info?.(`"${tarjeta.titulo}": ${cambio.motivo}; se pasa de ${tarjeta.repo} a ${cambio.repo} y se planea allá`);
+    anotarIncidente({
+      config: contexto.config,
+      registro: contexto.registro,
+      tarjeta,
+      repo: tarjeta.repo,
+      queFallo: "repo_equivocado",
+      causa: cambio.motivo,
+      lineasDelError: [],
+      comoSeResolvio: "cambio_de_repo",
+      clase: "repo_equivocado",
+      queSeIntento: { numero: yaCambios + 1, de: TOPE_DE_CAMBIOS_AL_PLANEAR, detalle: `antes de planear; pasó de ${tarjeta.repo} a ${cambio.repo}` },
+    });
+    return { tarjeta: { ...tarjeta, repo: cambio.repo }, repoCambiado: cambio.repo };
+  } catch (error) {
+    contexto.registro?.aviso?.(`no se pudo revisar el repo de "${tarjeta?.titulo}" antes de planear (${String(error?.message ?? error).split("\n")[0]}): se planea como siempre`);
+    return sinCambio;
+  }
+}
+
+async function planearEnElRepo(contexto, tarjeta) {
   const repo = configDelRepo(contexto, tarjeta);
   const reloj = relojDeEtapa(contexto.config.tiempos.planMinutos, "escribir el plan");
   const carpeta = carpetaDe(contexto, tarjeta, "plan");

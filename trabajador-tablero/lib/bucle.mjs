@@ -209,7 +209,7 @@ export async function procesar({ crm, config, registro: registroBase, motores = 
     desdeNube: null,
   });
   const fase = (etapa, extra = {}) => Object.assign(vivo, { etapa }, extra);
-  const contexto = { config, registro, senal: control.signal, motorDe: motores.motorDe, alLimite: pausar, medidor, otrasSesiones, fase, puestoParaVerificar, colaPesada, etiqueta, lugar: enNube ? "nube" : "aizen1", alSoltarPuesto, sesionNueva: vivo.sesionNueva === true, orquestador: enNube && vivo.orquestador === true };
+  const contexto = { config, registro, crm, senal: control.signal, motorDe: motores.motorDe, alLimite: pausar, medidor, otrasSesiones, fase, puestoParaVerificar, colaPesada, etiqueta, lugar: enNube ? "nube" : "aizen1", alSoltarPuesto, sesionNueva: vivo.sesionNueva === true, orquestador: enNube && vivo.orquestador === true };
   try {
     const etapa = ETAPAS[hacer];
     if (!etapa) throw new ErrorDeEtapa(`El CRM pidió "${hacer}", que este Coordinador no sabe hacer (¿hay que actualizarlo?).`);

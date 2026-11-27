@@ -890,6 +890,7 @@ prueba("transiciones del trabajador: cada acción solo desde su estado", () => {
     error: ["PLANEANDO", "EN_CURSO", "SUBIENDO"],
     soltar: ["PLANEANDO", "EN_CURSO", "SUBIENDO"],
     "cambiar-repo": ["PLANEANDO", "EN_CURSO"],
+    repo: ["PLANEANDO"],
     reparar: ["PLANEANDO", "EN_CURSO", "SUBIENDO"],
     partir: ["PLANEANDO", "EN_CURSO"],
     depender: ["APROBADO", "PLANEANDO", "EN_CURSO"],
@@ -908,7 +909,7 @@ prueba("transiciones del trabajador: cada acción solo desde su estado", () => {
   }
   assert.deepEqual(
     Object.fromEntries(Object.entries(trabajo.TRANSICIONES_DEL_TRABAJADOR).map(([accion, regla]) => [accion, regla.a])),
-    { latido: null, plan: "PLAN_LISTO", resultado: "POR_REVISAR", subida: "HECHO", error: "ERROR", soltar: null, "cambiar-repo": "APROBADO", reparar: null, partir: null, depender: null, recoger: null, "ya-hecha": "HECHO", limpieza: null, rescatar: null, revisar_de_nuevo: null, "causa-externa": null, parecidas: null, repetida: null },
+    { latido: null, plan: "PLAN_LISTO", resultado: "POR_REVISAR", subida: "HECHO", error: "ERROR", soltar: null, "cambiar-repo": "APROBADO", repo: null, reparar: null, partir: null, depender: null, recoger: null, "ya-hecha": "HECHO", limpieza: null, rescatar: null, revisar_de_nuevo: null, "causa-externa": null, parecidas: null, repetida: null },
   );
   // Revisión previa (27-oct-2026): la nota de "ya estaba hecha" y el título único de la tarjeta de limpieza.
   assert.equal(trabajo.notaDeYaHecha("f4759b0"), "ya estaba hecho (commit f4759b0)");
@@ -956,6 +957,21 @@ prueba("cambiar-repo: vale desde PLANEANDO y EN_CURSO y lleva a APROBADO; tope d
   // El repo se valida con repoDeEntrada: solo gestion o aizencrm.
   assert.equal(trabajo.repoDeEntrada("aizencrm"), "aizencrm");
   assert.throws(() => trabajo.repoDeEntrada("otro-repo"), /Ese repo no existe/);
+});
+
+prueba("repo (antes de planear): solo desde PLANEANDO, no cambia el estado, repo inválido -> 400, tope compartido con cambiar-repo", () => {
+  assert.ok(trabajo.ACCIONES_DEL_TRABAJADOR.includes("repo"));
+  assert.equal(trabajo.puedeElTrabajador("repo", "PLANEANDO"), null);
+  for (const estado of reglas.ESTADOS_TARJETA.filter((una) => una !== "PLANEANDO")) {
+    assert.match(trabajo.puedeElTrabajador("repo", estado), /solo vale desde PLANEANDO/, estado);
+  }
+  assert.equal(trabajo.TRANSICIONES_DEL_TRABAJADOR.repo.a, null, "la tarjeta sigue en PLANEANDO");
+  // El servicio responde 400 cuando repoDeEntrada lanza (repo inválido) y 409 con el tope.
+  assert.throws(() => trabajo.repoDeEntrada("otro-repo"), /Ese repo no existe/);
+  const cambio = { categoria: "repo_equivocado", causa: trabajo.notaDeCambioDeRepo("aizencrm", "gestion", "x") };
+  assert.equal(trabajo.cambiosDeRepo([cambio]), 1);
+  assert.match(trabajo.puedeCambiarDeRepo(trabajo.cambiosDeRepo([cambio, cambio])), /tope es 2/);
+  assert.equal(trabajo.puedeCambiarDeRepo(trabajo.cambiosDeRepo([cambio])), null);
 });
 
 // Asíncrona: `prueba` no espera promesas, así que se espera aquí con await.

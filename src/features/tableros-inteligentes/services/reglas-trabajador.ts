@@ -548,6 +548,7 @@ export type AccionDelTrabajador =
   | "error"
   | "soltar"
   | "cambiar-repo"
+  | "repo"
   | "reparar"
   | "partir"
   | "depender"
@@ -567,6 +568,7 @@ export const ACCIONES_DEL_TRABAJADOR: readonly AccionDelTrabajador[] = [
   "error",
   "soltar",
   "cambiar-repo",
+  "repo",
   "reparar",
   "partir",
   "depender",
@@ -603,6 +605,9 @@ export const TRANSICIONES_DEL_TRABAJADOR: Record<
   // solo hay que volver a planear) y vuelve a APROBADO para planearla otra vez, sin ERROR, sin reparación y sin gastar el intento.
   // Tope TOPE_DE_CAMBIOS_DE_REPO cambios por tarjeta (después, 409).
   "cambiar-repo": { desde: ["PLANEANDO", "EN_CURSO"], a: "APROBADO" },
+  // Repo correcto antes de planear (27-nov-2026): el Coordinador vio, con git, que los archivos de la tarjeta están solo en el otro
+  // repo. Le cambia el repo y la tarjeta SIGUE en PLANEANDO (a = null: no cambia de estado); comparte el tope de cambios con /cambiar-repo.
+  repo: { desde: ["PLANEANDO"], a: null },
   // Reparar (24-oct-2026): algo falló y el Coordinador sabe la causa: la tarjeta vuelve a la fila SIN ERROR
   // (PLANEANDO -> APROBADO, EN_CURSO -> PLAN_APROBADO, SUBIENDO -> PLAN_APROBADO: una subida que falló antes
   // del push se arregla reconstruyendo) y cuenta una reparación (tope TOPE_DE_REPARACIONES). a = null: depende de dónde estaba.
