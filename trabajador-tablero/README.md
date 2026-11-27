@@ -800,6 +800,15 @@ Mientras no se haga, sigue funcionando como antes.
 
 Para cortarlo en seco: revocar la clave en el panel Trabajador (deja de entrar al instante).
 
+## Qué modelo usa cada paso
+
+- **Regla del 27-nov-2026** (`lib/modelos.mjs`): Opus planea; Sonnet construye, revisa, revisa seguridad y repara.
+- **Cambiarla**: se agrega una línea a `modelos.desde` con fecha más nueva, por ejemplo `{ "fecha": "2026-12-15T12:00:00Z", "paso": "construir", "modelo": "opus" }`.
+- **En aizen1** el modelo va siempre con `--model`.
+- **En la nube**: una sesión nueva (`claude --cloud`) va con `--model`; la sesión fija también va con `--model`, y si la CLI lo rechaza se avisa y se reintenta sin él.
+- **La sesión dice su modelo**: la primera línea de su commit `resultado:` termina con `modelo=<id>` (por ejemplo `modelo=claude-sonnet-5-5`). Un commit viejo sin eso sigue valiendo.
+- **«(pedido)»** en la tarjeta quiere decir que no se pudo forzar el modelo: solo se pidió en el prompt y la sesión no dijo cuál usó.
+
 ## Autoactualización (25-oct-2026)
 
 Cuando se sube código nuevo a main, el Coordinador se pone al día solo (antes seguía con el viejo hasta que alguien lo reiniciara a mano).

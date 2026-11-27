@@ -7,7 +7,12 @@
   "Planeado con Opus · Construido con Sonnet".
 */
 
-export type ModelosDelResultado = Partial<Record<"plan" | "construir" | "revisar" | "subagentes", string>>;
+export type ModelosDelResultado = Partial<Record<"plan" | "construir" | "revisar" | "subagentes", string>> & {
+  /** Construido en la nube sin poder forzar el modelo (solo pedido en el prompt): la tarjeta lo muestra "(pedido)". */
+  construirPedido?: boolean;
+  /** El modelo de `construir` lo dijo la propia sesión de la nube (modelo=<id> en su commit "resultado:"). */
+  construirDichoPorLaSesion?: boolean;
+};
 
 /** Los pasos que se muestran, en orden, con cómo se dice cada uno. Los subagentes no se muestran. */
 const PASOS_VISIBLES = [
@@ -30,7 +35,11 @@ export function modelosDeEntrada(valor: unknown): ModelosDelResultado | null {
     const modelo = modeloDeEntrada((valor as Record<string, unknown>)[paso]);
     if (modelo) modelos[paso] = modelo;
   }
-  return Object.keys(modelos).length ? modelos : null;
+  if (!Object.keys(modelos).length) return null;
+  const banderas = valor as Record<string, unknown>;
+  if (modelos.construir && banderas.construirPedido === true) modelos.construirPedido = true;
+  if (modelos.construir && banderas.construirDichoPorLaSesion === true) modelos.construirDichoPorLaSesion = true;
+  return modelos;
 }
 
 /** "opus" / "claude-sonnet-4-5" -> "Opus" / "Sonnet"; un nombre raro se deja como viene. */

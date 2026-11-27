@@ -117,6 +117,11 @@ if (process.env.CLAUDE_FALSO_LOG && !prompt.startsWith("Eres un REVISOR DE ")) {
 // 1-nov-2026: cada mensaje que le llega (también "/clear") se anota entero en CLAUDE_FALSO_LOG.sesion-fija ({ sesion, mensaje }).
 if (sesionFija) {
   if (process.env.CLAUDE_FALSO_LOG) fs.appendFileSync(`${process.env.CLAUDE_FALSO_LOG}.sesion-fija`, `${JSON.stringify({ sesion: sesionFija, mensaje: prompt })}\n`);
+  // [fija-sin-model] (27-nov-2026): una CLI que no deja elegir modelo al escribirle a la sesión fija (se reintenta sin --model).
+  if (titulo.includes("[fija-sin-model]") && argumentos.includes("--model")) {
+    console.error("error: unknown option '--model'");
+    process.exit(1);
+  }
   if (/^session_MUERTA/.test(sesionFija)) {
     console.error(`Error: session ${sesionFija} not found or archived`);
     process.exit(1);

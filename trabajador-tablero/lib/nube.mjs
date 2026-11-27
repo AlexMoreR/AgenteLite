@@ -615,16 +615,22 @@ function errorSesionFija(repo, detalle) {
 const SESION_FIJA_SIN_ARREGLO = /not found|archived|no such session|no existe|archivada/i;
 
 /** Un mensaje a la sesión fija. -> { ok, link, texto } o lanza ErrorDeEtapa (cancelada, límite de uso, no responde). */
-async function mensajeASesionFija(contexto, repo, mensaje, { cwd }) {
+async function mensajeASesionFija(contexto, repo, mensaje, { cwd, modelo = null }) {
   const { config, senal } = contexto;
   const base = config.nube.comandoClaude ?? config.comandoClaude;
   const id = sesionFijaDe(repo);
   const timeoutMs = Math.max(1000, config.nube.lanzarMinutos * MINUTO);
-  const resultado = await correr([...base, "-p", mensaje, "--cloud", id, "--output-format", "json"], { cwd, timeoutMs, senal, env: entornoSeguro() });
+  const resultado = await correr([...base, "-p", mensaje, "--cloud", id, "--output-format", "json", ...(modelo ? ["--model", modelo] : [])], { cwd, timeoutMs, senal, env: entornoSeguro() });
   if (resultado.cancelado) throw new ErrorDeEtapa("Se canceló el lanzamiento en la nube: la tarjeta venció en el CRM.", { categoria: "coordinador_cortado" });
   const texto = sinColores(`${resultado.salida}\n${resultado.errores}`);
   const datos = jsonDeLaSalida(resultado.salida);
   if (resultado.codigo === 0 && datos && datos.ok !== false && !datos.is_error) return { link: linkDeLaSesionFija(datos, id), texto };
+  // La CLI no deja elegir modelo con --model en esta vía: quien llama reintenta sin él.
+  if (modelo && !resultado.vencido && NO_ACEPTA_MODELO.test(texto)) {
+    const rechazo = new ErrorDeEtapa(`La CLI no acepta --model al escribirle a la sesión fija: ${ultimasLineas(texto, 3)}`);
+    rechazo.noAceptaModelo = true;
+    throw rechazo;
+  }
   if (esErrorDeSesionClaude(texto)) throw new ErrorDeEtapa(`La sesión de Claude está vencida al escribirle a la sesión fija: ${ultimasLineas(texto, 5)}`, { sinSesion: true, motor: "claude" });
   if (esLimiteDeUso(texto)) throw new ErrorDeEtapa(`Claude llegó a su límite de uso al escribirle a la sesión fija: ${ultimasLineas(texto, 5)}`, { limiteDeUso: true, motor: "claude" });
   const porQue = resultado.vencido ? `no contestó en ${config.nube.lanzarMinutos} min` : `salió con código ${resultado.codigo}${datos?.ok === false ? " (ok: false)" : ""}`;
@@ -643,9 +649,10 @@ async function mensajeASesionFija(contexto, repo, mensaje, { cwd }) {
 /**
  * Manda una tarea a la sesión fija del proyecto: primero `/clear` (contexto limpio), después la instrucción.
  * Modo orquestador (1-nov-2026): sin `/clear` (la sesión lleva varias tarjetas a la vez), solo la instrucción.
- * -> { link, via: "sesion-fija", salida, modeloForzado: false } (el modelo de la sesión lo fija quien la creó; el prompt lo pide).
+ * -> { link, via: "sesion-fija", salida, modeloForzado } : con `modelo` se manda `--model <modelo>`; si la CLI lo rechaza se avisa
+ * y se reintenta sin él (modeloForzado: false; el prompt ya pide el modelo y la sesión dice el suyo con modelo= en el commit).
  */
-export async function mandarASesionFija(contexto, { repo, cwd, prompt }) {
+export async function mandarASesionFija(contexto, { repo, cwd, prompt, modelo = null }) {
   const { registro } = contexto;
   const id = sesionFijaDe(repo);
   const orquestador = esOrquestador(repo);
@@ -653,8 +660,17 @@ export async function mandarASesionFija(contexto, { repo, cwd, prompt }) {
   if (!orquestador) await mensajeASesionFija(contexto, repo, "/clear", { cwd });
   const descripcion = descripcionParaLaNube(prompt);
   if (descripcion.length < String(prompt ?? "").length) registro?.aviso?.(`sesión fija: la instrucción tenía ${String(prompt).length} caracteres; la recorté a ${descripcion.length} (el plan, por el medio)`);
-  const { link, texto } = await mensajeASesionFija(contexto, repo, descripcion, { cwd });
-  return { link, via: "sesion-fija", salida: texto, modeloForzado: false };
+  let forzado = Boolean(modelo);
+  let enviado;
+  try {
+    enviado = await mensajeASesionFija(contexto, repo, descripcion, { cwd, modelo });
+  } catch (error) {
+    if (!(modelo && error?.noAceptaModelo)) throw error;
+    registro?.aviso?.("la sesión fija no deja elegir modelo con --model: le escribo sin él (el modelo va pedido en el prompt)");
+    forzado = false;
+    enviado = await mensajeASesionFija(contexto, repo, descripcion, { cwd });
+  }
+  return { link: enviado.link, via: "sesion-fija", salida: enviado.texto, modeloForzado: forzado };
 }
 
 /* ── la nube sin señal (25-nov-2026, parte 2 de «las 4 fallas repetidas»: T-921 volvió a la misma sesión) ── */
@@ -712,7 +728,7 @@ export async function lanzarSesionDeLaNube(contexto, { repo, cwd, prompt, modelo
     );
   }
   try {
-    if (sesionFijaDe(repo) && !nueva) return await mandarASesionFija(contexto, { repo, cwd, prompt });
+    if (sesionFijaDe(repo) && !nueva) return await mandarASesionFija(contexto, { repo, cwd, prompt, modelo });
     const lanzado = await lanzarEnNube(contexto, { cwd, prompt, modelo, repo });
     // `claude --cloud` siempre crea una sesión; si diera la de un intento anterior, no se le deja la tarea.
     if (yaLaUsoUnIntento(lanzado?.link, anteriores)) {
@@ -780,6 +796,7 @@ export async function commitsDeLaRama(contexto, repo, rama) {
  * los campos). Con ella: { revision: "OK"|"FALLO", revisor, motivoRevision }.
  * `main=<sha>` (1-nov-2026, modo orquestador): opcional, el commit que la sesión del proyecto dejó en main. Solo vale un sha
  * hexadecimal de 7 a 40 caracteres (en minúsculas); con otro formato se ignora. El Coordinador lo comprueba con git.
+ * `modelo=<id>` (27-nov-2026): el modelo que la sesión dice haber usado (solo [A-Za-z0-9._:-]); un commit viejo sin él no rompe nada.
  */
 export function resultadoDelCommit(mensaje) {
   const [primera = "", ...resto] = String(mensaje ?? "").split(/\r?\n/);
@@ -790,6 +807,8 @@ export function resultadoDelCommit(mensaje) {
   const resultado = { build, tests, segundos: coincide[3] === undefined ? null : Number(coincide[3]), paso: build === "OK" && tests === "OK", detalle: resto.join("\n").trim() };
   const main = primera.match(/(?:^|\s)main=([0-9a-f]{7,40})(?=\s|$)/i)?.[1];
   if (main) resultado.main = main.toLowerCase();
+  const modelo = primera.match(/(?:^|\s)modelo=([A-Za-z0-9._:-]+)(?=\s|$)/i)?.[1];
+  if (modelo) resultado.modelo = modelo;
   const revision = primera.match(/\brevisi[oó]n=([A-Za-z]+)/i);
   if (!revision) return resultado;
   const estado = revision[1].toUpperCase() === "OK" ? "OK" : "FALLO";

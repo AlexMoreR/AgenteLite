@@ -1205,6 +1205,12 @@ await prueba("nube: se lee el link de la sesión y la línea 'resultado:' del co
   assert.equal(fallo.detalle, "error uno\nerror dos");
   assert.equal(resultadoDelCommit("resultado: build=OK tests=FALLO").paso, false);
   assert.equal(resultadoDelCommit("resultado: build=OK tests=OK").segundos, null);
+  // 27-nov-2026: modelo=<id> que dice la sesión (solo [A-Za-z0-9._:-]); sin él no aparece.
+  assert.equal(resultadoDelCommit("resultado: build=OK tests=OK segundos=10 modelo=claude-sonnet-5-5").modelo, "claude-sonnet-5-5");
+  assert.equal(resultadoDelCommit("resultado: build=FALLO tests=OK segundos=10 revision=OK modelo=claude-opus-5-5\n\nerror").modelo, "claude-opus-5-5", "con FALLO y revision=");
+  assert.equal(resultadoDelCommit("resultado: build=OK tests=OK segundos=1 main=abc1234 modelo=sonnet").modelo, "sonnet", "con main=");
+  assert.ok(!("modelo" in resultadoDelCommit("resultado: build=OK tests=OK segundos=361")), "un commit viejo sin modelo= no trae el dato");
+  assert.equal(resultadoDelCommit("resultado: build=OK tests=OK segundos=1 modelo=raro;rm").modelo, undefined, "caracteres raros: se ignora");
   assert.equal(resultadoDelCommit("arreglar el build=OK"), null);
   assert.equal(resultadoDelCommit("tablero: algo\n\nresultado: build=OK tests=OK segundos=1"), null, "solo cuenta la primera línea");
 });
@@ -5656,7 +5662,10 @@ process.exit(real.status ?? 1);
     assert.match(lanzadas[1].prompt, /MODELO PEDIDO: Sonnet/, "el modelo va pedido en el prompt");
     const r = tarjetas.get(id).resultado;
     assert.match(r.resumen, /La nube no deja elegir modelo; se pidió en el prompt\./);
-    assert.equal(r.modelo?.construir, undefined, "no se anota un modelo que no se pudo forzar");
+    // 27-nov-2026: siempre queda un modelo; si no se pudo forzar ni la sesión lo dijo, va marcado como pedido.
+    assert.equal(r.modelo?.construir, "sonnet", "sin modelo= ni forzado: el modelo pedido");
+    assert.equal(r.modelo?.construirPedido, true, "marcado como pedido");
+    assert.ok(!r.modelo?.construirDichoPorLaSesion);
     planificador.parar();
     sinRestos();
   });
@@ -5734,6 +5743,7 @@ process.exit(real.status ?? 1);
     assert.match(prompt, /^TAREA NUEVA E INDEPENDIENTE/, "lo primero: la tarea es nueva");
     assert.match(prompt.split("\n\n")[0], /git fetch origin && git checkout -B tablero\/abc-t origin\/tablero\/abc-t/);
     assert.match(prompt, /Usar CUALQUIER conector o herramienta MCP/);
+    assert.match(prompt, /modelo=<tu id de modelo>/, "el prompt pide modelo= en el commit resultado:");
     const sinFija = promptDeNube({ id: "t1", titulo: "T", plan: "p" }, repo, "tablero/abc-t");
     assert.ok(!/TAREA NUEVA|git checkout -B/.test(sinFija), "sin sesión fija no");
     assert.match(sinFija, /Usar CUALQUIER conector o herramienta MCP/, "la prohibición de conectores va siempre");
@@ -5769,13 +5779,36 @@ process.exit(real.status ?? 1);
     assert.equal(llamadasALaNube(desde).length, fija.length, "no se creó ninguna sesión nueva con claude --cloud");
     assert.deepEqual(fija.map((l) => (l.prompt === "/clear" ? "/clear" : "tarea")), ["/clear", "tarea", "/clear", "tarea"], "/clear antes de cada tarea");
     for (const llamada of fija) {
-      assert.deepEqual([llamada.argumentos[0], llamada.argumentos.slice(2)], ["-p", ["--cloud", FIJA, "--output-format", "json"]]);
+      // La tarea lleva --model sonnet (27-nov-2026); el /clear no.
+      const conModelo = llamada.prompt === "/clear" ? [] : ["--model", "sonnet"];
+      assert.deepEqual([llamada.argumentos[0], llamada.argumentos.slice(2)], ["-p", ["--cloud", FIJA, "--output-format", "json", ...conModelo]]);
     }
     const tarea = fija[1];
     const rama = tarjetas.get(tarea.titulo === "Gestión fija uno [mod:fijauno]" ? a : b).resultado.rama;
     assert.match(tarea.prompt, /^TAREA NUEVA E INDEPENDIENTE/);
     assert.ok(tarea.prompt.includes(`git fetch origin && git checkout -B ${rama} origin/${rama}`));
     assert.match(tarea.prompt, /DEJA TODO EN LA RAMA tablero\//);
+    sinRestos();
+  });
+
+  await prueba("sesión fija: si la CLI rechaza --model, se reintenta sin él y modeloForzado queda false; la tarjeta guarda el modelo pedido", async () => {
+    despejar();
+    olvidarSinAcceso();
+    const desde = leerLog(LOGS.claude).length;
+    const id = nueva("Gestión fija sin model [mod:fijasinmodel] [fija-sin-model]", "PLAN_APROBADO", { plan: planDe("fijasinmodel") });
+    const planificador = planificar(fijaConfig());
+    await planificador.llenar();
+    await correrHasta(planificador, () => ["HECHO", "ERROR"].includes(tarjetas.get(id).estado), 240_000);
+    await planificador.esperarTodas();
+    planificador.parar();
+    const t = tarjetas.get(id);
+    assert.equal(t.estado, "HECHO", t.resultado?.error?.motivo);
+    const tareas = llamadasAFija(desde).filter((l) => l.prompt !== "/clear");
+    assert.equal(tareas.length, 2, "un intento con --model y otro sin él");
+    assert.deepEqual(tareas[0].argumentos.slice(-2), ["--model", "sonnet"]);
+    assert.ok(!tareas[1].argumentos.includes("--model"));
+    assert.equal(t.resultado.modelo.construir, "sonnet");
+    assert.equal(t.resultado.modelo.construirPedido, true, "no se pudo forzar: pedido");
     sinRestos();
   });
 
