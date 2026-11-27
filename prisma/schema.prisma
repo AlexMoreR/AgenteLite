@@ -621,6 +621,7 @@ model Message {
   //   "Message_channel_idCrudo_idx"      (channelId, reverse(split_part(reverse(externalId), '_', 1)))
   //   "Message_audio_pendiente_idx"      (createdAt) WHERE type = AUDIO y sin transcribir
   //   "Message_mediaUrl_transcrita_idx"  (mediaUrl) WHERE transcripcion IS NOT NULL
+  //   "Message_no_leido_idx" (workspaceId, createdAt) INCLUDE (conversationId, channelId) WHERE INBOUND, sin leer y no estado
 }
 
 model OfficialApiClientConfig {
