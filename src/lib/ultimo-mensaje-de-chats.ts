@@ -275,9 +275,13 @@ export function sqlOficialSinResponderDesde(dias: number): Prisma.Sql {
 /**
  * Las conversaciones de WhatsApp normal con algo del cliente sin abrir.
  *
- * Recorre los mensajes del negocio de los ultimos `dias` dias por el indice (workspaceId,
- * createdAt) y devuelve solo ids, que entran como una condicion mas en las consultas de la bandeja
- * (igual que sqlIdsSinResponder). `canales`: `null` = todas las lineas; `[]` = ninguna.
+ * La sirve el indice parcial Message_no_leido_idx (20261126000000_indice_message_no_leido):
+ * (workspaceId, createdAt) con conversationId y channelId incluidos, y solo con los mensajes
+ * entrantes, sin leer y que no son estados. Las tres condiciones de su WHERE estan aqui escritas
+ * igual que en el indice: si se cambian aqui o alla, Postgres deja de usarlo y vuelve a recorrer
+ * todos los mensajes del rango. Devuelve solo ids, que entran como una condicion mas en las
+ * consultas de la bandeja (igual que sqlIdsSinResponder). `canales`: `null` = todas las lineas;
+ * `[]` = ninguna.
  */
 export function sqlIdsNoLeidos(input: {
   workspaceId: string;

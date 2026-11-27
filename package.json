@@ -155,6 +155,7 @@
     "test:chat-sin-refresco": "node scripts/check-chat-sin-refresco.mjs",
     "test:busqueda-por-texto": "node scripts/check-busqueda-por-texto.mjs",
     "test:indices-de-velocidad": "node scripts/check-indices-de-velocidad.mjs",
+    "test:indices-de-actividad": "node scripts/check-indices-de-actividad.mjs",
     "test:velocidad-mi-dia-y-reloj": "node scripts/check-velocidad-mi-dia-y-reloj.mjs",
     "test:consulta-pesada": "node scripts/check-consulta-pesada.mjs",
     "test:crons-ordenados": "node scripts/check-crons-ordenados.mjs",
