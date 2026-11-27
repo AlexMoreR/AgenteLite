@@ -16,10 +16,11 @@ import {
 } from "../servicios/catalogo";
 import { anotarDecision } from "../servicios/decisiones";
 import { clasificarIntenciones } from "./clasificar";
-import { decidir, siguienteEstado } from "./decidir";
+import { decidir, siguienteEstado, type EstadoDeLaCharla } from "./decidir";
+import { mandarRespaldo } from "./respaldo";
 import { fotoDelClienteReciente, type MensajeReciente } from "./foto-y-precio";
 import { guardarEstado, leerEstado } from "./estado";
-import type { Accion, ReglaV3 as Regla } from "../domain/reglas";
+import type { Accion, LibroDeReglas, ReglaV3 as Regla } from "../domain/reglas";
 
 /** Los productos que nombra una regla: el que activa, el del paso y el de su condición. */
 function productosDeLaRegla(regla: Regla): string[] {
@@ -45,13 +46,16 @@ function productosDeLaRegla(regla: Regla): string[] {
  * API oficial— se reusa entero.
  */
 
+/** Lo que devuelve el redactor: el porqué, si a la clienta le llegó algo y por qué falló la IA. */
+export type ResultadoDelRedactor = { porque: string; respondio: boolean; causa: string | null };
+
 export type Herramientas = {
   enviarPaso: (paso: FlowStep) => Promise<boolean>;
   avisarAsesor: (motivo: string) => Promise<void>;
   cambiarEtapa: (etapa: string) => Promise<void>;
   pausarIa: () => Promise<void>;
   /** Cuando la regla dice "que conteste la IA": recibe la guía escrita en el libro. */
-  responderConIa: (guia: string) => Promise<void>;
+  responderConIa: (guia: string) => Promise<void | ResultadoDelRedactor>;
   /**
    * ¿Este mismo texto ya salió en esta conversación hace poco?
    *
@@ -67,10 +71,13 @@ export type Herramientas = {
   alEntrarAlPaso?: (productoId: string, paso: string) => Promise<void>;
   /**
    * Ninguna regla del libro aplica: que conteste el redactor de la estrella, con sus candados (no
-   * inventar, nunca mayorista, avisar a una asesora si falta un dato). Devuelve el porqué, o null si
-   * no pudo hacerse cargo. Opcional: sin esto el mensaje sigue su camino de siempre.
+   * inventar, nunca mayorista, avisar a una asesora si falta un dato). Devuelve el porqué (un texto), o
+   * null si no pudo hacerse cargo, o el objeto del redactor: con `respondio: false` el motor manda el
+   * respaldo. Un texto sigue funcionando como siempre. Opcional: sin esto el mensaje sigue su camino.
    */
-  responderSinRegla?: (contexto: { foto: string | null }) => Promise<string | null>;
+  responderSinRegla?: (contexto: { foto: string | null }) => Promise<string | null | ResultadoDelRedactor>;
+  /** El id del flujo con ese título (para el respaldo), o null si no existe. Opcional. */
+  buscarFlujo?: (titulo: string) => Promise<string | null>;
   /**
    * MEDIR (Embudo F1): se llama una vez al terminar el turno con la traza de lo que pasó. Solo
    * mira: no puede cambiar ninguna decisión. Quien lo implemente tiene que volver al instante
@@ -102,6 +109,8 @@ export type TrazaV3 = {
   mensajesEnviados: number;
   reglaId: string | null;
   reglaNombre: string | null;
+  /** Lo que se mandó de respaldo cuando la IA no logró redactar (null/ausente = no hizo falta). */
+  respaldo?: { tipo: "ficha" | "texto" | "nada"; causa: string | null } | null;
   /** Cuándo empezó el turno (ISO). */
   cuando: string;
 };
@@ -115,6 +124,54 @@ export type ResultadoV3 = {
   /** Para el embudo (F1). No cambia nada de lo de arriba. */
   traza?: TrazaV3;
 };
+
+/** Un texto es el porqué (sin saber si respondió); null = no pudo; un objeto se usa tal cual. */
+function porqueYRespondio(resultado: string | null | ResultadoDelRedactor | undefined): {
+  porque: string | null;
+  respondio: boolean | null;
+  causa: string | null;
+} {
+  if (!resultado) return { porque: null, respondio: null, causa: null };
+  if (typeof resultado === "string") return { porque: resultado, respondio: null, causa: null };
+  return { porque: resultado.porque, respondio: resultado.respondio, causa: resultado.causa };
+}
+
+/**
+ * El redactor no logró que le llegara nada a la clienta: se manda el respaldo y, si cambió el estado
+ * (la ficha pasa la charla a PRODUCTO), se guarda otra vez. Nunca rompe el turno.
+ */
+async function respaldarSiFalla(
+  input: {
+    workspaceId: string;
+    conversationId: string;
+    incluirApiOficial?: boolean;
+    herramientas: Herramientas;
+  },
+  libro: LibroDeReglas,
+  estado: EstadoDeLaCharla,
+  redactor: { porque: string; causa: string | null },
+  traza: TrazaV3,
+): Promise<{ porque: string; acciones: number }> {
+  try {
+    const respaldo = await mandarRespaldo({
+      workspaceId: input.workspaceId,
+      estado,
+      libro,
+      incluirApiOficial: input.incluirApiOficial,
+      causa: redactor.causa,
+      herramientas: input.herramientas,
+    });
+    traza.respaldo = { tipo: respaldo.tipo, causa: redactor.causa };
+    if (respaldo.estado !== estado) {
+      await guardarEstado(input.conversationId, respaldo.estado);
+      traza.despues = { pasoActual: respaldo.estado.pasoActual, producto: respaldo.estado.productoActivo };
+    }
+    return { porque: `${redactor.porque} ${respaldo.nota}`, acciones: respaldo.enviados };
+  } catch (error) {
+    console.error("[agente-v3] respaldo", error instanceof Error ? error.message : error);
+    return { porque: redactor.porque, acciones: 0 };
+  }
+}
 
 export async function atenderConAgenteV3(input: {
   workspaceId: string;
@@ -273,10 +330,21 @@ async function evaluar(
     algo concreto. La contesta el redactor, mirando la foto como contexto.
   */
   if (!input.mensaje.trim() && input.foto) {
-    const porque = await input.herramientas.responderSinRegla?.({ foto: input.foto });
-    if (porque) {
-      await guardarEstado(input.conversationId, siguienteEstado(estado, []));
-      return { atendido: true, regla: "Redactor (foto)", porque, acciones: 1 };
+    const redactor = porqueYRespondio(await input.herramientas.responderSinRegla?.({ foto: input.foto }));
+    if (redactor.porque) {
+      const estadoAvanzado = siguienteEstado(estado, []);
+      await guardarEstado(input.conversationId, estadoAvanzado);
+      if (redactor.respondio === false) {
+        const respaldo = await respaldarSiFalla(
+          input,
+          libroCompleto,
+          estadoAvanzado,
+          { porque: redactor.porque, causa: redactor.causa },
+          traza,
+        );
+        return { atendido: true, regla: "Redactor (foto)", ...respaldo };
+      }
+      return { atendido: true, regla: "Redactor (foto)", porque: redactor.porque, acciones: 1 };
     }
     return { atendido: false, regla: null, porque: "Llegó una foto sin texto y no hubo redactor.", acciones: 0 };
   }
@@ -333,7 +401,8 @@ async function evaluar(
       return null;
     });
     // Nada que hacer no es un error: el cliente dijo algo que no le toca a ninguna regla.
-    await guardarEstado(input.conversationId, siguienteEstado(estado, []));
+    const estadoSinCambios = siguienteEstado(estado, []);
+    await guardarEstado(input.conversationId, estadoSinCambios);
     if (delCatalogo) {
       return { atendido: true, regla: "Catálogo de Gestión", porque: delCatalogo, acciones: 1 };
     }
@@ -341,9 +410,19 @@ async function evaluar(
       Ni regla ni catálogo: contesta el redactor (Alex, 03-10-2026), con los candados de la estrella.
       Antes el mensaje quedaba sin respuesta hasta que entrara una asesora.
     */
-    const delRedactor = await input.herramientas.responderSinRegla?.({ foto: input.foto ?? null });
-    if (delRedactor) {
-      return { atendido: true, regla: "Redactor", porque: delRedactor, acciones: 1 };
+    const delRedactor = porqueYRespondio(await input.herramientas.responderSinRegla?.({ foto: input.foto ?? null }));
+    if (delRedactor.porque) {
+      if (delRedactor.respondio === false) {
+        const respaldo = await respaldarSiFalla(
+          input,
+          libroCompleto,
+          estadoSinCambios,
+          { porque: delRedactor.porque, causa: delRedactor.causa },
+          traza,
+        );
+        return { atendido: true, regla: "Redactor", ...respaldo };
+      }
+      return { atendido: true, regla: "Redactor", porque: delRedactor.porque, acciones: 1 };
     }
     return { atendido: false, regla: null, porque: decision.porque, acciones: 0 };
   }
