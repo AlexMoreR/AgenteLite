@@ -97,6 +97,12 @@ try {
     assert.ok(QUE_FALLO[t940.queFallo] && COMO_SE_RESOLVIO[t940.comoSeResolvio]);
   });
 
+  await prueba("un archivo que la tarjeta dice crear (nuevo) no cuenta para decidir el repo", async () => {
+    const config = configDe(fs.mkdtempSync(path.join(T, "t-")));
+    assert.deepEqual(rutasDeLaTarjeta({ titulo: "x", detalle: "- src/lib/a.ts\n- src/lib/b.ts (nuevo)" }), ["src/lib/a.ts"]);
+    assert.equal(await repoCorrecto({ config }, tarjetaCon("Tocar src/app/cliente/chats/page.tsx\nCrear src/solo-gestion-nuevo.ts (nuevo)")), null);
+  });
+
   await prueba("solo en el otro repo: cambia (con el motivo)", async () => {
     const config = configDe(fs.mkdtempSync(path.join(T, "t-")));
     const cambio = await repoCorrecto({ config }, tarjetaCon(`Tocar ${SOLO_EN_GESTION}`));
