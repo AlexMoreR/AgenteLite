@@ -37,6 +37,7 @@ import { NavCrm } from "@/components/nav-crm"
 import { NavDireccion } from "@/components/nav-direccion"
 import { NavUser } from "@/components/nav-user"
 import { TeamSwitcher } from "@/components/team-switcher"
+import { etiquetaDeVersion } from "@/lib/version-del-crm"
 import {
   Sidebar,
   SidebarContent,
@@ -105,7 +106,7 @@ type AppSidebarProps = React.ComponentProps<typeof Sidebar> & {
 
 export function AppSidebar({
   adminModuleAccess = {} as Record<AdminModuleKey, boolean>,
-  brandName = "Workspace",
+  brandName = "Magilus",
   user,
   currentConnectionKey = "",
   esJefeDelNegocio = false,
@@ -140,8 +141,13 @@ export function AppSidebar({
           teams={[
             {
               name: brandName,
-              logo: <Bot />,
-              plan: "Workspace",
+              // El logo de Magilus va en el mismo cuadro de 32 px que tenía el robot; es ancho, por eso
+              // object-contain: se ve completo y centrado.
+              // eslint-disable-next-line @next/next/no-img-element
+              logo: <img src="/magilus-logo.svg" alt="Magilus" className="size-full object-contain" />,
+              // Debajo del nombre, la versión que tiene abierta la persona: "v1.0.812" o "v1.0.dev".
+              // Next deja el número fijo al armar el build.
+              plan: etiquetaDeVersion(process.env.NEXT_PUBLIC_VERSION_NUMERO),
             },
           ]}
         />

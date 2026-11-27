@@ -105,6 +105,7 @@
     "test:fallas-crm": "node scripts/check-fallas-crm.mjs",
     "test:actualizacion-automatica": "node scripts/check-actualizacion-automatica.mjs",
     "test:version-del-crm": "node scripts/check-version-del-crm.mjs",
+    "test:marca-magilus": "node scripts/check-marca-magilus.mjs",
     "test:recarga-silenciosa": "npx tsx --test src/lib/recarga-silenciosa.test.ts",
     "embudo:backfill": "node scripts/embudo-backfill.mjs",
     "test:supervisor": "node scripts/check-supervisor.mjs",
