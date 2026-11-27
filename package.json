@@ -130,6 +130,7 @@
     "test:aprobacion-heredada-via": "node scripts/check-aprobacion-heredada-via.mjs",
     "test:coordinador-en-features": "node scripts/check-tarjetas-del-coordinador-en-features.mjs",
     "test:tablero-features": "node scripts/check-tablero-features.mjs",
+    "test:tablero-features-kanban": "node scripts/check-tablero-features-kanban.mjs",
     "test:tablero-organizar-areas": "node scripts/check-tablero-organizar-areas.mjs",
     "test:features-auto-aprobar": "node scripts/check-features-auto-aprobar.mjs",
     "test:tablero-archivar-al-terminar": "npx tsx --test src/features/tableros-inteligentes/services/archivar-al-terminar.test.ts",
