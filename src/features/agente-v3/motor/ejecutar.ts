@@ -17,7 +17,7 @@ import {
 import { anotarDecision } from "../servicios/decisiones";
 import { clasificarIntenciones } from "./clasificar";
 import { decidir, siguienteEstado, type EstadoDeLaCharla } from "./decidir";
-import { mandarRespaldo } from "./respaldo";
+import { mandarRespaldo, type ResultadoDelRespaldo } from "./respaldo";
 import { fotoDelClienteReciente, type MensajeReciente } from "./foto-y-precio";
 import { guardarEstado, leerEstado } from "./estado";
 import type { Accion, LibroDeReglas, ReglaV3 as Regla } from "../domain/reglas";
@@ -460,7 +460,8 @@ async function evaluar(
     Se ejecuta antes de decidir si hay que escalar, y no con un retorno temprano, porque si no una
     regla del tipo [mensaje + cambiar_etapa] perdería la etapa solo porque el texto se repetía.
   */
-  const notas = await ejecutarAcciones(filtradas, input);
+  const lugarDelRespaldo: LugarDelRespaldo = { respaldo: null, causa: null };
+  const notas = await ejecutarAcciones(filtradas, { ...input, estado, libro: libroCompleto, resultado: lugarDelRespaldo });
 
   /*
     Se calló y no le queda nada que decirle: que siga una persona.
@@ -476,7 +477,23 @@ async function evaluar(
     );
   }
 
-  const nuevoEstado = siguienteEstado(estado, acciones);
+  let nuevoEstado = siguienteEstado(estado, acciones);
+  /*
+    Si la IA falló dentro de una regla y salió la ficha de respaldo, la charla pasa a PRODUCTO y la
+    ficha queda anotada. El texto corto no mueve el estado: así no pisa un "ir al paso" de la regla.
+    El estado se guarda una sola vez.
+  */
+  const respaldoDeLaRegla = lugarDelRespaldo.respaldo;
+  if (respaldoDeLaRegla) {
+    if (respaldoDeLaRegla.estado !== estado) {
+      nuevoEstado = {
+        ...nuevoEstado,
+        pasoActual: respaldoDeLaRegla.estado.pasoActual,
+        flujosEnviados: [...new Set([...nuevoEstado.flujosEnviados, ...respaldoDeLaRegla.estado.flujosEnviados])],
+      };
+    }
+    traza.respaldo = { tipo: respaldoDeLaRegla.tipo, causa: lugarDelRespaldo.causa ?? null };
+  }
   await guardarEstado(input.conversationId, nuevoEstado);
   traza.envioFlujo = filtradas.some((accion) => accion.tipo === "flujo");
   traza.despues = { pasoActual: nuevoEstado.pasoActual, producto: nuevoEstado.productoActivo };
@@ -552,8 +569,17 @@ async function responderDesdeElCatalogo(input: {
     : `Ninguna regla aplicaba; lo que escribió encaja con ${deQue} del catálogo: se le preguntó cuál y se avisó a una asesora.`;
 }
 
+/** Donde `ejecutarAcciones` deja el respaldo que mandó (si hizo falta) y por qué falló la IA. */
+export type LugarDelRespaldo = { respaldo: ResultadoDelRespaldo | null; causa?: string | null };
+
 type EntradaDeAcciones = {
   workspaceId: string;
+  /** Estado de la charla antes de las acciones. Sin él (y sin libro) no hay respaldo. Opcional. */
+  estado?: EstadoDeLaCharla;
+  /** El libro: el respaldo lo necesita para saber si el producto es de camillas. Opcional. */
+  libro?: LibroDeReglas;
+  /** Aquí queda el respaldo, para que quien llama lo lea después. Opcional. */
+  resultado?: LugarDelRespaldo;
   /** Lo que escribió el cliente: de acá sale el código del producto que nombró. */
   mensaje: string;
   incluirApiOficial?: boolean;
@@ -631,9 +657,36 @@ async function ejecutarUna(accion: Accion, input: EntradaDeAcciones): Promise<st
       return null;
     }
 
-    case "responder_con_ia":
-      await herramientas.responderConIa(accion.guia);
+    case "responder_con_ia": {
+      const resultado = await herramientas.responderConIa(accion.guia);
+      // Solo si la IA no logró que le llegara nada y hay con qué respaldar. Un solo respaldo por turno.
+      if (
+        resultado &&
+        typeof resultado === "object" &&
+        resultado.respondio === false &&
+        input.estado &&
+        input.libro &&
+        input.resultado &&
+        !input.resultado.respaldo
+      ) {
+        try {
+          const respaldo = await mandarRespaldo({
+            workspaceId: input.workspaceId,
+            estado: input.estado,
+            libro: input.libro,
+            incluirApiOficial: input.incluirApiOficial,
+            causa: resultado.causa,
+            herramientas,
+          });
+          input.resultado.respaldo = respaldo;
+          input.resultado.causa = resultado.causa;
+          return respaldo.nota;
+        } catch (error) {
+          console.error("[agente-v3] respaldo", error instanceof Error ? error.message : error);
+        }
+      }
       return null;
+    }
 
     case "avisar_asesor":
       await herramientas.avisarAsesor(accion.motivo);

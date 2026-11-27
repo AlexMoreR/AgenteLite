@@ -107,6 +107,14 @@ const libro = (...reglas) => ({
     ...reglas,
   ],
 });
+// Una regla que sí aplica (por frase) y cuya acción es "responder con IA".
+const reglaConIa = {
+  id: "r-ia",
+  nombre: "Responde la IA",
+  cuando: { tipo: "frase", frases: ["ayuda con ia"] },
+  entonces: [{ tipo: "responder_con_ia", guia: "Contesta con calidez." }],
+  activa: true,
+};
 const estadoDe = (extra = {}) => ({
   productoActivo: COMBO,
   pasoActual: "PRODUCTO",
@@ -129,8 +137,9 @@ async function atender({
   buscarFlujo = async () => FICHA,
   pasos = [{ kind: "image", url: "/ficha-1.jpg" }, { kind: "text", content: "Ficha de la camilla" }],
   conRespondeString = null,
+  porRegla = false,
 }) {
-  mundo.libro = libroDe;
+  mundo.libro = porRegla ? libro(reglaConIa) : libroDe;
   mundo.estado = estado;
   mundo.guardados = [];
   mundo.sugerencia = sugerencia;
@@ -153,7 +162,22 @@ async function atender({
     pausarIa: async () => {
       registro.pausas += 1;
     },
-    responderConIa: async () => {},
+    // Como en producción: la acción de la regla llama al redactor real y devuelve su objeto.
+    responderConIa: async (guia) =>
+      responderConElRedactor({
+        workspaceId: "ws",
+        conversationId: "cv",
+        guia,
+        foto: null,
+        enviarTexto,
+        avisarAsesor: async (motivo) => {
+          registro.avisos.push(motivo);
+        },
+        yaLoDijimos,
+        pausarIa: async () => {
+          registro.pausas += 1;
+        },
+      }),
     yaLoDijimos,
     buscarFlujo: async (titulo) => {
       registro.buscados.push(titulo);
@@ -349,6 +373,64 @@ await prueba("(g) foto sin texto + falla de la IA: respaldo con el estado ya ava
   assert.equal(r.guardados.length, 2);
   assert.equal(r.guardados.at(-1).pasoActual, "PRODUCTO");
   assert.equal(r.avisos.length, 1);
+});
+
+// --- Por una regla con la acción "responder con IA" ----------------------------------------------
+await prueba("(a') regla responder_con_ia, PRESENTACION sin producto, se pasa del tiempo: sale la ficha y queda en PRODUCTO", async () => {
+  const r = await atender({
+    mensaje: "ayuda con ia",
+    porRegla: true,
+    estado: estadoDe({ productoActivo: null, pasoActual: "PRESENTACION" }),
+    sugerencia: fallaPorTiempo,
+  });
+  assert.equal(r.resultado.regla, "Responde la IA");
+  assert.deepEqual(r.buscados, ["Ficha Camilla Divan"]);
+  assert.deepEqual(r.enviados, ["[image]", "Ficha de la camilla"]);
+  assert.equal(r.guardados.length, 1, "el estado se guarda una sola vez");
+  assert.equal(r.guardados[0].pasoActual, "PRODUCTO");
+  assert.deepEqual(r.guardados[0].flujosEnviados, [FICHA]);
+  assert.equal(r.avisos.length, 1);
+  assert.match(r.avisos[0], /^El agente no pudo/);
+  assert.match(r.avisos[0], /tiempo de espera/);
+  assert.match(r.resultado.porque, /Ficha Camilla Divan/);
+  assert.deepEqual(r.resultado.traza.respaldo, { tipo: "ficha", causa: "tiempo de espera" });
+  assert.equal(r.resultado.traza.despues.pasoActual, "PRODUCTO");
+});
+
+await prueba("(b') regla responder_con_ia, PRODUCTO, respuesta vacía: sale exactamente el texto de respaldo", async () => {
+  const r = await atender({ mensaje: "ayuda con ia", porRegla: true, estado: estadoDe(), sugerencia: fallaVacia });
+  assert.deepEqual(r.enviados, [TEXTO_DE_RESPALDO]);
+  assert.deepEqual(r.buscados, []);
+  assert.equal(r.avisos.length, 1);
+  assert.equal(r.guardados.length, 1);
+  assert.equal(r.guardados[0].pasoActual, "PRODUCTO");
+  assert.deepEqual(r.resultado.traza.respaldo, { tipo: "texto", causa: "respuesta vacía" });
+});
+
+await prueba("(c') regla responder_con_ia: el texto ya había salido, no se manda nada y queda el aviso", async () => {
+  const r = await atender({
+    mensaje: "ayuda con ia",
+    porRegla: true,
+    estado: estadoDe(),
+    sugerencia: fallaVacia,
+    yaSalio: [TEXTO_DE_RESPALDO],
+  });
+  assert.deepEqual(r.enviados, []);
+  assert.equal(r.avisos.length, 1);
+  assert.deepEqual(r.resultado.traza.respaldo, { tipo: "nada", causa: "respuesta vacía" });
+});
+
+await prueba("(f') regla responder_con_ia, la IA responde bien: sin respaldo", async () => {
+  const r = await atender({
+    mensaje: "ayuda con ia",
+    porRegla: true,
+    estado: estadoDe({ pasoActual: "PRESENTACION" }),
+    sugerencia: () => ({ texto: "Claro, ¿en qué ciudad estás?", productoId: null, flujo: null, faltaDato: false, problemas: [] }),
+  });
+  assert.deepEqual(r.enviados, ["Claro, ¿en qué ciudad estás?"]);
+  assert.equal(r.avisos.length, 0);
+  assert.equal(r.resultado.traza.respaldo, undefined);
+  assert.deepEqual(r.buscados, []);
 });
 
 console.log(`\n${pruebas} pruebas ok`);
