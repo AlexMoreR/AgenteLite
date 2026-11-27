@@ -237,6 +237,8 @@ export async function procesar({ crm, config, registro: registroBase, motores = 
       if (porRecomendada) return porRecomendada;
     }
     const salida = await etapa(contexto, tarjeta);
+    // Repo corregido antes de planear (27-nov-2026): lo que sigue (cambiar de repo por el plan, avisos, errores) va con el repo nuevo.
+    if (hacer === "planear" && salida.repoCambiado) tarjeta = { ...tarjeta, repo: salida.repoCambiado };
     if (vencida) throw new ErrorDeEtapa("La tarjeta venció en el CRM mientras se trabajaba.");
     // La sesión descubrió que falta otra tarjeta, o que ya estaba hecho (commit comprobado en main): sin intento ni reparación.
     if (salida.dependeDe?.length) return esperarPorDependencia({ crm, config, registro }, tarjeta, hacer, salida.dependeDe);
