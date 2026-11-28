@@ -759,6 +759,15 @@ export function intentosReales(intentos) {
   return intentosDesdeLaUltimaEscalada(intentos).filter(cuentaComoIntentoReal).length;
 }
 
+/**
+ * Los intentos reales de una tarjeta que YA está en ERROR (la recogida diaria): su última fila es la `escalar` que la dejó ahí, y esa
+ * fila es el último intento real. Se cuentan los de antes de esa fila (desde la escalada anterior) más ella misma.
+ */
+export function intentosRealesDeUnaTarjetaEnError(intentos) {
+  const lista = Array.isArray(intentos) ? intentos.filter(Boolean) : [];
+  return lista.at(-1)?.accion === "escalar" ? intentosReales(lista.slice(0, -1)) + 1 : intentosReales(lista);
+}
+
 /** El último intento real (el que se compara con la falla de ahora), o null. */
 export function ultimoIntentoReal(intentos) {
   return intentosDesdeLaUltimaEscalada(intentos).filter(cuentaComoIntentoReal).at(-1) ?? null;

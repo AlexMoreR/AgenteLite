@@ -990,12 +990,13 @@ try {
   });
 
   await prueba("recogida: decidirRecogida salta una tarjeta con 2 intentos reales y nunca la reintenta sola", () => {
-    const dos = [{ accion: "reparar", etapa: "construir", categoria: "no_compila", causa: "No compila" }, { accion: "esperar", etapa: "construir", categoria: "coordinador_cortado", causa: "Se cortó" }];
+    // Una tarjeta en ERROR trae al final la fila `escalar` que la dejó ahí (la guarda /error): esa fila es el 2.º intento real.
+    const dos = [{ accion: "reparar", etapa: "construir", categoria: "no_compila", causa: "No compila" }, { accion: "esperar", etapa: "construir", categoria: "coordinador_cortado", causa: "Se cortó" }, { accion: "escalar", etapa: "construir", categoria: "coordinador_cortado", causa: "Se cortó" }];
     const decision = decidirRecogida({ titulo: "T", plan: "p", motivo: "El Coordinador se cortó", ultimoError: "ECONNRESET", recogidas: 0, ultimosIntentos: dos });
     assert.equal(decision.accion, "saltar");
     assert.equal(decision.motivo, "llegó al tope de 2 intentos: solo Reintentar del dueño");
     // Con 1 intento real, una causa pasajera todavía se reintenta.
-    assert.equal(decidirRecogida({ titulo: "T", plan: "p", motivo: "El Coordinador se cortó", ultimoError: "ECONNRESET", recogidas: 0, ultimosIntentos: dos.slice(1) }).accion, "reintentar");
+    assert.equal(decidirRecogida({ titulo: "T", plan: "p", motivo: "El Coordinador se cortó", ultimoError: "ECONNRESET", recogidas: 0, ultimosIntentos: dos.slice(2) }).accion, "reintentar");
   });
 
   console.log(`\n${pruebas} pruebas OK`);
