@@ -1,0 +1,2 @@
+## Módulos
+- `tablero-ia`: desde el 28-nov-2026 el Espacio tiene **«+ Nuevo»** en el medio (arriba del mapa, y en el centro si está vacío): una ventana pide primero el tipo (Área, Idea, Tarea… los del espacio) y luego el nombre y el detalle opcional. Dentro de un nivel del mapa la tarjeta nace colgando de él y solo se ofrecen los tipos que aceptan esa madre (`crearTarjetaAction` → `crearTarjeta`, las mismas reglas que cuando la crea Claude). Solo en la vista Mapa.

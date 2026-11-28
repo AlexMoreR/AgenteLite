@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Controls, ReactFlow, applyNodeChanges, type NodeChange, type ReactFlowInstance } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { ArrowLeft, UserRound } from "lucide-react";
+import { ArrowLeft, Plus, UserRound } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -25,6 +25,7 @@ import {
   type GrupoDeContador,
 } from "../services/niveles";
 import { useListaDeTableros, useRefrescoDelTablero, type ContenidoNuevo } from "../hooks/useRefrescoDelTablero";
+import { DialogoNuevaTarjeta } from "./DialogoNuevaTarjeta";
 import { FichaTarjeta } from "./FichaTarjeta";
 import { FlechaFlotante, type FlechaDeTablero } from "./FlechaFlotante";
 import { MigasDelNivel } from "./MigasDelNivel";
@@ -311,6 +312,8 @@ export function TablerosInteligentesVista({
       : [],
   );
   const [panelTipos, setPanelTipos] = useState(false);
+  // «+ Nuevo» en el medio del espacio (28-nov-2026): la ventana para crear a mano.
+  const [creando, setCreando] = useState(false);
 
   const tarjetas = useMemo(() => contenido?.tarjetas ?? [], [contenido]);
   const conexiones = useMemo<ConexionVista[]>(() => contenido?.conexiones ?? [], [contenido]);
@@ -676,8 +679,12 @@ export function TablerosInteligentesVista({
 
       <div className="relative min-h-0 flex-1 bg-zinc-50 dark:bg-zinc-950">
         {tarjetas.length === 0 ? (
-          <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-muted-foreground">
-            El espacio está vacío. Las ideas que anote Claude aparecen acá en unos segundos.
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center text-sm text-muted-foreground">
+            <Button size="lg" className="h-11" onClick={() => setCreando(true)}>
+              <Plus />
+              Nuevo
+            </Button>
+            El espacio está vacío. Crea un Área, una Idea o una Tarea, o pídeselo a Claude.
           </div>
         ) : (
           <>
@@ -712,6 +719,13 @@ export function TablerosInteligentesVista({
           >
             <Controls showInteractive={false} position="bottom-right" />
           </ReactFlow>
+          {/* «+ Nuevo» arriba, en el medio del mapa: lo nuevo nace dentro del nivel abierto. */}
+          <div className="pointer-events-none absolute inset-x-0 top-3 flex justify-center">
+            <Button className="pointer-events-auto h-10 shadow-sm md:h-9" onClick={() => setCreando(true)}>
+              <Plus />
+              Nuevo
+            </Button>
+          </div>
           {nodos.every((nodo) => nodo.data.esNivel) ? (
             <div className="pointer-events-none absolute inset-x-0 bottom-4 flex justify-center px-6 text-center text-xs text-muted-foreground">
               No hay tarjetas con estos filtros
@@ -753,6 +767,15 @@ export function TablerosInteligentesVista({
           irANivel(id);
         }}
         alAprobar={refrescarYa}
+      />
+
+      <DialogoNuevaTarjeta
+        abierto={creando}
+        alCerrar={() => setCreando(false)}
+        tableroId={tableroId}
+        tipos={tipos}
+        madre={nivel ? (tarjetas.find((tarjeta) => tarjeta.id === nivel) ?? null) : null}
+        alCrear={() => refrescarYa()}
       />
 
       <PanelTipos

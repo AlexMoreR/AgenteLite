@@ -12,6 +12,7 @@ import {
   borrarTipo,
   crearTablero,
   crearTipo,
+  crearTarjeta,
   editarTarjeta,
   editarTipo,
   esperaLaPantallaDeLaTarjeta,
@@ -185,6 +186,32 @@ export async function cambiarResponsableAction(tarjetaId: string, responsableId:
  * (su id) o la deja suelta (null). Lo hace quien edita ese tablero, como el responsable. Cuenta como mover:
  * no reinicia la aprobación ni corta lo que se construye. editarTarjeta revisa que el tipo acepte esa madre.
  */
+/**
+ * «+ Nuevo» en el medio del espacio (28-nov-2026): crear a mano un Área, Idea o Tarea con su nombre y
+ * detalle, colgando del nivel abierto del mapa. Lo valida todo crearTarjeta, igual que cuando la crea Claude.
+ */
+export async function crearTarjetaAction(datos: {
+  tableroId: string;
+  tipoId: string;
+  titulo: string;
+  detalle: string;
+  padreId: string | null;
+}): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  const contexto = await contextoDePantalla();
+  try {
+    const creada = await crearTarjeta(contexto, {
+      tableroId: datos.tableroId,
+      tipo: datos.tipoId,
+      titulo: datos.titulo,
+      detalle: datos.detalle,
+      padreId: datos.padreId ?? undefined,
+    });
+    return { ok: true, id: creada.tarjeta.id };
+  } catch (fallo) {
+    return { ok: false, error: mensaje(fallo, "No se pudo crear la tarjeta") };
+  }
+}
+
 export async function moverTarjetaAction(tarjetaId: string, areaId: string | null): Promise<Resultado> {
   const contexto = await contextoDePantalla();
   try {
