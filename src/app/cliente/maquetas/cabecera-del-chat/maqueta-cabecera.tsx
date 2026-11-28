@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Bot, CalendarClock, Lock, MoreVertical, Phone, Sparkles, Timer, UserPlus, Workflow } from "lucide-react";
+import { Bot, CalendarClock, CheckCircle2, Lock, MoreVertical, Phone, Sparkles, Timer, UserPlus, Workflow } from "lucide-react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -29,47 +29,65 @@ function iniciales(nombre: string) {
     .toUpperCase();
 }
 
-/** Cabecera del chat. Recibe por props si hay asesora y si hay seguimiento. */
-function CabeceraDelChat({ conAsesora, conSeguimiento }: { conAsesora: boolean; conSeguimiento: boolean }) {
+/** Menú de «Próximo seguimiento»: lo usan las dos vistas. */
+function MenuDeSeguimiento({ celular }: { celular: boolean }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button type="button" className="flex max-w-full items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+          <CalendarClock className="size-3.5 shrink-0" />
+          <span className={celular ? "truncate" : undefined}>Próximo seguimiento: {PROXIMO_SEGUIMIENTO}</span>
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="min-w-40">
+        {/* onClick y no onSelect: el menú es de Base UI y onSelect no se dispara. */}
+        <DropdownMenuItem onClick={() => undefined}>Pausar</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => undefined}>Cambiar hora</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => undefined}>Cancelar</DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/**
+ * Cabecera del chat. Recibe por props si hay asesora y si hay seguimiento.
+ * Con `celular`: de la asesora solo sale la foto, y Llamar y Resolver pasan al menú de tres puntos.
+ */
+function CabeceraDelChat({
+  conAsesora,
+  conSeguimiento,
+  celular = false,
+}: {
+  conAsesora: boolean;
+  conSeguimiento: boolean;
+  celular?: boolean;
+}) {
   const [asignada, setAsignada] = useState(conAsesora);
 
   return (
-    <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2">
+    <div className="flex items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2">
       <div className="flex min-w-0 items-center gap-3">
         <Avatar>
           <AvatarFallback>{iniciales(CONTACTO)}</AvatarFallback>
         </Avatar>
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold">{CONTACTO}</p>
-          {conSeguimiento ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button type="button" className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-                  <CalendarClock className="size-3.5" />
-                  Próximo seguimiento: {PROXIMO_SEGUIMIENTO}
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="min-w-40">
-                {/* onClick y no onSelect: el menú es de Base UI y onSelect no se dispara. */}
-                <DropdownMenuItem onClick={() => undefined}>Pausar</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => undefined}>Cambiar hora</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => undefined}>Cancelar</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : null}
+          {conSeguimiento ? <MenuDeSeguimiento celular={celular} /> : null}
         </div>
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
-        <Button variant="ghost" size="icon" aria-label="Llamar">
-          <Phone className="size-4" />
-        </Button>
+        {celular ? null : (
+          <Button variant="ghost" size="icon" aria-label="Llamar">
+            <Phone className="size-4" />
+          </Button>
+        )}
         {asignada ? (
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5" title={ASESORA} aria-label={`Asesora: ${ASESORA}`}>
             <Avatar size="sm">
               <AvatarFallback>{iniciales(ASESORA)}</AvatarFallback>
             </Avatar>
-            <span className="text-sm">{ASESORA}</span>
+            {celular ? null : <span className="text-sm">{ASESORA}</span>}
           </div>
         ) : (
           <div className="flex items-center gap-2">
@@ -80,7 +98,7 @@ function CabeceraDelChat({ conAsesora, conSeguimiento }: { conAsesora: boolean; 
             </Button>
           </div>
         )}
-        <Button size="sm">Resolver</Button>
+        {celular ? null : <Button size="sm">Resolver</Button>}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" aria-label="Más opciones">
@@ -88,6 +106,18 @@ function CabeceraDelChat({ conAsesora, conSeguimiento }: { conAsesora: boolean; 
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="min-w-52">
+            {celular ? (
+              <>
+                <DropdownMenuItem onClick={() => undefined} className="gap-2">
+                  <Phone className="size-3.5" />
+                  Llamar
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => undefined} className="gap-2">
+                  <CheckCircle2 className="size-3.5" />
+                  Resolver
+                </DropdownMenuItem>
+              </>
+            ) : null}
             <DropdownMenuItem onClick={() => undefined} className="gap-2">
               <Workflow className="size-3.5" />
               Etapa
@@ -116,22 +146,22 @@ function CabeceraDelChat({ conAsesora, conSeguimiento }: { conAsesora: boolean; 
 }
 
 /** Franja del agente sobre una caja de escribir de muestra. Solo cambia lo que se ve. */
-function FranjaDelAgente() {
+function FranjaDelAgente({ celular = false }: { celular?: boolean }) {
   const [pausado, setPausado] = useState(false);
 
   return (
     <div className="overflow-hidden rounded-lg border border-border bg-card">
-      <div className="flex items-center justify-between gap-3 border-b border-border bg-muted/50 px-3 py-2">
-        <span className="flex items-center gap-2 text-sm">
-          <Bot className="size-4 text-muted-foreground" />
+      <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/50 px-3 py-2">
+        <span className={celular ? "flex min-w-0 items-center gap-2 text-xs" : "flex items-center gap-2 text-sm"}>
+          <Bot className="size-4 shrink-0 text-muted-foreground" />
           {pausado ? "Agente pausado" : "El agente está atendiendo este chat"}
         </span>
         {pausado ? (
-          <Button size="sm" variant="outline" onClick={() => setPausado(false)}>
+          <Button size="sm" variant="outline" className="shrink-0" onClick={() => setPausado(false)}>
             Devolverle el chat
           </Button>
         ) : (
-          <Button size="sm" onClick={() => setPausado(true)}>
+          <Button size="sm" className="shrink-0" onClick={() => setPausado(true)}>
             Tomar control
           </Button>
         )}
@@ -159,21 +189,38 @@ function Estado({ titulo, children }: { titulo: string; children: React.ReactNod
   );
 }
 
-export function MaquetaCabecera() {
+function Casos({ celular }: { celular: boolean }) {
   return (
     <div className="space-y-4">
       <Estado titulo="Cabecera limpia (con asesora y seguimiento)">
-        <CabeceraDelChat conAsesora conSeguimiento />
+        <CabeceraDelChat conAsesora conSeguimiento celular={celular} />
       </Estado>
       <Estado titulo="Asesor sin asignar">
-        <CabeceraDelChat conAsesora={false} conSeguimiento />
+        <CabeceraDelChat conAsesora={false} conSeguimiento celular={celular} />
       </Estado>
       <Estado titulo="Sin seguimiento (no sale la línea)">
-        <CabeceraDelChat conAsesora conSeguimiento={false} />
+        <CabeceraDelChat conAsesora conSeguimiento={false} celular={celular} />
       </Estado>
       <Estado titulo="Franja del agente (escribe o toca el botón)">
-        <FranjaDelAgente />
+        <FranjaDelAgente celular={celular} />
       </Estado>
+    </div>
+  );
+}
+
+export function MaquetaCabecera() {
+  return (
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_390px]">
+      <section className="min-w-0 space-y-2">
+        <h2 className="text-sm font-semibold">Computador</h2>
+        <Casos celular={false} />
+      </section>
+      <section className="min-w-0 space-y-2">
+        <h2 className="text-sm font-semibold">Celular (390 px)</h2>
+        <div className="w-[390px] max-w-full rounded-[2rem] border-4 border-border bg-background p-3">
+          <Casos celular />
+        </div>
+      </section>
     </div>
   );
 }

@@ -44,6 +44,13 @@ else {
   else {
     const codigo = fs.readFileSync(maqueta, "utf8");
     for (const t of textos) if (!codigo.includes(t)) fallos.push(`maqueta-cabecera.tsx: falta el texto «${t}»`);
+    if (!codigo.includes("390")) fallos.push("maqueta-cabecera.tsx: falta el marco de celular («390»)");
+  }
+  const explicacion = path.join(carpeta, "cabecera-del-chat", "explicacion.tsx");
+  if (!fs.existsSync(explicacion)) fallos.push("Falta cabecera-del-chat/explicacion.tsx");
+  else {
+    const codigo = fs.readFileSync(explicacion, "utf8");
+    for (const t of ["Devolverle el chat", "Cambiar hora"]) if (!codigo.includes(t)) fallos.push(`explicacion.tsx: falta el texto «${t}»`);
   }
 }
 
@@ -52,4 +59,4 @@ if (fallos.length) {
   for (const f of fallos) console.error(` - ${f}`);
   process.exit(1);
 }
-console.log("OK: maqueta de la cabecera del chat (sin base, sin acciones, con los 11 textos)");
+console.log("OK: maqueta de la cabecera del chat (sin base, sin acciones, con los 11 textos, el marco de celular y el recuadro explicativo)");
