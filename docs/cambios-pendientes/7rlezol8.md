@@ -1,2 +1,0 @@
-## Advertencias de operación
-- `depende_de_sin_main`: marcar una tarjeta HECHO a mano (sin que el Coordinador la suba) ya no la cierra para las que dependen de ella: si una sesión contesta "DEPENDE_DE" a esa tarjeta y su código no está en main, la tarjeta que espera queda en ERROR con la categoría `depende_de_sin_main` y el motivo («Depende de «X» (id corto), que está HECHA a mano/FALLIDA pero su código no está en main»), sin reparaciones. Se destraba subiendo ese código a main y reintentando la tarjeta.

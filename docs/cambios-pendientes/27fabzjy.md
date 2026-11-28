@@ -1,2 +1,0 @@
-## Advertencias de operación
-- `tarjetas-repetidas`: antes de planear, el Coordinador compara la tarjeta con las del mismo tablero y repo (activas o terminadas en 30 días). Si otra HECHO tiene su commit en main, la cierra como HECHO con "Ya lo hizo T-XXX". Si las dos están pendientes, cierra la nueva como FALLIDO con "Repetida de T-XXX" y le pasa el detalle a la vieja. Si duda, la deja en ERROR posible_repetida, que la recogida no reintenta: el dueño decide con Reintentar y esa pareja no se vuelve a marcar.
