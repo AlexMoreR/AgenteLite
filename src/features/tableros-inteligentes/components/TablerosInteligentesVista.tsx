@@ -122,6 +122,8 @@ type Props = {
   nivelInicial: string | null;
   /** Puede apretar los botones de aprobar la tarea y el plan (el servidor revisa el alcance). */
   puedeAprobar: boolean;
+  /** El id del Área Features (solo para el dueño o el ADMIN): en ese nivel sale «Ver como tablero». */
+  areaFeaturesId?: string | null;
   /** Puede tocar los tipos (dueño o ADMIN de la plataforma, como en la fase 1). */
   puedeEditarTipos: boolean;
   /** Tableros por cuenta: quién mira, si ve todos y a quién le puede dar uno (selector y diálogo de nombre). */
@@ -272,6 +274,7 @@ export function TablerosInteligentesVista({
   tarjetaInicial,
   nivelInicial,
   puedeAprobar,
+  areaFeaturesId = null,
   puedeEditarTipos,
   cuentas,
   esDueno,
@@ -579,6 +582,24 @@ export function TablerosInteligentesVista({
             <ArrowLeft />
           </Button>
           <MigasDelNivel tableroNombre={nombreDelTablero} ruta={ruta} alIr={irANivel} />
+          {areaFeaturesId && nivel === areaFeaturesId ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="ml-auto h-10 shrink-0 md:h-8"
+              onClick={() => {
+                // Recuerda la vista (misma clave que usa «Features» del inicio) y vuelve al tablero de Features.
+                try {
+                  window.localStorage.setItem("tablero-ia:features:vista", "tablero");
+                } catch {
+                  /* sin almacenamiento: igual navega */
+                }
+                window.location.assign("/cliente/tablero-ia?vista=features");
+              }}
+            >
+              Ver como tablero
+            </Button>
+          ) : null}
         </div>
       ) : null}
 

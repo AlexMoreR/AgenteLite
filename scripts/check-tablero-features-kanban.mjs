@@ -351,5 +351,17 @@ await prueba("page.tsx acepta ?vista=features y lee el id de Features sin romper
   assert.match(texto, /areaFeaturesId=\{areaFeaturesId\}/);
 });
 
+await prueba("TablerosInteligentesVista: el botón «Ver como tablero» solo en el nivel de Features; page.tsx le pasa areaFeaturesId (parte 3)", async () => {
+  const mapa = fs.readFileSync(path.join(RAIZ, "src/features/tableros-inteligentes/components/TablerosInteligentesVista.tsx"), "utf8");
+  for (const pieza of ["Ver como tablero", "?vista=features", "tablero-ia:features:vista", "areaFeaturesId?: string | null"]) {
+    assert.ok(mapa.includes(pieza), `TablerosInteligentesVista.tsx debe tener ${pieza}`);
+  }
+  assert.match(mapa, /areaFeaturesId && nivel === areaFeaturesId \? \(\s*<Button[\s\S]*?Ver como tablero/);
+  assert.doesNotMatch(mapa, /from "[^"]*(VistaDeFeatures|tablero-de-features)"/, "el mapa no importa VistaDeFeatures ni tablero-de-features");
+  const pagina = fs.readFileSync(path.join(RAIZ, "src/app/cliente/tablero-ia/page.tsx"), "utf8");
+  assert.match(pagina, /if \(personaPuedeAprobar\(access\)\) \{\s*try \{\s*areaFeaturesIdDelMapa = await idDeFeatures\(access\.workspaceId\);\s*\} catch/);
+  assert.match(pagina, /<TablerosInteligentesVista[\s\S]*?areaFeaturesId=\{areaFeaturesIdDelMapa\}/);
+});
+
 await db.close();
 console.log(`\n${pruebas} pruebas OK`);
