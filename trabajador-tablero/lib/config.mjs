@@ -5,6 +5,7 @@ import path from "node:path";
 
 import { agenteDelRepo } from "./agentes.mjs";
 import { BITACORA_POR_DEFECTO } from "./bitacora.mjs";
+import { TOPE_DE_INTENTOS_REALES } from "./diagnostico.mjs";
 import { MODELOS_POR_DEFECTO, cambiosDeModeloConFecha } from "./modelos.mjs";
 import { problemaDeRuta } from "./notas-boveda.mjs";
 import { GRACIA_SERVER_ACTION_MIN } from "./zonas.mjs";
@@ -492,6 +493,9 @@ export function completarConfig(datos, base = process.cwd()) {
     recoger[campo] = Math.floor(Number(recoger[campo]));
     if (!Number.isFinite(recoger[campo]) || recoger[campo] < 1 || recoger[campo] > 50) errores.push(`recogerErrores.${campo}: de 1 a 50.`);
   }
+  // 28-nov-2026: tope de intentos reales por tarjeta (2). Subirlo solo conserva las estrategias de siempre (pruebas viejas).
+  const topeDeIntentosReales = datos.topeDeIntentosReales === undefined ? TOPE_DE_INTENTOS_REALES : Math.floor(Number(datos.topeDeIntentosReales));
+  if (!Number.isFinite(topeDeIntentosReales) || topeDeIntentosReales < 2 || topeDeIntentosReales > 20) errores.push("topeDeIntentosReales: de 2 a 20 (por defecto 2).");
   const repetidas = { ...REPETIDAS_POR_DEFECTO, ...(datos.repetidas ?? {}) };
   for (const campo of ["igualPalabras", "igualConArchivo", "posibleSinArchivo", "posibleConArchivo"]) {
     repetidas[campo] = Number(repetidas[campo]);
@@ -675,6 +679,7 @@ export function completarConfig(datos, base = process.cwd()) {
     autoactualizar: { activo: auto.activo, cadaMinutos: auto.cadaMinutos, rama: auto.rama, remoto: auto.remoto },
     colaPesada: { maximo: colaPesada.maximo, esperaMaximaMinutos: colaPesada.esperaMaximaMinutos },
     medir: { activo: medir.activo, puntosGrande: medir.puntosGrande, puntosDudosa: medir.puntosDudosa, consultaHaiku: medir.consultaHaiku },
+    topeDeIntentosReales,
     recogerErrores: { activo: recoger.activo, maximoPorDia: recoger.maximoPorDia, maximoPorTarjeta: recoger.maximoPorTarjeta },
     repetidas: { igualPalabras: repetidas.igualPalabras, igualConArchivo: repetidas.igualConArchivo, posibleSinArchivo: repetidas.posibleSinArchivo, posibleConArchivo: repetidas.posibleConArchivo, dias: repetidas.dias },
     candadoDeBuild: { esperaSegundos: candadoDeBuild.esperaSegundos, maximoEsperas: candadoDeBuild.maximoEsperas },

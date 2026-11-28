@@ -46,7 +46,7 @@ try {
   const fueraDeMain = g(ruta, "rev-parse", "HEAD");
   g(ruta, "checkout", "-q", "main");
   const repo = { ruta, remoto: "origin", ramaBase: "main" };
-  const config = completarConfig({ urlCrm: "https://crm.ejemplo.com", claveTrabajador: "aizen_trab_x", carpetaTrabajo: T, nube: { activa: false }, repos: { aizencrm: { ...repo, ruta, subirSolo: false, verificar: [["node", "-e", "0"]], pruebas: [["node", "-e", "0"]] } } });
+  const config = completarConfig({ topeDeIntentosReales: 20, urlCrm: "https://crm.ejemplo.com", claveTrabajador: "aizen_trab_x", carpetaTrabajo: T, nube: { activa: false }, repos: { aizencrm: { ...repo, ruta, subirSolo: false, verificar: [["node", "-e", "0"]], pruebas: [["node", "-e", "0"]] } } });
 
   await prueba("completarConfig trae el bloque repetidas con sus valores por defecto", () => {
     assert.deepEqual(config.repetidas, REPETIDAS_POR_DEFECTO);

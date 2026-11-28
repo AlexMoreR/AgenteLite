@@ -706,6 +706,79 @@ export function choquesSeguidos(intentos) {
   return n;
 }
 
+/*
+  TOPE DE INTENTOS REALES (28-nov-2026, parte 1 de «máximo 2 intentos por tarjeta»). Una tarjeta tiene como máximo 2 intentos
+  reales: a la segunda falla queda en ERROR con su explicación y solo el dueño la mueve (Reintentar). Extiende las reglas de
+  T-996, T-997 y T-1014; no es un sistema aparte.
+*/
+
+/** Cuántos intentos reales aguanta una tarjeta: con la falla que lo completa se escala. `config.topeDeIntentosReales` lo cambia (pruebas viejas). */
+export const TOPE_DE_INTENTOS_REALES = 2;
+
+/** Lo que dejan las esperas por causa externa en la causa del intento: no son falla de la tarea y no se cuentan. */
+export const MARCA_DE_CAUSA_EXTERNA = "[causa externa]";
+
+/** Categorías que NO son falla de la tarea: no cuentan como intento real. */
+const NO_CUENTAN_COMO_INTENTO = new Set(["limite_claude", "choca_con_main", "esperar_dependencia", "pc_sobrecargado", "carpeta_trabada", "sin_sesion"]);
+
+/** ¿Este intento guardado cuenta como intento real? (sin mirar dónde empezó la cuenta; ver intentosRealesDe) */
+function cuentaComoIntentoReal(intento) {
+  if (!intento) return false;
+  const categoria = String(intento.categoria ?? "");
+  if (NO_CUENTAN_COMO_INTENTO.has(categoria)) return false;
+  // La reversión "falsa" (se soltó sin la categoría subida_revertida) no es falla del código; las esperas por causa externa
+  // (causa-externa, depender) llevan su marca o su acción propia.
+  if (categoria === "reversion_falsa" || /reversi[oó]n falsa|no suma al tope de subidas/i.test(String(intento.causa ?? ""))) return false;
+  if (intento.accion === "depender" || intento.accion === "causa_externa" || String(intento.causa ?? "").includes(MARCA_DE_CAUSA_EXTERNA)) return false;
+  // Cada construcción o reparación que falló.
+  if (intento.accion === "reparar" || intento.accion === "escalar") return true;
+  // Cada subida revertida (la reversión falsa se suelta sin esa categoría) y cada cambio por repo equivocado.
+  if (categoria === "subida_revertida" || categoria === "repo_equivocado") return true;
+  // Cada vuelta soltada sin error pero con categoría (nube_sin_acceso_repo, coordinador_cortado…).
+  return intento.accion === "esperar" && categoria !== "";
+}
+
+/**
+ * Los intentos desde la última escalada. El CRM no borra los intentos viejos al pulsar Reintentar (solo pone las reparaciones en
+ * 0): lo que dejó la tarjeta en ERROR es la fila `escalar`, y de ahí se cuenta. Si en los intentos que llegan (los últimos 6)
+ * no hay ninguna escalada, se cuentan todos.
+ */
+function intentosDesdeLaUltimaEscalada(intentos) {
+  const lista = Array.isArray(intentos) ? intentos.filter(Boolean) : [];
+  const indice = lista.map((intento) => intento.accion).lastIndexOf("escalar");
+  return indice >= 0 ? lista.slice(indice + 1) : lista;
+}
+
+/**
+ * Cuántos intentos reales lleva la tarjeta (`tarjeta.ultimosIntentos`, del más viejo al más nuevo). Cuentan: cada construcción o
+ * reparación, cada subida revertida (menos la reversión "falsa"), cada repo equivocado y cada vuelta soltada sin error con
+ * categoría (nube_sin_acceso_repo, coordinador_cortado). No cuentan limite_claude, choca_con_main, esperar_dependencia ni las
+ * esperas por causa externa. Puro.
+ */
+export function intentosReales(intentos) {
+  return intentosDesdeLaUltimaEscalada(intentos).filter(cuentaComoIntentoReal).length;
+}
+
+/** El último intento real (el que se compara con la falla de ahora), o null. */
+export function ultimoIntentoReal(intentos) {
+  return intentosDesdeLaUltimaEscalada(intentos).filter(cuentaComoIntentoReal).at(-1) ?? null;
+}
+
+/** Un plan para comparar: sin espacios de más ni mayúsculas. */
+const planNormalizado = (plan) => String(plan ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+
+/**
+ * Regla 3, nunca repetir el mismo plan: ¿la falla de ahora es igual al intento real anterior? Es igual si tiene la misma categoría
+ * o si el plan de la tarjeta es el mismo que el guardado en ese intento (cuando viene).
+ */
+export function esLaMismaFallaRealQueLaAnterior(diagnostico, tarjeta = {}) {
+  const anterior = ultimoIntentoReal(tarjeta.ultimosIntentos);
+  if (!anterior) return false;
+  if (diagnostico?.categoria && anterior.categoria && anterior.categoria === diagnostico.categoria) return true;
+  const planAntes = planNormalizado(anterior.plan);
+  return Boolean(planAntes) && planAntes === planNormalizado(tarjeta.plan);
+}
+
 /** ¿Lo que se intentó antes (los últimos intentos de la tarjeta) ya tiene `categoria` N veces seguidas contando reparaciones? */
 function reparacionesSeguidasCon(intentos, categoria) {
   let n = 0;
@@ -772,6 +845,7 @@ export function porQueEsDistinto(decision, diagnostico, intentosPrevios) {
   const antes = anterior ? causaEnUnaFrase(anterior) : "";
   if (decision?.accion === "esperar_dependencia") return enUnaLinea(`no se repara igual: la causa es la misma que la del intento anterior (${antes}) y no es del código; se espera a la otra tarjeta`);
   if (decision?.accion === "escalar" && decision.mismaCausa) return enUnaLinea(`no hay nada distinto que probar: la causa es la misma que la del intento anterior (${antes}); se corta sin otra reparación igual`);
+  if (decision?.accion === "escalar" && decision.topeReal) return `llegó al tope de ${TOPE_DE_INTENTOS_REALES} intentos reales: no se prueba otra vez, pasa al dueño`;
   if (decision?.accion === "escalar") return "no queda una reparación que probar: pasa al dueño";
   if (decision?.estrategia) {
     const usadas = (intentosPrevios ?? []).map((intento) => estrategiaDeLaCausa(intento?.causa)).filter(Boolean);
@@ -811,6 +885,9 @@ function decidirSinCausa({ diagnostico, tarjeta = {}, etapa, config = {}, archiv
   const intentos = tarjeta.ultimosIntentos ?? [];
   const esParte = tarjeta.esParte === true;
   const minimoDeArchivos = config.partir?.archivosMinimos ?? 8;
+  // 28-nov-2026: el tope de intentos reales (2). Con el tope subido en config, las pruebas viejas conservan las estrategias de siempre.
+  const topeReal = Number(config.topeDeIntentosReales) || TOPE_DE_INTENTOS_REALES;
+  const reales = intentosReales(intentos);
 
   // 24-nov-2026 (parte 3): una subida que se deshizo ya no escala siempre. La que NO se pudo deshacer (URGENTE) escala como antes.
   if (reversion) {
@@ -820,6 +897,8 @@ function decidirSinCausa({ diagnostico, tarjeta = {}, etapa, config = {}, archiv
     // Una tarjeta de causa (también «Arreglo de subida: …») no pide otra: no se forma una cadena.
     if (esTarjetaDeCausa(tarjeta)) return { accion: "escalar", cuenta: true, motivo: "se deshizo la subida de una tarjeta de causa: no se pide otra, lo ve el dueño" };
     const subidas = intentosDeSubida(intentos) + 1;
+    // 28-nov-2026: la subida deshecha que completa el tope de intentos reales queda solo en Alertas, como la 3.ª subida.
+    if (reales + 1 >= topeReal) return { accion: "escalar", cuenta: true, agotado: true, topeReal: true, motivo: `la subida se deshizo y ya son ${reales + 1} intentos reales (tope ${topeReal}): queda en Alertas, solo Reintentar del dueño` };
     if (subidas >= TOPE_INTENTOS_DE_SUBIDA) return { accion: "escalar", cuenta: true, agotado: true, motivo: `se deshizo la subida ${subidas} veces (tope ${TOPE_INTENTOS_DE_SUBIDA}): queda en Alertas` };
     if (queHacerConLaSubidaDeshecha(diagnostico, reversion) === "arreglo") {
       return { accion: "arreglo_de_subida", cuenta: true, motivo: `se deshizo la subida por un error del programa o del arranque: se pide el arreglo y después se reintenta (subida ${subidas} de ${TOPE_INTENTOS_DE_SUBIDA})` };
@@ -828,6 +907,19 @@ function decidirSinCausa({ diagnostico, tarjeta = {}, etapa, config = {}, archiv
   }
 
   if (categoria === "limite_claude") return { accion: "esperar", cuenta: false, motivo: "límite de uso de Claude: se espera su reinicio" };
+
+  // 28-nov-2026 (reglas 1 y 3): antes de reparar, partir o probar otra estrategia. Las fallas que no son de la tarea (choque con
+  // main, PC cargado, carpeta trabada, esperar a la dependencia) no cuentan y siguen su camino.
+  const esperaDeDependencia = !AJENAS_A_LA_TAREA.includes(categoria) && !ERROR_DE_CODIGO.includes(categoria) && esCausaDeDependencia(diagnostico?.causa) && esLaMismaCausa(diagnostico, intentoAnterior(intentos));
+  if (!NO_CUENTAN_COMO_INTENTO.has(categoria) && !esperaDeDependencia) {
+    // Regla 3: la misma falla que el intento real anterior (o el mismo plan) escala de una, sin opus, nube ni partir.
+    if (topeReal <= TOPE_DE_INTENTOS_REALES && esLaMismaFallaRealQueLaAnterior(diagnostico, tarjeta)) {
+      return { accion: "escalar", cuenta: true, mismaCausa: true, topeReal: reales + 1 >= topeReal, motivo: `${categoria}: ${MISMA_CAUSA}; no se repite el mismo plan` };
+    }
+    if (reales + 1 >= topeReal) {
+      return { accion: "escalar", cuenta: true, topeReal: true, motivo: `${categoria}: ya son ${reales + 1} intentos reales (tope ${topeReal}): queda en ERROR, solo Reintentar del dueño` };
+    }
+  }
   // Con tope (como el PC y la carpeta): una tarjeta que corta al Coordinador cada vez no puede esperar para siempre; pasado el tope cuenta como reparación.
   if (categoria === "coordinador_cortado" && esperasSeguidas < TOPE_DE_ESPERAS_SEGUIDAS) return { accion: "esperar", cuenta: false, motivo: "el Coordinador se cortó: se vuelve a tomar" };
 
@@ -1016,7 +1108,8 @@ export function resumenDeEscalada({ tarjeta = {}, intentos, diagnostico, decisio
   const causas = [...new Set(lista.filter((intento) => intento.accion === "reparar").map((intento) => intento.categoria))].filter(Boolean);
   const probado = hecho.length ? `${hecho.join(", ")}${causas.length ? ` (causas: ${causas.join(", ")})` : ""}` : "nada todavía, no había forma segura de repararlo solo";
   // 30-oct-2026: si escala porque la falla se repitió igual, se dice (no se gastó otro intento a ciegas).
-  const queSeProbo = `Qué se probó: ${decision?.mismaCausa ? `${probado}; ${MISMA_CAUSA}` : probado}.`;
+  // 28-nov-2026: si escala por el tope de intentos reales, se dice (solo el Reintentar del dueño la vuelve a mover).
+  const queSeProbo = `Qué se probó: ${decision?.mismaCausa ? `${probado}; ${MISMA_CAUSA}` : decision?.topeReal ? `${probado}; llegó al tope de ${TOPE_DE_INTENTOS_REALES} intentos` : probado}.`;
   const necesita = `Qué necesita de ti: ${NECESITA[categoria] ?? NECESITA.otra}`;
   return [queFallo.replace(/\.?$/, "."), enUnaLinea(queSeProbo, 240), enUnaLinea(necesita, 240)].join("\n");
 }

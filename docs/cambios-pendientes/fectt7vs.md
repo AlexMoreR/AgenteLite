@@ -1,0 +1,2 @@
+## Advertencias de operación
+- `tope_intentos_reales`: el Coordinador deja una tarjeta en ERROR a su 2.ª falla real (reparación, vuelta soltada con categoría, subida deshecha o repo equivocado; no cuentan el límite de Claude, el choque con main ni las esperas por causa externa) y la recogida diaria no la reintenta: solo el Reintentar del dueño. Se cuenta desde la última escalada. `topeDeIntentosReales` en la config del Coordinador (por defecto 2) lo cambia.

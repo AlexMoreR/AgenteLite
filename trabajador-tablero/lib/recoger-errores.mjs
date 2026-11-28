@@ -10,7 +10,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { diagnosticar, enUnaLinea } from "./diagnostico.mjs";
+import { TOPE_DE_INTENTOS_REALES, diagnosticar, enUnaLinea, intentosReales } from "./diagnostico.mjs";
 import { fechaBogota } from "./motores.mjs";
 
 export const RECOGER_POR_DEFECTO = { activo: true, maximoPorDia: 6, maximoPorTarjeta: 2 };
@@ -49,6 +49,11 @@ export function decidirRecogida(tarjeta, { maximoPorTarjeta = RECOGER_POR_DEFECT
   // así que también se reconoce por el motivo que escribe el CRM ("Posible repetida de T-…").
   if (tarjeta?.categoria === "posible_repetida" || /^posible repetida de T-\d+/i.test(String(tarjeta?.motivo ?? "").trim())) {
     return { categoria: "posible_repetida", causa: "Posible repetida de otra tarjeta.", accion: "saltar", motivo: "posible repetida: decide el dueño" };
+  }
+  // 28-nov-2026: una tarjeta con 2 intentos reales ya la paró el tope: nunca se reintenta sola, solo con Reintentar del dueño.
+  if (intentosReales(tarjeta?.ultimosIntentos) >= TOPE_DE_INTENTOS_REALES) {
+    const anterior = diagnosticar({ error: [tarjeta?.motivo, tarjeta?.ultimoError].filter(Boolean).join("\n"), etapa: tarjeta?.plan ? "construir" : "planear", tarjeta });
+    return { categoria: anterior.categoria, causa: anterior.causa, accion: "saltar", motivo: `llegó al tope de ${TOPE_DE_INTENTOS_REALES} intentos: solo Reintentar del dueño` };
   }
   const veces = Number(tarjeta?.recogidas) || 0;
   const textoDelError = [tarjeta?.motivo, tarjeta?.ultimoError].filter(Boolean).join("\n");

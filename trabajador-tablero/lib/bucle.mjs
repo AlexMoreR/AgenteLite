@@ -40,6 +40,7 @@ import {
   TOPE_INTENTOS_DE_SUBIDA,
   causaConMarca,
   causaExterna,
+  MARCA_DE_CAUSA_EXTERNA,
   causasDistintas,
   decidir,
   diagnosticar,
@@ -968,7 +969,7 @@ async function repararSinAnotar({ crm, config, registro, contexto, bitacora, pau
   const externa = causaExterna(diagnostico, { reversion: error?.reversion ?? null, repo: tarjeta.repo, tarjeta });
   if (externa) {
     try {
-      const respuesta = await crm.causaExterna(tarjeta.id, { tipo: externa.tipo, titulo: externa.titulo, detalle: externa.detalle, referencia: externa.referencia, repo: tarjeta.repo, ...intento });
+      const respuesta = await crm.causaExterna(tarjeta.id, { tipo: externa.tipo, titulo: externa.titulo, detalle: externa.detalle, referencia: externa.referencia, repo: tarjeta.repo, ...intento, causa: conMarcaDeCausaExterna(intento.causa) });
       if (respuesta?.soltada) {
         const esperando = respuesta.esperando ?? `Esperando a «${externa.titulo}»`;
         registro.info(`causa externa (${externa.tipo}): ${respuesta.creada ? "creé" : "reusé"} «${externa.titulo}»; "${tarjeta.titulo}": ${esperando}, sin reparar ni gastar intento`);
@@ -1008,6 +1009,7 @@ async function repararSinAnotar({ crm, config, registro, contexto, bitacora, pau
     estrategia: decision.estrategia,
     decidido: decision.motivo,
     ...(decision.mismaCausa ? { mismaCausa: true } : {}),
+    ...(decision.topeReal ? { topeReal: true } : {}),
     porQue: porQueDe(),
   };
   registro.info(`POR QUÉ: causa ${resultado.porQue.causa} | qué cambia: ${resultado.porQue.queCambia} | por qué es distinto: ${resultado.porQue.porQueEsDistinto}`);
@@ -1125,6 +1127,12 @@ async function repararSinAnotar({ crm, config, registro, contexto, bitacora, pau
     registro.error(`no se pudo avisar el error al CRM: ${otro.message}`);
   }
   return { ...resultado, accion: "escalar" };
+}
+
+/** 28-nov-2026: la causa de una espera por causa externa lleva su marca, para que no cuente como intento real (diagnostico.mjs). */
+function conMarcaDeCausaExterna(causa) {
+  const texto = String(causa ?? "");
+  return texto.includes(MARCA_DE_CAUSA_EXTERNA) ? texto : `${enUnaLinea(texto, 170)} ${MARCA_DE_CAUSA_EXTERNA}`;
 }
 
 /** Los «títulos» y los ids de tarjeta (cm…) que nombra la causa, sin la propia tarjeta (máximo 5). */

@@ -68,6 +68,7 @@ const vecesQueAbrieronClaude = () => (fs.existsSync(LOG_CLAUDE) ? fs.readFileSyn
 const baseDelRepo = { subirSolo: false, ramaBase: "main", remoto: "origin", verificar: [[process.execPath, "-e", "console.log('verificar ok')"]], pruebas: [[process.execPath, "-e", "console.log('pruebas ok')"]] };
 const configDe = (carpeta) =>
   completarConfig({
+    topeDeIntentosReales: 20, // 28-nov-2026: estas pruebas esperan varias reparaciones
     urlCrm: "https://crm.ejemplo.com",
     claveTrabajador: "aizen_trab_x",
     carpetaTrabajo: carpeta,

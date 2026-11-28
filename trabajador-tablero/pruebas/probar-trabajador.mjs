@@ -22,14 +22,14 @@ import { crearVigilante, sumarDescendientes } from "../lib/atasco.mjs";
 import { crearPlanificador, crearRevisorDeNuevo, crearSemaforo, procesar, queTomarEsperandoVersion, reparacionDeLaTarjeta, unaVuelta } from "../lib/bucle.mjs";
 import { PRIORIDAD, crearColaPesada } from "../lib/cola.mjs";
 import { archivosDelPlan, candidatasQueChocan, huellaDeTarjeta, moduloDe, motivoDeChoque } from "../lib/choques.mjs";
-import { completarConfig } from "../lib/config.mjs";
+import { completarConfig as completarConfigReal } from "../lib/config.mjs";
 import { MAX_LECCIONES, agenteDelRepo, anotarLeccion, leccionDe, leccionesParaElPrompt, necesitoDe, tresLineasDe } from "../lib/agentes.mjs";
 import { crearCrm } from "../lib/crm.mjs";
 import { CARPETA_DE_NOTAS, MANUAL, crearManualNocturno, horaEnBogota, leerEstadoDelManual } from "../lib/manual-nocturno.mjs";
 import { guionDeEnsayo, sqlParaEnsayo } from "../lib/ensayo.mjs";
 import { archivosConMarcas, enRebase, esRamaDelTrabajador, idCorto, nombreDeRama, pushDeRama, rebaseSobre, webDeGithub } from "../lib/git.mjs";
 import { esDeMigraciones, promptDeResolver, resolverChoque, respuestaDelChoque } from "../lib/resolver-choque.mjs";
-import { CAUSAS_PARA_AVISAR_AL_CTO, LARGO_MAXIMO_DEL_AVISO, PREFIJOS_DE_CAUSA, causaDeLaSubidaFallida, causaExterna, causasDistintas, decidir, diagnosticar, recortarAviso, resumenDeEscalada, textoDelAvisoDeReversion } from "../lib/diagnostico.mjs";
+import { CAUSAS_PARA_AVISAR_AL_CTO, LARGO_MAXIMO_DEL_AVISO, PREFIJOS_DE_CAUSA, causaDeLaSubidaFallida, causaExterna, causasDistintas, decidir as decidirConTope, diagnosticar, recortarAviso, resumenDeEscalada, textoDelAvisoDeReversion } from "../lib/diagnostico.mjs";
 import {
   CONFIRMACION_REVISION_DE_NUEVO,
   buscarCorridaDelDespliegue,
@@ -86,6 +86,11 @@ const reglas = cargar("src/features/tableros-inteligentes/services/reglas-trabaj
 const reglasDeRiesgo = cargar("src/features/tableros-inteligentes/services/reglas-riesgo.ts");
 
 const sinMedirAqui = { medir: () => ({ cpu: 10, memoria: 20 }), parar: () => undefined };
+
+// 28-nov-2026: las pruebas de antes esperan hasta 3 reparaciones; con el tope de intentos reales subido siguen valiendo.
+// Igual con la config: las pruebas de antes no fijan el tope de intentos reales, así que se sube (las nuevas están en probar-fallas-repetidas.mjs).
+const completarConfig = (datos) => completarConfigReal(datos && typeof datos === "object" && !("topeDeIntentosReales" in datos) ? { ...datos, topeDeIntentosReales: 20 } : datos);
+const decidir = (entrada = {}) => decidirConTope({ ...entrada, config: { topeDeIntentosReales: 99, ...(entrada.config ?? {}) } });
 
 let pruebas = 0;
 async function prueba(nombre, fn) {
@@ -1459,7 +1464,7 @@ await prueba("30-oct: construir con la misma causa: primero la estrategia opus (
 });
 
 await prueba("30-oct: el bucle no gasta un intento igual: escala con la causa y el motivo, y al reparar manda CAUSA y QUÉ CAMBIA", async () => {
-  const config = completarConfig({ urlCrm: "https://crm.test", claveTrabajador: "aizen_trab_x", carpetaTrabajo: fs.mkdtempSync(path.join(os.tmpdir(), "misma-causa-")), repos: { a: { ruta: "." } } });
+  const config = completarConfig({ topeDeIntentosReales: 20, urlCrm: "https://crm.test", claveTrabajador: "aizen_trab_x", carpetaTrabajo: fs.mkdtempSync(path.join(os.tmpdir(), "misma-causa-")), repos: { a: { ruta: "." } } });
   const llamadas = [];
   const crmFalso = {
     latido: async () => ({ ok: true }),
@@ -1545,7 +1550,7 @@ await prueba("31-oct: choca con main no gasta reparación: 1º a 3º choque segu
 });
 
 await prueba("31-oct: el bucle reconstruye un choque con main con /reparar cuenta: false; si el CRM ya no deja (409), escala", async () => {
-  const config = completarConfig({ urlCrm: "https://crm.test", claveTrabajador: "aizen_trab_x", carpetaTrabajo: fs.mkdtempSync(path.join(os.tmpdir(), "choque-")), repos: { a: { ruta: "." } } });
+  const config = completarConfig({ topeDeIntentosReales: 20, urlCrm: "https://crm.test", claveTrabajador: "aizen_trab_x", carpetaTrabajo: fs.mkdtempSync(path.join(os.tmpdir(), "choque-")), repos: { a: { ruta: "." } } });
   const llamadas = [];
   let tope = false;
   const crmFalso = {
@@ -1668,7 +1673,7 @@ await prueba("31-oct causa externa: causasDistintas cuenta los intentos sin las 
 });
 
 await prueba("31-oct causa externa: el bucle pide la tarjeta de la causa (lint viejo de main) y deja la original esperando, sin reparar ni ERROR", async () => {
-  const config = completarConfig({ urlCrm: "https://crm.test", claveTrabajador: "aizen_trab_x", carpetaTrabajo: fs.mkdtempSync(path.join(os.tmpdir(), "causa-externa-")), repos: { a: { ruta: "." } } });
+  const config = completarConfig({ topeDeIntentosReales: 20, urlCrm: "https://crm.test", claveTrabajador: "aizen_trab_x", carpetaTrabajo: fs.mkdtempSync(path.join(os.tmpdir(), "causa-externa-")), repos: { a: { ruta: "." } } });
   const llamadas = [];
   let soltada = true;
   const crmFalso = {
@@ -1704,7 +1709,7 @@ await prueba("31-oct causa externa: el bucle pide la tarjeta de la causa (lint v
 
 await prueba("31-oct aviso al CTO: tres causas distintas escriben en el registro del Coordinador y no mandan aviso al dueño", async () => {
   const boveda = fs.mkdtempSync(path.join(os.tmpdir(), "boveda-cto-"));
-  const config = completarConfig({ urlCrm: "https://crm.test", claveTrabajador: "aizen_trab_x", carpetaTrabajo: fs.mkdtempSync(path.join(os.tmpdir(), "cto-")), repos: { a: { ruta: "." } }, boveda: { ruta: boveda } });
+  const config = completarConfig({ topeDeIntentosReales: 20, urlCrm: "https://crm.test", claveTrabajador: "aizen_trab_x", carpetaTrabajo: fs.mkdtempSync(path.join(os.tmpdir(), "cto-")), repos: { a: { ruta: "." } }, boveda: { ruta: boveda } });
   const llamadas = [];
   const crmFalso = {
     latido: async () => ({ ok: true }),

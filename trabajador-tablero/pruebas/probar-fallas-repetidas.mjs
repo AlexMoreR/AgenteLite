@@ -22,9 +22,11 @@ import {
   causaEnUnaFrase,
   causaExterna,
   causaParaComparar,
-  decidir,
+  decidir as decidirConTope,
   esCausaDeDependencia,
+  TOPE_DE_INTENTOS_REALES,
   esLaMismaCausa,
+  intentosReales,
   diagnosticar,
   estrategiaDeLaCausa,
   queHacerConLaSubidaDeshecha,
@@ -33,10 +35,16 @@ import {
 import { ErrorDeEtapa, esperarVersion, ramaParaLaNube, subir } from "../lib/etapas.mjs";
 import { nombreDeRama } from "../lib/git.mjs";
 import { abreSesionNueva, lanzarSesionDeLaNube, linksDeIntentosAnteriores } from "../lib/nube.mjs";
+import { decidirRecogida } from "../lib/recoger-errores.mjs";
 import { cargar } from "../../scripts/supervisor-cargar.mjs";
 
 // Las reglas REALES del CRM (estadoTrasReparar, estrategiaDeEntrada): las mismas que usa /reparar.
 const reglas = cargar("src/features/tableros-inteligentes/services/reglas-trabajador.ts");
+
+// 28-nov-2026: las pruebas de antes esperan hasta 3 reparaciones: con el tope de intentos reales subido siguen valiendo.
+// Las pruebas del tope (al final) usan decidirConTope y completarConfig sin subirlo.
+const TOPE_ALTO = 20;
+const decidir = (entrada = {}) => decidirConTope({ ...entrada, config: { topeDeIntentosReales: TOPE_ALTO, ...(entrada.config ?? {}) } });
 
 let pruebas = 0;
 async function prueba(nombre, fn) {
@@ -100,6 +108,7 @@ const conLogDelServidor = (texto) => {
 const pedidosAlSsh = () => (fs.existsSync(SSH_LOG) ? fs.readFileSync(SSH_LOG, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)) : []);
 
 const config = completarConfig({
+  topeDeIntentosReales: TOPE_ALTO,
   urlCrm: "https://crm.ejemplo.com",
   claveTrabajador: "aizen_trab_x",
   carpetaTrabajo: path.join(T, "trabajo"),
@@ -865,6 +874,128 @@ try {
     const conReparar = { ...deAizen1, modelos: { ...deAizen1.modelos, desde: [...deAizen1.modelos.desde, { fecha: "2026-11-27T12:00:00Z", paso: "reparar", modelo: "claude-otro" }] } };
     assert.equal(modeloDeLaSesion(conReparar, motores, tarjeta, "construir", { estrategia: "opus" }), "claude-otro", "sale de modelos.reparar");
     assert.equal(modeloDeLaSesion(conReparar, motores, tarjeta, "construir", null), "sonnet", "sin la estrategia, el de construir");
+  });
+
+  // ── 28-nov-2026: máximo 2 intentos reales por tarjeta (parte 1: contar y parar a la segunda falla) ──
+  const conElTope = (extra = {}) => ({ ...config, topeDeIntentosReales: TOPE_DE_INTENTOS_REALES, bitacora: { ...config.bitacora, activa: false }, ...extra });
+
+  await prueba("intentosReales: cuenta reparaciones, soltadas con categoría, subidas revertidas y repo equivocado; no cuenta lo que no es de la tarea", () => {
+    assert.equal(TOPE_DE_INTENTOS_REALES, 2);
+    const base = [
+      { accion: "reparar", categoria: "no_compila", causa: "No compila" },
+      { accion: "esperar", categoria: "coordinador_cortado", causa: "El Coordinador se cortó" },
+      { accion: "esperar", categoria: "repo_equivocado", causa: "Repo equivocado" },
+    ];
+    assert.equal(intentosReales(base), 3);
+    const noCuentan = [
+      { accion: "esperar", categoria: "limite_claude", causa: "Límite de Claude" },
+      { accion: "esperar", categoria: "choca_con_main", causa: "Choca con main" },
+      { accion: "esperar", categoria: "otra", causa: "Se deshizo antes de que el servidor bajara la versión. Se vuelve a subir el mismo commit en la vuelta siguiente (no suma al tope de subidas)." },
+      { accion: "esperar", categoria: "otra", causa: "Espera a otra tarjeta [causa externa]" },
+      { accion: "esperar", categoria: "pc_sobrecargado", causa: "PC cargado" },
+      { accion: "esperar", categoria: "", causa: "Espera en fila" },
+    ];
+    assert.equal(intentosReales([...base, ...noCuentan]), 3, "limite_claude, choca_con_main, reversión falsa y causa externa no suman");
+    assert.equal(intentosReales([{ accion: "esperar", categoria: "subida_revertida", causa: "Subida deshecha" }]), 1);
+    assert.equal(intentosReales([]), 0);
+    assert.equal(intentosReales(undefined), 0);
+    // Se cuenta desde la última escalada: lo de antes del Reintentar del dueño no suma.
+    assert.equal(intentosReales([{ accion: "reparar", categoria: "lint" }, { accion: "escalar", categoria: "lint" }, { accion: "reparar", categoria: "lint" }]), 1);
+    assert.equal(intentosReales([{ accion: "reparar", categoria: "lint" }, { accion: "escalar", categoria: "lint" }]), 0);
+  });
+
+  await prueba("tope: con 1 intento real, la segunda falla (de otra categoría) escala con topeReal, sin estrategia ni partir", () => {
+    const tarjeta = { reparaciones: 1, topeReparaciones: 3, ultimosIntentos: [{ accion: "reparar", etapa: "construir", categoria: "no_compila", causa: "No compila" }] };
+    for (const categoria of ["fallan_pruebas", "tiempo_agotado", "lint", "otra"]) {
+      const d = decidirConTope({ diagnostico: { categoria, causa: `Falla ${categoria}` }, tarjeta, etapa: "construir", config: {} });
+      assert.equal(d.accion, "escalar", categoria);
+      assert.equal(d.topeReal, true, categoria);
+      assert.equal(d.estrategia, undefined, categoria);
+      assert.notEqual(d.accion, "partir");
+    }
+    // La primera falla de una tarjeta nueva se repara como siempre.
+    assert.equal(decidirConTope({ diagnostico: { categoria: "no_compila", causa: "No compila" }, tarjeta: { reparaciones: 0, topeReparaciones: 3, ultimosIntentos: [] }, etapa: "construir", config: {} }).accion, "reparar");
+    // Las fallas que no son de la tarea siguen esperando con 1 intento real.
+    for (const [categoria, cuenta] of [["limite_claude", false], ["choca_con_main", false]]) {
+      const d = decidirConTope({ diagnostico: { categoria, causa: categoria }, tarjeta, etapa: "construir", config: {} });
+      assert.equal(d.accion, "esperar", categoria);
+      assert.equal(d.cuenta, cuenta);
+    }
+  });
+
+  await prueba("misma causa: dos fallas con la misma categoría escalan con mismaCausa, y el CRM falso no recibe un tercer /reparar", async () => {
+    const llamadas = [];
+    const crmFalso = {
+      reparar: async (id, datos) => (llamadas.push(["reparar", id, datos]), { ok: true, reparaciones: 1 }),
+      error: async (id, motivo, zonas, reversion, extra) => (llamadas.push(["error", id, motivo, extra]), { ok: true }),
+      soltar: async (id, motivo, extra) => (llamadas.push(["soltar", id, motivo, extra]), { ok: true }),
+    };
+    const carpeta = fs.mkdtempSync(path.join(T, "trabajo-tope-"));
+    const cfg = conElTope({ carpetaTrabajo: carpeta });
+    const args = (vez) => ({ crm: crmFalso, config: cfg, registro: registroFalso(), contexto: { config: cfg, registro: registroFalso() }, bitacora: [`INFO intento ${vez}`] });
+    const tarjeta = { id: "tp1", titulo: "Tope", repo: "aizencrm", plan: "Plan", topeReparaciones: 3 };
+    const falla = () => new ErrorDeEtapa("Fallaron las pruebas que ya existen. No se subió nada.\nnot ok 3 - suma mal");
+    // Falla 1: se repara. El CRM la deja como intento "reparar".
+    const primera = await manejarFalla(args(1), { ...tarjeta, intentos: 1, reparaciones: 0, ultimosIntentos: [] }, "construir", falla());
+    assert.equal(primera.accion, "reparar");
+    assert.equal(llamadas.filter(([que]) => que === "reparar").length, 1);
+    // Falla 2, misma categoría: escala con mismaCausa y topeReal; no hay un tercer intento.
+    const intentoUno = llamadas.find(([que]) => que === "reparar")[2];
+    const segunda = await manejarFalla(args(2), { ...tarjeta, intentos: 2, reparaciones: 1, ultimosIntentos: [{ accion: "reparar", etapa: "construir", categoria: intentoUno.categoria, causa: intentoUno.causa }] }, "construir", falla());
+    assert.equal(segunda.accion, "escalar");
+    assert.equal(segunda.mismaCausa, true);
+    assert.equal(segunda.topeReal, true);
+    assert.equal(llamadas.filter(([que]) => que === "reparar").length, 1, "no hay una segunda reparación");
+    assert.equal(llamadas.filter(([que]) => que === "error").length, 1, "queda en ERROR");
+    assert.equal(llamadas.filter(([que]) => que === "soltar").length, 0);
+  });
+
+  await prueba("tope en el bucle: una vuelta de coordinador_cortado que llega al tope va a /error y no se suelta", async () => {
+    const llamadas = [];
+    const crmFalso = {
+      reparar: async (id, datos) => (llamadas.push(["reparar", id, datos]), { ok: true }),
+      error: async (id, motivo, zonas, reversion, extra) => (llamadas.push(["error", id, motivo, extra]), { ok: true }),
+      soltar: async (id, motivo, extra) => (llamadas.push(["soltar", id, motivo, extra]), { ok: true }),
+    };
+    const cfg = conElTope({ carpetaTrabajo: fs.mkdtempSync(path.join(T, "trabajo-cortado-")) });
+    const args = { crm: crmFalso, config: cfg, registro: registroFalso(), contexto: { config: cfg, registro: registroFalso() }, bitacora: [] };
+    const cortado = () => new Error("La sesión se canceló: el Coordinador se cortó mientras trabajaba");
+    const tarjeta = { id: "tp2", titulo: "Cortada", repo: "aizencrm", plan: "Plan", topeReparaciones: 3, reparaciones: 0, intentos: 1 };
+    // Con 0 intentos reales: la vuelta se suelta, como siempre.
+    const primera = await manejarFalla(args, { ...tarjeta, ultimosIntentos: [] }, "construir", cortado());
+    assert.equal(primera.accion, "esperar");
+    assert.equal(llamadas.filter(([que]) => que === "soltar").length, 1);
+    const suelta = llamadas.find(([que]) => que === "soltar");
+    assert.equal(suelta[3].categoria, "coordinador_cortado");
+    // Con esa vuelta ya contada, la siguiente llega al tope: /error, sin soltar.
+    llamadas.length = 0;
+    const segunda = await manejarFalla(args, { ...tarjeta, intentos: 2, ultimosIntentos: [{ accion: "esperar", etapa: "construir", categoria: "coordinador_cortado", causa: suelta[3].causa }] }, "construir", cortado());
+    assert.equal(segunda.accion, "escalar");
+    assert.equal(llamadas.filter(([que]) => que === "error").length, 1);
+    assert.equal(llamadas.filter(([que]) => que === "soltar").length, 0);
+    assert.equal(llamadas.filter(([que]) => que === "reparar").length, 0);
+  });
+
+  await prueba("tope: una subida deshecha que completa el tope queda solo en Alertas (agotado, topeReal)", () => {
+    const d = decidirConTope({
+      diagnostico: { categoria: "otra", causa: "El servidor devolvió 503" },
+      tarjeta: { reparaciones: 0, topeReparaciones: 3, ultimosIntentos: [{ accion: "esperar", categoria: "subida_revertida", causa: "Subida deshecha" }] },
+      etapa: "subir",
+      reversion: { ok: true, clase: "pasajera" },
+      config: {},
+    });
+    assert.equal(d.accion, "escalar");
+    assert.equal(d.agotado, true);
+    assert.equal(d.topeReal, true);
+  });
+
+  await prueba("recogida: decidirRecogida salta una tarjeta con 2 intentos reales y nunca la reintenta sola", () => {
+    const dos = [{ accion: "reparar", etapa: "construir", categoria: "no_compila", causa: "No compila" }, { accion: "esperar", etapa: "construir", categoria: "coordinador_cortado", causa: "Se cortó" }];
+    const decision = decidirRecogida({ titulo: "T", plan: "p", motivo: "El Coordinador se cortó", ultimoError: "ECONNRESET", recogidas: 0, ultimosIntentos: dos });
+    assert.equal(decision.accion, "saltar");
+    assert.equal(decision.motivo, "llegó al tope de 2 intentos: solo Reintentar del dueño");
+    // Con 1 intento real, una causa pasajera todavía se reintenta.
+    assert.equal(decidirRecogida({ titulo: "T", plan: "p", motivo: "El Coordinador se cortó", ultimoError: "ECONNRESET", recogidas: 0, ultimosIntentos: dos.slice(1) }).accion, "reintentar");
   });
 
   console.log(`\n${pruebas} pruebas OK`);
