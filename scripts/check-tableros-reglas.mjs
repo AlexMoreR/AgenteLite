@@ -2648,6 +2648,8 @@ prueba("el código T-123 llega a la tarjeta, al cuadrito, a la ficha y al MCP", 
   assert.ok((mcp.match(/codigo/g) ?? []).length >= 8, "el MCP devuelve codigo en las herramientas de tarjetas");
 });
 
+// `cargar` guarda cada módulo una sola vez: la prueba del tope de intentos (más abajo) reutiliza este mismo prisma falso y le cambia los métodos.
+let prismaFalsoDeTrabajador;
 // Revisar de nuevo (30-oct-2026): la lista `paraRevisarDeNuevo` de /por-revisar y /:id/revisar_de_nuevo con commit, base y pruebas,
 // con las funciones reales de services/trabajador.ts y un prisma FALSO en memoria (como check-tablero-aprobacion-automatica.mjs).
 {
@@ -2681,6 +2683,7 @@ prueba("el código T-123 llega a la tarjeta, al cuadrito, a la ficha y al MCP", 
     $queryRawUnsafe: async () => [],
     $transaction: async (fn) => fn(falso),
   };
+  prismaFalsoDeTrabajador = falso;
   const servicio = cargar("src/features/tableros-inteligentes/services/trabajador.ts", {
     "@/lib/prisma": { prisma: falso },
     "@prisma/client": { Prisma: { DbNull } },
@@ -2998,5 +3001,160 @@ prueba("trabajador.ts: parecidas y repetida en la misma transacción, con histor
   assert.match(ruta, /- repetida  \{ tipo: "repetida" \| "posible", otraId, linea, motivo\?, detalleParaLaOtra\? \}/);
   assert.match(ruta, /repetidaDe/);
 });
+
+// Tope de 2 intentos reales (28-nov-2026, parte 2): el CRM guarda los intentos y no deja pasar del tope aunque el Coordinador falle.
+prueba("intentosReales: cuenta reparaciones, soltadas con categoría, subidas revertidas y repo equivocado; no cuenta las esperas", () => {
+  assert.equal(trabajo.TOPE_DE_INTENTOS_REALES, 2);
+  const fila = (accion, categoria, causa = "x") => ({ accion, categoria, causa });
+  assert.equal(trabajo.intentosReales([]), 0);
+  assert.equal(trabajo.intentosReales([fila("reparar", "no_compila")]), 1);
+  assert.equal(trabajo.intentosReales([fila("esperar", "nube_sin_acceso_repo")]), 1, "soltada con categoría que cuenta");
+  assert.equal(trabajo.intentosReales([fila("esperar", "coordinador_cortado")]), 1);
+  assert.equal(trabajo.intentosReales([fila("esperar", "subida_revertida")]), 1, "subida deshecha");
+  assert.equal(trabajo.intentosReales([fila("esperar", "repo_equivocado")]), 1, "repo equivocado");
+  // No cuentan.
+  for (const categoria of ["limite_claude", "choca_con_main", "esperar_dependencia", "pc_sobrecargado", "carpeta_trabada", "sin_sesion"]) {
+    assert.equal(trabajo.intentosReales([fila("esperar", categoria), fila("reparar", categoria)]), 0, categoria);
+  }
+  assert.equal(trabajo.intentosReales([fila("esperar", "reversion_falsa")]), 0, "reversión falsa");
+  assert.equal(trabajo.intentosReales([fila("esperar", "otra", "reversión falsa: no suma al tope de subidas")]), 0);
+  assert.equal(trabajo.intentosReales([fila("depender", "otra"), fila("esperar", "otra", "esperando [causa externa]")]), 0);
+  assert.equal(trabajo.intentosReales([fila("esperar", "")]), 0, "esperar sin categoría no cuenta");
+  // La cuenta empieza después de la última escalada (lo que dejó la tarjeta en ERROR): así el Reintentar del dueño reinicia.
+  const lista = [fila("reparar", "no_compila"), fila("escalar", "no_compila"), fila("reparar", "fallan_pruebas")];
+  assert.equal(trabajo.intentosReales(lista), 1);
+  assert.equal(trabajo.intentosRealesDeUnaTarjetaEnError(lista.slice(0, 2)), 2, "en ERROR: la escalada es el último intento real");
+  // El texto del tope.
+  assert.equal(trabajo.puedeIntentarOtraVez([fila("reparar", "no_compila")]), null);
+  assert.match(trabajo.puedeIntentarOtraVez([fila("reparar", "no_compila"), fila("reparar", "lint")], "falla el lint"), /^llegó al tope de 2 intentos: falla el lint/);
+  assert.equal(trabajo.puedeIntentarOtraVez([fila("reparar", "no_compila"), fila("esperar", "limite_claude")]), null);
+});
+
+{
+  const DbNull = Symbol("DbNull");
+  const filas = new Map();
+  const historial = [];
+  const intentos = [];
+  const coincide = (fila, where) =>
+    Object.entries(where).every(([campo, esperado]) => {
+      if (campo === "tablero") return fila.tablero.workspaceId === esperado.workspaceId;
+      if (esperado && typeof esperado === "object" && "equals" in esperado) return true;
+      return fila[campo] === esperado;
+    });
+  const falso = {
+    tarjetaTablero: {
+      // Copia: el servicio lee la fila antes de actualizarla, como con una base de verdad.
+      findFirst: async ({ where }) => {
+        const fila = [...filas.values()].find((t) => coincide(t, where));
+        return fila ? { ...fila } : null;
+      },
+      findMany: async ({ where }) => [...filas.values()].filter((t) => coincide(t, where)).map((t) => ({ ...t })),
+      updateMany: async ({ where, data }) => {
+        const dentro = [...filas.values()].filter((t) => coincide(t, where));
+        for (const t of dentro) Object.assign(t, data, data.reparaciones?.increment ? { reparaciones: t.reparaciones + data.reparaciones.increment } : {});
+        return { count: dentro.length };
+      },
+    },
+    historialTarjeta: { create: async ({ data }) => void historial.push(data), findMany: async () => [] },
+    intentoTarjeta: {
+      findMany: async ({ where, take }) =>
+        intentos
+          .filter((i) => i.tarjetaId === where.tarjetaId && (!where.categoria || i.categoria === where.categoria))
+          .sort((a, b) => b.numero - a.numero)
+          .slice(0, take ?? 1000),
+      count: async ({ where }) => intentos.filter((i) => i.tarjetaId === where.tarjetaId).length,
+      create: async ({ data }) => void intentos.push({ ...data }),
+    },
+    tableroInteligente: { update: async () => undefined, updateMany: async () => ({ count: 1 }) },
+    appSetting: { findUnique: async () => null },
+    $queryRawUnsafe: async () => [],
+    $transaction: async (fn) => fn(falso),
+  };
+  Object.assign(prismaFalsoDeTrabajador, falso);
+  const servicio = cargar("src/features/tableros-inteligentes/services/trabajador.ts", {
+    "@/lib/prisma": { prisma: falso },
+    "@prisma/client": { Prisma: { DbNull } },
+    "./tableros": { QUIEN_TRABAJADOR: "trabajador:", linkDeLaTarjeta: (id) => `https://crm.test/tablero/${id}` },
+  });
+  const contexto = { claveId: "k1", workspaceId: "ws1", nombre: "Coordinador" };
+  const nueva = (id, estado, extra = {}) => {
+    filas.set(id, {
+      id, numero: 1, tableroId: "tb1", titulo: `Tarjeta ${id}`, detalle: "Algo", estado, repo: "aizencrm", zonaProtegida: [], riesgo: "BAJO",
+      riesgoMotivo: null, plan: "RIESGO: BAJO\nHacer algo.", resultado: null, intentos: 1, reparaciones: 0, trabajoIniciadoEn: T0,
+      trabajoVenceEn: despues(3_600_000), actualizadoEn: T0, borradoEn: null, tablero: { workspaceId: "ws1", nombre: "Pruebas" }, ...extra,
+    });
+    return filas.get(id);
+  };
+  const filasDe = (id) => intentos.filter((i) => i.tarjetaId === id);
+  const reparar = (id, categoria, causa = "falló") => servicio.accionDelTrabajador(contexto, id, "reparar", { etapa: "construir", categoria, causa }, despues(1000));
+  const rechaza409 = (promesa, texto) => assert.rejects(() => promesa, (error) => error.status === 409 && texto.test(error.message));
+
+  // reparar: la primera falla repara; la segunda real contesta 409 sin cambiar nada.
+  nueva("rep", "EN_CURSO");
+  const primera = await reparar("rep", "no_compila");
+  assert.equal(primera.reparaciones, 1);
+  assert.equal(filas.get("rep").estado, "PLAN_APROBADO");
+  filas.get("rep").estado = "EN_CURSO";
+  await rechaza409(reparar("rep", "fallan_pruebas"), /llegó al tope de 2 intentos/);
+  assert.equal(filas.get("rep").estado, "EN_CURSO", "la tarjeta no cambia de estado");
+  assert.equal(filas.get("rep").reparaciones, 1, "no suma reparación");
+  assert.equal(filasDe("rep").length, 1, "no deja otra fila de intento");
+  console.log("ok - reparar: la 2.ª falla real contesta 409 «llegó al tope de 2 intentos» y no cambia la tarjeta");
+
+  // reparar con una falla que no cuenta (límite de Claude) no se frena aunque ya haya un intento real.
+  await reparar("rep", "limite_claude");
+  assert.equal(filas.get("rep").reparaciones, 2);
+  console.log("ok - reparar: una falla que no cuenta (limite_claude) no se frena por el tope");
+
+  // soltar: con categoría que cuenta y un intento real previo, pasa a ERROR con su fila escalar; con limite_claude vuelve a la fila.
+  nueva("sol", "EN_CURSO");
+  await reparar("sol", "no_compila");
+  filas.get("sol").estado = "EN_CURSO";
+  const aError = await servicio.accionDelTrabajador(contexto, "sol", "soltar", { motivo: "la nube no ve el repo", categoria: "nube_sin_acceso_repo", causa: "nube sin acceso" }, despues(2000));
+  assert.equal(aError.estado, "ERROR");
+  assert.equal(filas.get("sol").estado, "ERROR");
+  assert.match(filas.get("sol").resultado.error.motivo, /^llegó al tope de 2 intentos/);
+  const escalada = filasDe("sol").at(-1);
+  assert.equal(escalada.accion, "escalar");
+  assert.equal(escalada.cuentaComoIntento, true);
+  assert.equal(escalada.categoria, "nube_sin_acceso_repo");
+  nueva("sol2", "EN_CURSO");
+  await reparar("sol2", "no_compila");
+  filas.get("sol2").estado = "EN_CURSO";
+  const vuelve = await servicio.accionDelTrabajador(contexto, "sol2", "soltar", { motivo: "uso", categoria: "limite_claude" }, despues(2000));
+  assert.equal(vuelve.estado, "PLAN_APROBADO", "limite_claude no cuenta: vuelve a la fila como antes");
+  nueva("sol3", "EN_CURSO");
+  const unaSola = await servicio.accionDelTrabajador(contexto, "sol3", "soltar", { motivo: "x", categoria: "nube_sin_acceso_repo" }, despues(2000));
+  assert.equal(unaSola.estado, "PLAN_APROBADO", "con un solo intento real todavía vuelve a la fila");
+  console.log("ok - soltar: una categoría que cuenta y llega al tope pasa a ERROR (fila escalar); limite_claude vuelve a la fila");
+
+  // recoger con reintentar: una tarjeta en ERROR que llegó al tope contesta 409; partir y dueno no se tocan.
+  const recoger = (id, decision) => servicio.accionDelTrabajador(contexto, id, "recoger", { decision, causa: "reintento diario", linea: "Necesita al dueño" }, despues(3000));
+  await rechaza409(recoger("sol", "reintentar"), /llegó al tope de 2 intentos/);
+  assert.equal(filas.get("sol").estado, "ERROR");
+  assert.equal((await recoger("sol", "dueno")).estado, "ERROR");
+  nueva("vencida", "ERROR");
+  assert.equal((await recoger("vencida", "reintentar")).estado, "PLAN_APROBADO", "ERROR sin intentos reales previos se reintenta como antes");
+  console.log("ok - recoger: reintentar contesta 409 si la tarjeta en ERROR llegó al tope");
+
+  // cambiar-repo: su fila repo_equivocado cuenta como intento real.
+  nueva("rpo", "PLANEANDO", { repo: "gestion" });
+  await servicio.accionDelTrabajador(contexto, "rpo", "cambiar-repo", { repo: "aizencrm", causa: "los archivos están en aizencrm" }, despues(1000));
+  const filaRepo = filasDe("rpo").at(-1);
+  assert.equal(filaRepo.categoria, "repo_equivocado");
+  assert.equal(filaRepo.cuentaComoIntento, true);
+  assert.equal(trabajo.intentosReales(filasDe("rpo")), 1);
+  console.log("ok - cambiar-repo: la fila repo_equivocado cuenta como intento (cuentaComoIntento: true)");
+
+  // Reintentar del dueño: tras la escalada y con las reparaciones en 0, la tarjeta puede reparar una vez más sin 409.
+  Object.assign(filas.get("sol"), { estado: "EN_CURSO", reparaciones: 0, resultado: null });
+  const otraVez = await reparar("sol", "fallan_pruebas");
+  assert.equal(otraVez.reparaciones, 1);
+  assert.equal(filas.get("sol").estado, "PLAN_APROBADO");
+  filas.get("sol").estado = "EN_CURSO";
+  await rechaza409(reparar("sol", "lint"), /llegó al tope de 2 intentos/);
+  console.log("ok - Reintentar del dueño: después de la escalada la tarjeta repara una vez más y la siguiente falla vuelve a topar");
+  pruebas += 5;
+}
 
 console.log(`\n${pruebas} pruebas, todas bien`);

@@ -24,10 +24,13 @@ export const dynamic = "force-dynamic";
   - soltar    { motivo, categoria?, causa?, error?, etapa? }   PLANEANDO -> APROBADO, EN_CURSO ->
               PLAN_APROBADO, SUBIENDO -> SUBIENDO pendiente, sin ERROR ni contar el intento (Claude llegó
               a su límite de uso, o choca con otra que corre). Con `categoria` queda un intento "esperar".
+              Si la categoría cuenta (nube_sin_acceso_repo…) y con esta vuelta ya son 2 intentos reales, pasa a ERROR
+              «llegó al tope de 2 intentos» (intento "escalar") en vez de volver a la fila.
   - repo      { repo, motivo }                    PLANEANDO (27-nov-2026): el Coordinador vio con git que los archivos de la tarjeta están solo en el otro
               repo; guarda el repo nuevo y la tarjeta SIGUE en PLANEANDO. 400 con un repo inválido; 409 pasado el tope de cambios de repo.
   - reparar   { etapa, categoria, causa, error, estrategia? }   PLANEANDO | EN_CURSO | SUBIENDO -> la fila sin
-              ERROR (APROBADO / PLAN_APROBADO), reparaciones + 1. 409 si ya lleva 3. Con `cuenta: false` y categoria
+              ERROR (APROBADO / PLAN_APROBADO), reparaciones + 1. 409 «llegó al tope de 2 intentos» si con esta falla ya
+              son 2 intentos reales (28-nov-2026: el Coordinador escala con /error); 3 reparaciones es el último freno. Con `cuenta: false` y categoria
               choca_con_main: vuelve a construir sin sumar reparación (intento "esperar" que no cuenta); 409 con 3
               choques seguidos.
   - partir    { causa, error, partes: [{ titulo, detalle }] }   EN_CURSO | PLANEANDO: crea de 2 a 4 hijas en orden
@@ -58,7 +61,8 @@ export const dynamic = "force-dynamic";
               SUBIENDO -> PLAN_APROBADO): queda "Esperando a «X»". -> { creada, tarjetaId, esperando, soltada, estado }
   - recoger   { decision: reintentar | partir | dueno, causa?, error?, partes?, linea? }   ERROR: recoge una tarjeta
               vieja en ERROR (máximo 2 veces por tarjeta; el tope diario lo lleva el Coordinador). reintentar vuelve
-              a la fila, partir crea las hijas, dueno deja UNA línea para el dueño y sigue en ERROR.
+              a la fila, partir crea las hijas, dueno deja UNA línea para el dueño y sigue en ERROR. reintentar contesta 409 si la
+              tarjeta ya llegó al tope de 2 intentos reales: solo el dueño la mueve (Reintentar).
   revisar_de_nuevo { subeSolo, motivo?, pruebas?: [texto], commit?, base? }   POR_REVISAR de CHATS / BOT_VENTAS (que pasó la construcción y no espera por
               gasto en Meta Ads) -> SUBIENDO pendiente (subeSolo) o ERROR "construido, no sube: <motivo>". 409 en cualquier otro caso.
               Con subeSolo, `commit` y `base` (sha de la rama tras el rebase del Coordinador y de main) y las pruebas quedan en el

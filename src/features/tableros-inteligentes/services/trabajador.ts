@@ -45,6 +45,11 @@ import {
   etiquetaEsperando,
   lineaParaElDueno,
   puedeRecoger,
+  puedeIntentarOtraVez,
+  cuentaComoIntentoReal,
+  intentosRealesDeUnaTarjetaEnError,
+  textoDelTopeDeIntentos,
+  TOPE_DE_INTENTOS_REALES,
   recogidaDelResultado,
   estadoTrasReparar,
   detalleDeArregloDeSubida,
@@ -175,11 +180,11 @@ import { dondeTableroVivo } from "./tableros-archivados";
   - /:id/soltar la devuelve sin ERROR ni contar el intento (Claude llegó a su límite de uso, o choca con
     otra que corre): PLANEANDO -> APROBADO, EN_CURSO -> PLAN_APROBADO, SUBIENDO -> SUBIENDO pendiente.
   - /:id/repo { repo, motivo } (27-nov-2026): el Coordinador vio con git, ANTES de planear, que los archivos de la tarjeta están solo en el otro
-    repo. Guarda el repo nuevo y la tarjeta sigue en PLANEANDO; nota en el historial y un intento repo_equivocado que no cuenta (tope de
+    repo. Guarda el repo nuevo y la tarjeta sigue en PLANEANDO; nota en el historial y un intento repo_equivocado (tope de
     cambios compartido con cambiar-repo, 409). 400 con un repo inválido.
   - /:id/cambiar-repo { repo?, causa, origen } (27-nov-2026): el plan nombra archivos del otro repo. Con `repo` (gestion o aizencrm;
     otro, 400) se lo cambia; PLANEANDO o EN_CURSO -> APROBADO para planearla de nuevo, sin ERROR, sin reparación y sin gastar el
-    intento. Deja un intento "repo_equivocado" que no cuenta y su línea en el historial. 409 con TOPE_DE_CAMBIOS_DE_REPO cambios.
+    intento de reparación. Deja un intento "repo_equivocado" que SÍ cuenta en los intentos reales y su línea en el historial. 409 con TOPE_DE_CAMBIOS_DE_REPO cambios.
   - /:id/latido corre el vencimiento (de a 5 min, hasta el tope de la etapa: 20 / 90 / 45 min; construyendo en la
     nube, 180 min; en el orquestador, 24 h). Construyendo trae { lugar, sesion }: se guarda en resultado.construccion (25-oct-2026).
   - /:id/subida acepta también resumenTres { hizo, ahora, revisar } (las 3 líneas del agente; se recortan y se descartan si vienen vacías).
@@ -189,7 +194,8 @@ import { dondeTableroVivo } from "./tableros-archivados";
   Cuando algo falla (24-oct-2026, "reparar"): el Coordinador diagnostica y cada paso deja una fila en
   IntentoTarjeta (el historial de intentos de la tarjeta):
   - /:id/reparar la devuelve a la fila SIN ERROR (PLANEANDO -> APROBADO; EN_CURSO y SUBIENDO ->
-    PLAN_APROBADO) y suma una reparación (tope TOPE_DE_REPARACIONES; el 4.º aviso es un /error).
+    PLAN_APROBADO) y suma una reparación. 409 si con esta falla ya son TOPE_DE_INTENTOS_REALES (2) intentos reales (28-nov-2026:
+    el Coordinador escala con /error); TOPE_DE_REPARACIONES (3) queda como último freno.
   - /:id/partir (desde PLANEANDO o EN_CURSO) crea de 2 a 4 tarjetas hijas, una tras otra (flechas de dependencia),
     y deja a la madre en su etapa sin candado ("partida, esperando a sus partes"). Se cierra sola cuando todas
     sus partes terminaron: HECHO si todas quedaron HECHO, FALLIDO si alguna quedó FALLIDO (madre-partida.ts).
@@ -709,6 +715,17 @@ async function reconstruirPorChoque(contexto: ContextoTrabajador, actual: FilaPa
   });
 }
 
+/** Los últimos intentos guardados de la tarjeta, del más viejo al más nuevo, para contar los intentos reales (tope de 2). */
+async function intentosParaContar(db: Tx | typeof prisma, tarjetaId: string) {
+  const recientes = await db.intentoTarjeta.findMany({
+    where: { tarjetaId },
+    orderBy: { numero: "desc" },
+    take: 50,
+    select: { accion: true, categoria: true, causa: true },
+  });
+  return [...recientes].reverse();
+}
+
 /** Guarda una fila de IntentoTarjeta (el número es consecutivo por tarjeta). */
 async function anotarIntento(
   tx: Tx,
@@ -1074,6 +1091,8 @@ export async function accionDelTrabajador(
   if (accion === "soltar") {
     // Claude llegó a su límite de uso o choca con otra que corre: vuelve a esperar su turno, sin ERROR y
     // sin gastar el intento (una SUBIENDO queda pendiente, como recién aprobada).
+    // 28-nov-2026: si trae una categoría que cuenta (nube_sin_acceso_repo, coordinador_cortado…) y con esta vuelta ya son
+    // TOPE_DE_INTENTOS_REALES intentos reales, no vuelve a la fila: pasa a ERROR (abajo).
     const vuelve: EstadoTarjetaTablero = estado === "PLANEANDO" ? "APROBADO" : estado === "EN_CURSO" ? "PLAN_APROBADO" : "SUBIENDO";
     const motivo = motivoDeEntrada(cuerpo.motivo ?? "El Coordinador la soltó para reintentarla después.");
     // Con `categoria` queda una fila de intentos: esperar (no cuenta como intento).
@@ -1088,6 +1107,26 @@ export async function accionDelTrabajador(
           cuentaComoIntento: false,
         }
       : null;
+    // ¿Esta vuelta completa el tope? Solo si la categoría cuenta como intento real.
+    const topeAlSoltar =
+      intento && cuentaComoIntentoReal(intento)
+        ? puedeIntentarOtraVez([...(await intentosParaContar(prisma, actual.id)), intento], intento.causa)
+        : null;
+    if (topeAlSoltar && intento) {
+      const escalada: IntentoPorGuardar = { ...intento, accion: "escalar", cuentaComoIntento: true };
+      const error = { motivo: topeAlSoltar, en: estado, cuando: ahora.toISOString(), categoria: intento.categoria, causa: intento.causa };
+      return prisma.$transaction(async (tx) => {
+        const hecho = await tx.tarjetaTablero.updateMany({
+          where: { id: actual.id, estado: actual.estado, borradoEn: null },
+          data: { estado: "ERROR", trabajoVenceEn: null, resultado: { ...resultadoComoObjeto(actual.resultado), error } as Prisma.InputJsonValue },
+        });
+        if (hecho.count !== 1) throw new ErrorDelTrabajador("La tarjeta cambió mientras tanto.", 409);
+        await anotarTrabajador(tx, contexto, actual.id, { estado }, { estado: "ERROR", nota: `soltada sin error, pero ${topeAlSoltar}`, motivo: topeAlSoltar, categoria: intento.categoria });
+        await anotarIntento(tx, actual.id, escalada, ahora);
+        await tocarTableros(tx, [actual.tableroId], ahora);
+        return { ok: true, estado: "ERROR", topeDeIntentos: true, motivo: topeAlSoltar, link: linkDeLaTarjeta(actual.id) };
+      });
+    }
     return prisma.$transaction(async (tx) => {
       const hecho = await tx.tarjetaTablero.updateMany({
         where: { id: actual.id, estado: actual.estado, borradoEn: null },
@@ -1105,7 +1144,8 @@ export async function accionDelTrabajador(
 
   if (accion === "cambiar-repo") {
     // El plan nombra archivos del otro repo: se le cambia el repo (si llegó) y vuelve a APROBADO para planearla otra vez, sin
-    // ERROR, sin sumar reparación y sin gastar el intento (igual que soltar). Tope: TOPE_DE_CAMBIOS_DE_REPO cambios por tarjeta.
+    // ERROR y sin sumar reparación (igual que soltar). Desde 28-nov-2026 SÍ cuenta en intentosReales (cuentaComoIntento: true).
+    // Tope propio: TOPE_DE_CAMBIOS_DE_REPO cambios por tarjeta.
     let nuevo: string | null;
     try {
       nuevo = repoDeEntrada(cuerpo.repo) ?? null;
@@ -1129,7 +1169,7 @@ export async function accionDelTrabajador(
       causa: causaDeEntrada(nota),
       error: null,
       accion: "esperar",
-      cuentaComoIntento: false,
+      cuentaComoIntento: true,
     };
     return prisma.$transaction(async (tx) => {
       const hecho = await tx.tarjetaTablero.updateMany({
@@ -1210,6 +1250,12 @@ export async function accionDelTrabajador(
       accion: "reparar",
       cuentaComoIntento: true,
     };
+    // 28-nov-2026, tope de intentos reales: con la falla de ahora ya son 2, no se repara otra vez; el Coordinador escala (/error).
+    // Si la falla de ahora no cuenta (límite de Claude, PC cargado…), no se mira el tope.
+    if (cuentaComoIntentoReal(intento)) {
+      const topeReal = puedeIntentarOtraVez([...(await intentosParaContar(prisma, actual.id)), intento], intento.causa);
+      if (topeReal) throw new ErrorDelTrabajador(topeReal, 409);
+    }
     return prisma.$transaction(async (tx) => {
       const hecho = await tx.tarjetaTablero.updateMany({
         where: { id: actual.id, estado: actual.estado, reparaciones: actual.reparaciones, borradoEn: null },
@@ -2105,6 +2151,11 @@ async function recogerTarjeta(contexto: ContextoTrabajador, actual: FilaParaTrab
 
   const tope = puedeRecoger(previo);
   if (tope) throw new ErrorDelTrabajador(tope, 409);
+  // 28-nov-2026: reintentar una tarjeta que ya llegó al tope de intentos reales no se puede: solo el dueño la mueve (Reintentar).
+  // Misma cuenta que la recogida del Coordinador (intentosRealesDeUnaTarjetaEnError).
+  if (decision === "reintentar" && intentosRealesDeUnaTarjetaEnError(await intentosParaContar(prisma, actual.id)) >= TOPE_DE_INTENTOS_REALES) {
+    throw new ErrorDelTrabajador(textoDelTopeDeIntentos(causa), 409);
+  }
   const recogida = { veces: antes.veces + 1, ultima: ahora.toISOString(), linea: null };
 
   if (decision === "partir") {

@@ -1861,7 +1861,7 @@ export const CATEGORIAS_DE_INTENTO = [
   // ya no se pide arreglo (causa-externa tipo "subida") y la tarjeta queda en ERROR, en la página de Alertas, sin WhatsApp.
   "subida_revertida",
   // 27-nov-2026: el plan nombra archivos del otro repo; el Coordinador le cambia el repo a la tarjeta y la vuelve a planear
-  // (acción "cambiar-repo"). No cuenta como intento; tope TOPE_DE_CAMBIOS_DE_REPO.
+  // (acción "cambiar-repo"). Cuenta como intento real (28-nov-2026); además tiene su tope TOPE_DE_CAMBIOS_DE_REPO.
   "repo_equivocado",
   // 27-nov-2026 (incidente T-956): DEPENDE_DE a una tarjeta HECHA a mano o FALLIDA cuyo código no está en main. Va directo a
   // ERROR con el motivo, sin reparación (trabajador-tablero/lib/diagnostico.mjs: SIN_REPARACION_AUTOMATICA).
@@ -1992,6 +1992,94 @@ export function puedeReparar(reparaciones: number): Veredicto {
   return reparaciones >= TOPE_DE_REPARACIONES
     ? `Ya lleva ${reparaciones} reparaciones (el tope es ${TOPE_DE_REPARACIONES}): escala con /error y un resumen para el dueño.`
     : null;
+}
+
+/* ── tope de intentos reales (28-nov-2026, parte 2 de «máximo 2 intentos por tarjeta»: el servidor) ── */
+
+/*
+  El Coordinador (trabajador-tablero/lib/diagnostico.mjs: TOPE_DE_INTENTOS_REALES, intentosReales) ya para a la segunda falla real.
+  El CRM guarda los intentos, así que repite el tope aquí: aunque el Coordinador tenga un error o sea una versión vieja, el servidor
+  no deja pasar de 2. IMPORTANTE: el criterio (qué cuenta y qué no, y desde dónde se cuenta) debe ser IGUAL al de diagnostico.mjs.
+*/
+
+/** Cuántos intentos reales aguanta una tarjeta: con la falla que lo completa se para en ERROR. Igual a diagnostico.mjs. */
+export const TOPE_DE_INTENTOS_REALES = 2;
+
+/** Categorías que NO son falla de la tarea y no cuentan como intento real. Debe ser IGUAL a NO_CUENTAN_COMO_INTENTO de diagnostico.mjs. */
+const CATEGORIAS_QUE_NO_CUENTAN_COMO_INTENTO: ReadonlySet<string> = new Set([
+  "limite_claude",
+  "choca_con_main",
+  "esperar_dependencia",
+  "pc_sobrecargado",
+  "carpeta_trabada",
+  "sin_sesion",
+]);
+
+/** Lo que dejan las esperas por causa externa en la causa del intento (igual a MARCA_DE_CAUSA_EXTERNA de diagnostico.mjs). */
+const MARCA_DE_CAUSA_EXTERNA_DEL_INTENTO = "[causa externa]";
+
+/** Un intento guardado (IntentoTarjeta) o la falla de ahora, con lo mínimo para contarlo. */
+export type IntentoParaContar = { accion?: string | null; categoria?: string | null; causa?: string | null };
+
+/** ¿Este intento cuenta como intento real? (sin mirar dónde empieza la cuenta). Igual a cuentaComoIntentoReal de diagnostico.mjs. */
+export function cuentaComoIntentoReal(intento: IntentoParaContar | null | undefined): boolean {
+  if (!intento) return false;
+  const categoria = String(intento.categoria ?? "");
+  const causa = String(intento.causa ?? "");
+  if (CATEGORIAS_QUE_NO_CUENTAN_COMO_INTENTO.has(categoria)) return false;
+  // La reversión "falsa" (se soltó sin la categoría subida_revertida) no es falla del código; las esperas por causa externa
+  // (causa-externa, depender) llevan su marca o su acción propia.
+  if (categoria === "reversion_falsa" || /reversi[oó]n falsa|no suma al tope de subidas/i.test(causa)) return false;
+  if (intento.accion === "depender" || intento.accion === "causa_externa" || causa.includes(MARCA_DE_CAUSA_EXTERNA_DEL_INTENTO)) return false;
+  // Cada construcción o reparación que falló, y cada escalada.
+  if (intento.accion === "reparar" || intento.accion === "escalar") return true;
+  // Cada subida revertida y cada cambio por repo equivocado.
+  if (categoria === "subida_revertida" || categoria === "repo_equivocado") return true;
+  // Cada vuelta soltada sin error pero con categoría (nube_sin_acceso_repo, coordinador_cortado…).
+  return intento.accion === "esperar" && categoria !== "";
+}
+
+/**
+ * Los intentos desde la última escalada (la fila `escalar` que dejó la tarjeta en ERROR). El Reintentar del dueño no borra los
+ * intentos viejos (solo pone las reparaciones en 0): la cuenta empieza después de esa fila. Sin escalada, se cuentan todos.
+ */
+function intentosDesdeLaUltimaEscalada<T extends IntentoParaContar>(intentos: readonly T[]): T[] {
+  const lista = intentos.filter(Boolean);
+  const indice = lista.map((intento) => intento.accion).lastIndexOf("escalar");
+  return indice >= 0 ? lista.slice(indice + 1) : lista;
+}
+
+/**
+ * Cuántos intentos reales lleva la tarjeta (`intentos` del más viejo al más nuevo). Cuentan: cada reparación o escalada, cada subida
+ * revertida, cada repo equivocado y cada vuelta soltada sin error con categoría. No cuentan limite_claude, choca_con_main,
+ * esperar_dependencia, pc_sobrecargado, carpeta_trabada, sin_sesion, la reversión falsa ni las esperas por causa externa. Pura.
+ */
+export function intentosReales(intentos: readonly IntentoParaContar[]): number {
+  return intentosDesdeLaUltimaEscalada(intentos).filter(cuentaComoIntentoReal).length;
+}
+
+/**
+ * Los intentos reales de una tarjeta que YA está en ERROR (la recogida): su última fila es la `escalar` que la dejó ahí y esa fila
+ * es el último intento real. Se cuentan los de antes de esa fila (desde la escalada anterior) más ella misma.
+ */
+export function intentosRealesDeUnaTarjetaEnError(intentos: readonly IntentoParaContar[]): number {
+  const lista = intentos.filter(Boolean);
+  return lista.at(-1)?.accion === "escalar" ? intentosReales(lista.slice(0, -1)) + 1 : intentosReales(lista);
+}
+
+/** El texto de «llegó al tope», con la causa si hay: es también el motivo de la tarjeta que pasa a ERROR. */
+export function textoDelTopeDeIntentos(causa?: string | null): string {
+  const base = `llegó al tope de ${TOPE_DE_INTENTOS_REALES} intentos`;
+  const limpia = String(causa ?? "").replace(/\s+/g, " ").trim();
+  return limpia ? `${base}: ${limpia}` : `${base}: no se prueba otra vez, la decide el dueño con Reintentar.`;
+}
+
+/**
+ * ¿Se puede intentar otra vez? `intentos` ya trae la falla de ahora al final. Si con ella son TOPE_DE_INTENTOS_REALES (2) intentos
+ * reales, devuelve el texto «llegó al tope de 2 intentos: …» (el servidor contesta 409 o pasa la tarjeta a ERROR); si no, null.
+ */
+export function puedeIntentarOtraVez(intentos: readonly IntentoParaContar[], causa?: string | null): Veredicto {
+  return intentosReales(intentos) >= TOPE_DE_INTENTOS_REALES ? textoDelTopeDeIntentos(causa) : null;
 }
 
 /** Las esperas seguidas: las filas que no cuentan como intento después de la última que sí cuenta (lista del más viejo al más nuevo). */

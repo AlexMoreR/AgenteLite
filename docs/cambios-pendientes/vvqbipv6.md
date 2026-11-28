@@ -1,0 +1,2 @@
+## Advertencias de operación
+- `tope_de_intentos_reales_crm`: el servidor del CRM también corta a los 2 intentos reales por tarjeta: la 2.ª falla real en /reparar o /recoger (reintentar) contesta 409, y /soltar con una categoría que cuenta (por ejemplo nube_sin_acceso_repo) la pasa a ERROR «llegó al tope de 2 intentos». La cuenta empieza después de la última fila «escalar», así que solo el Reintentar del dueño la reinicia; una tarjeta que llegó a ERROR sin esa fila (vencida o /error sin categoría) no se reinicia con el Reintentar.
