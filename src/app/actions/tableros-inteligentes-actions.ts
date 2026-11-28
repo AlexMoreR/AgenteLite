@@ -246,7 +246,7 @@ export async function crearTableroAction(
     const tablero = await crearTablero(contexto, nombre, duenoUserId);
     return { ok: true, id: tablero.id };
   } catch (fallo) {
-    return { ok: false, error: mensaje(fallo, "No se pudo crear el tablero") };
+    return { ok: false, error: mensaje(fallo, "No se pudo crear el espacio") };
   }
 }
 
@@ -316,7 +316,7 @@ export async function eliminarTableroAction(tableroId: string, confirmacion: str
     await eliminarTablero(await quienArchiva(access), tableroId, confirmacion);
     return { ok: true };
   } catch (fallo) {
-    return { ok: false, error: mensaje(fallo, "No se pudo eliminar el tablero") };
+    return { ok: false, error: mensaje(fallo, "No se pudo eliminar el espacio") };
   }
 }
 

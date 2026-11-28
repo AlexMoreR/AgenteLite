@@ -197,14 +197,15 @@ function Formulario({ edicion, tableros, cuentas, alCerrar, alRenombrar, alCrear
     <DialogContent initialFocus={campo}>
       <form onSubmit={guardar} className="grid gap-4">
         <DialogHeader>
-          <DialogTitle>{edicion.modo === "crear" ? "Nuevo tablero" : "Cambiar nombre"}</DialogTitle>
-          <DialogDescription>
-            {edicion.modo === "crear"
-              ? "Nace con los tipos Área, Idea y Tarea."
-              : eligeDueno
-                ? "Las tarjetas no cambian: solo el nombre del tablero y de quién es."
-                : "Las tarjetas no cambian: solo el nombre del tablero."}
-          </DialogDescription>
+          <DialogTitle>{edicion.modo === "crear" ? "Nuevo espacio" : "Cambiar nombre"}</DialogTitle>
+          {/* Crear: solo el nombre y de quién es, sin explicación (Alex, 28-nov-2026). */}
+          {edicion.modo === "crear" ? null : (
+            <DialogDescription>
+              {eligeDueno
+                ? "Las tarjetas no cambian: solo el nombre del espacio y de quién es."
+                : "Las tarjetas no cambian: solo el nombre del espacio."}
+            </DialogDescription>
+          )}
         </DialogHeader>
         <div className="grid gap-1.5">
           <Input
@@ -216,7 +217,7 @@ function Formulario({ edicion, tableros, cuentas, alCerrar, alRenombrar, alCrear
             }}
             maxLength={MAX_NOMBRE_TABLERO}
             placeholder="Ventas"
-            aria-label="Nombre del tablero"
+            aria-label="Nombre del espacio"
             aria-invalid={error ? true : undefined}
             enterKeyHint="done"
             autoComplete="off"
@@ -271,7 +272,7 @@ function Formulario({ edicion, tableros, cuentas, alCerrar, alRenombrar, alCrear
           {eliminando ? (
             <>
               <p className="text-sm text-muted-foreground">
-                Se borra para siempre el tablero con todas sus tarjetas y su historial. No se puede deshacer ni recuperar. Para
+                Se borra para siempre el espacio con todas sus tarjetas y su historial. No se puede deshacer ni recuperar. Para
                 confirmar, escribe su nombre:{" "}
                 <span className="font-medium text-foreground">{edicion.nombre}</span>
               </p>
@@ -289,7 +290,7 @@ function Formulario({ edicion, tableros, cuentas, alCerrar, alRenombrar, alCrear
                     }
                   }}
                   placeholder={edicion.nombre}
-                  aria-label="Escribe el nombre del tablero para confirmar"
+                  aria-label="Escribe el nombre del espacio para confirmar"
                   aria-invalid={errorAlEliminar ? true : undefined}
                   autoComplete="off"
                   className="h-11 text-base md:h-9 md:text-sm"
@@ -323,7 +324,7 @@ function Formulario({ edicion, tableros, cuentas, alCerrar, alRenombrar, alCrear
                   disabled={guardando || confirmacion.trim() !== edicion.nombre}
                 >
                   {guardando ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Trash2 className="size-4" aria-hidden />}
-                  Eliminar tablero
+                  Eliminar espacio
                 </Button>
               </div>
             </>
@@ -336,7 +337,7 @@ function Formulario({ edicion, tableros, cuentas, alCerrar, alRenombrar, alCrear
               disabled={guardando}
             >
               <Trash2 className="size-4" aria-hidden />
-              Eliminar tablero
+              Eliminar espacio
             </Button>
           )}
         </div>

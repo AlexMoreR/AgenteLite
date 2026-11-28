@@ -466,7 +466,7 @@ export function VistaTabla({ tarjetas, tipos, miembros, puedeAsignar, guardadas,
       <div className="min-h-0 flex-1 overflow-auto bg-background">
         {filas.length === 0 ? (
           <p className="px-6 py-16 text-center text-sm text-muted-foreground">
-            El tablero está vacío. Las ideas que anote Claude aparecen acá en unos segundos.
+            El espacio está vacío. Las ideas que anote Claude aparecen acá en unos segundos.
           </p>
         ) : visibles === 0 ? (
           ocultas > 0 ? (

@@ -30,7 +30,7 @@ export function SelectorDeVista({ vista, alElegir, alAbrirTipos }: Props) {
     <div className="flex shrink-0 items-center gap-1 border-b border-border bg-card px-2 py-1.5">
       <div
         role="tablist"
-        aria-label="Vista del tablero"
+        aria-label="Vista del espacio"
         className="flex min-w-0 flex-1 gap-1 overflow-x-auto [scrollbar-width:none]"
       >
         {VISTAS.map((opcion) => {

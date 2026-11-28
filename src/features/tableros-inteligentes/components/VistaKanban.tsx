@@ -172,7 +172,7 @@ export function VistaKanban({ tarjetas, tipos, alAbrir, alCambiar }: Props) {
   if (!filas.some((fila) => columnaDelKanban(fila))) {
     return (
       <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">
-        No hay tarjetas con estado en este tablero. Las carpetas (como Área) no salen en esta vista.
+        No hay tarjetas con estado en este espacio. Las carpetas (como Área) no salen en esta vista.
       </div>
     );
   }

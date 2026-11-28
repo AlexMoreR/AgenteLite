@@ -32,7 +32,7 @@ export function MigasDelNivel({ tableroNombre, ruta, alIr }: Props) {
 
   const pasos = [{ id: null as string | null, titulo: tableroNombre }, ...ruta];
   return (
-    <nav aria-label="Nivel del tablero" className="relative min-w-0 flex-1">
+    <nav aria-label="Nivel del espacio" className="relative min-w-0 flex-1">
       {escondidoAlInicio ? (
         <span
           className="pointer-events-none absolute inset-y-0 left-0 z-10 flex items-center bg-gradient-to-r from-card via-card to-transparent pr-3 pl-3 text-sm text-muted-foreground"

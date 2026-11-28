@@ -610,7 +610,7 @@ export function FichaTarjeta({
                   <DialogHeader>
                     <DialogTitle>¿Eliminar esta tarjeta?</DialogTitle>
                     <DialogDescription>
-                      «{tarjeta.titulo}» sale del tablero con sus flechas. Sus tarjetas hijas quedan sueltas. Al eliminarla
+                      «{tarjeta.titulo}» sale del espacio con sus flechas. Sus tarjetas hijas quedan sueltas. Al eliminarla
                       sale un aviso con «Deshacer» para recuperarla.
                     </DialogDescription>
                   </DialogHeader>
@@ -744,7 +744,7 @@ export function FichaTarjeta({
         ) : (
           <SheetHeader>
             <SheetTitle>Tarjeta</SheetTitle>
-            <SheetDescription>Esta tarjeta ya no está en el tablero.</SheetDescription>
+            <SheetDescription>Esta tarjeta ya no está en el espacio.</SheetDescription>
           </SheetHeader>
         )}
       </SheetContent>

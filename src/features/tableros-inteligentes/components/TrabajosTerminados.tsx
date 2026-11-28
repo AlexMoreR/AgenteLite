@@ -153,7 +153,7 @@ export function TrabajosTerminados({ dia = null, alVerTodos }: Props) {
             : lista.filter((otra) => otra.id !== tarjeta.id)
           : lista,
       );
-      toast.success(`${tarjeta.codigo || "La tarjeta"} volvió al tablero ${tarjeta.tableroNombre}.`);
+      toast.success(`${tarjeta.codigo || "La tarjeta"} volvió al espacio ${tarjeta.tableroNombre}.`);
     } catch {
       toast.error("No se pudo desarchivar. Intenta otra vez.");
     } finally {
@@ -182,7 +182,7 @@ export function TrabajosTerminados({ dia = null, alVerTodos }: Props) {
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">
-            Las tarjetas Hechas salen del tablero apenas terminan (las Fallidas, 3 días después) y quedan aquí, con todo su
+            Las tarjetas Hechas salen del espacio apenas terminan (las Fallidas, 3 días después) y quedan aquí, con todo su
             historial. Ya no cuentan para el límite de 300.
           </p>
         )}

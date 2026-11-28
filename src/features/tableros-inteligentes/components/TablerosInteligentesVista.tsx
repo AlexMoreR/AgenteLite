@@ -677,7 +677,7 @@ export function TablerosInteligentesVista({
       <div className="relative min-h-0 flex-1 bg-zinc-50 dark:bg-zinc-950">
         {tarjetas.length === 0 ? (
           <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-muted-foreground">
-            El tablero está vacío. Las ideas que anote Claude aparecen acá en unos segundos.
+            El espacio está vacío. Las ideas que anote Claude aparecen acá en unos segundos.
           </div>
         ) : (
           <>

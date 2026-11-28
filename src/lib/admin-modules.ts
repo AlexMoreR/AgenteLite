@@ -155,7 +155,7 @@ export const adminModuleDefinitions = [
   },
   {
     key: "tableros_inteligentes",
-    label: "Tablero IA",
+    label: "Espacio",
     description: "Ideas que arma Claude contigo, como un mapa. El dueño las aprueba.",
     path: "/cliente/tablero-ia",
     group: "Cliente",

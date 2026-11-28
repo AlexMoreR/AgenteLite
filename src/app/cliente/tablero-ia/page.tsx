@@ -33,7 +33,7 @@ import { InicioDeTableros } from "@/features/tableros-inteligentes/components/In
 import { TablerosInteligentesVista } from "@/features/tableros-inteligentes/components/TablerosInteligentesVista";
 
 export const metadata: Metadata = {
-  title: "Tablero IA",
+  title: "Espacio",
   robots: { index: false, follow: false },
 };
 

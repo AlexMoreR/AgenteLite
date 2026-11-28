@@ -22,7 +22,7 @@ export function AvisosDelTablero({ defaultActivo }: { defaultActivo: boolean }) 
         toast.error(resultado.error);
         return;
       }
-      toast.success(valor ? "Recibirás los avisos del Tablero IA por WhatsApp." : "Ya no recibirás avisos del Tablero IA por WhatsApp.");
+      toast.success(valor ? "Recibirás los avisos del Espacio por WhatsApp." : "Ya no recibirás avisos del Espacio por WhatsApp.");
     });
   }
 
@@ -30,12 +30,12 @@ export function AvisosDelTablero({ defaultActivo }: { defaultActivo: boolean }) 
     <Card className="p-5">
       <label className="flex items-center justify-between gap-3">
         <span>
-          <span className="block text-sm font-semibold text-slate-900">Recibir avisos del Tablero IA por WhatsApp</span>
+          <span className="block text-sm font-semibold text-slate-900">Recibir avisos del Espacio por WhatsApp</span>
           <span className="block text-xs text-slate-500">
             Cuando te asignan una tarea, es urgente o el Coordinador necesita algo tuyo. Llegan al número de avisos de Mi empresa → Equipo.
           </span>
         </span>
-        <Switch checked={activo} disabled={guardando} onCheckedChange={cambiar} aria-label="Recibir avisos del Tablero IA por WhatsApp" />
+        <Switch checked={activo} disabled={guardando} onCheckedChange={cambiar} aria-label="Recibir avisos del Espacio por WhatsApp" />
       </label>
     </Card>
   );

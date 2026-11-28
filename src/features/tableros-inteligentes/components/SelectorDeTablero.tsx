@@ -96,11 +96,11 @@ export function SelectorDeTablero({ tableros, tableroId, cuentas, alAbrir, alRen
         }}
       >
         <DropdownMenuTrigger
-          aria-label="Cambiar de tablero"
+          aria-label="Cambiar de espacio"
           className="flex min-h-9 min-w-0 max-w-[60vw] items-center gap-1 rounded-md px-1.5 text-base font-medium text-foreground hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:max-w-md"
         >
           <span className="truncate" title={abierto?.nombre}>
-            {abierto?.nombre ?? "Tablero IA"}
+            {abierto?.nombre ?? "Espacio"}
           </span>
           <ChevronDown className="size-4 shrink-0 text-muted-foreground" aria-hidden />
         </DropdownMenuTrigger>
@@ -115,7 +115,7 @@ export function SelectorDeTablero({ tableros, tableroId, cuentas, alAbrir, alRen
             {cargando ? <Loader2 className="size-3.5 animate-spin" aria-label="Actualizando" /> : null}
           </DropdownMenuLabel>
           {tableros.length === 0 ? (
-            <p className="px-2 py-2 text-sm text-muted-foreground">Todavía no hay tableros. Crea uno abajo o pídeselo a Claude.</p>
+            <p className="px-2 py-2 text-sm text-muted-foreground">Todavía no hay espacios. Crea uno abajo o pídeselo a Claude.</p>
           ) : (
             tableros.map((tablero) => {
               const actual = tablero.id === tableroId;
@@ -171,11 +171,11 @@ export function SelectorDeTablero({ tableros, tableroId, cuentas, alAbrir, alRen
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={() => abrirEdicion({ modo: "crear" })} className="min-h-11 gap-2 md:min-h-10">
             <Plus className="size-4 shrink-0" aria-hidden />
-            Nuevo tablero
+            Nuevo espacio
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => router.push(RUTA_DEL_INICIO)} className="min-h-11 gap-2 md:min-h-10">
             <LayoutGrid className="size-4 shrink-0" aria-hidden />
-            Todos los tableros
+            Todos los espacios
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -198,7 +198,7 @@ export function SelectorDeTablero({ tableros, tableroId, cuentas, alAbrir, alRen
         alArchivar={(id) => {
           setEdicion(null);
           alQuitar(id);
-          toast.success("Tablero eliminado para siempre");
+          toast.success("Espacio eliminado para siempre");
           // El abierto ya no existe en la pantalla: vuelve al inicio.
           if (id === tableroId) router.push(RUTA_DEL_INICIO);
           else router.refresh();

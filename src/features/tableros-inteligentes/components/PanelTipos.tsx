@@ -252,8 +252,8 @@ export function PanelTipos({ abierto, alCerrar, lado, tableroId, tipos, usos, pu
           <SheetTitle>Tipos de tarjeta</SheetTitle>
           <SheetDescription>
             {puedeEditar
-              ? "Qué clases de tarjeta tiene este tablero, de cuál puede colgar cada una y cuáles pide aprobar."
-              : "Qué clases de tarjeta tiene este tablero. Los cambia el dueño."}
+              ? "Qué clases de tarjeta tiene este espacio, de cuál puede colgar cada una y cuáles pide aprobar."
+              : "Qué clases de tarjeta tiene este espacio. Los cambia el dueño."}
           </SheetDescription>
         </SheetHeader>
         <div className="space-y-2 px-4 pb-6">

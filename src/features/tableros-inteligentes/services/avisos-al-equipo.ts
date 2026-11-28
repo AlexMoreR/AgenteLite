@@ -287,7 +287,7 @@ async function conocerAlNegocio(workspaceId: string) {
     const esElDueno = id === ownerId;
     // El dueño es persona activa del negocio aunque no figure como miembro.
     if (!nombres.has(id) && !esElDueno) return { ok: false, motivo: "la persona ya no está activa en el negocio" };
-    if (!(await quiereAvisos(id))) return { ok: false, motivo: "apagó los avisos del Tablero IA en su perfil" };
+    if (!(await quiereAvisos(id))) return { ok: false, motivo: "apagó los avisos del Espacio en su perfil" };
     const nombre = primerNombre(nombres.get(id) ?? (esElDueno ? await nombreDeUsuario(id) : null));
     const delEquipo = normalizarTelefono(numeroDeAvisosDe(config, id));
     if (delEquipo) return { ok: true, numero: delEquipo, nombre, userId: id };
@@ -322,7 +322,7 @@ async function guardarAlertaDelAviso(workspaceId: string, aviso: AvisoAlEquipo, 
     prioridad: PRIORIDAD_DEL_AVISO[aviso.tipo],
     titulo: textoSinLink,
     detalle: `Tarjeta: ${linkDeLaTarjeta(aviso.tarjeta.id)}`,
-    origen: "Tablero IA",
+    origen: "Espacio",
     destinatarioId,
     refrescar: false,
   });

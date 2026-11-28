@@ -44,7 +44,7 @@ export type VistaDelInicio = "tableros" | "hoy" | "coordinador" | "terminados" |
 // Orden (20-nov-2026, pedido de Alex): Hoy, Tableros, Coordinador, Terminados.
 const PESTANAS: { vista: VistaDelInicio; nombre: string }[] = [
   { vista: "hoy", nombre: "Hoy" },
-  { vista: "tableros", nombre: "Tableros" },
+  { vista: "tableros", nombre: "Espacios" },
   { vista: "coordinador", nombre: "Coordinador en vivo" },
   { vista: "terminados", nombre: "Trabajos terminados" },
 ];
@@ -113,7 +113,7 @@ export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar,
 
   return (
     <div className="tablero-ia mx-auto w-full max-w-6xl space-y-8 px-4 py-6 md:px-6">
-      <h1 className="sr-only">Tableros</h1>
+      <h1 className="sr-only">Espacios</h1>
       {/*
         Arriba de todo, "+ Nuevo" y al lado el selector de vista (21-nov-2026, pedido de Alex: un
         select en vez de las pestañas, y el botón con el tamaño de los de toda la app, como "Nuevo
@@ -131,7 +131,7 @@ export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar,
         ) : null}
         {puedeAdministrar ? (
           <NativeSelect
-            aria-label="Vista de Tablero IA"
+            aria-label="Vista de Espacio"
             value={esVistaDelInicio(vista) ? vista : ""}
             onChange={(evento) => {
               const nueva = evento.target.value;
@@ -165,7 +165,7 @@ export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar,
             <h2 id="titulo-asignadas" className="text-lg font-semibold">
               Asignadas a mí
             </h2>
-            <p className="text-sm text-muted-foreground">Las tarjetas que te asignaron, estén en el tablero que estén.</p>
+            <p className="text-sm text-muted-foreground">Las tarjetas que te asignaron, estén en el espacio que estén.</p>
           </div>
           <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {asignadas.map((tarjeta) => (
@@ -187,7 +187,7 @@ export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar,
                   </span>
                   {tarjeta.puedeVerElTablero ? (
                     <Link href={linkDelTableroEnPantalla(tarjeta.tableroId)} className="underline-offset-2 hover:underline">
-                      ir al tablero
+                      ir al espacio
                     </Link>
                   ) : null}
                 </span>
@@ -198,14 +198,14 @@ export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar,
       ) : null}
 
       {!aparte ? (
-      <section aria-label="Tableros" className="space-y-4">
+      <section aria-label="Espacios" className="space-y-4">
 
         {tableros.length === 0 ? (
           <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed px-6 py-12 text-center">
             <Network className="size-10 text-muted-foreground" aria-hidden />
-            <p className="font-medium">Todavía no hay tableros</p>
+            <p className="font-medium">Todavía no hay espacios</p>
             <p className="max-w-sm text-sm text-muted-foreground">
-              Créalo tú con «Nuevo» o pídeselo a Claude, por ejemplo: “Crea un tablero de Ventas y anota ahí
+              Créalo tú con «Nuevo» o pídeselo a Claude, por ejemplo: “Crea un espacio de Ventas y anota ahí
               las ideas que hablamos”.
             </p>
           </div>
@@ -298,7 +298,7 @@ export function InicioDeTableros({ tableros: iniciales, firma, puedeAdministrar,
         alArchivar={(id) => {
           setTableros((lista) => lista.filter((tablero) => tablero.id !== id));
           setEdicion(null);
-          toast.success("Tablero eliminado para siempre");
+          toast.success("Espacio eliminado para siempre");
           router.refresh();
         }}
       />

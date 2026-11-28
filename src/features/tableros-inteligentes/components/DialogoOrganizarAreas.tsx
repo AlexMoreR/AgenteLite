@@ -201,7 +201,7 @@ function Contenido({ tablero }: { tablero: { id: string; nombre: string } }) {
         <>
           {sinTipo ? (
             <p className="rounded-lg border border-dashed px-3 py-2 text-sm text-muted-foreground">
-              Este tablero no tiene un tipo Área, así que no se pueden crear áreas. Créalo en el panel Tipos del tablero y
+              Este espacio no tiene un tipo Área, así que no se pueden crear áreas. Créalo en el panel Tipos del espacio y
               vuelve a abrir esta ventana.
             </p>
           ) : (
@@ -247,9 +247,9 @@ function Contenido({ tablero }: { tablero: { id: string; nombre: string } }) {
           ) : null}
 
           {filas.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Todavía no hay áreas en este tablero.</p>
+            <p className="text-sm text-muted-foreground">Todavía no hay áreas en este espacio.</p>
           ) : (
-            <ul className="grid gap-2" aria-label="Áreas del tablero">
+            <ul className="grid gap-2" aria-label="Áreas del espacio">
               {filas.map(({ area, nivel, primera, ultima }) => {
                 const enEsta = ocupado === area.id;
                 const apagado = ocupado !== null;
