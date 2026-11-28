@@ -10,16 +10,17 @@ import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
 import {
   agregarColumnaABase,
   agregarFilas,
-  borrarFila,
+  borrarFilas,
   cambiarTipoDeColumnaDeBase,
   crearBaseDeDatos,
   duplicarColumnaDeBase,
+  duplicarFilas,
   editarFila,
   leerBaseDeDatos,
+  moverFila,
   quitarColumnaDeBase,
   renombrarColumnaDeBase,
   type BaseDeDatosVista,
-  type FilaDeBaseVista,
 } from "@/features/tableros-inteligentes/services/bases-de-datos";
 import { nombreLibre, type ColumnaDeBase } from "@/features/tableros-inteligentes/services/reglas-base-de-datos";
 import { alcanceDe, editarTarjeta, type ContextoTablero } from "@/features/tableros-inteligentes/services/tableros";
@@ -121,14 +122,37 @@ export async function quitarColumnaAction(tarjetaId: string, columnaId: string):
   }
 }
 
-export async function agregarFilaAction(tarjetaId: string): Promise<{ ok: true; fila: FilaDeBaseVista } | Fallo> {
-  const contexto = await contextoDePantalla();
+type ConBase = { ok: true; base: BaseDeDatosVista } | Fallo;
+
+/** Después de un cambio de orden se devuelve la tabla entera: los # de todas las filas pudieron cambiar. */
+async function conLaBase(contexto: ContextoTablero, tarjetaId: string, cambio: () => Promise<unknown>, porDefecto: string): Promise<ConBase> {
   try {
-    const [fila] = await agregarFilas(contexto, tarjetaId, [{}]);
-    return { ok: true, fila };
+    await cambio();
+    return { ok: true, base: await leerBaseDeDatos(contexto, tarjetaId) };
   } catch (fallo) {
-    return mensaje(fallo, "No se pudo agregar la fila");
+    return mensaje(fallo, porDefecto);
   }
+}
+
+/** Una fila vacía al final, o justo debajo de `despuesDe` (el + de cada fila). */
+export async function agregarFilaAction(tarjetaId: string, despuesDe?: string | null): Promise<ConBase> {
+  const contexto = await contextoDePantalla();
+  return conLaBase(contexto, tarjetaId, () => agregarFilas(contexto, tarjetaId, [{}], { despuesDe }), "No se pudo agregar la fila");
+}
+
+export async function borrarFilasAction(tarjetaId: string, filaIds: string[]): Promise<ConBase> {
+  const contexto = await contextoDePantalla();
+  return conLaBase(contexto, tarjetaId, () => borrarFilas(contexto, tarjetaId, filaIds), "No se pudieron borrar las filas");
+}
+
+export async function duplicarFilasAction(tarjetaId: string, filaIds: string[]): Promise<ConBase> {
+  const contexto = await contextoDePantalla();
+  return conLaBase(contexto, tarjetaId, () => duplicarFilas(contexto, tarjetaId, filaIds), "No se pudieron duplicar las filas");
+}
+
+export async function moverFilaAction(tarjetaId: string, filaId: string, destinoId: string, lado: "antes" | "despues"): Promise<ConBase> {
+  const contexto = await contextoDePantalla();
+  return conLaBase(contexto, tarjetaId, () => moverFila(contexto, tarjetaId, filaId, destinoId, lado), "No se pudo mover la fila");
 }
 
 /** Guarda una celda. Devuelve el texto como quedó (un número o una fecha se normalizan) y, si una lista sumó una opción, las columnas. */
@@ -144,15 +168,5 @@ export async function editarCeldaDeBaseAction(
     return { ok: true, texto: fila.valores[columnaId] ?? "", ...(fila.columnas ? { columnas: fila.columnas } : {}) };
   } catch (fallo) {
     return mensaje(fallo, "No se pudo guardar la celda");
-  }
-}
-
-export async function borrarFilaAction(tarjetaId: string, filaId: string): Promise<{ ok: true } | Fallo> {
-  const contexto = await contextoDePantalla();
-  try {
-    await borrarFila(contexto, tarjetaId, { id: filaId });
-    return { ok: true };
-  } catch (fallo) {
-    return mensaje(fallo, "No se pudo borrar la fila");
   }
 }

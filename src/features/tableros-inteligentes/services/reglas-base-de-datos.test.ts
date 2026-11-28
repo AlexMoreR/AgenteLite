@@ -132,3 +132,14 @@ test("leerColumnas descarta lo que no sirve y las viejas quedan de texto", () =>
   ]);
   assert.deepEqual(leerColumnas(null), []);
 });
+
+test("el orden de las filas: insertar debajo, mover y duplicar", async () => {
+  const { ordenConDuplicadas, ordenConInsercion, ordenMovido } = await import("./reglas-base-de-datos");
+  assert.deepEqual(ordenConInsercion(["a", "b", "c"], ["x"], "a"), ["a", "x", "b", "c"]);
+  assert.deepEqual(ordenConInsercion(["a", "b"], ["x", "y"], null), ["a", "b", "x", "y"]);
+  assert.deepEqual(ordenConInsercion(["a", "b"], ["x"], "zz"), ["a", "b", "x"]);
+  assert.deepEqual(ordenMovido(["a", "b", "c", "d"], "a", "c", "despues"), ["b", "c", "a", "d"]);
+  assert.deepEqual(ordenMovido(["a", "b", "c", "d"], "d", "a", "antes"), ["d", "a", "b", "c"]);
+  assert.deepEqual(ordenMovido(["a", "b"], "a", "a", "antes"), ["a", "b"]);
+  assert.deepEqual(ordenConDuplicadas(["a", "b", "c"], new Map([["a", "a2"], ["c", "c2"]])), ["a", "a2", "b", "c", "c2"]);
+});

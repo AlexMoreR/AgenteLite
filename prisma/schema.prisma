@@ -2231,7 +2231,7 @@ model BaseDeDatosTarjeta {
   tarjetaId       String            @id
   /// Las columnas, en orden: [{ id, nombre }]. Todas de texto. La columna # (el índice) no va aquí: es FilaBaseDeDatos.numero.
   columnas        Json              @default("[]")
-  /// El número que lleva la próxima fila (1, 2, 3...). No se reusa aunque se borre una fila.
+  /// Cuántas filas hay + 1 (se actualiza al renumerar). El # de cada fila es su POSICIÓN: se renumera al insertar, mover o borrar.
   siguienteNumero Int               @default(1)
   creadoEn        DateTime          @default(now())
   actualizadoEn   DateTime          @default(now()) @updatedAt
@@ -2239,7 +2239,7 @@ model BaseDeDatosTarjeta {
   filas           FilaBaseDeDatos[]
 }
 
-/// Una fila de una base de datos de un Espacio: su número (el índice) y un texto por columna ({ idColumna: texto }).
+/// Una fila de una base de datos de un Espacio: su número (el #, que es su posición: 1, 2, 3...) y un texto por columna ({ idColumna: texto }).
 model FilaBaseDeDatos {
   id            String             @id @default(cuid())
   baseId        String

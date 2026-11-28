@@ -2,8 +2,8 @@
   Bases de datos de un Espacio (28-nov-2026, pedido de Alex): reglas puras de columnas y celdas.
 
   Una base de datos es una tarjeta del tipo «Base de datos» (se crea solo en el espacio la primera vez).
-  La columna # (el índice) no se guarda como columna: es el número de la fila, que se pone solo y no se
-  reusa. Nace con # y dos columnas de texto.
+  La columna # (el índice) no se guarda como columna: es el número de la fila, que es su posición y se
+  renumera solo. Nace con # y dos columnas de texto.
 
   Cada columna tiene un tipo (como en Notion): texto, número, fecha (AAAA-MM-DD) o lista de opciones. Todo
   se guarda como texto; el tipo decide qué se acepta al escribir y cómo se ordena. Cambiar el tipo NO
@@ -28,7 +28,7 @@ export const NOMBRE_DEL_TIPO_DE_COLUMNA: Record<TipoDeColumna, string> = {
   texto: "Texto",
   numero: "Número",
   fecha: "Fecha",
-  lista: "Lista de opciones",
+  lista: "Seleccionar",
 };
 
 export type ColumnaDeBase = { id: string; nombre: string; tipo: TipoDeColumna; opciones?: string[] };
@@ -285,4 +285,30 @@ export function compararCeldas(columna: ColumnaDeBase, a: string, b: string): nu
     if (Number.isFinite(x) && Number.isFinite(y)) return x - y;
   }
   return a.localeCompare(b, "es", { numeric: true, sensitivity: "base" });
+}
+
+/*
+  El orden de las filas (28-nov-2026): el # es la POSICIÓN (1, 2, 3...), como un índice de verdad. Al
+  insertar, mover, duplicar o borrar filas se renumera todo. Estas funciones arman el orden final (los ids
+  de arriba a abajo); el servicio lo guarda.
+*/
+
+/** Mete `nuevas` justo después de `despuesDe` (sin él o si no está, al final). */
+export function ordenConInsercion(ids: readonly string[], nuevas: readonly string[], despuesDe: string | null): string[] {
+  const lugar = despuesDe ? ids.indexOf(despuesDe) : -1;
+  if (lugar < 0) return [...ids, ...nuevas];
+  return [...ids.slice(0, lugar + 1), ...nuevas, ...ids.slice(lugar + 1)];
+}
+
+/** Lleva `filaId` antes o después de `destinoId`. Si alguno no está, el orden queda igual. */
+export function ordenMovido(ids: readonly string[], filaId: string, destinoId: string, lado: "antes" | "despues"): string[] {
+  if (filaId === destinoId || !ids.includes(filaId) || !ids.includes(destinoId)) return [...ids];
+  const sin = ids.filter((id) => id !== filaId);
+  const lugar = sin.indexOf(destinoId) + (lado === "despues" ? 1 : 0);
+  return [...sin.slice(0, lugar), filaId, ...sin.slice(lugar)];
+}
+
+/** Cada copia queda justo debajo de su original (`copias`: original → copia). */
+export function ordenConDuplicadas(ids: readonly string[], copias: ReadonlyMap<string, string>): string[] {
+  return ids.flatMap((id) => (copias.has(id) ? [id, copias.get(id) as string] : [id]));
 }

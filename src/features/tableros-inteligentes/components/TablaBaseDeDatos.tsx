@@ -12,10 +12,12 @@ import {
   Check,
   ChevronRight,
   Copy,
+  GripVertical,
   Hash,
   Info,
   List,
   Loader2,
+  PanelRight,
   Plus,
   Repeat,
   Trash2,
@@ -27,11 +29,13 @@ import { toast } from "sonner";
 import {
   agregarColumnaAction,
   agregarFilaAction,
-  borrarFilaAction,
+  borrarFilasAction,
   cambiarTipoDeColumnaAction,
   duplicarColumnaAction,
+  duplicarFilasAction,
   editarCeldaDeBaseAction,
   leerBaseDeDatosAction,
+  moverFilaAction,
   quitarColumnaAction,
   renombrarBaseDeDatosAction,
   renombrarColumnaAction,
@@ -241,6 +245,131 @@ function MenuDeColumna({
   );
 }
 
+/** Colores de las opciones de Seleccionar (fondo y texto suaves, como en Notion), por su lugar en la lista. */
+const COLORES_DE_OPCION = [
+  "bg-sky-100 text-sky-900 dark:bg-sky-900/50 dark:text-sky-100",
+  "bg-amber-100 text-amber-900 dark:bg-amber-900/50 dark:text-amber-100",
+  "bg-emerald-100 text-emerald-900 dark:bg-emerald-900/50 dark:text-emerald-100",
+  "bg-rose-100 text-rose-900 dark:bg-rose-900/50 dark:text-rose-100",
+  "bg-violet-100 text-violet-900 dark:bg-violet-900/50 dark:text-violet-100",
+  "bg-orange-100 text-orange-900 dark:bg-orange-900/50 dark:text-orange-100",
+  "bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-zinc-100",
+];
+
+function colorDeOpcion(columna: ColumnaDeBase, opcion: string) {
+  const lugar = (columna.opciones ?? []).indexOf(opcion);
+  return COLORES_DE_OPCION[(lugar < 0 ? 0 : lugar) % COLORES_DE_OPCION.length];
+}
+
+function Etiqueta({ columna, opcion }: { columna: ColumnaDeBase; opcion: string }) {
+  return (
+    <span className={cn("inline-block max-w-full truncate rounded px-1.5 py-0.5 text-sm leading-5", colorDeOpcion(columna, opcion))}>
+      {opcion}
+    </span>
+  );
+}
+
+/** El tipo Seleccionar: al tocar la celda, buscar una opción o crear una nueva (como en Notion). */
+function SelectorDeOpcion({
+  columna,
+  valor,
+  etiqueta,
+  alGuardar,
+}: {
+  columna: ColumnaDeBase;
+  valor: string;
+  etiqueta: string;
+  alGuardar: (texto: string) => void;
+}) {
+  const [abierto, setAbierto] = useState(false);
+  const [busqueda, setBusqueda] = useState("");
+  const opciones = columna.opciones ?? [];
+  const limpia = busqueda.trim();
+  const visibles = opciones.filter((opcion) => opcion.toLowerCase().includes(limpia.toLowerCase()));
+  const existe = opciones.some((opcion) => opcion.toLowerCase() === limpia.toLowerCase());
+  const elegir = (texto: string) => {
+    setAbierto(false);
+    setBusqueda("");
+    if (texto !== valor) alGuardar(texto);
+  };
+
+  return (
+    <Popover.Root
+      open={abierto}
+      onOpenChange={(abrir) => {
+        setAbierto(abrir);
+        if (!abrir) setBusqueda("");
+      }}
+    >
+      <Popover.Trigger
+        className="flex h-10 w-full min-w-0 items-center px-2 text-left hover:bg-muted/60 data-[popup-open]:bg-sky-50 dark:data-[popup-open]:bg-sky-950/40"
+        aria-label={etiqueta}
+      >
+        {valor ? <Etiqueta columna={columna} opcion={valor} /> : null}
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Positioner className="isolate z-[60] outline-none" side="bottom" align="start" sideOffset={0}>
+          <Popover.Popup className="w-72 overflow-hidden rounded-lg bg-popover text-popover-foreground shadow-lg ring-1 ring-foreground/10 outline-none">
+            <div className="flex flex-wrap items-center gap-1 border-b bg-muted/50 px-2 py-1.5">
+              {valor ? (
+                <span className="flex items-center gap-1">
+                  <Etiqueta columna={columna} opcion={valor} />
+                  <button
+                    type="button"
+                    onClick={() => elegir("")}
+                    className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-muted"
+                    aria-label="Quitar la opción"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </span>
+              ) : null}
+              <input
+                autoFocus
+                value={busqueda}
+                onChange={(evento) => setBusqueda(evento.target.value)}
+                onKeyDown={(evento) => {
+                  if (evento.key === "Enter" && limpia) {
+                    evento.preventDefault();
+                    elegir(visibles.find((opcion) => opcion.toLowerCase() === limpia.toLowerCase()) ?? visibles[0] ?? limpia);
+                  }
+                }}
+                placeholder="Buscar una opción..."
+                aria-label="Buscar una opción"
+                className="h-8 min-w-24 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+              />
+            </div>
+            <div className="max-h-64 overflow-y-auto p-1">
+              <p className="px-2 py-1 text-xs font-medium text-muted-foreground">Selecciona o crea una opción</p>
+              {visibles.map((opcion) => (
+                <button
+                  key={opcion}
+                  type="button"
+                  onClick={() => elegir(opcion)}
+                  className="flex min-h-9 w-full items-center gap-2 rounded-md px-2 text-left hover:bg-muted"
+                >
+                  <Etiqueta columna={columna} opcion={opcion} />
+                  {opcion === valor ? <Check className="ml-auto size-4 shrink-0" /> : null}
+                </button>
+              ))}
+              {limpia && !existe ? (
+                <button
+                  type="button"
+                  onClick={() => elegir(limpia)}
+                  className="flex min-h-9 w-full items-center gap-2 rounded-md px-2 text-left text-sm hover:bg-muted"
+                >
+                  <span className="text-muted-foreground">Crear</span>
+                  <span className={cn("rounded px-1.5 py-0.5", COLORES_DE_OPCION[opciones.length % COLORES_DE_OPCION.length])}>{limpia}</span>
+                </button>
+              ) : null}
+            </div>
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
+
 /** Una celda: el campo cambia con el tipo de la columna. Lo que no calza con el tipo se ve en rojo. */
 function Celda({
   columna,
@@ -251,14 +380,24 @@ function Celda({
   columna: ColumnaDeBase;
   valor: string;
   etiqueta: string;
-  alGuardar: (texto: string, campo: HTMLInputElement) => void;
+  /** Guarda y devuelve el texto como quedó, o null si falló. */
+  alGuardar: (texto: string) => Promise<string | null>;
 }) {
+  if (columna.tipo === "lista") {
+    return <SelectorDeOpcion columna={columna} valor={valor} etiqueta={etiqueta} alGuardar={(texto) => void alGuardar(texto)} />;
+  }
   const calza = calzaConElTipo(columna, valor);
   const comun = {
     defaultValue: valor,
     "aria-label": etiqueta,
     title: calza ? undefined : `No es ${columna.tipo === "numero" ? "un número" : "una fecha"}: corrígelo`,
-    onBlur: (evento: React.FocusEvent<HTMLInputElement>) => alGuardar(evento.target.value, evento.target),
+    onBlur: async (evento: React.FocusEvent<HTMLInputElement>) => {
+      const campo = evento.target;
+      if (campo.value === valor) return;
+      const guardado = await alGuardar(campo.value);
+      // Si falló vuelve lo de antes; un número o una fecha se ven como quedaron guardados ("2,5" → "2.5").
+      campo.value = guardado ?? valor;
+    },
     onKeyDown: (evento: React.KeyboardEvent<HTMLInputElement>) => {
       if (evento.key === "Enter") evento.currentTarget.blur();
     },
@@ -270,20 +409,67 @@ function Celda({
   };
   if (columna.tipo === "fecha" && calza) return <input type="date" {...comun} />;
   if (columna.tipo === "numero") return <input inputMode="decimal" {...comun} />;
-  if (columna.tipo === "lista") {
-    const lista = `opciones-${columna.id}`;
-    return (
-      <>
-        <input list={lista} {...comun} />
-        <datalist id={lista}>
-          {(columna.opciones ?? []).map((opcion) => (
-            <option key={opcion} value={opcion} />
-          ))}
-        </datalist>
-      </>
-    );
-  }
   return <input {...comun} />;
+}
+
+/** «Abrir» una fila: sus campos uno debajo del otro, en un panel a la derecha (como una página de Notion). */
+function PaginaDeFila({
+  base,
+  filaId,
+  alCerrar,
+  alGuardar,
+  alBorrar,
+}: {
+  base: BaseDeDatosVista;
+  filaId: string;
+  alCerrar: () => void;
+  alGuardar: (columnaId: string, texto: string) => Promise<string | null>;
+  alBorrar: () => void;
+}) {
+  const fila = base.filas.find((candidata) => candidata.id === filaId);
+  if (!fila) return null;
+  const primera = base.columnas[0];
+  return (
+    <aside className="absolute inset-y-0 right-0 z-20 flex w-full flex-col border-l bg-popover shadow-xl sm:w-[26rem]">
+      <div className="flex shrink-0 items-center gap-1 px-3 py-2">
+        <span className="text-xs tabular-nums text-muted-foreground">Fila {fila.numero}</span>
+        <Button variant="ghost" size="sm" className="ml-auto h-9 text-destructive md:h-8" onClick={alBorrar}>
+          <Trash2 />
+          Borrar fila
+        </Button>
+        <Button variant="ghost" size="icon" className="size-10 md:size-8" onClick={alCerrar} aria-label="Cerrar la fila">
+          <X />
+        </Button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6">
+        <p className="mb-4 break-words text-2xl font-bold">
+          {primera ? fila.valores[primera.id] || <span className="text-muted-foreground/50">Sin {primera.nombre.toLowerCase()}</span> : null}
+        </p>
+        <div className="grid gap-1">
+          {base.columnas.map((columna) => {
+            const Icono = ICONO_DEL_TIPO[columna.tipo];
+            return (
+              <div key={columna.id} className="grid grid-cols-[9rem_1fr] items-center gap-2">
+                <span className="flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground">
+                  <Icono className="size-4 shrink-0" aria-hidden />
+                  <span className="truncate">{columna.nombre}</span>
+                </span>
+                <div className="min-w-0 rounded-md hover:bg-muted/50">
+                  <Celda
+                    key={`${columna.tipo}-${fila.valores[columna.id] ?? ""}`}
+                    columna={columna}
+                    valor={fila.valores[columna.id] ?? ""}
+                    etiqueta={columna.nombre}
+                    alGuardar={(texto) => alGuardar(columna.id, texto)}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </aside>
+  );
 }
 
 export function TablaBaseDeDatos({
@@ -306,6 +492,10 @@ export function TablaBaseDeDatos({
     setEstado((actual) => (actual?.base ? { ...actual, base: cambio(actual.base) } : actual));
   const [ocupado, setOcupado] = useState(false);
   const [orden, setOrden] = useState<Orden>(null);
+  const [elegidas, setElegidas] = useState<Set<string>>(() => new Set());
+  const [filaAbierta, setFilaAbierta] = useState<string | null>(null);
+  const [arrastrada, setArrastrada] = useState<string | null>(null);
+  const [sobre, setSobre] = useState<{ id: string; lado: "antes" | "despues" } | null>(null);
 
   useEffect(() => {
     if (!tarjetaId) return;
@@ -337,6 +527,13 @@ export function TablaBaseDeDatos({
     });
   }, [base, orden]);
 
+  // Las elegidas que siguen existiendo (una borrada desde otro lado deja de contar).
+  const elegidasVivas = useMemo(
+    () => (base ? base.filas.filter((fila) => elegidas.has(fila.id)).map((fila) => fila.id) : []),
+    [base, elegidas],
+  );
+  const todasElegidas = Boolean(base?.filas.length) && elegidasVivas.length === base?.filas.length;
+
   const conCarga = async <T,>(accion: () => Promise<T>) => {
     if (ocupado) return null;
     setOcupado(true);
@@ -348,6 +545,18 @@ export function TablaBaseDeDatos({
   };
 
   const ponerColumnas = (columnas: ColumnaDeBase[]) => setBase((actual) => ({ ...actual, columnas }));
+
+  /** Un cambio de orden (agregar, borrar, duplicar, mover) devuelve la tabla entera: los # se renumeran. */
+  const cambioDeFilas = async (accion: () => Promise<{ ok: true; base: BaseDeDatosVista } | { ok: false; error: string }>) => {
+    const resultado = await conCarga(() => accion().catch(() => SIN_CONEXION));
+    if (!resultado) return false;
+    if (!resultado.ok) {
+      toast.error(resultado.error);
+      return false;
+    }
+    setBase(() => resultado.base);
+    return true;
+  };
 
   const renombrarBase = async (titulo: string) => {
     if (!base || !titulo.trim() || titulo.trim() === base.titulo) return;
@@ -417,25 +626,41 @@ export function TablaBaseDeDatos({
     }));
   };
 
-  const agregarFila = async () => {
+  const agregarFila = (despuesDe?: string) => {
     if (!base) return;
-    const resultado = await conCarga(() => agregarFilaAction(base.tarjetaId).catch(() => SIN_CONEXION));
-    if (!resultado) return;
-    if (!resultado.ok) return void toast.error(resultado.error);
-    setBase((actual) => ({ ...actual, filas: [...actual.filas, resultado.fila], total: actual.total + 1 }));
+    void cambioDeFilas(() => agregarFilaAction(base.tarjetaId, despuesDe ?? null));
   };
 
-  const guardarCelda = async (filaId: string, columnaId: string, texto: string, campo: HTMLInputElement) => {
-    if (!base) return;
-    const antes = base.filas.find((fila) => fila.id === filaId)?.valores[columnaId] ?? "";
-    if (texto === antes) return;
+  const borrarFilas = async (ids: string[]) => {
+    if (!base || !ids.length) return;
+    const texto = ids.length === 1 ? "¿Borrar esta fila?" : `¿Borrar ${ids.length} filas?`;
+    if (!window.confirm(`${texto} No se puede deshacer.`)) return;
+    if (await cambioDeFilas(() => borrarFilasAction(base.tarjetaId, ids))) {
+      setElegidas(new Set());
+      if (filaAbierta && ids.includes(filaAbierta)) setFilaAbierta(null);
+    }
+  };
+
+  const duplicarFilas = async (ids: string[]) => {
+    if (!base || !ids.length) return;
+    if (await cambioDeFilas(() => duplicarFilasAction(base.tarjetaId, ids))) setElegidas(new Set());
+  };
+
+  const soltar = (destinoId: string, lado: "antes" | "despues") => {
+    const filaId = arrastrada;
+    setArrastrada(null);
+    setSobre(null);
+    if (!base || !filaId || filaId === destinoId) return;
+    void cambioDeFilas(() => moverFilaAction(base.tarjetaId, filaId, destinoId, lado));
+  };
+
+  const guardarCelda = async (filaId: string, columnaId: string, texto: string): Promise<string | null> => {
+    if (!base) return null;
     const resultado = await editarCeldaDeBaseAction(base.tarjetaId, filaId, columnaId, texto).catch(() => SIN_CONEXION);
     if (!resultado.ok) {
-      campo.value = antes;
-      return void toast.error(resultado.error);
+      toast.error(resultado.error);
+      return null;
     }
-    // Un número o una fecha se guardan normalizados ("2,5" → "2.5"): el campo muestra lo guardado.
-    if (campo.value !== resultado.texto) campo.value = resultado.texto;
     setBase((actual) => ({
       ...actual,
       ...(resultado.columnas ? { columnas: resultado.columnas } : {}),
@@ -443,20 +668,28 @@ export function TablaBaseDeDatos({
         fila.id === filaId ? { ...fila, valores: { ...fila.valores, [columnaId]: resultado.texto } } : fila,
       ),
     }));
+    return resultado.texto;
   };
 
-  const borrarFila = async (filaId: string, numero: number) => {
-    if (!base) return;
-    if (!window.confirm(`¿Borrar la fila ${numero}? No se puede deshacer.`)) return;
-    const resultado = await conCarga(() => borrarFilaAction(base.tarjetaId, filaId).catch(() => SIN_CONEXION));
-    if (!resultado) return;
-    if (!resultado.ok) return void toast.error(resultado.error);
-    setBase((actual) => ({ ...actual, filas: actual.filas.filter((fila) => fila.id !== filaId), total: actual.total - 1 }));
-  };
+  const alternar = (filaId: string) =>
+    setElegidas((actual) => {
+      const nuevo = new Set(actual);
+      if (nuevo.has(filaId)) nuevo.delete(filaId);
+      else nuevo.add(filaId);
+      return nuevo;
+    });
 
   return (
-    <Dialog open={tarjetaId !== null} onOpenChange={(abrir) => (abrir ? undefined : alCerrar())}>
-      <DialogContent showCloseButton={false} className="flex h-[90dvh] max-w-[calc(100vw-1rem)] flex-col gap-0 p-0 sm:max-w-5xl">
+    <Dialog
+      open={tarjetaId !== null}
+      onOpenChange={(abrir) => {
+        if (abrir) return;
+        setElegidas(new Set());
+        setFilaAbierta(null);
+        alCerrar();
+      }}
+    >
+      <DialogContent showCloseButton={false} className="flex h-[90dvh] max-w-[calc(100vw-1rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl">
         <DialogTitle className="sr-only">{base?.titulo ?? "Base de datos"}</DialogTitle>
         <DialogDescription className="sr-only">Tabla de la base de datos</DialogDescription>
         <div className="flex shrink-0 items-center justify-end gap-1 px-3 pt-2">
@@ -480,7 +713,7 @@ export function TablaBaseDeDatos({
           </div>
         ) : (
           <>
-            <div className="shrink-0 px-4 pb-3 md:px-6">
+            <div className="shrink-0 px-4 md:px-6">
               <input
                 key={base.titulo}
                 defaultValue={base.titulo}
@@ -492,12 +725,65 @@ export function TablaBaseDeDatos({
                 }}
                 className="w-full bg-transparent text-2xl font-bold tracking-tight outline-none placeholder:text-muted-foreground/40 md:text-3xl"
               />
+              {/* La barra de las elegidas (como en Notion): sale apenas hay una casilla marcada. */}
+              <div className="flex h-11 items-center">
+                {elegidasVivas.length ? (
+                  <div className="flex items-center overflow-hidden rounded-lg border bg-popover text-sm shadow-sm">
+                    <span className="px-3 py-1.5 font-medium text-sky-600 dark:text-sky-400">
+                      {elegidasVivas.length} {elegidasVivas.length === 1 ? "seleccionada" : "seleccionadas"}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={ocupado}
+                      onClick={() => void duplicarFilas(elegidasVivas)}
+                      className="flex h-9 items-center gap-1.5 border-l px-3 hover:bg-muted"
+                      title="Duplicar"
+                    >
+                      <Copy className="size-4" />
+                      <span className="hidden sm:inline">Duplicar</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={ocupado}
+                      onClick={() => void borrarFilas(elegidasVivas)}
+                      className="flex h-9 items-center gap-1.5 border-l px-3 text-destructive hover:bg-muted"
+                      title="Borrar"
+                    >
+                      <Trash2 className="size-4" />
+                      <span className="hidden sm:inline">Borrar</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setElegidas(new Set())}
+                      className="flex h-9 items-center border-l px-2.5 text-muted-foreground hover:bg-muted"
+                      aria-label="Quitar la selección"
+                      title="Quitar la selección"
+                    >
+                      <X className="size-4" />
+                    </button>
+                  </div>
+                ) : null}
+              </div>
             </div>
-            <div className="min-h-0 flex-1 overflow-auto px-2 md:px-4">
+            <div className="min-h-0 flex-1 overflow-auto pr-2 md:pr-4">
               <table className="w-max min-w-full border-collapse text-sm">
                 <thead className="sticky top-0 z-10 bg-popover">
-                  <tr className="border-y border-border/70">
-                    <th className="w-12 border-r border-border/50 px-2 text-center text-xs font-normal text-muted-foreground">#</th>
+                  <tr className="border-b border-border/70">
+                    <th className="w-[5.5rem] p-0">
+                      <div className="flex h-10 items-center justify-end pr-2">
+                        <input
+                          type="checkbox"
+                          checked={todasElegidas}
+                          ref={(casilla) => {
+                            if (casilla) casilla.indeterminate = elegidasVivas.length > 0 && !todasElegidas;
+                          }}
+                          onChange={() => setElegidas(todasElegidas ? new Set() : new Set(base.filas.map((fila) => fila.id)))}
+                          aria-label="Seleccionar todas las filas"
+                          className="size-4 accent-sky-600"
+                        />
+                      </div>
+                    </th>
+                    <th className="w-12 border-x border-border/50 px-2 text-center text-xs font-normal text-muted-foreground">#</th>
                     {base.columnas.map((columna, indice) => (
                       <th key={columna.id} className="min-w-48 border-r border-border/50 p-0">
                         <MenuDeColumna
@@ -527,41 +813,105 @@ export function TablaBaseDeDatos({
                   </tr>
                 </thead>
                 <tbody>
-                  {filasVisibles.map((fila) => (
-                    <tr key={fila.id} className="group border-b border-border/70">
-                      <td className="border-r border-border/50 px-2 text-center text-xs tabular-nums text-muted-foreground">{fila.numero}</td>
-                      {base.columnas.map((columna) => (
-                        <td key={columna.id} className="border-r border-border/50 p-0">
-                          <Celda
-                            key={`${columna.tipo}-${fila.valores[columna.id] ?? ""}`}
-                            columna={columna}
-                            valor={fila.valores[columna.id] ?? ""}
-                            etiqueta={`${columna.nombre}, fila ${fila.numero}`}
-                            alGuardar={(texto, campo) => void guardarCelda(fila.id, columna.id, texto, campo)}
-                          />
+                  {filasVisibles.map((fila) => {
+                    const elegida = elegidas.has(fila.id);
+                    const marca = sobre?.id === fila.id ? sobre.lado : null;
+                    return (
+                      <tr
+                        key={fila.id}
+                        className={cn(
+                          "group border-b border-border/70",
+                          elegida && "bg-sky-50 dark:bg-sky-950/30",
+                          arrastrada === fila.id && "opacity-50",
+                          marca === "antes" && "shadow-[inset_0_2px_0_0_var(--color-sky-500)]",
+                          marca === "despues" && "shadow-[inset_0_-2px_0_0_var(--color-sky-500)]",
+                        )}
+                        onDragOver={(evento) => {
+                          if (!arrastrada) return;
+                          evento.preventDefault();
+                          const caja = evento.currentTarget.getBoundingClientRect();
+                          const lado = evento.clientY < caja.top + caja.height / 2 ? "antes" : "despues";
+                          if (sobre?.id !== fila.id || sobre.lado !== lado) setSobre({ id: fila.id, lado });
+                        }}
+                        onDrop={(evento) => {
+                          evento.preventDefault();
+                          if (sobre) soltar(fila.id, sobre.lado);
+                        }}
+                      >
+                        <td className="p-0">
+                          <div className="flex h-10 items-center justify-end gap-0.5 pr-2">
+                            <button
+                              type="button"
+                              disabled={ocupado}
+                              onClick={() => agregarFila(fila.id)}
+                              className="flex size-6 items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-muted focus:opacity-100 group-hover:opacity-100"
+                              aria-label={`Agregar una fila debajo de la ${fila.numero}`}
+                              title="Agregar una fila debajo"
+                            >
+                              <Plus className="size-4" />
+                            </button>
+                            <span
+                              draggable={!orden && !ocupado}
+                              onDragStart={(evento) => {
+                                evento.dataTransfer.effectAllowed = "move";
+                                evento.dataTransfer.setData("text/plain", fila.id);
+                                setArrastrada(fila.id);
+                              }}
+                              onDragEnd={() => {
+                                setArrastrada(null);
+                                setSobre(null);
+                              }}
+                              className={cn(
+                                "flex size-6 items-center justify-center rounded text-muted-foreground opacity-0 group-hover:opacity-100",
+                                orden ? "cursor-not-allowed" : "cursor-grab hover:bg-muted active:cursor-grabbing",
+                              )}
+                              title={orden ? "Quita el orden de la columna para arrastrar" : "Arrastrar para mover"}
+                              aria-hidden
+                            >
+                              <GripVertical className="size-4" />
+                            </span>
+                            <input
+                              type="checkbox"
+                              checked={elegida}
+                              onChange={() => alternar(fila.id)}
+                              aria-label={`Seleccionar la fila ${fila.numero}`}
+                              className={cn("size-4 accent-sky-600", !elegida && "opacity-0 focus:opacity-100 group-hover:opacity-100")}
+                            />
+                          </div>
                         </td>
-                      ))}
-                      <td className="p-0">
-                        <button
-                          type="button"
-                          disabled={ocupado}
-                          onClick={() => void borrarFila(fila.id, fila.numero)}
-                          className="flex size-10 items-center justify-center text-muted-foreground opacity-40 hover:text-destructive group-hover:opacity-100"
-                          aria-label={`Borrar la fila ${fila.numero}`}
-                          title="Borrar fila"
-                        >
-                          <Trash2 className="size-3.5" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                        <td className="border-x border-border/50 px-2 text-center text-xs tabular-nums text-muted-foreground">{fila.numero}</td>
+                        {base.columnas.map((columna, indice) => (
+                          <td key={columna.id} className={cn("border-r border-border/50 p-0", indice === 0 && "relative")}>
+                            <Celda
+                              key={`${columna.tipo}-${fila.valores[columna.id] ?? ""}`}
+                              columna={columna}
+                              valor={fila.valores[columna.id] ?? ""}
+                              etiqueta={`${columna.nombre}, fila ${fila.numero}`}
+                              alGuardar={(texto) => guardarCelda(fila.id, columna.id, texto)}
+                            />
+                            {indice === 0 ? (
+                              <button
+                                type="button"
+                                onClick={() => setFilaAbierta(fila.id)}
+                                className="absolute top-1/2 right-1.5 flex -translate-y-1/2 items-center gap-1 rounded border bg-popover px-1.5 py-0.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase opacity-0 shadow-sm hover:bg-muted focus:opacity-100 group-hover:opacity-100"
+                              >
+                                <PanelRight className="size-3.5" />
+                                Abrir
+                              </button>
+                            ) : null}
+                          </td>
+                        ))}
+                        <td />
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
               <button
                 type="button"
                 disabled={ocupado}
-                onClick={() => void agregarFila()}
-                className="flex h-10 w-full items-center gap-2 px-2 text-sm text-muted-foreground hover:bg-muted"
+                onClick={() => agregarFila()}
+                className="ml-[5.5rem] flex h-10 w-[calc(100%-5.5rem)] items-center gap-2 px-2 text-sm text-muted-foreground hover:bg-muted"
               >
                 <Plus className="size-4" />
                 Nueva fila
@@ -570,6 +920,15 @@ export function TablaBaseDeDatos({
             <div className="shrink-0 px-4 py-2 text-right text-xs tabular-nums text-muted-foreground md:px-6">
               {base.total} {base.total === 1 ? "fila" : "filas"}
             </div>
+            {filaAbierta ? (
+              <PaginaDeFila
+                base={base}
+                filaId={filaAbierta}
+                alCerrar={() => setFilaAbierta(null)}
+                alGuardar={(columnaId, texto) => guardarCelda(filaAbierta, columnaId, texto)}
+                alBorrar={() => void borrarFilas([filaAbierta])}
+              />
+            ) : null}
           </>
         )}
       </DialogContent>

@@ -22,6 +22,9 @@ import {
   columnasConOpcionesNuevas,
   duplicarColumna,
   esTipoBaseDeDatos,
+  ordenConDuplicadas,
+  ordenConInsercion,
+  ordenMovido,
   leerColumnas,
   leerValores,
   quitarColumna,
@@ -224,41 +227,72 @@ export async function quitarColumnaDeBase(alcance: Alcance, tarjetaId: unknown, 
   const columnas = quitarColumna(base.columnas, columnaId);
   await prisma.$transaction([
     prisma.baseDeDatosTarjeta.update({ where: { tarjetaId: base.tarjeta.id }, data: { columnas } }),
-    prisma.$executeRaw`UPDATE "FilaBaseDeDatos" SET "valores" = "valores" - ${columnaId}, "actualizadoEn" = now() WHERE "baseId" = ${base.tarjeta.id}`,
+    prisma.$executeRaw`UPDATE "FilaBaseDeDatos" SET "valores" = "valores" - ${columnaId}::text, "actualizadoEn" = now() WHERE "baseId" = ${base.tarjeta.id}`,
   ]);
 }
 
-/** Agrega filas al final: cada una lleva el número siguiente (1, 2, 3...), que no se reusa. */
-export async function agregarFilas(alcance: Alcance, tarjetaId: unknown, entradas: unknown[]): Promise<FilaDeBaseVista[]> {
+type Tx = Prisma.TransactionClient;
+
+/** Bloquea la base (dos cambios a la vez no se pisan el orden) y devuelve los ids de las filas de arriba a abajo. */
+async function filasEnOrden(tx: Tx, baseId: string): Promise<string[]> {
+  await tx.$queryRaw`SELECT 1 FROM "BaseDeDatosTarjeta" WHERE "tarjetaId" = ${baseId} FOR UPDATE`;
+  const filas = await tx.filaBaseDeDatos.findMany({ where: { baseId }, orderBy: { numero: "asc" }, select: { id: true } });
+  return filas.map((fila) => fila.id);
+}
+
+/**
+ * Deja el # de cada fila igual a su posición en `ids` (1, 2, 3...). En dos pasos (primero en negativo) para
+ * no chocar con el único (base, numero) mientras se mueven.
+ */
+async function renumerar(tx: Tx, baseId: string, ids: string[]) {
+  if (ids.length) {
+    const posiciones = ids.map((_, indice) => indice + 1);
+    await tx.$executeRaw`UPDATE "FilaBaseDeDatos" AS f SET "numero" = -t.pos FROM unnest(${ids}::text[], ${posiciones}::int[]) AS t(id, pos) WHERE f."id" = t.id AND f."baseId" = ${baseId}`;
+    await tx.$executeRaw`UPDATE "FilaBaseDeDatos" SET "numero" = -"numero" WHERE "baseId" = ${baseId} AND "numero" < 0`;
+  }
+  await tx.baseDeDatosTarjeta.update({ where: { tarjetaId: baseId }, data: { siguienteNumero: ids.length + 1 } });
+}
+
+/** Crea filas con un # provisional (negativo y lejos de los de renumerar) hasta que se renumere. */
+async function crearProvisionales(tx: Tx, baseId: string, valores: ValoresDeFila[]): Promise<string[]> {
+  const ids: string[] = [];
+  for (const [indice, fila] of valores.entries()) {
+    const creada = await tx.filaBaseDeDatos.create({
+      data: { baseId, numero: -1_000_000 - indice, valores: fila },
+      select: { id: true },
+    });
+    ids.push(creada.id);
+  }
+  return ids;
+}
+
+/**
+ * Agrega filas al final, o justo debajo de `despuesDe` (el id de una fila). El # es la posición: las de
+ * abajo se corren.
+ */
+export async function agregarFilas(
+  alcance: Alcance,
+  tarjetaId: unknown,
+  entradas: unknown[],
+  opciones: { despuesDe?: string | null } = {},
+): Promise<FilaDeBaseVista[]> {
   const base = await baseDeLaTarjeta(alcance, tarjetaId);
   if (!Array.isArray(entradas) || entradas.length === 0) throw new Error("No hay filas para agregar.");
   if (entradas.length > 500) throw new Error("Se pueden agregar hasta 500 filas de una vez.");
   const valores = entradas.map((entrada) => valoresParaGuardar(base.columnas, entrada ?? {}));
   return prisma.$transaction(async (tx) => {
-    const hay = await tx.filaBaseDeDatos.count({ where: { baseId: base.tarjeta.id } });
-    if (hay + valores.length > MAX_FILAS) {
-      throw new Error(`Una base de datos puede tener hasta ${MAX_FILAS} filas (tiene ${hay}).`);
+    const ids = await filasEnOrden(tx, base.tarjeta.id);
+    if (ids.length + valores.length > MAX_FILAS) {
+      throw new Error(`Una base de datos puede tener hasta ${MAX_FILAS} filas (tiene ${ids.length}).`);
     }
-    // El update bloquea la fila de la base: dos que agregan al mismo tiempo no repiten número.
-    const { siguienteNumero } = await tx.baseDeDatosTarjeta.update({
-      where: { tarjetaId: base.tarjeta.id },
-      data: { siguienteNumero: { increment: valores.length } },
-      select: { siguienteNumero: true },
-    });
-    const primero = siguienteNumero - valores.length;
     const conOpciones = columnasConOpcionesNuevas(base.columnas, valores);
     if (conOpciones) {
       await tx.baseDeDatosTarjeta.update({ where: { tarjetaId: base.tarjeta.id }, data: { columnas: conOpciones } });
     }
-    const creadas: FilaDeBaseVista[] = [];
-    for (const [indice, fila] of valores.entries()) {
-      const creada = await tx.filaBaseDeDatos.create({
-        data: { baseId: base.tarjeta.id, numero: primero + indice, valores: fila },
-        select: { id: true, numero: true },
-      });
-      creadas.push({ ...creada, valores: fila });
-    }
-    return creadas;
+    const nuevas = await crearProvisionales(tx, base.tarjeta.id, valores);
+    const orden = ordenConInsercion(ids, nuevas, opciones.despuesDe ?? null);
+    await renumerar(tx, base.tarjeta.id, orden);
+    return nuevas.map((id, indice) => ({ id, numero: orden.indexOf(id) + 1, valores: valores[indice] }));
   });
 }
 
@@ -293,11 +327,63 @@ export async function editarFila(
   return { id: actual.id, numero: actual.numero, valores, ...(conOpciones ? { columnas: conOpciones } : {}) };
 }
 
-export async function borrarFila(alcance: Alcance, tarjetaId: unknown, fila: { id?: unknown; numero?: unknown }) {
+function idsPedidos(filaIds: unknown): string[] {
+  const ids = Array.isArray(filaIds) ? [...new Set(filaIds.filter((id): id is string => typeof id === "string" && id !== ""))] : [];
+  if (!ids.length) throw new Error("No hay filas elegidas.");
+  if (ids.length > 500) throw new Error("Se pueden tocar hasta 500 filas de una vez.");
+  return ids;
+}
+
+/** Borra filas (por id) y renumera las que quedan. */
+export async function borrarFilas(alcance: Alcance, tarjetaId: unknown, filaIds: unknown): Promise<{ borradas: number }> {
   const base = await baseDeLaTarjeta(alcance, tarjetaId);
-  const actual = await filaDeLaBase(base.tarjeta.id, fila);
-  await prisma.filaBaseDeDatos.delete({ where: { id: actual.id } });
-  return { numero: actual.numero };
+  const pedidas = idsPedidos(filaIds);
+  return prisma.$transaction(async (tx) => {
+    const ids = await filasEnOrden(tx, base.tarjeta.id);
+    const borrar = new Set(pedidas.filter((id) => ids.includes(id)));
+    if (!borrar.size) throw new Error("Esas filas ya no existen en la base de datos.");
+    await tx.filaBaseDeDatos.deleteMany({ where: { baseId: base.tarjeta.id, id: { in: [...borrar] } } });
+    await renumerar(tx, base.tarjeta.id, ids.filter((id) => !borrar.has(id)));
+    return { borradas: borrar.size };
+  });
+}
+
+/** Una copia de cada fila, justo debajo de su original. */
+export async function duplicarFilas(alcance: Alcance, tarjetaId: unknown, filaIds: unknown): Promise<{ copias: number }> {
+  const base = await baseDeLaTarjeta(alcance, tarjetaId);
+  const pedidas = idsPedidos(filaIds);
+  return prisma.$transaction(async (tx) => {
+    const ids = await filasEnOrden(tx, base.tarjeta.id);
+    const originales = await tx.filaBaseDeDatos.findMany({
+      where: { baseId: base.tarjeta.id, id: { in: pedidas } },
+      orderBy: { numero: "asc" },
+      select: { id: true, valores: true },
+    });
+    if (!originales.length) throw new Error("Esas filas ya no existen en la base de datos.");
+    if (ids.length + originales.length > MAX_FILAS) {
+      throw new Error(`Una base de datos puede tener hasta ${MAX_FILAS} filas (tiene ${ids.length}).`);
+    }
+    const nuevas = await crearProvisionales(tx, base.tarjeta.id, originales.map((fila) => leerValores(fila.valores)));
+    const copias = new Map(originales.map((fila, indice) => [fila.id, nuevas[indice]]));
+    await renumerar(tx, base.tarjeta.id, ordenConDuplicadas(ids, copias));
+    return { copias: nuevas.length };
+  });
+}
+
+/** Lleva una fila antes o después de otra (arrastrar) y renumera. */
+export async function moverFila(
+  alcance: Alcance,
+  tarjetaId: unknown,
+  filaId: string,
+  destinoId: string,
+  lado: "antes" | "despues",
+): Promise<void> {
+  const base = await baseDeLaTarjeta(alcance, tarjetaId);
+  await prisma.$transaction(async (tx) => {
+    const ids = await filasEnOrden(tx, base.tarjeta.id);
+    if (!ids.includes(filaId) || !ids.includes(destinoId)) throw new Error("Esa fila ya no existe en la base de datos.");
+    await renumerar(tx, base.tarjeta.id, ordenMovido(ids, filaId, destinoId, lado === "antes" ? "antes" : "despues"));
+  });
 }
 
 /** Las bases de datos de un espacio: nombre y cuántas filas (sin el contenido). Para que la IA sepa cuáles hay. */
