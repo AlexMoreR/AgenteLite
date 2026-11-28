@@ -700,7 +700,8 @@ export function TablerosInteligentesVista({
               // aunque esté vacía, para crear adentro con «+ Nuevo» (28-nov-2026); su ficha, tocando el centro.
               const tipoDelNodo = tipoPorId.get(tarjetas.find((tarjeta) => tarjeta.id === nodo.id)?.tipoId ?? "");
               const esCarpeta = tipoDelNodo ? !tipoDelNodo.usaEstados : false;
-              if (!nodo.data.esNivel && (nodo.data.hijas > 0 || esCarpeta)) irANivel(nodo.id);
+              // En la raíz cada tarjeta suelta es «centro»: la carpeta entra igual; solo la del nivel abierto abre su ficha.
+              if ((esCarpeta && nodo.id !== nivel) || (!nodo.data.esNivel && nodo.data.hijas > 0)) irANivel(nodo.id);
               else setAbierta(nodo.id);
             }}
             nodeOrigin={ORIGEN_AL_CENTRO}
