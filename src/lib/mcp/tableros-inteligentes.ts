@@ -590,7 +590,7 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     title: "Escribir en una base de datos del espacio (solo si te lo piden)",
     description:
       "Agrega filas, cambia celdas o agrega columnas en una BASE DE DATOS de un espacio. ÚSALA SOLO si la persona lo pidió explícitamente en esta conversación. " +
-      "Todas las columnas son de texto; el número de la fila (#) se pone solo. En las filas, la clave es el nombre de la columna (o su id) y el valor el texto: { 'Nombre': 'Ana', 'Ciudad': 'Pasto' }. Una columna que no existe da error: agrégala antes con agregar_columnas. " +
+      "Cada columna tiene un tipo (ver tipos_de_columna en leer_base_de_datos): texto, numero (acepta coma o punto decimal), fecha (AAAA-MM-DD o DD/MM/AAAA) o lista (lo que no esté entre sus opciones se agrega como opción nueva); las columnas nuevas son de texto. El número de la fila (#) se pone solo. En las filas, la clave es el nombre de la columna (o su id) y el valor el texto: { 'Nombre': 'Ana', 'Ciudad': 'Pasto' }. Una columna que no existe da error: agrégala antes con agregar_columnas. " +
       "editar_filas cambia solo las celdas que se mandan de la fila con ese número. No borra filas ni columnas: eso se hace en la pantalla.",
     inputSchema: {
       type: "object",
@@ -1321,6 +1321,10 @@ export async function ejecutarHerramientaMcpTableros(
         tarjeta_id: base.tarjetaId,
         nombre: base.titulo,
         columnas: ["#", ...base.columnas.map((columna) => columna.nombre)],
+        // El tipo de cada columna (texto, numero, fecha AAAA-MM-DD o lista con sus opciones): escribir respetándolo.
+        tipos_de_columna: Object.fromEntries(
+          base.columnas.map((columna) => [columna.nombre, columna.tipo === "lista" ? { tipo: "lista", opciones: columna.opciones ?? [] } : columna.tipo]),
+        ),
         filas: base.filas.map((fila) => ({
           "#": fila.numero,
           ...Object.fromEntries(base.columnas.map((columna) => [columna.nombre, fila.valores[columna.id] ?? ""])),
@@ -1338,7 +1342,7 @@ export async function ejecutarHerramientaMcpTableros(
       }
       const agregadas: string[] = [];
       for (const nombreDeColumna of columnasNuevas) {
-        agregadas.push((await agregarColumnaABase(contexto, args.tarjeta_id, nombreDeColumna)).nombre);
+        agregadas.push((await agregarColumnaABase(contexto, args.tarjeta_id, nombreDeColumna)).nueva.nombre);
       }
       const filas = filasNuevas.length ? await agregarFilas(contexto, args.tarjeta_id, filasNuevas) : [];
       const editadas: number[] = [];

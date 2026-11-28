@@ -18,6 +18,9 @@ import {
   MAX_FILAS,
   TIPO_BASE_DE_DATOS,
   agregarColumna,
+  cambiarTipoDeColumna,
+  columnasConOpcionesNuevas,
+  duplicarColumna,
   esTipoBaseDeDatos,
   leerColumnas,
   leerValores,
@@ -25,6 +28,7 @@ import {
   renombrarColumna,
   valoresParaGuardar,
   type ColumnaDeBase,
+  type TipoDeColumna,
   type ValoresDeFila,
 } from "./reglas-base-de-datos";
 import { crearTarjeta, dondeTablero, tableroDelNegocio, type Alcance, type ContextoTablero } from "./tableros";
@@ -158,11 +162,55 @@ async function guardarColumnas(tarjetaId: string, columnas: ColumnaDeBase[]) {
   await prisma.baseDeDatosTarjeta.update({ where: { tarjetaId }, data: { columnas } });
 }
 
-export async function agregarColumnaABase(alcance: Alcance, tarjetaId: unknown, nombre: unknown): Promise<ColumnaDeBase> {
+/** Agrega una columna; `posicion` es su lugar (0 = primera; sin ella, al final). */
+export async function agregarColumnaABase(
+  alcance: Alcance,
+  tarjetaId: unknown,
+  nombre: unknown,
+  opciones: { posicion?: number; tipo?: TipoDeColumna } = {},
+): Promise<{ nueva: ColumnaDeBase; columnas: ColumnaDeBase[] }> {
   const base = await baseDeLaTarjeta(alcance, tarjetaId);
-  const { columnas, nueva } = agregarColumna(base.columnas, nombre);
+  const { columnas, nueva } = agregarColumna(base.columnas, nombre, opciones);
   await guardarColumnas(base.tarjeta.id, columnas);
-  return nueva;
+  return { nueva, columnas };
+}
+
+/** Una copia de la columna, a su derecha, con los mismos datos en cada fila. */
+export async function duplicarColumnaDeBase(
+  alcance: Alcance,
+  tarjetaId: unknown,
+  columnaId: string,
+): Promise<{ nueva: ColumnaDeBase; columnas: ColumnaDeBase[] }> {
+  const base = await baseDeLaTarjeta(alcance, tarjetaId);
+  const { columnas, nueva } = duplicarColumna(base.columnas, columnaId);
+  await prisma.$transaction([
+    prisma.baseDeDatosTarjeta.update({ where: { tarjetaId: base.tarjeta.id }, data: { columnas } }),
+    prisma.$executeRaw`UPDATE "FilaBaseDeDatos" SET "valores" = "valores" || jsonb_build_object(${nueva.id}::text, "valores" -> ${columnaId}::text), "actualizadoEn" = now() WHERE "baseId" = ${base.tarjeta.id} AND ("valores" ->> ${columnaId}::text) IS NOT NULL`,
+  ]);
+  return { nueva, columnas };
+}
+
+/** Cambia el tipo de la columna sin tocar lo escrito; al pasar a lista, sus opciones salen de lo que ya hay. */
+export async function cambiarTipoDeColumnaDeBase(
+  alcance: Alcance,
+  tarjetaId: unknown,
+  columnaId: string,
+  tipo: unknown,
+): Promise<ColumnaDeBase[]> {
+  const base = await baseDeLaTarjeta(alcance, tarjetaId);
+  const existentes =
+    tipo === "lista"
+      ? (
+          await prisma.filaBaseDeDatos.findMany({
+            where: { baseId: base.tarjeta.id },
+            orderBy: { numero: "asc" },
+            select: { valores: true },
+          })
+        ).map((fila) => leerValores(fila.valores)[columnaId] ?? "")
+      : [];
+  const columnas = cambiarTipoDeColumna(base.columnas, columnaId, tipo, existentes);
+  await guardarColumnas(base.tarjeta.id, columnas);
+  return columnas;
 }
 
 export async function renombrarColumnaDeBase(alcance: Alcance, tarjetaId: unknown, columnaId: string, nombre: unknown) {
@@ -198,6 +246,10 @@ export async function agregarFilas(alcance: Alcance, tarjetaId: unknown, entrada
       select: { siguienteNumero: true },
     });
     const primero = siguienteNumero - valores.length;
+    const conOpciones = columnasConOpcionesNuevas(base.columnas, valores);
+    if (conOpciones) {
+      await tx.baseDeDatosTarjeta.update({ where: { tarjetaId: base.tarjeta.id }, data: { columnas: conOpciones } });
+    }
     const creadas: FilaDeBaseVista[] = [];
     for (const [indice, fila] of valores.entries()) {
       const creada = await tx.filaBaseDeDatos.create({
@@ -229,12 +281,16 @@ export async function editarFila(
   tarjetaId: unknown,
   fila: { id?: unknown; numero?: unknown },
   cambios: unknown,
-): Promise<FilaDeBaseVista> {
+): Promise<FilaDeBaseVista & { columnas?: ColumnaDeBase[] }> {
   const base = await baseDeLaTarjeta(alcance, tarjetaId);
   const actual = await filaDeLaBase(base.tarjeta.id, fila);
   const valores = { ...leerValores(actual.valores), ...valoresParaGuardar(base.columnas, cambios) };
-  await prisma.filaBaseDeDatos.update({ where: { id: actual.id }, data: { valores } });
-  return { id: actual.id, numero: actual.numero, valores };
+  const conOpciones = columnasConOpcionesNuevas(base.columnas, [valores]);
+  await prisma.$transaction([
+    prisma.filaBaseDeDatos.update({ where: { id: actual.id }, data: { valores } }),
+    ...(conOpciones ? [prisma.baseDeDatosTarjeta.update({ where: { tarjetaId: base.tarjeta.id }, data: { columnas: conOpciones } })] : []),
+  ]);
+  return { id: actual.id, numero: actual.numero, valores, ...(conOpciones ? { columnas: conOpciones } : {}) };
 }
 
 export async function borrarFila(alcance: Alcance, tarjetaId: unknown, fila: { id?: unknown; numero?: unknown }) {

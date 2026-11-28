@@ -3,6 +3,7 @@
 /*
   Bases de datos del Espacio (28-nov-2026): lo que hace la tabla de la pantalla. El permiso es el del
   espacio (quien lo ve, la edita); el servidor vuelve a revisar todo en services/bases-de-datos.ts.
+  Las acciones de columnas devuelven todas las columnas como quedaron, para que la tabla no se desfase.
 */
 
 import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
@@ -10,7 +11,9 @@ import {
   agregarColumnaABase,
   agregarFilas,
   borrarFila,
+  cambiarTipoDeColumnaDeBase,
   crearBaseDeDatos,
+  duplicarColumnaDeBase,
   editarFila,
   leerBaseDeDatos,
   quitarColumnaDeBase,
@@ -18,10 +21,11 @@ import {
   type BaseDeDatosVista,
   type FilaDeBaseVista,
 } from "@/features/tableros-inteligentes/services/bases-de-datos";
-import type { ColumnaDeBase } from "@/features/tableros-inteligentes/services/reglas-base-de-datos";
+import { nombreLibre, type ColumnaDeBase } from "@/features/tableros-inteligentes/services/reglas-base-de-datos";
 import { alcanceDe, editarTarjeta, type ContextoTablero } from "@/features/tableros-inteligentes/services/tableros";
 
 type Fallo = { ok: false; error: string };
+type ConColumnas = { ok: true; columnas: ColumnaDeBase[] } | Fallo;
 const mensaje = (fallo: unknown, porDefecto: string): Fallo => ({
   ok: false,
   error: fallo instanceof Error ? fallo.message : porDefecto,
@@ -67,12 +71,33 @@ export async function renombrarBaseDeDatosAction(tarjetaId: string, titulo: stri
   }
 }
 
-export async function agregarColumnaAction(tarjetaId: string, nombre: string): Promise<{ ok: true; columna: ColumnaDeBase } | Fallo> {
+/** Una columna nueva de texto con un nombre libre («Columna 3»), en `posicion` (sin ella, al final). */
+export async function agregarColumnaAction(tarjetaId: string, posicion?: number): Promise<ConColumnas> {
   const contexto = await contextoDePantalla();
   try {
-    return { ok: true, columna: await agregarColumnaABase(contexto, tarjetaId, nombre) };
+    const actual = await leerBaseDeDatos(contexto, tarjetaId, { limite: 1 });
+    const { columnas } = await agregarColumnaABase(contexto, tarjetaId, nombreLibre(actual.columnas), { posicion });
+    return { ok: true, columnas };
   } catch (fallo) {
     return mensaje(fallo, "No se pudo agregar la columna");
+  }
+}
+
+export async function duplicarColumnaAction(tarjetaId: string, columnaId: string): Promise<ConColumnas> {
+  const contexto = await contextoDePantalla();
+  try {
+    return { ok: true, columnas: (await duplicarColumnaDeBase(contexto, tarjetaId, columnaId)).columnas };
+  } catch (fallo) {
+    return mensaje(fallo, "No se pudo duplicar la columna");
+  }
+}
+
+export async function cambiarTipoDeColumnaAction(tarjetaId: string, columnaId: string, tipo: string): Promise<ConColumnas> {
+  const contexto = await contextoDePantalla();
+  try {
+    return { ok: true, columnas: await cambiarTipoDeColumnaDeBase(contexto, tarjetaId, columnaId, tipo) };
+  } catch (fallo) {
+    return mensaje(fallo, "No se pudo cambiar el tipo de la columna");
   }
 }
 
@@ -106,16 +131,17 @@ export async function agregarFilaAction(tarjetaId: string): Promise<{ ok: true; 
   }
 }
 
+/** Guarda una celda. Devuelve el texto como quedó (un número o una fecha se normalizan) y, si una lista sumó una opción, las columnas. */
 export async function editarCeldaDeBaseAction(
   tarjetaId: string,
   filaId: string,
   columnaId: string,
   texto: string,
-): Promise<{ ok: true } | Fallo> {
+): Promise<{ ok: true; texto: string; columnas?: ColumnaDeBase[] } | Fallo> {
   const contexto = await contextoDePantalla();
   try {
-    await editarFila(contexto, tarjetaId, { id: filaId }, { [columnaId]: texto });
-    return { ok: true };
+    const fila = await editarFila(contexto, tarjetaId, { id: filaId }, { [columnaId]: texto });
+    return { ok: true, texto: fila.valores[columnaId] ?? "", ...(fila.columnas ? { columnas: fila.columnas } : {}) };
   } catch (fallo) {
     return mensaje(fallo, "No se pudo guardar la celda");
   }
