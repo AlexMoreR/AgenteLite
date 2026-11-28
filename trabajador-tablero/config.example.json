@@ -80,6 +80,13 @@
     "maximoPorDia": 6,
     "maximoPorTarjeta": 2
   },
+  "repetidas": {
+    "igualPalabras": 0.8,
+    "igualConArchivo": 0.5,
+    "posibleSinArchivo": 0.5,
+    "posibleConArchivo": 0.3,
+    "dias": 30
+  },
   "candadoDeBuild": {
     "esperaSegundos": 60,
     "maximoEsperas": 10

@@ -122,6 +122,10 @@ export function crearCrm(config, { fetch: miFetch = globalThis.fetch, timeoutMs 
     depender: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/depender`, limpio(datos)),
     /** Revisión previa (27-oct-2026): lo pedido ya estaba en main. { commit, motivo, nota, etapa } -> la tarjeta pasa a HECHO con la nota "ya estaba hecho (commit X)". */
     yaHecha: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/ya-hecha`, limpio(datos)),
+    /** Tarjetas repetidas (27-nov-2026): las tarjetas parecidas del mismo tablero y repo. Solo lee. -> { tarjetas, repetidasRevisadas } */
+    parecidas: (id) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/parecidas`, {}),
+    /** Cierra la tarjeta como repetida (FALLIDO) o la marca como posible repetida (ERROR). { tipo: "repetida" | "posible", otraId, linea, motivo?, detalleParaLaOtra? } */
+    repetida: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/repetida`, limpio(datos)),
     /** Código limpio (27-oct-2026): main trae errores viejos. { repo, errores } -> { creada } crea UNA tarjeta de limpieza por repo, o le agrega los errores a la abierta. */
     limpieza: (id, datos) => pedir(`/api/trabajador/tablero/${encodeURIComponent(id)}/limpieza`, limpio(datos)),
     /**

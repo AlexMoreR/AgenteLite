@@ -45,6 +45,11 @@ const DE_TAMANO = new Set(["tiempo_agotado", "tarea_muy_grande"]);
  * -> { accion: "reintentar" | "partir" | "dueno" | "saltar", categoria, causa, linea?, nube?, motivo }
  */
 export function decidirRecogida(tarjeta, { maximoPorTarjeta = RECOGER_POR_DEFECTO.maximoPorTarjeta } = {}) {
+  // Una posible repetida (27-nov-2026) la decide el dueño: nunca se reintenta ni se parte. La lista de /errores no trae la categoría,
+  // así que también se reconoce por el motivo que escribe el CRM ("Posible repetida de T-…").
+  if (tarjeta?.categoria === "posible_repetida" || /^posible repetida de T-\d+/i.test(String(tarjeta?.motivo ?? "").trim())) {
+    return { categoria: "posible_repetida", causa: "Posible repetida de otra tarjeta.", accion: "saltar", motivo: "posible repetida: decide el dueño" };
+  }
   const veces = Number(tarjeta?.recogidas) || 0;
   const textoDelError = [tarjeta?.motivo, tarjeta?.ultimoError].filter(Boolean).join("\n");
   const ultimoIntento = [...(tarjeta?.ultimosIntentos ?? [])].reverse().find((intento) => intento?.etapa);

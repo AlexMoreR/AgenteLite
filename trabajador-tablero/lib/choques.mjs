@@ -97,7 +97,7 @@ export function archivosExistentesDelPlan(plan) {
   return archivosDelPlan(plan).filter((ruta) => !nuevos.has(ruta));
 }
 
-function archivosDeTexto(texto) {
+export function archivosDeTexto(texto) {
   const encontrados = new Set();
   // 31-oct-2026: los "*" ya no cortan la ruta ("src/lib/**" queda entero). Solo se quitan los del markdown
   // ("**src/a.ts**"): los de adelante si siguen con una letra, los de atrás si no vienen después de una "/".
