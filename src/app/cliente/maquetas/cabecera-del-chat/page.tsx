@@ -1,0 +1,26 @@
+import type { Metadata } from "next";
+
+import { requireClientWorkspaceAccess } from "@/lib/client-workspace-access";
+
+import { MaquetaCabecera } from "./maqueta-cabecera";
+
+export const metadata: Metadata = { title: "Maqueta: cabecera del chat", robots: { index: false, follow: false } };
+export const dynamic = "force-dynamic";
+
+/**
+ * MAQUETA de la cabecera del chat (vista de computador). Datos inventados: no lee ni escribe en la base
+ * y no llama acciones. Sirve para que Alexander dé su visto bueno antes de tocar Chats.
+ */
+export default async function MaquetaCabeceraPage() {
+  await requireClientWorkspaceAccess();
+
+  return (
+    <div className="mx-auto w-full max-w-5xl space-y-4 p-4">
+      <div>
+        <h1 className="text-xl font-semibold">Maqueta: cabecera del chat</h1>
+        <p className="text-sm text-muted-foreground">Solo de muestra: Chats no cambió. Nada de lo que se toca aquí se guarda.</p>
+      </div>
+      <MaquetaCabecera />
+    </div>
+  );
+}
