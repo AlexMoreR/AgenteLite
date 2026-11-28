@@ -532,7 +532,6 @@ export function TablaBaseDeDatos({
     () => (base ? base.filas.filter((fila) => elegidas.has(fila.id)).map((fila) => fila.id) : []),
     [base, elegidas],
   );
-  const todasElegidas = Boolean(base?.filas.length) && elegidasVivas.length === base?.filas.length;
 
   const conCarga = async <T,>(accion: () => Promise<T>) => {
     if (ocupado) return null;
@@ -769,21 +768,9 @@ export function TablaBaseDeDatos({
               <table className="w-max min-w-full border-collapse text-sm">
                 <thead className="sticky top-0 z-10 bg-popover">
                   <tr className="border-b border-border/70">
-                    <th className="w-[5.5rem] p-0">
-                      <div className="flex h-10 items-center justify-end pr-2">
-                        <input
-                          type="checkbox"
-                          checked={todasElegidas}
-                          ref={(casilla) => {
-                            if (casilla) casilla.indeterminate = elegidasVivas.length > 0 && !todasElegidas;
-                          }}
-                          onChange={() => setElegidas(todasElegidas ? new Set() : new Set(base.filas.map((fila) => fila.id)))}
-                          aria-label="Seleccionar todas las filas"
-                          className="size-4 accent-sky-600"
-                        />
-                      </div>
-                    </th>
-                    <th className="w-12 border-x border-border/50 px-2 text-center text-xs font-normal text-muted-foreground">#</th>
+                    {/* Sin casilla de «todas» (Alex, 28-nov-2026): solo el espacio de +, ⠿ y la casilla de cada fila. */}
+                    <th className="w-[4.75rem] p-0" />
+                    <th className="w-7 border-r border-border/50 px-0.5 text-center text-xs font-normal text-muted-foreground">#</th>
                     {base.columnas.map((columna, indice) => (
                       <th key={columna.id} className="min-w-48 border-r border-border/50 p-0">
                         <MenuDeColumna
@@ -839,7 +826,7 @@ export function TablaBaseDeDatos({
                         }}
                       >
                         <td className="p-0">
-                          <div className="flex h-10 items-center justify-end gap-0.5 pr-2">
+                          <div className="flex h-10 items-center justify-end gap-0.5 pr-1">
                             <button
                               type="button"
                               disabled={ocupado}
@@ -879,7 +866,7 @@ export function TablaBaseDeDatos({
                             />
                           </div>
                         </td>
-                        <td className="border-x border-border/50 px-2 text-center text-xs tabular-nums text-muted-foreground">{fila.numero}</td>
+                        <td className="w-7 border-r border-border/50 px-0.5 text-center text-xs tabular-nums text-muted-foreground">{fila.numero}</td>
                         {base.columnas.map((columna, indice) => (
                           <td key={columna.id} className={cn("border-r border-border/50 p-0", indice === 0 && "relative")}>
                             <Celda
@@ -911,7 +898,7 @@ export function TablaBaseDeDatos({
                 type="button"
                 disabled={ocupado}
                 onClick={() => agregarFila()}
-                className="ml-[5.5rem] flex h-10 w-[calc(100%-5.5rem)] items-center gap-2 px-2 text-sm text-muted-foreground hover:bg-muted"
+                className="ml-[4.75rem] flex h-10 w-[calc(100%-4.75rem)] items-center gap-2 px-2 text-sm text-muted-foreground hover:bg-muted"
               >
                 <Plus className="size-4" />
                 Nueva fila
