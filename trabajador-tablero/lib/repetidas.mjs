@@ -13,6 +13,8 @@ import { commitEstaEnMain } from "./etapas.mjs";
 
 /** Los estados en que la otra ya está trabajándose: no se cierra nada, se espera. */
 const ESTADOS_EN_MARCHA = new Set(["EN_CURSO", "POR_REVISAR", "SUBIENDO"]);
+/** Los estados "pendientes" (esperan a hacerse): solo entre estos dos se cierra una como repetida de la otra. Los demás (p. ej. IDEA) van a "posible". */
+const ESTADOS_PENDIENTES = new Set(["POR_APROBAR", "APROBADO", "PLANEANDO", "PLAN_LISTO", "PLAN_APROBADO"]);
 /** Los estados terminados mal: un "igual" con la otra aquí no se cierra solo, lo decide el dueño. */
 const ESTADOS_CON_FALLA = new Set(["ERROR", "FALLIDO"]);
 
@@ -88,14 +90,16 @@ export async function decidirRepetida({ tarjeta, parecidas, repo, config }) {
     let decision = null;
     if (nivel === "igual") {
       if (otra.estado === "HECHO") {
-        if (otra.commit && (await commitEstaEnMain(repo, otra.commit))) {
+        // Si git falla con esta pareja, ese commit no cuenta y se sigue con las demás.
+        const enMain = otra.commit ? await commitEstaEnMain(repo, otra.commit).catch(() => false) : false;
+        if (enMain) {
           decision = { accion: "ya-hecha", otra, commit: otra.commit, linea: `Ya lo hizo ${nombre} (commit ${String(otra.commit).slice(0, 7)})`, motivo: porque };
         }
       } else if (ESTADOS_EN_MARCHA.has(otra.estado)) {
         decision = { accion: "esperar", otra, motivo: `${nombre} ya lo está haciendo (${otra.estado}): ${porque}` };
       } else if (ESTADOS_CON_FALLA.has(otra.estado)) {
         decision = { accion: "posible", otra, linea: `Posible repetida de ${nombre}: ${porque}`, motivo: porque };
-      } else if (suNumero !== null && miNumero !== null) {
+      } else if (ESTADOS_PENDIENTES.has(otra.estado) && suNumero !== null && miNumero !== null) {
         decision =
           suNumero < miNumero
             ? { accion: "repetida", otra, linea: `Repetida de ${nombre}`, motivo: porque, detalleParaLaOtra: String(tarjeta.detalle ?? "") }

@@ -107,6 +107,14 @@ try {
     assert.equal(revisada.accion, "seguir");
   });
 
+  await prueba("decidirRepetida: estado raro o sin número nunca cierra; un git roto no tumba a las demás", async () => {
+    assert.equal((await decidirRepetida({ tarjeta: mia, parecidas: [otra({ estado: "IDEA" })], repo, config })).accion, "posible");
+    assert.equal((await decidirRepetida({ tarjeta: mia, parecidas: [otra({ numero: undefined })], repo, config })).accion, "posible");
+    const roto = { ruta: path.join(T, "no-existe"), remoto: "origin", ramaBase: "main" };
+    const varias = await decidirRepetida({ tarjeta: mia, parecidas: [otra({ id: "h", estado: "HECHO", commit: enMain }), otra({ id: "p", estado: "ERROR" })], repo: roto, config });
+    assert.equal(varias.accion, "posible", "con git roto el HECHO no cuenta, pero la otra sí se evalúa");
+  });
+
   /** Un CRM falso: guarda las llamadas; `parecidas` es lo que contesta (o lanza si es un Error). */
   const crmFalso = (parecidas) => {
     const llamadas = [];
