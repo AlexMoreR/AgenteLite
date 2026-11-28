@@ -90,7 +90,7 @@ function CabeceraDelChat({
             {celular ? null : <span className="text-sm">{ASESORA}</span>}
           </div>
         ) : (
-          <div className="flex items-center gap-2">
+          <div className={celular ? "flex flex-col items-end gap-1" : "flex items-center gap-2"}>
             <Badge variant="outline">Sin asignar</Badge>
             <Button size="sm" variant="outline" onClick={() => setAsignada(true)}>
               <UserPlus />
@@ -178,13 +178,13 @@ function FranjaDelAgente({ celular = false }: { celular?: boolean }) {
   );
 }
 
-function Estado({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+function Estado({ titulo, celular = false, children }: { titulo: string; celular?: boolean; children: React.ReactNode }) {
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-sm">{titulo}</CardTitle>
       </CardHeader>
-      <CardContent>{children}</CardContent>
+      <CardContent className={celular ? "px-2" : undefined}>{children}</CardContent>
     </Card>
   );
 }
@@ -192,16 +192,16 @@ function Estado({ titulo, children }: { titulo: string; children: React.ReactNod
 function Casos({ celular }: { celular: boolean }) {
   return (
     <div className="space-y-4">
-      <Estado titulo="Cabecera limpia (con asesora y seguimiento)">
+      <Estado celular={celular} titulo="Cabecera limpia (con asesora y seguimiento)">
         <CabeceraDelChat conAsesora conSeguimiento celular={celular} />
       </Estado>
-      <Estado titulo="Asesor sin asignar">
+      <Estado celular={celular} titulo="Asesor sin asignar">
         <CabeceraDelChat conAsesora={false} conSeguimiento celular={celular} />
       </Estado>
-      <Estado titulo="Sin seguimiento (no sale la línea)">
+      <Estado celular={celular} titulo="Sin seguimiento (no sale la línea)">
         <CabeceraDelChat conAsesora conSeguimiento={false} celular={celular} />
       </Estado>
-      <Estado titulo="Franja del agente (escribe o toca el botón)">
+      <Estado celular={celular} titulo="Franja del agente (escribe o toca el botón)">
         <FranjaDelAgente celular={celular} />
       </Estado>
     </div>
