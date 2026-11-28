@@ -3147,6 +3147,8 @@ const servidor = http.createServer(async (pedido, respuesta) => {
     Object.assign(tarjeta, { venceEn: null, resultado: { ...(tarjeta.resultado ?? {}), error: { motivo: reglas.resumenDeEscalada(cuerpo.motivo), categoria: cuerpo.categoria } } });
     return contestar(200, { ok: true, estado: "ERROR" });
   }
+  // Parecidas (27-nov-2026): solo lee, como el CRM real; no cambia el estado ni suelta el candado.
+  if (accion === "parecidas") return contestar(200, { ok: true, tarjetas: [], repetidasRevisadas: [] });
   tarjeta.estado = reglas.TRANSICIONES_DEL_TRABAJADOR[accion].a;
   tarjeta.venceEn = null;
   if (accion === "plan") Object.assign(tarjeta, { plan: reglas.planDeEntrada(cuerpo.plan), resultado: null });

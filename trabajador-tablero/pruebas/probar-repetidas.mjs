@@ -7,7 +7,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { fileURLToPath } from "node:url";
+
+import { procesar } from "../lib/bucle.mjs";
 import { REPETIDAS_POR_DEFECTO, completarConfig } from "../lib/config.mjs";
+import { cargar } from "../../scripts/supervisor-cargar.mjs";
 import { compararTarjetas, decidirRepetida, normalizarTitulo, revisarRepetidas } from "../lib/repetidas.mjs";
 import { decidirRecogida } from "../lib/recoger-errores.mjs";
 
@@ -172,6 +176,110 @@ try {
     assert.equal(porCategoria.motivo, "posible repetida: decide el dueño");
     const porMotivo = decidirRecogida({ titulo: "X", recogidas: 0, motivo: "Posible repetida de T-40: comparten 100 % de las palabras", ultimoError: "se pasó de tiempo" });
     assert.equal(porMotivo.accion, "saltar");
+  });
+
+  /* ── parte 3: de punta a punta con procesar(), el Claude falso, un CRM falso y las reglas reales ── */
+  const CLAUDE_LOG = path.join(T, "claude-falso.log");
+  process.env.CLAUDE_FALSO_LOG = CLAUDE_LOG;
+  const configE2E = { ...config, comandoClaude: [process.execPath, fileURLToPath(new URL("./claude-falso.mjs", import.meta.url))] };
+  const llamadasAClaude = () => (fs.existsSync(CLAUDE_LOG) ? fs.readFileSync(CLAUDE_LOG, "utf8").trim().split("\n").filter(Boolean) : []);
+  const registroE2E = () => ({ info: () => {}, aviso: (m) => avisos.push(m), error: () => {}, carpeta: null, guardarIntento: () => null });
+  /** Un CRM falso para planear: anota cada llamada por su nombre; `depender` contesta `respuestaDepender`. */
+  const crmDePlanear = (parecidas, respuestaDepender = { ok: true }) => {
+    const base = crmFalso(parecidas);
+    const llamadas = base.llamadas;
+    const anotar = (nombre, respuesta = { ok: true }) => async (...args) => (llamadas.push([nombre, ...args]), respuesta);
+    return {
+      llamadas,
+      crm: { ...base.crm, depender: anotar("depender", respuestaDepender), plan: anotar("plan", { ok: true, estado: "PLAN_LISTO" }), latido: anotar("latido") },
+    };
+  };
+  const planear = async (crm, tarjeta) => {
+    fs.rmSync(CLAUDE_LOG, { force: true });
+    const carpeta = fs.mkdtempSync(path.join(T, "trabajo-"));
+    const salida = await procesar({ crm, config: { ...configE2E, carpetaTrabajo: carpeta }, registro: registroE2E() }, tarjeta, "planear");
+    return salida;
+  };
+  const nombresDe = (llamadas) => llamadas.map(([que]) => que);
+  const miTarjeta = { ...mia, repo: "aizencrm", topeReparaciones: 3, reparaciones: 0, intentos: 1, ultimosIntentos: [] };
+
+  await prueba("de punta a punta: la otra HECHO con su commit en main -> una llamada yaHecha y el Claude falso no se llama", async () => {
+    const { crm, llamadas } = crmDePlanear({ tarjetas: [otra({ estado: "HECHO", commit: enMain })], repetidasRevisadas: [] });
+    const salida = await planear(crm, miTarjeta);
+    assert.equal(salida.ok, true);
+    assert.equal(salida.repetida, true);
+    const hechas = llamadas.filter(([que]) => que === "yaHecha");
+    assert.equal(hechas.length, 1, JSON.stringify(nombresDe(llamadas)));
+    assert.equal(hechas[0][2].repetidaDe, "otra");
+    assert.ok(hechas[0][2].motivo.includes("Ya lo hizo T-40"), hechas[0][2].motivo);
+    assert.ok(!nombresDe(llamadas).includes("plan"));
+    assert.equal(llamadasAClaude().length, 0, "no se abrió la sesión del plan");
+  });
+
+  await prueba("de punta a punta: la otra HECHO pero su commit no está en main -> se planea normal", async () => {
+    const { crm, llamadas } = crmDePlanear({ tarjetas: [otra({ estado: "HECHO", commit: fueraDeMain })], repetidasRevisadas: [] });
+    await planear(crm, miTarjeta);
+    assert.ok(llamadasAClaude().length > 0, "el Claude falso sí se llamó");
+    assert.ok(nombresDe(llamadas).includes("plan"), JSON.stringify(nombresDe(llamadas)));
+    assert.ok(!nombresDe(llamadas).includes("yaHecha"));
+    assert.ok(!nombresDe(llamadas).includes("repetida"));
+  });
+
+  await prueba("de punta a punta: dos pendientes -> la nueva se cierra repetida; la vieja se planea sin llamar a repetida", async () => {
+    const nueva = crmDePlanear({ tarjetas: [otra()], repetidasRevisadas: [] });
+    const salida = await planear(nueva.crm, miTarjeta);
+    assert.equal(salida.repetida, true);
+    const cierres = nueva.llamadas.filter(([que]) => que === "repetida");
+    assert.equal(cierres.length, 1);
+    assert.equal(cierres[0][2].tipo, "repetida");
+    assert.equal(cierres[0][2].otraId, "otra");
+    assert.ok(cierres[0][2].linea.includes("Repetida de T-40"), cierres[0][2].linea);
+    assert.equal(llamadasAClaude().length, 0);
+
+    // Al planear la vieja (T-40), la nueva (T-50) es la más reciente: sigue y se planea.
+    const vieja = crmDePlanear({ tarjetas: [{ ...mia, id: "mia" }].map((t) => ({ ...t, estado: "APROBADO", commit: null })), repetidasRevisadas: [] });
+    await planear(vieja.crm, { ...miTarjeta, id: "otra", numero: 40, estado: "PLANEANDO" });
+    assert.ok(!nombresDe(vieja.llamadas).includes("repetida"));
+    assert.ok(llamadasAClaude().length > 0, "la vieja sí llama al Claude falso");
+  });
+
+  await prueba("de punta a punta: parecido dudoso -> una llamada repetida con tipo posible", async () => {
+    const { crm, llamadas } = crmDePlanear({ tarjetas: [otra({ estado: "FALLIDO" })], repetidasRevisadas: [] });
+    const salida = await planear(crm, miTarjeta);
+    assert.equal(salida.repetida, true);
+    const cierres = llamadas.filter(([que]) => que === "repetida");
+    assert.equal(cierres.length, 1);
+    assert.equal(cierres[0][2].tipo, "posible");
+    assert.ok(cierres[0][2].linea.includes("Posible repetida de T-40"), cierres[0][2].linea);
+    assert.equal(llamadasAClaude().length, 0);
+  });
+
+  await prueba("de punta a punta: si parecidas lanza un error, la tarjeta se planea igual", async () => {
+    const { crm, llamadas } = crmDePlanear(new Error("500 caído"));
+    await planear(crm, miTarjeta);
+    assert.ok(llamadasAClaude().length > 0);
+    assert.ok(nombresDe(llamadas).includes("plan"));
+  });
+
+  await prueba("de punta a punta: la otra EN_CURSO -> flecha de dependencia, esperando y sin sesión", async () => {
+    const espera = { ok: true, soltada: true, esperando: "Esperando a «Detectar tarjetas repetidas antes de planear»", estado: "APROBADO" };
+    const { crm, llamadas } = crmDePlanear({ tarjetas: [otra({ estado: "EN_CURSO" })], repetidasRevisadas: [] }, espera);
+    const salida = await planear(crm, miTarjeta);
+    const flechas = llamadas.filter(([que]) => que === "depender");
+    assert.equal(flechas.length, 1);
+    assert.deepEqual(flechas[0][2].referencias, ["otra"]);
+    assert.ok(salida.esperando);
+    assert.equal(salida.estado, "APROBADO");
+    assert.equal(llamadasAClaude().length, 0);
+  });
+
+  await prueba("con las reglas reales: repetida desde PLANEANDO se acepta y su destino es FALLIDO o ERROR", () => {
+    const reglas = cargar("src/features/tableros-inteligentes/services/reglas-trabajador.ts");
+    assert.equal(reglas.puedeElTrabajador("repetida", "PLANEANDO"), null);
+    assert.equal(reglas.puedeElTrabajador("parecidas", "PLANEANDO"), null);
+    assert.notEqual(reglas.puedeElTrabajador("repetida", "EN_CURSO"), null);
+    assert.equal(reglas.destinoDeRepetida("repetida"), "FALLIDO");
+    assert.equal(reglas.destinoDeRepetida("posible"), "ERROR");
   });
 
   console.log(`\n${pruebas} pruebas ok`);

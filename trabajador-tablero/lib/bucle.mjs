@@ -78,6 +78,7 @@ import { MEDIR_POR_DEFECTO, medirTarjeta, referenciasParaDepender, textoDeLaMedi
 import { anotarAvisoAlCto } from "./notas-boveda.mjs";
 import { notaDeYaHecho } from "./revision-previa.mjs";
 import { repoDeLaRecomendada, seguirConLaRecomendada } from "./preguntas-abiertas.mjs";
+import { revisarRepetidas } from "./repetidas.mjs";
 import { modeloDelPaso, nombreDelModelo } from "./modelos.mjs";
 import { crearEstadoDeMotores, crearVigilanteDeUso, motorDeLaEtapa, nombreDelMotor, textoDelAvisoDeLimite } from "./motores.mjs";
 import { commitsDeLaRama, esOrquestador, esTareaGrande, nombreDelProyecto, preguntaDelCommit, resultadoDelCommit, sesionFijaDe, sinAccesoALaNube, sinAccesoASesionesNuevas } from "./nube.mjs";
@@ -221,6 +222,22 @@ export async function procesar({ crm, config, registro: registroBase, motores = 
     }
     // Medir ANTES de planear (26-oct-2026): dependencias sin terminar y tarjetas muy grandes no abren la sesión de plan.
     if (hacer === "planear" && conReparaciones) {
+      // Tarjetas repetidas (27-nov-2026): antes de medir, se mira si otra igual ya la hizo o si es repetida de otra pendiente.
+      // Si cierra la tarjeta no se abre ninguna sesión de plan. Cualquier error deja planear como siempre.
+      try {
+        const repetida = await revisarRepetidas({ crm, config, registro, repo: config.repos?.[tarjeta.repo] }, tarjeta);
+        if (repetida?.cerrada) return { ok: true, estado: null, repetida: true };
+        if (repetida?.esperar) {
+          // Misma flecha que usa medirAntesDePlanear; no se usa esperarPorDependencia (puede buscar en git y dejar la tarjeta en ERROR).
+          const respuesta = await crm.depender(tarjeta.id, { referencias: [repetida.esperar], etapa: "planear" });
+          if (respuesta?.soltada) {
+            registro.info(`"${tarjeta.titulo}": ${respuesta.esperando ?? "espera a otra tarjeta igual"}; no la planeo todavía`);
+            return { ok: true, estado: respuesta.estado ?? "APROBADO", esperando: respuesta.esperando ?? true };
+          }
+        }
+      } catch (error) {
+        registro.aviso(`no se pudo revisar si "${tarjeta.titulo}" está repetida (${String(error?.message ?? error).split("\n")[0]}): se planea como siempre`);
+      }
       const previa = await medirAntesDePlanear({ crm, config, registro, contexto }, tarjeta);
       if (previa) return previa;
     }

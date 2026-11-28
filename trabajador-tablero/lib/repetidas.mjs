@@ -5,7 +5,7 @@
 //   - esperar: la otra, igual, está en curso o subiendo -> la parte 3 pone la flecha de dependencia;
 //   - posible: se parecen pero no tanto (o la otra falló) -> ERROR "Posible repetida de T-X: <por qué>" y decide el dueño;
 //   - seguir: nada que hacer, se planea normal.
-// En esta parte NADIE llama todavía a revisarRepetidas desde el bucle (eso es la parte 3). Si algo falla, la tarjeta se planea igual.
+// La llama el bucle (bucle.mjs, procesar) justo antes de medir y planear: cerrada:true -> no se abre la sesión del plan; esperar -> flecha de dependencia. Si algo falla, la tarjeta se planea igual.
 import { archivosDeTexto, archivosDelPlan, noChoca } from "./choques.mjs";
 import { REPETIDAS_POR_DEFECTO } from "./config.mjs";
 import { palabrasDelTitulo } from "./git.mjs";
