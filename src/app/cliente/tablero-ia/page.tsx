@@ -192,6 +192,16 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
       ? nivelDeLaTarjeta(contenido.tarjetas, tarjetaInicial)
       : pedidoNivel;
 
+  // El id del Área Features (para «Ver como tablero» en su nivel): solo dueño o ADMIN; si falla, la vista abre igual.
+  let areaFeaturesIdDelMapa: string | null = null;
+  if (personaPuedeAprobar(access)) {
+    try {
+      areaFeaturesIdDelMapa = await idDeFeatures(access.workspaceId);
+    } catch {
+      areaFeaturesIdDelMapa = null;
+    }
+  }
+
   return (
     <>
     <TablerosInteligentesVista
@@ -206,6 +216,7 @@ export default async function TableroIAPage({ searchParams }: PageProps) {
       nivelInicial={nivelInicial}
       // Los botones de la tarea y el plan: dueño, ADMIN o aprobador (el alcance lo revisa el servidor).
       puedeAprobar={personaPuedeAprobar(access) || persona.esDueno || Boolean(persona.aprobador)}
+      areaFeaturesId={areaFeaturesIdDelMapa}
       puedeEditarTipos={personaPuedeAprobar(access)}
       esDueno={persona.esDueno}
       // Emanuel (prueba hasta el 29-nov): ve el botón del sí final; el servidor lo niega si toca dinero, Meta Ads u otra área.
