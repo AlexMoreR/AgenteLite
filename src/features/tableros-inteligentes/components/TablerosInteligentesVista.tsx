@@ -27,6 +27,8 @@ import {
 import { useListaDeTableros, useRefrescoDelTablero, type ContenidoNuevo } from "../hooks/useRefrescoDelTablero";
 import { DialogoNuevaTarjeta } from "./DialogoNuevaTarjeta";
 import { FichaTarjeta } from "./FichaTarjeta";
+import { TablaBaseDeDatos } from "./TablaBaseDeDatos";
+import { esTipoBaseDeDatos } from "../services/reglas-base-de-datos";
 import { FlechaFlotante, type FlechaDeTablero } from "./FlechaFlotante";
 import { MigasDelNivel } from "./MigasDelNivel";
 import { NodoTarjeta, type NodoDeTarjeta } from "./NodoTarjeta";
@@ -314,6 +316,8 @@ export function TablerosInteligentesVista({
   const [panelTipos, setPanelTipos] = useState(false);
   // «+ Nuevo» en el medio del espacio (28-nov-2026): la ventana para crear a mano.
   const [creando, setCreando] = useState(false);
+  // La base de datos cuya tabla está abierta (28-nov-2026): tocar su tarjeta abre la tabla, no la ficha.
+  const [baseAbierta, setBaseAbierta] = useState<string | null>(null);
 
   const tarjetas = useMemo(() => contenido?.tarjetas ?? [], [contenido]);
   const conexiones = useMemo<ConexionVista[]>(() => contenido?.conexiones ?? [], [contenido]);
@@ -405,12 +409,17 @@ export function TablerosInteligentesVista({
   /** Abrir una tarjeta como página desde la Tabla, el Tablero o el Calendario (queda en el link). */
   const abrirComoPagina = useCallback(
     (id: string) => {
+      const tipoDeLaTarjeta = tipoPorId.get(estadoRef.current.contenido?.tarjetas.find((tarjeta) => tarjeta.id === id)?.tipoId ?? "");
+      if (esTipoBaseDeDatos(tipoDeLaTarjeta?.nombre)) {
+        setBaseAbierta(id);
+        return;
+      }
       setAbierta(id);
       if (empujada.current) window.history.replaceState(null, "", urlDeLaTarjeta(tableroId, id));
       else window.history.pushState(null, "", urlDeLaTarjeta(tableroId, id));
       empujada.current = true;
     },
-    [tableroId],
+    [tableroId, tipoPorId],
   );
 
   const cerrarFicha = () => {
@@ -699,6 +708,10 @@ export function TablerosInteligentesVista({
               // Una hija con hijas entra; el centro o una sin hijas abre su ficha. Una carpeta (Área) entra
               // aunque esté vacía, para crear adentro con «+ Nuevo» (28-nov-2026); su ficha, tocando el centro.
               const tipoDelNodo = tipoPorId.get(tarjetas.find((tarjeta) => tarjeta.id === nodo.id)?.tipoId ?? "");
+              if (esTipoBaseDeDatos(tipoDelNodo?.nombre)) {
+                setBaseAbierta(nodo.id);
+                return;
+              }
               const esCarpeta = tipoDelNodo ? !tipoDelNodo.usaEstados : false;
               // En la raíz cada tarjeta suelta es «centro»: la carpeta entra igual; solo la del nivel abierto abre su ficha.
               if ((esCarpeta && nodo.id !== nivel) || (!nodo.data.esNivel && nodo.data.hijas > 0)) irANivel(nodo.id);
@@ -784,7 +797,20 @@ export function TablerosInteligentesVista({
         tableroId={tableroId}
         tipos={tipos}
         madre={nivel ? (tarjetas.find((tarjeta) => tarjeta.id === nivel) ?? null) : null}
-        alCrear={() => refrescarYa()}
+        alCrear={(id, esBase) => {
+          refrescarYa();
+          if (esBase) setBaseAbierta(id);
+        }}
+      />
+
+      <TablaBaseDeDatos
+        tarjetaId={baseAbierta}
+        alCerrar={() => setBaseAbierta(null)}
+        alCambiar={refrescarYa}
+        alVerDetalles={(id) => {
+          setBaseAbierta(null);
+          setAbierta(id);
+        }}
       />
 
       <PanelTipos

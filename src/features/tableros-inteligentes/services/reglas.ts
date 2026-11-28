@@ -615,6 +615,8 @@ export const ICONOS_DE_TIPO = [
   "calendario",
   "alerta",
   "corazon",
+  // 28-nov-2026: el de las bases de datos del espacio (services/bases-de-datos.ts).
+  "base-de-datos",
 ] as const;
 export type IconoDeTipo = (typeof ICONOS_DE_TIPO)[number];
 

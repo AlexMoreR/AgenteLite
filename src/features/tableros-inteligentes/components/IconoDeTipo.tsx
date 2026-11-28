@@ -2,6 +2,7 @@ import {
   Calendar,
   CircleCheck,
   CircleDollarSign,
+  Database,
   FileText,
   Flag,
   Folder,
@@ -39,6 +40,7 @@ export const DIBUJO_DEL_ICONO: Record<ClaveDeIcono, LucideIcon> = {
   calendario: Calendar,
   alerta: TriangleAlert,
   corazon: Heart,
+  "base-de-datos": Database,
 };
 
 export function IconoDeTipo({

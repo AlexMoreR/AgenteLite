@@ -28,6 +28,13 @@ import {
   type ContextoTablero,
   type TipoVista,
 } from "@/features/tableros-inteligentes/services/tableros";
+import {
+  agregarColumnaABase,
+  agregarFilas,
+  editarFila,
+  leerBaseDeDatos,
+} from "@/features/tableros-inteligentes/services/bases-de-datos";
+import { esTipoBaseDeDatos } from "@/features/tableros-inteligentes/services/reglas-base-de-datos";
 import { REGLA_TAREAS_EN_FEATURES } from "@/features/tableros-inteligentes/services/reglas-features";
 import {
   ESTADOS_AL_CREAR,
@@ -560,6 +567,60 @@ export const HERRAMIENTAS_MCP_TABLEROS = [
     },
     annotations: ESCRIBE,
   },
+  {
+    name: "leer_base_de_datos",
+    title: "Leer una base de datos del espacio (solo si te lo piden)",
+    description:
+      "Trae las columnas y las filas de una BASE DE DATOS de un espacio (una tarjeta del tipo 'Base de datos'; en ver_tablero sale con base_de_datos: true). " +
+      "ÚSALA SOLO si la persona lo pidió explícitamente en esta conversación ('lee la base de datos Clientes'). El dueño hizo las bases de datos para que la IA NO lea esos registros al mirar el espacio: nunca la leas por tu cuenta, ni para 'tener contexto'. " +
+      "Cada fila trae su número (#, el índice) y un texto por columna. limite corta las filas (por defecto 200, máximo 5000); total dice cuántas hay.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        tarjeta_id: { type: "string", description: "Id de la tarjeta de la base de datos (ver ver_tablero) o su código, por ejemplo T-123" },
+        limite: { type: "number", description: "Cuántas filas traer, las primeras por número. Opcional (200)." },
+      },
+      required: ["tarjeta_id"],
+      additionalProperties: false,
+    },
+    annotations: SOLO_LECTURA,
+  },
+  {
+    name: "escribir_en_base_de_datos",
+    title: "Escribir en una base de datos del espacio (solo si te lo piden)",
+    description:
+      "Agrega filas, cambia celdas o agrega columnas en una BASE DE DATOS de un espacio. ÚSALA SOLO si la persona lo pidió explícitamente en esta conversación. " +
+      "Todas las columnas son de texto; el número de la fila (#) se pone solo. En las filas, la clave es el nombre de la columna (o su id) y el valor el texto: { 'Nombre': 'Ana', 'Ciudad': 'Pasto' }. Una columna que no existe da error: agrégala antes con agregar_columnas. " +
+      "editar_filas cambia solo las celdas que se mandan de la fila con ese número. No borra filas ni columnas: eso se hace en la pantalla.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        tarjeta_id: { type: "string", description: "Id de la tarjeta de la base de datos (ver ver_tablero) o su código, por ejemplo T-123" },
+        agregar_columnas: { type: "array", items: { type: "string" }, description: "Nombres de columnas nuevas (de texto). Se agregan primero. Opcional." },
+        agregar_filas: {
+          type: "array",
+          items: { type: "object", additionalProperties: { type: "string" } },
+          description: "Filas nuevas, al final: [{ 'Nombre': 'Ana', 'Ciudad': 'Pasto' }]. Hasta 500. Opcional.",
+        },
+        editar_filas: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              numero: { type: "number", description: "El # de la fila" },
+              valores: { type: "object", additionalProperties: { type: "string" }, description: "{ columna: texto nuevo }" },
+            },
+            required: ["numero", "valores"],
+            additionalProperties: false,
+          },
+          description: "Celdas a cambiar: [{ numero: 3, valores: { 'Ciudad': 'Cali' } }]. Opcional.",
+        },
+      },
+      required: ["tarjeta_id"],
+      additionalProperties: false,
+    },
+    annotations: ESCRIBE,
+  },
 ] as const;
 
 const NOMBRES = new Set(HERRAMIENTAS_MCP_TABLEROS.map((herramienta) => herramienta.name));
@@ -753,6 +814,12 @@ export async function ejecutarHerramientaMcpTableros(
           ? { aviso: "Son las ARCHIVADAS: terminadas que ya salieron del tablero. Siguen HECHO o FALLIDO y no cuentan para el límite. Se devuelven al tablero con el botón Desarchivar de 'Trabajos terminados'." }
           : {}),
         tipos: tipos.map((tipo) => tipoParaClaude(tipo, nombres)),
+        ...(tarjetas.some((tarjeta) => esTipoBaseDeDatos(tipoDe.get(tarjeta.tipoId)?.nombre))
+          ? {
+              bases_de_datos:
+                "Las tarjetas con base_de_datos: true son tablas de registros: sus filas NO vienen aquí a propósito. No las leas salvo que la persona lo pida (leer_base_de_datos).",
+            }
+          : {}),
         tarjetas: visibles.map((tarjeta) => {
           const tipo = tipoDe.get(tarjeta.tipoId);
           return {
@@ -772,6 +839,8 @@ export async function ejecutarHerramientaMcpTableros(
             padre_id: tarjeta.padreId,
             padre_titulo: tarjeta.padreId ? (titulo.get(tarjeta.padreId) ?? null) : null,
             hijas: hijas.get(tarjeta.id) ?? 0,
+            // Base de datos (28-nov-2026): sus filas NO vienen aquí. Solo leer_base_de_datos, si la persona lo pide.
+            ...(esTipoBaseDeDatos(tipo?.nombre) ? { base_de_datos: true } : {}),
             detalle: tarjeta.detalle || null,
             area: tarjeta.area,
             estado: usaEstados(tarjeta.tipoId) ? tarjeta.estado : null,
@@ -1243,6 +1312,44 @@ export async function ejecutarHerramientaMcpTableros(
         },
         uso_de_claude: { limite_alcanzado: vista.uso.limiteAlcanzado, reinicia: vista.uso.reiniciaEn ? hora(new Date(vista.uso.reiniciaEn)) : null, texto: vista.uso.texto },
         pantalla: "/cliente/tablero-ia?vista=coordinador",
+      };
+    }
+    case "leer_base_de_datos": {
+      const limite = typeof args.limite === "number" && Number.isFinite(args.limite) ? args.limite : 200;
+      const base = await leerBaseDeDatos(contexto, args.tarjeta_id, { limite });
+      return {
+        tarjeta_id: base.tarjetaId,
+        nombre: base.titulo,
+        columnas: ["#", ...base.columnas.map((columna) => columna.nombre)],
+        filas: base.filas.map((fila) => ({
+          "#": fila.numero,
+          ...Object.fromEntries(base.columnas.map((columna) => [columna.nombre, fila.valores[columna.id] ?? ""])),
+        })),
+        total: base.total,
+        ...(base.total > base.filas.length ? { aviso: `Vienen ${base.filas.length} de ${base.total} filas: pide más con limite.` } : {}),
+      };
+    }
+    case "escribir_en_base_de_datos": {
+      const columnasNuevas: unknown[] = Array.isArray(args.agregar_columnas) ? args.agregar_columnas : [];
+      const filasNuevas: unknown[] = Array.isArray(args.agregar_filas) ? args.agregar_filas : [];
+      const ediciones: unknown[] = Array.isArray(args.editar_filas) ? args.editar_filas : [];
+      if (!columnasNuevas.length && !filasNuevas.length && !ediciones.length) {
+        throw new Error("No hay nada que escribir: manda agregar_columnas, agregar_filas o editar_filas.");
+      }
+      const agregadas: string[] = [];
+      for (const nombreDeColumna of columnasNuevas) {
+        agregadas.push((await agregarColumnaABase(contexto, args.tarjeta_id, nombreDeColumna)).nombre);
+      }
+      const filas = filasNuevas.length ? await agregarFilas(contexto, args.tarjeta_id, filasNuevas) : [];
+      const editadas: number[] = [];
+      for (const edicion of ediciones as { numero?: unknown; valores?: unknown }[]) {
+        editadas.push((await editarFila(contexto, args.tarjeta_id, { numero: edicion.numero }, edicion.valores)).numero);
+      }
+      return {
+        ok: true,
+        ...(agregadas.length ? { columnas_agregadas: agregadas } : {}),
+        ...(filas.length ? { filas_agregadas: filas.map((fila) => fila.numero) } : {}),
+        ...(editadas.length ? { filas_editadas: editadas } : {}),
       };
     }
     default:

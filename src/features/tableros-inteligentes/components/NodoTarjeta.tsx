@@ -10,6 +10,7 @@ import { colorDeTipoValido, inicialDeLaPersona } from "../services/reglas";
 import { NOMBRE_DE_PRIORIDAD, type Prioridad } from "../services/reglas-trabajador";
 import { COLOR_DE_PRIORIDAD } from "./colores";
 import { IconoDeTipo } from "./IconoDeTipo";
+import { esTipoBaseDeDatos } from "../services/reglas-base-de-datos";
 
 export type DatosNodoTarjeta = {
   titulo: string;
@@ -55,7 +56,8 @@ export function lineasDeContadores({ teToca, enCurso, siguen, hecho }: Contadore
  * Mantener presionada una con hijas abre su ficha sin entrar.
  */
 function NodoTarjetaBase({ data, selected }: NodeProps<NodoDeTarjeta>) {
-  const lineas = lineasDeContadores(data.contadores);
+  // Una base de datos (28-nov-2026) no tiene tareas: dice lo que es.
+  const lineas = esTipoBaseDeDatos(data.nombreTipo) ? ["base de datos"] : lineasDeContadores(data.contadores);
   const teToca = data.contadores.teToca > 0;
   const centro = data.esNivel;
   const colorTipo = colorDeTipoValido(data.colorTipo);

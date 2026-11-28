@@ -2215,12 +2215,41 @@ model TarjetaTablero {
   entrantes     ConexionTarjeta[]  @relation("ConexionDestino")
   historial     HistorialTarjeta[]
   intentosDeTrabajo IntentoTarjeta[]
+  /// Si es del tipo «Base de datos» (28-nov-2026): sus columnas y filas.
+  baseDeDatos   BaseDeDatosTarjeta?
 
   @@index([tableroId, estado])
   @@index([tipoId])
   @@index([padreId])
   @@index([responsableId])
   @@index([tableroId, archivadaEn])
+}
+
+/// Base de datos de un Espacio (28-nov-2026): una tarjeta del tipo «Base de datos» con columnas de texto y filas.
+/// La IA NO la lee al mirar el espacio (ver_tablero no trae filas): solo con leer_base_de_datos, cuando el dueño lo pide.
+model BaseDeDatosTarjeta {
+  tarjetaId       String            @id
+  /// Las columnas, en orden: [{ id, nombre }]. Todas de texto. La columna # (el índice) no va aquí: es FilaBaseDeDatos.numero.
+  columnas        Json              @default("[]")
+  /// El número que lleva la próxima fila (1, 2, 3...). No se reusa aunque se borre una fila.
+  siguienteNumero Int               @default(1)
+  creadoEn        DateTime          @default(now())
+  actualizadoEn   DateTime          @default(now()) @updatedAt
+  tarjeta         TarjetaTablero    @relation(fields: [tarjetaId], references: [id], onDelete: Cascade)
+  filas           FilaBaseDeDatos[]
+}
+
+/// Una fila de una base de datos de un Espacio: su número (el índice) y un texto por columna ({ idColumna: texto }).
+model FilaBaseDeDatos {
+  id            String             @id @default(cuid())
+  baseId        String
+  numero        Int
+  valores       Json               @default("{}")
+  creadoEn      DateTime           @default(now())
+  actualizadoEn DateTime           @default(now()) @updatedAt
+  base          BaseDeDatosTarjeta @relation(fields: [baseId], references: [tarjetaId], onDelete: Cascade)
+
+  @@unique([baseId, numero])
 }
 
 /// Una flecha entre dos tarjetas del mismo tablero (sale de origen y llega a destino). Una sola por par.

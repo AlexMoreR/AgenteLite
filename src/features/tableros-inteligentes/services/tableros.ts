@@ -147,7 +147,7 @@ export function alcanceDe(acceso: { workspaceId: string; userId: string; isOwner
 export const todoElNegocio = (workspaceId: string): Alcance => ({ workspaceId, soloDe: null });
 
 /** El filtro de los tableros que alcanza: los del negocio y, si `soloDe`, solo los de esa persona. */
-function dondeTablero(alcance: Alcance): Prisma.TableroInteligenteWhereInput {
+export function dondeTablero(alcance: Alcance): Prisma.TableroInteligenteWhereInput {
   return alcance.soloDe
     ? { workspaceId: alcance.workspaceId, duenoUserId: alcance.soloDe }
     : { workspaceId: alcance.workspaceId };
@@ -425,7 +425,7 @@ async function tocarTablero(tx: Tx, tableroId: string) {
 }
 
 /** Un tablero de ESTE negocio que la persona alcanza, o error. */
-async function tableroDelNegocio(alcance: Alcance, tableroId: unknown) {
+export async function tableroDelNegocio(alcance: Alcance, tableroId: unknown) {
   const id = typeof tableroId === "string" ? tableroId.trim() : "";
   const tablero = id
     ? await prisma.tableroInteligente.findFirst({ where: { id, ...dondeTablero(alcance) }, select: SELECT_REFERENCIA })
