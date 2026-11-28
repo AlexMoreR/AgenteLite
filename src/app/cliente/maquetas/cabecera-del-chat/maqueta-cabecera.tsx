@@ -7,6 +7,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Textarea } from "@/components/ui/textarea";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -136,12 +137,11 @@ function FranjaDelAgente() {
         )}
       </div>
       <div className="p-3">
-        <textarea
+        <Textarea
           rows={2}
           aria-label="Caja de escribir de muestra"
           placeholder="Escribe aquí (de muestra, no se envía)"
           onChange={() => setPausado(true)}
-          className="w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
         />
       </div>
     </div>
