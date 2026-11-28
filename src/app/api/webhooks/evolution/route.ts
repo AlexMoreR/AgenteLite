@@ -60,6 +60,10 @@ import { etapaAlAsignar } from "@/lib/etapa-automatica-crm";
 import { prisma } from "@/lib/prisma";
 import { avisarAsesorPorWhatsApp, esNumeroDelEquipo } from "@/features/agente-v3/servicios/avisos";
 import { responderConElRedactor } from "@/features/agente-v3/servicios/redactor";
+import {
+  buscarFlujoDeLaLinea,
+  resultadoParaElMotor,
+} from "@/features/agente-v3/servicios/flujos-de-la-linea";
 import { leerFotoParaElV3, transcribirAudioParaElV3 } from "@/features/agente-v3/servicios/medios";
 import { sendChatPushToWorkspace } from "@/lib/web-push";
 import { quienesNoSeEnteran } from "@/lib/quien-se-entera-del-mensaje";
@@ -3383,10 +3387,11 @@ export async function POST(request: NextRequest) {
             porque: resultado.porque,
             causa: resultado.causa,
           });
+          return resultadoParaElMotor(resultado, "conIa");
         },
         // Ninguna regla aplica: tambien el redactor, en vez de dejar el mensaje sin respuesta.
         responderSinRegla: async ({ foto }) =>
-          (
+          resultadoParaElMotor(
             await responderConElRedactor({
               workspaceId: channel.workspaceId,
               conversationId: conversation.id,
@@ -3395,8 +3400,12 @@ export async function POST(request: NextRequest) {
               avisarAsesor: avisarAsesorDelV3,
               yaLoDijimos: yaLoDijimosEnElChat,
               pausarIa: pausarIaDelV3,
-            })
-          ).porque,
+            }),
+            "sinRegla",
+          ),
+        // La ficha del respaldo se busca solo entre los flujos de la línea de este chat.
+        buscarFlujo: (titulo) =>
+          buscarFlujoDeLaLinea({ workspaceId: channel.workspaceId, channelId: channel.id, titulo }),
         // Entro a un paso del embudo: los seguimientos de ese paso (dia 1, dia 3...), como hacia el V2.
         alEntrarAlPaso: async (productoId, paso) => {
           if (channel.purpose === "ADMIN") return;
