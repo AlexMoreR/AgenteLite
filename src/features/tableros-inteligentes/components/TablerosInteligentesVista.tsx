@@ -696,8 +696,11 @@ export function TablerosInteligentesVista({
             nodeTypes={TIPOS_DE_NODO}
             onNodesChange={alMoverNodos}
             onNodeClick={(_, nodo) => {
-              // Una hija con hijas entra; el centro o una sin hijas abre su ficha.
-              if (nodo.data.hijas > 0 && !nodo.data.esNivel) irANivel(nodo.id);
+              // Una hija con hijas entra; el centro o una sin hijas abre su ficha. Una carpeta (Área) entra
+              // aunque esté vacía, para crear adentro con «+ Nuevo» (28-nov-2026); su ficha, tocando el centro.
+              const tipoDelNodo = tipoPorId.get(tarjetas.find((tarjeta) => tarjeta.id === nodo.id)?.tipoId ?? "");
+              const esCarpeta = tipoDelNodo ? !tipoDelNodo.usaEstados : false;
+              if (!nodo.data.esNivel && (nodo.data.hijas > 0 || esCarpeta)) irANivel(nodo.id);
               else setAbierta(nodo.id);
             }}
             nodeOrigin={ORIGEN_AL_CENTRO}
@@ -728,7 +731,12 @@ export function TablerosInteligentesVista({
           </div>
           {nodos.every((nodo) => nodo.data.esNivel) ? (
             <div className="pointer-events-none absolute inset-x-0 bottom-4 flex justify-center px-6 text-center text-xs text-muted-foreground">
-              No hay tarjetas con estos filtros
+              {/* Si los filtros no esconden nada, es que adentro no hay nada todavía (28-nov-2026). */}
+              {visibles.length > nodos.length
+                ? "No hay tarjetas con estos filtros"
+                : nivel
+                  ? "Todavía no hay nada adentro. Crea algo con «+ Nuevo»."
+                  : "Toca un área para entrar y crear adentro con «+ Nuevo»."}
             </div>
           ) : null}
           </>
